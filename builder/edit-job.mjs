@@ -1025,6 +1025,9 @@ export const JOB_ENV_NAMES = [
   // needs (`replyFor`) and writes a repeated question's note, both only with
   // it on — so without it here every queued edit would end with no reply.
   "MODEL_REPLIES",
+  // THE PROGRESS SWITCH (2026-10-06): a job records its milestones only with
+  // it on — so without it here a job in the container would record nothing.
+  "PROGRESS_REPLIES",
 ];
 
 /** The subset of `env` a job is handed: the names above, strings only. */

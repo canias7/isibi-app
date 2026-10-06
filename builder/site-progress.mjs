@@ -1,0 +1,698 @@
+// ── PROGRESS MESSAGES WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06) ──────────
+//
+// The owner, approving the plan (docs/investigations/progress-messages-plan.md):
+// *"Proceed with model-written progress for Edit and Add-on using the
+// recommended defaults: the existing selected quick model, platform-absorbed
+// narration cost, progress retained above the final reply, both request and
+// standalone-job paths, and fixed status labels alongside natural
+// model-written messages."* And the corrections that came with it: *"do not
+// claim that matching says metadata proves the prose truthful; ground the
+// model in verified facts, distinguish designed, saved, applied and published
+// outcomes … Define one writer per job with recoverable persistence, queue
+// delivery and index updates … Check authoritative job state and writer
+// ownership before starting and committing narration … Keep instructions
+// concise rather than relying on an arbitrary short character limit."*
+//
+// THREE PARTS, AND EACH KEEPS TO ITS OWN JOB.
+//
+//   THE MILESTONES are recorded by the running job at a few real boundaries
+//   (the edit's plan and its publish; the add-on's picked kinds, each design,
+//   its database change, its pages and its publish), as facts read off that
+//   step's own result, each with the state it is really in
+//   (`PROGRESS_STATES`). Nothing is recorded before a job starts, and no fact
+//   ever says "published": being live is said by the final reply alone.
+//
+//   THE RECORD is one object per job (`progressKey`): the milestones, the
+//   lines written for them, and the one writer's lease. It is changed only by
+//   a conditional write on the etag it was read under, so it is its own index
+//   — there is no second object to fall out of step with it.
+//
+//   THE WRITER is one queued task per job at a time. It claims the lease,
+//   reads the job's own row, asks the picked quick model for one line that
+//   covers every milestone not yet said, reads the row again, and commits the
+//   line on the etag it read. Everything it decides is a function here; the
+//   Worker supplies the reads, the writes and the call.
+//
+// WHAT THE `says` CHECK PROVES, AND WHAT IT DOES NOT. The model lists every
+// fact it described, with the state it described it as, and a fact listed in
+// any other state than its own is refused and asked for once more. That
+// catches a model that reports calling a running step finished. It does NOT
+// read the words: a model can list every fact in its true state and still
+// write "your page is live". No code here looks for such words — the owner
+// rules out keyword filters — so that remaining limit is the instructions'
+// to prevent and the final reply's to correct, and it is pinned by a test
+// (`test/progress.test.mjs`, "contradictory prose") and written down in the
+// plan's limits.
+//
+// DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
+// image copies `builder/` modules by name (the Dockerfile's worker line).
+
+import { TERMINAL_STATES } from "./edit-job.mjs";
+import { pathOf } from "./site-reply.mjs";
+
+/** The switch: `PROGRESS_REPLIES` = "on". Anything else records nothing, writes nothing and changes no answer. */
+export function progressOn(env) {
+  return !!(env && typeof env.PROGRESS_REPLIES === "string" && env.PROGRESS_REPLIES.trim().toLowerCase() === "on");
+}
+
+/** Where a job's progress is kept: beside its other objects under `jobs/`, whose seven-day sweep (`job-retention.mjs`) takes it out. */
+export const progressKey = (job) => "jobs/" + job + ".progress.json";
+
+// ── WHAT A FACT CAN SAY ─────────────────────────────────────────────────────
+//
+// The owner: *"distinguish designed, saved, applied and published outcomes."*
+// Every fact carries one of these, from where it was recorded, never from the
+// request's wording:
+//   decided    worked out what to do; nothing has changed yet;
+//   designed   designed; nothing has been built yet;
+//   prepared   made in the builder and kept for the publish — not published,
+//              so visitors cannot see it. (The site's source is SAVED inside
+//              the publish itself, so no milestone can say "saved" apart from
+//              publishing: until then a change is prepared.)
+//   applied    in effect in the site's database;
+//   doing      happening now, not finished;
+//   next       planned, not started;
+//   notdone    could not be made; the final message says why.
+// There is no "published" and no "finished": the final reply says those.
+export const PROGRESS_STATES = Object.freeze(["decided", "designed", "prepared", "applied", "doing", "next", "notdone"]);
+
+// ── THE WRITER'S BUDGET, AND WHY EACH NUMBER IS WHAT IT IS ─────────────────
+//
+// A line is worth something only while the job runs, so the budget is the
+// moment's, not the final reply's (`REPLY_BG_*`): one call has 45 s and an
+// attempt — two calls at most — 75 s; the lease outlives an attempt by a
+// minute, so a writer still inside its attempt is never taken over. A batch
+// is tried twice, 20 s apart, and then given up (`failed`): the fixed label
+// stays, and the next milestone starts afresh.
+export const PROGRESS_CALL_MS = 45000;
+export const PROGRESS_DEADLINE_MS = 75000;
+export const PROGRESS_LEASE_MS = PROGRESS_DEADLINE_MS + 60000;
+export const PROGRESS_TRIES = 2;
+export const PROGRESS_RETRY_MS = 20000;
+/** A writer asked for this long ago that never started is a lost message: the recorder or the cron asks again. */
+export const PROGRESS_ASK_GRACE_MS = 60000;
+/** How early a retry's own message may be taken: two machines' clocks disagreeing, never an early delivery (`REPLY_RETRY_SKEW_MS`'s rule). */
+export const PROGRESS_RETRY_SKEW_MS = 2000;
+/**
+ * What one call may write: the line and its list. A ceiling against a runaway
+ * answer, not a length to aim for — the instructions ask for a short line. An
+ * answer cut there is not used (`cut`, said in the log), never shortened.
+ */
+export const PROGRESS_MAX_TOKENS = 1000;
+/** Lines one task writes before it hands the rest to a fresh delivery of itself. */
+export const PROGRESS_LINES_PER_TASK = 8;
+/**
+ * A JOB'S MILESTONES, AT MOST. A technical guard against a recorder called in
+ * a loop, not a budget: a job records about two to eight. One past it is
+ * refused and said in the log, never cut from what is there.
+ */
+export const PROGRESS_MAX_MARKS = 200;
+/** How long a standalone job stays discoverable from another device after it ends: the request list's day. */
+export const PROGRESS_DISCOVERY_MS = 24 * 3600 * 1000;
+
+/** The states of a milestone: waiting for a line, said by one, set aside when the job ended, or given up. */
+export const MARK_STATES = Object.freeze(["pending", "said", "skipped", "failed"]);
+
+const JOB_RE = /^[0-9a-f]{32}$/;
+const RUN_RE = /^[A-Za-z0-9_:-]{4,80}$/;
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
+const num = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+const str = (v) => (typeof v === "string" ? v : "");
+/** Text on one line, whole: control characters and runs of space made single spaces, never shortened. */
+const flat = (v) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+const listOf = (items) => (items.length <= 1 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1]);
+const quote = (v) => "“" + flat(v) + "”";
+
+// ── THE RECORD ──────────────────────────────────────────────────────────────
+
+function readFact(f) {
+  if (!f || typeof f !== "object" || typeof f.id !== "string" || !/^f\d{1,6}$/.test(f.id)) return null;
+  if (typeof f.state !== "string" || !PROGRESS_STATES.includes(f.state)) return null;
+  const text = flat(f.text);
+  return text ? { id: f.id, state: f.state, text } : null;
+}
+
+function readMark(m) {
+  if (!m || typeof m !== "object" || !Number.isInteger(m.n) || m.n < 0) return null;
+  if (typeof m.stage !== "string" || !/^[a-z][a-z-]{0,30}$/.test(m.stage)) return null;
+  if (typeof m.state !== "string" || !MARK_STATES.includes(m.state)) return null;
+  const at = num(m.at);
+  if (at === null || !Array.isArray(m.facts)) return null;
+  const facts = m.facts.map(readFact);
+  if (facts.some((f) => !f)) return null;
+  return {
+    n: m.n, stage: m.stage, at, facts, state: m.state,
+    ...(Number.isInteger(m.key) && m.key >= 0 ? { key: m.key } : {}),
+    ...(Number.isInteger(m.line) && m.line >= 0 ? { line: m.line } : {}),
+    ...(typeof m.why === "string" && m.why ? { why: m.why.slice(0, 40) } : {}),
+  };
+}
+
+function readLine(l) {
+  if (!l || typeof l !== "object" || !Number.isInteger(l.n) || l.n < 0) return null;
+  const at = num(l.at);
+  const text = typeof l.text === "string" ? l.text.replace(/\r\n/g, "\n").trim() : "";
+  if (at === null || !text || !Array.isArray(l.marks) || l.marks.some((n) => !Number.isInteger(n) || n < 0)) return null;
+  return { n: l.n, at, text, marks: l.marks.slice() };
+}
+
+/**
+ * A JOB'S PROGRESS RECORD, AS STORED, read strictly: the record, or null when
+ * it is no record at all. Every list is all-or-nothing — one entry that does
+ * not read makes the record unreadable, never a shorter list read as whole.
+ */
+export function readProgressRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== 1) return null;
+  if (typeof raw.job !== "string" || !JOB_RE.test(raw.job)) return null;
+  if (typeof raw.uid !== "string" || !raw.uid || raw.uid.length > 80) return null;
+  if (typeof raw.slug !== "string" || !SLUG_RE.test(raw.slug)) return null;
+  if (raw.op !== "edit" && raw.op !== "addon") return null;
+  if (typeof raw.run !== "string" || !RUN_RE.test(raw.run)) return null;
+  const at = num(raw.at);
+  if (at === null || !Array.isArray(raw.marks) || !Array.isArray(raw.lines) || !Number.isInteger(raw.nf) || raw.nf < 0) return null;
+  const marks = raw.marks.map(readMark);
+  const lines = raw.lines.map(readLine);
+  if (marks.some((m) => !m) || lines.some((l) => !l)) return null;
+  const w = raw.writer;
+  const writer = w && typeof w === "object" && typeof w.owner === "string" && w.owner && num(w.until) !== null && Number.isInteger(w.attempt)
+    ? { owner: w.owner, until: w.until, attempt: w.attempt } : null;
+  const c = raw.closed;
+  const closed = c && typeof c === "object" && num(c.at) !== null && typeof c.why === "string" ? { at: c.at, why: c.why.slice(0, 40) } : null;
+  return {
+    v: 1, job: raw.job, uid: raw.uid, slug: raw.slug, op: raw.op, run: raw.run, at,
+    words: str(raw.words), picker: typeof raw.picker === "string" ? raw.picker : "",
+    pages: Array.isArray(raw.pages) ? raw.pages.filter((p) => typeof p === "string" && p.charAt(0) === "/") : [],
+    nf: raw.nf, marks, lines, writer, closed,
+    asked: num(raw.asked) || 0,
+    tries: Number.isInteger(raw.tries) && raw.tries >= 0 ? raw.tries : 0,
+    ...(num(raw.retryAt) !== null ? { retryAt: raw.retryAt } : {}),
+  };
+}
+
+/** A job's record as it opens, at its start: no milestone yet, so nothing for a writer. */
+export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], at }) {
+  if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
+  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon")) return null;
+  return readProgressRecord({
+    v: 1, job, uid, slug, op, run, at, words: typeof words === "string" ? words : "",
+    picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
+    nf: 0, marks: [], lines: [], writer: null, closed: null, asked: 0, tries: 0,
+  });
+}
+
+/** The record as it is written: the same fields, with nothing the reader would refuse. */
+export function packRecord(rec) {
+  const { retryAt, ...rest } = rec;
+  return { ...rest, v: 1, ...(num(retryAt) !== null ? { retryAt } : {}) };
+}
+
+/**
+ * A MILESTONE ADDED: `{ rec, n }`, `{ already, n }` when the recorder's own
+ * number for it (`key`) is on the record — a write made twice because its
+ * first answer was lost — or `{ refused }`: a closed record (the job ended or
+ * another run's), no facts, a fact that does not read, or one past
+ * `PROGRESS_MAX_MARKS`. Each fact gets its id here, from the record's own
+ * counter, so ids never repeat inside a job.
+ */
+export function appendMark(rec, { stage, facts, at, key }) {
+  if (!rec) return { refused: "no-record" };
+  const had = Number.isInteger(key) ? rec.marks.find((m) => m.key === key) : null;
+  if (had) return { already: true, n: had.n };
+  if (rec.closed) return { refused: "closed" };
+  if (typeof stage !== "string" || !/^[a-z][a-z-]{0,30}$/.test(stage)) return { refused: "stage" };
+  const list = Array.isArray(facts) ? facts : [];
+  if (!list.length) return { refused: "no-facts" };
+  if (rec.marks.length >= PROGRESS_MAX_MARKS) return { refused: "full" };
+  let nf = rec.nf;
+  const out = [];
+  for (const f of list) {
+    const read = readFact({ ...f, id: "f" + (nf + 1) });
+    if (!read) return { refused: "fact" };
+    nf += 1;
+    out.push(read);
+  }
+  const n = rec.marks.length;
+  return { rec: { ...rec, nf, marks: [...rec.marks, { n, stage, at, facts: out, state: "pending", ...(Number.isInteger(key) && key >= 0 ? { key } : {}) }] }, n };
+}
+
+/** The record closed: no milestone added after, no line committed after, and every milestone still waiting set aside. */
+export function closeRecord(rec, why, at) {
+  if (!rec || rec.closed) return null;
+  return {
+    ...rec,
+    marks: rec.marks.map((m) => (m.state === "pending" ? { ...m, state: "skipped", why: String(why || "ended").slice(0, 40) } : m)),
+    writer: null, retryAt: undefined,
+    closed: { at, why: String(why || "ended").slice(0, 40) },
+  };
+}
+
+/** The milestones still waiting for a line, in order. */
+export const pendingMarks = (rec) => (rec ? rec.marks.filter((m) => m.state === "pending") : []);
+
+/** Is a writer's lease on the record live now? */
+export const writerLive = (rec, now) => !!(rec && rec.writer && rec.writer.until > now);
+
+/**
+ * DOES THE RECORD NEED A WRITER ASKED FOR NOW — the one rule the recorder, the
+ * writer letting go and the cron's recovery all read:
+ *   none   closed, or nothing waiting;
+ *   wait   a writer holds a live lease, a retry is not due yet, or a writer
+ *          asked for (`asked`, which a claim clears and a scheduled retry sets
+ *          to its time) may still be on its way, within the grace;
+ *   ask    a milestone waits and nobody is on it: ask (and say so on the record).
+ */
+export function writerNeeded(rec, now) {
+  if (!rec || rec.closed || !pendingMarks(rec).length) return "none";
+  if (writerLive(rec, now)) return "wait";
+  if (num(rec.retryAt) !== null && rec.retryAt > now) return "wait";
+  if (rec.asked && now - rec.asked < PROGRESS_ASK_GRACE_MS) return "wait";
+  return "ask";
+}
+
+/** The record with a writer asked for now. */
+export const markAsked = (rec, now) => ({ ...rec, asked: now });
+
+/**
+ * THE ONE WRITER CLAIMS THE RECORD: `{ rec, claimed: true }` with its lease;
+ * `{ rec, gaveUp: true }` when every try of what waits is spent — a writer
+ * whose lease ran out before it committed spent one too — so what waits is
+ * given up with no call; or null when it is not this writer's to take:
+ * closed, nothing waiting, another writer's lease still live, or a retry not
+ * yet due. A lease already this writer's (its claim landed and the answer was
+ * lost) is this writer's still.
+ */
+export function claimWriter(rec, owner, now) {
+  if (!rec || rec.closed || !pendingMarks(rec).length) return null;
+  if (typeof owner !== "string" || !owner) return null;
+  if (rec.writer && rec.writer.owner === owner) return { rec: { ...rec, writer: { ...rec.writer, until: now + PROGRESS_LEASE_MS } }, claimed: true };
+  if (writerLive(rec, now)) return null;
+  if (num(rec.retryAt) !== null && rec.retryAt - now > PROGRESS_RETRY_SKEW_MS) return null;
+  const tries = rec.tries || 0;
+  if (tries >= PROGRESS_TRIES) {
+    return { rec: { ...rec, writer: null, tries: 0, retryAt: undefined, asked: 0, marks: rec.marks.map((m) => (m.state === "pending" ? { ...m, state: "failed", why: "tries" } : m)) }, gaveUp: true };
+  }
+  // A TRY IS COUNTED WHEN IT IS CLAIMED, so one that never commits still
+  // counts. AND THE ASK IS ANSWERED: a milestone that arrives after this writer
+  // lets go is asked for at once, never left waiting out an ask already used.
+  return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: tries + 1 }, tries: tries + 1, retryAt: undefined, asked: 0 }, claimed: true };
+}
+
+/** Does `owner` still hold a live lease on the record, which is still open? */
+export const holds = (rec, owner, now) => !!(rec && !rec.closed && rec.writer && rec.writer.owner === owner && rec.writer.until > now);
+
+/**
+ * WHAT THE NEXT LINE MUST COVER: the milestones waiting, and their facts.
+ * Settled facts (decided, designed, prepared, applied, notdone) come from
+ * every waiting milestone; what is happening now and what comes next only
+ * from the LAST — an earlier milestone's "publishing now" is no longer true
+ * once a later one is recorded (a correction began, say), and its outcome is
+ * not this record's to know, so it is left unsaid rather than said wrong.
+ */
+export function batchFor(rec) {
+  const marks = pendingMarks(rec);
+  const last = marks.length ? marks[marks.length - 1] : null;
+  const facts = [];
+  for (const m of marks) {
+    for (const f of m.facts) {
+      if ((f.state === "doing" || f.state === "next") && m !== last) continue;
+      facts.push(f);
+    }
+  }
+  return { marks: marks.map((m) => m.n), facts };
+}
+
+/**
+ * THE LINE COMMITTED: the record with the line added and its milestones said,
+ * the lease let go — or null when `owner` no longer holds a live lease on an
+ * open record, which is a writer that lost its claim, a job that ended, or a
+ * newer writer: its line is not used.
+ */
+export function commitLine(rec, { owner, marks, text, now }) {
+  if (!holds(rec, owner, now)) return null;
+  const t = typeof text === "string" ? text.replace(/\r\n/g, "\n").trim() : "";
+  if (!t) return null;
+  const covered = new Set(Array.isArray(marks) ? marks : []);
+  const n = rec.lines.length;
+  return {
+    ...rec,
+    marks: rec.marks.map((m) => (covered.has(m.n) && m.state === "pending" ? { ...m, state: "said", line: n } : m)),
+    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b) }],
+    writer: null, tries: 0, retryAt: undefined,
+  };
+}
+
+/**
+ * AN ATTEMPT THAT WROTE NOTHING: tried again `PROGRESS_RETRY_MS` later while
+ * it has tries left, and then its milestones given up (`failed`, the reason
+ * kept). Null when `owner` no longer holds the lease. `{ rec, retry }`.
+ */
+export function failBatch(rec, { owner, marks, why, now }) {
+  if (!holds(rec, owner, now)) return null;
+  const tries = rec.tries || 0;
+  // THE RETRY'S OWN MESSAGE IS THE ASK, AT ITS TIME: nobody asks again before
+  // it is due and its grace has passed.
+  if (tries < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };
+  const tried = new Set(Array.isArray(marks) ? marks : []);
+  return {
+    rec: {
+      ...rec, writer: null, tries: 0, retryAt: undefined,
+      marks: rec.marks.map((m) => (tried.has(m.n) && m.state === "pending" ? { ...m, state: "failed", why: String(why || "send").slice(0, 40) } : m)),
+    },
+    retry: false,
+  };
+}
+
+/** The lease let go with nothing written or given up — a writer that stops early. */
+export function releaseWriter(rec, owner) {
+  if (!rec || !rec.writer || rec.writer.owner !== owner) return null;
+  return { ...rec, writer: null };
+}
+
+/**
+ * WHAT A READER IS HANDED: the lines, in order, each with how far into the job
+ * it was written — never the facts, the lease or anything private.
+ */
+export function linesOf(rec) {
+  if (!rec) return [];
+  return rec.lines.map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text }));
+}
+
+// ── THE JOB'S OWN ROW DECIDES WHETHER A LINE MAY BE WRITTEN ─────────────────
+//
+// Owner: *"Check authoritative job state and writer ownership before starting
+// and committing narration so completion, failure, cancellation or a newer
+// attempt cannot produce stale updates after the final reply."* The row is
+// `edit_jobs` as the service key reads it; `undefined` when it could not be
+// read (never read as "gone"), null when there is none.
+//   ok          running, under the run that recorded the milestones, its lease live;
+//   unread      the row could not be read: write nothing now;
+//   gone        no such job, or not this owner's;
+//   ended       done, failed, cancelled or lost;
+//   cancelled   the customer asked it to stop;
+//   review      held for a person to settle;
+//   superseded  another run holds it now;
+//   stalled     its lease ran out — the runner is not renewing it.
+const msOf = (v) => (typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) : NaN);
+export function jobVerdict(row, rec, now) {
+  if (row === undefined) return { ok: false, why: "unread" };
+  if (!row || typeof row !== "object" || !rec) return { ok: false, why: "gone" };
+  if (row.uid !== rec.uid) return { ok: false, why: "gone" };
+  if (typeof row.state !== "string" || TERMINAL_STATES.includes(row.state)) return { ok: false, why: "ended" };
+  if (row.cancel_requested_at !== null && row.cancel_requested_at !== undefined) return { ok: false, why: "cancelled" };
+  if (row.needs_review === true) return { ok: false, why: "review" };
+  if (row.lease_owner !== rec.run) return { ok: false, why: "superseded" };
+  const until = msOf(row.lease_expires_at);
+  if (!Number.isFinite(until) || until <= now) return { ok: false, why: "stalled" };
+  return { ok: true };
+}
+
+// ── THE MILESTONES' FACTS, FROM EACH STEP'S OWN RESULT ──────────────────────
+//
+// Code writes these and the model only puts them into words: a fact is what a
+// step returned, in the builder's own terms where it has no others (a lane's
+// name, a page's address), and the model is told to say it in the customer's.
+
+const fact = (state, text) => ({ state, text: flat(text) });
+/** Names off a list of strings or objects (`name`, then `table`), each once, in order. */
+const namesOf = (v) => [...new Set((Array.isArray(v) ? v : []).map((x) => (typeof x === "string" ? x : x && typeof x === "object" ? str(x.name) || str(x.table) : "")).map(flat).filter(Boolean))];
+
+/** One step of an edit, as the builder names it: what it changes, and on which page. */
+function stepSaid(step) {
+  const s = step && typeof step === "object" ? step : {};
+  const fields = Array.isArray(s.fields) ? s.fields.filter((f) => typeof f === "string" && f) : [];
+  const what = fields.length ? fields.join(", ") : str(s.layer) || "the site";
+  const verb = s.remove === true ? "remove " : typeof s.rename === "string" && s.rename ? "move to " + s.rename + ": " : "";
+  const page = typeof s.page === "string" && s.page ? " on " + s.page : "";
+  return verb + what + page;
+}
+/** The layers whose change is made in the site's database rather than its pages. */
+const DB_LAYERS = ["data", "rules"];
+
+/** An edit's plan, at the steps it will run (a withheld step runs nothing, so is no plan). */
+export function editPlanFacts(steps) {
+  const run = (Array.isArray(steps) ? steps : []).filter((s) => s && typeof s === "object" && !s.withheld);
+  if (!run.length) return [];
+  return [
+    fact("decided", "Worked out what to change, in the builder's terms: " + listOf(run.map(stepSaid)) + ". Nothing is changed yet."),
+    fact("next", run.length === 1 ? "Make that change next." : "Make those changes next."),
+  ];
+}
+
+/**
+ * AN EDIT AT ITS PUBLISH: each step that worked, prepared (or applied, when its
+ * change is in the database), each that did not, and the publish starting. A
+ * failed step a later one did after all (`superseded`) is not told as failed.
+ */
+export function editPublishFacts(done) {
+  const out = [];
+  for (const d of Array.isArray(done) ? done : []) {
+    if (!d || !d.step) continue;
+    const what = stepSaid(d.step);
+    if (!d.failed) out.push(DB_LAYERS.includes(d.step.layer) ? fact("applied", "Changed in the site's database: " + what + ".") : fact("prepared", "Made, not published yet: " + what + "."));
+    else if (!d.superseded) out.push(fact("notdone", "Could not be made: " + what + ". The final message will say why."));
+  }
+  out.push(fact("doing", "Publishing the site with the changes now."));
+  return out;
+}
+
+/** The publish found a style rule that would match nothing on the page, and a correction began. */
+export function editCorrectFacts() {
+  return [fact("doing", "The check before publishing found a style change that would not show on the page. Correcting it now.")];
+}
+
+/** The second publish, after a correction. */
+export function editRepublishFacts() {
+  return [fact("doing", "Publishing again with the correction.")];
+}
+
+// An add-on's kinds as a customer would call them — the facts' words, never a
+// message: the model writes the message from them.
+const KIND_SAID = Object.freeze({
+  table: "a table to store information", row: "new entries in a list the site has", function: "a database function",
+  api: "a connection to an outside service", job: "a task that runs on a timer", page: "a new page",
+  component: "a new section on a page", words: "new words on a page", frame: "a new item in the menu, header or footer",
+  qr: "a QR code", three: "a 3D scene", photo: "a photograph on a page",
+});
+const kindSaid = (k) => (Object.hasOwn(KIND_SAID, k) ? KIND_SAID[k] : flat(k));
+
+/** What one design is, from the fields a design carries: its name, where it goes, its columns. */
+function designSaid(kind, v) {
+  const base = kindSaid(kind);
+  if (!v || typeof v !== "object") return base;
+  const bits = [];
+  const name = str(v.name) || str(v.title) || str(v.label);
+  const where = (typeof v.path === "string" && v.path.charAt(0) === "/" ? v.path : "") || str(v.route) || str(v.page) || pathOf(v.file);
+  if (name) bits.push(quote(name));
+  if (where) bits.push(where);
+  if (str(v.table) && kind !== "table") bits.push("in " + quote(v.table));
+  const cols = Array.isArray(v.columns) ? namesOf(v.columns) : [];
+  if (cols.length) bits.push("columns " + listOf(cols.map(quote)));
+  return bits.length ? base + " (" + bits.join(", ") + ")" : base;
+}
+
+/** The kinds an add-on chose, and that each is to be designed next. */
+export function addonPickedFacts(kinds) {
+  const ks = [...new Set((Array.isArray(kinds) ? kinds : []).filter((k) => typeof k === "string" && k))];
+  if (!ks.length) return [];
+  return [
+    fact("decided", "Worked out what to add: " + listOf(ks.map(kindSaid)) + ". Nothing is built yet."),
+    fact("next", ks.length === 1 ? "Design it next." : "Design each of them next."),
+  ];
+}
+
+/** One kind designed — a list kind's every item — and what is designed or built next. */
+export function addonDesignedFacts(kind, value, rest = []) {
+  const items = (Array.isArray(value) ? value : [value]).filter((v) => v !== undefined && v !== null);
+  const said = items.map((v) => designSaid(kind, v));
+  const left = [...new Set((Array.isArray(rest) ? rest : []).filter((k) => typeof k === "string" && k))];
+  return [
+    fact("designed", "Designed, not built yet: " + listOf(said.length ? said : [kindSaid(kind)]) + "."),
+    fact("next", left.length ? "Design " + listOf(left.map(kindSaid)) + " next." : "Build the additions next."),
+  ];
+}
+
+/** What the add-on's database change made, as its own result names it. */
+export function addonSchemaFacts({ tables = [], altered = [], functions = [], jobs = [] } = {}) {
+  const t = namesOf(tables), a = namesOf(altered), f = namesOf(functions), j = namesOf(jobs);
+  const out = [];
+  if (t.length) out.push(fact("applied", "Created in the site's database: " + (t.length === 1 ? "the table " : "the tables ") + listOf(t.map(quote)) + "."));
+  if (a.length) out.push(fact("applied", "Changed in the site's database: " + listOf(a.map(quote)) + "."));
+  if (f.length) out.push(fact("applied", "Set up in the site's database: " + listOf(f.map(quote)) + "."));
+  if (j.length) out.push(fact("applied", "Set to run on a timer: " + listOf(j.map(quote)) + "."));
+  if (!out.length) return [];
+  out.push(fact("next", "Write the pages next."));
+  return out;
+}
+
+/** The add-on's pages written, not published, and the publish next. */
+export function addonPagesFacts(paths) {
+  const p = [...new Set((Array.isArray(paths) ? paths : []).map((x) => (typeof x === "string" ? pathOf(x) : x && typeof x === "object" ? pathOf(x.path) : "")).filter(Boolean))];
+  return [
+    fact("prepared", "Wrote " + (p.length ? (p.length === 1 ? "the page " : "the pages ") + listOf(p) : "the pages") + ", not published yet."),
+    fact("next", "Publish the site next."),
+  ];
+}
+
+/** The add-on's publish starting. */
+export function addonPublishFacts() {
+  return [fact("doing", "Publishing the site with the additions now.")];
+}
+
+// ── THE CALL ────────────────────────────────────────────────────────────────
+
+export const PROGRESS_TOOL = {
+  name: "write_progress",
+  description: "Write the one progress update the customer reads now, and list each fact you described with the state you described it as.",
+  input_schema: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "The update, in your own words." },
+      says: {
+        type: "array",
+        description: "Every fact's id, exactly as written in brackets, with the state you described it as.",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, as: { type: "string", enum: [...PROGRESS_STATES] } },
+          required: ["id", "as"],
+        },
+      },
+    },
+    required: ["text", "says"],
+  },
+};
+
+// CONCISE ON PURPOSE (the owner: *"Keep instructions concise rather than
+// relying on an arbitrary short character limit"*). It asks for a short line;
+// nothing in code measures one.
+export const PROGRESS_SYSTEM =
+  "You write one short progress update in the chat while an AI website builder is still working on a customer's request. " +
+  "The builder's code records each step as it really happens and gives you the facts since your last update, each with an id and a state. " +
+  "Tell the customer, in your own words, what has happened and what comes next.\n\n" +
+  "THE STATES\n" +
+  "decided: worked out what to do; nothing has changed yet.\n" +
+  "designed: designed; nothing has been built yet.\n" +
+  "prepared: made in the builder but not published; visitors cannot see it.\n" +
+  "applied: in effect in the site's database.\n" +
+  "doing: happening now; not finished.\n" +
+  "next: planned; not started.\n" +
+  "notdone: could not be made; the final message will say why.\n\n" +
+  "RULES\n" +
+  "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
+  "- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\n" +
+  "- Do not repeat what your earlier updates said.\n" +
+  "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
+  "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting or sign-off.\n" +
+  "- In says, list every fact's id with the state you described it as.";
+
+/** What the model is shown besides the facts: their site, its pages, their words, and the updates already written. */
+export function progressContext(rec) {
+  const lines = [];
+  if (rec && rec.slug) lines.push("THEIR SITE: " + rec.slug);
+  if (rec && rec.pages && rec.pages.length) lines.push("ITS PAGES: " + rec.pages.join(", "));
+  const words = rec && typeof rec.words === "string" ? rec.words.trim() : "";
+  if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
+  if (rec && rec.lines.length) lines.push("WHAT YOUR EARLIER UPDATES SAID, IN ORDER:\n" + rec.lines.map((l) => "- " + flat(l.text)).join("\n"));
+  return lines.join("\n\n");
+}
+
+/** The request one progress call sends: every fact of the batch, whole. `fix` names what a first answer got wrong. */
+export function progressRequest({ facts, context = "", model, fix = null }) {
+  const told = [];
+  if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST UPDATE LEFT OUT " + fix.missing.join(", ") + ".");
+  if (fix && fix.wrong && fix.wrong.length) told.push("YOUR LAST UPDATE DESCRIBED " + fix.wrong.map((w) => w.id + " as " + (w.as || "nothing") + ", but its state is " + w.state).join("; ") + ".");
+  if (fix && fix.ids) told.push("YOUR LAST UPDATE PUT A FACT'S ID IN ITS TEXT.");
+  const body = (context ? context + "\n\n" : "") +
+    "WHAT HAS HAPPENED SINCE (describe each fact in its state; list each id with that state in says):\n" +
+    facts.map((f) => "[" + f.id + "] (" + f.state + ") " + f.text).join("\n") +
+    (told.length ? "\n\n" + told.join(" ") + " Write the update again." : "");
+  return {
+    model,
+    max_tokens: PROGRESS_MAX_TOKENS,
+    tools: [PROGRESS_TOOL],
+    tool_choice: { type: "tool", name: PROGRESS_TOOL.name },
+    system: [{ type: "text", text: PROGRESS_SYSTEM }],
+    messages: [{ role: "user", content: body }],
+  };
+}
+
+/**
+ * AN UPDATE, READ AND CHECKED: the forced tool's `text`, carrying no fact id,
+ * with every fact listed in `says` in its own state. `{ ok, text, missing,
+ * wrong, ids, why }`. A fact listed twice in two states is a fact misstated.
+ * ⚠ THIS READS WHAT THE MODEL SAYS IT DID, NOT ITS WORDS: an update that lists
+ * every fact rightly and still calls the page live passes here (the module's
+ * header says why, and what stands behind it instead).
+ */
+export function readProgress(reply, facts) {
+  const none = (why) => ({ ok: false, text: "", missing: [], wrong: [], ids: false, why });
+  const block = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use" && b.name === PROGRESS_TOOL.name) : null;
+  const input = block && block.input && typeof block.input === "object" ? block.input : null;
+  if (!input || typeof input.text !== "string" || !Array.isArray(input.says)) return none(reply && reply.stop_reason === "max_tokens" ? "cut" : "unreadable");
+  const text = input.text.replace(/\r\n/g, "\n").trim();
+  if (!text) return none("unreadable");
+  const list = Array.isArray(facts) ? facts : [];
+  const ids = list.some((f) => new RegExp("\\[" + f.id + "\\]").test(text));
+  const said = new Map();
+  const twice = new Set();
+  for (const s of input.says) {
+    if (!s || typeof s !== "object" || typeof s.id !== "string" || typeof s.as !== "string") continue;
+    const id = s.id.trim();
+    const as = s.as.trim().toLowerCase();
+    if (said.has(id) && said.get(id) !== as) twice.add(id);
+    else said.set(id, as);
+  }
+  const missing = list.filter((f) => !said.has(f.id)).map((f) => f.id);
+  const wrong = list.filter((f) => said.has(f.id) && (twice.has(f.id) || said.get(f.id) !== f.state)).map((f) => ({ id: f.id, as: twice.has(f.id) ? "two states" : said.get(f.id), state: f.state }));
+  const ok = !ids && !missing.length && !wrong.length;
+  return { ok, text: ok ? text : "", missing, wrong, ids, why: ok ? "" : ids ? "ids" : wrong.length ? "misstated" : "uncovered" };
+}
+
+/** The four token kinds of one answer, in the shape `pageCredits` prices. */
+export function progressUsage(reply, model) {
+  const u = (reply && reply.usage) || {};
+  return {
+    in: Number(u.input_tokens) || 0, out: Number(u.output_tokens) || 0,
+    cacheRead: Number(u.cache_read_input_tokens) || 0, cacheWrite: Number(u.cache_creation_input_tokens) || 0, model,
+  };
+}
+
+/**
+ * WRITE ONE UPDATE. Never throws. `{ ok: true, text, usage, attempts }`, or
+ * `{ ok: false, why, usage, attempts }` — `why` one of `no-facts`, `send`,
+ * `deadline`, `unreadable`, `cut`, `uncovered`, `misstated`, `ids`. At most
+ * two calls: a first answer that left a fact out, misstated one, or put an id
+ * in its words is asked once more, told which.
+ */
+export async function writeProgress(deps, { facts, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now() } = {}) {
+  const usage = [];
+  if (!Array.isArray(facts) || !facts.length) return { ok: false, why: "no-facts", usage, attempts: 0 };
+  if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
+  const start = now();
+  let fix = null;
+  let attempts = 0;
+  let why = "unreadable";
+  while (attempts < 2) {
+    const left = deadlineMs - (now() - start);
+    if (left <= 0) return { ok: false, why: "deadline", usage, attempts };
+    attempts++;
+    let timer;
+    let reply;
+    try {
+      reply = await Promise.race([
+        Promise.resolve().then(() => deps.send(progressRequest({ facts, context, model, fix }))),
+        new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("progress deadline"), { deadline: true })), left); }),
+      ]);
+    } catch (e) {
+      return { ok: false, why: e && e.deadline ? "deadline" : "send", usage, attempts };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    usage.push(progressUsage(reply, model));
+    const read = readProgress(reply, facts);
+    if (read.ok) return { ok: true, text: read.text, usage, attempts };
+    why = read.why;
+    if (why === "unreadable" || why === "cut") break;
+    fix = { missing: read.missing, wrong: read.wrong, ids: read.ids };
+  }
+  return { ok: false, why, usage, attempts };
+}

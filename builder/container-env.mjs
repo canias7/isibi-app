@@ -273,6 +273,18 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, p
       });
       return r.ok;
     };
+    // AND ITS PROGRESS (2026-10-06): the record opened, each milestone and the
+    // close at the job's end, written by the Worker (the gateway's
+    // `/progress`), since nothing in here may send to the queue. A call that
+    // fails costs that milestone its line, never the job; the cron asks again
+    // for any milestone the record holds that nobody wrote.
+    env.JOB_PROGRESS = async (body) => {
+      const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/progress", {
+        method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(20_000),
+      });
+      return { ok: r.ok };
+    };
   }
   // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the
   // process is told to stop (SIGTERM — the build service past the job's

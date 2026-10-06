@@ -8196,7 +8196,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -8849,6 +8849,9 @@ function reactLiveStepsHTML() {
   // markup and total at runtime.
   // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
   // lock or a deploy's gate says so, in the sentence the poll module chose.
+  // AND A RUNNING JOB'S LATEST PROGRESS LINE (2026-10-06) in its place, in
+  // the model's own words — never ahead of a waiting sentence.
+  if (!stBuildRunning() && !sb.waitNote && sb.progressLine) return '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';
   if (!stBuildRunning()) return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
   // 2026-08-08). The React builder has never produced an image: the generator in
@@ -9724,7 +9727,8 @@ function siteReqPut(s, key, m) {
   // AN OLDER THREAD'S REPLIES CARRY NO MARK: those standing right under a card
   // with nothing marked after it are taken as its own, so a request begun
   // before this change keeps its replies in the order they came.
-  if (s.msgs[end].request === key) while (end + 1 < s.msgs.length && s.msgs[end + 1] && s.msgs[end + 1].r === 'a' && !s.msgs[end + 1].request && !s.msgs[end + 1].req) end++;
+  // A FOUND JOB'S CARD (2026-10-06) is a card of its own, never one of these.
+  if (s.msgs[end].request === key) while (end + 1 < s.msgs.length && s.msgs[end + 1] && s.msgs[end + 1].r === 'a' && !s.msgs[end + 1].request && !s.msgs[end + 1].req && !s.msgs[end + 1].jobCard) end++;
   m.req = key;
   s.msgs.splice(end + 1, 0, m);
   return m;
@@ -10013,6 +10017,11 @@ function siteRequestsCheck(site) {
     const st = site.requests[k];
     if (st && st.view && !st.closed) siteRequestFollow(origin, k);
   }
+  // A JOB FOUND EARLIER AND NOT YET ENDED ON THIS PAGE (2026-10-06): followed again.
+  for (const k of Object.keys(site.jobCards || {})) {
+    const c = site.jobCards[k];
+    if (c && c.view && !c.closed) siteJobFollow(origin, k);
+  }
   apiFetch('/api/site/requests/' + encodeURIComponent(site.slug), { method: 'GET' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !Array.isArray(b.requests)) return;
@@ -10027,6 +10036,10 @@ function siteRequestsCheck(site) {
       siteReqCard(s, v.key);
       siteRequestFollow(origin, v.key);
     }
+    // THE JOBS THE PAGE-DRIVEN PATH FILED (2026-10-06), after the requests so
+    // each falls in time among their cards: drawn once where this page does not
+    // already show it, and followed to its reply.
+    for (const v of Array.isArray(b.jobs) ? b.jobs : []) siteJobDiscovered(origin, v);
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -10056,12 +10069,190 @@ function siteRequestHTML(m, site) {
     const rewrite = status === 'approval'
       ? (pressing ? '<span class="st-req-status">Starting…</span>'
         : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>') : '';
+    // WHAT ITS JOBS SAID WHILE THEY RAN (2026-10-06), under its label — the
+    // label stays the fixed status; the lines are the model's words.
     return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(String(p.words || '')) + '</span>' +
-      '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + '</li>';
+      '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   const stop = !v.ended && !v.stop
     ? '<div class="st-opts"><button type="button" class="st-opt st-opt-skip" data-req-stop="' + esc(m.request) + '"><span>Stop the rest</span></button></div>' : '';
   return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol>' + stop + '</div>';
+}
+
+// ── A JOB'S PROGRESS LINES (2026-10-06) ─────────────────────────────────────
+//
+// What the server's progress writer wrote while an edit or an add-on ran: the
+// model's words for what each step really did, each with how far into the job
+// it came, the newest marked live while the work goes on. NEVER A THREAD
+// MESSAGE OF ITS OWN: a request's lines come with its view, a job this page
+// watched keeps them on its reply (`m.prog`), and a job found from another
+// device keeps them on its card — so the forty kept messages are untouched,
+// and every reading of the server draws them again.
+function progressAt(ms) {
+  const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+}
+function progressListHTML(lines, live, done) {
+  const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
+  if (!list.length) return '';
+  return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) => {
+    const at = '<span class="at">' + esc(progressAt(l.ms)) + '</span>';
+    return live && i === list.length - 1
+      ? '<li class="live"><i></i><span>' + at + esc(l.text) + '</span></li>'
+      : '<li>' + at + esc(l.text) + '</li>';
+  }).join('') + '</ul>';
+}
+/**
+ * A JOB THIS PAGE WATCHED HAS ENDED: its lines kept on the reply its finish put
+ * on the thread (the last of this page's messages since `before`), and the job
+ * named on it (`jobs`) — a hop's job too, so a page opened later never takes a
+ * job it shows for one found elsewhere.
+ */
+function siteKeepJobProgress(origin, job, before, lines) {
+  const s = siteById(origin);
+  if (!s || !Array.isArray(s.msgs) || before < 0 || s.msgs.length <= before) return;
+  let m = null;
+  for (let i = s.msgs.length - 1; i >= before; i--) if (s.msgs[i] && s.msgs[i].r === 'a') { m = s.msgs[i]; break; }
+  if (!m) return;
+  const jobs = Array.isArray(m.jobs) ? m.jobs : [];
+  if (!jobs.includes(job)) m.jobs = jobs.concat([job]);
+  const kept = Array.isArray(m.prog) ? m.prog : [];
+  const add = (Array.isArray(lines) ? lines : []).filter((l) => !kept.some((x) => x.job === job && x.n === l.n)).map((l) => ({ job, n: l.n, ms: l.ms, text: l.text }));
+  if (add.length) m.prog = kept.concat(add);
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+
+// ── A JOB THE PAGE FILED, FOUND FROM ANOTHER DEVICE (2026-10-06) ─────────────
+//
+// The owner: *"Make cross-device discovery work for both supported paths."* A
+// request is listed by the server and followed on its card; a job the
+// page-driven path filed was known only to the browser that filed it. The
+// server now lists this owner's standalone jobs on the site that are running
+// or ended within a day (`jobs` on the requests list), each with its words and
+// lines, and a page that does not already show one draws it as a card — its
+// words, its fixed status, its lines — and follows it to its reply. SAID,
+// NEVER ACTED ON: the page that filed it is the one that hops, falls back or
+// offers an undo; this page brings its own preview up to date
+// (`siteReqRefresh`), as for another browser's request.
+const SITE_JOB_STATUS = { queued: { cls: 'queued', label: 'Queued' }, done: { cls: 'done', label: 'Finished' }, failed: { cls: 'failed', label: 'Not done' }, lost: { cls: 'failed', label: 'Not done' }, cancelled: { cls: 'cancelled', label: 'Stopped' } };
+const SITE_JOB_RUNNING = { cls: 'started', label: 'In progress' };
+const siteJobFollowing = new Set();
+function siteJobCardHTML(m, site) {
+  const c = site && site.jobCards && typeof site.jobCards === 'object' ? site.jobCards[m.jobCard] : null;
+  const v = c && c.view;
+  if (!v) return '';
+  const st = Object.hasOwn(SITE_JOB_STATUS, v.state) ? SITE_JOB_STATUS[v.state] : SITE_JOB_RUNNING;
+  return '<div class="st-req"><ol class="st-req-parts"><li class="st-req-part st-req-' + esc(st.cls) + '"><span class="st-req-words">' + esc(String(v.words || '')) + '</span>' +
+    '<span class="st-req-status">' + esc(st.label) + '</span>' + progressListHTML(v.progress, st === SITE_JOB_RUNNING) + '</li></ol></div>';
+}
+/** A standalone job the server listed: drawn once, where this page does not already show it. */
+function siteJobDiscovered(origin, v) {
+  const s = siteById(origin);
+  if (!s || !v || typeof v !== 'object' || typeof v.job !== 'string' || !/^[0-9a-f]{32}$/.test(v.job)) return;
+  // SHOWN HERE ALREADY: this page's own watch, the job it remembers, a reply
+  // it holds or showed for it, or its card.
+  if (editWatched.has(v.job)) return;
+  const rec = EditPoll.resumableRecord(String(s.slug || ''));
+  if (rec && rec.job === v.job) return;
+  if ((s.msgs || []).some((m) => m && (m.jobCard === v.job || (Array.isArray(m.jobs) && m.jobs.includes(v.job)) || (EditPoll.heldOf(m) && EditPoll.heldOf(m).job === v.job)))) return;
+  if (!s.jobCards || typeof s.jobCards !== 'object' || Array.isArray(s.jobCards)) s.jobCards = {};
+  const now = Date.now();
+  for (const k of Object.keys(s.jobCards)) { const c = s.jobCards[k]; if (!c || !(now - (c.at || 0) < SITE_REQ_KEEP_MS)) delete s.jobCards[k]; }
+  s.jobCards[v.job] = {
+    at: now, closed: false,
+    view: { job: v.job, op: v.op === 'addon' ? 'addon' : 'edit', state: typeof v.state === 'string' ? v.state : '', words: typeof v.words === 'string' ? v.words : '', progress: EditPoll.progressLines(v) },
+  };
+  // WHERE IT FALLS IN TIME: before the first message the page knows to be
+  // newer (a request made after it, or a message sent from this page), at the
+  // end when none is — a request card's own rule (`siteReqCardAt`).
+  const when = typeof v.at === 'number' && Number.isFinite(v.at) ? v.at : Date.now();
+  let at = s.msgs.length;
+  for (let i = 0; i < s.msgs.length; i++) { const t = siteReqMsgAt(s, s.msgs[i]); if (t !== null && t > when) { at = i; break; } }
+  s.msgs.splice(at, 0, { r: 'a', t: '', jobCard: v.job });
+  siteJobFollow(origin, v.job);
+}
+/** One reply for a found job, said once, right after its card. */
+function siteJobSay(origin, job, reply) {
+  const s = siteById(origin);
+  if (!s || !Array.isArray(s.msgs)) return;
+  if (s.msgs.some((x) => x && x.r === 'a' && !x.jobCard && Array.isArray(x.jobs) && x.jobs.includes(job))) return;
+  const m = siteReplyMsg(reply);
+  m.jobs = [job];
+  const at = s.msgs.findIndex((x) => x && x.jobCard === job);
+  if (at >= 0) s.msgs.splice(at + 1, 0, m); else s.msgs.push(m);
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+/**
+ * FOLLOW A FOUND JOB until it has ended and its reply is said: its status and
+ * lines from each poll; then the model's reply, or — when the reply failed or
+ * is not written in time — the readers' own sentence, said and never applied.
+ */
+function siteJobFollow(origin, job) {
+  const id = origin + '|' + job;
+  if (siteJobFollowing.has(id)) return;
+  siteJobFollowing.add(id);
+  const startedAt = Date.now();
+  let attempt = 0;
+  const stop = () => { siteJobFollowing.delete(id); };
+  const draw = () => {
+    const s = siteById(origin);
+    if (!s) return;
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  const step = async () => {
+    const s = siteById(origin);
+    const c = s && s.jobCards && s.jobCards[job];
+    if (!s || !c || c.closed) { stop(); return; }
+    let r = null;
+    let e = null;
+    try {
+      r = await apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'GET' });
+      e = await r.json().catch(() => null);
+    } catch (err) { r = null; }
+    const read = r ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e) : { act: 'retry' };
+    const got = r ? EditPoll.progressLines(e) : [];
+    if (got.length) c.view.progress = got;
+    if (read.act === 'gone') { c.closed = true; draw(); stop(); return; }
+    if (read.act === 'retry' || (read.act === 'wait' && read.kind !== 'reply')) {
+      if (read.act === 'wait' && e && typeof e.status === 'string') c.view.state = e.status;
+      draw();
+      if (Date.now() - startedAt > EditPoll.POLL_GIVE_UP_MS) { stop(); return; }
+      setTimeout(step, EditPoll.pollDelayMs(++attempt));
+      return;
+    }
+    if (read.act === 'ended') {
+      c.view.state = read.kind === 'cancelled' ? 'cancelled' : 'failed';
+      c.closed = true;
+      draw();
+      siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));
+      stop();
+      return;
+    }
+    // ITS STORED ANSWER: the reply, once written — waited for while it is
+    // being written, up to the page's own reply watch.
+    c.view.state = r.ok && e && e.ok !== false ? 'done' : 'failed';
+    if (read.act === 'wait' && Date.now() - startedAt < EditPoll.REPLY_WATCH_MS) { draw(); setTimeout(step, EditPoll.pollDelayMs(++attempt)); return; }
+    c.closed = true;
+    draw();
+    stop();
+    // A HAND-OVER IS THE FILING PAGE'S TO ACT ON: nothing is said for it here.
+    if (!e || typeof e !== 'object' || e.escalate === true) return;
+    const addon = c.view.op === 'addon';
+    const said = EditPoll.modelReply(e);
+    if (said) siteJobSay(origin, job, said);
+    else {
+      const o = { site: null, d: { intent: addon ? 'addon' : 'edit', layer: '' }, instruction: c.view.words, origin: '', finish: (t) => siteJobSay(origin, job, t), fallback: null, imgs: [], handedOff: false, slug: '' };
+      try { (addon ? addonAnswer : editAnswer)(!!r.ok, e, o); } catch (err) { /* what was said stands */ }
+    }
+    siteReqRefresh(origin, !!r.ok, e, addon);
+  };
+  step();
 }
 
 // The cheap rung: change what the site already has, without rewriting a page.
@@ -10728,7 +10919,16 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
   // Terminal state is recorded and the ask released before its redraw. A
   // display failure must not escape the async poll or produce another outcome.
   const finishOnce = finish;
-  finish = (message) => { try { finishOnce(message); } catch (err) { /* outcome stands */ } };
+  // THE JOB'S PROGRESS LINES (2026-10-06), as the latest poll handed them, kept
+  // with the reply its finish puts on the thread — above it, and with the job
+  // named on it, so a page opened later knows this job is shown here.
+  let lines = [];
+  finish = (message) => {
+    let before = -1;
+    try { const s0 = siteById(origin); before = s0 && Array.isArray(s0.msgs) ? s0.msgs.length : -1; } catch (err) { before = -1; }
+    try { finishOnce(message); } catch (err) { /* outcome stands */ }
+    try { if (before >= 0) siteKeepJobProgress(origin, job, before, lines); } catch (err) { /* the lines are the server's to give again */ }
+  };
   const slug = String(site.slug || '');
   const w = EditPoll.makeWatch(job, slug);
   const reader = typeof answer === 'function' ? answer : editAnswer;
@@ -10811,6 +11011,10 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     const read = r
       ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e)
       : { act: 'retry' };
+    // WHAT THE JOB HAS SAID SO FAR (2026-10-06): every answer may carry its
+    // lines, the running ones and the finished one alike.
+    const got = r ? EditPoll.progressLines(e) : [];
+    if (got.length) lines = got;
     if (read.act === 'retry') {
       w.attempt++;
       // BOUNDED. Past this the job has certainly ended one way or another and
@@ -10845,6 +11049,10 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       // long as the poll says `waiting`, and the ordinary poll paints nothing.
       const waitNote = EditPoll.waitingMessage(e);
       if (siteBuild && siteOpenId === origin && (siteBuild.waitNote || '') !== waitNote) { siteBuild.waitNote = waitNote; paintReactLive(); }
+      // AND THE LATEST PROGRESS LINE (2026-10-06) where "Thinking" was — never
+      // ahead of the waiting sentence (`reactLiveStepsHTML`).
+      const line = lines.length ? lines[lines.length - 1].text : '';
+      if (siteBuild && siteOpenId === origin && (siteBuild.progressLine || '') !== line) { siteBuild.progressLine = line; paintReactLive(); }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }

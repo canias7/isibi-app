@@ -214,6 +214,7 @@ jobs:
             DESIGN_GRAPH_CANARY
             DESIGN_GRAPH_EVERYONE
             MODEL_REPLIES
+            PROGRESS_REPLIES
             REQUEST_FLOW
         env:
           DEPLOY_ID: ${{ github.sha }}
@@ -397,6 +398,16 @@ jobs:
           # it OFF — set it to `off` in GitHub and redeploy, and every reply is
           # composed as before, with nothing else changed.
           MODEL_REPLIES: ${{ secrets.MODEL_REPLIES || 'on' }}
+          # ── PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06) ──────────
+          #
+          # With this on, a running job records its milestones (what each step
+          # really did) and the picked quick model writes a short line for the
+          # customer from them (builder/site-progress.mjs), shown under the
+          # request's part or in place of "Thinking" until the final reply.
+          # Not charged to the customer. OFF BY DEFAULT: off, nothing is
+          # recorded, no task is sent and every answer is as before. Set the
+          # secret to `on` and redeploy to switch it on.
+          PROGRESS_REPLIES: ${{ secrets.PROGRESS_REPLIES || 'off' }}
           # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
           #
           # With this on, a site's message the routing call accepts is kept as a

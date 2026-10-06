@@ -420,8 +420,12 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // SIX SINCE 2026-10-04: the watcher asks whether the reader it was handed is
   // the add-on's, so a held reply's ending is read by the add-on's own rule
   // (`replyTellsEnding`) — a comparison, never a call.
+  // SEVEN SINCE 2026-10-06: a standalone job found from another device has its
+  // stored reply said by the same reader, handed no site (`siteJobFollow`).
   const readers = (CHAT.match(/\baddonAnswer\b/g) || []).length;
-  assert.equal(readers, 6, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument, the resumed watch's reader, a request part's reply and the watcher's comparison, and no seventh copy`);
+  assert.equal(readers, 7, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument, the resumed watch's reader, a request part's reply, the watcher's comparison and a found job's reply, and no eighth copy`);
+  assert.match(between(CHAT, "\nfunction siteJobFollow(", "\nconst editInFlight =", "a found job's reply"), /\(addon \? addonAnswer : editAnswer\)\(!!r\.ok, e, o\)/, "a found job's reply is not read by the routes' own readers");
+  assert.match(between(CHAT, "\nfunction siteJobFollow(", "\nconst editInFlight =", "a found job's reply"), /const o = \{ site: null,/, "a found job's reply is handed a site to apply to");
   assert.match(between(CHAT, "\nfunction watchEditJob(", "\nfunction cancelEditJob(", "watch"), /replyTellsEnding\(httpOk, once, reader === addonAnswer\)/, "the watcher's sixth mention is not the comparison");
   assert.match(between(CHAT, "\nasync function siteRequestJobReply(", "\nfunction siteRequestStop(", "a part's reply"), /\(d\.intent === 'addon' \? addonAnswer : editAnswer\)\(!!r\.ok, body, o\)/, "a request part's reply is not read by the routes' own readers");
 });

@@ -1185,12 +1185,30 @@ export function readRequestOf(v) {
 const shownRun = (j) => j.kind === "run" && !!j.id && !!j.end && !["hop", "climb", "answerless"].includes(j.end.act);
 
 /**
+ * A PART'S PROGRESS LINES (2026-10-06): each of its run jobs' lines in the
+ * order the jobs were filed, each line with its job — read by the Worker off
+ * the jobs' own records and handed in (`progress`, by job id), never kept on
+ * the request.
+ */
+function partProgress(p, progress) {
+  const out = [];
+  if (!progress || typeof progress !== "object") return out;
+  for (const j of p.jobs) {
+    if (!j || j.kind !== "run" || !j.id || !Object.hasOwn(progress, j.id) || !Array.isArray(progress[j.id])) continue;
+    for (const l of progress[j.id]) if (l && typeof l === "object") out.push({ job: j.id, n: l.n, ms: l.ms, text: l.text });
+  }
+  return out;
+}
+
+/**
  * A REQUEST AS THE PAGE FOLLOWS IT: each part with its words, its status and
  * why, its question while it waits, and the run jobs whose stored answers
  * explain it (the page fetches each through the job poll, which writes its
- * model reply once). Nothing private: no uid, no files' keys.
+ * model reply once). Nothing private: no uid, no files' keys. `progress`
+ * (2026-10-06) is each run job's progress lines by job id, read at the look;
+ * a part with none carries no `progress` at all.
  */
-export function requestView(rec) {
+export function requestView(rec, { progress = null } = {}) {
   // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
   // run carries it (`routedCost`) only when part 0 ran on the answer that
   // accepted the message and its job's reply was written; a part 0 routed
@@ -1225,6 +1243,8 @@ export function requestView(rec) {
       // AN EDIT THE ADD-ON STEP HANDED THIS PART TO, as its job's body marks it
       // (`addition`): read by the UI canary's wall for an additions scenario.
       ...(p.route && p.route.op !== "addon" && p.route.fromAddon === true ? { addition: true } : {}),
+      // WHAT ITS JOBS SAID WHILE THEY RAN (2026-10-06), when they said anything.
+      ...((lines) => (lines.length ? { progress: lines } : {}))(partProgress(p, progress)),
     })),
   };
 }

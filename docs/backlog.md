@@ -20,6 +20,10 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **A progress line can follow the final reply when the job's own close
+  fails** (found while building the progress lines, 2026-10-06; the feature
+  is off by default): one store write's window, in full below and in
+  `docs/investigations/progress-messages-plan.md` §2.5.
 - **An ended request's own reply with no record is asked for whenever it is
   read, however old** (found in run 97): R1's, about 20 hours after it
   ended; a job's is not, after two hours. It was the second half of the
@@ -854,6 +858,18 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **PROGRESS LINES: A LINE AFTER THE FINAL REPLY WHEN THE JOB'S CLOSE FAILS
+  (2026-10-06, found while building them; the feature is off by default,
+  not merged).** The job closes its progress record before its outcome is
+  written, and a writer commits a line only on an open record, under its
+  own lease, after reading the job's row twice. If the job's close itself
+  fails (the store down, or its 10 seconds pass), a writer that passed its
+  second row read just before the job finalized can commit one line after
+  the outcome is written: one store write's time. The line was true when
+  checked (its facts were recorded during the run), but it would stand
+  after the final reply. A possible direction, not built: the poll and the
+  request's view hold back a line committed after the job's end.
+  `docs/investigations/progress-messages-plan.md` §2.5.
 - **INFORMATION LIMITS ON EDIT AND ADD-ON (21 defects, 2 optional
   capabilities, 15 untested risks; found 2026-10-03 by the limits audit on
   the owner's word and corrected on their review; batch 1 implemented for

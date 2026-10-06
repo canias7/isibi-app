@@ -216,6 +216,30 @@
   }
 
   /**
+   * A JOB'S PROGRESS LINES (2026-10-06): what the server's progress writer
+   * wrote while the job ran (`progress` on a poll's answer, on a finished
+   * job's stored answer, and on a request part), in order. An entry that does
+   * not read is left out, never repaired; no length is imposed here — the line
+   * is the model's, bounded only by its call's own output budget. `job` rides
+   * on a request part's lines, so lines of two jobs are told apart.
+   */
+  function progressLines(body) {
+    var list = body && typeof body === "object" && Array.isArray(body.progress) ? body.progress : [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p || typeof p !== "object" || typeof p.text !== "string") continue;
+      var t = p.text.trim();
+      if (!t || typeof p.n !== "number" || !isFinite(p.n) || p.n < 0 || Math.floor(p.n) !== p.n) continue;
+      var ms = typeof p.ms === "number" && isFinite(p.ms) && p.ms >= 0 ? p.ms : 0;
+      var line = { n: p.n, ms: ms, text: t };
+      if (typeof p.job === "string" && p.job) line.job = p.job;
+      out.push(line);
+    }
+    return out;
+  }
+
+  /**
    * WHAT A JOB THAT IS WAITING SAYS (stage 3b, 2026-09-05). The poll route
    * marks a pending answer `waiting: true` once the site's own lock or a
    * deploy's gate has refused the job's claim at least once (stages 6 and 3a):
@@ -941,6 +965,7 @@
     isRecovered: isRecovered,
     modelReply: modelReply,
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
+    progressLines: progressLines,
     waitingMessage: waitingMessage,
     pendingReplyLine: pendingReplyLine,
     PENDING_LINES: PENDING_LINES,

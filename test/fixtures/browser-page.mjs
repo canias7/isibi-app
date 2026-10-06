@@ -83,6 +83,9 @@ const FNS = [...new Set([
   // A SITE'S TABLE LIST, IN ORDER (2026-10-05): every addition's tables, and
   // each routing answer's read, kept by when its call went out.
   "siteTablesAdd", "siteTablesRead",
+  // A JOB'S PROGRESS LINES (2026-10-06): under a request part, kept on a
+  // watched job's reply, and on the card of a job found from another device.
+  "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -93,6 +96,7 @@ const LINES = [...new Set([
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
   "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =",
+  "const SITE_JOB_STATUS =", "const SITE_JOB_RUNNING =", "const siteJobFollowing =", "const editWatched =",
 ])];
 // THE RENDER'S OWN FRAME STEP (2026-10-05, the owner's review: *"test the
 // rendered iframe URL, not merely previewV increasing"*): where `renderSites`

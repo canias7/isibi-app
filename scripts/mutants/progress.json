@@ -1,0 +1,686 @@
+[
+  {
+    "label": "CONTROL: a comment only in the module — must survive",
+    "control": true,
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export function jobVerdict(row, rec, now) {",
+    "to": "export function jobVerdict(row, rec, now) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the writer — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function writeProgressLine(env, task, owner) {",
+    "to": "async function writeProgressLine(env, task, owner) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only on the page — must survive",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "function siteJobDiscovered(origin, v) {",
+    "to": "function siteJobDiscovered(origin, v) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the gateway — must survive",
+    "control": true,
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "    if (tail === \"/progress\" && request.method === \"POST\") {",
+    "to": "    // comment-only control\n    if (tail === \"/progress\" && request.method === \"POST\") {"
+  },
+  {
+    "label": "ROW — a job that ended is narrated still",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (typeof row.state !== \"string\" || TERMINAL_STATES.includes(row.state)) return { ok: false, why: \"ended\" };",
+    "to": "  if (typeof row.state !== \"string\") return { ok: false, why: \"ended\" };"
+  },
+  {
+    "label": "ROW — a cancel asked for is not read",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (row.cancel_requested_at !== null && row.cancel_requested_at !== undefined) return { ok: false, why: \"cancelled\" };\n",
+    "to": ""
+  },
+  {
+    "label": "ROW — a job held for review is narrated still",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (row.needs_review === true) return { ok: false, why: \"review\" };\n",
+    "to": ""
+  },
+  {
+    "label": "ROW — a newer run's job is narrated by the old record",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (row.lease_owner !== rec.run) return { ok: false, why: \"superseded\" };\n",
+    "to": ""
+  },
+  {
+    "label": "ROW — a lease that ran out is not read",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (!Number.isFinite(until) || until <= now) return { ok: false, why: \"stalled\" };\n",
+    "to": ""
+  },
+  {
+    "label": "ROW — another owner's job is not refused",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (row.uid !== rec.uid) return { ok: false, why: \"gone\" };\n",
+    "to": ""
+  },
+  {
+    "label": "ROW — a row that could not be read is read as gone",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (row === undefined) return { ok: false, why: \"unread\" };",
+    "to": "  if (row === undefined) return { ok: false, why: \"gone\" };"
+  },
+  {
+    "label": "WRITER — a commit without a live lease of its own",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export function commitLine(rec, { owner, marks, text, now }) {\n  if (!holds(rec, owner, now)) return null;",
+    "to": "export function commitLine(rec, { owner, marks, text, now }) {\n  if (!rec) return null;"
+  },
+  {
+    "label": "RECORD — a closed record's waiting milestones are not set aside",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    marks: rec.marks.map((m) => (m.state === \"pending\" ? { ...m, state: \"skipped\", why: String(why || \"ended\").slice(0, 40) } : m)),",
+    "to": "    marks: rec.marks,"
+  },
+  {
+    "label": "RECORD — a milestone is added after the record closed",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (rec.closed) return { refused: \"closed\" };\n",
+    "to": ""
+  },
+  {
+    "label": "RECORD — a milestone written twice is added twice",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const had = Number.isInteger(key) ? rec.marks.find((m) => m.key === key) : null;\n  if (had) return { already: true, n: had.n };",
+    "to": "  const had = null;"
+  },
+  {
+    "label": "RECORD — one entry that does not read leaves the record readable",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (marks.some((m) => !m) || lines.some((l) => !l)) return null;",
+    "to": "  if (false) return null;"
+  },
+  {
+    "label": "WRITER — another writer's live lease does not keep a second out",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (writerLive(rec, now)) return null;\n  if (num(rec.retryAt)",
+    "to": "  if (num(rec.retryAt)"
+  },
+  {
+    "label": "WRITER — a retry not yet due is claimed",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (num(rec.retryAt) !== null && rec.retryAt - now > PROGRESS_RETRY_SKEW_MS) return null;\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — a try is not counted when claimed",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "attempt: tries + 1 }, tries: tries + 1, retryAt",
+    "to": "attempt: tries + 1 }, tries, retryAt"
+  },
+  {
+    "label": "WRITER — every try spent never gives up",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (tries >= PROGRESS_TRIES) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "WRITER — the writer's own landed claim is not its own",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (rec.writer && rec.writer.owner === owner) return { rec: { ...rec, writer: { ...rec.writer, until: now + PROGRESS_LEASE_MS } }, claimed: true };\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — a claim leaves the old ask standing",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "retryAt: undefined, asked: 0 }, claimed: true };",
+    "to": "retryAt: undefined }, claimed: true };"
+  },
+  {
+    "label": "WRITER — a live lease does not make the rule wait",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (writerLive(rec, now)) return \"wait\";\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — an ask within its grace is asked again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (rec.asked && now - rec.asked < PROGRESS_ASK_GRACE_MS) return \"wait\";\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — a failed attempt is never tried again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (tries < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };\n",
+    "to": ""
+  },
+  {
+    "label": "BATCH — an earlier milestone's \"now\" and \"next\" are said with a later one",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "      if ((f.state === \"doing\" || f.state === \"next\") && m !== last) continue;\n",
+    "to": ""
+  },
+  {
+    "label": "LINES — a line's time is not measured from the job's start",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "ms: Math.max(0, l.at - rec.at), text: l.text }));",
+    "to": "ms: l.at, text: l.text }));"
+  },
+  {
+    "label": "CHECK — a fact described in the wrong state passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "(twice.has(f.id) || said.get(f.id) !== f.state)",
+    "to": "(twice.has(f.id))"
+  },
+  {
+    "label": "CHECK — a fact left out passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const missing = list.filter((f) => !said.has(f.id)).map((f) => f.id);",
+    "to": "  const missing = [];"
+  },
+  {
+    "label": "CHECK — a fact's id in the words passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const ids = list.some((f) => new RegExp(\"\\\\[\" + f.id + \"\\\\]\").test(text));",
+    "to": "  const ids = false;"
+  },
+  {
+    "label": "CHECK — a fact listed in two states passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (said.has(id) && said.get(id) !== as) twice.add(id);",
+    "to": "    if (false) twice.add(id);"
+  },
+  {
+    "label": "CALL — a wrong first answer is not asked again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    fix = { missing: read.missing, wrong: read.wrong, ids: read.ids };",
+    "to": "    break;"
+  },
+  {
+    "label": "PROSE — the instructions no longer forbid published, live or finished",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  \"- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "FACTS — a database change is told as made and not published",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (!d.failed) out.push(DB_LAYERS.includes(d.step.layer) ? fact(\"applied\", \"Changed in the site's database: \" + what + \".\") : fact(\"prepared\", \"Made, not published yet: \" + what + \".\"));",
+    "to": "    if (!d.failed) out.push(fact(\"prepared\", \"Made, not published yet: \" + what + \".\"));"
+  },
+  {
+    "label": "FACTS — a failure a later step made good is told as not done",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    else if (!d.superseded) out.push(",
+    "to": "    else if (true) out.push("
+  },
+  {
+    "label": "FACTS — a withheld step is told as planned",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const run = (Array.isArray(steps) ? steps : []).filter((s) => s && typeof s === \"object\" && !s.withheld);",
+    "to": "  const run = (Array.isArray(steps) ? steps : []).filter((s) => s && typeof s === \"object\");"
+  },
+  {
+    "label": "JOB END — the record is not closed before the outcome is written",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (progress) await progress.close(\"ended\");\n",
+    "to": ""
+  },
+  {
+    "label": "JOB END — a job that threw does not close its record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (progress) { try { await progress.close(\"failed\"); } catch { /* the record never costs the job */ } }\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — the job's row is not read before the call",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const before = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());\n  if (!before.ok) { await progressStops(env, job, owner, batch, before.why); return false; }\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — the job's row is not read again before the commit",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const after = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());\n  if (!after.ok) { await progressStops(env, job, owner, batch, after.why); return false; }\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — a row that could not be read closes the record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (why === \"unread\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "WRITER — a task does not ask again for what it leaves waiting",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    await askProgress(env, task.id, task.uid);\n  } catch (e) { console.error(\"progress: task failed\"",
+    "to": "  } catch (e) { console.error(\"progress: task failed\""
+  },
+  {
+    "label": "RECORDER — a milestone written again does not ask for a writer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (added.already) { ask = !writerLive(rec, now) && pendingMarks(rec).length > 0; return { done: true }; }",
+    "to": "      if (added.already) { ask = false; return { done: true }; }"
+  },
+  {
+    "label": "RECORDER — a stale run's milestone lands on a newer run's record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!rec || rec.run !== run || rec.uid !== uid) return null;\n      const added = appendMark(",
+    "to": "      if (!rec || rec.uid !== uid) return null;\n      const added = appendMark("
+  },
+  {
+    "label": "RECORDER — a stale run closes a newer run's record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!rec || rec.run !== run || rec.closed) return { done: true };",
+    "to": "      if (!rec || rec.closed) return { done: true };"
+  },
+  {
+    "label": "RECORDER — a record that did not open is never opened again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    opened = said(await send({ op: \"begin\", run, ...opening }));\n    return opened;",
+    "to": "    opened = said(await send({ op: \"begin\", run, ...opening }));\n    opening = null;\n    return opened;"
+  },
+  {
+    "label": "RECORDER — a write is a detached promise, not held by the invocation",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (ctx && typeof ctx.waitUntil === \"function\") { try { ctx.waitUntil(p); } catch { /* the record never costs the job */ } }\n",
+    "to": ""
+  },
+  {
+    "label": "RECOVERY — the sweep never asks",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (!at.read || !at.rec || writerNeeded(at.rec, now) !== \"ask\") continue;\n    await askProgress(env, j.id, j.uid, now);",
+    "to": "    void at;"
+  },
+  {
+    "label": "RECOVERY — the cron does not run the sweep",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    ctx.waitUntil(runProgressSweep(env));\n",
+    "to": ""
+  },
+  {
+    "label": "QUEUE — a progress task is not run",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          await runProgressTask(env, progressTask);",
+    "to": "          void progressTask;"
+  },
+  {
+    "label": "GATEWAY — the Worker hands the gateway no progress door",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    progress: (ids, body) => progressFromJob(env, ids, body),\n",
+    "to": ""
+  },
+  {
+    "label": "LOG — the attempts are not logged",
+    "files": [
+      "worker.js"
+    ],
+    "from": "\"facts\", batch.facts.length, \"attempts\", out.attempts, \"tokens\"",
+    "to": "\"facts\", batch.facts.length, \"tokens\""
+  },
+  {
+    "label": "EDIT — the plan's milestone is not recorded",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (eJob && eJob.progress) eJob.progress.mark(\"plan\", editPlanFacts(steps));\n",
+    "to": ""
+  },
+  {
+    "label": "EDIT — the publish's milestone is not recorded",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (eJob && eJob.progress) eJob.progress.mark(\"publish\", editPublishFacts(done));\n",
+    "to": ""
+  },
+  {
+    "label": "ADD-ON — a design's milestone is not recorded",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (aJob && aJob.progress) aJob.progress.mark(\"designed\", addonDesignedFacts(k, clean.value, aDesigning.slice(aDesigning.indexOf(k) + 1)));\n",
+    "to": ""
+  },
+  {
+    "label": "POLL — a finished job's answer carries no lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  return JSON.stringify({ ...body, progress: lines });",
+    "to": "  return text;"
+  },
+  {
+    "label": "POLL — a running job's answer carries no lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        progress: eLines.length ? eLines : undefined,",
+    "to": "        progress: undefined,"
+  },
+  {
+    "label": "REQUEST — a request's view carries no lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (lines.length) out[j.id] = lines;\n",
+    "to": ""
+  },
+  {
+    "label": "FIND — a request's job is listed as standalone",
+    "files": [
+      "worker.js"
+    ],
+    "from": "(j.op !== \"edit\" && j.op !== \"addon\") || readJobKey(j.idem_key)) continue;",
+    "to": "(j.op !== \"edit\" && j.op !== \"addon\")) continue;"
+  },
+  {
+    "label": "FIND — the oldest twenty of the day are listed, not the newest",
+    "files": [
+      "worker.js"
+    ],
+    "from": "&order=created_at.desc&limit=${STANDALONE_JOBS_MAX}",
+    "to": "&order=created_at.asc&limit=${STANDALONE_JOBS_MAX}"
+  },
+  {
+    "label": "FIND — the newest are handed out newest first",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  for (const j of rows.slice().reverse()) {",
+    "to": "  for (const j of rows) {"
+  },
+  {
+    "label": "FIND — a job ended more than a day ago is listed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (ended && !(Number.isFinite(when) && Date.now() - when <= PROGRESS_DISCOVERY_MS)) continue;\n",
+    "to": ""
+  },
+  {
+    "label": "VIEW — a part's lines are left off the request's view",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...((lines) => (lines.length ? { progress: lines } : {}))(partProgress(p, progress)),\n",
+    "to": ""
+  },
+  {
+    "label": "GATEWAY — a pre-scoped build writes progress",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "      if (typeof progress !== \"function\") return json(503, { error: \"no progress\" });\n      if (who.pre === true) return json(403, { error: \"not a site job\" });",
+    "to": "      if (typeof progress !== \"function\") return json(503, { error: \"no progress\" });"
+  },
+  {
+    "label": "GATEWAY — the body's job id is written",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "      try { out = await progress({ id: who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }",
+    "to": "      try { out = await progress({ id: typeof body.id === \"string\" ? body.id : who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }"
+  },
+  {
+    "label": "GATEWAY — a bad op is not refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "Array.isArray(body) || ![\"begin\", \"mark\", \"close\"].includes(body.op)) return json(400, { error: \"bad progress\" });",
+    "to": "Array.isArray(body)) return json(400, { error: \"bad progress\" });"
+  },
+  {
+    "label": "CONTAINER — the container's recorder posts somewhere else",
+    "files": [
+      "builder/container-env.mjs"
+    ],
+    "from": "String(gateway.url).replace(/\\/+$/, \"\") + \"/progress\", {",
+    "to": "String(gateway.url).replace(/\\/+$/, \"\") + \"/progres\", {"
+  },
+  {
+    "label": "PAGE — a job this page watches is drawn again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (editWatched.has(v.job)) return;\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a job this page remembers is drawn again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (rec && rec.job === v.job) return;\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a job whose reply this page shows or holds is drawn again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if ((s.msgs || []).some((m) => m && (m.jobCard === v.job || (Array.isArray(m.jobs) && m.jobs.includes(v.job)) || (EditPoll.heldOf(m) && EditPoll.heldOf(m).job === v.job)))) return;",
+    "to": "  if ((s.msgs || []).some((m) => m && m.jobCard === v.job)) return;"
+  },
+  {
+    "label": "PAGE — a found job is put at the end, not where it falls in time",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  for (let i = 0; i < s.msgs.length; i++) { const t = siteReqMsgAt(s, s.msgs[i]); if (t !== null && t > when) { at = i; break; } }\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a found job's reply is said twice",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (s.msgs.some((x) => x && x.r === 'a' && !x.jobCard && Array.isArray(x.jobs) && x.jobs.includes(job))) return;\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a request's reply is put under a found job's card",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": " && !s.msgs[end + 1].req && !s.msgs[end + 1].jobCard) end++;",
+    "to": " && !s.msgs[end + 1].req) end++;"
+  },
+  {
+    "label": "PAGE — a found job's card shows its raw state, not the fixed label",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const st = Object.hasOwn(SITE_JOB_STATUS, v.state) ? SITE_JOB_STATUS[v.state] : SITE_JOB_RUNNING;",
+    "to": "  const st = { cls: String(v.state), label: String(v.state) };"
+  },
+  {
+    "label": "PAGE — the requests list's jobs are not read",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    for (const v of Array.isArray(b.jobs) ? b.jobs : []) siteJobDiscovered(origin, v);\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a watched job's lines are not kept on its reply",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (add.length) m.prog = kept.concat(add);\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a watched job is not named on its reply",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!jobs.includes(job)) m.jobs = jobs.concat([job]);\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — the watch's finish keeps no lines",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    try { if (before >= 0) siteKeepJobProgress(origin, job, before, lines); } catch (err) { /* the lines are the server's to give again */ }\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — the newest line is not painted while the job runs",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      if (siteBuild && siteOpenId === origin && (siteBuild.progressLine || '') !== line) { siteBuild.progressLine = line; paintReactLive(); }\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — the bubble ignores the newest line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!stBuildRunning() && !sb.waitNote && sb.progressLine) return '<div class=\"st-steps st-steps-live\"><div class=\"st-think st-think-prog\"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — the newest line is put ahead of the waiting sentence",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!stBuildRunning() && !sb.waitNote && sb.progressLine)",
+    "to": "  if (!stBuildRunning() && sb.progressLine)"
+  },
+  {
+    "label": "PAGE — no line is marked live",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    return live && i === list.length - 1",
+    "to": "    return false"
+  },
+  {
+    "label": "PAGE — a line is drawn unescaped",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      : '<li>' + at + esc(l.text) + '</li>';",
+    "to": "      : '<li>' + at + l.text + '</li>';"
+  },
+  {
+    "label": "PAGE — a request part's lines are not drawn",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "'<span class=\"st-req-status\">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';",
+    "to": "'<span class=\"st-req-status\">' + esc(label) + '</span>' + rewrite + '</li>';"
+  },
+  {
+    "label": "POLL READER — a line with a bad number is read",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "      if (!t || typeof p.n !== \"number\" || !isFinite(p.n) || p.n < 0 || Math.floor(p.n) !== p.n) continue;",
+    "to": "      if (!t) continue;"
+  }
+]

@@ -1078,3 +1078,52 @@
   concrete restriction needed before running the batch."* So "never" is said
   only of what is refused before the server runs it; what is detected and
   stopped afterward, or seen only in the after-read, is said as such.
+
+## What you've asked for since (2026-10-06)
+
+- **Progress while an Edit or Add-on runs is the model's own words, from
+  what really happened** (2026-10-06, approving the progress plan): *"Proceed
+  with model-written progress for Edit and Add-on using the recommended
+  defaults: the existing selected quick model, platform-absorbed narration
+  cost, progress retained above the final reply, both request and
+  standalone-job paths, and fixed status labels alongside natural
+  model-written messages."* So a line is written by the customer's own quick
+  model, costs the customer nothing, stays above the final reply once it
+  arrives, appears for a request's parts and for a job the page filed
+  itself, and never replaces the fixed status label beside it.
+- **A model's account of what it said is not proof of what it said**
+  (2026-10-06): *"do not claim that matching says metadata proves the prose
+  truthful; ground the model in verified facts, distinguish designed, saved,
+  applied and published outcomes, test contradictory prose with otherwise
+  valid metadata, and document the remaining model limitation without adding
+  keyword-based message filters."* So a check on a model's structured
+  answer is described as exactly that; the case where the answer is right
+  and the words are wrong is tested and written down as a limit; and words
+  are never filtered by keyword.
+- **Background work has one owner, survives on its own, and rides the
+  task's own lifecycle** (2026-10-06): *"Define one writer per job with
+  recoverable persistence, queue delivery and index updates; recovery must
+  work without another milestone or an open browser. Tie background
+  recording to the existing Worker/container task lifecycle rather than
+  detached promises."* So a background writer holds a lease, its state is
+  kept so a lost message or a dead writer is picked up by the server itself
+  (no page, no further event needed), and a write the job starts is held by
+  the invocation's own `waitUntil`, never left floating.
+- **Nothing is written after the work has ended** (2026-10-06): *"Check
+  authoritative job state and writer ownership before starting and
+  committing narration so completion, failure, cancellation or a newer
+  attempt cannot produce stale updates after the final reply."* So the
+  job's own row and the writer's lease are read before a call starts and
+  again before its result is kept, and any window that remains is named.
+- **Another device sees the same work, and the retention is stated as it
+  is** (2026-10-06): *"Make cross-device discovery work for both supported
+  paths and state the actual retention window."*
+- **Short instructions, no arbitrary length limit** (2026-10-06): *"Keep
+  instructions concise rather than relying on an arbitrary short character
+  limit that silently suppresses useful updates."*
+- **Measure calls; never promise a count** (2026-10-06): *"log actual model
+  attempts, tokens and latency rather than promising exact call counts."*
+- **A new feature ships off, with its evidence, for review** (2026-10-06):
+  *"Keep the feature off by default, push the implementation and evidence
+  for review, and update owner-notes. No merge, deployment, container image
+  build, paid test or unrelated backlog work."*

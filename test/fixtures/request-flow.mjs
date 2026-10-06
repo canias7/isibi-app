@@ -52,7 +52,9 @@ const SEQUENCED = new Set(["route", T.pick, T.tweak, T.pages, T.adds]);
 // `site_backends` and the project's own connection — for a part that writes a
 // row. Without it the site has no database, as before.
 const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null } = {}) {
+// `progress` (2026-10-06): `PROGRESS_REPLIES` on, and `progressWith` the
+// progress writer's own pace, faults or answer, as `replyWith` is the reply's.
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -143,11 +145,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const hangs = [];
   const putFaults = [];
   const getFaults = [];
+  // A READ OF THE JOB TABLE THAT FAILS (`failRead`, 2026-10-06): the service down for that one call.
+  const readFaults = [];
   const beforePuts = [];
   const beforeDeletes = [];
   const rpcFaults = [];
   let sendHangs = 0;
   const replyLog = [];
+  // EVERY PROGRESS CALL'S FACTS, as the writer was shown them (2026-10-06).
+  const progressLog = [];
   const filed = new Map();
   const afters = [];
   const hung = { promise: null, resolve: null, what: null };
@@ -332,7 +338,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     deploy_gate_read() { return { ok: true, blocked: false }; },
   };
   // ── THE MODEL ─────────────────────────────────────────────────────────────
-  const answerFor = (key, args) => {
+  // A FUNCTION'S ANSWER MAY BE A PROMISE (2026-10-06): a case can hold a step
+  // mid-job — a designer that waits on the case — while it delivers something
+  // else beside the job, as the real queue runs a progress task beside it.
+  const answerFor = async (key, args) => {
     const a = answers[key];
     if (typeof a === "function") return a(args, nextN(key));
     if (SEQUENCED.has(key) && Array.isArray(a)) return a[nextN(key)];
@@ -360,22 +369,38 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       replyLog.push(facts);
       return say(tool, { reply: facts.map((f) => f.text).join(" "), covers: facts.map((f) => f.id) });
     }
-    if (tool === T.route) { const a = answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
+    // THE PROGRESS WRITER, SUPPLIED (2026-10-06): it answers each fact in its
+    // own words and its own state, so a test reads which facts a line covered —
+    // the facts are the code's; the wording would be a model's. `progressWith`
+    // may hold it (a slow model), refuse it (`{ status }`) or answer for it
+    // (`{ answer }`: a misstated or contradictory update, say).
+    if (tool === "write_progress" && !Object.hasOwn(answers, "write_progress")) {
+      const text = userText(args);
+      const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => ({ id: m[1], state: m[2], text: m[3] }));
+      if (typeof progressWith === "function") {
+        const how = await progressWith({ n: nextN("write_progress"), facts, text, signal });
+        if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
+        if (how && how.answer) { progressLog.push(facts); return say(tool, how.answer); }
+      }
+      progressLog.push(facts);
+      return say(tool, { text: facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) });
+    }
+    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
     if (tool === T.lane) {
       const field = Object.keys(props)[0] || "";
       if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
       const a = answers["lane:" + field];
-      const v = typeof a === "function" ? a(args, nextN("lane:" + field)) : a;
+      const v = typeof a === "function" ? await a(args, nextN("lane:" + field)) : a;
       return say(tool, v && typeof v === "object" && Object.hasOwn(v, "question") && Object.keys(v).length === 1 ? v : { [field]: v });
     }
     if (tool === T.design) {
       const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
       if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 503 });
       const a = answers["add:" + kind];
-      return say(tool, typeof a === "function" ? a(args, nextN("add:" + kind)) : a);
+      return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a);
     }
     if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
-    return say(tool, answerFor(tool, args));
+    return say(tool, await answerFor(tool, args));
   }
   // ── THE WIRE ──────────────────────────────────────────────────────────────
   const real = globalThis.fetch;
@@ -429,10 +454,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     }
     if (url.includes("/auth/v1/user")) return resp(USER);
     if (/\/rest\/v1\/edit_jobs\?/.test(url)) {
+      const rf = readFaults.findIndex((x) => x.match(url));
+      if (rf >= 0) { readFaults.splice(rf, 1); return new Response("unavailable", { status: 503 }); }
       const q = new URL(url).searchParams;
       let rows = [...jobs.values()];
       const id = q.get("id"); if (id && id.startsWith("eq.")) rows = rows.filter((j) => j.id === id.slice(3));
       const nr = q.get("needs_review"); if (nr === "eq.true") rows = rows.filter((j) => j.needs_review);
+      // ITS ORDER AND ITS LIMIT, AS POSTGREST APPLIES THEM (2026-10-06): a
+      // read that asks for the newest twenty gets the newest twenty.
+      const ord = /^([a-z_]+)\.(asc|desc)$/.exec(q.get("order") || "");
+      if (ord) rows.sort((a, b) => (a[ord[1]] > b[ord[1]] ? 1 : a[ord[1]] < b[ord[1]] ? -1 : 0) * (ord[2] === "desc" ? -1 : 1));
+      const lim = Number(q.get("limit"));
+      if (Number.isInteger(lim) && lim > 0) rows = rows.slice(0, lim);
       return resp(rows.map(({ seqs, ...r }) => ({ ...r, publish_started_at: r.publish_started_at ? new Date(r.publish_started_at).toISOString() : null, published_at: r.published_at ? new Date(r.published_at).toISOString() : null })));
     }
     if (url.includes("/rest/v1/edit_traces")) return new Response(null, { status: 201 });
@@ -450,7 +483,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   };
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
-    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}),
+    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}),
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }
@@ -488,7 +521,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     return fn();
   }
   const P = {
-    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, hung, filed,
+    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, hung, filed,
     now, run,
     /** Move the clock: leases, the question's day, the sweeps' windows. */
     advance(ms) { clock += ms; },
@@ -510,6 +543,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     losePut(match, then) { putFaults.push({ kind: "lose", match, then }); },
     /** The next read of a key `match(key)` accepts throws. */
     failGet(match) { getFaults.push({ match }); },
+    /** The next read of the job table whose address `match(url)` accepts answers 503. */
+    failRead(match) { readFaults.push({ match }); },
     /** Before the next write to a key `match(key)` accepts, run `then(key)`; the write then meets what it left. */
     beforePut(match, then) { beforePuts.push({ match, then }); },
     /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */
@@ -527,6 +562,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** What a job's stored answer said. */
     answerOf(j) { try { return JSON.parse(j.result.body); } catch { return null; } },
     record(key) { const o = objects.get("requests/" + slug + "/" + key + ".json"); return o ? JSON.parse(o.body) : null; },
+    /** A job's progress record as the bucket holds it (2026-10-06). */
+    progressOf(jobId) { const o = objects.get("jobs/" + jobId + ".progress.json"); return o ? JSON.parse(o.body) : null; },
     question() { const o = objects.get("source/" + slug + "/question.json"); return o ? JSON.parse(o.body) : null; },
     page(path) { return (JSON.parse(objects.get(SOURCE_KEY(slug)).body).find((p) => p.path === path) || {}).source; },
     pages() { return JSON.parse(objects.get(SOURCE_KEY(slug)).body).map((p) => p.path); },

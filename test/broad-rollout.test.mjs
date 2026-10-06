@@ -267,14 +267,17 @@ test("THE BUDGET BLOCK, EVALUATED THROUGH THE CONSUMER'S OWN SIGNATURE: what eac
   // `opts` goes through the REAL destructure; nothing below names a parameter
   // the source does not declare, so a dropped or renamed `budgetMs` is a
   // ReferenceError here rather than a silent fallback.
-  const run = new Function("opts", "inlineBudgetMs", "makeEditBudget", "makeJobCtx", "console", "id", "env", "owner", "job", "Date", "Math",
+  // `progress` (2026-10-06) is the job's progress recorder, made above the
+  // block and handed to the context beside the budget; null here, as with
+  // progress off.
+  const run = new Function("opts", "inlineBudgetMs", "makeEditBudget", "makeJobCtx", "console", "id", "env", "owner", "job", "Date", "Math", "progress",
     "const " + destructure + " = opts || {};\n" + block + "\nreturn jctx;");
   const totals = [];
   const drive = (opts, now) => {
     logs.length = 0;
     return run(opts, (a, b) => inlineBudgetMs(a, b, now), (total) => { totals.push(total); return { total }; },
       (_e, o) => o, { log: (...a) => logs.push(a.join(" ")) }, "e_x", {}, "c_x", { uid: "u", slug: "s" },
-      { now: () => now }, Math);
+      { now: () => now }, Math, null);
   };
   // THE CONTAINER'S CALLER, spelled exactly as `runContainerJob` spells it: the
   // cap arrives whole at `makeEditBudget`.

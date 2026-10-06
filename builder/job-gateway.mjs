@@ -524,7 +524,7 @@ export function readWire(b) {
   return { mode, ms, everyMs };
 }
 
-export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null, next = null, reply = null }) {
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null, next = null, reply = null, progress = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -675,6 +675,30 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       let ok = false;
       try { ok = (await reply({ id: who.id, uid: who.uid })) === true; } catch { ok = false; }
       return ok ? json(200, { ok: true }) : json(409, { error: "no reply asked" });
+    }
+
+    // ── THE PROGRESS OP (2026-10-06): a running job records its milestones ──
+    //
+    // The container has no queue and no write to `jobs/` outside its own
+    // objects' rules, so the job's recorder (`makeProgress` in worker.js) asks
+    // the Worker to open, add to and close the job's progress record. Bound to
+    // the job's own token — its id, its site and its owner, never anything the
+    // body names — and every op is idempotent on the Worker's side: a
+    // milestone carries the recorder's own number. A pre-scoped build has no
+    // progress. The body is bounded like a Supabase call's.
+    if (tail === "/progress" && request.method === "POST") {
+      if (typeof progress !== "function") return json(503, { error: "no progress" });
+      if (who.pre === true) return json(403, { error: "not a site job" });
+      const len = Number(request.headers.get("content-length") || 0);
+      if (len > SB_MAX_BODY) return json(413, { error: "request too large" });
+      const text = await request.text();
+      if (text.length > SB_MAX_BODY) return json(413, { error: "request too large" });
+      let body = null;
+      try { body = JSON.parse(text); } catch { body = null; }
+      if (!body || typeof body !== "object" || Array.isArray(body) || !["begin", "mark", "close"].includes(body.op)) return json(400, { error: "bad progress" });
+      let out = null;
+      try { out = await progress({ id: who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }
+      return out && out.ok === true ? json(200, { ok: true }) : json(409, { error: "not recorded" });
     }
 
     if (!bucket) return json(503, { error: "no bucket" });
