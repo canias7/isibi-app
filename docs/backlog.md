@@ -104,6 +104,32 @@ here; take a closed one out of both.**
     are in that file's §7: the judgment's quality is the model's, it sees
     the design and not the published result, and a part a designer built
     for an extra anyway is not undone.
+  - **The third half, on the owner's review** (2026-10-06, not merged or
+    deployed; `docs/history/2026-10-06-incomplete-judgment.md`): a judgment
+    that left a requirement without a verdict let it vanish. The owner
+    reproduced "Add a signup form and send a confirmation email to each
+    person who signs up" with `{ verdicts: [] }`: no failure, the email
+    unjudged, an empty cover note, and the route went on. **Now** every
+    requirement needs a usable verdict, before a hand-off and at the end; an
+    answer that leaves any without one is asked once more, naming each and
+    why; still short (or cut off), the addition stops before anything is
+    applied or charged, with a sentence that asks the customer for nothing.
+    "unsure" stays a whole verdict. Shown with supplied answers through the
+    real route; not shown live.
+- **The cover note names at most two or three requirements per clause, and
+  the rest reach neither the note nor the reply** (found 2026-10-06, writing
+  `test/addon-judgment.test.mjs`; not fixed, outside that fix):
+  - **The code** (`requirementNote`, `builder/site-requirements.mjs`): "Still
+    to do" names the first three, and the blocked, "I've set that up, but I
+    can't confirm…", scheduled and "I can't see from here whether…" clauses
+    the first two. Only "One thing your site can't do yet" says how many more
+    ("And N more like it.").
+  - **Why it matters**: the cover note is the only way requirements reach the
+    reply model (`coverNote` → a `not-done` fact, `builder/site-reply.mjs`).
+    A third requirement told as set up and unchecked is in the stored record
+    and nowhere the customer reads.
+  - **Not measured live**; read from the code. The new cases keep to two per
+    clause so they test the judgment, not this cap.
 - **The add-on route's test harness shares one stored-schema cache between
   cases** (found 2026-10-05, writing `test/addon-judgment.test.mjs`):
   - **What happens**: every slug's ownership row names the same database
@@ -117,7 +143,8 @@ here; take a closed one out of both.**
     until the case cleared the key.
   - **Now**: `test/addon-judgment.test.mjs` clears that key before each case
     (`invalidateSiteSchema(connForDatabase(SITE_CONN, "sitedb"))`); the 16
-    other harness files do not, and pass.
+    other harness files do not, and pass (713 cases across the 17, on
+    2026-10-06).
   - **The fix it needs**: the harness clearing the key itself on every call,
     then a run of those 16 files to see what each case really started from.
     Not done here: it is outside this fix's scope.

@@ -1148,6 +1148,17 @@ the owner's free press, run 51, at 22:57 UTC):
       or set aside and never told as set up; a notification they asked for
       and the storage a form needs are still reported. **Supplied answers
       through the real route**; not shown live.
+    - **The third half: a judgment that does not finish** (2026-10-06, on
+      the owner's review; on the branch, not merged or deployed;
+      `docs/history/2026-10-06-incomplete-judgment.md`): an empty, partial
+      or malformed judgment let a requested part vanish from the hand-off
+      and the report (the owner's "Add a signup form and send a confirmation
+      email to each person who signs up"). Every requirement now needs a
+      usable verdict at both stages; one more call names what is missing;
+      still short or cut off, the addition stops before anything is applied,
+      charged or published, and asks the customer for nothing. "unsure"
+      stays a whole verdict. **Supplied answers through the real route**;
+      not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

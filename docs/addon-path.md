@@ -496,8 +496,14 @@ line:
   and which listed thing carries it out. It runs before a requirement is
   handed to a later step (meaning only) and after the last designer (with
   everything designed in view). An optional one is offered as a suggestion;
-  an unrelated one is recorded (`setAside`); one it did not judge is never
-  told;
+  an unrelated one is recorded (`setAside`). **Every requirement it is shown
+  needs a verdict anybody can use** (2026-10-06,
+  `docs/history/2026-10-06-incomplete-judgment.md`): an answer that leaves
+  any without one is asked once more, naming each and why (the reply
+  writer's bound: two calls at most); still short, or cut off, the addition
+  stops before anything is applied or charged (`aDown`, `incomplete: true`)
+  with a sentence that asks the customer for nothing. `unsure` is a whole
+  verdict, and a malformed one is never read as it;
 - **execution (code)**: every thing it names must be one it was shown, and
   must really have been applied or already be there — for a table, with the
   part that does the work (`tableParts`: `notify`, `confirm`, `sms`,

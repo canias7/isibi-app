@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 00:10 UTC)
+## Current handoff — read this first (2026-10-06, 01:12 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,65 +9,73 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The branch** is `main` plus two batches on top of `d53caefc`. Neither is
+- **The branch** is `main` plus three batches on top of `d53caefc`. None is
   merged or deployed, and no image is built:
   - **run 101's correction batch** (`936295a5`): the three corrections you
-    passed are kept as they were (the preview kept through polling, the
-    settled page facts, the reopened tab's preview check), with the
-    grounding they came with;
-  - **the requirement gap's second half** (`0f94d159`, on your review): a
-    genuine quote no longer makes a requirement yours. A model call judges
-    what each requirement means and what carries it out; code checks that
-    what it names was shown and really ran, with the part of a table that
-    does the work (`docs/history/2026-10-05-judgment.md`).
+    passed (the preview kept through polling, the settled page facts, the
+    reopened tab's preview check), with the grounding they came with;
+  - **the requirement judgment** (`0f94d159`, which you passed): a model
+    call judges what each requirement means; code checks what really ran;
+  - **the incomplete-judgment fix** (`4b6271ff`, on your review): every
+    requirement needs a usable verdict before a hand-off and at the end. One
+    more call names whatever the first answer left out. If it's still short
+    or cut off, the addition stops before anything is applied, charged or
+    published, and asks the customer for nothing
+    (`docs/history/2026-10-06-incomplete-judgment.md`).
 - **Evidence**, all with supplied model answers through the real add-on
   route; nothing is shown live:
-  - **your two examples**: the confirmation email quoting "leave their name
-    and email address" is offered as an idea and never called set up. The
-    SMS reminder quoting "book a lesson" is judged before it can be handed
-    on, so the page designer never sees it, and nobody hears about a text;
-  - **what you do ask for is still reported**: "email me each time someone
-    signs up" is carried by the table's own owner-email part, the storage a
-    form needs by the table. An email you asked for that the platform
-    couldn't set up says "Still to do";
-  - **the facts the reply model gets** were checked in each case;
-  - **the red check**: the 9 cases that can run on the old code all fail
-    there, each on the defect itself;
-  - **the sweep**: 37 of 37 planted defects caught on the final code, and
-    the 3 controls survived. The first run found two gaps (35 of 37), and I
-    closed both;
-  - **the suite**: `9519 / 9519 / 0 / 0` here (the 9,502 before, plus the
-    17 new cases). Your three passed corrections are among them, unchanged.
-- **CI on `0f94d159` is complete and green**:
-  - unit tests (run 37392639709): `9519 / 9507 / 0 / 12`, the same total as
-    here; CI skips its usual 6 and the 6 real-browser cases;
-  - the site build (run 37392639829): all seven jobs and the gate passed,
-    *"404 checks in 27 sections across 4 shards, every job green"*.
-  - The previous push's two red runs (the site build on `936295a5`, run
-    37371311514; the unit tests on `4315ab4d`, run 37373999399) were GitHub
-    runner shortages: zero steps ran and no check failed. This push ran
-    both workflows in full, so neither needs a re-run.
-- **Money**: balance **21** (read at 00:02 UTC on 6 October: last ledger
-  row 392, no job open). Nothing was spent in this batch.
+  - **your example** ("Add a signup form and send a confirmation email to
+    each person who signs up"):
+    - an empty answer is asked again and, once whole, gives exactly the
+      whole answer's result: the email reported, the form's email field
+      handed to the page step, one charge of the same size;
+    - an empty answer that never finishes stops: 503, nothing applied,
+      nothing charged, no question, nothing to repeat;
+  - **partial and invalid answers** (a word outside the lists, a "yes"
+    naming nothing it was shown, a wrong id): asked again naming why,
+    finished; still wrong twice, the addition stops;
+  - **a real "unsure"** is not asked again and is still told ("I can't see
+    from here whether…");
+  - **the red check**: 7 of 23 cases fail on the old code, each on the
+    omission; the controls pass on both;
+  - **the sweeps**: 30 of 30 planted defects caught for this fix; the
+    previous round's, re-run, 36 of 37, and the one survivor can no longer
+    happen (history §5). The controls survived in both;
+  - **the suite**: `9525 / 9525 / 0 / 0` here (the 9,519 before, plus the
+    6 new cases). Your earlier corrections are among them, unchanged.
+- **CI**: running on this push; I read it and record it next.
+- **Money**: balance **21** (read at 01:01 UTC on 6 October: last ledger row 392, no job open). Nothing was
+  spent in this batch.
 
 **Yours to decide**
-- **Nothing to re-run**: every required job ran and passed.
-- **Review the fix** (`docs/history/2026-10-05-judgment.md`, with its limits
-  in §7).
-- **Then, if you want it live**: merge and deploy (the image would roll
-  from deploy 2184's `589e3e4e85a20066` to `08b996804d8121ea`; predicted,
-  not built). Decide whether a paid press should show any of it. The
-  judgment adds about one credit to a typical add-on; that's an estimate,
-  not a measurement.
+- **Nothing to press yet**: CI is being read.
+- **Review the fix** (`docs/history/2026-10-06-incomplete-judgment.md`, with
+  its limits in §6).
+- **The refusal limit** (history §6): when a designer refuses its part and
+  the judgment beside it doesn't finish, the refusal can't name the other
+  things asked for. Say if you want that changed; I left it as the earlier
+  round built it.
+- **Then, if you want it live**: merge and deploy (the image would roll:
+  from deploy 2184's `589e3e4e85a20066` to `7107b9a349d84ca8`;
+  predicted, not built). Decide whether a paid press should show any of it.
+- **The judgment's cost** (estimates from the requests' size, not measured):
+  about 0.4–0.7 of a credit per call on a typical add-on and up to about 1.2
+  on a large one, with one call before each hand-off and one at the end. On
+  the bill that's about +1 credit typical and +2–3 large. A second call,
+  when an answer is unfinished, costs about the same again and is on us.
 
 **Still open** (`docs/backlog.md`)
-- **Limits of this fix** (history file §7):
-  - the judging is only as good as the model;
+- **New**: the cover note names at most two or three requirements per
+  sentence, and the rest reach neither the note nor the reply.
+- **Limits of the judgment** (history files' limits sections):
+  - the judging is only as good as the model, and a whole but wrong answer
+    passes;
   - it sees the design, not the published result;
-  - a part a designer builds for an extra anyway isn't removed.
-- **New**: the add-on route's test harness shares one cached stored schema
-  between cases. The new test file clears it, and the harness-wide fix is
-  listed.
+  - a part a designer builds for an extra anyway isn't removed;
+  - a cut-off answer isn't asked again.
+- The add-on route's test harness shares one cached stored schema between
+  cases (the judgment's test file clears it; the harness-wide fix is
+  listed).
 - An old request's own reply with no record is still asked for whenever it is
   read.
 - A data edit's reply can't name the change; the new page's own menu label;
@@ -80,7 +88,8 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This fix: `docs/history/2026-10-05-judgment.md`.
+- This fix: `docs/history/2026-10-06-incomplete-judgment.md`.
+- The judgment it completes: `docs/history/2026-10-05-judgment.md`.
 - Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
@@ -143,6 +152,86 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: a judgment that leaves a requirement out is asked once more, then the addition stops (on the branch; nothing spent, merged or deployed)
+
+- **What you found, reproduced first**: on "Add a signup form and send a
+  confirmation email to each person who signs up", a judgment answering
+  `{ verdicts: [] }` was not a failure. The email was left unjudged, the
+  cover note came back empty, and the route went on to apply and publish.
+  The email you asked for was gone from the hand-off and from the reply.
+- **Four more ways to the same end**, found by reading the same path: a list
+  that leaves one out; a verdict that isn't one of the allowed words; a
+  verdict under an id it was never given; and a "yes" naming nothing it was
+  shown, which was quietly turned into "unsure". An answer that wasn't a
+  list at all told the customer "The builder is busy — try again in a
+  moment", asking them to send again what they had already said clearly.
+- **The rule now**:
+  - every requirement needs a verdict anybody can use, both before a
+    hand-off and at the end;
+  - if the answer leaves any out, the model is asked once more, with each
+    one named and why. That's the bound the reply writer already uses: two
+    calls at most;
+  - still short, or cut off by its token limit, the addition stops before
+    anything is applied, charged or published, and the customer reads: *"I
+    couldn't finish checking that addition against what you asked, so I
+    stopped before changing anything — this is on us, and nothing was
+    charged."* It's not a question, and it doesn't ask them to repeat
+    anything;
+  - "unsure" stays a proper answer and is never asked again. A broken answer
+    is never read as "unsure";
+  - optional and unrelated ideas, and the checks that what's named really
+    ran, are as you passed them.
+- **Charging**: one judgment call is billed per stage, the first. The second
+  call is the model finishing its own answer, so it's on us. A recovered
+  addition costs the customer exactly what a whole first answer would have.
+- **Cost of the judgment calls** (estimates from the real requests' size,
+  at list price, with no cache discount; any hidden reasoning tokens aren't
+  counted):
+  - one call before each hand-off and one at the end. For your message
+    that's about 0.42 and 0.46 of a credit; on a typical add-on about
+    0.6–0.7 each; on a large one up to about 1.2;
+  - on the customer's bill, about +1 credit for a typical add-on and +2–3
+    for a large one with a hand-off. The bill rounds up once, over all the
+    add-on's calls;
+  - the second call, when it happens, costs about the same again, and it's
+    on us;
+  - one call can't exceed 6 credits of output: an answer that long is cut
+    off and stops the addition.
+- **Checked**:
+  - six new cases through the real add-on route, on your exact message: a
+    whole answer (the control); an empty answer, recovered at both stages
+    and charged the same as the control; an empty answer that never finishes
+    (stops, nothing applied or charged, nothing to repeat); a partial answer
+    recovered and not; four kinds of invalid answer recovered and one not;
+    and a real "unsure", which isn't asked again and is still reported;
+  - three older cases re-anchored, because they had asserted the defect;
+    and a cut-off answer and an unnamed requirement covered;
+  - the cases that can run on the old code fail there: 7 of 23, each on the
+    omission itself (the email missing from the report, or the report
+    empty, while the addition went on). The controls pass on both;
+  - the mutation sweeps: 30 of 30 planted defects caught for this fix, and
+    the 3 controls survived. The previous round's sweep, re-run, catches 36
+    of 37. The one that survives can no longer happen: it needs an unjudged
+    requirement to reach a hand-off, and that now stops the addition;
+  - the full suite: `9525 / 9525 / 0 / 0` here (the 9,519 before, plus the
+    6 new cases);
+  - CI: read after the push; the handoff has the result.
+- **Found, not fixed** (you said not to widen this): the cover note names at
+  most two requirements in most of its sentences (three in "Still to do"),
+  with no count of the rest. A third requirement told as set up then
+  reaches neither the note nor the reply. It's a new backlog item.
+- **A limit to know about**: when a designer refuses its part, nothing is
+  added and the refusal is the answer. If the judgment beside it also
+  doesn't finish, the refusal can't name the other things you asked for
+  (for example "your site can't take bank transfers yet"), because nothing
+  judged them.
+- **Your earlier corrections are untouched**: run 101's three and the
+  requirement judgment. Their tests are in the suite above.
+- **Not merged, not deployed, no image built, nothing pressed or spent.**
+
+**Recorded in**: `docs/history/2026-10-06-incomplete-judgment.md`, the
+backlog, the checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-05 — Your review of the run 101 batch: a requirement's quote no longer makes it yours — a model judges what it means, code checks what ran (on the branch; nothing spent, merged or deployed)
 
