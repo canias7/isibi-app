@@ -275,7 +275,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -29990,6 +29990,56 @@ async function handleRequest(request, env, ctx) {
             const aCoverage = () => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
+              // ── WHAT EACH REQUIREMENT CAME TO, WHOLE (2026-10-06) ──────────
+              //
+              // Codex: four requirements left undone, the note named three,
+              // and the reply model, given only the note, never heard of the
+              // fourth. The report is every requirement the customer hears
+              // about (`requirementsTold`); the reply's facts are written from
+              // it one by one, and the note from it whole.
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true });
+              // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
+              // rather than about a requirement: the reply's facts carry it
+              // beside the requirements (`coverOther`), never twice.
+              const aOther = [
+                // THE PROPERTY COUNTS: names the design used that the
+                // database does not offer, or that this step could not carry.
+                propertyNote(aRep.invalid, aRep.unexpressed),
+                // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
+                // into the requirements' sentences: those are about
+                // REQUIREMENTS the designers declared, and a page that did not
+                // survive the writer is a fact about this change whether or
+                // not anybody wrote a requirement for it.
+                missingPagesNote(aMissing),
+                // …AND THE PARTIAL OUTCOME'S OWN SENTENCE, joined here for
+                // exactly the reason the missing pages' is: a thing the
+                // design asked for and this step could not build is a fact
+                // about this change whether or not a requirement named it.
+                // Without it a change that built one of two things read as
+                // "✅ Done — updated /." and nothing else.
+                droppedNote([...aDropped.values()]),
+                // …AND WHAT WENT WITH THEM. Beside the sentence above,
+                // never instead of it: one says the page is not there, this
+                // says a code that was going to open it was not added — or,
+                // where a live page shows it, that it IS there and opens
+                // nothing yet. A customer who hears only about the page
+                // finds out about the code by scanning it.
+                deadQrNote(aDeadQr),
+                // THE SEED SKIPS, SAID (2026-09-15). Joined here for exactly
+                // the reason the missing-page sentence is: it is a fact about
+                // what this change did, not a claim the designers made. It
+                // says the EFFECT — the table starts empty — rather than our
+                // own rule about which tables get seeded, and it can never
+                // fire for a table nobody asked to seed, because the engine
+                // only records a skip against the design's own seed keys.
+                seedSkipNote(aSeedSkips),
+                // AND THE TABLE NOTHING CAN FILL. A report, never a refusal:
+                // a read-only table filled by a function, a job, an import or
+                // the owner is legitimate and stays silent. This fires only
+                // where this change also gave the table a reader, which is
+                // run 47's shape.
+                populationNote(aNoFill),
+              ].filter(Boolean);
               return {
                 // THE CUSTOMER'S HALF: a sentence, or nothing at all. Never the
                 // property names, never the counts, never the status tokens.
@@ -30006,44 +30056,13 @@ async function handleRequest(request, env, ctx) {
                 // proof the thing exists. `made` is what the apply really
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
-                coverNote: [
-                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true }),
-                  // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
-                  // into `requirementNote`: that function is about REQUIREMENTS
-                  // the designers declared, and a page that did not survive the
-                  // writer is a fact about this change whether or not anybody
-                  // wrote a requirement for it.
-                  missingPagesNote(aMissing),
-                  // …AND THE PARTIAL OUTCOME'S OWN SENTENCE, joined here for
-                  // exactly the reason the missing pages' is: a thing the
-                  // design asked for and this step could not build is a fact
-                  // about this change whether or not a requirement named it.
-                  // Without it a change that built one of two things read as
-                  // "✅ Done — updated /." and nothing else.
-                  droppedNote([...aDropped.values()]),
-                  // …AND WHAT WENT WITH THEM. Beside the sentence above,
-                  // never instead of it: one says the page is not there, this
-                  // says a code that was going to open it was not added — or,
-                  // where a live page shows it, that it IS there and opens
-                  // nothing yet. A customer who hears only about the page
-                  // finds out about the code by scanning it.
-                  deadQrNote(aDeadQr),
-                  // THE SEED SKIPS, SAID (2026-09-15). Joined here for exactly
-                  // the reason the missing-page sentence is: it is a fact about
-                  // what this change did, not a claim the designers made, and
-                  // `requirementNote` is about requirements. It says the EFFECT
-                  // — the table starts empty — rather than our own rule about
-                  // which tables get seeded, and it can never fire for a table
-                  // nobody asked to seed, because the engine only records a
-                  // skip against the design's own seed keys.
-                  seedSkipNote(aSeedSkips),
-                  // AND THE TABLE NOTHING CAN FILL. A report, never a refusal:
-                  // a read-only table filled by a function, a job, an import or
-                  // the owner is legitimate and stays silent. This fires only
-                  // where this change also gave the table a reader, which is
-                  // run 47's shape.
-                  populationNote(aNoFill),
-                ].filter(Boolean).join(" "),
+                // THE BROWSER PRINTS IT VERBATIM when there is no model reply:
+                // every requirement's sentence, then the rest, in that order.
+                coverNote: [toldNote(aRep.told), ...aOther].filter(Boolean).join(" "),
+                // THE REPLY'S HALF, one entry per requirement the customer
+                // hears about, and what the note says beside them.
+                requirementsTold: aRep.told.length ? aRep.told : undefined,
+                coverOther: aOther.length ? aOther.join(" ") : undefined,
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.

@@ -369,7 +369,10 @@ test("JUDGE 7 — the owner's first reproduction through the route: the confirma
   // THE FACTS THE REPLY MODEL IS GIVEN: the storage as set up-and-unchecked, the
   // email once — as an idea they could ask for — and nowhere as done or not done.
   const f = facts(r.body);
-  assert.ok(f.includes("not-done: I've set that up, but I can't confirm from here that Each signup is kept so the owner can read them — have a look and tell me if it isn't right."), JSON.stringify(f));
+  // ONE FACT PER REQUIREMENT, ITS KIND THE STATE'S (2026-10-06): set up and
+  // unchecked is done with something worth knowing, never "not done".
+  assert.ok(f.includes("note: Set up, but nothing here can check that it works: Each signup is kept so the owner can read them."), JSON.stringify(f));
+  assert.ok(!f.some((x) => /I've set that up/.test(x)), "the cover note was given to the reply model beside the requirements: " + JSON.stringify(f));
   assert.deepEqual(f.filter((x) => /confirmation email/.test(x)), ["note: Something they did not ask for, so nothing was made for it, which they could ask for if they want: “Every signup receives a confirmation email”."], JSON.stringify(f));
   assert.doesNotMatch(coverOf(r), /confirmation email/, coverOf(r));
   // AND THE TWO COMPOSED REPLIES AGREE.
@@ -438,7 +441,8 @@ test("JUDGE 9 — one message, three requirements: the storage they need and the
   assert.equal(rec.requirements[1].configuredBy, "signups: collect");
   assert.deepEqual(rec.setAside.map((s) => [s.need, s.follows]), [[EMAIL.need, "unrelated"]]);
   const f = facts(r.body);
-  assert.ok(f.includes("not-done: I've set that up, but I can't confirm from here that Each signup is kept so the owner can read them; or that The owner is emailed about each new signup — have a look and tell me if it isn't right."), JSON.stringify(f));
+  assert.ok(f.includes("note: Set up, but nothing here can check that it works: Each signup is kept so the owner can read them."), JSON.stringify(f));
+  assert.ok(f.includes("note: Set up, but nothing here can check that it works: The owner is emailed about each new signup."), JSON.stringify(f));
   assert.ok(!f.some((x) => /confirmation email/.test(x)), "an unrelated requirement reached the reply model: " + JSON.stringify(f));
   assert.equal(r.body.suggestions, undefined, "an unrelated requirement was offered as an idea");
 });
@@ -463,7 +467,7 @@ test("JUDGE 10 — a confirmation email they really asked for: carried by the ta
   assert.deepEqual([b.state, b.implementation, b.why], ["missing", "found", "the signups table does not do this"]);
   assert.match(coverOf(bad), /Still to do: Each person who signs up is emailed a confirmation/);
   assert.doesNotMatch(coverOf(bad), /I've set that up[^.]*emailed a confirmation/);
-  assert.ok(facts(bad.body).some((x) => /^not-done: .*Still to do: Each person who signs up is emailed a confirmation/.test(x)), JSON.stringify(facts(bad.body)));
+  assert.ok(facts(bad.body).includes("not-done: Not done: Each person who signs up is emailed a confirmation."), JSON.stringify(facts(bad.body)));
 });
 
 test("JUDGE 11 — a notification the site already sends: carried by the existing table's own part, found where it already was; on a table that sends nothing, the judgment says so and it is still to do", async () => {
@@ -664,7 +668,9 @@ const madeAll = (r) => {
   // NO SILENT OMISSION: the email they asked for, and the field it needs, in
   // the cover note and in the facts the reply model is given.
   assert.equal(coverOf(r), SET_UP);
-  assert.ok(facts(r.body).includes("not-done: " + SET_UP), JSON.stringify(facts(r.body)));
+  const told = facts(r.body);
+  for (const need of [SEND.need, FIELD.need]) assert.ok(told.includes("note: Set up, but nothing here can check that it works: " + need + "."), JSON.stringify(told));
+  assert.ok(!told.includes("not-done: " + SET_UP), "the cover note was given to the reply model beside the requirements");
   // …AND IN THE HAND-OFF: the page designer was told about the field.
   assert.match(promptFor(r, "page").text, /asks for their email address so the confirmation can be sent/, "the field was not handed to the page step");
   // ONE CHARGE.
@@ -769,9 +775,12 @@ test("JUDGE 14 — every report of requirements on the route is made with judgin
   // COMMENT LINES BLANKED FIRST (the repository's own scan rule): prose about a
   // call is not the call, and a parenthesis inside a comment would end it early.
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8").split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
-  const calls = [...src.matchAll(/\b(requirementNote|requirementRecord|requirementOutcomes)\(/g)];
+  // `requirementReport` SINCE 2026-10-06: the note and the reply's facts are
+  // both written from it. `requirementNote` stays in the pattern, so a call
+  // that comes back is held to the same rule.
+  const calls = [...src.matchAll(/\b(requirementNote|requirementReport|requirementRecord|requirementOutcomes)\(/g)];
   // THE OBSERVER IS ALIVE: the three readers really are called on the route.
-  assert.deepEqual([...new Set(calls.map((m) => m[1]))].sort(), ["requirementNote", "requirementOutcomes", "requirementRecord"]);
+  assert.deepEqual([...new Set(calls.map((m) => m[1]))].sort(), ["requirementOutcomes", "requirementRecord", "requirementReport"]);
   for (const m of calls) {
     // THE CALL'S OWN ARGUMENTS: from its opening parenthesis to the one that closes it.
     let depth = 0, end = -1;

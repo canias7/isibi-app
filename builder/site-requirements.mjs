@@ -1890,7 +1890,39 @@ export function reconcileHandoffs(outcomes) {
   });
 }
 
-export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false } = {}) {
+// ── WHAT THE CUSTOMER IS TOLD ABOUT EACH REQUIREMENT, AS DATA (2026-10-06) ──
+//
+// Codex reproduced four requirements a customer asked for, each left undone:
+// the note named the first three ("Still to do: a; b; c.") and the reply
+// model, handed only the note, never heard of the fourth. Every clause named
+// its first two or three, and one hid the rest behind "And N more like it."
+// The owner: *"every distinct requested outcome must reach the reply model and
+// its existing completeness checks, with accurate states and legitimate
+// deduplication preserved."* So the selection the note always made is
+// returned whole, one entry per requirement a customer hears about, and both
+// the note and the reply's facts are written from it.
+
+/**
+ * The sentence each requirement belongs to, in the note's order: the site
+ * cannot do it yet; the work is not there; a part of this change it needs did
+ * not work; it is there and nothing here checked it; a job is there and its
+ * running has not been seen; nothing here could see whether it is there.
+ */
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "unseen"]);
+
+/**
+ * WHAT THE CUSTOMER IS TOLD ABOUT EACH REQUIREMENT: `{ told, invalid,
+ * unexpressed }`. `told` is every requirement the note speaks of, each
+ * `{ need, told, state, why? }` — `told` from `TOLD`, `state` what
+ * `requirementOutcomes` found, `why` where the sentence gives one. No cut and
+ * no count: a list of seven is seven entries. `invalid` and `unexpressed` are
+ * the property names the note counts (`propertyNote`).
+ *
+ * THE DEDUPLICATION IS THE NOTE'S, unchanged (`spoken` below), and one more,
+ * exact: the same need in the same sentence is said once. Two different needs
+ * are two entries, and one need told two different ways is two.
+ */
+export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
@@ -1902,7 +1934,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // CONFIGURED SITS WITH UNVERIFIED IN WHAT THE CUSTOMER HEARS, and it should:
   // both mean "it is there and nothing here checked what it does", which is one
   // sentence to a person. The two are separate in the RECORD, where the
-  // difference is actionable.
+  // difference is actionable — and in `state` here, for the same reader.
   // ── A RECONCILED HAND-OFF IS SPOKEN FOR, AND MUST NOT BE SAID TWICE ──────
   //
   // After `reconcileHandoffs` both entries carry the same state, so listing
@@ -1919,18 +1951,10 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   const spoken = (r) => !(r && ((r.status === "elsewhere" && r.reconciledBy) || r.overruledBy || r.spokenForBy));
   const unsure = outcomes.filter(spoken).filter((r) => r.state === "unverified" || r.state === "configured");
   // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
-  // is inappropriate when implementation is unknown."* The clause below opens
+  // is inappropriate when implementation is unknown."* Its sentence opens
   // with exactly that, so a need whose implementation nobody could find gets
   // its own sentence rather than a claim about work that may not exist.
   const unseen = outcomes.filter(spoken).filter((r) => r.state === "unknown");
-  if (!unsupported.length && !broke.length && !blocked.length && !gone.length && !unsure.length
-    && !unseen.length && !bad.length && !lost.length) return "";
-  const parts = [];
-  if (unsupported.length) {
-    parts.push("One thing your site can't do yet: " + unsupported.slice(0, 3)
-      .map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
-    if (unsupported.length > 3) parts.push("And " + (unsupported.length - 3) + " more like it.");
-  }
   // ── "STILL TO DO" MEANS THE WORK IS NOT THERE, AND NOTHING ELSE ──────────
   //
   // It used to be said about any hand-off nobody delivered, whatever had been
@@ -1938,21 +1962,6 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // count_existing_bookings"* about a function that was live and answering. It
   // is reached now only from `missing` (this layer looked and the thing is not
   // there) and from a `covered` claim whose own step failed.
-  const absent = [...gone, ...broke];
-  if (absent.length) {
-    parts.push("Still to do: " + absent.slice(0, 3).map((r) => r.need).join("; ") + ".");
-  }
-  // A DIFFERENT SENTENCE FOR A DEPENDENCY, because it points somewhere else: a
-  // customer can act on "the part this needed didn't work" by asking about that
-  // part, where "still to do" invites them to ask for the same thing again.
-  if (blocked.length) {
-    parts.push("And this one is waiting on another part of the same change that didn't work: "
-      + blocked.slice(0, 2).map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
-  }
-  // THE HONEST CLAUSE, AND IT IS THE POINT OF THE THIRD STATE. What was built
-  // is built; what nothing here can confirm is said as exactly that, rather
-  // than left to the reply's "Done" to claim. It is deliberately an invitation
-  // to check rather than a warning: the ordinary case is that it works.
   // ── A SCHEDULED THING HAS ITS OWN UNVERIFIED HALF, AND IT IS NAMEABLE ────
   //
   // (owner, 2026-09-16: the intended meaning is *"Scheduled nightly at 23:00
@@ -1960,22 +1969,67 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // other kind, "I can't confirm" is a general limit — nothing on this path
   // exercises behaviour. For a JOB it is one specific thing: the schedule is
   // written down and readable, and what nobody has watched is it firing on its
-  // own. Saying that is more useful than the general sentence and is true of
-  // every job this platform has ever registered.
-  //
-  // THE ZONE IS NOT QUOTED, because this function cannot see it: a job's
-  // applied facts carry `everyMinutes` and `at` and no timezone. The reply's
-  // own `jobs` list names the schedule; inventing it here is how a clause comes
-  // to state a fact nothing checked.
+  // own.
   const jobKind = (r) => r.reconciledKind === "job" || (r.status === "covered" && r.kind === "job");
-  const scheduled = unsure.filter(jobKind);
-  const rest = unsure.filter((r) => !jobKind(r));
-  if (rest.length) {
-    parts.push("I've set that up, but I can't confirm from here that " + rest.slice(0, 2)
-      .map((r) => r.need).join("; or that ") + " — have a look and tell me if it isn't right.");
+  const out = [];
+  const said = new Set();
+  const tell = (r, as, withWhy) => {
+    const need = typeof r.need === "string" ? r.need.trim() : "";
+    if (!need) return;
+    const key = as + "|" + need.toLowerCase().replace(/\s+/g, " ");
+    if (said.has(key)) return;
+    said.add(key);
+    out.push({ need, told: as, state: r.state, ...(withWhy && typeof r.why === "string" && r.why ? { why: r.why } : {}) });
+  };
+  for (const r of unsupported) tell(r, "unsupported", true);
+  for (const r of [...gone, ...broke]) tell(r, "still-to-do", false);
+  for (const r of blocked) tell(r, "blocked", true);
+  for (const r of unsure.filter((x) => !jobKind(x))) tell(r, "set-up", false);
+  for (const r of unsure.filter(jobKind)) tell(r, "scheduled", false);
+  for (const r of unseen) tell(r, "unseen", false);
+  return { told: out, invalid: bad, unexpressed: lost };
+}
+
+/**
+ * The note's sentences about requirements, from `requirementReport`'s `told`:
+ * every entry named, in the note's order. `""` when there is none.
+ *
+ * THE BROWSER PRINTS THESE VERBATIM (`coverNote`) when there is no model
+ * reply, and they are its sentences as they were; only the cut is gone.
+ */
+export function toldNote(told) {
+  const of = (as) => (Array.isArray(told) ? told : []).filter((o) => o && o.told === as && typeof o.need === "string" && o.need);
+  const parts = [];
+  const unsupported = of("unsupported");
+  if (unsupported.length) {
+    parts.push("One thing your site can't do yet: " + unsupported.map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
   }
+  const absent = of("still-to-do");
+  if (absent.length) parts.push("Still to do: " + absent.map((r) => r.need).join("; ") + ".");
+  // A DIFFERENT SENTENCE FOR A DEPENDENCY, because it points somewhere else: a
+  // customer can act on "the part this needed didn't work" by asking about that
+  // part, where "still to do" invites them to ask for the same thing again.
+  const blocked = of("blocked");
+  if (blocked.length) {
+    parts.push("And this one is waiting on another part of the same change that didn't work: "
+      + blocked.map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
+  }
+  // THE HONEST CLAUSE, AND IT IS THE POINT OF THE THIRD STATE. What was built
+  // is built; what nothing here can confirm is said as exactly that, rather
+  // than left to the reply's "Done" to claim. It is deliberately an invitation
+  // to check rather than a warning: the ordinary case is that it works.
+  const rest = of("set-up");
+  if (rest.length) {
+    parts.push("I've set that up, but I can't confirm from here that " + rest.map((r) => r.need).join("; or that ")
+      + " — have a look and tell me if it isn't right.");
+  }
+  // THE ZONE IS NOT QUOTED, because nothing here can see it: a job's applied
+  // facts carry `everyMinutes` and `at` and no timezone. The reply's own
+  // `jobs` list names the schedule; inventing it here is how a clause comes to
+  // state a fact nothing checked.
+  const scheduled = of("scheduled");
   if (scheduled.length) {
-    parts.push("Scheduled as you asked: " + scheduled.slice(0, 2).map((r) => r.need).join("; ")
+    parts.push("Scheduled as you asked: " + scheduled.map((r) => r.need).join("; ")
       + ". Automatic running hasn't been verified from here yet, so have a look after the first one is due.");
   }
   // ── AND A DIFFERENT SENTENCE FOR A DIFFERENT SILENCE ─────────────────────
@@ -1986,11 +2040,22 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // same look with a different question — so it asks for that, and it invites
   // the ask again rather than a correction, because there may be nothing to
   // correct.
+  const unseen = of("unseen");
   if (unseen.length) {
-    parts.push("I can't see from here whether " + unseen.slice(0, 2)
-      .map((r) => r.need).join("; or whether ")
+    parts.push("I can't see from here whether " + unseen.map((r) => r.need).join("; or whether ")
       + " — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.");
   }
+  return parts.join(" ");
+}
+
+/**
+ * The note's sentences about property names the design used and the change
+ * could not keep: counts, never names. `""` when there is none.
+ */
+export function propertyNote(invalid, unexpressed) {
+  const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
+  const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
+  const parts = [];
   // ONE CLAUSE, AND IT DOES NOT NAME THE PROPERTY. The count is what a customer
   // can act on ("ask me again and say which"); the names are the developer's.
   if (bad.length) {
@@ -2020,6 +2085,12 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
       : lost.length + " settings the design asked for aren't things this kind of change can carry through, so they're on the database's own defaults — say them again on their own and I'll have another go.");
   }
   return parts.join(" ");
+}
+
+/** The whole note: every requirement's sentence, then the property counts (`""` when there is nothing to say). */
+export function requirementNote(list, opts = {}) {
+  const r = requirementReport(list, opts);
+  return [toldNote(r.told), propertyNote(r.invalid, r.unexpressed)].filter(Boolean).join(" ");
 }
 
 /**

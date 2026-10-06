@@ -326,6 +326,57 @@ function factList() {
   return { add, out };
 }
 
+// ── WHAT EACH REQUIREMENT CAME TO, ONE FACT EACH (2026-10-06) ──────────────
+//
+// Codex reproduced four requirements a customer asked for, each left undone:
+// the note named the first three, and this list handed the reply model the
+// note as ONE fact, so the fourth reached nothing, and the completeness check
+// could only ask whether that one sentence was covered. The owner: *"every
+// distinct requested outcome must reach the reply model and its existing
+// completeness checks, with accurate states and legitimate deduplication
+// preserved. Prefer complete structured outcome facts and let the model write
+// the customer's response naturally."* So the route sends what the customer is
+// told about each requirement (`requirementsTold`), and each is a fact of its
+// own: the reply model must name every one (`readReply`'s `covers`).
+//
+// THE KIND IS THE STATE'S. Not there, impossible for now, or waiting on a part
+// that failed is not done. There and unchecked, or scheduled and not yet seen
+// running, is done with something worth knowing. And a requirement nobody
+// could see is never called done (owner, 2026-09-15: *"'I've set that up' is
+// inappropriate when implementation is unknown"*), so it rides as not done,
+// saying exactly that.
+const TOLD_FACTS = Object.freeze({
+  unsupported: ["not-done", (o) => "Their site cannot do this yet: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
+  "still-to-do": ["not-done", (o) => "Not done: " + o.need + "."],
+  blocked: ["not-done", (o) => "Not done, because another part of this change it depends on did not work: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
+  "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "."],
+  scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "."],
+  unseen: ["not-done", (o) => "Nothing here can see whether this is in place: " + o.need + "."],
+});
+
+/**
+ * The requirements' facts, then what the note says beside them. CANNOT-TELL
+ * READS AS THE WHOLE NOTE: a list that is absent (an answer stored before the
+ * route sent one) or has an entry that does not read is not trusted to be
+ * whole, and the note, which says every requirement, is one fact as before.
+ */
+function coverFacts(F, a) {
+  const list = a.requirementsTold;
+  const whole = Array.isArray(list) && list.length > 0 && list.every((o) => o && typeof o === "object" && !Array.isArray(o)
+    && typeof o.need === "string" && flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string"));
+  if (!whole) {
+    const s = said(a.coverNote);
+    if (s) F.add("not-done", s);
+    return;
+  }
+  for (const o of list) {
+    const [kind, text] = TOLD_FACTS[o.told];
+    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "" }));
+  }
+  const rest = said(a.coverOther);
+  if (rest) F.add("not-done", rest);
+}
+
 /**
  * The parts left for later: this turn's (`deferred`) and those put off before a
  * question (`putOff`). IN A REQUEST OF SEVERAL PARTS (2026-10-03, `inRequest`)
@@ -750,7 +801,9 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     }
     const secrets = strings(a.needsSecrets);
     if (secrets.length) F.add("note", "To switch it on, they add " + listOf(secrets) + " under Cloud → Secrets.");
-    for (const k of ["credentialNote", "pictureNote", "coverNote", "keptPartsNote"]) { const s = said(a[k]); if (s) F.add(k === "coverNote" ? "not-done" : "note", s); }
+    for (const k of ["credentialNote", "pictureNote"]) { const s = said(a[k]); if (s) F.add("note", s); }
+    coverFacts(F, a);
+    { const s = said(a.keptPartsNote); if (s) F.add("note", s); }
     // WHAT A DESIGNER SUGGESTED BESIDE THE ASK (2026-10-05, run 101): never a
     // requirement, never done or not done — an extra nobody asked for and
     // nothing was made for, theirs to ask for if they want it.

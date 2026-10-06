@@ -547,7 +547,10 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // than the field. The property this case is about is unchanged: whatever else
   // the field carries, `requirementNote` must be handed the three inputs that
   // let it tell delivered from unverified.
-  const noteAt = W.indexOf("requirementNote(aReq, { told:");
+  // RE-ANCHORED 2026-10-06: the note and the reply's facts are written from
+  // one report (`requirementReport`), so the call that must carry the three
+  // inputs is the report's.
+  const noteAt = W.indexOf("requirementReport(aReq, { told:");
   assert.ok(noteAt > 0, "the customer's coverage sentence is gone");
   const noteCall = W.slice(noteAt, W.indexOf("})", noteAt) + 2);
   for (const field of ["failed: [...aFailedKinds]", "made: aMade()", "told: [...aTold]"]) {
@@ -692,13 +695,19 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // the requirements' own and the missing pages'. The property is unchanged
   // and is what this asserts: the field the browser prints is the field the
   // server fills, and the server is still the only composer.
-  assert.match(W, /coverNote: \[\n\s*requirementNote\(/, "the server sends a field the browser does not read");
-  assert.match(W, /missingPagesNote\(aMissing\),/, "the missing-page sentence never reaches the field the browser prints");
+  // RE-ANCHORED 2026-10-06: the requirements' sentences come from the report
+  // the reply's facts are written from (`toldNote(aRep.told)`), and the rest
+  // from one list (`aOther`) the field spreads whole.
+  assert.match(W, /coverNote: \[toldNote\(aRep\.told\), \.\.\.aOther\]\.filter\(Boolean\)\.join\(" "\),/, "the server sends a field the browser does not read");
+  const otherAt = W.indexOf("const aOther = [");
+  assert.ok(otherAt > 0, "the note's other sentences are not composed in one list");
+  const other = W.slice(otherAt, W.indexOf("].filter(Boolean);", otherAt));
+  assert.match(other, /missingPagesNote\(aMissing\),/, "the missing-page sentence never reaches the field the browser prints");
   // …AND A THIRD, 2026-09-17: what went WITH a missing page. A new QR code
   // pointing at a page that did not survive is dropped before anything is
   // stored, and the customer hears it beside the page's own sentence rather
   // than discovering it by scanning the code.
-  assert.match(W, /deadQrNote\(aDeadQr\),/, "the dead-QR sentence never reaches the field the browser prints");
+  assert.match(other, /deadQrNote\(aDeadQr\),/, "the dead-QR sentence never reaches the field the browser prints");
   // ── AND THE SECOND SENTENCE THAT FOLLOWS THIS RULE (2026-09-17) ──────────
   //
   // A component the page writer was not shown and would have replaced: the
