@@ -272,10 +272,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -29914,6 +29914,48 @@ async function handleRequest(request, env, ctx) {
             // order — the instrumentation run 48 did without. Developer-facing
             // and schema-only; see `shownSchema`.
             const aShown = [];
+            // ── WHAT EACH REQUIREMENT MEANS, JUDGED BY THE MODEL (2026-10-05) ──
+            //
+            // The owner: *"a matching quote proves the words came from the user,
+            // not that the claimed requirement follows from them … Use the model
+            // for judging meaning and necessary dependencies, and code for
+            // checking provenance and actual execution evidence."* Grounding
+            // (above) is the provenance; `runJudge` is the meaning; what ran is
+            // read off the applied results by `requirementOutcomes`, which is
+            // told judging is in force (`judged: true`) on every call below.
+            //
+            // A REQUIREMENT IS JUDGED BEFORE IT IS HANDED ON, and every one once
+            // more after the last designer, with everything designed in view. An
+            // `optional` one becomes a suggestion and an `unrelated` one is set
+            // aside — both leave `aReq`, so neither is handed on, counted or
+            // told. One with no verdict stays in `aReq` unjudged and is never
+            // told. The calls are billed with the designers' (`aDesignUsage`).
+            const aSetAside = [];
+            const aVerdictsBad = [];
+            const aJudge = async (entries, step = "") => {
+              const final = !step;
+              const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries }) : [];
+              const j = await runJudge({ send: aQuick("judge:" + (step || "final")) }, { message: aInstruction, entries, items, step, model: aModels.quick });
+              if (j.usage) aDesignUsage.push(j.usage);
+              aMark("judge:" + (step || "final"), j.failed ? "fail" : "ok", { entries: entries.length, items: items.length, verdicts: j.verdicts.size, invalid: j.invalid.length, asked: j.ask ? 1 : 0 });
+              for (const x of j.invalid) aVerdictsBad.push({ at: step || "final", ...x });
+              if (j.failed || j.ask) return j;
+              const out = applyVerdicts(entries, j.verdicts, { final });
+              const by = new Map([...out.kept, ...out.optional, ...out.unrelated].map((e) => [e.id, e]));
+              for (let i = aReq.length - 1; i >= 0; i--) {
+                const e = by.get(aReq[i] && aReq[i].id);
+                if (!e) continue;
+                if (out.kept.includes(e)) { aReq[i] = e; continue; }
+                aReq.splice(i, 1);
+                if (out.optional.includes(e)) {
+                  // OFFERED, NEVER BUILT — unless what it named already does
+                  // it, when "nothing was made for it" would be the false half.
+                  if (e.judged.carried !== "yes" && !aSuggested.some((x) => x.toLowerCase() === e.need.toLowerCase())) aSuggested.push(e.need);
+                  aSetAside.push({ need: e.need, from: e.from || "", follows: "optional", reason: e.judged.reason, ...(e.judged.carried === "yes" ? { carriedBy: e.judged.by } : {}) });
+                } else aSetAside.push({ need: e.need, from: e.from || "", follows: "unrelated", reason: e.judged.reason });
+              }
+              return j;
+            };
             const aCoverage = () => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
@@ -29934,7 +29976,7 @@ async function handleRequest(request, env, ctx) {
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
                 coverNote: [
-                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed] }),
+                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true }),
                   // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
                   // into `requirementNote`: that function is about REQUIREMENTS
                   // the designers declared, and a page that did not survive the
@@ -30045,7 +30087,16 @@ async function handleRequest(request, env, ctx) {
               // `aTold` records that it was really sent, so a hand-off to a
               // step that has already run stays outstanding rather than being
               // read as satisfied by a call that never heard it.
-              const aBrief = requirementBrief(aReq, k);
+              // …AND ONLY WHAT FOLLOWS FROM THEIR WORDS (2026-10-05): what is
+              // about to be handed to this step is judged first, so an extra is
+              // never handed on to be built. What has no verdict is not handed.
+              const aHanding = (handoffsByStep(aReq)[k] || []).filter((r) => !r.judged);
+              if (aHanding.length) {
+                const jh = await aJudge(aHanding, k);
+                if (jh.failed) return aDown(jh.error, "The builder is busy — try again in a moment.");
+                if (jh.ask) { aStepAsk = { kind: k, ask: jh.ask }; break; }
+              }
+              const aBrief = requirementBrief(aReq.filter((r) => r.judged), k);
               if (aBrief) aTold.add(k);
               // ── WHAT THIS DESIGNER WAS REALLY SHOWN (2026-09-15) ──────────
               //
@@ -30117,6 +30168,10 @@ async function handleRequest(request, env, ctx) {
                 // and throwing that away here is how the one case worth reading
                 // — "it could not express this" — reaches a customer as a bare
                 // refusal sentence. Nothing ran, so nothing is claimed covered.
+                // JUDGED FIRST, SO WHAT IT TELLS FOLLOWS FROM THEIR WORDS
+                // (2026-10-05): a judgment that fails or asks here leaves the
+                // requirements unjudged, and an unjudged one is never told.
+                if (aReq.length) await aJudge(aReq.slice());
                 return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage() }, { status: 422 });
               }
               // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
@@ -30322,6 +30377,7 @@ async function handleRequest(request, env, ctx) {
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ungrounded: aUngrounded, suggestions: aSuggested,
+              judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
               made: aMade(), reportable: aReportable(), existing: aExisting(),
@@ -30344,7 +30400,16 @@ async function handleRequest(request, env, ctx) {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
               catch (e) { console.error("addon answer save failed:", ownerSlug, e && e.message); }
             };
+            // ── THE LAST JUDGMENT, WITH EVERYTHING DESIGNED IN VIEW (2026-10-05) ──
+            //
+            // Before anything is applied or charged, so a judgment that fails
+            // stops here as a designer's failed call does, and one that asks is
+            // the addition's question. Skipped when a step already asked: the
+            // whole addition is designed again with the answer.
+            const aFinalJudge = !aStepAsk && aReq.length ? await aJudge(aReq.slice()) : null;
+            if (aFinalJudge && aFinalJudge.ask) aStepAsk = { kind: "requirements", ask: aFinalJudge.ask };
             await aSaveAnswer();
+            if (aFinalJudge && aFinalJudge.failed) return aDown(aFinalJudge.error, "The builder is busy — try again in a moment.");
             // THE QUESTION IS THE ADDITION'S ANSWER: kept by the route's ending
             // (`askReport`), with this whole request as what its answer resumes.
             // Nothing was designed into the site, applied or charged for it —
@@ -30376,7 +30441,7 @@ async function handleRequest(request, env, ctx) {
             // without both a run where every claim was unverifiable is
             // indistinguishable from one where every claim held.
             {
-              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting() });
+              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), judged: true });
               aMark("coverage", "ok", {
                 ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size, moved: aChanged.size,
                 // BESIDE `bad`, NEVER SUMMED INTO IT: a run where the addon lost
@@ -30401,7 +30466,14 @@ async function handleRequest(request, env, ctx) {
                 // summed together the two read as a productive run nobody
                 // checked. It is also the number that says the existing-site
                 // readers went quiet, which is a platform fact worth watching.
-                unseen: st.filter((r) => r.state === "unknown").length,
+                unseen: st.filter((r) => r.state === "unknown" && !r.unjudged).length,
+                // NO VERDICT ANYBODY MAY TRUST (2026-10-05): its own number,
+                // never told and never in `unseen` — it is not a thing nobody
+                // could see, it is a requirement nobody established.
+                unjudged: st.filter((r) => r.unjudged).length,
+                // AND WHAT THE JUDGMENT TOOK OUT OF THE LIST: offered as a
+                // suggestion, or set aside as not following from their words.
+                setAside: aSetAside.length,
                 unsent: st.filter((r) => r.handoff === "undelivered").length,
                 unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
               });

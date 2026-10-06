@@ -146,6 +146,20 @@ const claiming = (by) => ({
   job: { job: [JOB], requirements: [{ need: "customers get a reminder the day before", status: "covered", by }] },
 });
 
+// ── WHAT THE JUDGMENT NAMES AS DOING THE WORK (2026-10-05) ──────────────────
+//
+// These claims name no item: the thing doing the work is in the designer's
+// sentence ("daily_reminder runs send_reminder at 09:00"). Reading names out
+// of a sentence is the model's job now (`judge_requirements`), and code checks
+// only what it names; so each case below says what that model answers — what
+// its sentence names — and the evidence it was written about is then checked
+// exactly as before. Before a hand-off, nothing is named.
+const judgedBy = (...by) => ({
+  judge: ({ entries, step }) => ({ verdicts: entries.map((e) => ({
+    id: e.id, follows: "asked", carried: step ? "unsure" : "yes", ...(step ? {} : { by }), reason: "the case's own claim names it",
+  })) }),
+});
+
 test("a claim naming a configuration that really holds is recorded, and still does not claim the behaviour", async () => {
   // RE-ANCHORED 2026-09-14, and the property that moved is the subject of the
   // change. This asserted the claim was DELIVERED and the customer told
@@ -156,7 +170,7 @@ test("a claim naming a configuration that really holds is recorded, and still do
   // before"*, which nothing here has watched happen. So the fact is RECORDED
   // and the requirement stays unverified.
   const r = await addon("fw-ev-a", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"),
+    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"), ...judgedBy("job:daily_reminder"),
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["send_reminder"], "the function was not applied — this case tests nothing");
@@ -203,7 +217,7 @@ test("a claim that names nothing checkable is unverified, however real the thing
   // EXISTENCE IS NOT DELIVERY. The job was registered and its schedule is real;
   // the claim says nothing about either, so there is nothing to check.
   const r = await addon("fw-ev-c", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder handles it"),
+    kinds: ["function", "job"], answers: claiming("daily_reminder handles it"), ...judgedBy("job:daily_reminder"),
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["send_reminder"]);
@@ -215,7 +229,7 @@ test("the stored coverage is written again once the apply has landed", async () 
   // above the loop happens BEFORE a statement has reached Postgres, so every
   // verdict in it is decided against an empty applied result.
   const r = await addon("fw-record", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"),
+    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"), ...judgedBy("job:daily_reminder"),
   });
   const rec = storedAnswer(r, "fw-record");
   assert.ok(rec && rec.coverage, "no developer record was stored at all");
@@ -479,6 +493,7 @@ test("public and internal functions carry opposite guarantees, and a claim on th
   const claim = (need) => [{ need, status: "covered", by: "send_reminder is internal and returns void" }];
   const priv = await addon("fw-fn-internal", "add a reminder sender", {
     kinds: ["function"], answers: { function: { function: [FN], requirements: claim("only the site can send reminders") } },
+    ...judgedBy("function:send_reminder"),
   });
   assert.deepEqual(priv.body.functions, ["send_reminder"]);
   // RE-ANCHORED: the visibility is a CONFIGURATION fact, so it is recorded and
@@ -500,6 +515,7 @@ test("public and internal functions carry opposite guarantees, and a claim on th
   const pub = await addon("fw-fn-public", "add a reminder sender", {
     kinds: ["function"], publishes: true,
     answers: { function: { function: [{ ...FN, internal: false }], requirements: claim("only the site can send reminders") } },
+    ...judgedBy("function:send_reminder"),
   });
   assert.deepEqual(pub.body.functions, ["send_reminder"], "the public function was not applied — this case tests nothing");
   assert.match(pub.body.coverNote, /can't confirm from here that only the site can send reminders/,
@@ -583,6 +599,7 @@ test("a stored connection proves configuration and never behaviour", async () =>
     // `live` and `forecast` in the claim, a configuration-only vocabulary is
     // the only thing keeping this unverified.
     answers: { api: { api: [API], requirements: [{ need: "visitors see the live forecast", status: "covered", by: "the weather connection returns the live forecast" }] } },
+    ...judgedBy("api:weather"),
   });
   assert.equal(behaviour.body.ok, true);
   assert.deepEqual(behaviour.body.apis, ["weather"], "the connection was not stored — this case tests nothing");
@@ -595,6 +612,7 @@ test("a stored connection proves configuration and never behaviour", async () =>
   const config = await addon("fw-api-config", "show the forecast", {
     kinds: ["api"], publishes: true,
     answers: { api: { api: [API], requirements: [{ need: "the forecast is read from api.test", status: "covered", by: "weather calls api.test" }] } },
+    ...judgedBy("api:weather"),
   });
   // RE-ANCHORED: the host IS checked and IS recorded — and it is configuration,
   // so it does not settle the need either. The difference this case exists for

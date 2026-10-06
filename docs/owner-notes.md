@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 20:36 UTC)
+## Current handoff — read this first (2026-10-06, 00:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,37 +9,62 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The live check is closed on run 101**, on your word. Three kinds of
-  evidence are kept apart: what it showed live; message 1's two preview
-  checks, not counted; and message 1's refresh, judged from the preview's
-  load record (`docs/history/2026-10-05-run101-corrections.md` §1).
-- **The branch** is `main` plus the correction batch for run 101's four
-  findings, on top of `d53caefc`. It is not merged, not deployed, and no
-  image is built:
-  - the preview is kept through the page's checks, with its scroll and
-    form, and a published change still loads it, never twice;
-  - a page put back and then given a menu link is described as exactly
-    that;
-  - requirements must quote your own words, extras become suggestions, and
-    a real choice is asked;
-  - the canary's closed-tab preview check measures from the reopened tab's
-    own first address.
-- **Checks**: the full suite `9502 / 9502 / 0 / 0` here. On the push
-  (`936295a5`), unit CI passed (`9502 / 9490 / 0 / 12`, run 37371311515).
-  The site build (run 37371311514) is not green: two of its seven jobs never
-  got a GitHub runner, and none of its checks failed.
-- **Money**: balance **21** (read at 20:24 UTC: last ledger row 392, no
-  job open). Nothing was spent in this batch.
+- **The branch** is `main` plus two batches on top of `d53caefc`. Neither is
+  merged or deployed, and no image is built:
+  - **run 101's correction batch** (`936295a5`): the three corrections you
+    passed are kept as they were (the preview kept through polling, the
+    settled page facts, the reopened tab's preview check), with the
+    grounding they came with;
+  - **the requirement gap's second half** (the commit after `4315ab4d`, on your review): a
+    genuine quote no longer makes a requirement yours. A model call judges
+    what each requirement means and what carries it out; code checks that
+    what it names was shown and really ran, with the part of a table that
+    does the work (`docs/history/2026-10-05-judgment.md`).
+- **Evidence**, all with supplied model answers through the real add-on
+  route; nothing is shown live:
+  - **your two examples**: the confirmation email quoting "leave their name
+    and email address" is offered as an idea and never called set up. The
+    SMS reminder quoting "book a lesson" is judged before it can be handed
+    on, so the page designer never sees it, and nobody hears about a text;
+  - **what you do ask for is still reported**: "email me each time someone
+    signs up" is carried by the table's own owner-email part, the storage a
+    form needs by the table. An email you asked for that the platform
+    couldn't set up says "Still to do";
+  - **the facts the reply model gets** were checked in each case;
+  - **the red check**: the 9 cases that can run on the old code all fail
+    there, each on the defect itself;
+  - **the sweep**: 37 of 37 planted defects caught on the final code, and
+    the 3 controls survived. The first run found two gaps (35 of 37), and I
+    closed both;
+  - **the suite**: `9519 / 9519 / 0 / 0` here (the 9,502 before, plus the
+    17 new cases). Your three passed corrections are among them, unchanged.
+- **CI** on the push: read once it ends, and recorded then. The previous
+  push's last two runs never started for lack of a GitHub runner, and none
+  of their checks failed: the site build on `936295a5` (run 37371311514,
+  two of seven jobs) and the unit tests on `4315ab4d` (run 37373999399).
+  This push starts both workflows again, so neither needs a re-run.
+- **Money**: balance **21** (read at 00:02 UTC on 6 October: last ledger
+  row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Re-run the site build's failed jobs** (free): Actions → site build → run
-  37371311514 → *Re-run failed jobs*. I'll read it when it ends.
-- **Review the batch** (`docs/history/2026-10-05-run101-corrections.md`).
-- **Then, if you want it live**: merge and deploy (the image would roll:
-  the prediction is in the history file's §6), and decide whether a paid
-  press should show any of it live. None of it has been shown live yet.
+- **Nothing to press yet.** If a job on this push gets no runner, I'll name
+  the exact re-run.
+- **Review the fix** (`docs/history/2026-10-05-judgment.md`, with its limits
+  in §7).
+- **Then, if you want it live**: merge and deploy (the image would roll
+  from deploy 2184's `589e3e4e85a20066` to `08b996804d8121ea`; predicted,
+  not built). Decide whether a paid press should show any of it. The
+  judgment adds about one credit to a typical add-on; that's an estimate,
+  not a measurement.
 
 **Still open** (`docs/backlog.md`)
+- **Limits of this fix** (history file §7):
+  - the judging is only as good as the model;
+  - it sees the design, not the published result;
+  - a part a designer builds for an extra anyway isn't removed.
+- **New**: the add-on route's test harness shares one cached stored schema
+  between cases. The new test file clears it, and the harness-wide fix is
+  listed.
 - An old request's own reply with no record is still asked for whenever it is
   read.
 - A data edit's reply can't name the change; the new page's own menu label;
@@ -52,11 +77,10 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This batch, and the closure of the live check:
+- This fix: `docs/history/2026-10-05-judgment.md`.
+- Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
-- Run 101's readings: `docs/history/2026-10-05-deploy-2184.md` §7.
 - The open items: `docs/backlog.md`.
-
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -115,6 +139,72 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your review of the run 101 batch: a requirement's quote no longer makes it yours — a model judges what it means, code checks what ran (on the branch; nothing spent, merged or deployed)
+
+- **What you found, reproduced first**: "Every signup receives a confirmation
+  email", quoting "leave their name and email address", was told as *"I've
+  set that up"* because the `signups` table existed; an SMS reminder quoting
+  "book a lesson" did the same. Your words really were quoted. The
+  requirement still wasn't yours, and nothing sends either.
+- **The fix follows the line you drew**:
+  - **where the words came from**: code checks the quote is in what you
+    wrote. That part is unchanged;
+  - **what the requirement means**: one small model call reads your words,
+    every requirement the designers wrote, and everything designed or already
+    on the site. It says whether each requirement was asked for, is needed
+    for what you asked, is an optional extra, or is unrelated, and which of
+    those things does it;
+  - **what really ran**: code checks that whatever the model names was
+    really made or already there. For a table it checks the part that does
+    the work: emailing you about each new entry, emailing or texting the
+    person who signed up, telling another system, or taking a payment. A
+    table that merely exists no longer counts as having sent an email.
+- **What changes for a customer**:
+  - an extra they didn't ask for is offered as an idea, never built, and
+    never called set up;
+  - one that doesn't follow from their words at all is left out of the
+    reply. It is kept in the record;
+  - it is judged before it can be handed to the next step, so nothing is
+    built for it;
+  - something they did ask for, like "email me each time someone signs up",
+    is still reported, and so is a dependency like storing the sign-ups;
+  - an email they asked for that the platform couldn't set up (the address
+    column didn't exist) now says "Still to do", not "I've set that up";
+  - when the model can't tell, nothing is called set up;
+  - if the judgment call fails, the addition stops before anything is
+    applied or charged, as when a designer's call fails. If a real choice is
+    open, it asks you.
+- **No words are banned**, no site is special-cased, and there is no rule
+  about what a kind of thing can do. The judging is the model's, and the
+  checking is code comparing names it listed itself.
+- **Checked**:
+  - 17 new cases through the real add-on route with supplied answers,
+    including your two examples, one message mixing a needed table, an asked
+    notification and an unrelated email, and the facts the reply model is
+    actually given;
+  - the cases that can run on the old code all fail there, each for the
+    defect itself;
+  - the mutation sweep caught every planted defect: 37 of 37, after the
+    first run found two gaps (35 of 37) and I closed them;
+  - the full suite: `9519 / 9519 / 0 / 0` here;
+  - CI on the push: read once it ends, and recorded then.
+- **Cost**: one more small model call per add-on that writes requirements,
+  and one more before each hand-off. That is about +1 credit on a typical
+  add-on, up to +3–4 on a big one. This is an estimate from token counts;
+  nothing was measured live.
+- **Limits, stated**:
+  - the judging is only as good as the model;
+  - it sees the design, not the published result;
+  - a part a designer builds for an extra anyway isn't removed;
+  - the test harness shares a cached stored schema between cases. That's a
+    new backlog item.
+- **Your three passing corrections are untouched.** Their tests are in the
+  suite above.
+- **Not merged, not deployed, no image built, nothing pressed or spent.**
+
+**Recorded in**: `docs/history/2026-10-05-judgment.md`, the backlog, the
+checklist and the history index.
 
 ## 2026-10-05 — Your review of run 101: the live check closed, and the four things it turned up fixed on the branch (nothing spent, merged or deployed)
 

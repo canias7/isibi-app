@@ -537,6 +537,170 @@ export function cleanSuggestions(raw) {
 }
 
 /**
+ * ── WHAT A REQUIREMENT MEANS IS THE MODEL'S TO JUDGE; WHAT RAN IS CODE'S ─────
+ *
+ * The owner, 2026-10-05, after the grounding round: *"a matching quote proves
+ * the words came from the user, not that the claimed requirement follows from
+ * them … Use the model for judging meaning and necessary dependencies, and code
+ * for checking provenance and actual execution evidence … never treat the
+ * existence of a referenced table as proof that the claimed behavior was
+ * implemented."*
+ *
+ * REPRODUCED before anything changed: "Every signup receives a confirmation
+ * email", basis `needed`, quoting "leave their name and email address" — words
+ * really in the request — passed `groundRequirements`, the `signups` table it
+ * named was found, and `requirementNote` said *"I've set that up"*. So did an
+ * SMS reminder quoting "book a lesson". The quote was theirs; the requirement
+ * was not, and nothing sends either.
+ *
+ * SO THE WORK IS SPLIT ON THE LINE THE OWNER DREW:
+ *   · provenance — CODE: the quoted words are in what they wrote
+ *     (`groundRequirements`, unchanged);
+ *   · meaning — the MODEL (`judge_requirements`, `site-add.mjs`): whether the
+ *     requirement follows from those words — asked, needed (what they asked
+ *     cannot work without it), an optional idea, or unrelated — and which of
+ *     the designed or existing items it was shown carries it out;
+ *   · execution — CODE: every item the judgment names must be one it was
+ *     shown (`readVerdicts`), and must really have been applied, with the part
+ *     that does the work (`TABLE_PARTS`, `requirementOutcomes` with `judged`).
+ *
+ * NOTHING HERE READS A NEED FOR WHAT IT SAYS. Ids are checked against lists the
+ * code printed itself and verdicts against their own constants; there is no
+ * word list and no rule about what a kind of thing can do.
+ */
+export const FOLLOWS = Object.freeze(["asked", "needed", "optional", "unrelated"]);
+/** The verdicts that keep an entry a requirement. An `optional` one is offered as a suggestion; an `unrelated` one is set aside. */
+export const KEPT_FOLLOWS = Object.freeze(["asked", "needed"]);
+export const CARRIED = Object.freeze(["yes", "no", "unsure"]);
+/**
+ * THE PARTS OF A TABLE THAT DO SOMETHING, each one checkable on the table as it
+ * was applied: the owner's email about each new row (sent for every `collect`
+ * table — `shouldNotify` in `site-notify.mjs`), the submitter's emailed
+ * confirmation (`confirm`), their text (`sms`), another system told
+ * (`webhooks`), a card payment (`payment`). A table that exists without the
+ * part does not do that thing, which is the owner's rule kept: the table is
+ * not the behaviour.
+ */
+export const TABLE_PARTS = Object.freeze(["notify", "confirm", "sms", "webhooks", "payment"]);
+const MAX_REASON = 200;
+
+/**
+ * AN ITEM AS THE JUDGMENT IS SHOWN IT: `kind:name`, or `table:name:part` for a
+ * part of a table that does something. `{kind, name, part?}`, or `null` for
+ * anything else — a kind this layer does not know, a part a table does not
+ * have, an empty name.
+ */
+export function carrierOf(id) {
+  if (typeof id !== "string") return null;
+  const s = id.trim().toLowerCase();
+  const at = s.indexOf(":");
+  if (at <= 0) return null;
+  const kind = s.slice(0, at);
+  let name = s.slice(at + 1).trim();
+  let part = "";
+  if (kind === "table" && name.includes(":")) {
+    part = name.slice(name.lastIndexOf(":") + 1);
+    name = name.slice(0, name.lastIndexOf(":")).trim();
+    if (!TABLE_PARTS.includes(part)) return null;
+  }
+  if (!ITEM_KINDS.includes(kind) || !name || name.includes(":")) return null;
+  return part ? { kind, name, part } : { kind, name };
+}
+
+/** The id `carrierOf` reads, written back. */
+export const carrierId = (c) => c.kind + ":" + c.name + (c.part ? ":" + c.part : "");
+
+/**
+ * THE JUDGMENT'S ANSWER, CLEANED. `{ verdicts: Map<id, {follows, carried, by,
+ * reason}>, invalid: [{id?, why, item?}] }`.
+ *
+ * `ids` are the requirement ids the judgment was shown and `items` the item ids
+ * it was shown; a verdict about anything else is not a verdict, and an item it
+ * names that it was never shown is not evidence — both are dropped AND counted,
+ * never repaired. A `yes` left naming nothing the code can check reads
+ * `unsure`: a claim with nothing to look for may not stand in for one.
+ */
+export function readVerdicts(input, { ids = [], items = [] } = {}) {
+  const known = new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string"));
+  const listed = new Set((Array.isArray(items) ? items : []).filter((x) => typeof x === "string").map((x) => x.trim().toLowerCase()));
+  const verdicts = new Map();
+  const invalid = [];
+  const raw = input && typeof input === "object" && Array.isArray(input.verdicts) ? input.verdicts : null;
+  if (!raw) return { verdicts, invalid: [{ why: "no-verdicts" }] };
+  for (const v of raw) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) { invalid.push({ why: "unreadable" }); continue; }
+    const id = typeof v.id === "string" ? v.id.trim() : "";
+    if (!known.has(id)) { invalid.push({ id: id.slice(0, 40), why: "unknown-id" }); continue; }
+    if (verdicts.has(id)) { invalid.push({ id, why: "repeated" }); continue; }
+    const follows = typeof v.follows === "string" && FOLLOWS.includes(v.follows) ? v.follows : "";
+    const said = typeof v.carried === "string" && CARRIED.includes(v.carried) ? v.carried : "";
+    if (!follows || !said) { invalid.push({ id, why: follows ? "no-carried" : "no-follows" }); continue; }
+    const by = [];
+    for (const b of Array.isArray(v.by) ? v.by : []) {
+      const key = typeof b === "string" ? b.trim().toLowerCase() : "";
+      if (!key) continue;
+      if (!listed.has(key) || !carrierOf(key)) { invalid.push({ id, why: "unlisted-item", item: key.slice(0, 80) }); continue; }
+      if (!by.includes(key)) by.push(key);
+    }
+    if (said === "yes" && !by.length) invalid.push({ id, why: "yes-without-items" });
+    const carried = said === "yes" && !by.length ? "unsure" : said;
+    verdicts.set(id, { follows, carried, by: carried === "yes" ? by : [], reason: str(v.reason, MAX_REASON).replace(/\s+/g, " ") });
+  }
+  return { verdicts, invalid };
+}
+
+/**
+ * WHAT EACH VERDICT MAKES OF ITS ENTRY. `{ kept, optional, unrelated, unjudged }`.
+ *
+ * A kept entry carries its verdict (`judged`), which is what `requirementOutcomes`
+ * reads when the caller says judging is in force. An `optional` one is offered
+ * as a suggestion and an `unrelated` one is set aside — neither is a
+ * requirement, so neither is counted, handed on or reported as set up, missing
+ * or unknown. An entry with no verdict is `unjudged`, and is never told: that
+ * it follows from their words is exactly what nobody established.
+ *
+ * WHETHER IT FOLLOWS IS JUDGED ONCE; WHAT CARRIES IT OUT, AT THE END. A
+ * requirement about to be handed to a later step is judged before the brief is
+ * written (`final: false`), so an extra is never handed on to be built — and
+ * nothing has been designed for it yet, so that verdict's `carried` is
+ * `unsure` whatever it said. The last judgment (`final: true`) sees everything
+ * designed and keeps the first `follows`: a step was briefed on it, and a
+ * second opinion on its meaning would turn work already designed into an
+ * extra after the fact. An entry kept earlier that the last answer skipped
+ * keeps its meaning and reads `unsure` for what carries it out.
+ */
+export function applyVerdicts(list, verdicts, { final = false } = {}) {
+  const out = { kept: [], optional: [], unrelated: [], unjudged: [] };
+  const map = verdicts instanceof Map ? verdicts : new Map();
+  for (const r of Array.isArray(list) ? list : []) {
+    if (!r || typeof r !== "object") continue;
+    const v = typeof r.id === "string" ? map.get(r.id) : undefined;
+    const earlier = r.judged && typeof r.judged === "object" && KEPT_FOLLOWS.includes(r.judged.follows) ? r.judged : null;
+    const follows = earlier ? earlier.follows : v ? v.follows : "";
+    if (!follows) { out.unjudged.push(r); continue; }
+    const carried = final && v ? v.carried : "unsure";
+    const e = { ...r, judged: {
+      follows, carried, by: carried === "yes" ? v.by.slice() : [],
+      reason: (v && v.reason) || (earlier && earlier.reason) || "",
+    } };
+    if (KEPT_FOLLOWS.includes(follows)) out.kept.push(e);
+    else if (follows === "optional") out.optional.push(e);
+    else out.unrelated.push(e);
+  }
+  return out;
+}
+
+/** A kept entry's verdict, read back strictly; `null` when it has none a reader may trust. */
+function verdictOf(r) {
+  const j = r && r.judged;
+  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+  if (!KEPT_FOLLOWS.includes(j.follows) || !CARRIED.includes(j.carried)) return null;
+  const by = (Array.isArray(j.by) ? j.by : []).map(carrierOf).filter(Boolean);
+  if (j.carried === "yes" && !by.length) return null;
+  return { follows: j.follows, carried: j.carried, by, reason: typeof j.reason === "string" ? j.reason : "" };
+}
+
+/**
  * The ones that are NOT settled by this step: everything but `covered`.
  *
  * Two different fates, kept together because both are "the customer has not got
@@ -993,6 +1157,60 @@ export function referenceOf(r) {
   return kind ? { kind, name } : null;
 }
 
+/**
+ * COULD WE HAVE SEEN ONE OF THESE? — a question about the haystack, not about
+ * the step that asked. One rule for the reference reader below and for the
+ * judged items (`carriersReading`), so the two cannot come apart.
+ */
+function seeableKind(k, reportable, ex) {
+  const canApplied = (Array.isArray(reportable) ? reportable : []).includes(k);
+  const canExisting = !!ex && (Array.isArray(ex.kinds) ? ex.kinds : []).includes(k);
+  return canApplied && !OPAQUE_KINDS.includes(k) && (!SITE_KINDS.includes(k) || canExisting);
+}
+
+/**
+ * THE ITEMS A VERDICT SAYS CARRY A REQUIREMENT OUT, CHECKED AGAINST WHAT RAN.
+ * `{ state, ref?, present, found: [{item, where}] }`.
+ *
+ * `state` is the outcome's: `found` (every one is there, with its part),
+ * `broken` (one failed), `absent` (one is not there and this layer could have
+ * seen it), `partless` (the table is there and the part that does the work is
+ * not), `unknown` (nobody could look). `present` is the PRESENCE of the items
+ * alone — `found`, `absent` or `unknown` — kept apart because "it is there and
+ * its dependency failed" and "it is not there" are different findings, exactly
+ * as `implementation` and `state` are apart for an unjudged reading.
+ *
+ * The same `{kind, name}` identity every other reader here uses, against the
+ * same two sources (`made`, `existing`) and the same failed list. A part is
+ * asked of the item's own `parts`, and an item with no `parts` reading at all
+ * answers `unknown` for a part — never `partless`, which would be silence read
+ * as absence.
+ */
+function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set() } = {}) {
+  const ex = existing && typeof existing === "object" ? existing : null;
+  const low = (m) => String((m && m.name) || "").trim().toLowerCase();
+  const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === k);
+  const rank = { unknown: 1, absent: 2, partless: 2, broken: 3 };
+  const found = [];
+  let worst = null;
+  let present = "found";
+  for (const c of Array.isArray(by) ? by : []) {
+    const mine = ofKind(made, c.kind).find((m) => low(m) === c.name);
+    const had = mine ? null : (ex ? ofKind(ex.items, c.kind).find((m) => low(m) === c.name) : null);
+    const hit = mine || had;
+    const seen = hit ? "found" : seeableKind(c.kind, reportable, ex) ? "absent" : "unknown";
+    if (seen === "absent" || (seen === "unknown" && present === "found")) present = seen;
+    let st = "";
+    if (broken.has(c.kind + "::" + c.name)) st = "broken";
+    else if (!hit) st = seen;
+    else if (c.part && !Array.isArray(hit.parts)) st = "unknown";
+    else if (c.part && !hit.parts.includes(c.part)) st = "partless";
+    if (hit && st !== "broken") found.push({ item: hit, where: mine ? "applied" : "existing" });
+    if (st && (!worst || rank[st] > rank[worst.state])) worst = { state: st, ref: c };
+  }
+  return worst ? { ...worst, present, found } : { state: "found", present, found };
+}
+
 export function implementationOf(r, made = [], reportable = [], existing = null) {
   const status = r && typeof r === "object" ? r.status : "";
   // ── BOTH STATUSES ARE RECONCILED, AGAINST THE SAME RESULTS (owner, 2026-09-15)
@@ -1029,11 +1247,7 @@ export function implementationOf(r, made = [], reportable = [], existing = null)
   // have seen one of these" is a question about the haystack and not about the
   // step that asked. The item branch below asks it of the REFERENCE's kind; the
   // no-name branch asks it of the step's.
-  const seeable = (k) => {
-    const canApplied = (Array.isArray(reportable) ? reportable : []).includes(k);
-    const canExisting = !!ex && (Array.isArray(ex.kinds) ? ex.kinds : []).includes(k);
-    return canApplied && !OPAQUE_KINDS.includes(k) && (!SITE_KINDS.includes(k) || canExisting);
-  };
+  const seeable = (k) => seeableKind(k, reportable, ex);
   const mine = ofKind(made, kind);
   const theirs = ex ? ofKind(ex.items, kind) : [];
   // **ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN**, which is
@@ -1171,7 +1385,7 @@ export function brokeWhy(ref) {
   return "the " + name + " it needs could not be created";
 }
 
-export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null } = {}) {
+export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, judged = false } = {}) {
   const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
   // ── WHICH THING FAILED, NOT WHICH KIND (owner, 2026-09-15) ──────────────
@@ -1201,6 +1415,71 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     // separately below. Run 48 collapsed the two and told a customer a live,
     // working function was still to do.
     const handoff = r.status === "elsewhere" ? (owner && heard.has(owner) ? "delivered" : "undelivered") : "";
+    // ── WHEN THE CALLER SAYS JUDGING IS IN FORCE (2026-10-05) ──────────────
+    //
+    // The addon route judges every requirement before it reports one (see the
+    // head of `FOLLOWS`) and says so with `judged: true`; a caller that does
+    // not judge leaves it off and reads exactly what it always read.
+    //
+    // AN ENTRY WITH NO VERDICT A READER MAY TRUST is recorded and never told:
+    // that it follows from their words is the one thing nobody established, and
+    // "I can't see from here whether…" about a need they never had is run
+    // 101's sentence again.
+    const verdict = judged ? verdictOf(r) : null;
+    if (judged && !verdict) {
+      out.push({ ...r, state: "unknown", unjudged: true, ...(handoff ? { handoff } : {}) });
+      continue;
+    }
+    if (verdict && r.status !== "unsupported" && verdict.carried !== "unsure") {
+      const ids = verdict.by.map(carrierId);
+      let st = "", whyJ = r.why || "", cfg = "", contra = "", impl = "", byName = "", where = "";
+      if (verdict.carried === "no") {
+        // NOTHING DESIGNED OR ALREADY THERE DOES IT. A step that failed still
+        // outranks that — its failure is the more specific thing to say — and
+        // otherwise this is work that is not there: "Still to do".
+        if (owner && bad.has(owner)) { st = r.status === "covered" ? "failed" : "blocked"; whyJ = whyJ || "the " + owner + " step could not do its part"; }
+        else { st = "missing"; whyJ = whyJ || verdict.reason || "nothing in this change does it"; }
+      } else {
+        // THE ITEMS THE JUDGMENT NAMED, AND ONLY THOSE, against what RAN. The
+        // designer's own `item` is a claim the judgment has already weighed;
+        // the existence of a thing it named — a table, a page — settles
+        // nothing unless the judgment found that it does the work.
+        //
+        // IN THE ORDER THE UNJUDGED READING DECIDES IN, so the two cannot
+        // disagree about the same evidence: a named thing that broke, then
+        // the owning step's own failure over a thing that is not there, then
+        // what is missing, then what nobody could see.
+        const rd = carriersReading(verdict.by, { made, existing, reportable, broken });
+        impl = rd.present;
+        if (rd.state === "broken") { st = "blocked"; whyJ = whyJ || brokeWhy(rd.ref); }
+        else if (owner && bad.has(owner) && rd.present !== "found") { st = r.status === "covered" ? "failed" : "blocked"; whyJ = whyJ || "the " + owner + " step could not do its part"; }
+        else if (rd.state === "absent") { st = "missing"; whyJ = whyJ || "the " + rd.ref.name + " it needs was not added"; }
+        else if (rd.state === "partless") { st = "missing"; whyJ = whyJ || "the " + rd.ref.name + " " + rd.ref.kind + " does not do this"; }
+        else if (rd.state === "unknown") st = "unknown";
+        else {
+          // EVERY ITEM IS THERE, WITH ITS PART: established, and still not
+          // exercised — `unverified`, whose sentence says exactly that. A
+          // claim naming a setting that holds reads `configured`, one that a
+          // setting denies keeps the fact for the record, as everywhere else.
+          const ev = r.status === "covered" ? claimEvidence(r.by, rd.found.map((f) => f.item)) : null;
+          if (ev && ev.kind === "checked") st = "delivered";
+          else if (ev && ev.kind === "config") { st = "configured"; cfg = String(ev.name) + ": " + String(ev.token); }
+          else { st = "unverified"; if (ev && ev.kind === "contradicted") contra = String(ev.name) + ": " + String(ev.token); }
+        }
+        if (rd.present === "found" && rd.found.length) { byName = String(rd.found[0].item.name || ""); where = rd.found[0].where; }
+      }
+      out.push({
+        ...r, state: st,
+        ...(handoff ? { handoff } : {}),
+        carried: verdict.carried,
+        ...(ids.length ? { carriedBy: ids } : {}),
+        ...(impl ? { implementation: impl, ...(impl === "found" && byName ? { implementedBy: byName, foundIn: where } : {}) } : {}),
+        ...(cfg ? { configuredBy: cfg } : {}),
+        ...(contra ? { contradictedBy: contra } : {}),
+        ...(whyJ ? { why: whyJ } : {}),
+      });
+      continue;
+    }
     const reconciled = r.status === "elsewhere" || r.status === "covered";
     const impl = reconciled ? implementationOf(r, made, reportable, existing) : null;
     // THE NAMED DEPENDENCY, AND WHETHER IT IS THE ONE THAT BROKE. Asked in
@@ -1375,9 +1654,20 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
       // **and that is now as true of a `covered` label as of a hand-off.**
       state = "unknown";
     }
+    // ── AN "UNSURE" VERDICT NEVER BUYS A POSITIVE STATE (2026-10-05) ─────────
+    //
+    // The judgment could not tell what carries this out, so the designer's own
+    // reference is all that is left — and a referenced thing being there is
+    // what may not stand in for the behaviour. Every negative reading above
+    // stands as it was; only the three that open "I've set that up" fall to
+    // the can't-see sentence.
+    const capped = !!verdict && (state === "unverified" || state === "configured" || state === "delivered");
+    if (capped) state = "unknown";
     out.push({
       ...r, state,
       ...(handoff ? { handoff } : {}),
+      ...(verdict ? { carried: verdict.carried } : {}),
+      ...(capped ? { capped: true } : {}),
       // `implementedBy` IS ONLY EVER THE THING THAT WAS FOUND. The reader
       // carries the name it SOUGHT out of a miss too, which is useful inside
       // it and is a lie on the wire: a field named "implemented by" beside
@@ -1571,8 +1861,9 @@ export function reconcileHandoffs(outcomes) {
   });
 }
 
-export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
+export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false } = {}) {
+  // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
   const unsupported = outcomes.filter((r) => r.state === "failed" && r.status === "unsupported");
@@ -1709,9 +2000,9 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
-  const n = (s) => outcomes.filter((r) => r.state === s).length;
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], judged = false, setAside = [], verdictsInvalid = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged });
+  const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;
   return {
     counts: {
       ...requirementCounts(list, skipped),
@@ -1732,6 +2023,9 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
       // THE WORK IS NOT THERE / A DEPENDENCY FAILED / THE STEP SAID IT COULD
       // NOT — three different things to do about it, so three numbers.
       missing: n("missing"), blocked: n("blocked"), failed: n("failed"),
+      // NO VERDICT ANYBODY MAY TRUST (2026-10-05): recorded with its entry
+      // (`unjudged: true`), never told, and in none of the states above.
+      ...(judged ? { unjudged: outcomes.filter((r) => r.unjudged).length } : {}),
     },
     // ── THE HAND-OFF LEDGER, SEPARATE FROM THE WORK (2026-09-15) ───────────
     //
@@ -1750,6 +2044,13 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // record, and in no count above.
     ...(Array.isArray(ungrounded) && ungrounded.length ? { ungrounded: ungrounded.slice(0, MAX_REQUIREMENTS) } : {}),
     ...(Array.isArray(suggestions) && suggestions.length ? { suggestions: suggestions.slice(0, MAX_REQUIREMENTS) } : {}),
+    // …AND WHAT THE JUDGMENT FOUND DOES NOT FOLLOW FROM THEIR WORDS, AND WHAT
+    // IN ITS ANSWER WAS NOT A VERDICT (2026-10-05). Each in no count above and
+    // never told; here so a run can be read back. An entry it said nothing
+    // about stays in `requirements`, marked `unjudged`.
+    ...(judged ? { judged: true } : {}),
+    ...(Array.isArray(setAside) && setAside.length ? { setAside: setAside.slice(0, MAX_REQUIREMENTS) } : {}),
+    ...(Array.isArray(verdictsInvalid) && verdictsInvalid.length ? { verdictsInvalid: verdictsInvalid.slice(0, MAX_REQUIREMENTS) } : {}),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
     invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
     // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as

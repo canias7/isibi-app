@@ -125,6 +125,13 @@ export function compiledPages(r) {
  * table with three columns and `access: "user"` — which is what makes the
  * extension case observable at all, since a replaced table loses exactly those.
  */
+/**
+ * THE SITE'S DATABASE CONNECTION, as every case's ownership row names it — and
+ * the key the Worker's schema read is cached under (`readSiteSchema`), so a
+ * case that must start from its own stored schema clears that key first.
+ */
+export const SITE_CONN = "postgres://u:p@ep-addon.neon.tech/neondb";
+
 export const STORED_SCHEMA = {
   tables: [{ name: "bookings", access: "user", columns: [{ name: "who", type: "text" }, { name: "slot", type: "text" }, { name: "phone", type: "text" }] }],
   functions: [], apis: [], jobs: [],
@@ -270,7 +277,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -349,7 +356,7 @@ function stub({ kinds, answers, ungrounded = false, fnFail = false, jobsFail = f
       // flips the fixture to "it exists now", which is what the second lookup
       // inside `ensureSiteBackend` has to find.
       if (backend === "none" && !provisioned) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
-      return new Response(JSON.stringify([{ uid: USER.id, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: "postgres://u:p@ep-addon.neon.tech/neondb" }]),
+      return new Response(JSON.stringify([{ uid: USER.id, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: SITE_CONN }]),
         { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/rest/v1/site_backends")) {
@@ -618,6 +625,64 @@ function stub({ kinds, answers, ungrounded = false, fnFail = false, jobsFail = f
         }
         return "";
       })();
+      // ── THE JUDGMENT (2026-10-05) ────────────────────────────────────────
+      //
+      // The route asks a model whether each requirement follows from what was
+      // asked, and which listed thing carries it out (`judge_requirements`). A
+      // case says what that model answers with `judge`: an answer, `"fail"`
+      // (the call is refused), or a function of what the route REALLY showed
+      // it — the requirement lines and the listed ids, read off the request it
+      // sent. A case that says nothing is answered as a model would answer the
+      // requirement its designer wrote: it follows on its own `basis`, and is
+      // carried by the thing the designer named explicitly (its kind and
+      // `item`) when that thing is listed; otherwise "unsure", never a name
+      // read out of its prose. So every case written before the judgment keeps
+      // the evidence it was written against, and a case about the judgment —
+      // or one whose claim names its carrier only in a sentence — says so.
+      if (asked === "judge_requirements") {
+        const text = (b.messages || []).filter((m) => m && m.role === "user")
+          .map((m) => (typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && x.text) || "").join("\n") : "")).join("\n");
+        const after = (head) => { const at = text.indexOf(head); return at < 0 ? [] : text.slice(at + head.length).split("\n"); };
+        const entries = [];
+        for (const line of after("The requirements the designers wrote down, one per line:\n")) {
+          if (!line.startsWith("{")) break;
+          try { entries.push(JSON.parse(line)); } catch { break; }
+        }
+        const items = [];
+        for (const line of after("What this request designed, and what the site already has:\n")) {
+          const m = /^- (\S+) — (.*)$/.exec(line);
+          if (!m) break;
+          items.push({ id: m[1], text: m[2] });
+        }
+        const handing = /about to be handed to the (\S+) step/.exec(text);
+        const step = handing ? handing[1] : "";
+        const ids = items.map((i) => i.id);
+        const auto = () => ({
+          verdicts: entries.map((e) => {
+            const follows = e.basis === "needed" ? "needed" : "asked";
+            // A NAMED ITEM WITH NO KIND IS AMBIGUOUS, as the route reads it: unsure.
+            if (step || e.status === "unsupported" || (e.status === "covered" && e.item && !e.kind)) return { id: e.id, follows, carried: "unsure", reason: "auto" };
+            // THE DESIGNER'S OWN KIND: what it named, or the step that wrote it.
+            const kindOf = e.status === "elsewhere" ? e.step : (e.kind || e.from || "");
+            const named = kindOf && e.item ? kindOf + ":" + String(e.item).trim().toLowerCase() : "";
+            // ONLY THE DESIGNER'S EXPLICIT REFERENCE, never its prose: a claim
+            // naming no item, or one not listed, is "unsure", and the route then
+            // reads what it always read under the cap. A case whose model would
+            // name the carriers from a clause says so with `judge`.
+            const by = named && ids.includes(named) ? [named] : [];
+            return by.length ? { id: e.id, follows, carried: "yes", by, reason: "auto" } : { id: e.id, follows, carried: "unsure", reason: "auto" };
+          }),
+        });
+        const said = typeof judge === "function" ? judge({ entries, items, step, text }) : judge;
+        if (said === "fail") return new Response(JSON.stringify({ error: { type: "invalid_request_error", message: "refused" } }), { status: 400, headers: { "content-type": "application/json" } });
+        const input = said && typeof said === "object" ? said : auto();
+        // `judgeUsage` IS WHAT THE CALL COST, when a case is about the bill.
+        const ju = judgeUsage && typeof judgeUsage === "object" ? judgeUsage : { input_tokens: 10, output_tokens: 5 };
+        const jbody = anthropic
+          ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input }], usage: ju }
+          : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: ju.input_tokens, completion_tokens: ju.output_tokens } };
+        return new Response(JSON.stringify(jbody), { status: 200, headers: { "content-type": "application/json" } });
+      }
       const supplied = answers[kind] || {};
       const designed = !ungrounded && asked === "add_to_site" && Array.isArray(supplied.requirements)
         ? { ...supplied, requirements: supplied.requirements.map((e) => (e && typeof e === "object" && !Object.hasOwn(e, "basis") && !Object.hasOwn(e, "words") ? { ...e, basis: "asked", words: shownAsk } : e)) }

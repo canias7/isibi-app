@@ -88,6 +88,39 @@ here; take a closed one out of both.**
     - a real choice goes to the designers' existing question;
     - no email was added;
     - shown with supplied answers through the real route; not shown live.
+  - **The second half, on the owner's review** (2026-10-05, not merged or
+    deployed; `docs/history/2026-10-05-judgment.md`): a genuine quote does
+    not make the requirement theirs. The owner reproduced "Every signup
+    receives a confirmation email" quoting "leave their name and email
+    address", and an SMS reminder quoting "book a lesson", both still told
+    as set up. **Now** a model call judges whether each requirement follows
+    from their words and what carries it out (`judge_requirements`), before
+    a hand-off and after the last designer; code checks that what it names
+    was shown and really ran, with the part of a table that does the work
+    (`notify`, `confirm`, `sms`, `webhooks`, `payment`). An optional idea is
+    offered, an unrelated one recorded, an unjudged one never told, and a
+    referenced table that merely exists no longer counts. Shown with
+    supplied answers through the real route; not shown live. **Its limits**
+    are in that file's §7: the judgment's quality is the model's, it sees
+    the design and not the published result, and a part a designer built
+    for an extra anyway is not undone.
+- **The add-on route's test harness shares one stored-schema cache between
+  cases** (found 2026-10-05, writing `test/addon-judgment.test.mjs`):
+  - **What happens**: every slug's ownership row names the same database
+    connection, and `readSiteSchema` caches the stored schema by that
+    connection (`site-schema.mjs`, a 200-entry cache with a TTL). So a case
+    can start from an earlier case's applied schema: a table the earlier
+    case made is "already on the site", and `applySiteSchema`'s merge keeps
+    the earlier case's settings for it (first declaration wins).
+  - **Measured**: JUDGE 10's second sub-case (an email to an address column
+    the table does not have) read the first sub-case's valid email back,
+    until the case cleared the key.
+  - **Now**: `test/addon-judgment.test.mjs` clears that key before each case
+    (`invalidateSiteSchema(connForDatabase(SITE_CONN, "sitedb"))`); the 16
+    other harness files do not, and pass.
+  - **The fix it needs**: the harness clearing the key itself on every call,
+    then a run of those 16 files to see what each case really started from.
+    Not done here: it is outside this fix's scope.
 - **The canary's preview checks cannot judge a closed-tab message's refresh
   when the first tab moves its own preview after the send** (the
   instrument; run 101, 2026-10-05):

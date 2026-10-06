@@ -478,7 +478,10 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // replaces that assertion is the pair below: the composer reads `aTold` and
   // the loop fills it only where the brief is really composed.
   assert.match(W, /told: \[\.\.\.aTold\]/, "the composer no longer reads which steps were really told");
-  assert.match(W, /const aBrief = requirementBrief\(aReq, k\);\s*\n\s*if \(aBrief\) aTold\.add\(k\);/,
+  // RE-ANCHORED 2026-10-05: the brief is composed from what the judgment kept
+  // (`aReq.filter((r) => r.judged)` — an extra or an unjudged entry is never
+  // handed on to be built), and `aTold` is still filled only where it is.
+  assert.match(W, /const aBrief = requirementBrief\(aReq\.filter\(\(r\) => r\.judged\), k\);\s*\n\s*if \(aBrief\) aTold\.add\(k\);/,
     "a step is recorded as told without the brief being composed, or the brief is composed and not recorded");
   // ── AND THE COMPOSER READS WHAT REALLY HAPPENED ──────────────────────────
   //

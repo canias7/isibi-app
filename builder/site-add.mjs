@@ -157,7 +157,7 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, i
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, cleanRequirements, cleanSuggestions, requirementBrief } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts } from "./site-requirements.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
@@ -2338,6 +2338,285 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
     failed: false,
     raw: reply,
   };
+}
+
+/* ------------------------------------------- what each requirement means */
+
+/**
+ * ── THE JUDGMENT (2026-10-05) ────────────────────────────────────────────────
+ *
+ * The owner, after the grounding round: *"a matching quote proves the words
+ * came from the user, not that the claimed requirement follows from them …
+ * Use the model for judging meaning and necessary dependencies, and code for
+ * checking provenance and actual execution evidence."*
+ *
+ * ONE SMALL CALL, on the add step's own model, after the designers: shown what
+ * they asked, every requirement the designers kept (already grounded in their
+ * words by `groundRequirements`), and every thing this request designed or the
+ * site already has, each under an id the code wrote. It answers, per
+ * requirement, whether it follows from their words (`FOLLOWS`) and which of
+ * those things carries it out (`CARRIED`, `by`). What it may NOT do is decide
+ * what ran: every id it names is checked against the list it was shown
+ * (`readVerdicts`) and, once the change is applied, against what was really
+ * applied or already there, with the part of a table that does the work
+ * (`requirementOutcomes` with `judged`).
+ *
+ * A requirement about to be handed to a later step is judged first, alone, so
+ * an extra is never handed on to be built (`final: false` in `applyVerdicts`).
+ *
+ * NOTHING HERE READS A REQUIREMENT FOR WHAT IT SAYS. The descriptions below are
+ * what the platform does with each thing — a table part's one job, a
+ * function's own settings — and the meaning is the model's to weigh.
+ */
+export const JUDGE_MAX_TOKENS = 8000;
+const MAX_JUDGE_ITEMS = 80;
+const MAX_ITEM_TEXT = 240;
+
+/** What each part of a table does, as the platform does it. One line per `TABLE_PARTS` entry. */
+export const PART_SAYS = Object.freeze({
+  notify: "the owner is emailed about each new row",
+  confirm: "the person who adds a row is emailed",
+  sms: "the person who adds a row is sent a text message",
+  webhooks: "another system is told about its rows",
+  payment: "the visitor pays by card",
+});
+
+const JUDGE_SYSTEM =
+  "You check the requirements the designers of an addition to a small business's website wrote down, against " +
+  "what the customer actually asked for. Each requirement quotes the customer's own words it says it comes from, " +
+  "and we have already checked that those words are in what they wrote: the quote is theirs. A real quote does " +
+  "not make the requirement theirs. What you judge is whether the requirement FOLLOWS from what they asked.\n\n" +
+  "For each requirement, `follows` is one of:\n" +
+  "- \"asked\": their words ask for this.\n" +
+  "- \"needed\": they did not say it, but what they asked for cannot work without it — a sign-up form cannot work " +
+  "without somewhere to keep the sign-ups, and somebody allowed to read them.\n" +
+  "- \"optional\": it would go well with what they asked, but what they asked works without it — for example an " +
+  "email or a text back to the visitor, a reminder or a second page, when they did not ask for one. They are " +
+  "offered it as a suggestion, and nothing is built for it.\n" +
+  "- \"unrelated\": it does not follow from what they asked at all.\n" +
+  "When you are torn between \"needed\" and \"optional\", answer \"optional\": \"needed\" says that what they " +
+  "asked for cannot work without it.\n\n" +
+  "Then `carried` says whether something listed under \"What this request designed, and what the site already " +
+  "has\" does it:\n" +
+  "- \"yes\": put in `by` the id of each listed thing that does the work, copied exactly as it is listed. When " +
+  "the work is what a part of a table does, name that part (an id like `table:bookings:confirm`), not only the " +
+  "table.\n" +
+  "- \"no\": nothing listed does it.\n" +
+  "- \"unsure\": you cannot tell from what you were shown.\n" +
+  "Something that only keeps or shows information does not do anything else with it: a table that stores email " +
+  "addresses sends nobody an email, and a page with a form keeps nothing unless a listed table keeps it. Name only " +
+  "what is listed, and never invent an id.\n\n" +
+  "When a requirement answers another one (its `answers` names that one's id), the two are the same need: give " +
+  "them the same verdict.\n\n" +
+  "`reason` is one short, plain sentence saying why, for our own records.\n\n" +
+  "Answer every requirement listed, once each, by its id. If what they wrote leaves open a choice that only they " +
+  "can make and that changes what gets built, ask them that instead (`question`). Never ask about an optional " +
+  "extra — that is a suggestion — and never to confirm something their words already settle.";
+
+const VERDICT_ITEM = {
+  type: "object",
+  properties: {
+    id: { type: "string", description: "The requirement's id, copied exactly as it is listed (it looks like `table#0`)." },
+    follows: {
+      type: "string",
+      enum: FOLLOWS,
+      description: "\"asked\", \"needed\", \"optional\" or \"unrelated\", as the instructions describe.",
+    },
+    carried: {
+      type: "string",
+      enum: CARRIED,
+      description: "\"yes\" (and `by` names what does it), \"no\" or \"unsure\".",
+    },
+    by: {
+      type: "array",
+      items: { type: "string" },
+      description: "For \"yes\" only: the id of each listed thing that does the work, copied exactly.",
+    },
+    reason: { type: "string", description: "One short, plain sentence: why." },
+  },
+  required: ["id", "follows", "carried", "reason"],
+};
+
+/** The judgment's tool. A question beside it, as every step here may ask one. */
+export const JUDGE_TOOL = withQuestion({
+  name: "judge_requirements",
+  description: "Your verdict on every requirement listed, one each, by its id.",
+  input_schema: {
+    type: "object",
+    properties: { verdicts: { type: "array", items: VERDICT_ITEM } },
+    required: ["verdicts"],
+  },
+});
+
+/**
+ * WHAT THE JUDGMENT IS SHOWN, as `[{ id, text }]`: every thing this request
+ * designed, in the order it was designed, then every thing the site already
+ * has. The id is `carrierOf`'s — the same `{kind, name}` identity the applied
+ * and existing facts are keyed by, so an id the judgment names can be looked
+ * up afterwards exactly — and a table's working parts are their own ids
+ * (`tableParts`), so "this table emails somebody" is a thing that can be
+ * named, and checked, apart from "this table exists".
+ *
+ * `answers` is the route's `aAnswers` (cleaned values, by kind), `existing` is
+ * `existingFacts`'s answer and `spec` the stored schema the existing tables'
+ * details are read from. Bounded, and every line is the thing's own settings.
+ */
+export function judgeItems({ answers = [], existing = null, spec = null, refs = [] } = {}) {
+  const out = [];
+  const seen = new Set();
+  const flat = (t) => String(t == null ? "" : t).replace(/\s+/g, " ").trim();
+  const push = (id, text) => {
+    const key = String(id || "").trim().toLowerCase();
+    if (!carrierOf(key) || seen.has(key) || out.length >= MAX_JUDGE_ITEMS) return;
+    seen.add(key);
+    out.push({ id: key, text: flat(text).slice(0, MAX_ITEM_TEXT) });
+  };
+  const nameOf = (v) => flat(v && v.name).toLowerCase();
+  const table = (t, origin) => {
+    const n = nameOf(t);
+    if (!n) return;
+    const keeps = (Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => flat(typeof c === "string" ? c : c && c.name)).filter(Boolean).slice(0, 12);
+    push("table:" + n, "a table, " + origin + (keeps.length ? "; it keeps " + keeps.join(", ") : "") + "; who may add and read its rows: " + accessLabel(t));
+    for (const part of tableParts(t)) push("table:" + n + ":" + part, "part of the table " + n + ": " + PART_SAYS[part]);
+  };
+  const ADDED = "added by this request";
+  for (const a of Array.isArray(answers) ? answers : []) {
+    if (!a || typeof a !== "object") continue;
+    for (const v of Array.isArray(a.value) ? a.value : [a.value]) {
+      if (!v || typeof v !== "object") continue;
+      if (a.kind === "table") {
+        if (v.table && typeof v.table === "object") table(v.table, v.exists ? "already on the site and changed by this request" : ADDED);
+      } else if (a.kind === "function") {
+        const args = (Array.isArray(v.args) ? v.args : []).map((x) => flat(x && x.name)).filter(Boolean).join(", ");
+        push("function:" + nameOf(v), "a database function, " + (v.exists ? "replaced" : "added") + " by this request — " +
+          (v.internal ? "run only by the platform (a scheduled job or a table's part)" : "called from a page") +
+          (args ? "; it takes " + args : "") + (v.returns ? "; it returns " + flat(v.returns) : "") +
+          (typeof v.body === "string" && v.body ? "; its SQL: " + flat(v.body) : ""));
+      } else if (a.kind === "api") {
+        let host = "";
+        try { host = new URL(String(v.url || "")).hostname; } catch { host = ""; }
+        push("api:" + nameOf(v), "a connection to an outside service, " + ADDED + (host ? " — it calls " + host : ""));
+      } else if (a.kind === "job") {
+        push("job:" + nameOf(v), "a scheduled job, " + ADDED + " — it runs " + flat(v.fn) + " " + jobEvery(v) + " and sends what that returns");
+      } else if (a.kind === "page") {
+        push("page:" + flat(v.path), "a page, " + ADDED + " — " + flat(v.path) + (v.name ? ", called \"" + flat(v.name) + "\"" : "") + (v.purpose ? ": " + flat(v.purpose) : ""));
+        // …AND ITS PHOTOGRAPHS, BY PLACEMENT: the page writer may show one the
+        // site already owns there, and whether one landed is read afterwards.
+        push("photo:" + flat(v.path), "the photographs on " + flat(v.path) + ", if this request shows any there");
+      } else if (a.kind === "component") {
+        const own = Array.isArray(v.tsx) && v.tsx[0] && v.tsx[0].name;
+        const kit = Array.isArray(v.components) && v.components[0];
+        push("component:" + flat(own || kit).toLowerCase(), "a component, " + ADDED + " — on " + flat(v.page || "/") + (v.does ? ": " + flat(v.does) : ""));
+      } else if (a.kind === "qr") {
+        push("qr:" + flat(qrName(v.name, v.label)), "a QR code, " + ADDED + " — on " + flat(v.page || "/") + (v.points ? "; it opens " + flat(v.points) : ""));
+      } else if (a.kind === "three") {
+        push("three:three", "a 3D scene, " + ADDED + " — on " + flat(v.page || "/"));
+      } else if (a.kind === "photo") {
+        // BY ITS OWN NAME AND BY ITS PLACEMENT — the two identities the applied
+        // photographs are read back under (`appliedFacts`'s `shots` and `photos`).
+        push("photo:" + nameOf(v), "a photograph, " + ADDED + " — on " + flat(v.page || "/") + (v.describe ? ": " + flat(v.describe) : ""));
+        push("photo:" + flat(v.page || "/"), "the photographs on " + flat(v.page || "/") + ", with the one " + ADDED);
+      }
+    }
+  }
+  const tables = spec && Array.isArray(spec.tables) ? spec.tables : [];
+  const THERE = "already on the site";
+  const WORD = { table: "a table", function: "a database function", api: "a connection to an outside service", job: "a scheduled job", page: "a page", component: "a component", qr: "a QR code", three: "a 3D scene", photo: "a photograph" };
+  for (const it of existing && Array.isArray(existing.items) ? existing.items : []) {
+    if (!it || typeof it !== "object") continue;
+    const n = flat(it.name);
+    if (!n) continue;
+    if (it.kind === "table") {
+      const t = tables.find((x) => x && flat(x.name).toLowerCase() === n.toLowerCase());
+      if (t) table(t, THERE);
+      else push("table:" + n, "a table, " + THERE);
+    } else if (WORD[it.kind]) {
+      push(it.kind + ":" + n, WORD[it.kind] + ", " + THERE + (it.kind === "photo" ? ", on " + n : ""));
+    }
+  }
+  // ── AND WHAT A REQUIREMENT NAMES THAT IS IN NEITHER ──────────────────────
+  //
+  // The judgment runs before the pages are written, and the page writer can
+  // publish a page no designer planned (run 53's `/rates`). A requirement's
+  // own explicit reference is listed for exactly that, said to be in neither
+  // list: the judgment may name it as what does the work, and whether it is
+  // really there is read off the applied result afterwards, as for every id.
+  for (const r of Array.isArray(refs) ? refs : []) {
+    if (!r || typeof r !== "object" || typeof r.item !== "string" || !r.item.trim()) continue;
+    const kind = r.status === "covered" ? r.kind : r.status === "elsewhere" ? r.step : "";
+    if (!WORD[kind]) continue;
+    push(kind + ":" + flat(r.item), WORD[kind] + " named by a requirement, and neither designed by this request nor already on the site: whether it is there is read after the change runs");
+  }
+  return out;
+}
+
+/** One requirement as the judgment reads it: its own fields, one JSON line. */
+const judgedLine = (r) => JSON.stringify(Object.fromEntries(
+  ["id", "need", "basis", "words", "status", "from", "by", "kind", "item", "step", "answers", "why"]
+    .map((k) => [k, r[k]]).filter(([, v]) => typeof v === "string" && v)));
+
+export function judgeRequest({ message, entries = [], items = [], step = "", model }) {
+  return {
+    model,
+    max_tokens: JUDGE_MAX_TOKENS,
+    // CACHED, as every step's tool and rules are: byte-identical for every
+    // judgment by any customer; what they asked and what was designed ride in
+    // the user message.
+    tools: [{ ...JUDGE_TOOL, cache_control: { type: "ephemeral" } }],
+    tool_choice: { type: "tool", name: "judge_requirements" },
+    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: JUDGE_SYSTEM }],
+    messages: [{ role: "user", content:
+      "What they asked for:\n" + String(message || "") +
+      "\n\nThe requirements the designers wrote down, one per line:\n" + entries.map(judgedLine).join("\n") +
+      // BEFORE A HAND-OFF, nothing has been designed for these yet: only
+      // whether each follows is asked, and the things list is left out.
+      (step
+        ? "\n\nThese are about to be handed to the " + step + " step, which has not designed anything for them yet. " +
+          "Judge only whether each follows from what they asked, and answer `carried` with \"unsure\"."
+        : "\n\nWhat this request designed, and what the site already has:\n" +
+          (items.length ? items.map((i) => "- " + i.id + " — " + i.text).join("\n") : "(nothing)")) },
+    ],
+  };
+}
+
+/**
+ * Run one judgment. `send` injected, one call. `{ verdicts, invalid, usage,
+ * failed, error?, ask?, raw? }`.
+ *
+ * A JUDGMENT THAT CANNOT BE READ IS A FAILED ONE: a throw, a truncated answer,
+ * or an answer with no list of verdicts in it. The caller stops before anything
+ * is applied, as it does when a designer's call fails — reporting requirements
+ * nobody judged is the defect this exists to close. A list that skips some is
+ * read for what it says, and the skipped ones are unjudged.
+ */
+export async function runJudge(deps, { message, entries = [], items = [], step = "", model = ADD_MODEL } = {}) {
+  const list = (Array.isArray(entries) ? entries : []).filter((r) => r && typeof r.id === "string" && r.id);
+  const none = { verdicts: new Map(), invalid: [] };
+  if (!list.length) return { ...none, usage: null, failed: false };
+  let reply;
+  try {
+    reply = await deps.send(judgeRequest({ message, entries: list, items, step, model }));
+  } catch (e) {
+    return { ...none, usage: null, failed: true, error: e };
+  }
+  const usage = addUsage(reply, model);
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("judge truncated at max_tokens");
+    e.truncated = true;
+    return { ...none, usage, failed: true, error: e };
+  }
+  const ask = askOf(reply);
+  if (ask) return { ...none, usage, failed: false, ask, raw: reply };
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const input = use && use.input && typeof use.input === "object" ? use.input : null;
+  const read = readVerdicts(input, { ids: list.map((r) => r.id), items: (Array.isArray(items) ? items : []).map((i) => i && i.id) });
+  if (read.invalid.some((x) => x.why === "no-verdicts")) {
+    const e = new Error("judge answered no verdicts");
+    return { ...none, invalid: read.invalid, usage, failed: true, error: e, raw: reply };
+  }
+  return { verdicts: read.verdicts, invalid: read.invalid, usage, failed: false, raw: reply };
 }
 
 /* --------------------------------------------------------- what came back */
@@ -5181,6 +5460,32 @@ export function addRepairNote(round) {
 }
 
 /**
+ * THE PARTS OF A TABLE THAT DO SOMETHING, read off the table as stored
+ * (2026-10-05): `notify` — the owner is emailed about each new row, which the
+ * platform does for a `collect` table and nothing else (`shouldNotify`);
+ * `confirm` and `sms` — the person who submitted is emailed or texted, kept by
+ * `normalizeSchema` only where the sender can act on it (`normalizeConfirm`,
+ * `normalizeSms`); `webhooks` — another system is told; `payment` — the
+ * visitor pays by card. One reader for the record of what ran, what the site
+ * already has, and what the judgment is shown, so the three cannot disagree
+ * about what a table does. `TABLE_PARTS` is the vocabulary.
+ */
+export function tableParts(t) {
+  if (!t || typeof t !== "object") return [];
+  const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  const out = [];
+  // A `collect` table whose stored rule still lets a visitor add a row: the
+  // email is sent from that POST (`shouldNotify`), so a rule that refuses it
+  // sends nothing.
+  if (String(t.access || "").toLowerCase() === "collect" && resolveAccess(t).write !== "none") out.push("notify");
+  if (obj(t.confirm)) out.push("confirm");
+  if (obj(t.sms)) out.push("sms");
+  if (t.webhooks === true || (Array.isArray(t.webhooks) && t.webhooks.length)) out.push("webhooks");
+  if (obj(t.payment)) out.push("payment");
+  return out.filter((x) => TABLE_PARTS.includes(x));
+}
+
+/**
  * WHAT THE SITE ALREADY HAS, beside what this change applied (2026-09-15).
  *
  * Owner: *"Distinguish 'not added by this change' from 'absent from the site.'
@@ -5228,7 +5533,11 @@ export function existingFacts({ spec = null, pages = null, look = null, sources 
   if (spec && typeof spec === "object") {
     for (const [kind, key] of [["table", "tables"], ["function", "functions"], ["api", "apis"], ["job", "jobs"]]) {
       speaks(kind);
-      for (const n of names(spec[key])) items.push({ kind, name: n });
+      for (const n of names(spec[key])) {
+        // A TABLE WITH WHAT IT DOES (2026-10-05), read off the stored spec it came from.
+        const t = kind === "table" ? (spec.tables || []).find((x) => x && String(x.name || "").trim() === n) : null;
+        items.push(kind === "table" ? { kind, name: n, parts: tableParts(t) } : { kind, name: n });
+      }
     }
   }
   if (Array.isArray(pages)) {
@@ -5493,13 +5802,17 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const factsFor = (name) => {
     const t = list.find((x) => x && String(x.name || "").toLowerCase() === name);
     if (!t) return { holds: [], fails: [], checked: [] };
+    // WHAT THE TABLE DOES, AS APPLIED (2026-10-05) — its own list, never in
+    // `holds`: a part is not a word a claim can name its way into, it is what
+    // a judged requirement's evidence is checked against (`carriersReading`).
+    const parts = tableParts(t);
     const acc = resolveAccess(t);
     const mine = new Set([String(t.access || ""), acc.read, acc.write].filter(Boolean));
     const cols = (Array.isArray(t.columns) ? t.columns : [])
       .map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter(Boolean);
     const holds = [...mine, ...cols];
     if (Array.isArray(t.unique) && t.unique.length) holds.push("unique");
-    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: [] };
+    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: [], parts };
   };
   const out = [];
   const named = [...(Array.isArray(tables) ? tables : []),

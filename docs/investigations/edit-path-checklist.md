@@ -1136,6 +1136,18 @@ the owner's free press, run 51, at 22:57 UTC):
 
       **Supplied answers, the real routes and a real Chromium**; not shown
       live.
+    - **The requirement gap's second half** (2026-10-05, on the owner's
+      review of that batch; on the branch, not merged or deployed;
+      `docs/history/2026-10-05-judgment.md`): a genuine quote no longer makes
+      a requirement theirs. A model call judges whether each one follows from
+      their words and what carries it out, before a hand-off and after the
+      last designer; code checks that what it names was shown and really
+      ran, with the part of a table that does the work. The owner's two
+      reproductions — a confirmation email quoting "leave their name and
+      email address", an SMS reminder quoting "book a lesson" — are offered
+      or set aside and never told as set up; a notification they asked for
+      and the storage a form needs are still reported. **Supplied answers
+      through the real route**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

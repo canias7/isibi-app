@@ -484,6 +484,28 @@ case and fails both of those.
 
 ### WHAT THE ADDON REPORTS, AND WHAT IT REFUSES TO CLAIM
 
+**A REQUIREMENT IS REPORTED ONLY WHEN IT IS THEIRS, AND ONLY AS WHAT RAN**
+(2026-10-05, on the branch, not merged or deployed;
+`docs/history/2026-10-05-judgment.md`). Three checks, split on the owner's
+line:
+- **provenance (code)**: its quoted words are in what they wrote
+  (`groundRequirements`);
+- **meaning (the model)**: one small call on the add step's own model
+  (`runJudge`, `judge_requirements`) says whether each requirement was
+  `asked`, is `needed` for what they asked, is `optional` or is `unrelated`,
+  and which listed thing carries it out. It runs before a requirement is
+  handed to a later step (meaning only) and after the last designer (with
+  everything designed in view). An optional one is offered as a suggestion;
+  an unrelated one is recorded (`setAside`); one it did not judge is never
+  told;
+- **execution (code)**: every thing it names must be one it was shown, and
+  must really have been applied or already be there — for a table, with the
+  part that does the work (`tableParts`: `notify`, `confirm`, `sms`,
+  `webhooks`, `payment`). The route reads every report with
+  `judged: true`; a verdict of `unsure` falls to the designer's own
+  reference and can no longer reach `unverified`, `configured` or
+  `delivered` (`capped`).
+
 **The reporting system is the addon path's largest body of law**, built across
 2026-09-13 → 09-20 from roughly thirty reproduced defects. Every rule below was
 driven through `POST /api/site/<slug>/addon` against stubbed seams before it was
