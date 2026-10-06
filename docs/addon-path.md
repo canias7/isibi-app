@@ -511,6 +511,26 @@ line:
   (`requirementsTold`) beside the note's other sentences (`coverOther`), each
   requirement is its own fact for the reply model (`coverFacts`), and the note
   the browser prints is written from the same report with nothing cut;
+- **a refusal tells them too, and "set up" means this change set it up**
+  (2026-10-06, `docs/history/2026-10-06-refusal-warnings.md`): both designer
+  refusals (`add`, `declined`) compose their note as refusals
+  (`aCoverage({ refused: true })`, without the counted sentences that describe
+  a built change); the reply's facts on `ok: false` are the refusal's sentence
+  and one fact per requirement; the browser prints the note under the
+  refusal's sentence. A requirement whose every carrier was found among what
+  the site already had (`foundIn: "existing"`) is told `already-there` — *"Your
+  site already had that in place, but I can't confirm…"* — on every path, and
+  `foundIn` names a carrier this change applied whenever it applied one. An
+  incomplete judgment beside a refusal tells nothing;
+- **every missing page, code, held page or section, seed skip and empty table,
+  one fact each** (2026-10-06, the same file): `warningReport` returns each
+  thing whole from the selection its sentence uses (`what`: `page`, `qr`,
+  `held-page`, `held-section`, `seed` with the engine's own `why`, `fill`); the
+  route sends it (`warningsTold`), keeps every seed skip, and sends `seedSkips`
+  and `noPopulation` whole; `coverOther` is only the counted sentences
+  (property counts, dropped parts). The four sentences name every item, and the
+  seed note says "starts empty" only of the tables skipped for who can read
+  them;
 - **execution (code)**: every thing it names must be one it was shown, and
   must really have been applied or already be there — for a table, with the
   part that does the work (`tableParts`: `notify`, `confirm`, `sms`,

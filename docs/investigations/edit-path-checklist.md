@@ -1169,6 +1169,19 @@ the owner's free press, run 51, at 22:57 UTC):
       answers through the real routes and a request's background reply**; not
       shown live. A refusal's requirements still reach no one (a separate
       item).
+    - **A refusal's requirements, and every missing page, code, seed skip
+      and empty table, told** (2026-10-06, on the owner's word after Codex's
+      review; on the branch, not merged or deployed;
+      `docs/history/2026-10-06-refusal-warnings.md`): a refused addition's
+      requirements reached neither the reply model nor the screen, and the
+      note's four other lists named three and said "and N more" (the codes'
+      never mentioned a fourth). Now a refusal tells each requirement the
+      judgment kept — never as work done: what the site already had is said
+      to be already there on every path, and an incomplete judgment beside a
+      refusal tells nothing — and every page, code, held page or section,
+      seed skip (with the engine's own reason) and empty table is its own
+      fact and named on the screen. **Supplied answers through the real
+      routes and a request's background reply**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

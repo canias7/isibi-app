@@ -131,29 +131,80 @@ here; take a closed one out of both.**
     check; the note the browser prints names every one. Shown with supplied
     answers through the real routes and a request's background reply; not
     shown live.
-- **A refusal's requirements never reach the customer** (kept separate, owner,
-  2026-10-06; the incomplete-judgment fix recorded only part of it):
-  - **What happens**: when a designer's part is refused (`ok: false`, 422),
-    the answer carries the whole requirement list (`requirementsTold`) and a
-    complete note, but the reply's facts are the refusal's own and the browser
-    prints only the refusal's sentence. So "One thing your site can't do yet:
-    People can pay by bank transfer" reaches neither, **whether or not the
-    judgment finished**. Nothing is applied or charged on that path.
-  - **Pinned** by `test/requirement-told.test.mjs` TOLD 11, so a change to it
-    is deliberate. Not fixed: the owner asked for it to stay a separate item.
-- **The note's other sentences name three, then "and N more"** (found
-  2026-10-06, fixing the requirements' cut; not fixed, outside it):
-  `missingPagesNote`, `deadQrNote`, `seedSkipNote` and `populationNote`
-  (`builder/site-add.mjs`). They are about the change, not requirements; the
-  answer carries the full lists (`missingPages`, `droppedQrs`/`heldPages`,
-  `seedSkips`, `noPopulation`) and the reply model gets the sentences as one
-  fact (`coverOther`), as before.
+- **A refusal's requirements never reached the customer** (kept separate,
+  owner, 2026-10-06; the incomplete-judgment fix recorded only part of it):
+  - **Was**: when a designer's part was refused (`ok: false`, 422), the answer
+    carried the whole requirement list (`requirementsTold`) and a complete
+    note, but the reply's facts were the refusal's own and the browser printed
+    only the refusal's sentence. So "One thing your site can't do yet: People
+    can pay by bank transfer" reached neither. And the note it never showed
+    said "I've set that up" of a requirement carried by what the site already
+    had — on a refusal, where nothing was set up.
+  - **Fixed on the branch, on the owner's word** (2026-10-06, not merged or
+    deployed; `docs/history/2026-10-06-refusal-warnings.md`): both refusals
+    that carry the list compose their note as refusals; the reply's facts are
+    the refusal's sentence and one fact per requirement the judgment kept; the
+    browser prints the note under the refusal's sentence. Nothing says work
+    was done: what the site already had is told as already there (on every
+    path, `already-there`), an older stored refusal's "set up" is read as
+    already there, and an incomplete judgment beside a refusal tells nothing.
+    Execution and charging unchanged. Shown with supplied answers through the
+    real routes and a request's background reply; not shown live.
+- **The note's other sentences named three, then "and N more"** (found
+  2026-10-06):
+  - **Was**: `missingPagesNote`, `seedSkipNote` and `populationNote` named
+    three and counted the rest; `deadQrNote` named three codes, pages and
+    sections and never mentioned a fourth; the reply model got all four as one
+    fact (`coverOther`); the route kept twelve seed skips and sent twelve
+    unfillable tables; and every seed skip was said to leave a table "empty
+    because visitors can't read it", whatever the engine's reason.
+  - **Fixed on the branch, on the owner's word** (2026-10-06, not merged or
+    deployed; the same file): one selection per list, read by its sentence and
+    by `warningReport`, which the route sends (`warningsTold`) one entry per
+    thing, each a fact of its own under the completeness check; every item
+    named; each seed skip with the engine's own reason; the lists whole on the
+    wire. Shown with supplied answers through the real routes and a request's
+    background reply; not shown live.
 - **A designer's requirements past its twelfth are set aside at intake and
   never told** (found 2026-10-06, a test hit it; not fixed): `cleanRequirements`
   keeps twelve per designer (`MAX_REQUIREMENTS`) and records the rest by name
   as `over-cap` in the developer record (`docs/addon-path.md`). It is a
   ceiling on what is accepted, not on what is reported, and nothing tells the
-  customer that one was set aside.
+  customer that one was set aside. **Parked on the owner's word**
+  (2026-10-06: *"Keep the separate twelve-requirement intake limit documented
+  and parked."*).
+- **A refusal after the design stage carries no requirement outcomes, and its
+  first fact says "Nothing was added" even where something was** (found
+  2026-10-06, mapping the refusals; not fixed, outside this batch). Only the
+  two designer refusals (`add`, `declined`) carry the requirement report. The
+  later ones — `no-photo`, `unseen-rewrite`, the merge refusals, `rewrote`,
+  `qr-dependency`, `not-landed`, `lost-photos`, `compile` — send their own
+  sentence and no requirement outcomes. And the reply's facts open every
+  `ok: false` with "Nothing was added", including the compile failure after
+  the database change was made, whose own sentence says "The database changes
+  for this were made … but the page didn't publish".
+- **The lint's "worth knowing" list is cut, and can name pages that were never
+  published** (found 2026-10-06, `WARN 4`'s probe; not fixed): `problems` is cut
+  at four on the wire (`aProblems.slice(0, 4)`) and at three on the screen
+  (`problemNote`), and it carries the lint's findings for pages that were then
+  withheld with a dead code, which never went out.
+- **The seed engine numbers a refused row by the rows that went in** (found
+  2026-10-06; not fixed): `seedSiteRows` writes `"<table> row " + (n + 1)`
+  where `n` counts successes, so three refused rows of one table all read
+  "row 1". The report now reads such a skip as the table's (`row-failed`)
+  and names the table once.
+- **The seed note's "isn't one visitors can read" is false of a table visitors
+  can read but not only read** (found 2026-10-06; not fixed): the engine seeds
+  only `display` tables (anyone reads, nobody writes), and the note says the
+  display-only sentence of every table skipped for that reason, including one
+  that is public to read and writable by members. The reply model's fact
+  states the rule exactly ("starter rows only go into tables that anyone can
+  read and visitors cannot change").
+- **A table whose starter rows were asked for and skipped is never reported as
+  one nothing can fill** (found 2026-10-06; not fixed): `missingPopulation`
+  counts any table the design gave seed rows as filled, whether or not the
+  engine put them in. Its seed skip is told; that nothing else can fill it is
+  not.
 - **The add-on route's test harness shares one stored-schema cache between
   cases** (found 2026-10-05, writing `test/addon-judgment.test.mjs`):
   - **What happens**: every slug's ownership row names the same database

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 07:24 UTC)
+## Current handoff — read this first (2026-10-06, 09:00 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,73 +9,79 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The branch** is `main` plus four batches on top of `d53caefc`. None is
+- **The branch** is `main` plus five batches on top of `d53caefc`. None is
   merged or deployed, and no image is built:
   - **run 101's correction batch** (`936295a5`): the three corrections you
     passed;
   - **the requirement judgment** (`0f94d159`, which you passed);
   - **the incomplete-judgment fix** (`4b6271ff`, which Codex passed);
-  - **the requirement-reporting fix** (`95f5a9d0`, on your word after that
-    review): every requirement a customer is told about reaches the reply
-    model as its own fact, its kind the state's, under the reply's own
-    completeness check. The note the browser prints names every one
-    (`docs/history/2026-10-06-requirement-reporting.md`).
+  - **the requirement-reporting fix** (`95f5a9d0`, which Codex passed);
+  - **this batch** (`46a7746c`, on your word after that review): a refused
+    addition tells the reply model, and the screen, what became of each
+    requirement the judgment kept, never as work done. And every missing
+    page, QR code, page or section held back with a code, seed skip and empty
+    table is its own fact and named on the screen
+    (`docs/history/2026-10-06-refusal-warnings.md`).
 - **Evidence**, all with supplied model answers through the real routes;
   nothing is shown live:
-  - **Codex's case**: four undone requirements, and the note, the screen and
-    the reply model's facts each have all four. Through a request, the
-    background reply writer is given each one from the stored answer, and
-    the reply it keeps explains every one;
-  - **every kind of outcome above its old cut, mixed**: can't do yet, still
-    to do, waiting on a failed part, set up and unchecked, scheduled, and
-    unseen;
-  - **duplicates**: the existing rules are kept, plus the same need in the
-    same sentence said once;
-  - **the reply model's completeness check**: one requirement left out is
-    asked for again by name, and left out twice the reply isn't used;
-  - **the red check**: all 12 new cases fail on the old code, on the
-    omission itself;
-  - **the sweep**: 35 of 35 planted defects caught, 3 controls survived;
-  - **the suite**: `9537 / 9537 / 0 / 0` here.
-- **CI on `52307af6` is complete and green** (the fix's code with its
-  records on top):
-  - unit tests (run 37428756462): `9537 / 9525 / 0 / 12`, the same total as
-    here; CI skips its usual 6 and the 6 real-browser cases;
-  - the site build (run 37428756480): all seven jobs and the gate passed,
-    *"404 checks in 27 sections across 4 shards, every job green"*.
-- **Money**: balance **21** (read at 07:16 UTC on 6 October: last ledger
+  - **refusals beside a complete judgment**: four requirements (can't do yet,
+    not done, carried by what the site already had, unseen) are each a fact
+    under the refusal's own, and on the screen under its sentence. The one
+    the site already had reads "Your site already had that in place…",
+    never "I've set that up";
+  - **refusals beside an incomplete judgment** (empty, partial, cut off):
+    nothing is told, the refusal stands, nothing is applied or charged;
+  - **every designer declining**, and **a refusal inside a request**, whose
+    stored answer is replied to in the background, naming each requirement;
+  - **the lists above their old cuts**: five missing pages; a code and the
+    five pages that only showed it; 18 refused starter rows over six tables;
+    skips for who can read a table beside one that already had rows; five
+    tables nothing can fill. Each reaches the answer, the facts and the
+    screen;
+  - **mixed** requirements, pages and seed skips in one answer;
+  - **answers stored before this fix**, replayed safely;
+  - **the red check**: 15 of 16 new cases fail on the old code, the 16th
+    rightly passing on both;
+  - **the sweep**: 35 of 35 planted defects caught, 4 controls survived.
+    Twelve older planted defects were re-anchored and are still caught;
+    last round's sweep catches 35 of 35;
+  - **the suite**: `9553 / 9553 / 0 / 0` here.
+- **CI on the push**: running when this was written. The next record reads it
+  to completion.
+- **Money**: balance **21** (read at 08:53 UTC on 6 October: last ledger
   row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Nothing to re-run**: every required job ran and passed.
-- **Review the fix** (`docs/history/2026-10-06-requirement-reporting.md`,
-  remaining gaps in §5).
-- **The refusal item, kept separate as you asked** (backlog). It is **wider
-  than I recorded last time**. When a designer refuses its part, the
-  requirements reach neither the reply model nor the screen, even when the
-  judgment finished. Nothing is applied or charged there. TOLD 11 pins it as
-  it stands.
-- **One visible change to know about**: while a reply is being written, an
-  addition whose only caveats are "set up but unchecked" or "scheduled" now
-  shows "Done — writing up what changed…" instead of "Partly done".
-- **Then, if you want it live**: merge and deploy (the image would roll from
-  deploy 2184's `589e3e4e85a20066` to `140199b61e2581c4`; predicted, not
-  built). Decide whether a paid press should show any of it.
+- **Review the batch** (`docs/history/2026-10-06-refusal-warnings.md`,
+  remaining limits in §5).
+- **One visible change to know about**: on a success, a requirement met only
+  by something the site already had now says "Your site already had that in
+  place…" instead of "I've set that up…".
+- **Then, if you want it live**: merge and deploy. The image would roll from
+  deploy 2184's `589e3e4e85a20066` to `3f3862946e322404` (predicted, not
+  built), and `public/chat.js` changed, so the served-file check applies.
+  Decide whether a paid press should show any of it.
 
 **Still open** (`docs/backlog.md`)
-- **The refusal item** above.
-- **New, found here**:
-  - the note's other sentences (missing pages, QR codes, seed skips, empty
-    tables) still name three, then "and N more";
-  - a designer's requirements past its twelfth are set aside when they come
-    in and never told.
+- **Found here, not fixed**:
+  - later refusals (a missing photo, a compile failure, and others) carry no
+    requirement outcomes, and the reply's first fact says "Nothing was added"
+    even after a compile failure that followed a database change;
+  - the lint's "worth knowing" list is cut at four on the wire and three on
+    the screen, and can name pages that were held back;
+  - the seed engine numbers a refused row by the rows that went in;
+  - the seed sentence's "isn't one visitors can read" is false of a table
+    visitors can read but members write;
+  - a table whose starter rows were skipped isn't also reported as one
+    nothing can fill.
+- **Parked, as you asked**: a designer's requirements past its twelfth are
+  set aside when they come in and never told.
 - **Limits of the judgment** (the judgment history files): the judging is
-  only as good as the model, and a whole but wrong answer passes; it sees
-  the design, not the published result; a part a designer builds for an
-  extra anyway isn't removed; a cut-off answer isn't asked again.
+  only as good as the model, and a whole but wrong answer passes; it sees the
+  design, not the published result; a part a designer builds for an extra
+  anyway isn't removed; a cut-off answer isn't asked again.
 - The add-on route's test harness shares one cached stored schema between
-  cases (the judgment's test file clears it; the harness-wide fix is
-  listed).
+  cases (the judgment's test files clear it; the harness-wide fix is listed).
 - An old request's own reply with no record is still asked for whenever it is
   read.
 - A data edit's reply can't name the change; the new page's own menu label;
@@ -88,9 +94,10 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This fix: `docs/history/2026-10-06-requirement-reporting.md`.
-- The judgment fixes before it: `docs/history/2026-10-06-incomplete-judgment.md`
-  and `docs/history/2026-10-05-judgment.md`.
+- This batch: `docs/history/2026-10-06-refusal-warnings.md`.
+- The fixes before it: `docs/history/2026-10-06-requirement-reporting.md`,
+  `docs/history/2026-10-06-incomplete-judgment.md` and
+  `docs/history/2026-10-05-judgment.md`.
 - Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
@@ -153,6 +160,95 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: a refused addition now tells what became of each requirement, and every missing page, code, seed skip and empty table is named (on the branch, `46a7746c`; nothing spent, merged or deployed)
+
+- **What was wrong, reproduced first** (free, at the module and through the
+  route):
+  - **a refusal**: the answer carried the requirements and their note, but
+    the reply model got only "Nothing was added …" and the screen only the
+    refusal's sentence. So "your site can't take payments by bank transfer
+    yet", beside a refused 3D model, reached no one;
+  - **and showing it as it was would have claimed work**: the note it kept,
+    and never showed, said "I've set that up" of a requirement carried by
+    something the site already had. On a refusal nothing was set up;
+  - **the four lists**: missing pages, empty tables and seed skips named
+    three and said "and N more"; the QR codes named three and never mentioned
+    the rest. The reply model got all four as one fact, the route kept twelve
+    seed skips and twelve empty tables, and every seed skip said the table
+    "starts empty because visitors can't read it", even one that "already has
+    rows".
+- **Now**:
+  - **a refusal tells each requirement the judgment kept**, one fact each for
+    the reply model, under the refusal's own sentence. When there's no model
+    reply, the screen prints the server's note under the refusal's sentence;
+  - **nothing claims work on a refusal**:
+    - a requirement carried by what the site already had says so: "Your site
+      already had that in place, but I can't confirm…". This holds on a
+      success too;
+    - an older stored refusal's "set up" is read as already there;
+    - the sentences that describe a built change ("so those aren't in
+      place", "Part of that didn't get built") aren't told on a refusal;
+  - **an incomplete judgment beside a refusal tells nothing**: the refusal
+    stands, nothing is applied or charged, and no requirement is called set
+    up, already there or not done;
+  - **every missing page, QR code, page or section held back with a code,
+    seed skip and empty table is its own fact** and named on the screen, with
+    no "and N more". Each seed skip keeps its real reason: not a table
+    visitors can read, already had rows, no such table, no columns, a row the
+    database refused, or no reason given;
+  - the codes' own refusal now names the page the codes were for (it said
+    "that page");
+  - **execution and charging are unchanged**: every refusal still costs 0 and
+    writes nothing.
+  - No new customer messages: the facts go to the model, which writes the
+    reply. The only sentence changes are "already had that in place" (the
+    "set up" sentence without its false claim) and the seed note saying
+    "starts empty" only where that's true.
+- **One visible change to know about**: on a success, a requirement met only by
+  something the site already had now reads "Your site already had that in
+  place…" instead of "I've set that up…". For example, a job-only change whose
+  QR requirement was met by the site's existing code.
+- **Checked**:
+  - **16 new cases** through the module, the reply writer's completeness
+    check, the real add-on route, the browser's refusal and success screens,
+    and a request whose stored answer is replied to in the background:
+    - complete and incomplete judgments beside refusals;
+    - every list above its old cut;
+    - mixed outcomes;
+    - answers stored before this fix, replayed;
+  - **the red check**: 15 of the 16 fail on the old code. The route cases fail
+    on the omissions themselves: the old code told the email requirement "set
+    up" on a refusal, the background writer got no requirement, and 12 of 18
+    seed skips survived. The 16th, an incomplete judgment beside a refusal,
+    rightly passes on both: the old code told nothing on any refusal either;
+  - **the sweep**: 35 of 35 planted defects caught on the first run, and the
+    4 controls survived;
+  - twelve older planted defects whose lines this rewrote were re-anchored,
+    and all 12 are still caught. Last round's sweep, re-run, catches 35 of 35;
+  - **the full suite**: `9553 / 9553 / 0 / 0` here (the 9,537 before, plus
+    the 16 new cases);
+  - the image would roll to `3f3862946e322404` (predicted, not built).
+- **Kept separate** (backlog):
+  - **later refusals** (a missing photo, a compile failure, and others) carry
+    no requirement outcomes. Their first fact says "Nothing was added" even
+    when the database change was made;
+  - **a lint list is cut**: "worth knowing" is cut at four on the wire and
+    three on the screen, and can name pages that were held back;
+  - **a seed-row numbering quirk**;
+  - **an edge of the seed sentence**: "isn't one visitors can read" is said of
+    a table visitors can read but members write;
+  - **skipped-seed tables**: a table whose starter rows were skipped isn't
+    also reported as one nothing can fill;
+  - **the twelve-requirement intake limit**, parked as you asked.
+- **Your earlier corrections are untouched**: the requirement reporting, the
+  incomplete judgment, the requirement judgment and run 101's three. Their
+  tests are in the suite.
+- **Not merged, not deployed, no image built, nothing pressed or spent**
+  (balance 21, unchanged).
+
+**Recorded in**: `docs/history/2026-10-06-refusal-warnings.md`, the backlog,
+the checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-06 — Your review: every requirement a customer is told about now reaches the reply model, one fact each (on the branch; nothing spent, merged or deployed)
 
