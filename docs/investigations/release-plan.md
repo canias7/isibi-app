@@ -22,8 +22,9 @@ for review with this plan (§4.3). **The balance does not cover it today**
 (deploy 2184, image `589e3e4e85a20066`, live and runtime-confirmed by run
 100), an ancestor of the branch, so the merge is one fast-forward. At this
 writing the branch is `main` plus 22 commits to `1f3dc370`, then this plan's
-three: `f448aaba` (the scenario), `8eceb2bd` (these records) and the CI record
-after it, docs only. Their product content, in order, each reviewed:
+own: `f448aaba` (the scenario), `8eceb2bd` and `fb42ff16` (its records), then
+the form step's correction after Codex's review (§4.4), `09470116`, and its
+records. Their product content, in order, each reviewed:
 
 | Commit | What | Review |
 |---|---|---|
@@ -34,7 +35,8 @@ after it, docs only. Their product content, in order, each reviewed:
 | `95f5a9d0` (records `52307af6`, `f060a8b8`) | every requirement told to the reply model, one fact each | Codex |
 | `46a7746c` (records `77da1770`, `08b9a657`) | a refusal's requirements told; every missing page, code, seed skip and empty table named | Codex; the owner passed the warning lists |
 | `c4748136`, `9c2ca743` (records `13bfcd17`, `9d309401`, `49a67763`, `1f3dc370`) | a failed addition says what it left behind; a database made beside an interrupted apply said as made, not empty | Codex, both (`9c2ca743` at `1f3dc370`) |
-| `f448aaba`, then `8eceb2bd` and the CI record (docs only) | the release check scenario (canary only) and these records | for review with this plan |
+| `f448aaba`, then `8eceb2bd` and `fb42ff16` (docs only) | the release check scenario (canary only) and these records | for review with this plan |
+| `09470116`, then its records (docs only) | the release check judges each form entry under the column its field is bound to, and reports a binding it cannot establish as a limitation (§4.4; canary only) | for review with this plan |
 
 **What reaches production**: `worker.js` and `builder/site-add.mjs`,
 `site-addon.mjs`, `site-migrations.mjs`, `site-reply.mjs` and
@@ -56,10 +58,10 @@ What one authorization covers, every step free except §2.8:
    - nothing in flight: no Actions run in progress or queued, read twice (the
      second right before the push), and no open job in `edit_jobs`;
    - unit CI green on the candidate itself, and the site build green with the
-     candidate's inputs fingerprint. At this writing: unit tests green on
-     `8eceb2bd` (run 37460064005, `9587 / 9573 / 0 / 14`, the same total as
-     the local run), and the site build green on `49a67763` (run
-     37454790999), with nothing it reads changed since;
+     candidate's inputs fingerprint. At this writing: the unit tests run on
+     this push, read to completion and recorded in the commit after it; the
+     site build green on `49a67763` (run 37454790999), with nothing it reads
+     changed since;
    - the image predicted on both ends;
    - the rollback, `git revert --no-commit d75d79f3..<candidate>`, giving back
      `main`'s own tree in a throwaway worktree;
@@ -177,13 +179,18 @@ nothing unless it covers the budget of 30 (`fundsFirst`).
 - **the replies**: every reply the model's own, on screen;
 - **the money**: the press's own charges (routing by its keys, jobs by
   theirs) add up within the balance's move;
-- **the form** (§4.3), each its own check:
+- **the form** (§4.3, corrected in §4.4), each its own check:
   - the new page has one form, with a name and an email field;
+  - which column of the new table each entry belongs in, established from
+    the form's own fields and the table's columns before anything is
+    pressed. Where it cannot be, nothing is pressed and the check fails as a
+    limitation of the check, never a pass;
   - exactly one request, to the new table's own data route, leaving the
-    browser;
+    browser, with each entry under its own column and nothing else;
   - the site takes it (HTTP 2xx);
   - the new table held no row before, and holds exactly that one row after,
-    with the marker's name and email address, read by the owner's own route.
+    read by the owner's own route, each entry in the column its field is
+    bound to and in no other.
 
 **Read by the session afterwards** (free, recorded, not checks of the press):
 - the screenshots of every page in the press's evidence;
@@ -205,19 +212,120 @@ checks found the new page and exactly one new, empty table:
   cannot fill truthfully (a choice, a date, a number, a phone number) presses
   nothing and says which. So does a page with no form or several, or values
   that do not hold;
+- **the binding** (§4.4): before anything is typed or pressed, each field
+  the fill uses is bound to its column of the new table, from the field's
+  own name, id and label and the table's columns. Where that cannot be
+  established, nothing is pressed and the press says it is a limitation of
+  the check;
 - **the gate**: the form's one request leaves the browser only if, before it
   leaves, it is the first, goes to the new table's own route, carries no
-  query string, credential or `prefer`, and holds exactly the values entered.
-  Anything else is stopped and recorded, never rewritten;
+  query string, credential or `prefer`, and holds each entry under its own
+  column and nothing else. Anything else is stopped and recorded, never
+  rewritten;
 - **the read-back**: the new table is read by the owner's route before
-  (empty) and after (exactly that one row).
+  (empty) and after (exactly that one row, each entry in its own column and
+  in no other).
 
 It costs nothing: no model is called, and the site's own data route takes the
-entry. Shown with a real Chromium against a page served in the tests
+entry. Shown with a real Chromium against pages served in the tests
 (`test/canary-form.test.mjs`): the paid send, a rehearsal, a refused body, a
-credential, an unfillable field, two forms and a field that does not hold. A
-sweep of 35 mutants caught all 35, its 3 controls surviving; the full suite
-is `9587 / 9587 / 0 / 0` here.
+credential, an unfillable field, two forms and a field that does not hold;
+since §4.4, also a swapped and a misplaced send, renamed columns named by the
+fields and not, and a table whose columns cannot be told apart. The first
+sweep (35 mutants, all caught) and suite (`9587 / 9587 / 0 / 0`) were before
+§4.4; the current ones are in §4.4.
+
+### 4.4 The correction after Codex's review (`fb42ff16`)
+
+Codex ran `formGate` and `formVerdict` at `fb42ff16`, and both passed a
+payload and a row that must fail: the name and the address swapped, and both
+empty with the marker's values in unrelated `note` and `source` columns. The
+gate and the row check asked only whether each value was somewhere in the
+object. **Reproduced here first**, on the ordinary form (`name`, `email`)
+and on renamed columns (`full_name`, `email_address`): all four passed both.
+
+**Now each entry is judged where it belongs** (`fieldBindings`, in
+`scripts/canary-form.mjs`), from evidence the press holds before it presses
+anything: the form's own fields as the visitor's browser reads them (each
+field's name attribute, id, label and type), and the new table's columns
+from the owner's listing (its declared, writable columns):
+1. a field whose name, id or label is one column's name, case and
+   punctuation aside, is bound to that column (`email_address`,
+   `emailAddress` and "Email address" are one name);
+2. otherwise, for the name and the address only, the table's one column for
+   it: the one column with "email" in its name, or the one with "name". A
+   required sentence or box has no such reading, and must name its column.
+
+**Not established, and said so**: no columns read; a field naming two
+columns, or matching several; no column, or several, for a name or an
+address that no field names; a sentence or a box naming no column; the
+address field named after a column for a name, or the reverse; one column
+bound to two fields. The browser then presses nothing, the press prints
+"verification limitation: …", and the form step fails. It never passes.
+
+Then **the gate** requires the body to carry each entry under its bound
+column (the value typed, or `true` for a box ticked) and nothing else but
+empty values, and **the row check** requires each bound column of the stored
+row to hold its entry, and no other column to hold one. Nothing in it knows
+a site, and no column is expected to be called `name` or `email`.
+
+**Shown** (no model, nothing live):
+- **before and after**, the same payloads and rows through `fb42ff16`'s
+  harness and this one:
+
+  | Form | Payload and row | `fb42ff16` | now |
+  |---|---|---|---|
+  | ordinary (`name`, `email`) | swapped | gate passes, row passes | gate stops, row fails |
+  | ordinary | misplaced in `note`, `source` | gate passes, row passes | gate stops, row fails |
+  | ordinary | each in its own column | gate passes, row passes | gate passes, row passes |
+  | renamed (`full_name`, `email_address`) | swapped | gate passes, row passes | gate stops, row fails |
+  | renamed | misplaced in `note`, `source` | gate passes, row passes | gate stops, row fails |
+  | renamed | each in its own column | gate passes, row passes | gate passes, row passes |
+
+- **the tests** (`test/canary-form.test.mjs`, 16 cases, 5 of them new):
+  - BIND 1, the bindings: the ordinary form; renamed columns named by a
+    name attribute, by an id in another case and by a label; renamed
+    columns no field names, found as the table's one name and one email
+    column; a sentence and a box; and each way a binding is not
+    established, saying what could not be told;
+  - BIND 2, the gate: both payloads stopped on the ordinary form and on
+    renamed columns (named and not), naming the column and what it
+    carried; an entry sent under its own column and another; a renamed
+    table sent the old keys; the three controls leave;
+  - BIND 3, the stored row: both rows fail on each form, saying where; a
+    stray copy in another column; a column the row does not have; the
+    controls pass, naming each binding; without bindings the row is not
+    checked and the step fails as a limitation, even beside a row that holds
+    every value;
+  - FORM 8, in a real Chromium against pages served in the test: a page
+    whose own code swaps the two, or sends them under `note` and `source`,
+    is stopped before anything leaves; renamed columns named by the fields
+    send one exact entry and the row read back passes (the same row swapped
+    or misplaced fails); renamed columns no field names send one exact
+    entry; the same page with its keys swapped in its code is stopped; a
+    table with two columns for a name presses nothing, said as a
+    limitation;
+  - WIRE 3: the helper binds after reading the form and before filling or
+    pressing, stops there, and hands the gate the bindings;
+  - FORM 4–7 and WIRE 1 brought to the bindings (the driver hands the
+    helper the table's columns);
+- **the sweep**: 60 of 60 planted defects caught
+  (`scripts/mutants/release-form.json`), the 3 comment-only controls
+  surviving. Two of them, R1 and R2, put the old "somewhere in the object"
+  check back into the gate and the row check, and both are caught. The first
+  run caught 59: the one that survived, two new rows passing as one, was a
+  guard written twice, so that each copy hid a defect in the other. It is now
+  one term, and the rerun caught all 60;
+- **the full suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new cases);
+- **CI**: the unit tests run on this push; read to completion and recorded in
+  the commit after it.
+
+**What the bindings still trust** is the form's own words: a field whose
+name, id or label names a column is taken to be meant for it, and a lone
+column with "name" or "email" in its name is taken to be the one for it. The
+gate and the read-back then check what the page really sent and stored
+against that. A page whose fields name no column, on a table with two
+columns for a name, ends as a limitation rather than a guess.
 
 ## 5. The cost, against the balance of 21
 
@@ -281,8 +389,9 @@ On the deployed code, with real models and real money:
   reply says each requirement came to;
 - **the resulting pages**, as a visitor is served them;
 - **the new form working**: a visitor's entry, sent once through the page's
-  own form, stored in the new table. That shows the add-on's "each entry is
-  kept" in fact, beyond "set up";
+  own form, stored in the new table with each value in the column its field
+  is bound to. That shows the add-on's "each entry is kept" in fact, beyond
+  "set up";
 - **the release itself**: the new image and the new `chat.js` serving.
 
 ### 6.3 What it does not prove
@@ -293,6 +402,10 @@ On the deployed code, with real models and real money:
 - **One request on one site, one sample**: how often the router, the
   designers and the judgment answer this way is not measured.
 - **The form's request with a member's session**: the entry is a visitor's.
+- **The binding rules on another form**: they are shown in controlled tests
+  (§4.4). If the live page's fields name no column and its table has two
+  columns for a name, the press reports a limitation of the check, not a
+  pass.
 
 ## 7. What stays, and if it fails
 

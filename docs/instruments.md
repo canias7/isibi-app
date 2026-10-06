@@ -1220,12 +1220,19 @@ The stage it belongs to, with the press's boxes and the cost, is
   `canary-release-<run>@example.com`, the name `Canary release <run>`, a
   required sentence field `Canary release check <run>` and a required box a
   tick. It presses the button once. A field it cannot fill truthfully, no
-  form or several, or values that do not hold, press nothing. **The gate**
-  (`formGate`) lets the one request out only if it is the first, goes to the
-  new table's own data route, carries no query string, credential or
-  `prefer`, and holds exactly the values entered. The table is read by the
-  owner's route before (empty) and after (exactly that one row, carrying the
-  marker's name and address: `formVerdict`). It costs nothing.
+  form or several, or values that do not hold, press nothing. **The
+  binding** (`fieldBindings`, after Codex's review at `fb42ff16`): before
+  anything is typed or pressed, each field it fills is bound to its column of
+  the new table, from the field's name attribute, id or label naming one
+  column (case and punctuation aside), or, for the name and the address only,
+  the table's one column for it. Where that cannot be established, nothing is
+  pressed and the press prints "verification limitation: …"; the step fails,
+  never passes. **The gate** (`formGate`) lets the one request out only if it
+  is the first, goes to the new table's own data route, carries no query
+  string, credential or `prefer`, and holds each entry under its own column
+  and nothing else. The table is read by the owner's route before (empty) and
+  after (exactly that one row, each entry in the column its field is bound to
+  and in no other: `formVerdict`). It costs nothing.
 - **THE FUNDS FIRST** (`fundsFirst`, `fundsRefusal`): before its first
   message, a scenario that says so sends nothing unless the balance covers its
   whole budget. A request the server has taken on runs to its end whatever the
@@ -1239,3 +1246,11 @@ The stage it belongs to, with the press's boxes and the cost, is
   request press after its money, its checks counting. A sweep of 35
   mutants, all caught, its 3 controls surviving (the first run caught 34; two
   new rows passing as one survived until a case was added for it).
+- **The correction after Codex's review** (`fb42ff16`: the gate and the row
+  check passed the name and the address swapped, and both empty with the
+  values in `note` and `source`): BIND 1–3 and FORM 8 in the same file. They
+  cover the bindings and each way one is not established, both payloads and
+  both rows on the ordinary form and on renamed columns (named by the fields
+  and not), the controls, and a real Chromium against pages whose own code
+  swaps or misplaces the entries. A sweep of 60 mutants, all caught, its 3 controls surviving; two of them put the old membership check back into the gate and the row check, and both are caught. The full record is §4.4 of
+  `docs/investigations/release-plan.md`.

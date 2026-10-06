@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 11:58 UTC)
+## Current handoff — read this first (2026-10-06, 12:49 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -27,7 +27,25 @@ is in git; the dated entries further down are the full story.*
   (`docs/investigations/release-plan.md`), on top of those 22 commits:
   - **the release check** (`f448aaba`, canary only, deploys nothing): the
     scenario `lv-release` and a new form step;
-  - **the plan and these records** (the commit after it).
+  - **the plan and its records** (`8eceb2bd`, `fb42ff16`);
+  - **the form step's correction after Codex's review** (`09470116`, canary
+    only, deploys nothing; §4.4 of the plan), and these records.
+- **The correction** (Codex, at `fb42ff16`: the form gate and the row check
+  passed the name and the address swapped, and both empty with the values
+  in unrelated `note` and `source` columns, because they asked only whether
+  each value was somewhere):
+  - **reproduced first**: all four passed both checks, on the ordinary form
+    and on renamed columns;
+  - **now each entry is judged under its own column**. Before anything is
+    pressed, each field is bound to its column of the new table, from the
+    form's own fields and the table's columns: a field whose name, id or
+    label is one column's name, or, for the name and the address only, the
+    table's one column for it. Renamed columns work without naming a site
+    or expecting `name` and `email`;
+  - **a binding that cannot be established presses nothing** and is
+    reported as a limitation of the check. It never passes;
+  - the gate stops the four before they leave, the row check fails them,
+    and the ordinary and renamed controls pass.
 - **The plan, in short**:
   - **the merge**: a fast-forward of `main` from `d75d79f3` to the
     candidate; that push is the one deploy;
@@ -46,8 +64,8 @@ is in git; the dated entries further down are the full story.*
     heading changed, exactly one new visitor-to-owner table with an email
     column, everything else as it was, the replies the model's own, the money
     closing. Then **the new page's form is sent once by a visitor in a real
-    browser**, and the table must hold exactly that one entry, read back by
-    the owner's route;
+    browser**, and the table must hold exactly that one entry, each value in
+    the column its field is bound to, read back by the owner's route;
   - **the cost**: about 17–27 credits, most likely about 25 (run 101's same
     shape cost 24 before the judgment existed). The form step and every read
     are free.
@@ -56,20 +74,23 @@ is in git; the dated entries further down are the full story.*
   carries a budget of 30 and, before it sends anything, refuses unless the
   balance covers that (new, `fundsFirst`). At 21 it stops there for nothing.
 - **The release check's own evidence** (the canary only; nothing live):
-  - **11 new cases**: the form's decisions, each refusal by name; the helper
-    in a real Chromium against a page served in the test (the paid send, a
-    rehearsal, a refused body, a credential, an unfillable field, two forms,
-    a field that does not hold); the funds refusal; the wiring;
-  - **the sweep**: 35 of 35 planted defects caught, the 3 controls
-    surviving. The first run caught 34; the one that survived, two new rows
-    passing as one, is caught by a case added since (a row gone and two
-    come: one more than before, but not "exactly that one row");
-  - **the suite**: `9587 / 9587 / 0 / 0` here (9,576 plus the 11 new cases).
-- **CI**: green on `8eceb2bd` (the release check with these records): unit
-  tests (run 37460064005) `9587 / 9573 / 0 / 14`, the same total as here.
-  CI has no Chromium, so the two new browser cases skip there (14 skipped,
-  12 before; by the count). The site build was not owed a run: nothing it
-  reads changed since its green run on `49a67763` (run 37454790999).
+  - **16 cases** in `test/canary-form.test.mjs`: the form's decisions, each
+    refusal by name; the bindings and each way one is not established; the
+    gate and the stored row on both of Codex's payloads, on the ordinary
+    form and renamed columns, with their controls; the helper in a real
+    Chromium against pages served in the test (the paid send, a rehearsal,
+    refused bodies, a credential, an unfillable field, two forms, a field
+    that does not hold, a page whose code swaps or misplaces the entries,
+    renamed columns, and a table whose columns cannot be told apart); the
+    funds refusal; the wiring;
+  - **the sweep**: 60 of 60 planted defects caught, the 3 controls surviving.
+    Two of them put the old "somewhere in the object" check back into the gate
+    and the row check, and both are caught. The first run caught 59: the
+    survivor, two new rows passing as one, was a guard written twice, each
+    copy hiding a defect in the other. It is now one term;
+  - **the suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new cases).
+- **CI**: The unit tests run on this push; read to completion and recorded in
+  the commit after it.
 - **Kept apart in the plan (§6)**: what controlled failure tests show (every
   failure outcome, refusals, warning lists, the incomplete judgment, older
   answers replayed) is not what the live check would prove. The live check
@@ -195,6 +216,81 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: the release check's form step judged its entries anywhere; now each under the column its field is bound to (on the branch, `09470116`; nothing spent, merged or deployed)
+
+- **Found by Codex** at `fb42ff16`, running `formGate` and `formVerdict`
+  independently. Both passed a payload and a row with the name and the
+  address swapped, and another with both empty and the marker's values in
+  unrelated `note` and `source` columns. They asked only whether each value
+  was somewhere in the object.
+- **Reproduced first**, on the ordinary form (`name`, `email`) and on renamed
+  columns (`full_name`, `email_address`): all four passed both checks at
+  `fb42ff16`.
+- **The correction** (`scripts/canary-form.mjs`, with the browser helper and
+  the driver; the canary only, no product file):
+  - **each filled field is bound to its column before anything is pressed**
+    (`fieldBindings`). The evidence is the form's own fields as the
+    visitor's browser reads them, and the new table's columns from your
+    account's listing (its declared, writable columns). A field whose name,
+    id or label is one column's name, case and punctuation aside, is bound
+    to it. Otherwise, for the name and the address only, it binds to the
+    table's one column for it (the one with "email" in its name, or the one
+    with "name"). It knows no site, and no column is expected to be called
+    `name` or `email`;
+  - **where that cannot be established, nothing is pressed**. The press
+    prints "verification limitation: …" and the form step fails; it never
+    passes. The cases: no columns read; a field naming two columns; no
+    column, or several, for a name or an address no field names; a sentence
+    or a box naming no column; the address field named after a column for a
+    name, or the reverse; one column bound to two fields;
+  - **the gate** lets the request leave only with each entry under its
+    bound column and nothing else but empty values;
+  - **the row check** requires each bound column to hold its entry, and no
+    other column to hold one.
+- **Before and after**, the same payloads and rows: at `fb42ff16` the gate
+  and the row check passed all four; now the gate stops each and the row
+  check fails each. The controls (each entry in its own column, ordinary and
+  renamed) pass both, then and now.
+- **Checked**:
+  - **the tests**: 16 cases in `test/canary-form.test.mjs`, 5 of them new:
+    - BIND 1, the bindings and each limitation;
+    - BIND 2, the gate on both payloads, ordinary and renamed, with
+      controls;
+    - BIND 3, the stored row the same way, and without bindings never a
+      pass;
+    - FORM 8, a real Chromium against pages whose own code swaps or
+      misplaces the entries, renamed columns named by the fields and not,
+      and a table with two columns for a name;
+    - WIRE 3, the helper binds before filling or pressing and hands the
+      gate the bindings.
+    FORM 4–7 and WIRE 1 were brought to the bindings, and the 505 cases in
+    every file that reads the canary modules pass;
+  - **the sweep**: 60 of 60 planted defects caught, the 3 controls surviving.
+    Two of them put the old "somewhere in the object" check back into the gate
+    and the row check, and both are caught. The first run caught 59: the
+    survivor, two new rows passing as one, was a guard written twice, each
+    copy hiding a defect in the other. It is now one term;
+  - **the full suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new
+    cases);
+  - **CI**: the unit tests run on this push; read to completion and recorded
+    in the commit after it.
+- **What the bindings still trust** is the form's own words: a field naming
+  a column is taken to be meant for it, and a lone "name" or "email" column
+  is taken to be the one for it. The gate and the read-back check what the
+  page really sent and stored against that.
+- **Unchanged**:
+  - the builder's reporting fixes stay closed, and no product file changed;
+  - the release plan's stage, request and cost estimate are as they were;
+  - **the credit prerequisite stands**: the balance was 21 at the last
+    reading, and the paid press needs at least 30 and refuses below it at
+    no cost;
+  - model-written progress updates and the unrelated gaps stay parked.
+- **Not merged, not deployed, no image built, nothing pressed or spent.**
+
+**Recorded in**: §4.4 of `docs/investigations/release-plan.md` (with §1,
+§2, §4.2, §4.3, §6.2 and §6.3 brought along), `docs/instruments.md` and this
+handoff.
 
 ## 2026-10-06 — Your review: the failure reporting closed; the release prepared for one authorization (on the branch, `f448aaba`; nothing spent, merged or deployed)
 
@@ -408,7 +504,9 @@ checklist, `docs/addon-path.md` and the history index.
 
     The 18th, an incomplete judgment, rightly passes there apart from its
     new outcome check: that behaviour was already right;
-  - **the sweep**: 60 of 60 planted defects caught on the final run, and the 4 controls survived. The first run caught 57 of 58, and its one survivor now has a case of its own;
+  - **the sweep**: 60 of 60 planted defects caught on the final run, and the 4
+    controls survived. The first run caught 57 of 58, and its one survivor now
+    has a case of its own;
   - **re-anchored guards** in 11 older test files (the property kept, the
     spelling moved), and the page's new check cut into 7 harnesses;
   - **the full suite**: `9571 / 9571 / 0 / 0` here (the 9,553 before, plus
