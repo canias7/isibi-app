@@ -20,14 +20,10 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **A progress line can follow the final reply when the job's own close
-  fails** (found while building the progress lines, 2026-10-06; the feature
-  is off by default): one store write's window, in full below and in
-  `docs/investigations/progress-messages-plan.md` §2.5.
-- **With progress on, the UI canary reads a reply's kept progress lines as
-  part of the reply** (found in the wording round, 2026-10-06; the feature
-  is off by default): to be handled before a live press with the switch on;
-  in full below.
+- **The test platform answers every column of a job-table read, whatever
+  the read asks for** (found in the progress gaps round, 2026-10-06): a read
+  that left a needed column out would still pass its flow cases; in full
+  below.
 - **An ended request's own reply with no record is asked for whenever it is
   read, however old** (found in run 97): R1's, about 20 hours after it
   ended; a job's is not, after two hours. It was the second half of the
@@ -862,31 +858,17 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **PROGRESS LINES: A LINE AFTER THE FINAL REPLY WHEN THE JOB'S CLOSE FAILS
-  (2026-10-06, found while building them; the feature is off by default,
-  not merged).** The job closes its progress record before its outcome is
-  written, and a writer commits a line only on an open record, under its
-  own lease, after reading the job's row twice. If the job's close itself
-  fails (the store down, or its 10 seconds pass), a writer that passed its
-  second row read just before the job finalized can commit one line after
-  the outcome is written: one store write's time. The line was true when
-  checked (its facts were recorded during the run), but it would stand
-  after the final reply. A possible direction, not built: the poll and the
-  request's view hold back a line committed after the job's end.
-  `docs/investigations/progress-messages-plan.md` §2.5.
-- **PROGRESS LINES: THE UI CANARY WOULD READ THEM AS PART OF A REPLY
-  (2026-10-06, found in the wording round; the feature is off by default,
-  not merged).** On the page-driven path a finished job's lines are kept on
-  its reply (`m.prog`) and drawn inside the same message, above the reply's
-  text (`public/chat.js`, the thread's message markup). `scripts/canary-ui.mjs`
-  reads each message's whole text (`innerText`), so with `PROGRESS_REPLIES`
-  on, a reply it reads would begin with the kept lines: the failure check
-  that looks for a reply beginning "⚠️" with the job's message
-  (`startsWith("⚠️")`) would miss it, and a scenario's expected reply would
-  carry text before it. Nothing is wrong with the switch off, which is the
-  only way it has run. A possible direction, not built: the canary reads the
-  reply's own text element, leaving the kept lines out. Before any live press
-  with the switch on.
+- **THE TEST PLATFORM ANSWERS EVERY COLUMN OF A JOB-TABLE READ (2026-10-06,
+  found in the progress gaps round).** `test/fixtures/request-flow.mjs`
+  answers a read of `edit_jobs` with whole rows, whatever its `select=`
+  names (it honours `id`, `needs_review`, `order` and `limit` only). So a
+  read that left out a column its caller needs — the list's stored answer,
+  billing or review for a job's outcome, or the row read's job kind — would
+  still pass every flow case. The two reads the outcome depends on are
+  pinned from the source instead (`test/progress-gaps.test.mjs`, OUTCOME 7).
+  A possible direction, not built: the platform answers only the columns a
+  read names, which would test every caller's `select` at once (a harness
+  change, so every flow file would need running against it).
 - **INFORMATION LIMITS ON EDIT AND ADD-ON (21 defects, 2 optional
   capabilities, 15 untested risks; found 2026-10-03 by the limits audit on
   the owner's word and corrected on their review; batch 1 implemented for

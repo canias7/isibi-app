@@ -249,3 +249,203 @@ spent):
   would roll the image.
 - **Live state, read** (17:17 UTC): balance 9, the ledger's last row 397, no
   job open — nothing spent.
+
+## 6. The gaps round (2026-10-06, after the wording round's push)
+
+The owner, after Codex reproduced a partial result shown as finished: *"Fix
+the remaining progress-feature gaps on claude/help-needed-ehlwlj. Codex
+reproduced a standalone partial result being displayed as fully finished:
+siteJobFollow treats HTTP success plus ok:true as done, and siteJobCardHTML
+then selects the prewritten completion sentence even when the response names
+unfinished work. Derive the displayed state and model-written summary from
+the actual outcome across Edit and Add-on, covering partial results,
+clarification, handoffs and unverified outcomes; unverified must not select a
+sentence saying the requested change is actively happening. Keep the
+language natural and model-generated, with no hardcoded conversational
+prefixes or keyword filters. Close the documented race where a failed or
+timed-out progress close lets a writer commit after its last job-state check
+and after finalization; ensure stale narration cannot appear through
+polling, request views, reloads or another device, without holding up job
+completion indefinitely. Fix makeProgress dropping a milestone when
+JOB_PROGRESS fails: retain its identity and retry automatically while
+appropriate, without needing another milestone or an open browser, and
+prevent duplicates when the first delivery landed but its response was lost.
+Also fix the documented UI canary issue so final-reply checks read the reply
+itself separately from retained progress. Add focused behavioral tests
+reproducing these failures, including the close-write failure at the actual
+race boundary and container delivery failure, then push the fixes and update
+owner-notes with exact commits, results and remaining limitations. Keep the
+feature off and the branch unmerged; no deployment, container image build,
+paid retest or unrelated backlog work."*
+
+**Reproduced first.** Thirteen cases were written against the code as it
+stood (`ba8a12dc`), through the real Worker and the page's real functions
+answered by it, and each failed for the reason named:
+
+- **Codex's reproduction** (OUTCOME 1): a page-filed addition whose menu
+  link was set aside answered `ok: true`; the poll served no outcome, and
+  another device's card read **Finished** with the model's done line.
+- A question and a hand-over were called **Not done** (OUTCOME 2); a job
+  held for review, **Finished** or **Not done** (OUTCOME 3); a request's
+  part held for review was named by its **doing** line (OUTCOME 5).
+- **At the race boundary** (RACE 1, RACE 2): the writer past its last row
+  check, the job's close refused by the store on all six of its tries, the
+  job finalized, and only then the commit: the finished job's answer carried
+  the line ("the finished job's answer carries the line committed after its
+  end").
+- **Container delivery** (RECORDER 1–4): a milestone whose call failed
+  before reaching the Worker was dropped ("the milestone whose delivery
+  failed was dropped"), one landed whose answer was lost was never sent
+  again, the gateway's store failure was answered as a refusal, and with a
+  failure on the first milestone the record's milestones came in as
+  `designed, pages, publish` only; in the Worker, the store failing one read
+  dropped it too (RECORDER 5).
+- **The canary** (real Chromium, and a stand-in thread on unit CI): the
+  reader's text of a failed job's reply began with its first kept line
+  ("0:05I found the Gallery heading…"), so the failure check missed the
+  warning.
+
+**What was built** (the design is the plan's §2.5, §2.6, §2.7, §2.10 and the
+new §2.11):
+
+- **Each job's own outcome**, read by the server from its row and stored
+  answer (`editJobOutcome`, `settle`'s own readings for one job), served on
+  the poll and the requests list's found jobs with progress on; the card's
+  label and the model's line are picked from it. Task lines are written in
+  seven states (planned, doing, waiting, unconfirmed, done, partial,
+  notdone), so a part or job held for review shows its unconfirmed line,
+  never its doing line; one waiting on the customer, its waiting line; one
+  done in part, its partial line; a hand-over, Handed over beside its
+  planned line. The model still writes every word; code only picks which
+  line, and nothing is put before anything.
+- **No line after the final reply**: a line is committed unconfirmed and
+  shown by no reader until a read of the job's row made after it finds the
+  job still running — the writer's own third read, the next writer's first,
+  or the two-minute cron. A commit that lands after the job's end finds no
+  such read and stays unshown everywhere. The close is tried once and never
+  holds the job's end.
+- **A milestone kept and sent again**: the recorder sends each delivery as
+  one body under its own number, again after 250 ms, 0.5, 1, 2, 4, 8 and
+  15 s while the job runs, on its own timer; a try that landed and whose
+  answer was lost is recorded once; a refusal (409) is never sent again; the
+  Worker's store failure is answered `retry` (503 through the gateway, which
+  the container's sender reads as worth trying again, as it does a 429 or
+  any 5xx); order is kept; the job's end allows one last try.
+- **The canary's reader** cuts a reply's kept lines out of its text and reads
+  them apart (`progress`).
+
+**Found during the round**:
+
+- `jobOutcome` was already the name of the timer jobs' function in
+  `worker.js` (from `site-jobs.mjs`): the new one is `editJobOutcome`.
+- Four of the new cases had mistakes of mine, each caught on its first run
+  and fixed in the case, not the product: the fixture's `answerOf` takes a
+  row, not an id; a stop on a queued job in the fixture only marks the row,
+  so the control stops a running job instead; RACE 3's second fault took the
+  cron's own read; and RECORDER 4 first failed its milestone past the job's
+  end, where giving up is the rule. That last one also showed that a job
+  ending before a delivery's first failure gave it only one try, so the rule
+  became "one more try at once once the end is asked for, and no more".
+  (RECORDER 5's fault, aimed wrongly at first, was caught by the red check:
+  below.)
+- **The sweep's two survivors** (below), each a case that did not isolate
+  what it claimed: OFF never looked for `outcome` with progress off, and
+  RACE 4's next writer's own commit also confirmed the earlier line, so its
+  first-read confirmation was never alone. Both cases were tightened.
+
+**The evidence** (all with supplied model answers; nothing pressed or
+spent):
+
+- **The red check**, in throwaway worktrees at `ba8a12dc` with the page
+  fixture as it stood there:
+  - **Written first**: the 13 reproduction cases (OUTCOME 1–5, RACE 1–3,
+    RECORDER 1–5), 13 of 13 failing, each for the reason it names. On the
+    first run RECORDER 5 passed: its one-read fault was taken by the
+    opening's own read (asking for its task writer), which the code already
+    survived; aimed at the first milestone's own read (once the record shows
+    the ask), it failed with the rest. The other files' new cases failed
+    too: the canary's reader on a stand-in thread, FOUND's follow and the
+    four SAID cases on the page, `test/progress.test.mjs` at its import (the
+    new names did not exist), and in real Chromium CANARY and OUTCOMES, while
+    the four earlier browser cases passed.
+  - **Again on the final files**, before the push, with only two imports
+    made indirect in the throwaway copy so that the file loads on the old
+    code: `test/progress-gaps.test.mjs` 18 of 19 failing. The six cases
+    added during the build are among them: OUTCOME 0 (`editJobOutcome` did
+    not exist), OUTCOME 6 (no outcome), OUTCOME 7 (the list's read did not
+    ask for `needs_review`), RACE 4 (no line was ever confirmed) and NAMES 9
+    (no batch, so its own precondition failed). RECORDER 6 passed, as a
+    guard should: the old recorder also made a missed opening again before
+    the next milestone. `test/progress-page.test.mjs` with
+    `test/canary-replies.test.mjs`: 7 of 44 failing (the canary's reader,
+    FOUND's follow, the four SAID cases, and OUTCOME, where a finished
+    answer without an outcome read Finished); the other 37 passed.
+- **The focused cases**, all passing on `84d46faf`:
+  `test/progress-gaps.test.mjs` 19 (new), `test/progress.test.mjs` 25,
+  `test/progress-flow.test.mjs` 35, `test/progress-page.test.mjs` 14
+  (OUTCOME new), `test/progress-browser.test.mjs` 6 in real Chromium
+  (CANARY and OUTCOMES new), `test/canary-replies.test.mjs` 30 (the reader
+  on a stand-in thread new) and `test/canary-requests.test.mjs` 47.
+- **The sweeps**, each from a green baseline, with comment-only controls:
+  - the new spec, `scripts/mutants/progress-gaps.json`: 60 mutants and 4
+    controls over eight files (`builder/request.mjs`, `worker.js`,
+    `builder/site-progress.mjs`, `builder/job-gateway.mjs`,
+    `builder/container-env.mjs`, `public/chat.js`, `public/edit-poll.js`,
+    `scripts/canary-ui.mjs`), run against the five focused unit files: 58
+    killed, 0 never applied, every control surviving. The two survivors
+    (above) were closed by OFF and RACE 4, and both were killed on their
+    rerun (2 of 2, the control surviving).
+  - the earlier spec, `scripts/mutants/progress.json` (146 entries): the 15
+    mutants whose anchors this round moved were re-pointed and run with 6
+    controls: 14 killed, every control surviving. The survivor was the first
+    build's "a record that did not open is never opened again": OPEN's store
+    failure is now answered as worth retrying, so its opening lands on its
+    own retry and the opening made again before the next milestone was never
+    needed alone. RECORDER 6 (a refusal, which is never resent) closes it;
+    killed on its rerun (1 of 1, the control surviving).
+- **The instructions**: `TASK_SYSTEM` 1,133 characters (853 before: the
+  waiting, unconfirmed and partial states and "Give no reasons" added);
+  `PROGRESS_SYSTEM` unchanged at 1,490. Still no example line, and no length
+  checked anywhere.
+- **The full suite** on `84d46faf`: `9692 / 9692 / 0 / 0` locally (23 more
+  than before: 19 + 1 + 2 + 1, the round's new cases).
+- **Unit CI** on it: run 37515371950, `9692 / 9671 / 0 / 21`, green; the 21
+  skipped are the real-browser cases (CANARY and OUTCOMES the new ones), and
+  the total matches the local run.
+- **Site build** on it: run 37515372064, six jobs green (the kit and
+  generator checks, the theme checks, the published-site checks and
+  site-build shards 1, 2 and 4), and shard 3 of 4 still running when these
+  records were committed (19:08 UTC).
+- **The image, predicted, not built**: `84d46faf` → `5f946c22d42a1b10` (195
+  inputs, 165 distinct paths). Against `ba8a12dc` (`141b0dcc2a92d926`) five
+  inputs differ: `builder/container-env.mjs`, `builder/job-gateway.mjs`,
+  `builder/request.mjs`, `builder/site-progress.mjs` and `worker.js`. Main
+  stays at `b2409b3c` (`c7fe818d446dd957`); a merge would roll the image.
+- **The screenshots** (real Chromium, in this conversation): another
+  device's four cards — Partly done, Checking it published, Waiting for your
+  answer and Handed over, each with the model's line for that outcome — and
+  a failed job's reply with its kept lines above it, which the canary now
+  reads apart.
+- **Live state, read** (18:58 UTC): balance 9, the ledger's last row 397, no
+  job open — nothing spent.
+
+**What it does not show, and the limits that stay** (the plan's §7):
+
+- No real model has written a line in any of the seven states; their
+  wording, tense and cost are unmeasured until a live press with the switch
+  on.
+- The words are still not checked: a line whose state is right and whose
+  words say otherwise would be shown.
+- A true line whose confirmation never landed before its job ended (the
+  writer's read after its commit failed, and no other writer or cron tick
+  came in time) is never shown: the price of never showing a late one.
+- A milestone is given up after about half a minute of failed deliveries
+  (eight tries), or at the job's end after one last try, and its facts are
+  then never narrated. The recorder lives in the job's own process: if that
+  process dies, its waiting milestones go with it.
+- A hand-over's card shows its planned line beside "Handed over" even when
+  the page that filed the job is closed, so nothing continues until that
+  page is opened again. A card whose finished answer carries no outcome shows
+  "Ended" and the customer's words.
+- The test platform answers every column of a job-table read (the backlog),
+  so the outcome's two reads are pinned from the source (OUTCOME 7).

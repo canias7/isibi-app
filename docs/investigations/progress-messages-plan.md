@@ -6,7 +6,12 @@ trace is §1, unchanged); the owner then approved it with corrections, and the
 design sections below describe what was built. Where the build departs from
 the first plan, the section says so. **The wording round** (the owner's
 clarification after the first build: first person, and each task named by the
-model's own line for the state it is in) is §2.10.
+model's own line for the state it is in) is §2.10. **The gaps round** (the
+owner's request after Codex reproduced a partial result shown as finished:
+each card and line from the job's real outcome, the close race closed, a
+failed milestone delivery kept and sent again, the canary's reply read apart
+from kept progress) is §2.11, with §2.5, §2.6, §2.10 and §7 brought up to
+date.
 
 The owner's request for the plan: *"Now prepare the concrete implementation
 plan for model-written progress messages during Edit and Add-on only. …
@@ -84,6 +89,40 @@ lines' instructions, and each task's title written by the model in every state
 it can be in, the state chosen by code from the status. Neither set of
 instructions quotes the owner's examples, and nothing is put before the
 customer's words.
+
+**The gaps round** (2026-10-06), the owner's request in full: *"Fix the
+remaining progress-feature gaps on claude/help-needed-ehlwlj. Codex reproduced
+a standalone partial result being displayed as fully finished: siteJobFollow
+treats HTTP success plus ok:true as done, and siteJobCardHTML then selects the
+prewritten completion sentence even when the response names unfinished work.
+Derive the displayed state and model-written summary from the actual outcome
+across Edit and Add-on, covering partial results, clarification, handoffs and
+unverified outcomes; unverified must not select a sentence saying the
+requested change is actively happening. Keep the language natural and
+model-generated, with no hardcoded conversational prefixes or keyword
+filters. Close the documented race where a failed or timed-out progress close
+lets a writer commit after its last job-state check and after finalization;
+ensure stale narration cannot appear through polling, request views, reloads
+or another device, without holding up job completion indefinitely. Fix
+makeProgress dropping a milestone when JOB_PROGRESS fails: retain its identity
+and retry automatically while appropriate, without needing another milestone
+or an open browser, and prevent duplicates when the first delivery landed but
+its response was lost. Also fix the documented UI canary issue so final-reply
+checks read the reply itself separately from retained progress. Add focused
+behavioral tests reproducing these failures, including the close-write
+failure at the actual race boundary and container delivery failure, then push
+the fixes and update owner-notes with exact commits, results and remaining
+limitations. Keep the feature off and the branch unmerged; no deployment,
+container image build, paid retest or unrelated backlog work."*
+
+| Gap | What was built |
+|---|---|
+| A partial result shown as finished; clarification, hand-overs and unverified outcomes | §2.11: the server reads each job's own outcome from its row and stored answer (`editJobOutcome`, `settle`'s own readings for one job) and serves it on the poll and the list; the card's label and the model's line are picked from it, never from `ok` alone. Task lines are written in seven states, so a part held for review shows its **unconfirmed** line (never its doing line), one waiting on the customer its **waiting** line, one done in part its **partial** line |
+| Natural, model-written; no prefixes or keyword filters | §2.10: the model writes every state's line; code only picks which; nothing is put before anything and no words are read |
+| The close race: a commit after the last row check and after finalization | §2.5: a line is committed **unconfirmed** and handed to no reader until a read of the job's row made after it finds the job still running; a commit that lands after the job's end finds no such read and is never shown, by the poll, a request's view, the list, a reload or another device. Nothing waits on the close or a clock |
+| A milestone dropped when `JOB_PROGRESS` fails | §2.6: the recorder keeps each delivery, under its own number, and sends it again on its own timer while the job runs; a try that landed and whose answer was lost is recorded once; a refusal is never sent again; order is kept; the job's end allows one last try |
+| The canary reading kept progress as part of the reply | §2.7: the canary's reader cuts the kept lines out of a reply's text and reads them apart (`progress`) |
+| Focused behavioral tests, at the race boundary and for container delivery failure | §6, *The gaps round's cases* |
 
 ## 1. What existed before the build (traced, 2026-10-06; line numbers as of `fa3a25ad`)
 
@@ -341,12 +380,34 @@ service key, **before the call and again before the commit**):
 first, so a commit read before the close loses the compare-and-swap, and one
 read after it finds the record closed.
 
-**The remaining window, stated.** If the job's own close fails (the store
-fails, or 10 seconds pass), the writer's second row read is the only guard
-left. A writer that passed that read just before the job finalized can then
-commit one line after the outcome is written: one store write's time. The
-line was true when checked (its facts were recorded during the run), but it
-would stand after the final reply. Not removed; recorded here.
+**The window that was left, closed (the gaps round).** If the job's own close
+failed (the store failed, or 10 seconds passed), the writer's second row read
+was the only guard left, and a writer that passed it just before the job
+finalized could commit one line after the outcome was written. **Now a line
+is committed unconfirmed** (`commitLine`), and **no reader is handed a line
+that is not confirmed** (`linesOf`, which the poll, a request's view, the
+list and every reload and other device read through). A line is confirmed
+only on evidence: a read of the job's row **made after the line was
+committed** that finds the job still running under its run (`jobVerdict`
+ok), covering only the lines the record held before that read
+(`confirmLines`, by line number). Three reads give that evidence:
+- **the writer's own third read**, just after its commit: the line is
+  confirmed at once and shown while the job runs; a job found ended, stopped,
+  superseded, stalled or held there has its record closed instead, and the
+  line is never shown;
+- **the next writer's first read**, which confirms any line the claim found
+  whose own confirmation never landed (it was committed before that read);
+- **the two-minute cron**, for a job still running: it reads the record,
+  then the row, and confirms on the same evidence.
+
+A commit that lands after the job's end — the race — finds no such read, so
+it stays on the record and is shown nowhere. The close is no longer what
+keeps such a line from being shown, so it is tried once, never waited on
+past `PROGRESS_CLOSE_MS`, and never holds the job's end. **What this costs**:
+a true line whose confirmation never landed before its job ended (its
+writer's third read failed, and no other writer or tick came in time) is
+never shown either; the final reply still follows. Clock-free: no line is
+judged by when it was written.
 
 **What the check of the model's answer proves, and what it does not.**
 `readProgress` checks the model's own account of what it described: every
@@ -373,6 +434,22 @@ real model does this is not measured: no paid test has run.
 - **A milestone write whose answer was lost** is made again by the store's
   own loop and recorded once (`already`), and a writer is asked again when
   none holds the record.
+- **A milestone whose delivery fails is kept and sent again (the gaps
+  round)**: the recorder (`makeProgress`) sends the opening and each
+  milestone as one body, the milestone under its own number, and a try that
+  did not reach the record — the container's network, a timeout, the
+  gateway's 503 or 5xx or 429, the Worker's store failing a read or six
+  writes (`progressUpdate`'s `seen.store`, answered as `retry`) — is made
+  again after each of `PROGRESS_SEND_WAITS_MS` (250 ms, 0.5, 1, 2, 4, 8 and
+  15 s: eight tries over about half a minute), on the chain's own timer,
+  held by the job's `waitUntil`, so no other milestone and no page is
+  needed. A refusal (a closed record, another run's: the gateway's 409) is
+  never sent again. A try that landed and whose answer was lost is sent
+  again under the same number and recorded once (`appendMark`'s `already`).
+  **Order is kept**: the chain waits for a milestone before the next, so the
+  record's last milestone is always the newest. **The job's end** cuts a
+  wait short: each delivery still waiting gets one last try at once, and no
+  more, and the close never holds the job past `PROGRESS_CLOSE_MS`.
 - **Its limit**: the cron reads 50 running jobs per tick; on a platform with
   more than 50 running at once, the rest wait for a later tick in which they
   are among the 50 most recently updated.
@@ -398,6 +475,12 @@ real model does this is not measured: no paid test has run.
     (`m.jobs`), drawn muted above it;
   - **never thread messages of their own**: the 40 kept messages are
     untouched, and every reading of the server draws the lines again.
+- **The UI canary** (the gaps round): a finished job's kept lines are drawn
+  inside its reply's message, before its words, so the canary's reader
+  (`readComposerInPage`) cuts each kept block once from the message's text
+  and reads its lines apart (`progress`, without their times). A reply's
+  `text` is its own words again, so a warning begins with its mark and the
+  failure check finds it.
 
 ### 2.8 Another device, and how long it lasts
 
@@ -441,36 +524,47 @@ as a command ("Change the Gallery heading"). The words stay what the jobs run
 on; the title is now the model's.
 
 - **The model writes each task's line once for every state it can be in**:
-  one forced call, `write_tasks { tasks: [{ id, planned, doing, done, notdone
-  }] }`, for every task still without lines, shown their site, their message
-  and each task as `[tN] words`. The instructions (`TASK_SYSTEM`, 853
-  characters) define the four states (planned: say you will do it; doing: say
-  you are doing it; done: say you did it; notdone: say so, with no reason —
-  the final message gives it), ask for the first person, naturally and
-  conversationally, the task in the model's own words and never the
-  customer's words handed back as an instruction, never "published" or
-  "live", the customer's language, usually one sentence. No example line,
-  and no length checked.
+  one forced call, `write_tasks { tasks: [{ id, planned, doing, waiting,
+  unconfirmed, done, partial, notdone }] }`, for the tasks still without
+  lines (at most `TASK_BATCH`, eight, a call since the gaps round; the rest
+  by the next call at once), shown their site, their message and each task
+  as `[tN] words`. The instructions (`TASK_SYSTEM`, 1,133 characters) define
+  **seven states** since the gaps round (planned: still to be done, say you
+  will do it; doing: happening now, say you are doing it; waiting: it cannot
+  go on until they answer you or give you the go-ahead, say you need that;
+  unconfirmed: you tried to make it but cannot yet tell whether it went
+  through, say so, **without saying it is happening now or that it is
+  done**; done: say you did it; partial: some of it was done and some was
+  not, say so; notdone: say so — no reasons, which the final message gives),
+  ask for the first person, naturally and conversationally, the task in the
+  model's own words and never the customer's words handed back as an
+  instruction, never "published" or "live", the customer's language,
+  usually one sentence. No example line, and no length checked.
 - **The check reads the answer's shape, never its words** (`readTasks`): every
   task by its id, a line with words in every state, no id in any line; a
   first answer that misses one is asked once more, told which.
 - **Code picks the line from the status the server gives**, so no line can
   claim a state the task is not in, and a line written after the job ended
   claims nothing:
-  - a request's part (`SITE_SAID_FOR`): waiting for another part, next,
-    queued, waiting for an answer, needing a go-ahead or a full rewrite →
-    planned; in progress, or checking it published → doing; done → done;
-    partly done, not done, not run, stopped, question expired, refused → not
-    done;
-  - a found job's card (`SITE_JOB_SAID`): queued → planned; finished → done;
-    not done or stopped → not done; anything else → doing.
+  - a request's part (`SITE_SAID_FOR`, since the gaps round): waiting for
+    another part, next, queued → planned; waiting for an answer or a
+    go-ahead → waiting; in progress → doing; **checking it published →
+    unconfirmed** (it was doing before); done → done; **partly done →
+    partial** (it was not done before); not done, not run, stopped, question
+    expired, refused, needing a full rewrite (an ended request's) → not done;
+  - a found job's card (`SITE_JOB_SAID`), by the job's own outcome (§2.11):
+    queued → planned; running → doing; waiting → waiting; handed over →
+    planned; unverified → unconfirmed; finished → done; partial → partial;
+    not done or stopped → not done; **an ended job whose outcome is not
+    known** → its words, under "Ended".
 
-  The fixed label stays beside the line ("Partly done" beside the not-done
+  The fixed label stays beside the line ("Partly done" beside the partial
   line, for instance).
 - **Until the lines are written, or when they cannot be**, the title is the
   customer's words exactly as they were: nothing is put before them, and the
-  page reads the lines strictly (`EditPoll.taskSaid`: all four states with
-  words in them, or none at all).
+  page reads the lines strictly (`EditPoll.taskSaid`: every state with words
+  in it, or none at all; the browser's list of states is the server's,
+  asserted by a test).
 - **Where they are kept**:
   - **a page-filed job's one task** on the job's own record (`taskWords`,
     `tasks`): its words given when the record opens (`begin` with `task:
@@ -509,18 +603,55 @@ on; the title is now the model's.
   logged as `progress: tasks <id> written | not written (<why>) model
   <model> tasks <n> attempts <n> tokens <in>/<out> ms <ms>`.
 
+### 2.11 Each job's own outcome (the gaps round)
+
+**Why.** Codex reproduced it: a page-filed addition that set part of the ask
+aside answered `ok: true`, and a card found from another device (Path B's
+fresh device) called it **Finished** with the model's done line, because the
+page read success from the HTTP status and `ok` alone (`siteJobFollow`), and
+the card picked its line from the row's raw state. A question, a hand-over
+and a job held for review were each called **Not done** the same way.
+
+- **The server reads each job's outcome** (`editJobOutcome` in
+  builder/request.mjs, beside `settle`, using its own readers: `answerOf`,
+  `readRun`, `notDoneOf`, `answerless`), for one job rather than a request's
+  part: **unverified** (held for review — read first, whatever the state),
+  **queued**, **running**, **cancelled** (the row, or the answer's own
+  `cancelled`), **failed** (no answer at all, or its own reason),
+  **handoff** (a hop or a climb), **waiting** (a question, or a refusal or a
+  success that asks), **partial** (a success that names work it did not do —
+  the edit's lists or the addition's — or puts a part off), and **done**.
+  Its kind (`edit` or `addon`) is the job's record's, or its row's when the
+  record cannot be read.
+- **Served** with progress on, and only then: on the poll's finished answer
+  (`withProgressLines`, beside its lines and task lines), on its running
+  answer (queued, running or held for review), and on the requests list's
+  found jobs (their row's stored answer, billing and review read for it,
+  never handed out).
+- **The page names the card by it** (`siteJobOutcome`, `SITE_JOB_STATUS`):
+  Queued, In progress, **Waiting for your answer**, **Handed over**,
+  **Checking it published**, Finished, **Partly done**, Not done, Stopped —
+  each label beside the model's line for that outcome (§2.10). An answer
+  that carries no outcome never leaves a card running: a finished one leaves
+  it **Ended**, with its words and no line of any state; a poll held for
+  review is Checking it published, never Not done. A later reading of the
+  list brings the server's outcome to a card already drawn.
+- **A request's parts** already had these statuses from the driver
+  (`settle`); what changed for them is the line each picks (§2.10).
+
 ## 3. The files
 
 | File | What changed |
 |---|---|
-| `builder/site-progress.mjs` (new) | the switch, the record and its strict reader, milestones and their facts, the writer's rules (claim, batch, commit, fail, close), the row verdict, the instructions, the tool, the check and the call. Pure, no I/O. **The wording round**: the first-person rule; the tasks' words and lines on the record, their writer's rules (`tasksNeeded`, `unwrittenTasks`, `commitTasks`, `failTasks`, `addTasks`, `saidOf`), and their call (`TASK_TOOL`, `TASK_SYSTEM`, `taskRequest`, `readTasks`, `writeTasks`) |
-| `worker.js` | the store (compare-and-swap), the recorder (`makeProgress`) on the job's context, the close at the job's end, the writer (`runProgressTask`), the queue branch, the cron's sweep, the gateway's door, the poll, the request read and list (`jobs`), and the milestones in the edit and add-on routes. **The wording round**: a page-filed job's task at its opening; the task lines first in the writer (`writeTaskLines`); the request's narration (`syncRequestTasks` at the acceptance and in the driver, `ensureRequestTasks` in the request sweep, `saidForRequest`); ended jobs in the progress sweep; `said` on the poll, the found jobs and a request's read and list |
-| `builder/job-gateway.mjs` | `/progress`, bound to the job's own token |
-| `builder/container-env.mjs` | `env.JOB_PROGRESS`, through the gateway |
+| `builder/site-progress.mjs` (new) | the switch, the record and its strict reader, milestones and their facts, the writer's rules (claim, batch, commit, fail, close), the row verdict, the instructions, the tool, the check and the call. Pure, no I/O. **The wording round**: the first-person rule; the tasks' words and lines on the record, their writer's rules (`tasksNeeded`, `unwrittenTasks`, `commitTasks`, `failTasks`, `addTasks`, `saidOf`), and their call (`TASK_TOOL`, `TASK_SYSTEM`, `taskRequest`, `readTasks`, `writeTasks`). **The gaps round**: seven task states and `TASK_BATCH`; lines committed unconfirmed and shown only once confirmed (`confirmLines`, `unconfirmedLines`, `linesOf`); the delivery waits (`PROGRESS_SEND_WAITS_MS`) |
+| `worker.js` | the store (compare-and-swap), the recorder (`makeProgress`) on the job's context, the close at the job's end, the writer (`runProgressTask`), the queue branch, the cron's sweep, the gateway's door, the poll, the request read and list (`jobs`), and the milestones in the edit and add-on routes. **The wording round**: a page-filed job's task at its opening; the task lines first in the writer (`writeTaskLines`); the request's narration (`syncRequestTasks` at the acceptance and in the driver, `ensureRequestTasks` in the request sweep, `saidForRequest`); ended jobs in the progress sweep; `said` on the poll, the found jobs and a request's read and list. **The gaps round**: the recorder keeps and resends each delivery (`makeProgress`), the store's failure told from a refusal (`progressUpdate`'s `seen`, `progressFromJob`'s `retry`); the writer's third row read and the confirmations (`confirmProgressLines`, in the writer and the cron's sweep); each job's outcome on the poll and the found jobs (`jobOutcomeFor`, `withProgressLines`, `standaloneJobsFor`); task lines written a batch a call |
+| `builder/job-gateway.mjs` | `/progress`, bound to the job's own token; **the gaps round**: a store that failed answered 503 (sent again), a refusal 409 (never) |
+| `builder/container-env.mjs` | `env.JOB_PROGRESS`, through the gateway; **the gaps round**: says whether a try that failed is worth making again (`retry`: a 429 or any 5xx) |
 | `builder/edit-job.mjs` | `PROGRESS_REPLIES` carried to the container |
-| `builder/request.mjs` | `requestView` takes the lines by job and adds them to each part; and each part's own lines in every state (`said`) |
-| `public/edit-poll.js` | `progressLines`; `taskSaid` (all four states, or none) |
-| `public/chat.js` | the lines on a part's card, Path B's bubble, the lines kept on a watched job's reply, the found job's card and its follow; each title by the line for its status (`SITE_SAID_FOR`, `SITE_JOB_SAID`, `siteSaidFor`), the customer's words until then |
+| `builder/request.mjs` | `requestView` takes the lines by job and adds them to each part; and each part's own lines in every state (`said`); **the gaps round**: each job's own outcome (`editJobOutcome`, `EDIT_JOB_OUTCOMES`) |
+| `public/edit-poll.js` | `progressLines`; `taskSaid` (every state, or none); **the gaps round**: seven states, and the strict outcome reader (`jobOutcome`) |
+| `public/chat.js` | the lines on a part's card, Path B's bubble, the lines kept on a watched job's reply, the found job's card and its follow; each title by the line for its status (`SITE_SAID_FOR`, `SITE_JOB_SAID`, `siteSaidFor`), the customer's words until then; **the gaps round**: the found job's card and follow by its outcome (`siteJobOutcome`, `SITE_JOB_STATUS`), and each status to its line among seven |
+| `scripts/canary-ui.mjs` | **the gaps round**: the reader cuts a reply's kept lines out of its text and reads them apart (`progress`) |
 | `public/styles.css` | the lines' style, the live marker, the muted ended lines |
 | `.github/workflows/deploy.yml` | the secret, with its `|| 'off'` fallback |
 | `Dockerfile` | the new module copied into the image |
@@ -680,6 +811,61 @@ real Chromium for the drawing.
     their lines; TENSES (three parts at once: past, present and future, each
     moving to its next line as its status moves).
 
+- **The gaps round's cases**, all with supplied answers, each written first
+  and seen failing on the code before this round (the red check, the history
+  file's §6):
+  - **`test/progress-gaps.test.mjs`** (new; the real Worker, and the page's
+    real functions answered by that Worker): OUTCOME 0 (the rule, row by
+    row); **OUTCOME 1, Codex's reproduction** (a page-filed addition that set
+    its menu link aside answers `ok: true`; the poll and the list serve
+    `partial`, and another device's card says Partly done with the partial
+    line, never Finished or the done line — also as the list alone draws
+    it); OUTCOME 2 (a question: Waiting for your answer; a hand-over: Handed
+    over, never Not done); OUTCOME 3 (held for review, its answer stored ok
+    or its row still running: Checking it published with the unconfirmed
+    line, never the doing line); OUTCOME 4 (the controls: Finished, Not
+    done, Stopped); OUTCOME 5 (a request's parts: unconfirmed, partial and
+    waiting lines); OUTCOME 6 (a record that cannot be read: the kind off the
+    row); OUTCOME 7 (the two reads' columns, from the source); **RACE 1, at
+    the boundary** (the writer past its last row check; the job's close
+    refused by the store on all six tries, the job finalized; the commit
+    lands after: on the record, served by no poll, request view, list,
+    reload or other device, and never confirmed by the cron); RACE 2 (the
+    same on a page-filed job); RACE 3 (an ordinary line shown at once; one
+    whose confirmation was lost confirmed by the cron while the job runs);
+    RACE 4 (the next writer's first read confirms it, even when that writer's
+    call fails and it commits nothing; a job whose runner is gone never has
+    it confirmed); NAMES 9 (a long request's lines written a batch a call);
+    **RECORDER 1, from the container, the network down** (the milestone's
+    call fails twice before reaching the Worker: kept, with its number and
+    facts, sent again on its own with no other milestone and no page,
+    recorded once, given its line); **RECORDER 2, landed and its answer
+    lost** (sent again under the same number, recorded once); RECORDER 3 (the
+    gateway's 503 sent again; a 409 refusal never); RECORDER 4 (order kept;
+    the job's end allows exactly one last try); RECORDER 5 (in the Worker,
+    the store failing a read, or refusing six writes: sent again); RECORDER
+    6 (an opening refused outright is never resent on its own, and is made
+    again just before the job's first milestone, which is recorded);
+  - **`test/progress-page.test.mjs`**: the browser's lists of states and
+    outcomes asserted to be the server's; every status and every outcome to
+    its line and label; a card with no outcome; an answer with no outcome
+    after a running one (Ended); a poll held for review with no outcome
+    (unconfirmed);
+  - **`test/canary-replies.test.mjs`**: the canary's reader on a stand-in
+    thread: a reply's kept lines cut from its text and read apart, a reply
+    with none and a request's card unchanged;
+  - **`test/progress-browser.test.mjs`** (real Chromium): CANARY (the
+    canary's own reader on the real page: a failed job's warning read with
+    its mark first, its kept lines apart, the failure check passing — and,
+    read whole as before, failing); OUTCOMES (another device's four cards,
+    partial, unverified, waiting and handed over, each with its label and
+    line, screenshotted);
+  - the earlier files brought to the new contract: the four-state helpers
+    and tables to seven; ONE WRITER 4 (a committed line is unconfirmed, and
+    a confirmation never covers a later line); SAME and FIND (the progress
+    feature's own `outcome` set aside, and the lease name looked for itself,
+    not the letters "run"); OFF (no `outcome` with progress off).
+
 **The checks**, in full in `docs/history/2026-10-06-progress-messages.md`
 §3: the four files above (19, 27, 9 and 3 cases); the sweep over the module
 and its wiring (81 mutants and 4 comment-only controls: 80 killed on its full
@@ -699,6 +885,20 @@ mutants, 18 of 18, every control surviving); the full suite `9669 / 9669 / 0
 green on it (run 37502463614, 404 checks in 27 sections across 4 shards); the
 image predicted `141b0dcc2a92d926` (195 inputs), not built.
 
+**The gaps round's checks** (the history file's §6): the red check on
+`ba8a12dc` (the 13 reproduction cases written first, 13 of 13 failing; the
+final file 18 of 19, RECORDER 6 passing as a guard should; the page and
+canary files 7 of 44); the focused files at 19, 25, 35, 14, 6 in real
+Chromium, 30 and 47 cases, all passing; the new spec swept (60 mutants and 4
+controls: 58 killed, the two survivors closed by OFF and RACE 4 and killed
+on their rerun) and the earlier spec's 15 moved mutants (14 killed, the
+survivor closed by RECORDER 6 and killed on its rerun), every control
+surviving; the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`, and
+unit CI green on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21
+real-browser cases skipped there); the site build on it (run 37515372064)
+six jobs green and shard 3 of 4 still running when this was written; the
+image predicted `5f946c22d42a1b10` (195 inputs), not built.
+
 ## 7. What this does not show, and the limits that stay
 
 - **No real model has written a line.** Every answer in every test is
@@ -708,9 +908,11 @@ image predicted `141b0dcc2a92d926` (195 inputs), not built.
   decide.
 - **The words are not checked** (§2.5): an update whose `says` is right and
   whose words call the page live is committed. Stated, tested, not filtered.
-- **One residual window** (§2.5): a line committed after the outcome when
-  the job's own close fails and the writer had already passed its second
-  row read.
+- **The residual window is closed** (§2.5, the gaps round): a line committed
+  after the outcome is never shown. **Its price**: a true line whose
+  confirmation never landed before its job ended (the writer's read after
+  its commit failed, and no other writer or cron tick came in time) is never
+  shown either.
 - **"Saved" is not reported on its own** (§2.1): a page change is
   "prepared" until its publish starts.
 - **Bounds**: the cron reads 50 running jobs a tick (§2.6); the requests
@@ -726,8 +928,23 @@ image predicted `141b0dcc2a92d926` (195 inputs), not built.
   checked either: a done line that called the change live would be shown.
 - **A task's lines do not know its outcome**: they are written before it
   ends, so the done line says what was done in general terms, and the final
-  reply says what really happened. A partly done part shows its not-done
-  line beside the "Partly done" label.
+  reply says what really happened. Since the gaps round a partly done part
+  shows its partial line beside "Partly done", a part held for review its
+  unconfirmed line, one waiting on the customer its waiting line.
+- **A hand-over's card says the change is still to come** (its planned line,
+  beside "Handed over"): the page that filed the job makes the next step, so
+  if that page is closed nothing continues until it is opened again, and the
+  card still reads that way. A card whose finished answer carries no outcome
+  (its record and its row both unreadable at that read) shows "Ended" and the
+  customer's words until the list is read again.
+- **A milestone is given up** after about half a minute of failed deliveries
+  (eight tries), or at the job's end after one last try (§2.6): its facts are
+  then never narrated, and the next milestone's line covers only its own.
+  The recorder lives in the job's own process: if that process dies, so do
+  its milestones still waiting, and the run that takes the job over records
+  its own.
+- **The test platform answers every column of a job-table read** (the
+  backlog): the outcome's two reads are pinned from the source instead.
 - **The customer's words show** until the lines come (one queue round and one
   call; for a part carved later, from the driver's save of that part), and
   for good when their tries are spent or a request would hold more than 50

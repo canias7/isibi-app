@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 17:25 UTC)
+## Current handoff — read this first (2026-10-06, 19:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,57 +8,65 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - **Model-written progress during Edit and Add-on is built on the branch,
-  off by default, for your review** (`PROGRESS_REPLIES`; the two newest
+  off by default, for your review** (`PROGRESS_REPLIES`; the three newest
   entries below, `docs/history/2026-10-06-progress-messages.md`, and the
   design as built in `docs/investigations/progress-messages-plan.md`, whose
-  §0 maps each of your corrections to where it is met).
-  - **Your wording clarification is in** (the newest entry; the plan's
-    §2.10): the progress lines are asked for in the first person, in the
-    tense each step is in; each task's title is the model's own line for the
-    state the task is in (still to come, under way, finished, not done),
-    picked by code from the status, and the customer's words exactly as
-    written until those lines arrive. Your examples are not templates
-    anywhere: neither set of instructions quotes them.
+  §0 maps each of your corrections and requests to where it is met).
+  - **The gaps you asked to close are closed** (the newest entry; the plan's
+    §2.11, §2.5 and §2.6): each card's state and the model's line come from
+    the job's real outcome (partly done, waiting for your answer, handed
+    over, checking it published, finished, not done, stopped), and a job held
+    for review is never shown as happening now; no progress line appears
+    after the final reply, on any reader; a milestone whose delivery fails is
+    kept and sent again on its own, never doubled; the UI canary reads a
+    reply apart from its kept progress. Codex's reproduction is OUTCOME 1 in
+    `test/progress-gaps.test.mjs`.
+  - **Your wording clarification stays in** (the plan's §2.10): the first
+    person, and each task named by the model's own line for its state, now
+    one of seven, picked by code; your words unprefixed until the lines
+    arrive.
   - **Not merged, not deployed, no image built, nothing pressed or spent.**
     Shown with supplied model answers only; no real model has written a
     progress line or a task line.
-  - **The evidence**: 77 focused cases with supplied model answers (25 + 35 +
-    13 + 4 in real Chromium), all passing; the sweep of the whole spec (140
-    mutants: 139 killed, the one survivor closed by a test fix and killed on
-    its rerun; all 6 controls surviving); the full suite `9669 / 9669 / 0 / 0`
-    locally on `dd446201`; unit CI green on it (run 37502463796, `9669 / 9650
-    / 0 / 19`, the 19 real-browser cases skipped there); the site build green
-    on it (run 37502463614: "404 checks in 27 sections across 4 shards, every
-    job green").
-  - **A merge would roll the image**: `c7fe818d446dd957` → `141b0dcc2a92d926`
-    (predicted, not built; 194 → 195 inputs, seven differing from main's).
+  - **The evidence**: the red check on `ba8a12dc` (the 13 reproduction cases
+    13 of 13 failing first); 99 progress cases (19 new, then 25, 35, 14 and 6
+    in real Chromium) and the two canary files (30 and 47), all passing; the
+    sweeps (the new spec's 60 mutants and the earlier spec's 15 moved ones:
+    every survivor closed by a case and killed on its rerun, every control
+    surviving); the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`;
+    unit CI green on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21
+    real-browser cases skipped there); the site build on it (run 37515372064)
+    six jobs green, shard 3 of 4 still running at 19:08 UTC.
+  - **A merge would roll the image**: `c7fe818d446dd957` → `5f946c22d42a1b10`
+    (predicted, not built; 194 → 195 inputs).
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
   `c7fe818d446dd957`), runtime-confirmed by run 102; the release closed on
   run 103.
-- **The balance is 9** (read at 17:17 UTC: the ledger's last row 397, no job
+- **The balance is 9** (read at 18:58 UTC: the ledger's last row 397, no job
   open). Anything paid next needs it raised first.
 
 **Yours to decide**
-- **The progress implementation, with the wording round**: your review of
-  the branch.
+- **The progress implementation, with the wording and gaps rounds**: your
+  review of the branch.
 - **Switching it on and a live look**: `PROGRESS_REPLIES` on in a deploy,
-  then a paid press to read the first real lines and task titles, their
-  words and their cost (about 0.15–0.35 credit a call, estimated, absorbed).
-  **Before that press**: the UI canary would read a reply's kept progress
-  lines as part of the reply (new in the backlog), so its reply checks need
-  to read the reply's own text first.
+  then a paid press to read the first real lines and task titles in their
+  states, their words and their cost (about 0.15–0.35 credit a call,
+  estimated, absorbed). The canary's reply reading, which had to be settled
+  before that press, is fixed.
 - **What run 103 left on the bakery** (the demo-site rule): the Tasting
   Evenings page, the `tasting_list` table, the menu links, the Gallery
   heading, and the one marked entry (`Canary release 37473592366`,
   `canary-release-37473592366@example.com`). Taking any of it out is yours.
 
 **Still open** (`docs/backlog.md`)
-- **New, from the progress work**: a progress line can follow the final
-  reply when the job's own close fails (one store write's window). The
-  model's words are not checked, only its account of them (stated and
-  tested, not filtered, as you said); the same holds for the task titles.
-  With the switch on, the UI canary would read a reply's kept progress lines
-  as part of the reply (found in the wording round; before any live press).
+- **Limits of the progress work** (the plan's §7): the model's words are not
+  checked, only its account of them (stated and tested, not filtered, as you
+  said), and the same holds for the task titles; a true line whose
+  confirmation never lands before its job ends is never shown; a milestone
+  is given up after about 30 seconds of failed deliveries, or at the job's
+  end, and is lost if the job's process dies; a hand-over's card reads
+  "still to come" even when the page that filed it is closed. New in the
+  backlog: the test platform answers every column of a job-table read.
 - **Found in the reporting work, not fixed**:
   - a dead job's reconciled reply names no database change;
   - a request records an add-on part whose database changes went in as
@@ -170,6 +178,104 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your request after Codex's reproduction: progress cards and lines from each job's real outcome, no line after the final reply, a failed milestone kept and sent again, the canary's reply read apart (on the branch, `84d46faf`; nothing spent, merged or deployed)
+
+- **What you asked**: after Codex reproduced a page-filed partial result
+  shown as fully finished, to fix the remaining progress gaps: each card's
+  state and the model's line from the job's actual outcome across Edit and
+  Add-on (partial results, questions, hand-overs and unverified outcomes,
+  with unverified never read as happening now), in natural model-written
+  language with no prefixes or keyword filters; the race where a failed or
+  timed-out close lets a line land after the final reply, closed on every
+  reader without holding up the job's end; a milestone kept and retried on
+  its own when the container's delivery fails, never doubled; and the UI
+  canary reading a reply apart from its kept progress. Focused tests
+  reproducing each failure first; the feature off and the branch unmerged.
+  Your words in full are in the history file's §6.
+- **Reproduced first**: 13 cases written against the code as it stood
+  (`ba8a12dc`), all failing for the reason named. Among them **Codex's
+  case** (a page-filed addition whose menu link was set aside answered
+  `ok: true`, and another device's card read **Finished** with the done
+  line), **the race at its boundary** (the job's close refused by the store
+  on all six tries, the job finalized, then the writer's commit: the
+  finished job's answer carried the line), and **the container's network
+  failing** a milestone's call (the milestone dropped). The canary's case
+  failed too, in real Chromium: the reply it read began with "0:05I found
+  the Gallery heading…" instead of its ⚠️ warning.
+- **Each job's own outcome**: the server reads it from the job's row and
+  stored answer, by the same rules the request driver already used for a
+  part (partly done, waiting for your answer, handed over, checking it
+  published when it is held for review, finished, not done, stopped), and
+  the poll and the requests list carry it. Another device's card takes its
+  label and the model's line from it, never from `ok` alone. The model now
+  writes each task's line in seven states, so a job or part held for review
+  shows the line the model wrote for "tried, not yet known whether it went
+  through", **never its line for doing it now**; one waiting on you, its
+  line for needing your answer; one done in part, its line for part of it.
+  The model still writes every word; code only picks which line, and
+  nothing is put before your words.
+- **No progress line after the final reply**: a line is now shown only once
+  a read of the job's row, made after the line was committed, finds the job
+  still running (the writer reads right after its commit; the next writer
+  and the two-minute cron catch any it missed). A line committed after the
+  job ended (the race) never gets that read, so the poll, a request's view,
+  the list, a reload and another device all leave it out. Nothing waits on a
+  clock, and the job's end is never held: its close is tried once.
+- **A milestone kept and sent again**: when a delivery fails, the recorder
+  sends it again under the same number after ¼, ½, 1, 2, 4, 8 and 15
+  seconds while the job runs (eight tries over about 30 seconds), on its own
+  timer, with no other milestone and no page needed. One that landed and
+  whose answer was lost is recorded once. A refusal is never resent, and
+  order is kept. When the job ends, each delivery still waiting gets one
+  last try. The Worker now tells a store failure (503, sent again) from a
+  refusal (409, not), and the container reads a 429 or any 5xx as worth
+  trying again.
+- **The canary**: its reader cuts a reply's kept progress out of the
+  reply's text and reads the lines separately, so its reply checks see the
+  reply itself. That was the item to settle before a live press with the
+  switch on.
+- **Found during the work**: `jobOutcome` was already the name of the timer
+  jobs' function, so the new one is `editJobOutcome`; a few mistakes in my
+  new cases, fixed in the cases, not the product; one rule tightened when a
+  case showed it (a job that ends before a delivery's first failure still
+  gets that delivery's one last try); and the sweeps' three survivors, each
+  a case that did not isolate what it claimed: two cases tightened and one
+  added (RECORDER 6), all three killed on their reruns. New in the backlog:
+  the test platform answers every column of a job-table read, so the
+  outcome's two reads are pinned from the source instead.
+- **The evidence**:
+  - the red check on `ba8a12dc`: the 13 reproduction cases 13 of 13
+    failing; the final file 18 of 19 (RECORDER 6 passing, as a guard
+    should); the page and canary files 7 of 44;
+  - the focused files, all passing: 19 new cases, and 25, 35, 14, 6 (in real
+    Chromium), 30 and 47 in the files brought to the new contract;
+  - the sweeps: the new spec's 60 mutants (58 killed, the 2 survivors closed
+    and killed on their rerun) and the earlier spec's 15 moved mutants (14
+    killed, the survivor closed by RECORDER 6 and killed on its rerun), every
+    comment-only control surviving;
+  - the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`; unit CI green
+    on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21 real-browser cases
+    skipped there); the site build on it (run
+    37515372064) six jobs green, shard 3 of 4 still running at 19:08 UTC;
+  - the image predicted, not built: `141b0dcc2a92d926` → `5f946c22d42a1b10`
+    (195 inputs), so a merge would roll main's `c7fe818d446dd957`;
+  - nothing pressed or spent: balance 9, the ledger's last row 397, no job
+    open (read 18:58 UTC). The records are the commit after `84d46faf`.
+- **Remaining limitations**:
+  - no real model has written a line in any of the seven states, so their
+    wording, tense and cost stay unmeasured until a live press with the
+    switch on; their words are still not checked;
+  - a true line whose confirmation never lands before its job ends is never
+    shown: the price of never showing a late one;
+  - a milestone is given up after about 30 seconds of failed deliveries, or
+    at the job's end after one last try; if the job's own process dies, its
+    waiting milestones go with it;
+  - a hand-over's card says the change is still to come even when the page
+    that filed the job is closed, and nothing continues until it is opened
+    again; a card whose finished answer carries no outcome shows "Ended" and
+    your words;
+  - the test platform's column reads (above, in the backlog).
 
 ## 2026-10-06 — Your wording clarification: the assistant in the first person, and each task named by the model's own line for its state (on the branch, `dd446201`; nothing spent, merged or deployed)
 
