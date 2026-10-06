@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 01:20 UTC)
+## Current handoff — read this first (2026-10-06, 07:17 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,77 +9,65 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The branch** is `main` plus three batches on top of `d53caefc`. None is
+- **The branch** is `main` plus four batches on top of `d53caefc`. None is
   merged or deployed, and no image is built:
   - **run 101's correction batch** (`936295a5`): the three corrections you
-    passed (the preview kept through polling, the settled page facts, the
-    reopened tab's preview check), with the grounding they came with;
-  - **the requirement judgment** (`0f94d159`, which you passed): a model
-    call judges what each requirement means; code checks what really ran;
-  - **the incomplete-judgment fix** (`4b6271ff`, on your review): every
-    requirement needs a usable verdict before a hand-off and at the end. One
-    more call names whatever the first answer left out. If it's still short
-    or cut off, the addition stops before anything is applied, charged or
-    published, and asks the customer for nothing
-    (`docs/history/2026-10-06-incomplete-judgment.md`).
-- **Evidence**, all with supplied model answers through the real add-on
-  route; nothing is shown live:
-  - **your example** ("Add a signup form and send a confirmation email to
-    each person who signs up"):
-    - an empty answer is asked again and, once whole, gives exactly the
-      whole answer's result: the email reported, the form's email field
-      handed to the page step, one charge of the same size;
-    - an empty answer that never finishes stops: 503, nothing applied,
-      nothing charged, no question, nothing to repeat;
-  - **partial and invalid answers** (a word outside the lists, a "yes"
-    naming nothing it was shown, a wrong id): asked again naming why,
-    finished; still wrong twice, the addition stops;
-  - **a real "unsure"** is not asked again and is still told ("I can't see
-    from here whether…");
-  - **the red check**: 7 of 23 cases fail on the old code, each on the
-    omission; the controls pass on both;
-  - **the sweeps**: 30 of 30 planted defects caught for this fix; the
-    previous round's, re-run, 36 of 37, and the one survivor can no longer
-    happen (history §5). The controls survived in both;
-  - **the suite**: `9525 / 9525 / 0 / 0` here (the 9,519 before, plus the
-    6 new cases). Your earlier corrections are among them, unchanged.
-- **CI on `4865cb97` is complete and green** (the fix's code with its
-  records on top):
-  - unit tests (run 37398006134): `9525 / 9513 / 0 / 12`, the same total as
-    here; CI skips its usual 6 and the 6 real-browser cases;
-  - the site build (run 37398006135): all seven jobs and the gate passed,
-    *"404 checks in 27 sections across 4 shards, every job green"*. One job's
-    step list came back empty from GitHub's API, but its log shows both of
-    its checks ran and passed (14 and 47).
-- **Money**: balance **21** (read at 01:01 UTC on 6 October: last ledger row 392, no job open). Nothing was
-  spent in this batch.
+    passed;
+  - **the requirement judgment** (`0f94d159`, which you passed);
+  - **the incomplete-judgment fix** (`4b6271ff`, which Codex passed);
+  - **the requirement-reporting fix** (`95f5a9d0`, on your word after that
+    review): every requirement a customer is told about reaches the reply
+    model as its own fact, its kind the state's, under the reply's own
+    completeness check. The note the browser prints names every one
+    (`docs/history/2026-10-06-requirement-reporting.md`).
+- **Evidence**, all with supplied model answers through the real routes;
+  nothing is shown live:
+  - **Codex's case**: four undone requirements, and the note, the screen and
+    the reply model's facts each have all four. Through a request, the
+    background reply writer is given each one from the stored answer, and
+    the reply it keeps explains every one;
+  - **every kind of outcome above its old cut, mixed**: can't do yet, still
+    to do, waiting on a failed part, set up and unchecked, scheduled, and
+    unseen;
+  - **duplicates**: the existing rules are kept, plus the same need in the
+    same sentence said once;
+  - **the reply model's completeness check**: one requirement left out is
+    asked for again by name, and left out twice the reply isn't used;
+  - **the red check**: all 12 new cases fail on the old code, on the
+    omission itself;
+  - **the sweep**: 35 of 35 planted defects caught, 3 controls survived;
+  - **the suite**: `9537 / 9537 / 0 / 0` here.
+- **CI**: running on this push; I read it and record it next.
+- **Money**: balance **21** (read at 07:16 UTC on 6 October: last ledger
+  row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Nothing to re-run**: every required job ran and passed.
-- **Review the fix** (`docs/history/2026-10-06-incomplete-judgment.md`, with
-  its limits in §6).
-- **The refusal limit** (history §6): when a designer refuses its part and
-  the judgment beside it doesn't finish, the refusal can't name the other
-  things asked for. Say if you want that changed; I left it as the earlier
-  round built it.
-- **Then, if you want it live**: merge and deploy (the image would roll:
-  from deploy 2184's `589e3e4e85a20066` to `7107b9a349d84ca8`;
-  predicted, not built). Decide whether a paid press should show any of it.
-- **The judgment's cost** (estimates from the requests' size, not measured):
-  about 0.4–0.7 of a credit per call on a typical add-on and up to about 1.2
-  on a large one, with one call before each hand-off and one at the end. On
-  the bill that's about +1 credit typical and +2–3 large. A second call,
-  when an answer is unfinished, costs about the same again and is on us.
+- **Nothing to press yet**: CI is being read.
+- **Review the fix** (`docs/history/2026-10-06-requirement-reporting.md`,
+  remaining gaps in §5).
+- **The refusal item, kept separate as you asked** (backlog). It is **wider
+  than I recorded last time**. When a designer refuses its part, the
+  requirements reach neither the reply model nor the screen, even when the
+  judgment finished. Nothing is applied or charged there. TOLD 11 pins it as
+  it stands.
+- **One visible change to know about**: while a reply is being written, an
+  addition whose only caveats are "set up but unchecked" or "scheduled" now
+  shows "Done — writing up what changed…" instead of "Partly done".
+- **Then, if you want it live**: merge and deploy (the image would roll from
+  deploy 2184's `589e3e4e85a20066` to `140199b61e2581c4`; predicted, not
+  built). Decide whether a paid press should show any of it.
 
 **Still open** (`docs/backlog.md`)
-- **New**: the cover note names at most two or three requirements per
-  sentence, and the rest reach neither the note nor the reply.
-- **Limits of the judgment** (history files' limits sections):
-  - the judging is only as good as the model, and a whole but wrong answer
-    passes;
-  - it sees the design, not the published result;
-  - a part a designer builds for an extra anyway isn't removed;
-  - a cut-off answer isn't asked again.
+- **The refusal item** above.
+- **New, found here**:
+  - the note's other sentences (missing pages, QR codes, seed skips, empty
+    tables) still name three, then "and N more";
+  - a designer's requirements past its twelfth are set aside when they come
+    in and never told.
+- **Limits of the judgment** (the judgment history files): the judging is
+  only as good as the model, and a whole but wrong answer passes; it sees
+  the design, not the published result; a part a designer builds for an
+  extra anyway isn't removed; a cut-off answer isn't asked again.
 - The add-on route's test harness shares one cached stored schema between
   cases (the judgment's test file clears it; the harness-wide fix is
   listed).
@@ -95,8 +83,9 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This fix: `docs/history/2026-10-06-incomplete-judgment.md`.
-- The judgment it completes: `docs/history/2026-10-05-judgment.md`.
+- This fix: `docs/history/2026-10-06-requirement-reporting.md`.
+- The judgment fixes before it: `docs/history/2026-10-06-incomplete-judgment.md`
+  and `docs/history/2026-10-05-judgment.md`.
 - Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
@@ -159,6 +148,72 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: every requirement a customer is told about now reaches the reply model, one fact each (on the branch; nothing spent, merged or deployed)
+
+- **What Codex found, reproduced first**: four requirements a customer asked
+  for, each left undone. The note said "Still to do: a; b; c." (three of
+  the four), and the reply model was given that note as one single fact. So
+  the fourth reached nothing, and the reply's completeness check could only
+  confirm that one sentence was covered.
+- **The same cut was in every sentence of the note**: "Still to do" named
+  three; "can't do yet" named three and then said "And N more like it."; the
+  waiting, "I've set that up", scheduled and "can't see" sentences each named
+  two. The browser's own message, shown when there is no model reply, printed
+  the same cut note.
+- **Now**:
+  - **one report, whole**: every requirement the customer hears about, with
+    what became of it. The selection is the one the note always made; the
+    only change is that nothing is cut;
+  - **each requirement is its own fact** for the reply model, so its existing
+    completeness check holds it to every one. One left out is asked for again
+    by name, and left out twice the reply isn't used. The model writes the
+    reply in its own words;
+  - **the kind matches what happened**:
+    - not done, can't do yet, or waiting on a part that failed is "not done";
+    - set up but unchecked, or scheduled and not yet seen running, is "done,
+      with something worth knowing";
+    - something nobody could see is never called done;
+  - **the browser's note names every one**, in the sentences it always used.
+    When nothing was cut, the words are identical;
+  - **duplicates**: the existing rules are kept (a hand-off an answer speaks
+    for isn't said twice), plus one exact one: the same need in the same
+    sentence is said once.
+  - **No new customer sentences, no site rules, no bigger cutoff, no "and
+    more".**
+- **One visible change**: while a reply is being written, an addition whose
+  only caveats are "set up but unchecked" or "scheduled" now shows "Done —
+  writing up what changed…", because that work was set up. Before, any
+  caveat showed "Partly done". Anything not done or unseen still shows
+  "Partly done".
+- **Checked**:
+  - 12 new cases above every old cut, with the outcomes mixed. They run
+    through the module, the reply writer's completeness check, the real
+    add-on route, the browser's own message, and a request whose reply is
+    written in the background from its stored answer;
+  - the 12 cases fail on the old code, each route and request case on the
+    omission itself (the note naming three of four, the background writer
+    never given the fourth);
+  - the mutation sweep caught all 35 planted defects on its first run, and
+    the 3 controls survived;
+  - the full suite: `9537 / 9537 / 0 / 0` here (the 9,525 before, plus the
+    12 new cases);
+  - CI: read after the push; the handoff has the result.
+- **Kept separate, as you asked**: the refusal limit, which is **wider than I
+  recorded last time**. On a refusal the requirements reach neither the reply
+  model nor the screen, even when the judgment finished. Nothing is applied
+  or charged there. I corrected the record, and a case now pins it.
+- **Found, not fixed** (backlog):
+  - the note's other sentences (missing pages, QR codes, empty tables) still
+    name three, then "and N more";
+  - a designer's requirements past its twelfth are set aside when they come
+    in and never told.
+- **Your earlier corrections are untouched**: the incomplete judgment, the
+  requirement judgment and run 101's three. Their tests are in the suite.
+- **Not merged, not deployed, no image built, nothing pressed or spent.**
+
+**Recorded in**: `docs/history/2026-10-06-requirement-reporting.md`, the
+backlog, the checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-06 — Your review: a judgment that leaves a requirement out is asked once more, then the addition stops (on the branch; nothing spent, merged or deployed)
 

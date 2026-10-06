@@ -504,6 +504,13 @@ line:
   stops before anything is applied or charged (`aDown`, `incomplete: true`)
   with a sentence that asks the customer for nothing. `unsure` is a whole
   verdict, and a malformed one is never read as it;
+- **every requirement told, one fact each** (2026-10-06,
+  `docs/history/2026-10-06-requirement-reporting.md`): `requirementReport`
+  returns every requirement the customer hears about, whole, with the sentence
+  it belongs to (`told`) and what became of it (`state`); the route sends it
+  (`requirementsTold`) beside the note's other sentences (`coverOther`), each
+  requirement is its own fact for the reply model (`coverFacts`), and the note
+  the browser prints is written from the same report with nothing cut;
 - **execution (code)**: every thing it names must be one it was shown, and
   must really have been applied or already be there — for a table, with the
   part that does the work (`tableParts`: `notify`, `confirm`, `sms`,

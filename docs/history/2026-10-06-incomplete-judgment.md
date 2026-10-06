@@ -283,6 +283,11 @@ because nothing here can see them.
   do yet: People can pay by bank transfer" is then not said), because
   nothing judged them. Left as the previous round built it; the refusal's
   own wording is outside this gap.
+  **Corrected later the same day** (`2026-10-06-requirement-reporting.md`
+  §5): the limit is wider than this. On a refusal the requirements reach
+  neither the reply model nor the browser's screen **even when the judgment
+  finished**; the note is on the answer and nothing prints it. A separate
+  backlog item.
 - **Found while writing these tests, and not fixed here** (the owner: *"without
   expanding this audit"*): the cover note names at most two requirements in
   most of its clauses and three in "Still to do", with no count of the rest

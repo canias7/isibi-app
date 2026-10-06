@@ -118,18 +118,42 @@ here; take a closed one out of both.**
     real route; not shown live.
 - **The cover note names at most two or three requirements per clause, and
   the rest reach neither the note nor the reply** (found 2026-10-06, writing
-  `test/addon-judgment.test.mjs`; not fixed, outside that fix):
-  - **The code** (`requirementNote`, `builder/site-requirements.mjs`): "Still
-    to do" names the first three, and the blocked, "I've set that up, but I
-    can't confirm…", scheduled and "I can't see from here whether…" clauses
-    the first two. Only "One thing your site can't do yet" says how many more
-    ("And N more like it.").
-  - **Why it matters**: the cover note is the only way requirements reach the
-    reply model (`coverNote` → a `not-done` fact, `builder/site-reply.mjs`).
-    A third requirement told as set up and unchecked is in the stored record
-    and nowhere the customer reads.
-  - **Not measured live**; read from the code. The new cases keep to two per
-    clause so they test the judgment, not this cap.
+  `test/addon-judgment.test.mjs`):
+  - **Was**: `requirementNote` named the first three in "Still to do" and the
+    first two in the blocked, set-up, scheduled and unseen sentences; the
+    site-cannot-do-it-yet sentence named three and said "And N more like it."
+    The reply model was given the note as one fact. Codex reproduced four
+    undone requirements, the fourth lost.
+  - **Fixed on the branch, on the owner's word** (2026-10-06, not merged or
+    deployed; `docs/history/2026-10-06-requirement-reporting.md`): one report,
+    whole (`requirementReport`); every requirement is its own fact for the
+    reply model, its kind the state's, under the reply writer's completeness
+    check; the note the browser prints names every one. Shown with supplied
+    answers through the real routes and a request's background reply; not
+    shown live.
+- **A refusal's requirements never reach the customer** (kept separate, owner,
+  2026-10-06; the incomplete-judgment fix recorded only part of it):
+  - **What happens**: when a designer's part is refused (`ok: false`, 422),
+    the answer carries the whole requirement list (`requirementsTold`) and a
+    complete note, but the reply's facts are the refusal's own and the browser
+    prints only the refusal's sentence. So "One thing your site can't do yet:
+    People can pay by bank transfer" reaches neither, **whether or not the
+    judgment finished**. Nothing is applied or charged on that path.
+  - **Pinned** by `test/requirement-told.test.mjs` TOLD 11, so a change to it
+    is deliberate. Not fixed: the owner asked for it to stay a separate item.
+- **The note's other sentences name three, then "and N more"** (found
+  2026-10-06, fixing the requirements' cut; not fixed, outside it):
+  `missingPagesNote`, `deadQrNote`, `seedSkipNote` and `populationNote`
+  (`builder/site-add.mjs`). They are about the change, not requirements; the
+  answer carries the full lists (`missingPages`, `droppedQrs`/`heldPages`,
+  `seedSkips`, `noPopulation`) and the reply model gets the sentences as one
+  fact (`coverOther`), as before.
+- **A designer's requirements past its twelfth are set aside at intake and
+  never told** (found 2026-10-06, a test hit it; not fixed): `cleanRequirements`
+  keeps twelve per designer (`MAX_REQUIREMENTS`) and records the rest by name
+  as `over-cap` in the developer record (`docs/addon-path.md`). It is a
+  ceiling on what is accepted, not on what is reported, and nothing tells the
+  customer that one was set aside.
 - **The add-on route's test harness shares one stored-schema cache between
   cases** (found 2026-10-05, writing `test/addon-judgment.test.mjs`):
   - **What happens**: every slug's ownership row names the same database

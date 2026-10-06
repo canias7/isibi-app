@@ -1159,6 +1159,16 @@ the owner's free press, run 51, at 22:57 UTC):
       charged or published, and asks the customer for nothing. "unsure"
       stays a whole verdict. **Supplied answers through the real route**;
       not shown live.
+    - **Every requirement told, one fact each** (2026-10-06, on the owner's
+      word after Codex's review; on the branch, not merged or deployed;
+      `docs/history/2026-10-06-requirement-reporting.md`): the note named the
+      first two or three requirements per sentence and the reply model got it
+      as one fact (Codex: four undone, the fourth lost). Now one report, whole;
+      each requirement is its own fact, its kind the state's, under the reply
+      writer's completeness check; the note names every one. **Supplied
+      answers through the real routes and a request's background reply**; not
+      shown live. A refusal's requirements still reach no one (a separate
+      item).
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
