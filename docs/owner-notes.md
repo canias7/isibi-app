@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 14:14 UTC)
+## Current handoff — read this first (2026-10-06, 14:29 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -27,11 +27,19 @@ is in git; the dated entries further down are the full story.*
   warning-list fix (`46a7746c`), the failure reporting (`c4748136`) and its
   correction (`9c2ca743`), and the release check (`f448aaba`) with its
   form-step correction (`09470116`), each reviewed and closed.
-- **Now in preparation, as a plan only**: model-written progress messages
-  during Edit and Add-on. No product code is changed until you have the plan.
+- **The progress-messages plan is ready for your review**
+  (`docs/investigations/progress-messages-plan.md`): model-written progress
+  messages during Edit and Add-on, traced through the job runner, the request
+  driver, the reply writer and the browser. A plan only: no product code is
+  changed.
 
 **Yours to decide**
-- **The progress-messages plan**, once delivered.
+- **The progress-messages plan** (§8 of it): whether progress is absorbed
+  like the final reply (recommended) or charged; the customer's picked model
+  (recommended) or always the fast default; the lines kept above the final
+  reply (recommended) or hidden; the page-driven watch included
+  (recommended); the fixed status labels kept beside the lines
+  (recommended).
 - **What run 103 left on the bakery** (the demo-site rule): the Tasting
   Evenings page, the `tasting_list` table, the menu links, the Gallery
   heading, and the one marked entry (`Canary release 37473592366`,
@@ -147,6 +155,48 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your request: the plan for model-written progress messages during Edit and Add-on (a plan; no product code changed)
+
+- **Traced first**, read only:
+  - **the job runner**: one body of code in the container or inline; the
+    execution events exist only in memory and are written once at the end,
+    with no job key;
+  - **the job poll's progress**: only `waiting` or `stale` today, and the
+    browser ignores it;
+  - **the request driver**: R2 records, etag-guarded writes;
+  - **the reply writer**: facts, a forced tool, a completeness check, and
+    background claims and retries; not charged;
+  - **the browser**: a fixed status label per part; a thread kept only
+    locally, at 40 messages a site.
+- **The plan** (`docs/investigations/progress-messages-plan.md`):
+  - **what the job records**: at real boundaries it records milestones,
+    facts taken from each step's own result. "Done" only after the effect
+    returned ok; publishing only as started; no "published" milestone,
+    because being live is the final reply's to say;
+  - **storage**: each milestone is a create-only R2 record keyed by its order
+    in the run, so a retry cannot write it twice;
+  - **the writing**: the queue consumer writes a message from the facts with
+    the same model and machinery as the final reply. The job never waits for
+    it; milestones that arrive while one is being written are merged into
+    the next message; writing stops once the final reply is asked for;
+  - **never claiming an action finished too early**: the model must declare
+    how it described each fact (done, doing or next), and code refuses a
+    mismatch. One retry; otherwise no message;
+  - **reading them**: the job poll and the request GET serve the written
+    messages, joined at read time so the request record is never written for
+    them. The browser shows them under the part they belong to and never
+    saves them as thread messages, so a reload or another device reads them
+    from the server again. The final reply is untouched;
+  - **added time**: none on the job's own path, and about 3–15 s from
+    milestone to screen;
+  - **cost**: about 3–6 calls an add-on and 1–3 an edit, estimated at
+    0.15–0.35 credit a call on `grok-4.6`. Recommended absorbed, like the
+    final reply;
+  - **behind a switch, off by default**;
+  - the exact files, focused tests and the order of work are listed.
+- **Kept out**: first Build, deployment, paid tests and the unrelated
+  backlog.
 
 ## 2026-10-06 — Your review: the release verification closed
 
