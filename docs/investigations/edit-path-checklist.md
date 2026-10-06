@@ -1202,7 +1202,9 @@ the owner's free press, run 51, at 22:57 UTC):
       review** (§6 of that file): a database this run made beside an apply
       that stopped part-way is said made, with what went into it not known.
       "Nothing from this is stored" is said only where the apply never ran,
-      on the screen and in the facts.
+      on the screen and in the facts. **Passed by Codex and closed**
+      (2026-10-06, at `1f3dc370`, CI green); its release is prepared, not
+      run (`docs/investigations/release-plan.md`).
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

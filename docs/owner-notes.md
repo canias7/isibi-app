@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 10:51 UTC)
+## Current handoff — read this first (2026-10-06, 11:58 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,98 +9,82 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The branch** is `main` plus six batches on top of `d53caefc`. None is
-  merged or deployed, and no image is built:
-  - **run 101's correction batch** (`936295a5`): the three corrections you
-    passed;
-  - **the requirement judgment** (`0f94d159`, which you passed);
-  - **the incomplete-judgment fix** (`4b6271ff`, which Codex passed);
-  - **the requirement-reporting fix** (`95f5a9d0`, which Codex passed);
-  - **the refusal and warning-list fix** (`46a7746c`; you passed the
-    warning lists);
-  - **this batch** (`c4748136`, on your word after Codex reproduced two gaps
-    on `08b9a657`): a failed addition says what it left behind. That is
-    nothing, part of it live, saved but not live, or not known, and its
-    requirements and warnings are told against that, on the screen and to
-    the reply model. Older saved answers are read from what they carry, and
-    the seed sentence states the rule
-    (`docs/history/2026-10-06-failure-outcome.md`). Codex passed it on
-    `13bfcd17`;
-  - **this correction** (`9c2ca743`, on your word after that review): a
-    database this run made, beside an apply that stopped part-way, is said
-    made, with what went into it not known. "Nothing from this is stored in
-    it yet" is said only where the apply never ran, on the screen and in the
-    reply model's facts (§6 of the same history file).
-- **This correction's evidence** (supplied answers through the real route;
-  not shown live):
-  - **both paths**: the pageless apply and the apply at the publish's seam,
-    each on a database the same run made, now end *"I did set up a database
-    for your site along the way, and some of this change may already have
-    gone into it."* under the schema sentence;
-  - **stored and replayed**: the route's answer served by the real poll
-    route, and a stored answer the facts read (*"The site has its own
-    database now, made for this addition."*, then the unknown note);
-  - **controls kept**: an apply that landed (what is live, no doubt), and a
-    stop before any apply (still "nothing from this is stored in it yet");
-  - **the red check**: on `9d309401` exactly the 4 contradiction cases of
-    the 5 new ones fail; the controls and the 18 earlier cases pass;
-  - **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
-  - **the suite**: `9576 / 9576 / 0 / 0` here (9,571 plus the 5 new cases).
-- **The batch's evidence**, all with supplied model answers through the real routes;
-  nothing is shown live:
-  - **Codex's two gaps, reproduced and closed**:
-    - the older refusal's "I've set that up" no longer reaches the screen.
-      The poll route serves "Your site already had that in place…" beside
-      a no-change outcome;
-    - the publish that failed after its table went in now leads with "Part
-      of this addition went in and is live: the site now stores signups.";
-  - **failures before and after the database change**: the same sign-up
-    request fails at the compile (nothing changed, both requirements still
-    to do) and after the apply (signups live, the page still to do);
-  - **the other outcomes**:
-    - a database change that stopped part-way (said as not known);
-    - a saved design and photographs kept in the uploads (saved, not live);
-    - a database made along the way (a change, never "Nothing was added");
-    - a database that could not be made;
-    - an incomplete judgment (nothing applied, charged or told);
-  - **older saved answers** through the facts, the screen and the real poll
-    route, and **a request** whose stored answer is replied to in the
-    background;
-  - **the red check**: all 18 new cases fail on `08b9a657`, 17 of them on
-    the gaps themselves. The 18th (an incomplete judgment) fails only on its
-    new outcome;
-  - **the sweep**: 60 of 60 planted defects caught, and the 4 controls survived;
-  - **the suite**: `9571 / 9571 / 0 / 0` here.
-- **CI on this correction**: green on `49a67763` (the correction with its records): unit tests (run 37454790799) `9576 / 9564 / 0 / 12`, the same total as here; the site build (run 37454790999) all seven jobs and the gate passed, *"404 checks in 27 sections across 4 shards, every job green"*.
-- **CI on `13bfcd17` was complete and green** (the fix's code with its
-  records on top):
-  - unit tests (run 37451667975): `9571 / 9559 / 0 / 12`, the same total as
-    here. CI skips its usual 6 and the 6 real-browser cases;
-  - the site build (run 37451668063): all seven jobs and the gate passed,
-    *"404 checks in 27 sections across 4 shards, every job green"*.
-- **Screenshots** (sent in the chat): the older refusal and the partial
-  failure, each before and after; and for this correction, both failures
-  beside a database made, before and after.
-- **Money**: balance **21** (read at 10:37 UTC on 6 October: last ledger
-  row 392, no job queued or running). Nothing was spent in this batch.
+- **The reporting work is closed**: Codex passed the correction `9c2ca743` at
+  branch head `1f3dc370`, with CI green. The provisioned-plus-unknown case,
+  the model facts, the stored-answer replay and the browser fallback passed
+  independent review.
+- **The branch** is `main` plus 22 commits to `1f3dc370`, every batch in it
+  reviewed and closed. None is merged or deployed, and no image is built:
+  - run 101's corrections (`936295a5`, yours);
+  - the requirement judgment (`0f94d159`, yours);
+  - the incomplete-judgment fix (`4b6271ff`, Codex);
+  - the requirement reporting (`95f5a9d0`, Codex);
+  - the refusal and warning-list fix (`46a7746c`; you passed the warning
+    lists);
+  - the failure reporting (`c4748136`) and its correction (`9c2ca743`),
+    Codex.
+- **The release is prepared for one authorization**
+  (`docs/investigations/release-plan.md`), on top of those 22 commits:
+  - **the release check** (`f448aaba`, canary only, deploys nothing): the
+    scenario `lv-release` and a new form step;
+  - **the plan and these records** (the commit after it).
+- **The plan, in short**:
+  - **the merge**: a fast-forward of `main` from `d75d79f3` to the
+    candidate; that push is the one deploy;
+  - **the image**: built once, `589e3e4e85a20066` → **`c7fe818d446dd957`**
+    (predicted on both ends, 194 inputs);
+  - **the served file**: only `chat.js` changes, to 903,533 bytes
+    `dd876c6f…`, checked byte for byte after the deploy (it serves 895,780
+    bytes `188dc2a9…` today, deploy 2184's own);
+  - **then** the image window, your free runtime press, the funds (below)
+    and your one paid press, `lv-release`, with every box named in the plan;
+  - **the request**: *"Add a Tasting Evenings page where people can join the
+    waiting list for our next tasting evening by leaving their name and email
+    address, and change the Gallery page heading 'Photographs from Fold Lane'
+    to 'Photographs from our ovens'."*, on `fold-lane-bakery`;
+  - **what must hold**: the new page served, its link in every menu, the
+    heading changed, exactly one new visitor-to-owner table with an email
+    column, everything else as it was, the replies the model's own, the money
+    closing. Then **the new page's form is sent once by a visitor in a real
+    browser**, and the table must hold exactly that one entry, read back by
+    the owner's route;
+  - **the cost**: about 17–27 credits, most likely about 25 (run 101's same
+    shape cost 24 before the judgment existed). The form step and every read
+    are free.
+- **The balance does not cover it**: **21** at the last reading (10:37 UTC on
+  6 October; last ledger row 392, no job queued or running). The press
+  carries a budget of 30 and, before it sends anything, refuses unless the
+  balance covers that (new, `fundsFirst`). At 21 it stops there for nothing.
+- **The release check's own evidence** (the canary only; nothing live):
+  - **11 new cases**: the form's decisions, each refusal by name; the helper
+    in a real Chromium against a page served in the test (the paid send, a
+    rehearsal, a refused body, a credential, an unfillable field, two forms,
+    a field that does not hold); the funds refusal; the wiring;
+  - **the sweep**: 35 of 35 planted defects caught, the 3 controls
+    surviving. The first run caught 34; the one that survived, two new rows
+    passing as one, is caught by a case added since (a row gone and two
+    come: one more than before, but not "exactly that one row");
+  - **the suite**: `9587 / 9587 / 0 / 0` here (9,576 plus the 11 new cases).
+- **CI**: the unit tests run on this push; read to completion and recorded
+  in the commit after it.
+- **Kept apart in the plan (§6)**: what controlled failure tests show (every
+  failure outcome, refusals, warning lists, the incomplete judgment, older
+  answers replayed) is not what the live check would prove. The live check
+  proves the success path with real models, the judgment's first live run,
+  the model-written replies, the served pages and a real entry stored through
+  the new form. It proves no failure path.
 
 **Yours to decide**
-- **Nothing to re-run**: every required job ran and passed.
-- **Review the batch** (`docs/history/2026-10-06-failure-outcome.md`,
-  remaining limits in §5).
-- **Visible changes to know about**:
-  - on a failure, a requirement a page or a QR code was to carry reads
-    "Still to do";
-  - the database's failure no longer says "your site is untouched";
-  - the migration sentence names only this change's tables.
-- **Then, if you want it live**: merge and deploy. The image would roll from
-  deploy 2184's `589e3e4e85a20066` to `c7fe818d446dd957` (predicted, not
-  built), and `public/chat.js` changed in the batch, so the served-file check
-  applies.
-  Decide whether a paid press should show any of it.
+- **Approve the release plan, or change it**
+  (`docs/investigations/release-plan.md`). One authorization covers the
+  merge, the deploy, the free runtime press and the paid press.
+- **The funds**: the paid press needs a balance of at least 30, and 35 leaves
+  room above the estimate's top. Raising it is yours.
+- **The one entry the paid press writes** (a marked visitor entry in the new
+  table) stays on the bakery, as the page and table do (the demo-site rule).
 
 **Still open** (`docs/backlog.md`)
-- **Found here, not fixed**:
+- **Found in the reporting work, not fixed**:
   - a dead job's reconciled reply names no database change;
   - a request records an add-on part whose database changes went in as
     failed (the part's own reply says what is live);
@@ -118,6 +102,8 @@ is in git; the dated entries further down are the full story.*
   - the seed engine numbers a refused row by the rows that went in;
   - a table whose starter rows were skipped isn't also reported as one
     nothing can fill.
+- **Seen while preparing the plan, parked**: `/starter` on the live bakery
+  reads "This page isn't finished yet".
 - **Parked, as you asked**: a designer's requirements past its twelfth are
   set aside when they come in and never told; the planned model-written
   progress updates.
@@ -139,8 +125,9 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This batch: `docs/history/2026-10-06-failure-outcome.md`.
-- The fixes before it: `docs/history/2026-10-06-refusal-warnings.md`,
+- The release plan: `docs/investigations/release-plan.md`.
+- The reporting work: `docs/history/2026-10-06-failure-outcome.md` (§6 the
+  correction and its closing), `docs/history/2026-10-06-refusal-warnings.md`,
   `docs/history/2026-10-06-requirement-reporting.md`,
   `docs/history/2026-10-06-incomplete-judgment.md` and
   `docs/history/2026-10-05-judgment.md`.
@@ -205,6 +192,73 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: the failure reporting closed; the release prepared for one authorization (on the branch, `f448aaba`; nothing spent, merged or deployed)
+
+- **Closed**: Codex passed the correction `9c2ca743` at branch head
+  `1f3dc370`, with CI green. The provisioned-plus-unknown case, the model
+  facts, the stored-answer replay and the browser fallback passed independent
+  review. Every batch on the branch is now reviewed and closed.
+- **The release plan** (`docs/investigations/release-plan.md`):
+  - **the commits**: a fast-forward of `main` from `d75d79f3` to the
+    candidate, the 22 commits to `1f3dc370` plus the two of this
+    preparation, each listed with its review;
+  - **the image**: one build, `589e3e4e85a20066` → `c7fe818d446dd957`;
+  - **the served file**: only `chat.js` changes, checked byte for byte
+    after the deploy;
+  - **the stage**, in order: the checks before the merge (nothing in flight,
+    CI on the candidate, the image, the rollback, the served files, the
+    money), the merge, the deploy read, the image window, your free runtime
+    press, the funds, and your one paid press, with every box named;
+  - **the live check**: one message on `fold-lane-bakery`, an edit and an
+    add-on making a page with a form and its own table. It is judged on the
+    pages, the menu, the heading, the table, the replies and the money; then
+    the new page's form is sent once by a visitor in a real browser, and the
+    table must hold exactly that entry, read back by your account's own
+    route;
+  - **the cost**: about 17–27 credits, most likely about 25, against the
+    balance of 21. **The balance does not cover it**, so the press refuses
+    to send anything below its budget of 30;
+  - **the evidence, kept apart**: what controlled failure tests show and what
+    the live check would prove, each listed, with what it would not prove.
+- **Prepared on the branch for the check** (canary only, deploys nothing):
+  - **the scenario `lv-release`**, with exactly that request and those
+    expectations;
+  - **the form step**: a visitor's browser fills the page's one form with a
+    marked entry (an address at example.com, reserved for examples). A field
+    it cannot fill truthfully, no form or several, or values that do not
+    hold, press nothing. The one request leaves only if it is exactly what
+    was entered, with no credential. The new table is read by your account's
+    route before (empty) and after (exactly that row). It costs nothing;
+  - **the funds first**: before its first message, the press sends nothing
+    unless the balance covers its whole budget, because a request taken on
+    runs to its end whatever the balance;
+  - the workflow's scenario box names it.
+- **Checked**:
+  - **11 new cases**: the decisions, each refusal by name; the helper in a
+    real Chromium against a page served in the test (one entry sent in the
+    paid press; nothing in a rehearsal, for a refused body, a credential,
+    an unfillable field, two forms or a field that does not hold); the funds
+    refusal; the wiring;
+  - **the sweep**: 35 of 35 planted defects caught, the 3 controls
+    surviving. The first run caught 34; the one that survived, two new rows
+    passing as one, is caught by a case added since (a row gone and two
+    come: one more than before, but not "exactly that one row");
+  - **the full suite**: `9587 / 9587 / 0 / 0` here;
+  - **CI**: read after the push, and recorded in the commit after it;
+  - **the existing canary tests**: 462 of 462 after two fixes found on the
+    way (the step was first written with the spend gate's own words, which
+    the guards locate it by, and the workflow's box had to name it).
+- **Seen while preparing, parked**: `/starter` on the live bakery reads
+  "This page isn't finished yet".
+- **Left parked, as you asked**: the unrelated backlog, the intake limit and
+  the planned model-written progress updates.
+- **Not merged, not deployed, no image built, nothing pressed or spent**
+  (balance 21).
+
+**Recorded in**: `docs/investigations/release-plan.md`, §6 of
+`docs/history/2026-10-06-failure-outcome.md`, `docs/instruments.md`, the
+checklist and the history index.
 
 ## 2026-10-06 — Your review: a database made beside an apply that stopped part-way is said made, with what went in not known (on the branch, `9c2ca743`; nothing spent, merged or deployed)
 

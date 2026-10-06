@@ -1196,3 +1196,46 @@ stage it belongs to, with the press's boxes and the cost, is
     branch now (`docs/history/2026-10-05-run101-corrections.md` §2), so
     a press after a merge would show at most one load per published
     change, and none per reading.
+
+### THE RELEASE CHECK (`lv-release`, 2026-10-06 — prepared on the branch, not merged or pressed)
+
+The owner, preparing the release of the reporting batches: *"…one combined
+Edit/Add-on live verification with the exact request, expected results and
+estimated credit cost against the last recorded balance of 21. Include
+checking the resulting pages and submitting any form created by that test."*
+The stage it belongs to, with the press's boxes and the cost, is
+`docs/investigations/release-plan.md`.
+- **WHAT IT IS**: one request-mode press on `fold-lane-bakery`, one message:
+  an edit (the Gallery heading) and an add-on that makes a page with a form
+  and a table of its own. It is judged like every request press
+  (`requestBatchVerdict`): the page, the menu link (matched by the word
+  "Tasting"), the heading, exactly one new `collect` table with an email
+  column, everything else as it was, the replies and the money.
+- **THE FORM STEP** (`expect.form`; `formStep` in `scripts/edit-canary.mjs`,
+  `submitFormInPage` in `scripts/canary-ui.mjs`, the decisions in
+  `scripts/canary-form.mjs`): after those checks, only in the paid press, and
+  only once they found the new page and exactly one new table that reads
+  empty, a visitor's browser (signed in to nothing, service workers blocked)
+  fills the page's one form. The email gets
+  `canary-release-<run>@example.com`, the name `Canary release <run>`, a
+  required sentence field `Canary release check <run>` and a required box a
+  tick. It presses the button once. A field it cannot fill truthfully, no
+  form or several, or values that do not hold, press nothing. **The gate**
+  (`formGate`) lets the one request out only if it is the first, goes to the
+  new table's own data route, carries no query string, credential or
+  `prefer`, and holds exactly the values entered. The table is read by the
+  owner's route before (empty) and after (exactly that one row, carrying the
+  marker's name and address: `formVerdict`). It costs nothing.
+- **THE FUNDS FIRST** (`fundsFirst`, `fundsRefusal`): before its first
+  message, a scenario that says so sends nothing unless the balance covers its
+  whole budget. A request the server has taken on runs to its end whatever the
+  balance, so a press started short would end with a part refused for want of
+  credits on a live site. Only `lv-release` asks for it (budget 30).
+- **Proven in the tests** (`test/canary-form.test.mjs`): the decisions, each
+  refusal by name; the helper in a real Chromium against a page served in
+  the test, sending exactly one entry in the paid press and nothing in a
+  rehearsal, for a refused body, a credential, an unfillable field, two forms
+  or a field that does not hold; the funds refusal; and the wiring, in the
+  request press after its money, its checks counting. A sweep of 35
+  mutants, all caught, its 3 controls surviving (the first run caught 34; two
+  new rows passing as one survived until a case was added for it).

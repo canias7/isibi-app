@@ -25,7 +25,8 @@ unchanged, and leave the intake limit and unrelated backlog parked. Push the
 fix, required CI and exact evidence to owner-notes. Keep everything unmerged;
 no deployment, container image build or paid retest yet."*
 
-**The fix is on the branch only**: not merged, not deployed, no image built,
+**Closed** (2026-10-06): passed by Codex, the correction included (§6). **The
+fix is on the branch only**: not merged, not deployed, no image built,
 nothing pressed or spent. It is shown with supplied model answers through the
 real routes, not live. The commit, the sweep, the suite and CI are in §4.
 
@@ -373,6 +374,14 @@ claims neither that visitors cannot read the table nor that it starts empty.
   the rest of the backlog.
 
 ## 6. The correction after review: a database made, then an apply that stopped part-way
+
+**Passed by Codex and closed** (2026-10-06): the correction `9c2ca743`, at
+branch head `1f3dc370`, with required CI green (unit tests and the site
+build, on `49a67763`). The provisioned-plus-unknown case, the model facts,
+the stored-answer replay and the browser fallback passed independent review.
+**The reporting fix is closed**; what follows is kept as written. The release
+that would take it live is prepared, not run
+(`docs/investigations/release-plan.md`).
 
 The owner, after Codex passed the replay and partial-failure fixes on
 `13bfcd17` with CI green: *"Close one remaining combination within this same
