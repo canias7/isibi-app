@@ -1,51 +1,50 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 14:29 UTC)
+## Current handoff — read this first (2026-10-06, 16:23 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The release passed and is closed**: Codex reviewed run 103 and closed
-  the release verification (2026-10-06).
-  - **Deploy 2185 is live and runtime-confirmed**: `main` `b2409b3c`, image
-    `c7fe818d446dd957`, built once as predicted; the served files
-    byte-identical to the merged ones; your free press, run 102, confirmed
-    the Worker and a cold container on that sha and image.
-  - **The live check passed**: your paid press, run 103 (`lv-release` on
-    `fold-lane-bakery`). One message made the Tasting Evenings page with its
-    waiting-list form and the `tasting_list` table, and changed the Gallery
-    heading to "Photographs from our ovens". Both replies were the model's
-    own; the visitor's entry was read back with each value in its bound
-    column ("Your name *" → `name`, "Email *" → `email`). 26 credits.
-- **The balance is 9** (the ledger's last row 397, no job open). Anything paid
-  next needs it raised first.
-- **What the release carried**: run 101's corrections (`936295a5`), the
-  requirement judgment (`0f94d159`), the incomplete-judgment fix
-  (`4b6271ff`), the requirement reporting (`95f5a9d0`), the refusal and
-  warning-list fix (`46a7746c`), the failure reporting (`c4748136`) and its
-  correction (`9c2ca743`), and the release check (`f448aaba`) with its
-  form-step correction (`09470116`), each reviewed and closed.
-- **The progress-messages plan is ready for your review**
-  (`docs/investigations/progress-messages-plan.md`): model-written progress
-  messages during Edit and Add-on, traced through the job runner, the request
-  driver, the reply writer and the browser. A plan only: no product code is
-  changed.
+- **Model-written progress during Edit and Add-on is built on the branch,
+  off by default, for your review** (`PROGRESS_REPLIES`; the newest entry
+  below, `docs/history/2026-10-06-progress-messages.md`, and the design as
+  built in `docs/investigations/progress-messages-plan.md`, whose §0 maps
+  each of your corrections to where it is met).
+  - **Not merged, not deployed, no image built, nothing pressed or spent.**
+    Shown with supplied model answers only; no real model has written a
+    line.
+  - **The evidence**: 58 focused cases with supplied model answers (19 on the
+    module, 27 through the real Worker, 9 on the page's own functions, 3 in
+    real Chromium), all passing; the full suite `9650 / 9650 / 0 / 0` locally;
+    unit CI green on `5cfebd0a` (`9649 / 9631 / 0 / 18`, the 18 real-browser
+    cases skipped there); the site build green on `9c931540`; the sweep's
+    survivors (seven in its first run, then one in its full run of 81 mutants,
+    80 killed) each closed by a case; the image predicted, not built.
+  - **A merge would roll the image**: `c7fe818d446dd957` →
+    `4a3e09b1d0c8056f` (predicted, 194 → 195 inputs).
+- **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
+  `c7fe818d446dd957`), runtime-confirmed by run 102; the release closed on
+  run 103.
+- **The balance is 9** (read: the ledger's last row 397, no job open).
+  Anything paid next needs it raised first.
 
 **Yours to decide**
-- **The progress-messages plan** (§8 of it): whether progress is absorbed
-  like the final reply (recommended) or charged; the customer's picked model
-  (recommended) or always the fast default; the lines kept above the final
-  reply (recommended) or hidden; the page-driven watch included
-  (recommended); the fixed status labels kept beside the lines
-  (recommended).
+- **The progress implementation**: your review of the branch.
+- **Switching it on and a live look**: `PROGRESS_REPLIES` on in a deploy,
+  then a paid press to read the first real lines, their words and their
+  cost (about 0.15–0.35 credit a call, estimated, absorbed).
 - **What run 103 left on the bakery** (the demo-site rule): the Tasting
   Evenings page, the `tasting_list` table, the menu links, the Gallery
   heading, and the one marked entry (`Canary release 37473592366`,
   `canary-release-37473592366@example.com`). Taking any of it out is yours.
 
 **Still open** (`docs/backlog.md`)
+- **New, from the progress work**: a progress line can follow the final
+  reply when the job's own close fails (one store write's window). The
+  model's words are not checked, only its account of them (stated and
+  tested, not filtered, as you said).
 - **Found in the reporting work, not fixed**:
   - a dead job's reconciled reply names no database change;
   - a request records an add-on part whose database changes went in as
@@ -89,6 +88,8 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
+- The progress work: `docs/history/2026-10-06-progress-messages.md` and
+  `docs/investigations/progress-messages-plan.md`.
 - The release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run 102, §7
   run 103) and the plan, `docs/investigations/release-plan.md`.
 - The reporting work: `docs/history/2026-10-06-failure-outcome.md`,
@@ -155,6 +156,66 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your go-ahead: progress while an Edit or Add-on runs, built and off by default (on the branch, ``9c931540` to `49ba56bd``; nothing spent, merged or deployed)
+
+- **What a customer would see with it on**: while an edit or an add-on runs,
+  a short line in the model's own words under the part's fixed label ("In
+  progress"), the newest marked live: what was decided, designed, made or
+  changed so far, and what comes next. On the page-driven path the newest
+  line replaces "Thinking". When the job ends, its lines stay above the final
+  reply, muted. A reload, or the site opened on another device, shows them
+  again from the server: a request's on its card, and a job the page filed
+  itself as a card of its own (the most recent 20 of the last day).
+- **Kept true by code, said by the model**: code records each step's real
+  result as facts with a state (decided, designed, prepared, applied, doing,
+  next, not done). There is **no published state**: only the final reply says
+  the site is live. "Saved" is not reported on its own, because a page's
+  change is saved and published in one step; until then it is "prepared".
+- **What the check proves, and what it does not**: the model lists each fact
+  with the state it described it as, and code refuses a list that leaves one
+  out, misstates one, or puts an id in the words (asked once more, told
+  which). **It does not read the words**: an update whose list is right and
+  whose words call the page live is accepted. That is stated, tested (two
+  cases), and not filtered by keyword, as you said.
+- **One writer, recoverable on its own**: one record per job, changed only by
+  compare-and-swap, one writer at a time under a lease. A lost message, a
+  writer that died or a failed try is picked up by the writer's own re-ask
+  or the two-minute cron: no other milestone and no open page needed.
+- **On the job's own lifecycle**: every write is held by the invocation's own
+  `waitUntil`, and the job's end closes the record before its outcome is
+  written.
+- **Nothing after the end**: the job's row is read before each call and again
+  before each line is kept: a job that finished, failed, was stopped, held
+  for review or taken by a newer run gets no line. **One window stays**: if
+  the job's own close fails, one line could still land just after the outcome
+  (in the backlog).
+- **How long it lasts**: the record is removed seven days after its last
+  write (within about 32 minutes of that, later on a crowded store); a
+  standalone job is found from another device for 24 hours.
+- **Money**: absorbed, as you decided. No ledger row; a job's execution,
+  publishing, cost and final reply are identical with it on and off (tested).
+- **Measured, not promised**: each call logs its outcome, model, attempts,
+  tokens in and out, and time. No call count is promised. About 0.15–0.35
+  credit a call on `grok-4.6` is an estimate until a live run.
+- **Found and fixed on the way**: the other-device list asked for the oldest
+  20 jobs of the day, which could hide the running one on a busy site; it now
+  asks for the newest. The first sweep found seven missing cases and one
+  that could hang; each is a case now.
+- **The evidence**: 58 focused cases with supplied model answers (19 on the
+  module, 27 through the real Worker, 9 on the page's own functions, 3 in real
+  Chromium), all passing; the full suite `9650 / 9650 / 0 / 0` locally; unit
+  CI green on `5cfebd0a` (`9649 / 9631 / 0 / 18`, the 18 real-browser cases
+  skipped there); the site build green on `9c931540`; the sweep's survivors
+  (seven in its first run, then one in its full run of 81 mutants, 80 killed)
+  each closed by a case; the image predicted, not built.
+- **The screenshots** are in this conversation: a request's card and a
+  page-filed job, running and finished, and a fresh device.
+- **The record**: `docs/history/2026-10-06-progress-messages.md`; the design
+  as built, with each of your corrections, is
+  `docs/investigations/progress-messages-plan.md`.
+- **Not done**: no merge, deploy, image build or paid test; the unrelated
+  backlog left alone.
 
 ## 2026-10-06 — Your request: the plan for model-written progress messages during Edit and Add-on (a plan; no product code changed)
 

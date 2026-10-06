@@ -1,22 +1,76 @@
-# Model-written progress messages during Edit and Add-on: the implementation plan (2026-10-06)
+# Model-written progress messages during Edit and Add-on (2026-10-06)
 
-The owner, after Codex closed the release verification: *"Now prepare the
-concrete implementation plan for model-written progress messages during Edit
-and Add-on only. Trace the existing server job events, request driver, reply
-writer and chat delivery, and identify what can be reused. The model should
-naturally explain what it is doing, what it found and what happens next,
-grounded in actual execution facts; ordinary progress messages must not be
-hardcoded templates. Updates must persist, survive reopening or switching
-devices, avoid duplicates during retries, and never claim an action finished
-before it did. Keep work independent of the browser and preserve the final
-reply. Explain the exact files involved, when model calls happen, expected
-additional latency and cost, billing implications and focused tests. Give me
-that plan before changing product code."*
+**Built on `claude/help-needed-ehlwlj`, off by default, not merged, not
+deployed, no image built, no paid test run.** The plan was written first (its
+trace is §1, unchanged); the owner then approved it with corrections, and the
+design sections below describe what was built. Where the build departs from
+the first plan, the section says so.
 
-**A plan, nothing built.** No product file is changed by it. First Build,
-deployment, paid tests and the unrelated backlog stay out of this work.
+The owner's request for the plan: *"Now prepare the concrete implementation
+plan for model-written progress messages during Edit and Add-on only. …
+The model should naturally explain what it is doing, what it found and what
+happens next, grounded in actual execution facts; ordinary progress messages
+must not be hardcoded templates. Updates must persist, survive reopening or
+switching devices, avoid duplicates during retries, and never claim an action
+finished before it did. Keep work independent of the browser and preserve the
+final reply."*
 
-## 1. What exists today (traced, 2026-10-06)
+## 0. The owner's go-ahead, decisions and corrections (2026-10-06)
+
+The go-ahead, in full: *"Proceed with model-written progress for Edit and
+Add-on using the recommended defaults: the existing selected quick model,
+platform-absorbed narration cost, progress retained above the final reply,
+both request and standalone-job paths, and fixed status labels alongside
+natural model-written messages. Incorporate these corrections into the plan
+and implementation: do not claim that matching says metadata proves the prose
+truthful; ground the model in verified facts, distinguish designed, saved,
+applied and published outcomes, test contradictory prose with otherwise valid
+metadata, and document the remaining model limitation without adding
+keyword-based message filters. Define one writer per job with recoverable
+persistence, queue delivery and index updates; recovery must work without
+another milestone or an open browser. Tie background recording to the
+existing Worker/container task lifecycle rather than detached promises. Check
+authoritative job state and writer ownership before starting and committing
+narration so completion, failure, cancellation or a newer attempt cannot
+produce stale updates after the final reply. Make cross-device discovery work
+for both supported paths and state the actual retention window. Preserve
+execution, publishing, customer charges and final replies. Keep instructions
+concise rather than relying on an arbitrary short character limit that
+silently suppresses useful updates. Add focused tests for these races,
+interrupted writes, duplicate delivery, ambiguous or false completion claims,
+reloads and a fresh device; log actual model attempts, tokens and latency
+rather than promising exact call counts. Keep the feature off by default,
+push the implementation and evidence for review, and update owner-notes. No
+merge, deployment, container image build, paid test or unrelated backlog
+work."*
+
+**The five decisions of §8, all taken as recommended:**
+
+| Decision | Taken | Where |
+|---|---|---|
+| The model | the customer's selected quick model (`modelsFor(picker).quick`; `grok-4.6` by default) | §2.4 |
+| Billing | absorbed by the platform: no ledger row, no reserve, no refund | §5 |
+| After the reply | the lines stay above the final reply, muted | §2.7 |
+| Paths | both: a request's parts (Path A) and the page-filed standalone job (Path B) | §2.7, §2.8 |
+| Labels | the fixed status labels stay; the model's lines are drawn beside them | §2.7 |
+
+**The corrections, and where each is met:**
+
+| Correction | What was built |
+|---|---|
+| Matching `says` does not prove the prose truthful | §2.5: the check reads what the model **says it did**, never its words. An update whose `says` is right and whose words claim the page is live **is committed**; this is the stated limitation, pinned by two tests (PROSE 1, CLAIM 3), with no keyword filter |
+| Ground the model in verified facts; designed, saved, applied, published told apart | §2.1: facts come from each step's own result, with seven states. **"Saved" cannot be reported separately on this path** (§2.1 says why), so a page is "prepared" until its publish starts; **"published" has no state at all**: only the final reply says it |
+| One writer per job; recoverable persistence, queue delivery, index updates; recovery with no other milestone and no browser | §2.2–§2.4, §2.6: one record per job, changed only by compare-and-swap on its etag, which is also its own index; one writer at a time under a lease; recovery by the writer's own re-ask and by the two-minute cron |
+| Tie recording to the Worker/container task lifecycle, not detached promises | §2.3: every write is registered with the invocation's `ctx.waitUntil`; the job's end waits for them and closes the record **before** the outcome is written |
+| Check job state and writer ownership before the call and before the commit | §2.5: the job's row is read fresh before the call and again before the commit; the commit needs a live lease of its own on an open record. One residual window is stated |
+| Cross-device discovery on both paths; the real retention window | §2.8: requests as before, standalone jobs on the requests list; seven days after the record's last write, with the rotation's real caveats |
+| Execution, publishing, charges and final replies preserved | §5, and the SAME test (identical work, money and final reply with the switch on and off) |
+| Concise instructions; no arbitrary character limit | §2.4: no length is checked or cut anywhere; the call's output budget is not a cut (an answer that reaches it is retried, never shortened) |
+| Focused tests for races, interrupted writes, duplicates, false claims, reloads and a fresh device | §6 |
+| Log attempts, tokens and latency; promise no call count | §4 |
+| Off by default | §2.9 |
+
+## 1. What existed before the build (traced, 2026-10-06; line numbers as of `fa3a25ad`)
 
 ### 1.1 The job, while it runs
 
@@ -114,261 +168,416 @@ deployment, paid tests and the unrelated backlog stay out of this work.
 - The fixed live labels were kept on purpose on 2026-10-03 ("status, not
   replies"). This plan keeps them and adds the model's words beneath.
 
-## 2. The design
+## 2. The design, as built
 
-### 2.1 Milestones: execution facts the job records as they happen
+### 2.1 Milestones: what really happened, in seven states
 
-At chosen boundaries the running job records a **milestone**: what really
-happened, from the step's own result, never from the request's wording.
+At chosen points the running job records a **milestone**: a list of facts,
+each written by code from that step's own result, with a state. The model
+only puts them into words.
 
-| Path | Milestone | Recorded when | Facts (from the result) | State |
-|---|---|---|---|---|
-| Add-on | `picked` | `pick_adds` ok | the kinds chosen and what each is for | done |
-| Add-on | `judged` | `judge:final` ok | each requirement's verdict: to build, or a suggestion | done |
-| Add-on | `designed:<kind>` | `add:<kind>` ok | e.g. the table's name, columns and who may read or send; the page's route and purpose | done (designed, not yet applied) |
-| Add-on | `schema` | `schema` ok | the tables now in the database | done |
-| Add-on | `pages` | `pages` ok, then `menu-links` ok | the pages written, the menus that gained a link | done (in the source, not live) |
-| Edit | `found` | `pick_lanes` ok | what kind of change, on which page, which element | done |
-| Edit | `changed:<layer>` | each `runLayer` that applied | what changed in the source (e.g. `changed`, the layer's own account) | done (not live) |
-| Both | `publishing` | `publish:1` start (and `publish:2`) | that publishing has started | **doing** |
+| Path | Milestone | Recorded when | Facts |
+|---|---|---|---|
+| Edit | `plan` | the steps are chosen, before any runs | **decided**: what will change, in the builder's terms (a withheld step is not a plan); **next**: make it |
+| Edit | `publish` | the first publish starts | per step that worked, **prepared** (a page change) or **applied** (a `data` or `rules` change, which is in the database already); per step that failed and was not made good by a later one, **notdone**; **doing**: publishing |
+| Edit | `correct` | a correction of a style rule starts | **doing**: correcting |
+| Edit | `publish` | the second publish starts | **doing**: publishing again |
+| Add-on | `picked` | the kinds are chosen | **decided**: what will be added; **next**: design it |
+| Add-on | `designed` | each kind's design returns | **designed** (not built), with its name, place and columns where the design has them; **next**: the next kind, or building |
+| Add-on | `schema` | the database change applied | **applied**: the tables made or changed, functions, timed tasks; **next**: the pages |
+| Add-on | `pages` | the pages are written | **prepared**: the pages, not published; **next**: publishing |
+| Add-on | `publish` | the publish starts | **doing**: publishing |
 
-Rules:
-- **Done means done**: a milestone is done only after its effect returned
-  ok (the design returned, the schema applied, the page stored). Publishing
-  is recorded only as **started**. **There is no "published" or "finished"
-  milestone**: being live is said by the final reply alone, as today.
-- **What happens next** comes from the job's own plan at that moment (the
-  kinds still to make, the pages still to write, that publishing follows),
-  passed as `next` facts, never as done.
-- **Queued stays queued**: nothing is recorded before the job starts, so the
-  card keeps "Queued" until then.
+**The states**, as the model is told them:
 
-### 2.2 Records, keys and retries
+- `decided`: worked out what to do; nothing has changed yet.
+- `designed`: designed; nothing has been built yet.
+- `prepared`: made in the builder but not published; visitors cannot see it.
+- `applied`: in effect in the site's database.
+- `doing`: happening now; not finished.
+- `next`: planned; not started.
+- `notdone`: could not be made; the final message will say why.
 
-- **One R2 object per milestone**: `edit-progress/<job>/<nn>.json`, written
-  create-only (`etagDoesNotMatch:"*"`), where `nn` is the milestone's order in
-  the run and repeated phases count up (`publishing` for `publish:1`, then
-  again for `publish:2`). The same run gives the same keys, so a duplicate
-  write is refused and never queued twice.
-- **The record**: `{v, job, n, stage, at, facts, next, state, text?, says?,
-  attempts, lease?, retryAt?, why?}`, with states `pending | writing |
-  written | merged | skipped | failed`, read strictly like `readReplyRecord`.
-- **An index for readers**: after a message is written, the writer updates
-  `edit-progress/<job>/index.json` (etag compare-and-swap) with the written
-  messages in order, so a poll reads one object, not a listing.
-- **A request step retried as a new job** keeps its own progress under its
-  own job id: the first job's messages stay true (it was doing that), and the
-  new job's follow.
-- **The same job id run again** (only possible if a runner died between the
-  takeover and the delete): its milestones meet the same keys, so nothing is
-  doubled; first write wins.
+**Why "saved" is not its own state.** A page's change is kept in memory until
+the publish, which stores the source and publishes it as one step
+(`publishSpine`). There is no moment between "written" and "publishing" when
+the source is saved and the job could say so. So a written page is
+`prepared` until its publish starts, and the publish is `doing`. A database
+change is `applied`, because it is.
 
-### 2.3 Writing the message (the model calls)
+**Why there is no "published" state.** Whether the site went live is said by
+the final reply alone, written from the job's outcome as before. A progress
+line can say only that publishing has started.
 
-- **Asked, not awaited**: recording a milestone is one small write and one
-  queue task (`{kind:"edit-progress", id, n}`), the pattern of `askReply` and
-  `sendReplyTask`. The job carries on at once; it never waits for the model
-  and never fails because of it.
-- **Written by the queue consumer** (`runProgressTask`, beside
-  `runReplyTask`), under a claim and lease like `claimReply`/`settleReply`,
-  with the same model transport and model as the final reply (the customer's
-  picked model's quick model; `grok-4.6` by default).
-- **Coalesced so nothing is lost and calls stay few**: one writer per job at a
-  time. If more milestones arrived while a message was being written, the
-  next call writes **one** message covering all of them and marks the others
-  `merged` into it. A lost task is recovered by the next milestone's writer,
-  which picks up every unwritten one.
-- **Stops at the end**: once the job's final reply has been asked for,
-  unwritten milestones are marked `skipped` and no further call is made. The
-  final reply is the account of the outcome.
-- **What the model is given**: the customer's words, the site's name and
-  pages (as `replyContext` gives them), every done milestone's facts so far,
-  the new milestone(s), the `next` facts, and the progress messages already
-  written (so it does not repeat itself), in the customer's language.
-- **What it must return**: a forced tool call, `write_progress {text,
-  says}`, where `says` lists each fact id it used and how it described it:
-  `done`, `doing` or `next`.
+**Queued stays queued**: nothing is recorded before the job starts, so a
+card shows "Queued" until then.
 
-### 2.4 Never claiming an action finished before it did
+### 2.2 One record per job, which is its own index
 
-Checked in code (`readProgress`, the analogue of `readReply`), not by
-matching words, so it holds in any language:
-- every new fact id is in `says`;
-- each fact is described as its true state: a `doing` or `next` fact
-  declared `done` is a refusal;
-- no `[id]` in the text, and a length cap (about 400 characters);
-- **one retry**, told what was wrong (as `writeReply` does); a second
-  failure writes nothing (`failed`), and the fixed status label stays.
+*Changed from the first plan*, which had one object per milestone plus an
+index object: that was two things to keep in step. Now:
 
-The instructions say it plainly: only done facts may be called finished; the
-current step is still running; next steps are plans; never say the change is
-live or published, because the final reply will. The only fixed wording in
-the feature is those instructions; every message is the model's.
+- **One object per job**: `jobs/<id>.progress.json`. It holds the job's
+  owner, site, kind, the run that opened it, the customer's words, the
+  picked model, the site's pages, the milestones (each `pending`, `said`,
+  `skipped` or `failed`, with its facts), the written lines, the writer's
+  lease, the try count, the retry time, the last ask, and whether it is
+  closed and why.
+- **Read strictly** (`readProgressRecord`): one milestone, fact or line that
+  does not read makes the whole record unreadable, never shorter, and
+  nothing is written over a record that does not read.
+- **Changed only by compare-and-swap** (`progressUpdate`): read, decide on
+  what was read, write on that etag; a write that loses to another is
+  decided again on what that one left, six times, then given up and logged.
+- **It is its own index.** A reader reads one object; there is no second
+  object to update or to fall out of step. Jobs themselves are found from
+  `edit_jobs`: the poll by id, discovery by owner and site (§2.8).
+- **Duplicates**: the recorder numbers each milestone (`seq`); a write made
+  again because its first answer was lost finds its number on the record and
+  adds nothing (`already`). Fact ids come from the record's own counter, so
+  they never repeat within a job.
+- **A bound real jobs do not approach**: a record takes at most 200
+  milestones (an edit records at most four, an add-on four plus one per kind);
+  a 201st is refused and logged.
 
-### 2.5 Reading and showing them
+### 2.3 The recorder, on the job's own lifecycle
 
-- **The job poll** (`worker.js:22447-22521`) adds `progress: [{n, at,
-  text}]`, the written messages in order, to the running answer and to the
-  finished one (for reopening), from the index. The final reply's fields are
-  untouched.
-- **The request GET** (`worker.js:22539-22606`) joins each live or finished
-  part's job progress at read time, so `requestView` carries it without the
-  record ever being written for it. `requestView` takes the joined map as an
-  argument and stays pure.
-- **The browser**:
-  - `public/edit-poll.js` gets `progressLines(body)`, which admits only
-    well-formed entries (`n`, `at`, model text within the cap), beside
-    `modelReply`;
-  - Path A shows the lines in the request card under the part they belong
-    to, beneath its fixed label, keyed by `job:n` so a repeated poll never
-    draws one twice;
-  - Path B shows the latest line in place of "Thinking", the way
-    `waitNote` already replaces it;
-  - **they are never saved as thread messages**, so the 40-message history
-    is untouched: every view (a reload, another device) reads them from the
-    server again;
-  - when the part's final reply arrives, its progress lines stay above it,
-    muted, and stop changing. The final reply is placed exactly as today.
+- **Made where the job is claimed** (`makeProgress` in `runQueuedSiteEdit`)
+  and carried on the job's context (`makeJobCtx`), so the edit and add-on
+  routes record through `eJob.progress` / `aJob.progress`. Null with the
+  switch off.
+- **No detached promise**: the writes run one after another on one chain,
+  and each is registered with the invocation's `ctx.waitUntil` (the
+  Worker's, or the container's, which drains before the process exits). The
+  job's work never waits for a write, and a write can never throw into it.
+- **The job's end closes the record before its outcome is written**:
+  `close("ended")` after the work and before `edit_finalize`, and
+  `close("failed")` in the failure path before the refund. The close waits
+  for the milestones already on their way, bounded at 10 seconds so a store
+  that hangs cannot hold the job's outcome. Every route returns its failures
+  as an answer (a failed store read or write, a refused call, a missing key:
+  each tried, none throws), so the second close is the backstop for an
+  exception nobody expected; its place before the refund is held by the
+  source (THREW).
+- **In the container**, which has no queue, the writes go through the job
+  gateway's `/progress`, under the job's own token: its id, site and owner
+  come from the token, never from the body; a pre-scoped build is refused
+  (403); the body is bounded at 1 MiB (413); only `begin`, `mark` and
+  `close` are accepted (400).
+- **A record that did not open** is opened again before the next milestone,
+  so one failed write at the start does not cost the job its lines.
 
-### 2.6 Independent of the browser
+### 2.4 The one writer, and the call
 
-The job records milestones, the queue consumer writes the messages, and the
-records live in R2. Nothing depends on a page being open: a customer who
-closes the tab and opens the site on a phone later sees the same messages,
-through the request list and the job poll.
+- **One queued task per job at a time** (`{ kind: "edit-progress", id, uid }`),
+  run by the queue consumer (`runProgressTask`).
+- **The lease** (`claimWriter`): 135 seconds (the call's 75-second deadline
+  plus a minute). Another writer's live lease keeps a second out; a writer
+  whose claim landed but whose answer was lost finds the lease its own. A
+  try is counted at the claim, so a writer that dies counts too. After two
+  tries, what waits is given up (`failed`, reason kept) with no call.
+- **When a writer is asked for** (`writerNeeded`): only when a milestone
+  waits, no lease is live, no retry is due, and no ask is within its
+  60-second grace. The ask is written on the record before the message is
+  sent, so two that ask at once send one.
+- **One line covers everything waiting** (`batchFor`): the settled facts of
+  every waiting milestone, and "doing" and "next" only from the last (an
+  earlier "publishing now" is no longer true once a correction began).
+- **The model**: the customer's selected quick model; one forced tool call,
+  `write_progress { text, says }`. It is shown their site, its pages, their
+  words, the lines already written, and each fact as `[fN] (state) text`.
+- **The instructions are short** (`PROGRESS_SYSTEM`, under 2,000 characters):
+  the seven states, describe each fact as its state says and nothing else,
+  never say or suggest anything is published or live or that the request is
+  finished, do not repeat earlier lines, the customer's words and language,
+  "usually a sentence or two", no worked example.
+- **No character limit.** Nothing measures or cuts the text. The call's
+  output budget (1,000 tokens) is the transport's, not a cut: an answer that
+  reaches it is read as cut and tried again, never shortened.
+- **A wrong answer is asked once more**, told what it left out, misstated or
+  put an id in. A second failure, or an unreadable answer, is a failed try:
+  tried again 20 seconds later (one more try), then given up. Per batch:
+  at most two tries of at most two calls.
+- **Up to eight lines per task**; then the writer asks again for whatever is
+  left, so nothing it leaves waits for another milestone or a page.
 
-### 2.7 The switch
+### 2.5 What may be committed, and what is checked
 
-`PROGRESS_REPLIES`, read like `MODEL_REPLIES`, **off** by default (an
-optional secret with an `|| 'off'` fallback in `deploy.yml`). Off: no
-milestone is recorded, no task is sent, and every answer is byte for byte
-what it is today.
+**The job's row decides** (`jobVerdict`, read fresh from `edit_jobs` with the
+service key, **before the call and again before the commit**):
+
+| Row | Verdict | Result |
+|---|---|---|
+| running, under the run that recorded the milestones, lease live | ok | the call, or the commit |
+| could not be read | unread | a failed try (tried again later), never "gone" |
+| missing, or another owner's | gone | the record closed |
+| done, failed, cancelled or lost | ended | the record closed |
+| cancel asked for | cancelled | the record closed |
+| held for review | review | the record closed |
+| another run holds it | superseded | the record closed |
+| its lease ran out | stalled | the record closed |
+
+**The commit itself** (`commitLine`) needs the writer's own live lease on an
+**open** record, on the etag the commit read. The job's end closes the record
+first, so a commit read before the close loses the compare-and-swap, and one
+read after it finds the record closed.
+
+**The remaining window, stated.** If the job's own close fails (the store
+fails, or 10 seconds pass), the writer's second row read is the only guard
+left. A writer that passed that read just before the job finalized can then
+commit one line after the outcome is written: one store write's time. The
+line was true when checked (its facts were recorded during the run), but it
+would stand after the final reply. Not removed; recorded here.
+
+**What the check of the model's answer proves, and what it does not.**
+`readProgress` checks the model's own account of what it described: every
+fact's id in `says`, each in its true state, no fact in two states, no id in
+the words, words not blank. **It does not read the words.** An update whose
+`says` is exactly right and whose words say the page is live passes, and is
+committed: PROSE 1 pins it on the module, CLAIM 3 through the route. What
+stands against it: the instructions forbid it; no fact ever carries a
+published state; and the final reply, written from what happened, follows.
+**No keyword filter** reads the words (the owner's instruction). How often a
+real model does this is not measured: no paid test has run.
+
+### 2.6 Recovery, with no other milestone and no page
+
+- **The writer asks again** for whatever it leaves waiting, at the end of
+  every task (`askProgress`).
+- **The two-minute cron** (`runProgressSweep`) reads up to 50 running edit
+  and add-on jobs (newest first) and asks for a writer wherever a milestone
+  waits and nobody is on it: a lost queue message, an evicted writer, a
+  retry whose message never came.
+- **A writer that died after its claim** holds the record until its lease
+  runs out (135 seconds); then the cron asks, a new writer claims, and its
+  try counts against the two.
+- **A milestone write whose answer was lost** is made again by the store's
+  own loop and recorded once (`already`), and a writer is asked again when
+  none holds the record.
+- **Its limit**: the cron reads 50 running jobs per tick; on a platform with
+  more than 50 running at once, the rest wait for a later tick in which they
+  are among the 50 most recently updated.
+
+### 2.7 Reading and showing them
+
+- **The job poll**: a running job's answer carries `progress: [{ n, ms,
+  text }]` (each line with how far into the job it came); a finished job's
+  stored answer carries them too (`withProgressLines`), so a page that missed
+  the last of them, or reopens it, still has them. The final reply's own
+  fields are unchanged.
+- **A request's read and the requests list** join each run job's lines at the
+  look (`progressForRequest` → `requestView`), never written onto the
+  request, so the driver's etag is never fought for them.
+- **The page**:
+  - `EditPoll.progressLines` reads well-formed lines and drops the rest,
+    with no length limit;
+  - **Path A**: each part's lines under its fixed label, the newest marked
+    live while it runs, muted once it ended, above its reply;
+  - **Path B**: while the page watches its own job, the newest line where
+    "Thinking" was (a waiting sentence keeps its place first); at the end,
+    the lines are kept on the reply (`m.prog`) with the job named on it
+    (`m.jobs`), drawn muted above it;
+  - **never thread messages of their own**: the 40 kept messages are
+    untouched, and every reading of the server draws the lines again.
+
+### 2.8 Another device, and how long it lasts
+
+- **Path A**: requests are listed by the server as before (unfinished, or
+  ended within a day), each part with its lines.
+- **Path B**: the requests list now also carries `jobs`: this owner's
+  standalone edit and add-on jobs on the site, running or ended within 24
+  hours, whose record opened — each with its words, its state and its lines.
+  The list holds the most recent 20. A page that does not already show one
+  (its own watch, the job it remembers, a reply it shows or holds, a card)
+  draws a card where it falls in time: the words, a fixed label ("Queued",
+  "In progress", "Finished", "Not done", "Stopped") and the lines; then it
+  follows the job to its reply. **Said, never applied**: the page that filed
+  the job is the one that hops, falls back or offers an undo; this page only
+  brings its preview up to date, as it does for another browser's request.
+- **Retention, as it really is**: the record lives under `jobs/`, so the
+  existing rotation removes it **seven days after its last write**
+  (`JOB_RETENTION_MS`, by the object's upload time). Each two-minute tick
+  visits one of 16 key prefixes, so a record goes on the first visit after
+  it turns seven days old, within about 32 minutes; later when its prefix
+  holds more than 300 objects (one listing's limit) or more than 100 are due
+  at once (one tick's deletes). Until then the poll serves its lines. A
+  standalone job is discoverable for 24 hours after its last update; a
+  request's lines for as long as the request is listed; a page's own copy
+  on a reply lives as long as that thread keeps the message (40 per site, in
+  that browser).
+
+### 2.9 The switch
+
+`PROGRESS_REPLIES`, **off by default**: on only for the exact value "on"
+(trimmed, any case). An optional secret with an `|| 'off'` fallback in
+`deploy.yml`, carried to the container (`JOB_ENV_NAMES`). Off: nothing is
+recorded, no task is sent, and no answer carries `progress` or `jobs` (the
+OFF test).
 
 ## 3. The files
 
-| File | What changes |
+| File | What changed |
 |---|---|
-| `builder/site-progress.mjs` (new) | the milestone table (stage → facts from the step's result, state, next), the record reader, the coalescing decision, the writer's instructions and `write_progress` tool, `readProgress`'s checks, the constants (cap, attempts, lease). Pure, no I/O, tested alone |
-| `worker.js` | a progress recorder made where the edit (`ed` branch, from `:23208`) and add-on (`aMark`, `:28773`) traces are made, called at the boundaries in §2.1; `askProgress` (create-only write and queue task); the queue branch for `edit-progress` beside the reply task, and `runProgressTask`; the job poll and the request GET adding `progress`; the Worker side of the gateway's `/progress`; retention beside the reply records in `runJobRetention`; the switch |
-| `builder/job-gateway.mjs` | a `/progress` route (beside `/reply`, `:672`), the job's identity from the gateway, never from the body |
-| `builder/container-env.mjs` | `env.JOB_PROGRESS` (beside `JOB_REPLY`, `:269`) |
-| `builder/request.mjs` | `requestView` takes an optional progress map and adds each part's lines |
-| `public/edit-poll.js` | `progressLines(body)` |
-| `public/chat.js` | the lines in `siteRequestHTML`; Path B's bubble in `reactLiveStepsHTML`; the follows passing them through (`siteRequestFollow`, `watchEditJob`) |
-| `public/styles.css` | one muted line style (shown to the owner as screenshots) |
-| `.github/workflows/deploy.yml` | the `PROGRESS_REPLIES` secret with its `|| 'off'` fallback |
-| docs | `docs/request-flow.md`, `docs/edit-path.md` (the reply section), `docs/containers-and-jobs.md` (the gateway route), a history file |
-| tests | new `test/progress-*.test.mjs` files (§6) |
+| `builder/site-progress.mjs` (new) | the switch, the record and its strict reader, milestones and their facts, the writer's rules (claim, batch, commit, fail, close), the row verdict, the instructions, the tool, the check and the call. Pure, no I/O |
+| `worker.js` | the store (compare-and-swap), the recorder (`makeProgress`) on the job's context, the close at the job's end, the writer (`runProgressTask`), the queue branch, the cron's sweep, the gateway's door, the poll, the request read and list (`jobs`), and the milestones in the edit and add-on routes |
+| `builder/job-gateway.mjs` | `/progress`, bound to the job's own token |
+| `builder/container-env.mjs` | `env.JOB_PROGRESS`, through the gateway |
+| `builder/edit-job.mjs` | `PROGRESS_REPLIES` carried to the container |
+| `builder/request.mjs` | `requestView` takes the lines by job and adds them to each part |
+| `public/edit-poll.js` | `progressLines` |
+| `public/chat.js` | the lines on a part's card, Path B's bubble, the lines kept on a watched job's reply, the found job's card and its follow |
+| `public/styles.css` | the lines' style, the live marker, the muted ended lines |
+| `.github/workflows/deploy.yml` | the secret, with its `|| 'off'` fallback |
+| `Dockerfile` | the new module copied into the image |
 
 Not touched: the final reply's facts, instructions, records and placement;
 billing; the request driver's decisions; first Build.
 
-## 4. When the model is called, the added time, and the cost
+## 4. Calls, time and cost
 
-### 4.1 Calls
+### 4.1 Calls: logged, not promised
 
-- **One call per message, coalesced**: about **3–6 per add-on job** (picked,
-  judged, designed, pages, publishing; close milestones merge) and **1–3 per
-  edit job** (found, changed, publishing). Run 103's request would have made
-  about 5–7.
-- **Never during routing, a question or a refusal**: only a running Edit or
-  Add-on job records milestones.
-- **None after the final reply is asked for.**
+No count is promised: how many lines a job gets depends on how its
+milestones fall against the writer's pace, since a line covers everything
+waiting. The bounds that hold by construction: none before the job starts,
+none during routing, a question or a refusal, none once the record is
+closed; per batch at most two tries of at most two calls.
+
+**Every writer call is logged**, which is where the real numbers come from:
+
+    progress: <job> written | not written (<why>) model <model> milestones <n> facts <n> attempts <n> tokens <in>/<out> ms <ms>
+
+with `progress: <job> given up after 2 tries` and `progress: <job> milestone
+refused — <why>` beside it.
 
 ### 4.2 Added time
 
-- **On the job itself: almost none.** A milestone is one gateway call (one
-  R2 write and one queue send, about 50–200 ms, not awaited by the job's
-  work). Nothing waits for the model.
-- **From milestone to screen**: about 3–15 s: the queue picks the task up in
-  about 0.5–2 s, the call takes about 1.5–5 s at `grok-4.6` (about 1.2–2k
-  tokens in, 60–150 out), and the page's next poll comes within 0.9–8 s.
-- **For an add-on like run 103's** (about 8 minutes): messages at roughly 30
-  s, 90 s, 165 s, 235 s and 340 s instead of nothing until the reply.
+- **On the job**: a milestone is one store write (and, when a writer is
+  needed, one queue send), not awaited by the job's work. The job's end
+  waits for the writes on their way and the close, bounded at 10 seconds,
+  normally one store round trip.
+- **From a milestone to the screen**: the queue's pickup, the call, then the
+  page's next poll. Not measured live; the log line gives each call's time.
 
-### 4.3 Cost (estimates, to be measured)
+### 4.3 Cost (estimates, unmeasured)
 
-- **About 0.15–0.35 credit per message at `grok-4.6`**, judged from the
-  final reply's 0.4–0.6 with its larger instructions and longer answer: about
-  **0.5–2 credits per add-on job and 0.2–1 per edit job**. A customer who
-  picked a Claude model costs several times more.
-- **Measured** by a log line per call (kind, attempts, tokens in and out,
-  milliseconds), like the reply's (`worker.js:6344`). The first live press
-  after the build reads it.
+- About **0.15–0.35 credit per call at `grok-4.6`**, judged from the final
+  reply's 0.4–0.6 with its larger instructions and longer answer; a customer
+  who picked a Claude model costs several times more. Unmeasured until a
+  live run with the switch on.
+- **Absorbed** (§5), and measured only by the log line.
 
 ## 5. Billing
 
-- **Recommended: absorbed, like the final reply.** Not charged to the
-  customer, no ledger row, no reserve, no refund. The job's cost and its
-  ledger rows are exactly what they are with the switch off. A failed or
-  skipped message changes nothing in the money.
-- **The alternative, the owner's to choose**: charge progress as a job
-  reserve of its own (another `<job>#n`). That ties progress to the refund
-  rules (a refunded job would refund it too) and makes a failed message
-  something to account for. The open question about charging for replies
-  (MR2) is the same question; deciding both together is simplest.
-- **A cost bound without cutting**: coalescing keeps calls to the number of
-  pauses, not milestones, and nothing after the final reply. No milestone is
-  dropped to save cost; at worst several are merged into one message.
+**Absorbed by the platform, as the owner decided**: no ledger row, no
+reserve, no refund. A job's cost and ledger rows are exactly what they are
+with the switch off (the SAME test: identical execution, publishing, money
+and final reply). A failed, skipped or given-up line changes nothing in the
+money.
 
-## 6. Focused tests
+## 6. Focused tests, as built
 
-- **The milestones** (pure, from real producers' outputs): each stage's facts
-  come from the step's own result (fixtures captured from `pickAdds`,
-  `runAdd`, the layers and the publish marks); `done` only after the effect
-  returned ok; `publishing` only ever `doing`; no `published` milestone
-  exists; repeated phases get their own keys; the same run gives the same
-  keys.
-- **The check**: `readProgress` refuses a missing fact id, a `doing` or
-  `next` fact declared `done`, an `[id]` in the text and an overlong text;
-  one retry is told why; a second failure writes nothing.
-- **Coalescing and order**: milestones arriving during a write become one
-  next message; none is lost; the index stays in order; after the final reply
-  is asked for, the rest are `skipped` and no call is made.
-- **Records and claims**: a duplicate milestone write is refused and sends no
-  second task; a task delivered twice makes one model call; a live lease
-  keeps a second writer out; a retry waits for `retryAt`.
-- **Through the real routes, with supplied model answers** (the existing
-  route harnesses): an add-on run records its milestones in order with the
-  real results' facts; an edit run likewise; a run that fails part-way (e.g.
-  the schema refused) records nothing done that was not done, and its failure
-  reply is byte for byte as it is today.
-- **The job poll and the request GET**: running answers carry the written
-  lines in order; finished answers carry them plus the final reply, whose
-  fields are unchanged; the request GET writes nothing for progress (the
-  record's etag unchanged by a read).
-- **The money**: no ledger row from progress; a job's cost identical with
-  the switch on and off; a writer failure leaves the job's outcome and money
-  unchanged.
-- **The switch off**: no record, no task, and every answer byte for byte as
-  today.
-- **The browser, in a real Chromium against pages served in the test**: the
-  lines appear under the right part once across repeated polls; a reload and
-  a fresh browser (another device) show them again from the server; the
-  40-message thread is unchanged; the final reply is placed as today and the
-  lines stop changing; Path B's bubble shows the latest line instead of
-  "Thinking"; screenshots for the owner.
-- **A sweep** over the new module and its wiring, with comment-only controls,
-  and the full suite.
+All free: supplied model answers, the real Worker on the in-memory platform
+(`test/fixtures/request-flow.mjs`), the page's real functions in a VM, and
+real Chromium for the drawing.
 
-## 7. Order of work, and what it needs
+- **`test/progress.test.mjs`** (the module): the switch; the record, strict
+  and whole; the batch; the one writer (claim, lease, own claim, tries,
+  retry, skew, commit, failure, close); the job's row (every verdict, a row
+  that cannot be read never read as gone); the facts of both paths (a
+  database change applied, a page prepared, a withheld step no plan, a
+  failure made good not told); the check (left out, misstated, two states,
+  ids, cut, unreadable; **no length limit**); **PROSE 1: contradictory prose
+  with otherwise valid metadata is accepted** (the limitation, pinned);
+  PROSE 2: the instructions forbid published, live and finished, define every
+  state, carry no worked example and set no length; the call (what the model
+  is shown, the one re-ask told why).
+- **`test/progress-flow.test.mjs`** (through the real routes):
+  - RUN 1: a milestone becomes a line on the poll and the request's view,
+    with nothing private;
+  - **the races**: the job completes during the call (RACE 1); the customer
+    stops it (RACE 2); a newer run before the call, and between the call and
+    the commit (RACE 3); a stalled lease and a failed job (RACE 4) — none
+    commits a line after the job's end;
+  - **duplicate delivery** (DUP): one claim and one call;
+  - **recovery with no milestone and no page** (LOST, WRITE 3): the cron
+    asks once the grace has passed; a writer dead after its claim is
+    replaced after its lease;
+  - **interrupted writes** (WRITE 1, WRITE 2, OPEN): a milestone write that
+    fails or whose answer is lost is recorded once and a writer still asked;
+    a commit whose answer is lost is one line and no second call; an opening
+    that fails is made again before the first milestone;
+  - **the job's row unread** (ROW UNREAD): no call, the record kept open,
+    the try made again after its wait, and the line written;
+  - **a writer's own re-ask** (MANY): after its eight lines, the milestone
+    recorded during its last call gets a task with no cron and no page;
+  - **the failure path** (THREW): the close before the refund, read from the
+    source, since no free flow makes a route throw;
+  - **the lifecycle** (LIFE): each of the recorder's writes is handed to the
+    job's own `waitUntil` (one more promise per write than with progress
+    off);
+  - **false completion claims** (CLAIM 1–3): a misstated state asked again
+    and corrected; a model that keeps misstating gives no line and the
+    milestone is given up while the job, its money and its reply go on;
+    **contradictory prose through the route is committed** and the final
+    reply is unchanged;
+  - SAME (execution, publishing, money and final reply identical on and off),
+    OFF, FIND (another device finds a standalone job; never another owner's,
+    never a request's job, never past a day), FIND 2 (a busy day: the twenty
+    most recent, oldest first, the running job never hidden), KEEP (the
+    seven-day rotation), GATEWAY (the container's way, the token's ids, a
+    pre-scoped build, a bad op, a body too large, no token, and a run that
+    did not open the record: its milestone refused, its close closing
+    nothing), LOG (attempts, tokens, time), EDIT (an edit's milestones, never
+    "published"), ADD-ON (an add-on's milestones in order, each fact in its
+    state);
+  - a gate a case never reaches fails the case after 20 seconds instead of
+    hanging the run (found when a mutant hung the first sweep).
+- **`test/progress-page.test.mjs`** (the page's real functions, no browser,
+  so unit CI runs them): the poll reader; a part's lines drawn and escaped,
+  live only while it runs; a found job drawn once, in time, followed to its
+  reply (said once, never applied), and not drawn where this page already
+  shows it (watched, remembered, shown, held, carded); a request's reply
+  never put under a found job's card; the watch's newest line painted where
+  "Thinking" was and kept on its reply with the job named; the bubble's
+  order (a waiting sentence first).
+- **`test/progress-browser.test.mjs`** (real Chromium; skipped where there is
+  none, as on unit CI): Path A with a reload, Path B with a reload and no
+  doubling, and a **fresh device** finding both; the screenshots.
 
-1. `builder/site-progress.mjs` and its tests.
-2. The records, the writer and its queue branch, with tests.
-3. The recorder at the boundaries in the two routes, with route tests.
-4. The poll and the request GET.
-5. The browser, with screenshots.
-6. Records, the sweep, the suite, CI, and a push for review. **No merge,
-   deploy or paid test**: those wait for the owner's word, as always.
+**The checks**, in full in `docs/history/2026-10-06-progress-messages.md`
+§3: the four files above (19, 27, 9 and 3 cases); the sweep over the module
+and its wiring (81 mutants and 4 comment-only controls: 80 killed on its full
+run, the one survivor closed by the ADD-ON case and killed on its own rerun,
+after the first run's seven survivors had each become a case); the full suite
+`9650 / 9650 / 0 / 0` locally; unit CI green on `5cfebd0a`; the site build
+green on `9c931540`; the image predicted, not built.
 
-## 8. Decisions for the owner
+## 7. What this does not show, and the limits that stay
 
-1. **Billing**: absorb (recommended) or charge (§5).
-2. **The model**: the customer's picked model (recommended, as for replies)
-   or always the fast default, which bounds the cost.
-3. **After the reply**: keep the written lines above the final reply, muted
-   (recommended), or hide them once it arrives.
-4. **Path B**: include the page-driven watch (recommended; small), or
-   requests only.
-5. **The fixed labels**: keep them beside the model's lines (recommended), or
-   let the lines replace them.
+- **No real model has written a line.** Every answer in every test is
+  supplied. How a real model words its lines, how often it says something
+  its facts do not (§2.5), how long a call takes and what it costs are all
+  unmeasured until the switch is on for a live press, which is yours to
+  decide.
+- **The words are not checked** (§2.5): an update whose `says` is right and
+  whose words call the page live is committed. Stated, tested, not filtered.
+- **One residual window** (§2.5): a line committed after the outcome when
+  the job's own close fails and the writer had already passed its second
+  row read.
+- **"Saved" is not reported on its own** (§2.1): a page change is
+  "prepared" until its publish starts.
+- **Bounds**: the cron reads 50 running jobs a tick (§2.6); the requests
+  list holds the 20 most recent standalone jobs of the last day (§2.8); a
+  record takes 200 milestones (§2.2). Each is logged or stated where it
+  applies; no line's text is ever cut.
+- **The facts are in the builder's own terms** (a page's address, a step's
+  fields), and the model is told to say them in the customer's words and
+  language; how well it does that is part of the unmeasured live behavior.
+
+## 8. Decisions
+
+All five of the first plan's decisions were taken as recommended (§0). What
+remains yours, when you want it: turning `PROGRESS_REPLIES` on in a deploy,
+and a paid live press to read the first real lines and their cost (about
+0.15–0.35 credit per call, estimated, absorbed).
