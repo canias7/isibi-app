@@ -640,7 +640,7 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "  if (!stBuildRunning() && !sb.waitNote && sb.progressLine) return '<div class=\"st-steps st-steps-live\"><div class=\"st-think st-think-prog\"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';\n",
+    "from": "    if (!sb.waitNote && sb.progressLine) return '<div class=\"st-steps st-steps-live\"><div class=\"st-think st-think-prog\"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';\n",
     "to": ""
   },
   {
@@ -648,8 +648,8 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "  if (!stBuildRunning() && !sb.waitNote && sb.progressLine)",
-    "to": "  if (!stBuildRunning() && sb.progressLine)"
+    "from": "    if (!sb.waitNote && sb.progressLine) return",
+    "to": "    if (sb.progressLine) return"
   },
   {
     "label": "PAGE — no line is marked live",

@@ -363,18 +363,26 @@ test("the thinking state renders NO step rows, and can still be repainted", () =
   // ended read as "not a build" as well as `thinking` does. What is asserted is
   // unchanged and is about the RETURN: no step rows, repaintable, a thinking
   // indicator, and it runs before the phase-index maths.
-  const m = src.match(/if \(![A-Za-z]+\(\)\) return '[^']*'/);
-  assert.ok(m, "the thinking branch is gone — the step rows paint immediately again");
-  assert.match(m[0], /st-steps-live/, "the thinking panel cannot be repainted into the steps");
-  assert.match(m[0], /st-think/, "it renders no thinking indicator");
-  assert.ok(!/st-step-lbl|Writing the code/.test(m[0]), "the thinking state names a build step");
+  // RE-ANCHORED 2026-10-06: the gate is a block now. It holds two returns — a
+  // running job's newest progress line where "Thinking" was, and "Thinking"
+  // (or the waiting sentence) — so the predicate is still asked once; every
+  // return inside it is held to the same property.
+  const fn = src.slice(src.indexOf("function reactLiveStepsHTML"));
+  const gate = fn.search(/if \(![A-Za-z]+\(\)\) \{/), maths = fn.indexOf("const order =");
   // It must come BEFORE the phase-index maths, or `order.indexOf('thinking')` is
   // -1, clamps to 0, and lands on 'generating' — the exact bug, restored. Both
   // ends asserted: `indexOf` answering -1 would make this comparison vacuous.
-  const fn = src.slice(src.indexOf("function reactLiveStepsHTML"));
-  const gate = fn.indexOf(m[0]), maths = fn.indexOf("const order =");
   assert.ok(gate >= 0 && maths > 0, "reactLiveStepsHTML no longer holds the gate or the phase maths");
   assert.ok(gate < maths, "the thinking check runs after the phase index and will be bypassed");
+  const block = fn.slice(gate, fn.indexOf("\n  }\n", gate));
+  const returns = [...block.matchAll(/return '[^']*'/g)].map((r) => r[0]);
+  assert.ok(returns.length > 0, "the thinking branch is gone — the step rows paint immediately again");
+  assert.ok(returns.some((r) => /<div class="st-think"><i><\/i>'$/.test(r)), "the plain thinking return is gone from the gate");
+  for (const r of returns) {
+    assert.match(r, /st-steps-live/, "the thinking panel cannot be repainted into the steps");
+    assert.match(r, /st-think/, "it renders no thinking indicator");
+    assert.ok(!/st-step-lbl|Writing the code/.test(r), "the thinking state names a build step");
+  }
 });
 
 test("the steps appear the moment it IS a build, from ONE place", () => {

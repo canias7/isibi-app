@@ -8850,9 +8850,12 @@ function reactLiveStepsHTML() {
   // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
   // lock or a deploy's gate says so, in the sentence the poll module chose.
   // AND A RUNNING JOB'S LATEST PROGRESS LINE (2026-10-06) in its place, in
-  // the model's own words — never ahead of a waiting sentence.
-  if (!stBuildRunning() && !sb.waitNote && sb.progressLine) return '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';
-  if (!stBuildRunning()) return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
+  // the model's own words — never ahead of a waiting sentence. One gate, so
+  // the rail still asks the shared predicate once.
+  if (!stBuildRunning()) {
+    if (!sb.waitNote && sb.progressLine) return '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';
+    return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
+  }
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
   // 2026-08-08). The React builder has never produced an image: the generator in
   // worker.js is from the static-site era and is not reachable from the build
