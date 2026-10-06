@@ -71,7 +71,7 @@ is in git; the dated entries further down are the full story.*
     new outcome;
   - **the sweep**: 60 of 60 planted defects caught, and the 4 controls survived;
   - **the suite**: `9571 / 9571 / 0 / 0` here.
-- **CI on this correction**: started on the push of the correction with its records; read to completion and recorded in the next commit.
+- **CI on this correction**: green on `49a67763` (the correction with its records): unit tests (run 37454790799) `9576 / 9564 / 0 / 12`, the same total as here; the site build (run 37454790999) all seven jobs and the gate passed, *"404 checks in 27 sections across 4 shards, every job green"*.
 - **CI on `13bfcd17` was complete and green** (the fix's code with its
   records on top):
   - unit tests (run 37451667975): `9571 / 9559 / 0 / 12`, the same total as
@@ -243,7 +243,7 @@ since. Add new ones there.
     fail; the controls case and the 18 earlier cases pass;
   - **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
   - **the full suite**: `9576 / 9576 / 0 / 0` here;
-  - **CI**: started on the push of the correction with its records; read to completion and recorded in the next commit.;
+  - **CI**: green on `49a67763` (the correction with its records): unit tests (run 37454790799) `9576 / 9564 / 0 / 12`, the same total as here; the site build (run 37454790999) all seven jobs and the gate passed, *"404 checks in 27 sections across 4 shards, every job green"*.;
   - the image would roll from deploy 2184's `589e3e4e85a20066` to
     `c7fe818d446dd957` (predicted, not built).
 - **Screenshots** (sent in the chat): both failures before and after.

@@ -438,7 +438,7 @@ stored", on both paths that say it:
   and PROV 4 (the controls) pass;
 - **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
 - **the suite**: `9576 / 9576 / 0 / 0` here (9,571 plus the 5 new cases);
-- **CI**: started on the push of the correction with its records; read to completion and recorded in the next commit.;
+- **CI**: green on `49a67763` (the correction with its records): unit tests (run 37454790799) `9576 / 9564 / 0 / 12`, the same total as here; the site build (run 37454790999) all seven jobs and the gate passed, *"404 checks in 27 sections across 4 shards, every job green"*.;
 - **the image** (predicted, not built): `c7fe818d446dd957`;
 - **screenshots** (sent in the chat): both failures before (`9d309401`) and
   after, on the page's own screen with the answers the real route gave in
