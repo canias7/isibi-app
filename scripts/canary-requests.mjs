@@ -31,6 +31,8 @@ import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } f
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
 const listOf = (v) => (typeof v === "string" && v ? [v] : Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : []);
+/** A list of records, each an object; anything else read as none (`listOf` keeps strings only). */
+const arrOf = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []);
 
 /** A part's statuses that mean a job was filed for it, or it may start now: never before a part it needs is done. */
 export const PART_STARTED = Object.freeze(["ready", "queued", "started", "waiting", "unverified", "done", "partial", "failed"]);
@@ -653,7 +655,88 @@ export const COVERAGE = Object.freeze({
     const ok = !!a && a.closed === true && a.ended === true && Array.isArray(a.calls) && a.calls.length === 0;
     return { covered: ok, why: !a ? "the tab was not closed" : ok ? `ended ${Math.round((a.endedMs || 0) / 1000)} s after the tab closed, read ${a.reads} time(s) through the list alone` : "the request did not end while the tab was closed" };
   },
+  // EVERY PART SHOWED A PROGRESS LINE (2026-10-06): recorded, never failed on —
+  // a part that finishes between two milestones' lines is told by its reply.
+  "progress-each-part": (steps) => {
+    const s = (steps || []).find((x) => x && x.mode === "fresh");
+    const f = s && s.fresh;
+    if (!f) return { covered: false, why: "the message was not read in a fresh browser session" };
+    const most = new Map();
+    for (const snap of [...arrOf(f.before), ...arrOf(f.after)]) {
+      for (const p of arrOf(snap && snap.parts)) most.set(p.n, Math.max(most.get(p.n) || 0, listOf(p.lines).length));
+    }
+    const each = [...most.entries()].sort((a, b) => a[0] - b[0]);
+    return { covered: each.length > 0 && each.every(([, c]) => c > 0), why: each.length ? each.map(([n, c]) => `part ${n}: ${c} line(s) at most`).join("; ") : "no part was read" };
+  },
 });
+
+// ── WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06) ──────────────
+
+/**
+ * THE PROGRESS LIVE CHECK'S OWN SIDE, for a press that asks (`expect.progress`),
+ * read off the message sent with its tab closed once its progress showed and
+ * read afterwards in a fresh browser session (`away: "fresh"`). Every one
+ * fails the press:
+ * - BEFORE THE END: a progress line was on screen in the tab that sent it
+ *   while the request still ran, and that tab was then closed with the
+ *   request still running;
+ * - WITH NO PAGE OPEN: the request was read through the requests list alone,
+ *   which named it, and nothing read the request's own route;
+ * - THE FRESH SESSION: signed in afresh as the same account, it found the
+ *   request on the server and drew its card; showed every line the sending
+ *   tab had shown; and followed the request to its end, every part's reply on
+ *   screen;
+ * - THE MODEL'S OWN LINES FOR EACH STATE: a running part was named by the
+ *   model's line for doing it, and at the end every part was done and named
+ *   by its line for having done it.
+ * The words themselves are recorded, never judged: no length, no keyword.
+ */
+export function progressChecks({ steps }) {
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  const s = arrOf(steps).find((x) => x && x.mode === "fresh");
+  const f = s && s.fresh;
+  if (!f) {
+    const sent = arrOf(steps).some((x) => x && x.sent === true);
+    add("the message was sent with its tab closed once its progress showed, and read in a fresh browser session", false, sent ? "it was not followed that way" : "no message was sent");
+    return out;
+  }
+  const lines = (list) => {
+    const got = new Set();
+    for (const snap of arrOf(list)) for (const p of arrOf(snap && snap.parts)) for (const l of listOf(p.lines)) got.add(`${p.n}\u0000${l}`);
+    return got;
+  };
+  add("a progress line was on screen in the tab that sent the message while the request still ran", !!f.first,
+    f.closedRunning === false ? "the request had ended before any line was shown" : "no line was shown before the tab was closed");
+  add("the tab that sent it was then closed, the request still running", f.closed === true && f.closedRunning === true,
+    f.closed !== true ? "the tab was not closed" : "the request had already ended when the tab was closed");
+  const away = f.away || {};
+  const calls = arrOf(away.calls);
+  add("with no page open, the request was read through the requests list alone, and nothing read its own route",
+    (away.reads || 0) > 0 && arrOf(away.list).some((x) => x && x.found) && calls.length === 0,
+    !away.reads ? "the list was never read" : calls.length ? `its own route was read ${calls.length} time(s) with no page open` : "the list never named the request");
+  const re = f.reopened || {};
+  add("a fresh browser session, signed in afresh as the same account, found the request on the server and drew its card",
+    re.ok === true && re.found === true && re.newSession === true && re.sameAccount === true,
+    re.ok !== true ? re.why || "it did not open" : re.newSession !== true ? "its session was the first tab's" : re.sameAccount !== true ? "it was signed in as another account" : re.why || "it never drew the request's card");
+  const before = lines(f.before), after = lines(f.after);
+  const lost = [...before].filter((x) => !after.has(x));
+  add("the fresh session showed every progress line the sending tab had shown", before.size > 0 && !lost.length,
+    before.size === 0 ? "the sending tab showed no line" : `not shown again: ${lost.map((x) => JSON.stringify(x.split("\u0000")[1])).join(", ")}`);
+  add("the fresh session followed the request to its end, every part's reply on screen", re.closed === true, re.why || "the request was not shown closed");
+  const all = [...arrOf(f.before), ...arrOf(f.after)];
+  const said = (p, state) => !!(p && p.said && typeof p.said[state] === "string" && p.said[state] && p.words === p.said[state]);
+  add("while a part ran, its card named it by the model's own line for doing it",
+    all.some((snap) => arrOf(snap && snap.parts).some((p) => p.status === "started" && said(p, "doing"))),
+    "no running part was shown with the model's doing line");
+  const tail = arrOf(f.after);
+  const last = tail.length ? tail[tail.length - 1] : null;
+  const parts = last ? arrOf(last.parts) : [];
+  const off = parts.filter((p) => !(p.status === "done" && said(p, "done")));
+  add("at its end every part was done, and named by the model's own line for having done it", parts.length > 0 && !off.length,
+    parts.length ? off.map((p) => `part ${p.n} ${p.status || "?"} shown as ${JSON.stringify(p.words)}`).join("; ") : "the fresh session's card was never read");
+  return out;
+}
 
 export function coverageOf({ spec, steps }) {
   return listOf(spec && spec.covers).map((name) => {
@@ -803,6 +886,8 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug });
   checks.push(...o.checks);
   if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
+  // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
+  if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
   return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages };

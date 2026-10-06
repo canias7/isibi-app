@@ -606,6 +606,60 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // THE PROGRESS LIVE CHECK (2026-10-06, prepared, not pressed). The owner,
+  // after Codex confirmed the progress corrections: *"…one combined live
+  // Edit/Add-on verification using the existing canary and a demo site.
+  // Choose fresh changes that exercise both routes automatically, capture
+  // actual first-person progress before completion, verify the published
+  // results and final replies, and check recovery after closing the
+  // originating tab and reopening on a fresh browser session."* ONE message,
+  // fresh on the bakery: an FAQ page (the add-on; no form, no table) and the
+  // Classes page's heading (an edit) no earlier press has touched. The tab
+  // that sends it watches the request's card until a progress line is shown
+  // while the request still runs, and is then closed; the request is read
+  // through the requests list alone for a short while; and a FRESH BROWSER
+  // SESSION — a new context, signed in afresh, with nothing of the first
+  // tab's — opens the site, finds the request on the server and follows it to
+  // its end (`away: "fresh"`). Judged like every request press on what
+  // landed, and beside that on what the customer was shown
+  // (`progressChecks`). The page's words are recorded, never filtered.
+  "lv-progress": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    // ABOUT 16-26, MOST LIKELY ABOUT 20: run 99's R2 (a page with its menu
+    // link, no form or table) cost 12 for its add-on, runs 101 and 103 (a page
+    // with a form and a table) 16 and 18; the requirement judgment, newer than
+    // R2, adds about 1; a heading through the text step 2; a routing call 1-3
+    // and the second part's routing job 1-3. Narration is the platform's,
+    // never charged. The press sends nothing unless the balance covers the
+    // budget (`fundsFirst`, the estimate's top and 2 more) and is no more than
+    // the hard cap (`cap`): every charge refuses rather than overdraws, so the
+    // balance at the press is the most it can spend.
+    budget: 28,
+    fundsFirst: true,
+    cap: 32,
+    addon: true,
+    layers: Object.freeze(["text", "look", "nav", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/classes", from: "Spend a Saturday morning with the starter", to: "Spend a Saturday morning at the bench" }),
+      ]),
+      // MATCHED ON THE PAGE'S OWN ANSWERS: its menu label would carry "FAQ"
+      // into every new page's header, so the page is found by what it says.
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["keep", "store"]) })]),
+      menu: Object.freeze({ label: "FAQ", page: 0 }),
+      // WHAT THE CUSTOMER IS SHOWN WHILE IT RUNS, judged beside the rest.
+      progress: true,
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "progress-each-part"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add an FAQ page with a link in the menu, answering what customers ask us most: how long a sourdough loaf keeps, how best to store it, and when we're open. And change the Classes page heading 'Spend a Saturday morning with the starter' to 'Spend a Saturday morning at the bench'.",
+        away: "fresh",
+        ms: 25 * 60_000,
+      }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -630,6 +684,13 @@ export const UI_AWAY_EVERY_MS = 20_000;
 // bound still gives a reply written in the background a minute. A request
 // press's bounds and these floors together stay inside UI_PRESS_MAX_MS.
 export const UI_REPLY_FLOOR_MS = 60_000;
+// A MESSAGE WHOSE TAB IS CLOSED ONCE ITS PROGRESS SHOWS (`away: "fresh"`,
+// 2026-10-06): how long the tab that sent it waits for a progress line before
+// it is closed anyway, and how long the request is then left with no page
+// open — read through the requests list alone — before a fresh browser
+// session opens the site. Both inside the message's own bound.
+export const UI_FIRST_LINE_MS = 6 * 60_000;
+export const UI_FRESH_AWAY_MS = 30_000;
 
 /**
  * WHAT A READING OF THE PAGE SAYS OF THE OPEN SITE'S PREVIEW AND LISTS
@@ -871,6 +932,73 @@ export function fundsRefusal({ now, budget }) {
   if (!(Number.isFinite(now) && now >= 0)) return "the balance could not be read, so whether it covers this press is not known";
   if (!(Number.isFinite(budget) && budget > 0)) return "the scenario names no budget for the balance to cover";
   return now < budget ? `the balance (${now}) does not cover this press's budget of ${budget} credits` : "";
+}
+
+/**
+ * THE HARD CAP, BEFORE THE FIRST MESSAGE (2026-10-06, the owner: *"Give me …
+ * the estimated credit requirement and hard spending cap"*). Every charge
+ * path refuses what the balance cannot cover — the routing charge and a job's
+ * reserve move nothing past it, and a build's debit takes nothing or only
+ * what is there — so a press can never spend more than the balance it starts
+ * with. A scenario that names a cap (`cap`) makes that its bound by sending
+ * nothing while the balance is above it. None named, nothing is asked.
+ */
+export function capRefusal({ now, cap }) {
+  if (cap === undefined || cap === null) return "";
+  if (!(Number.isFinite(cap) && cap > 0)) return "the scenario's hard cap is not a number";
+  if (!(Number.isFinite(now) && now >= 0)) return "the balance could not be read, so whether it is within the hard cap is not known";
+  return now > cap ? `the balance (${now}) is above this press's hard cap of ${cap} credits: with no more than ${cap} in the account, the press cannot spend more` : "";
+}
+
+/**
+ * WHETHER THE LIVE WORKER NARRATES, read for free before a press that judges
+ * progress (`expect.progress`): the requests list carries `jobs` — this
+ * owner's standalone jobs — only with progress on, and is the same answer
+ * without it. Not listed, or listed without it, nothing is sent.
+ */
+export function progressOnRefusal(listed) {
+  if (!listed || listed.status !== 200 || !listed.json || typeof listed.json !== "object") {
+    return `the requests list did not answer (${listed && Number.isFinite(listed.status) ? listed.status : "no answer"}), so whether progress is on cannot be told`;
+  }
+  return Object.hasOwn(listed.json, "jobs") ? "" : "progress is off on the live Worker: its requests list carries no jobs";
+}
+
+/**
+ * A REQUEST'S CARD AS ONE READING OF THE PAGE DREW IT (`cards`, read by
+ * `readComposerInPage`), or null where the page draws none: whether the page
+ * holds it ended and closed, and each part's own words as drawn, its label,
+ * its lines (the newest marked live while it runs) and the lines the model
+ * wrote for every state, as the page keeps them.
+ */
+export function progressSnapshot(s, key) {
+  const card = s && s.cards && typeof s.cards === "object" && Object.hasOwn(s.cards, key) ? s.cards[key] : null;
+  if (!card || !Array.isArray(card.parts)) return null;
+  const shown = s.requests && s.requests[key] ? s.requests[key] : null;
+  return {
+    ended: card.ended === true,
+    closed: !!(shown && shown.closed === true),
+    parts: card.parts.map((p) => ({
+      n: Number.isInteger(p && p.n) ? p.n : -1,
+      status: p && typeof p.status === "string" ? p.status : "",
+      words: p && typeof p.words === "string" ? p.words : "",
+      label: p && typeof p.label === "string" ? p.label : "",
+      lines: p && Array.isArray(p.lines) ? p.lines.filter((l) => typeof l === "string" && l) : [],
+      live: p && typeof p.live === "string" ? p.live : "",
+      said: p && p.said && typeof p.said === "object" ? { ...p.said } : null,
+    })),
+  };
+}
+
+/** The card's readings, kept where they changed (`progressSnapshot`), each with its time. */
+export function keepSnapshot(list, snap, ms) {
+  if (!snap) return false;
+  const last = list.length ? list[list.length - 1] : null;
+  if (last) {
+    const { ms: _at, ...was } = last;
+    if (JSON.stringify(was) === JSON.stringify(snap)) return false;
+  }
+  list.push({ ms, ...snap });
+  return true;
 }
 
 /** A data URL as what can be compared without carrying it: name, bytes, sha256. */
@@ -1188,6 +1316,26 @@ export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window } =
   return { ok: true, why: "", spent, routing, edits, own, excess, others };
 }
 
+/**
+ * NARRATION ADDS NO CHARGE (2026-10-06, the owner: *"confirming narration
+ * adds no customer charge"*), read off the own-charges verdict: the balance
+ * moved by exactly this press's own routing calls and jobs, and the ledger
+ * between its two balance reads holds no row under any other ref. A progress
+ * line or a task's lines charged to the account would be a row the press did
+ * not make, or a move its own charges do not account for. Other activity on
+ * the account while the press ran makes this unprovable, and it says so
+ * rather than passing.
+ */
+export function narrationChargeVerdict(m) {
+  if (!m || m.ok !== true) return { ok: false, why: m && m.why ? m.why : "this press's own charges were not read" };
+  if (!m.others) return { ok: false, why: "the ledger between the two balance reads could not be read" };
+  if (m.others.rows.length) {
+    return { ok: false, why: `the ledger holds ${m.others.rows.length} row(s) under other refs while the press ran (${m.others.rows.map((r) => `${String(r.ref || "").slice(0, 48)} ${r.delta}`).join(", ")}), so a charge outside this press's own cannot be ruled out` };
+  }
+  if (m.excess !== 0) return { ok: false, why: `the balance moved ${m.excess} more than this press's own charges, recorded under no ref` };
+  return { ok: true, why: "" };
+}
+
 /** The own-charges verdict's account, for the check's detail and the log. */
 export function ownMoneySaid(m) {
   if (!m || m.ok !== true) return m && m.why ? m.why : "not read";
@@ -1396,6 +1544,45 @@ function readComposerInPage() {
           replies: r && Array.isArray(r.replies) ? r.replies.filter((f) => typeof f === "string") : [],
         }]));
       } catch (e) { return null; }
+    })(),
+    // EACH REQUEST'S CARD AS DRAWN (2026-10-06, the progress live check): its
+    // parts in order, each with its own words as shown — the model's line for
+    // its state once written, the customer's words until then — its label,
+    // its progress lines without their times (the newest marked live while it
+    // runs), and the state the page keeps for it: its status and the lines
+    // the model wrote for every state. Found by the request each kept
+    // message is for, only while the drawn and kept counts agree.
+    cards: (() => {
+      const out = {};
+      try {
+        const site = siteById(siteOpenId);
+        const all = site && site.requests && typeof site.requests === "object" ? site.requests : {};
+        const words = (x) => String((x && (x.innerText || x.textContent)) || "").trim();
+        drawn.forEach((m, i) => {
+          if (!aligned || m.classList.contains("st-busy")) return;
+          const k = kept[i] && typeof kept[i].request === "string" ? kept[i].request : "";
+          if (!k || !m.querySelector(".st-req")) return;
+          const view = all[k] && all[k].view ? all[k].view : null;
+          const state = view && Array.isArray(view.parts) ? view.parts : [];
+          out[k] = {
+            ended: !!(view && view.ended),
+            parts: [...m.querySelectorAll(".st-req-part")].map((li, j) => {
+              const st = state[j] || null;
+              const live = li.querySelector(".st-req-prog li.live");
+              return {
+                n: st && Number.isInteger(st.n) ? st.n : j,
+                status: st && typeof st.status === "string" ? st.status : "",
+                words: words(li.querySelector(".st-req-words")),
+                label: words(li.querySelector(".st-req-status")),
+                lines: [...li.querySelectorAll(".st-req-prog li")].map(keptLine).filter(Boolean),
+                live: live ? keptLine(live) : "",
+                said: st && st.said && typeof st.said === "object" ? { ...st.said } : null,
+              };
+            }),
+          };
+        });
+      } catch (e) { /* a page that draws no cards */ }
+      return out;
     })(),
     // THE SITE'S LIVE QUESTION, and the request part it is for (2026-10-03):
     // what the composer's next message answers. `askCard` is its card, drawn
@@ -1961,6 +2148,11 @@ export async function runUi(opts) {
     requestsNow = null, stopNow = null, awayEveryMs = UI_AWAY_EVERY_MS,
     // THE LEAST TIME A REQUEST'S REPLIES GET ONCE IT HAS ENDED (`watchReplies`).
     replyFloorMs = UI_REPLY_FLOOR_MS,
+    // A MESSAGE WHOSE TAB IS CLOSED ONCE ITS PROGRESS SHOWS (`away: "fresh"`):
+    // `freshSession()` signs the canary's account in afresh — a second session,
+    // as another device's — for the fresh browser session that opens the site
+    // afterwards; `firstLineMs` and `freshAwayMs` bound the two waits.
+    freshSession = null, firstLineMs = UI_FIRST_LINE_MS, freshAwayMs = UI_FRESH_AWAY_MS,
   } = opts;
   const origin = new URL(base).origin;
   const t0 = Date.now();
@@ -2159,6 +2351,70 @@ export async function runUi(opts) {
     }
   };
 
+  // EVERY CONTEXT THE RUN OPENS IS PREPARED THE SAME WAY (2026-10-06): its
+  // test route, the closed-tab watch, the wall and the planted session — the
+  // run's own, or one signed in afresh for a fresh browser session
+  // (`away: "fresh"`), which holds nothing else of the first tab's.
+  const prepareContext = async (ctx, sess) => {
+    if (route) await route(ctx);
+    // ANY READ OF A REQUEST'S OWN ROUTE, from any page of the run's browser,
+    // while a message's tab is closed (`away`): none is expected, since no
+    // page is open, and one would mean the request was moved on by a page.
+    if (typeof ctx.on === "function") {
+      ctx.on("request", (req) => {
+        if (!awayCalls) return;
+        let u = null;
+        try { u = new URL(req.url()); } catch { return; }
+        if (u.origin === origin && u.pathname.startsWith("/api/site/request/")) awayCalls.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname });
+      });
+    }
+    // Registered after any test route, so it is asked first; anything it does
+    // not refuse falls back to that route, or to the network. It sees every API
+    // call the app makes, because a scenario that names its layers refuses
+    // every write that is not its own (`wallRefusal`). `current` is the
+    // message being sent, set just before its Send, so a message that names
+    // its own layers is walled to them.
+    await ctx.route((u) => u.origin === origin && u.pathname.startsWith("/api/"), async (r) => {
+      const req = r.request();
+      const u = new URL(req.url());
+      const why = wallRefusal({
+        method: req.method(), pathname: u.pathname,
+        body: typeof req.postData === "function" ? req.postData() : null, scenario, step: current,
+      });
+      if (!why) return r.fallback();
+      rec.blocked.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname, why });
+      log(`  BLOCKED ${req.method()} ${u.pathname}: ${why}`);
+      return r.abort("blockedbyclient");
+    });
+    // THE OWNER'S SESSION, PLANTED FOR THE APP'S ORIGIN AND NO OTHER. The same
+    // script runs in the workspace's preview frame, which is the customer
+    // site's origin — and a session written there would hand the owner's token
+    // to that site's scripts. Written once: the app refreshes and rotates it.
+    //
+    // AND THE FIRST-RUN GREETING, MARKED AS SEEN, as a returning owner's browser
+    // holds it. On a fresh browser, `maybeShowWelcome` covers the page with a
+    // modal whenever an unpaid account's balance is 1 to 20 and no site is
+    // stored locally. This context is always fresh, so from a balance of 20
+    // down the modal took the site card's click: Test 9's local proof, at a
+    // balance of 10, stopped there, and every earlier UI run had more than 20.
+    // It greets; no edit passes through it. Only for the app's origin, and
+    // never over a value the page already holds.
+    await ctx.addInitScript(({ o, key, value, seen }) => {
+      try {
+        if (location.origin !== o) return;
+        if (!localStorage.getItem(key)) localStorage.setItem(key, value);
+        if (!localStorage.getItem(seen)) localStorage.setItem(seen, "1");
+      } catch (e) { /* a frame with no storage */ }
+    }, {
+      o: origin, key: SESSION_KEY, seen: WELCOME_SEEN_KEY, value: JSON.stringify({
+        access_token: sess.access_token,
+        refresh_token: sess.refresh_token,
+        expires_at: sess.expires_at ? sess.expires_at * 1000 : Date.now() + (sess.expires_in || 3600) * 1000,
+        user: sess.user || null,
+      }),
+    });
+  };
+
   // ── A MESSAGE SENT, THEN ITS TAB CLOSED (`away`, 2026-10-03) ────────────
   // Once the routing answer names the request and the page has drawn its
   // card, the tab is closed. From then on nothing but the requests list is
@@ -2234,6 +2490,120 @@ export async function runUi(opts) {
     }
     a.reopened = { ok: true, closed: true, why: "", tab: await next.evaluate(tabMarkInPage).catch(() => null), frameTab: reTab, firstFrame: firstFrame() };
     return { ok: a.ended, s, page: next, why: a.ended ? "" : "the request had not ended when the time ran out" };
+  };
+
+  // ── A MESSAGE WHOSE TAB IS CLOSED ONCE ITS PROGRESS SHOWS (`away: "fresh"`,
+  // 2026-10-06) ────────────────────────────────────────────────────────────
+  // The owner: *"capture actual first-person progress before completion …
+  // and check recovery after closing the originating tab and reopening on a
+  // fresh browser session."* The tab that sent the message watches the
+  // request's card, keeping each change of what it draws (`progressSnapshot`),
+  // until a progress line is shown while the request still runs — or the
+  // request ends, or `firstLineMs` passes — and is then closed. The request is
+  // read through the requests list alone for `freshAwayMs`: no page is open,
+  // and any read of its own route then is recorded (there must be none). Then
+  // a FRESH BROWSER SESSION — a new context, signed in afresh through
+  // `freshSession`, holding nothing of the first tab's — opens the site. Its
+  // page must find the request on the server and draw its card, and it is
+  // followed, each change kept, until it shows the request closed: every
+  // part's reply on screen. A part routed where the message may not go is
+  // stopped through the request's own Stop, as for `away`.
+  const followFresh = async (page, { netFrom, step, r, ms }) => {
+    const end = Date.now() + ms;
+    const f = r.fresh = {
+      first: null, before: [], closed: false, closedRunning: null, closedMs: null,
+      away: { reads: 0, calls: [], list: [], ended: false }, reopened: null, after: [],
+    };
+    const at = () => Date.now() - (r.sentAt || t0);
+    let s = null, key = "";
+    for (;;) {
+      try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
+      if (!key) key = requestKeyOf(rec.network.slice(netFrom));
+      if (key && s && s.requests && s.requests[key]) break;
+      if (Date.now() >= end) return { ok: false, s, page, why: key ? "the page never drew the request's card" : "the routing answer named no request, so there was nothing to leave running" };
+      await sleep(pollMs);
+    }
+    r.request = newFollow(key);
+    if (typeof requestsNow !== "function" || typeof stopNow !== "function" || typeof freshSession !== "function") {
+      return { ok: false, s, page, why: "this run was not handed the requests list, the Stop and a second sign-in, so the tab is not closed" };
+    }
+    // THE CARD IN THE TAB THAT SENT IT, until a line shows while the request runs.
+    const lineEnd = Math.min(end, Date.now() + firstLineMs);
+    let snap = null;
+    for (;;) {
+      snap = progressSnapshot(s, key);
+      keepSnapshot(f.before, snap, at());
+      const lit = snap && !snap.ended ? snap.parts.find((p) => p.lines.length > 0) : null;
+      if (lit) { f.first = { ms: at(), part: lit.n, status: lit.status, line: lit.lines[lit.lines.length - 1] }; break; }
+      if ((snap && snap.ended) || Date.now() >= lineEnd) break;
+      await sleep(pollMs);
+      try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
+    }
+    // CLOSED, as a customer closes it: nothing of this tab's moves the request on now.
+    f.closedRunning = !!(snap && !snap.ended);
+    awayCalls = f.away.calls;
+    await Promise.resolve().then(() => page.close()).catch(() => {});
+    f.closed = true;
+    f.closedMs = at();
+    const closedAt = Date.now();
+    log(`  fresh: the tab is closed ${f.first ? `${Math.round(f.first.ms / 1000)} s after the send, a progress line shown` : "with no progress line shown"}; request ${key} is read through the requests list alone`);
+    for (;;) {
+      const res = await Promise.resolve().then(() => requestsNow()).catch(() => null);
+      f.away.reads++;
+      const list = res && res.status === 200 && res.json && Array.isArray(res.json.requests) ? res.json.requests : null;
+      const view = list ? list.find((q) => q && q.key === key) || null : null;
+      const lines = view ? (Array.isArray(view.parts) ? view.parts : []).reduce((n, p) => n + (p && Array.isArray(p.progress) ? p.progress.length : 0), 0) : 0;
+      f.away.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true, lines } : {}) });
+      if (view) noteView(r, view);
+      const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+      if (hit) {
+        wallHit(r, key, hit);
+        const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);
+        r.request.stop = { status: st ? st.status : 0, ok: !!(st && st.json && st.json.ok === true), state: st && st.json && st.json.request ? st.json.request.state : "" };
+      }
+      if (view && view.ended === true) { f.away.ended = true; break; }
+      if (Date.now() - closedAt >= freshAwayMs || Date.now() >= end) break;
+      await sleep(awayEveryMs);
+    }
+    awayCalls = null;
+    // THE FRESH BROWSER SESSION: the canary's account signed in afresh, in a
+    // context of its own.
+    let fresh = null;
+    try { fresh = await freshSession(); } catch { fresh = null; }
+    if (!fresh || typeof fresh.access_token !== "string" || !fresh.access_token) {
+      f.reopened = { ok: false, found: false, closed: false, why: "a second session could not be opened" };
+      return { ok: false, s: null, page, why: "the fresh browser session could not sign in" };
+    }
+    f.reopened = {
+      ok: false, found: false, closed: false, why: "",
+      sameAccount: !!(fresh.user && session.user && fresh.user.id === session.user.id),
+      newSession: fresh.access_token !== session.access_token,
+    };
+    const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await prepareContext(ctx2, fresh);
+    const next = await ctx2.newPage();
+    watch(next);
+    const opened = await openWorkspace(next);
+    if (!opened.ok) {
+      f.reopened.why = opened.why.replace(/ — nothing was sent$/, "");
+      return { ok: false, s: null, page: next, why: `the fresh browser session: ${f.reopened.why}` };
+    }
+    f.reopened.ok = true;
+    for (;;) {
+      try { s = await next.evaluate(readComposerInPage); } catch { s = null; }
+      const snap2 = progressSnapshot(s, key);
+      if (snap2) f.reopened.found = true;
+      keepSnapshot(f.after, snap2, at());
+      const shownHere = s && s.requests ? s.requests[key] : null;
+      if (s && composerReady(s) && shownHere && shownHere.closed === true) { f.reopened.closed = true; break; }
+      if (Date.now() >= end) {
+        f.reopened.why = f.reopened.found ? "the fresh session never showed the request closed" : "the fresh session never drew the request's card";
+        return { ok: false, s, page: next, why: f.reopened.why };
+      }
+      await sleep(pollMs);
+    }
+    f.reopened.tab = await next.evaluate(tabMarkInPage).catch(() => null);
+    return { ok: true, s, page: next, why: "" };
   };
 
   // ── THE CURRENT REQUEST'S REPLIES, SETTLED AND ON SCREEN (2026-10-05) ────
@@ -2312,63 +2682,7 @@ export async function runUi(opts) {
       return rec;
     }
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    if (route) await route(context);
-    // ANY READ OF A REQUEST'S OWN ROUTE, from any page of the run's browser,
-    // while a message's tab is closed (`away`): none is expected, since no
-    // page is open, and one would mean the request was moved on by a page.
-    if (typeof context.on === "function") {
-      context.on("request", (req) => {
-        if (!awayCalls) return;
-        let u = null;
-        try { u = new URL(req.url()); } catch { return; }
-        if (u.origin === origin && u.pathname.startsWith("/api/site/request/")) awayCalls.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname });
-      });
-    }
-    // Registered after any test route, so it is asked first; anything it does
-    // not refuse falls back to that route, or to the network. It sees every API
-    // call the app makes, because a scenario that names its layers refuses
-    // every write that is not its own (`wallRefusal`). `current` is the
-    // message being sent, set just before its Send, so a message that names
-    // its own layers is walled to them.
-    await context.route((u) => u.origin === origin && u.pathname.startsWith("/api/"), async (r) => {
-      const req = r.request();
-      const u = new URL(req.url());
-      const why = wallRefusal({
-        method: req.method(), pathname: u.pathname,
-        body: typeof req.postData === "function" ? req.postData() : null, scenario, step: current,
-      });
-      if (!why) return r.fallback();
-      rec.blocked.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname, why });
-      log(`  BLOCKED ${req.method()} ${u.pathname}: ${why}`);
-      return r.abort("blockedbyclient");
-    });
-    // THE OWNER'S SESSION, PLANTED FOR THE APP'S ORIGIN AND NO OTHER. The same
-    // script runs in the workspace's preview frame, which is the customer
-    // site's origin — and a session written there would hand the owner's token
-    // to that site's scripts. Written once: the app refreshes and rotates it.
-    //
-    // AND THE FIRST-RUN GREETING, MARKED AS SEEN, as a returning owner's browser
-    // holds it. On a fresh browser, `maybeShowWelcome` covers the page with a
-    // modal whenever an unpaid account's balance is 1 to 20 and no site is
-    // stored locally. This context is always fresh, so from a balance of 20
-    // down the modal took the site card's click: Test 9's local proof, at a
-    // balance of 10, stopped there, and every earlier UI run had more than 20.
-    // It greets; no edit passes through it. Only for the app's origin, and
-    // never over a value the page already holds.
-    await context.addInitScript(({ o, key, value, seen }) => {
-      try {
-        if (location.origin !== o) return;
-        if (!localStorage.getItem(key)) localStorage.setItem(key, value);
-        if (!localStorage.getItem(seen)) localStorage.setItem(seen, "1");
-      } catch (e) { /* a frame with no storage */ }
-    }, {
-      o: origin, key: SESSION_KEY, seen: WELCOME_SEEN_KEY, value: JSON.stringify({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at ? session.expires_at * 1000 : Date.now() + (session.expires_in || 3600) * 1000,
-        user: session.user || null,
-      }),
-    });
+    await prepareContext(context, session);
     let page = await context.newPage();
     watch(page);
 
@@ -2392,7 +2706,9 @@ export async function runUi(opts) {
       const r = { n, say: step.say, attach: step.attach || null };
       // HOW THIS MESSAGE ENDS (2026-10-03): on a step's question
       // (`until: "question"`), with its tab closed (`away`), or as any other.
-      r.mode = step.until === "question" ? "question" : step.away === true ? "away" : "";
+      // OR WITH ITS TAB CLOSED ONCE ITS PROGRESS SHOWS, READ AFTERWARDS IN A
+      // FRESH BROWSER SESSION (`away: "fresh"`, 2026-10-06).
+      r.mode = step.until === "question" ? "question" : step.away === "fresh" ? "fresh" : step.away === true ? "away" : "";
       r.boundMs = stepBoundMs(step, { stepMs, capMs: stepCapMs });
       rec.steps.push(r);
       // A MESSAGE THAT DEPENDS ON AN EARLIER ONE is sent only once that one
@@ -2499,6 +2815,17 @@ export async function runUi(opts) {
       if (over) { stop(`step ${n}`, `${over} — nothing more is sent`); break; }
       const short = n === 1 && scenario.fundsFirst === true ? fundsRefusal({ now: bal, budget: scenario.budget }) : "";
       if (short) { stop(`step ${n}`, `${short} — nothing is sent`); break; }
+      // THE HARD CAP (2026-10-06): no more in the account than the press may spend.
+      const capped = n === 1 ? capRefusal({ now: bal, cap: scenario.cap }) : "";
+      if (capped) { stop(`step ${n}`, `${capped} — nothing is sent`); break; }
+      // A PRESS THAT JUDGES WHAT IS SHOWN WHILE THE WORK RUNS sends nothing to a
+      // Worker that does not narrate (`progressOnRefusal`, read for free).
+      if (n === 1 && scenario.expect && scenario.expect.progress === true) {
+        const listed = typeof requestsNow === "function" ? await Promise.resolve().then(() => requestsNow()).catch(() => null) : null;
+        const off = progressOnRefusal(listed);
+        r.progressOn = !off;
+        if (off) { stop(`step ${n}`, `${off} — nothing is sent`); break; }
+      }
       // A LATER MESSAGE GOES FROM THE TAB THE RUN OPENED, or not at all: a page
       // that reloaded or left since would make it a first message somewhere
       // else, whatever it says.
@@ -2521,7 +2848,9 @@ export async function runUi(opts) {
       r.startedMs = started.ok ? Date.now() - sentAt : null;
       const done = r.mode === "away"
         ? await followAway(page, { before, netFrom, step, r, ms: r.boundMs })
-        : await followStep(page, { before, netFrom, step, r, ms: r.boundMs });
+        : r.mode === "fresh"
+          ? await followFresh(page, { netFrom, step, r, ms: r.boundMs })
+          : await followStep(page, { before, netFrom, step, r, ms: r.boundMs });
       // THE TAB A CLOSED-TAB MESSAGE IS READ IN is the one opened afterwards.
       if (done.page) page = done.page;
       // AND A LATER MESSAGE GOES FROM THAT TAB (2026-10-05, the live check of
@@ -2529,7 +2858,7 @@ export async function runUi(opts) {
       // the tab opened afterwards, that tab is marked as the run's, and every
       // later message must go from it, never reloaded or left since
       // (`sameTab`). The first tab's mark stays on the record (`tabs`).
-      if (r.mode === "away" && done.ok && i + 1 < scenario.steps.length) {
+      if ((r.mode === "away" || r.mode === "fresh") && done.ok && i + 1 < scenario.steps.length) {
         rec.tabs = [rec.tab];
         rec.tab = await page.evaluate(markTabInPage, crypto.randomBytes(12).toString("hex")).catch(() => null);
         rec.tabs.push(rec.tab);
@@ -2761,6 +3090,29 @@ export function describeUi(rec) {
         `; the tab opened afterwards ${a.reopened ? (a.reopened.closed ? "showed it ended" : "did NOT show it ended (" + a.reopened.why + ")") : "was never opened"}` +
         // ITS OWN FIRST ADDRESS, the baseline its preview is judged against (2026-10-05).
         (a.reopened && a.reopened.firstFrame !== undefined ? `; its preview first asked for ${a.reopened.firstFrame || "nothing that was seen"}` : ""));
+    }
+    // A MESSAGE READ AFTERWARDS IN A FRESH BROWSER SESSION (`away: "fresh"`,
+    // 2026-10-06): the first line and when, the close, the list while no page
+    // was open, the fresh session, and every distinct line and part's words
+    // the customer was shown — written out whole, as the model wrote them.
+    if (s.fresh) {
+      const f = s.fresh;
+      const sec = (ms) => `${Math.round((Number(ms) || 0) / 1000)} s`;
+      out.push(`     progress: ${f.first ? `first line on screen ${sec(f.first.ms)} after the send, part ${f.first.part} (${f.first.status}): ${JSON.stringify(f.first.line)}` : "NO line was on screen before the tab closed"}`);
+      out.push(`     fresh: the sending tab ${f.closed ? `closed ${sec(f.closedMs)} after the send, the request ${f.closedRunning ? "still running" : "ALREADY ENDED"}` : "NOT closed"}` +
+        `; the requests list read ${f.away.reads} time(s) with no page open${f.away.ended ? " (it ended meanwhile)" : ""}; reads of the request's own route then: ${f.away.calls.length}` +
+        `; the fresh session ${f.reopened ? (!f.reopened.ok ? `did NOT open (${f.reopened.why})` : `${f.reopened.found ? "found its card" : "NEVER drew its card"}${f.reopened.closed ? " and showed it closed" : ` (${f.reopened.why || "not closed"})`}; a new session for the same account: ${f.reopened.newSession && f.reopened.sameAccount ? "yes" : "NO"}`) : "was never opened"}`);
+      const seen = [];
+      for (const [where, list] of [["sending tab", f.before], ["fresh session", f.after]]) {
+        for (const snap of Array.isArray(list) ? list : []) {
+          for (const p of snap.parts || []) {
+            for (const l of p.lines || []) if (!seen.some((x) => x.part === p.n && x.line === l)) seen.push({ where, ms: snap.ms, part: p.n, line: l });
+            const shown = `words ${p.status} ${p.words}`;
+            if (p.words && !seen.some((x) => x.part === p.n && x.line === shown)) seen.push({ where, ms: snap.ms, part: p.n, line: shown });
+          }
+        }
+      }
+      for (const x of seen) out.push(`       ${sec(x.ms).padStart(6)}  part ${x.part}  ${x.where.padEnd(13)}  ${x.line.startsWith("words ") ? "shown as: " + x.line.slice(6) : "line: " + x.line}`);
     }
     // THE PREVIEW AND THE PAGE'S OWN LISTS, BEFORE THE SEND AND ONCE DONE (2026-10-05).
     if (s.typed || s.view) {

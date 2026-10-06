@@ -1,0 +1,446 @@
+[
+  {
+    "label": "CONTROL: a comment only in the cap refusal — must survive",
+    "control": true,
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "export function capRefusal({ now, cap }) {",
+    "to": "export function capRefusal({ now, cap }) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the progress checks — must survive",
+    "control": true,
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "export function progressChecks({ steps }) {",
+    "to": "export function progressChecks({ steps }) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the canary's sign-in — must survive",
+    "control": true,
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "async function signIn() {",
+    "to": "async function signIn() { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the usage reader — must survive",
+    "control": true,
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "export function usageOf(events, ids) {",
+    "to": "export function usageOf(events, ids) { // comment-only control"
+  },
+  {
+    "label": "CAP — one credit above the cap passes",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "return now > cap ?",
+    "to": "return now > cap + 1 ?"
+  },
+  {
+    "label": "CAP — a cap that is not a number is not refused",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  if (!(Number.isFinite(cap) && cap > 0)) return \"the scenario's hard cap is not a number\";\n",
+    "to": ""
+  },
+  {
+    "label": "CAP — an unreadable balance is not refused",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  if (!(Number.isFinite(now) && now >= 0)) return \"the balance could not be read, so whether it is within the hard cap is not known\";\n",
+    "to": ""
+  },
+  {
+    "label": "PREFLIGHT — the cap is never asked",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "const capped = n === 1 ? capRefusal({ now: bal, cap: scenario.cap }) : \"\";",
+    "to": "const capped = \"\";"
+  },
+  {
+    "label": "PROGRESS ON — read off the requests key, not jobs",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "return Object.hasOwn(listed.json, \"jobs\") ? \"\" :",
+    "to": "return Object.hasOwn(listed.json, \"requests\") ? \"\" :"
+  },
+  {
+    "label": "PREFLIGHT — progress off does not stop the press",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "if (off) { stop(`step ${n}`, `${off} — nothing is sent`); break; }",
+    "to": "if (false && off) { stop(`step ${n}`, `${off} — nothing is sent`); break; }"
+  },
+  {
+    "label": "PREFLIGHT — progress recorded on whatever was read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "r.progressOn = !off;",
+    "to": "r.progressOn = true;"
+  },
+  {
+    "label": "SNAPSHOT — never ended",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    ended: card.ended === true,\n    closed: !!(shown && shown.closed === true),",
+    "to": "    ended: false,\n    closed: !!(shown && shown.closed === true),"
+  },
+  {
+    "label": "SNAPSHOT — never closed",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    closed: !!(shown && shown.closed === true),\n    parts: card.parts.map",
+    "to": "    closed: false,\n    parts: card.parts.map"
+  },
+  {
+    "label": "SNAPSHOT — lines not filtered to text",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "lines: p && Array.isArray(p.lines) ? p.lines.filter((l) => typeof l === \"string\" && l) : [],",
+    "to": "lines: p && Array.isArray(p.lines) ? p.lines : [],"
+  },
+  {
+    "label": "KEEP — every reading kept, changed or not",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    if (JSON.stringify(was) === JSON.stringify(snap)) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "FRESH — a line on an ended card counts as before the end",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "const lit = snap && !snap.ended ? snap.parts.find((p) => p.lines.length > 0) : null;",
+    "to": "const lit = snap ? snap.parts.find((p) => p.lines.length > 0) : null;"
+  },
+  {
+    "label": "FRESH — the tab always said closed while running",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "f.closedRunning = !!(snap && !snap.ended);",
+    "to": "f.closedRunning = true;"
+  },
+  {
+    "label": "FRESH — reads of the request's route while away are not recorded",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    awayCalls = f.away.calls;\n    await Promise.resolve().then(() => page.close())",
+    "to": "    awayCalls = null;\n    await Promise.resolve().then(() => page.close())"
+  },
+  {
+    "label": "FRESH — an end read while away is not recorded",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "if (view && view.ended === true) { f.away.ended = true; break; }",
+    "to": "if (view && view.ended === true) { break; }"
+  },
+  {
+    "label": "FRESH — a sign-in with no token is taken as a session",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "if (!fresh || typeof fresh.access_token !== \"string\" || !fresh.access_token) {",
+    "to": "if (!fresh) {"
+  },
+  {
+    "label": "FRESH — every session called new",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "newSession: fresh.access_token !== session.access_token,",
+    "to": "newSession: true,"
+  },
+  {
+    "label": "FRESH — every session called this account's",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "sameAccount: !!(fresh.user && session.user && fresh.user.id === session.user.id),",
+    "to": "sameAccount: true,"
+  },
+  {
+    "label": "FRESH — the fresh context planted with the first session",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    await prepareContext(ctx2, fresh);",
+    "to": "    await prepareContext(ctx2, session);"
+  },
+  {
+    "label": "FRESH — the card found never recorded",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      if (snap2) f.reopened.found = true;\n",
+    "to": ""
+  },
+  {
+    "label": "FRESH — taken as ended when the card first shows",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "if (s && composerReady(s) && shownHere && shownHere.closed === true) { f.reopened.closed = true; break; }",
+    "to": "if (s && composerReady(s) && shownHere) { f.reopened.closed = true; break; }"
+  },
+  {
+    "label": "MODE — a fresh step followed as away",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": ": step.away === \"fresh\" ? \"fresh\" :",
+    "to": ": step.away === \"fresh\" ? \"away\" :"
+  },
+  {
+    "label": "RE-MARK — a later message not marked to the fresh tab",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      if ((r.mode === \"away\" || r.mode === \"fresh\") && done.ok && i + 1 < scenario.steps.length) {",
+    "to": "      if (r.mode === \"away\" && done.ok && i + 1 < scenario.steps.length) {"
+  },
+  {
+    "label": "NO CHARGE — another ref's rows pass",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  if (m.others.rows.length) {\n    return { ok: false, why: `the ledger holds",
+    "to": "  if (false) {\n    return { ok: false, why: `the ledger holds"
+  },
+  {
+    "label": "NO CHARGE — an unrecorded move passes",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  if (m.excess !== 0) return { ok: false, why: `the balance moved ${m.excess} more than this press's own charges, recorded under no ref` };\n",
+    "to": ""
+  },
+  {
+    "label": "NO CHARGE — an unread ledger is not said",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  if (!m.others) return { ok: false, why: \"the ledger between the two balance reads could not be read\" };\n",
+    "to": "  if (!m.others) return { ok: true, why: \"\" };\n"
+  },
+  {
+    "label": "CHECKS — a line before the end always said shown",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "\"a progress line was on screen in the tab that sent the message while the request still ran\", !!f.first,",
+    "to": "\"a progress line was on screen in the tab that sent the message while the request still ran\", true,"
+  },
+  {
+    "label": "CHECKS — a read of the route while away passes",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "arrOf(away.list).some((x) => x && x.found) && calls.length === 0,",
+    "to": "arrOf(away.list).some((x) => x && x.found),"
+  },
+  {
+    "label": "CHECKS — a list that never named the request passes",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "(away.reads || 0) > 0 && arrOf(away.list).some((x) => x && x.found) && calls.length === 0,",
+    "to": "(away.reads || 0) > 0 && calls.length === 0,"
+  },
+  {
+    "label": "CHECKS — another account passes",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "re.ok === true && re.found === true && re.newSession === true && re.sameAccount === true,",
+    "to": "re.ok === true && re.found === true && re.newSession === true,"
+  },
+  {
+    "label": "CHECKS — a lost line passes",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "add(\"the fresh session showed every progress line the sending tab had shown\", before.size > 0 && !lost.length,",
+    "to": "add(\"the fresh session showed every progress line the sending tab had shown\", before.size > 0,"
+  },
+  {
+    "label": "CHECKS — never followed to the end passes",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "add(\"the fresh session followed the request to its end, every part's reply on screen\", re.closed === true,",
+    "to": "add(\"the fresh session followed the request to its end, every part's reply on screen\", true,"
+  },
+  {
+    "label": "CHECKS — the doing line read off any state",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "arrOf(snap && snap.parts).some((p) => p.status === \"started\" && said(p, \"doing\"))",
+    "to": "arrOf(snap && snap.parts).some((p) => said(p, \"doing\"))"
+  },
+  {
+    "label": "CHECKS — the words never compared with the model's line",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "&& p.said[state] && p.words === p.said[state]);",
+    "to": "&& p.said[state]);"
+  },
+  {
+    "label": "CHECKS — done passes whatever it was called",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "const off = parts.filter((p) => !(p.status === \"done\" && said(p, \"done\")));",
+    "to": "const off = parts.filter((p) => !(p.status === \"done\"));"
+  },
+  {
+    "label": "CHECKS — read off an away step",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "const s = arrOf(steps).find((x) => x && x.mode === \"fresh\");",
+    "to": "const s = arrOf(steps).find((x) => x && x.mode === \"away\");"
+  },
+  {
+    "label": "CHECKS — a press that asks is not judged on them",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "...progressChecks({ steps })",
+    "to": "...[]"
+  },
+  {
+    "label": "COVERAGE — a part with no line covered",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "return { covered: each.length > 0 && each.every(([, c]) => c > 0),",
+    "to": "return { covered: each.length > 0,"
+  },
+  {
+    "label": "CANARY — the verdict passes whatever it says",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "nc.ok, nc.why);",
+    "to": "true, nc.why);"
+  },
+  {
+    "label": "CANARY — no second sign-in handed to the driver",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "stopNow: requestsIo.stop, freshSession: signIn });",
+    "to": "stopNow: requestsIo.stop });"
+  },
+  {
+    "label": "CANARY — a fresh step judged as read in the run's own tab",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "if (s.mode !== \"away\" && s.mode !== \"fresh\") check(",
+    "to": "if (s.mode !== \"away\") check("
+  },
+  {
+    "label": "USAGE — every call counted written",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "ok: m[3] === \"written\", why:",
+    "to": "ok: true, why:"
+  },
+  {
+    "label": "USAGE — in and out swapped",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "in: Number(m[10]), out: Number(m[11]),",
+    "to": "in: Number(m[11]), out: Number(m[10]),"
+  },
+  {
+    "label": "USAGE — another id's calls priced as the press's",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "if (c) { if (ids.has(c.id)) calls.push({ ts, ...c }); else other++; continue; }",
+    "to": "if (c) { calls.push({ ts, ...c }); continue; }"
+  },
+  {
+    "label": "USAGE — credits are dollars",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "      usd, credits: usd / CREDIT_USD,\n",
+    "to": "      usd, credits: usd,\n"
+  },
+  {
+    "label": "USAGE — the median is the fastest",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "msMedian: ms.length ? ms[Math.floor((ms.length - 1) / 2)] : 0,",
+    "to": "msMedian: ms.length ? ms[0] : 0,"
+  },
+  {
+    "label": "STEP — stops on two empty reads, or the first",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "if (count > 0 && count === last) break;",
+    "to": "if (count === last || count > 0) break;"
+  },
+  {
+    "label": "STEP — the window starts at the first balance read",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "const from = Date.parse(String(ask.from || \"\")) - 2 * 60_000;",
+    "to": "const from = Date.parse(String(ask.from || \"\"));"
+  },
+  {
+    "label": "QUERY — not dry",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "    dry: true,\n",
+    "to": "    dry: false,\n"
+  },
+  {
+    "label": "MESSAGE — the deep read dropped",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "  return walk(e, 0);\n}",
+    "to": "  return \"\";\n}"
+  },
+  {
+    "label": "WORKFLOW — the usage step only on success",
+    "files": [
+      ".github/workflows/edit-canary.yml"
+    ],
+    "from": "      - name: narration usage (free, read-only)\n        if: always()\n",
+    "to": "      - name: narration usage (free, read-only)\n"
+  }
+]

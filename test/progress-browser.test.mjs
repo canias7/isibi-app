@@ -408,3 +408,41 @@ test("OUTCOMES — ANOTHER DEVICE'S CARDS SAY WHAT REALLY HAPPENED: a job done o
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
 });
+
+test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06, the progress live check): a fresh device's page draws the request the list names, and the canary's own reader, on the real page, reads each part's own words (the model's line for its state), its label, its lines without their times, the newest live while it runs, and the lines for every state as the page keeps them; ended, each part shows its done line and no live line", { skip: SKIP, timeout: 120000 }, async () => {
+  const { progressSnapshot } = await import("../scripts/canary-ui.mjs");
+  let ended = false;
+  const view = () => ({
+    key: KEY, state: ended ? "done" : "running", ended, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0,
+    parts: [
+      { n: 0, words: WORDS, status: ended ? "done" : "started", ids: [JOB], jobs: ended ? [JOB] : [], charged: 0, route: "addon", progress: LINES.slice(0, ended ? 3 : 2), said: SAID_A },
+      { n: 1, words: SOLO_WORDS, status: ended ? "done" : "ready", ids: ended ? [SOLO] : [], jobs: ended ? [SOLO] : [], charged: 0, route: "text", said: SAID_SOLO },
+    ],
+  });
+  const S = {
+    requests: () => [view()], view, jobs: () => [],
+    polls: { [JOB]: () => ({ final: true, body: { ...ADDON_ANSWER, progress: LINES } }), [SOLO]: () => ({ final: true, body: { ...EDIT_ANSWER } }) },
+  };
+  const app = await openApp(S, { seed: { site: siteRecord() } });
+  try {
+    const { page } = app;
+    await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 2, null, { timeout: 20000 });
+    const s = await page.evaluate("(" + READER + ")()");
+    const running = progressSnapshot(s, KEY);
+    assert.ok(running, "the reader found no card for the request: " + JSON.stringify(Object.keys(s.cards || {})));
+    assert.equal(running.ended, false);
+    assert.deepEqual(running.parts.map((p) => [p.n, p.status, p.words, p.label]), [[0, "started", SAID_A.doing, "In progress"], [1, "ready", SAID_SOLO.planned, "Next"]]);
+    assert.deepEqual(running.parts[0].lines, LINES.slice(0, 2).map((l) => l.text), "the lines were not read without their times");
+    assert.equal(running.parts[0].live, LINES[1].text, "the newest line was not read as live");
+    assert.deepEqual(running.parts[1].lines, []);
+    assert.deepEqual(running.parts[0].said, SAID_A, "the lines for every state were not read as the page keeps them");
+    ended = true;
+    await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 3 && !document.querySelector(".st-req-prog li.live"), null, { timeout: 30000 });
+    const s2 = await page.evaluate("(" + READER + ")()");
+    const done = progressSnapshot(s2, KEY);
+    assert.equal(done.ended, true);
+    assert.deepEqual(done.parts.map((p) => [p.status, p.words, p.live]), [["done", SAID_A.done, ""], ["done", SAID_SOLO.done, ""]]);
+    assert.deepEqual(done.parts[0].lines, LINES.map((l) => l.text));
+    assert.deepEqual(app.errors, []);
+  } finally { await closeApp(app); }
+});

@@ -1,0 +1,67 @@
+[
+  {
+    "label": "CONTROL: a comment only in the card reader — must survive",
+    "control": true,
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    cards: (() => {\n      const out = {};",
+    "to": "    cards: (() => {\n      // comment-only control\n      const out = {};"
+  },
+  {
+    "label": "CARDS — the words read off the label",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                words: words(li.querySelector(\".st-req-words\")),",
+    "to": "                words: words(li.querySelector(\".st-req-status\")),"
+  },
+  {
+    "label": "CARDS — the label never read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                label: words(li.querySelector(\".st-req-status\")),",
+    "to": "                label: \"\","
+  },
+  {
+    "label": "CARDS — the live line never read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                live: live ? keptLine(live) : \"\",",
+    "to": "                live: \"\","
+  },
+  {
+    "label": "CARDS — never ended",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "            ended: !!(view && view.ended),\n            parts: [...m.querySelectorAll(\".st-req-part\")]",
+    "to": "            ended: false,\n            parts: [...m.querySelectorAll(\".st-req-part\")]"
+  },
+  {
+    "label": "CARDS — no lines read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                lines: [...li.querySelectorAll(\".st-req-prog li\")].map(keptLine).filter(Boolean),",
+    "to": "                lines: [],"
+  },
+  {
+    "label": "CARDS — the state lines never read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                said: st && st.said && typeof st.said === \"object\" ? { ...st.said } : null,\n              };",
+    "to": "                said: null,\n              };"
+  },
+  {
+    "label": "CARDS — no status read",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "                status: st && typeof st.status === \"string\" ? st.status : \"\",\n                words: words(",
+    "to": "                status: \"\",\n                words: words("
+  }
+]

@@ -63,7 +63,7 @@ import { routeCallOf } from "./canary-ui.mjs";
 import { chainOrdered } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
-import { routeCallsOf, ownMoneyVerdict, ownMoneySaid } from "./canary-ui.mjs";
+import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict } from "./canary-ui.mjs";
 import { requestBatchVerdict } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
@@ -261,18 +261,27 @@ if (PROBES_ASK.name) {
 const RUN_ID = runIdOf(process.env);
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
-const gl = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-  method: "POST", headers: svc, body: JSON.stringify({ type: "magiclink", email: EMAIL }),
-});
-const glBody = await gl.json().catch(() => ({}));
-const hashed = glBody.hashed_token || (glBody.properties && glBody.properties.hashed_token);
-if (!hashed) { console.error("could not generate a sign-in link:", gl.status); process.exit(1); }
-const vr = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-  method: "POST", headers: { apikey: ANON_KEY, "content-type": "application/json" },
-  body: JSON.stringify({ type: "magiclink", token_hash: hashed }),
-});
-const session = await vr.json().catch(() => ({}));
-if (!session.access_token) { console.error("could not open a session:", vr.status); process.exit(1); }
+// THE CANARY'S ACCOUNT, SIGNED IN — once here, and once more, the same way,
+// for a fresh browser session (`away: "fresh"`, 2026-10-06): a second session
+// of the same account, as another device opens, sharing nothing with the
+// first. `null` when a link or a session cannot be had.
+async function signIn() {
+  const gl = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: "POST", headers: svc, body: JSON.stringify({ type: "magiclink", email: EMAIL }),
+  });
+  const glBody = await gl.json().catch(() => ({}));
+  const hashed = glBody.hashed_token || (glBody.properties && glBody.properties.hashed_token);
+  if (!hashed) { console.error("could not generate a sign-in link:", gl.status); return null; }
+  const vr = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+    method: "POST", headers: { apikey: ANON_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ type: "magiclink", token_hash: hashed }),
+  });
+  const opened = await vr.json().catch(() => ({}));
+  if (!opened.access_token) { console.error("could not open a session:", vr.status); return null; }
+  return opened;
+}
+const session = (await signIn()) || {};
+if (!session.access_token) process.exit(1);
 const TOKEN = session.access_token;
 const UID = (session.user || {}).id || "";
 console.log(`signed in as ${(session.user || {}).email}  uid=${UID}\n`);
@@ -941,7 +950,7 @@ if (UI_ASK) {
     list: () => call("GET", `/api/site/requests/${encodeURIComponent(CANARY)}`),
     stop: (key) => call("DELETE", `/api/site/request/${encodeURIComponent(CANARY)}/${encodeURIComponent(key)}`),
   };
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop });
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop, freshSession: signIn });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
   if (!recoverOnly) {
@@ -959,7 +968,8 @@ if (UI_ASK) {
       check(`the composer was usable again after message ${s.n}`, s.usable === true, JSON.stringify(s.composer));
       // A MESSAGE SENT WITH ITS TAB THEN CLOSED (`away`) is read in the tab
       // opened afterwards, by design; the batch's own checks judge that tab.
-      if (s.mode !== "away") check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
+      // AND ONE READ AFTERWARDS IN A FRESH BROWSER SESSION (`away: "fresh"`) likewise.
+      if (s.mode !== "away" && s.mode !== "fresh") check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
       if (s.file) {
         // A REQUEST'S FILES TRAVEL ON THE ROUTING CALL, kept on the server under
         // the request for every step that reads them (2026-10-03).
@@ -1331,6 +1341,24 @@ if (UI_ASK) {
       const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });
       requests.money = money;
       check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
+      // NARRATION ADDS NO CHARGE (2026-10-06), for a press that judges progress:
+      // nothing but this press's own routing and jobs moved the balance, and
+      // every ledger row while it ran is theirs. The rows are written out with
+      // their kinds and reasons, for the record. AND THE PRESS'S IDS AND WINDOW
+      // for the narration's usage, read from the Worker's own log lines by the
+      // workflow's next step (`scripts/narration-usage.mjs`), never here.
+      if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.progress === true) {
+        const nc = narrationChargeVerdict(money);
+        requests.narrationCharge = nc;
+        check("narration added no charge: the balance moved by exactly this press's own routing and jobs, and no other ledger row was written while it ran", nc.ok, nc.why);
+        if (window && window.ok === true) {
+          console.log("  the ledger while the press ran:");
+          for (const r of window.rows) console.log(`    row ${r.id}  ${r.at}  ${r.kind}/${r.reason}  ${String(r.ref || "").slice(0, 60)}  ${r.delta}`);
+        }
+        const keys = ui.steps.map((x) => (x && x.request && typeof x.request.key === "string" ? x.request.key : "")).filter(Boolean);
+        mkdirSync(EVID, { recursive: true });
+        writeFileSync(`${EVID}/narration-ids.json`, JSON.stringify({ scenario: UI_ASK.name, slug: CANARY, from: bal.startAt || null, to: bal.endAt || new Date().toISOString(), requests: keys, jobs: [...jobs] }, null, 2));
+      }
       // THE NEW PAGE'S FORM, SENT ONCE BY A VISITOR (2026-10-06, the owner:
       // "Include checking the resulting pages and submitting any form created
       // by that test"). Only a scenario that asks for it (`expect.form`), only
