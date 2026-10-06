@@ -1,145 +1,41 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 14:06 UTC)
+## Current handoff — read this first (2026-10-06, 14:14 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2185 is live** (`main` `b2409b3c`, image **`c7fe818d446dd957`**),
-  on your approval of the release plan. `main` `d75d79f3` → `b2409b3c` at
-  13:02:20 UTC, a fast-forward of 28 commits. The one deploy run (2185,
-  37467698447) built the image once, as predicted, and the served files are
-  byte-identical to the merged ones (`chat.js` 903,533 bytes `dd876c6f…`).
-  **Runtime-confirmed by your free press, run 102** (13:28 UTC): both
-  readers answered `b2409b3c0649`, a cold container `c7fe818d446dd957`,
-  queued jobs and the runner on, every zero-cost confirmation passed,
-  nothing charged (`docs/history/2026-10-06-deploy-2185.md` §6.1).
-- **The live check passed: your paid press, run 103** (`lv-release` on
-  `fold-lane-bakery`, 13:47–14:01 UTC, from `main` on `b2409b3c`), after the
-  balance was raised to 35 at your request. **Every check passed** (`UI MODE
-  PASSED`):
-  - one message, routed `addon` with the heading held back as its own part;
-    the request ended with both parts done (the add-on, then a text edit);
-  - **the pages**: `/tasting-evenings` stored and served, linked "Tasting
-    Evenings" from every page's menu and header; `/gallery` reads
-    "Photographs from our ovens"; every other page, component, logo and the
-    description as they were;
-  - **the table**: exactly one new one, `tasting_list`, which visitors can
-    send to and nobody can read, with an email column; the other tables as
-    they were;
-  - **the replies**: both the model's own and on screen (below);
-  - **the visitor's form entry**: sent once through the page's own form,
-    taken by the site, and read back by your account's route as exactly one
-    row, **each entry in its bound column: "Your name *" → `name`, "Email
-    *" → `email`** (the email field has no name attribute and was bound by
-    its id and label);
-  - **the money**: routing 3 + jobs 23 = **26 credits**, exactly the
-    balance's move, **35 → 9** (ledger rows 393–397).
-  The screenshots of the new page and the Gallery were sent to you; the full
-  readings are `docs/history/2026-10-06-deploy-2185.md` §7.
-- **The reporting work and the form step's correction are closed**: Codex
-  passed `9c2ca743` at `1f3dc370`, and `09470116` at `b2409b3c`.
-- **What the release carried**: the 22 reviewed commits to `1f3dc370`, every
-  batch in them reviewed and closed:
-  - run 101's corrections (`936295a5`, yours);
-  - the requirement judgment (`0f94d159`, yours);
-  - the incomplete-judgment fix (`4b6271ff`, Codex);
-  - the requirement reporting (`95f5a9d0`, Codex);
-  - the refusal and warning-list fix (`46a7746c`; you passed the warning
-    lists);
-  - the failure reporting (`c4748136`) and its correction (`9c2ca743`),
-    Codex.
-- **And the release check** (`docs/investigations/release-plan.md`), on top
-  of those 22 commits:
-  - **the release check** (`f448aaba`, canary only, deploys nothing): the
-    scenario `lv-release` and a new form step;
-  - **the plan and its records** (`8eceb2bd`, `fb42ff16`);
-  - **the form step's correction after Codex's review** (`09470116`, canary
-    only, deploys nothing; §4.4 of the plan), its records (`d6de4ea9`) and
-    the CI record after them.
-- **The correction** (Codex, at `fb42ff16`: the form gate and the row check
-  passed the name and the address swapped, and both empty with the values
-  in unrelated `note` and `source` columns, because they asked only whether
-  each value was somewhere):
-  - **reproduced first**: all four passed both checks, on the ordinary form
-    and on renamed columns;
-  - **now each entry is judged under its own column**. Before anything is
-    pressed, each field is bound to its column of the new table, from the
-    form's own fields and the table's columns: a field whose name, id or
-    label is one column's name, or, for the name and the address only, the
-    table's one column for it. Renamed columns work without naming a site
-    or expecting `name` and `email`;
-  - **a binding that cannot be established presses nothing** and is
-    reported as a limitation of the check. It never passes;
-  - the gate stops the four before they leave, the row check fails them,
-    and the ordinary and renamed controls pass.
-- **The plan, in short** (the merge, the deploy and the served files done;
-  the runtime check and the live check to follow):
-  - **the merge**: a fast-forward of `main` from `d75d79f3` to the
-    candidate; that push is the one deploy;
-  - **the image**: built once, `589e3e4e85a20066` → **`c7fe818d446dd957`**
-    (predicted on both ends, 194 inputs);
-  - **the served file**: only `chat.js` changes, to 903,533 bytes
-    `dd876c6f…`, checked byte for byte after the deploy (it serves 895,780
-    bytes `188dc2a9…` today, deploy 2184's own);
-  - **then** the image window, your free runtime press, the funds (below)
-    and your one paid press, `lv-release`, with every box named in the plan;
-  - **the request**: *"Add a Tasting Evenings page where people can join the
-    waiting list for our next tasting evening by leaving their name and email
-    address, and change the Gallery page heading 'Photographs from Fold Lane'
-    to 'Photographs from our ovens'."*, on `fold-lane-bakery`;
-  - **what must hold**: the new page served, its link in every menu, the
-    heading changed, exactly one new visitor-to-owner table with an email
-    column, everything else as it was, the replies the model's own, the money
-    closing. Then **the new page's form is sent once by a visitor in a real
-    browser**, and the table must hold exactly that one entry, each value in
-    the column its field is bound to, read back by the owner's route;
-  - **the cost**: about 17–27 credits, most likely about 25 (run 101's same
-    shape cost 24 before the judgment existed). The form step and every read
-    are free.
-- **The balance does not cover it**: **21** at the last reading (10:37 UTC on
-  6 October; last ledger row 392, no job queued or running). The press
-  carries a budget of 30 and, before it sends anything, refuses unless the
-  balance covers that (new, `fundsFirst`). At 21 it stops there for nothing.
-- **The release check's own evidence** (the canary only; nothing live):
-  - **16 cases** in `test/canary-form.test.mjs`: the form's decisions, each
-    refusal by name; the bindings and each way one is not established; the
-    gate and the stored row on both of Codex's payloads, on the ordinary
-    form and renamed columns, with their controls; the helper in a real
-    Chromium against pages served in the test (the paid send, a rehearsal,
-    refused bodies, a credential, an unfillable field, two forms, a field
-    that does not hold, a page whose code swaps or misplaces the entries,
-    renamed columns, and a table whose columns cannot be told apart); the
-    funds refusal; the wiring;
-  - **the sweep**: 60 of 60 planted defects caught, the 3 controls surviving.
-    Two of them put the old "somewhere in the object" check back into the gate
-    and the row check, and both are caught. The first run caught 59: the
-    survivor, two new rows passing as one, was a guard written twice, each
-    copy hiding a defect in the other. It is now one term;
-  - **the suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new cases).
-- **CI**: green on `d6de4ea9` (the correction with its records): unit tests
-  (run 37466187566) `9592 / 9577 / 0 / 15`, the same total as here. CI has
-  no Chromium, so the browser cases skip there (15 skipped, 14 before FORM 8;
-  by the count). The site build was not owed a run: nothing it reads changed
-  since its green run on `49a67763` (run 37454790999).
-- **Kept apart in the plan (§6)**: what controlled failure tests show (every
-  failure outcome, refusals, warning lists, the incomplete judgment, older
-  answers replayed) is not what the live check would prove. The live check
-  proves the success path with real models, the judgment's first live run,
-  the model-written replies, the served pages and a real entry stored through
-  the new form. It proves no failure path.
+- **The release passed and is closed**: Codex reviewed run 103 and closed
+  the release verification (2026-10-06).
+  - **Deploy 2185 is live and runtime-confirmed**: `main` `b2409b3c`, image
+    `c7fe818d446dd957`, built once as predicted; the served files
+    byte-identical to the merged ones; your free press, run 102, confirmed
+    the Worker and a cold container on that sha and image.
+  - **The live check passed**: your paid press, run 103 (`lv-release` on
+    `fold-lane-bakery`). One message made the Tasting Evenings page with its
+    waiting-list form and the `tasting_list` table, and changed the Gallery
+    heading to "Photographs from our ovens". Both replies were the model's
+    own; the visitor's entry was read back with each value in its bound
+    column ("Your name *" → `name`, "Email *" → `email`). 26 credits.
+- **The balance is 9** (the ledger's last row 397, no job open). Anything paid
+  next needs it raised first.
+- **What the release carried**: run 101's corrections (`936295a5`), the
+  requirement judgment (`0f94d159`), the incomplete-judgment fix
+  (`4b6271ff`), the requirement reporting (`95f5a9d0`), the refusal and
+  warning-list fix (`46a7746c`), the failure reporting (`c4748136`) and its
+  correction (`9c2ca743`), and the release check (`f448aaba`) with its
+  form-step correction (`09470116`), each reviewed and closed.
+- **Now in preparation, as a plan only**: model-written progress messages
+  during Edit and Add-on. No product code is changed until you have the plan.
 
 **Yours to decide**
-- **Review run 103's result** (§7 of the deploy history, and the
-  screenshots). Other work stays parked until you have.
-- **What it left on the bakery** (the demo-site rule): the Tasting Evenings
-  page, the `tasting_list` table, the menu links, the Gallery heading, and
-  the one marked entry (`Canary release 37473592366`,
+- **The progress-messages plan**, once delivered.
+- **What run 103 left on the bakery** (the demo-site rule): the Tasting
+  Evenings page, the `tasting_list` table, the menu links, the Gallery
+  heading, and the one marked entry (`Canary release 37473592366`,
   `canary-release-37473592366@example.com`). Taking any of it out is yours.
-- **The balance is 9** after the press. Anything paid next needs it raised
-  first.
 
 **Still open** (`docs/backlog.md`)
 - **Found in the reporting work, not fixed**:
@@ -160,11 +56,13 @@ is in git; the dated entries further down are the full story.*
   - the seed engine numbers a refused row by the rows that went in;
   - a table whose starter rows were skipped isn't also reported as one
     nothing can fill.
-- **Seen while preparing the plan, parked**: `/starter` on the live bakery
-  reads "This page isn't finished yet".
+- **Seen during the release, not changed**: `/starter` on the live bakery
+  reads "This page isn't finished yet"; the new page's picture is the kit's
+  placeholder, as the Gallery's already was; the add-on's reply opened with
+  ⚠️ although both parts ended done (the heading had not been tried yet when
+  it was written).
 - **Parked, as you asked**: a designer's requirements past its twelfth are
-  set aside when they come in and never told; the planned model-written
-  progress updates.
+  set aside when they come in and never told.
 - **Limits of the judgment** (the judgment history files): the judging is
   only as good as the model, and a whole but wrong answer passes; it sees the
   design, not the published result; a part a designer builds for an extra
@@ -183,14 +81,13 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- The release plan: `docs/investigations/release-plan.md`.
-- The reporting work: `docs/history/2026-10-06-failure-outcome.md` (§6 the
-  correction and its closing), `docs/history/2026-10-06-refusal-warnings.md`,
+- The release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run 102, §7
+  run 103) and the plan, `docs/investigations/release-plan.md`.
+- The reporting work: `docs/history/2026-10-06-failure-outcome.md`,
+  `docs/history/2026-10-06-refusal-warnings.md`,
   `docs/history/2026-10-06-requirement-reporting.md`,
   `docs/history/2026-10-06-incomplete-judgment.md` and
   `docs/history/2026-10-05-judgment.md`.
-- Run 101's batch and the closed live check:
-  `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
 ---
 
@@ -250,6 +147,18 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: the release verification closed
+
+- **Codex reviewed run 103 and closed the release verification.** Deploy
+  2185 (`b2409b3c`, image `c7fe818d446dd957`) is live and runtime-confirmed
+  (run 102), and the live check passed (run 103, 26 credits). The balance is
+  9.
+- **Not repeated**: no paid test, rebuild or redeploy.
+- **The handoff is rewritten** to that state, with nothing left saying the
+  runtime check is pending or the balance is 21.
+- **Next, a plan only**: model-written progress messages during Edit and
+  Add-on.
 
 ## 2026-10-06 — Deploy 2185: the release merged, deployed and runtime-confirmed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the live check passed, run 103, 26 credits
 
