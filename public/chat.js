@@ -10074,12 +10074,35 @@ function siteRequestHTML(m, site) {
         : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>') : '';
     // WHAT ITS JOBS SAID WHILE THEY RAN (2026-10-06), under its label — the
     // label stays the fixed status; the lines are the model's words.
-    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(String(p.words || '')) + '</span>' +
+    // AND IT IS NAMED BY THE MODEL'S OWN LINE FOR ITS STATE, once written; by
+    // its words, as they are, until then.
+    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   const stop = !v.ended && !v.stop
     ? '<div class="st-opts"><button type="button" class="st-opt st-opt-skip" data-req-stop="' + esc(m.request) + '"><span>Stop the rest</span></button></div>' : '';
   return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol>' + stop + '</div>';
+}
+
+// ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ────────────────────
+//
+// The owner: *"make the assistant's task summaries and progress updates
+// conversational and first-person … Let the model generate the wording
+// naturally from context, matching whether the work is planned, happening or
+// finished. Don't add hardcoded prefixes to the user's words."* The model
+// writes each task's line in every state (`said`); the status the server
+// gives picks which, here, so no line can claim a state the task is not in.
+// Without one, the task's words show as they are.
+const SITE_SAID_FOR = {
+  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',
+  started: 'doing', unverified: 'doing', done: 'done',
+  partial: 'notdone', failed: 'notdone', 'not-run': 'notdone', cancelled: 'notdone', expired: 'notdone', refused: 'notdone',
+};
+/** A found job's state, as its card names it: queued, finished, not done, or happening now. */
+const SITE_JOB_SAID = { queued: 'planned', done: 'done', failed: 'notdone', lost: 'notdone', cancelled: 'notdone' };
+function siteSaidFor(said, which) {
+  const s = EditPoll.taskSaid(said);
+  return s && typeof which === 'string' && Object.hasOwn(s, which) ? s[which] : '';
 }
 
 // ── A JOB'S PROGRESS LINES (2026-10-06) ─────────────────────────────────────
@@ -10147,13 +10170,17 @@ function siteJobCardHTML(m, site) {
   const v = c && c.view;
   if (!v) return '';
   const st = Object.hasOwn(SITE_JOB_STATUS, v.state) ? SITE_JOB_STATUS[v.state] : SITE_JOB_RUNNING;
-  return '<div class="st-req"><ol class="st-req-parts"><li class="st-req-part st-req-' + esc(st.cls) + '"><span class="st-req-words">' + esc(String(v.words || '')) + '</span>' +
+  const which = Object.hasOwn(SITE_JOB_SAID, v.state) ? SITE_JOB_SAID[v.state] : 'doing';
+  return '<div class="st-req"><ol class="st-req-parts"><li class="st-req-part st-req-' + esc(st.cls) + '"><span class="st-req-words">' + esc(siteSaidFor(v.said, which) || String(v.words || '')) + '</span>' +
     '<span class="st-req-status">' + esc(st.label) + '</span>' + progressListHTML(v.progress, st === SITE_JOB_RUNNING) + '</li></ol></div>';
 }
 /** A standalone job the server listed: drawn once, where this page does not already show it. */
 function siteJobDiscovered(origin, v) {
   const s = siteById(origin);
   if (!s || !v || typeof v !== 'object' || typeof v.job !== 'string' || !/^[0-9a-f]{32}$/.test(v.job)) return;
+  // A CARD ALREADY DRAWN takes its task's lines when they have been written since.
+  const drawn = s.jobCards && typeof s.jobCards === 'object' && !Array.isArray(s.jobCards) && Object.hasOwn(s.jobCards, v.job) ? s.jobCards[v.job] : null;
+  if (drawn && drawn.view && EditPoll.taskSaid(v.said)) drawn.view.said = EditPoll.taskSaid(v.said);
   // SHOWN HERE ALREADY: this page's own watch, the job it remembers, a reply
   // it holds or showed for it, or its card.
   if (editWatched.has(v.job)) return;
@@ -10165,7 +10192,7 @@ function siteJobDiscovered(origin, v) {
   for (const k of Object.keys(s.jobCards)) { const c = s.jobCards[k]; if (!c || !(now - (c.at || 0) < SITE_REQ_KEEP_MS)) delete s.jobCards[k]; }
   s.jobCards[v.job] = {
     at: now, closed: false,
-    view: { job: v.job, op: v.op === 'addon' ? 'addon' : 'edit', state: typeof v.state === 'string' ? v.state : '', words: typeof v.words === 'string' ? v.words : '', progress: EditPoll.progressLines(v) },
+    view: { job: v.job, op: v.op === 'addon' ? 'addon' : 'edit', state: typeof v.state === 'string' ? v.state : '', words: typeof v.words === 'string' ? v.words : '', progress: EditPoll.progressLines(v), said: EditPoll.taskSaid(v.said) },
   };
   // WHERE IT FALLS IN TIME: before the first message the page knows to be
   // newer (a request made after it, or a message sent from this page), at the
@@ -10221,6 +10248,8 @@ function siteJobFollow(origin, job) {
     const read = r ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e) : { act: 'retry' };
     const got = r ? EditPoll.progressLines(e) : [];
     if (got.length) c.view.progress = got;
+    const taskLines = r ? EditPoll.taskSaid(e && e.said) : null;
+    if (taskLines) c.view.said = taskLines;
     if (read.act === 'gone') { c.closed = true; draw(); stop(); return; }
     if (read.act === 'retry' || (read.act === 'wait' && read.kind !== 'reply')) {
       if (read.act === 'wait' && e && typeof e.status === 'string') c.view.state = e.status;

@@ -51,6 +51,8 @@ const KEYS = cutStatement("\ndocument.addEventListener('keydown', (e) => {", "\n
 const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-ans");
 // THE LABELS OF A REQUEST'S CARD (2026-10-03, the combined request flow).
 const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approval:");
+// WHICH OF A TASK'S LINES EACH OF THOSE STATUSES SHOWS (2026-10-06).
+const REQ_SAID = cutStatement("\nconst SITE_SAID_FOR = {", "\n};\n", "notdone");
 
 // THE FUNCTIONS: the send and route handlers, the question block, and both
 // readers' whole selection (the lists the sweep's readers run, so a reply here
@@ -86,6 +88,8 @@ const FNS = [...new Set([
   // A JOB'S PROGRESS LINES (2026-10-06): under a request part, kept on a
   // watched job's reply, and on the card of a job found from another device.
   "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
+  // AND EACH TASK NAMED BY THE MODEL'S OWN LINE FOR ITS STATE (2026-10-06).
+  "siteSaidFor",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -97,6 +101,7 @@ const LINES = [...new Set([
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
   "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =",
   "const SITE_JOB_STATUS =", "const SITE_JOB_RUNNING =", "const siteJobFollowing =", "const editWatched =",
+  "const SITE_JOB_SAID =",
 ])];
 // THE RENDER'S OWN FRAME STEP (2026-10-05, the owner's review: *"test the
 // rendered iframe URL, not merely previewV increasing"*): where `renderSites`
@@ -120,6 +125,7 @@ const SRC = [
   ...LINES.map(cutLine),
   KEYS,
   REQ_STATUS,
+  REQ_SAID,
   "function wireThread(thread, site) {" + CLICKS + "}",
   "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",
 ].join("\n");

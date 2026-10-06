@@ -176,8 +176,8 @@
     "files": [
       "builder/site-progress.mjs"
     ],
-    "from": "retryAt: undefined, asked: 0 }, claimed: true };",
-    "to": "retryAt: undefined }, claimed: true };"
+    "from": "tries: tries + 1, retryAt: undefined, asked: 0 }, claimed: true };",
+    "to": "tries: tries + 1, retryAt: undefined }, claimed: true };"
   },
   {
     "label": "WRITER — a live lease does not make the rule wait",
@@ -448,8 +448,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "  return JSON.stringify({ ...body, progress: lines });",
-    "to": "  return text;"
+    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });",
+    "to": "  return JSON.stringify({ ...body, ...(said ? { said } : {}) });"
   },
   {
     "label": "POLL — a running job's answer carries no lines",
@@ -682,5 +682,495 @@
     ],
     "from": "      if (!t || typeof p.n !== \"number\" || !isFinite(p.n) || p.n < 0 || Math.floor(p.n) !== p.n) continue;",
     "to": "      if (!t) continue;"
+  },
+  {
+    "label": "CONTROL: a comment only in the task-lines writer — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function writeTaskLines(env, task, owner, rec) {",
+    "to": "async function writeTaskLines(env, task, owner, rec) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the task lines' module half — must survive",
+    "control": true,
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export function addTasks(rec, tasks) {",
+    "to": "export function addTasks(rec, tasks) { // comment-only control"
+  },
+  {
+    "label": "TASKS — lines given up are asked for again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export const tasksNeeded = (rec) => !!(rec && !rec.tasksWhy && unwrittenTasks(rec).length > 0);",
+    "to": "export const tasksNeeded = (rec) => !!(rec && unwrittenTasks(rec).length > 0);"
+  },
+  {
+    "label": "TASKS — the lines already written are asked for again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "rec.taskWords.filter((t) => !(Array.isArray(rec.tasks) && rec.tasks.some((x) => x.n === t.n)))",
+    "to": "rec.taskWords.slice()"
+  },
+  {
+    "label": "TASKS — a stored line for no task reads",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (!e || typeof e !== \"object\" || !words.some((t) => t.n === e.n) || out.some((o) => o.n === e.n)) return false;",
+    "to": "    if (!e || typeof e !== \"object\" || out.some((o) => o.n === e.n)) return false;"
+  },
+  {
+    "label": "TASKS — a commit drops the lines already written",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const read = readTaskLines([...had, ...fresh], rec.taskWords);",
+    "to": "  const read = readTaskLines(fresh, rec.taskWords);"
+  },
+  {
+    "label": "TASKS — a commit without the lease",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (!leaseHeld(rec, owner, now) || !tasksNeeded(rec) || !Array.isArray(tasks)) return null;",
+    "to": "  if (!tasksNeeded(rec) || !Array.isArray(tasks)) return null;"
+  },
+  {
+    "label": "TASKS — a closed record refuses the lines",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "const leaseHeld = (rec, owner, now) => !!(rec && rec.writer &&",
+    "to": "const leaseHeld = (rec, owner, now) => !!(rec && !rec.closed && rec.writer &&"
+  },
+  {
+    "label": "TASKS — a part added after a give-up is never tried",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  return { rec: { ...rec, taskWords, taskTries: 0, tasksWhy: null }, added: fresh.length };",
+    "to": "  return { rec: { ...rec, taskWords }, added: fresh.length };"
+  },
+  {
+    "label": "TASKS — a part added later is never added",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if (!fresh.length) return { already: true };",
+    "to": "  if (true) return { already: true };"
+  },
+  {
+    "label": "TASKS — a try at the lines is not counted",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "taskTries: t + 1, retryAt: undefined, asked: 0 }, claimed: true };",
+    "to": "taskTries: t, retryAt: undefined, asked: 0 }, claimed: true };"
+  },
+  {
+    "label": "TASKS — every try at the lines spent never gives up",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (t < PROGRESS_TRIES) return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: t + 1 }",
+    "to": "    if (true) return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: t + 1 }"
+  },
+  {
+    "label": "TASKS — a failed call is never tried again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  if ((rec.taskTries || 0) < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };\n",
+    "to": ""
+  },
+  {
+    "label": "TASKS — a writer without the lease lets the lines go",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export function failTasks(rec, { owner, why, now }) {\n  if (!leaseHeld(rec, owner, now)) return null;",
+    "to": "export function failTasks(rec, { owner, why, now }) {\n  if (!rec) return null;"
+  },
+  {
+    "label": "TASKS — a reader is never given the lines",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  return t ? { planned: t.planned, doing: t.doing, done: t.done, notdone: t.notdone } : null;",
+    "to": "  return null;"
+  },
+  {
+    "label": "TASKS — a line with a state missing reads",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (!v) return null;\n    out[k] = v;",
+    "to": "    if (!v) continue;\n    out[k] = v;"
+  },
+  {
+    "label": "TASK CHECK — a task's id in a line passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const ids = [...got.values()].some((said) => TASK_STATES.some((k) => /\\[t\\d+\\]/.test(said[k])));",
+    "to": "  const ids = false;"
+  },
+  {
+    "label": "TASK CHECK — a task left out passes",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  const missing = want.filter((id) => !got.has(id));",
+    "to": "  const missing = [];"
+  },
+  {
+    "label": "TASK CHECK — a later entry for an id replaces the first",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (!want.includes(id) || got.has(id)) continue;",
+    "to": "    if (!want.includes(id)) continue;"
+  },
+  {
+    "label": "TASK CALL — a wrong first answer is not asked again",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    fix = { missing: read.missing, ids: read.ids };",
+    "to": "    break;"
+  },
+  {
+    "label": "TASK CALL — the model is not shown the customer's words",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    tasks.map((t) => \"[t\" + t.n + \"] \" + flat(t.words)).join(\"\\n\") +",
+    "to": "    tasks.map((t) => \"[t\" + t.n + \"]\").join(\"\\n\") +"
+  },
+  {
+    "label": "PROSE — the task lines are not asked for in the first person",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  \"- Speak in the first person, naturally and conversationally, the way you would tell them yourself.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "PROSE — the task lines may hand the customer's words back",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  \"- Say what the task is in your own words; never hand their words back as an instruction.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "PROSE — the task lines may call a change published or live",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  \"- Never say a change is published or live, and never mention steps, tools, files, code, models or ids.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "PROSE — the progress lines are not asked for in the first person",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  \"- Speak in the first person, naturally and conversationally, the way you would tell them yourself: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "JOB TASK — a page-filed job's record opens with no task",
+    "files": [
+      "worker.js"
+    ],
+    "from": "tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now });",
+    "to": "tasks: [], at: now });"
+  },
+  {
+    "label": "JOB TASK — the opening asks for no writer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (r) await askProgress(env, id, uid, now);\n    return { ok: !!r };",
+    "to": "    return { ok: !!r };"
+  },
+  {
+    "label": "JOB TASK — the recorder never says the job is page-filed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "...(standalone ? { task: true } : {}) };",
+    "to": "...(false ? { task: true } : {}) };"
+  },
+  {
+    "label": "JOB TASK — a request's part is named on its job too",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    try { partOfRequest = !!readRequestOf(JSON.parse(String(job.body || \"\")).request); } catch { partOfRequest = false; }",
+    "to": "    partOfRequest = false;"
+  },
+  {
+    "label": "JOB TASK — a page-filed job is told apart as a request's",
+    "files": [
+      "worker.js"
+    ],
+    "from": "standalone: !partOfRequest });",
+    "to": "standalone: false });"
+  },
+  {
+    "label": "WRITER — the task lines are never written",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (tasksNeeded(rec)) return writeTaskLines(env, task, owner, rec);\n",
+    "to": ""
+  },
+  {
+    "label": "WRITER — every task's lines are written again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const tasks = unwrittenTasks(rec);\n  let out;",
+    "to": "  const tasks = rec.taskWords;\n  let out;"
+  },
+  {
+    "label": "WRITER — a failed call for the lines is not queued again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      return failed ? { rec: failed.rec, retry: failed.retry } : null;\n    });\n    if (f && f.retry) await sendProgressTask(env, { id: job, uid: task.uid }, Math.ceil(PROGRESS_RETRY_MS / 1000));\n    return false;\n  }\n  const done = await progressUpdate(env, job, (r) => {\n    const next = commitTasks(",
+    "to": "      return failed ? { rec: failed.rec, retry: failed.retry } : null;\n    });\n    return false;\n  }\n  const done = await progressUpdate(env, job, (r) => {\n    const next = commitTasks("
+  },
+  {
+    "label": "LOG — the task lines' attempts are not logged",
+    "files": [
+      "worker.js"
+    ],
+    "from": "\"tasks\", tasks.length, \"attempts\", out.attempts, \"tokens\"",
+    "to": "\"tasks\", tasks.length, \"tokens\""
+  },
+  {
+    "label": "RECOVERY — an ended job's task lines are never asked for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (!at.read || !at.rec || !tasksNeeded(at.rec) || writerNeeded(at.rec, now) !== \"ask\") continue;\n    await askProgress(env, j.id, j.uid, now);",
+    "to": "    void at;"
+  },
+  {
+    "label": "POLL — a job's own task lines are never read",
+    "files": [
+      "worker.js"
+    ],
+    "from": "said: saidOf(at.rec, 0) } : { lines: [], said: null };",
+    "to": "said: null } : { lines: [], said: null };"
+  },
+  {
+    "label": "POLL — a finished job's answer carries no task lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });",
+    "to": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}) });"
+  },
+  {
+    "label": "POLL — a running job's answer carries no task lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        said: eProg.said || undefined,",
+    "to": "        said: undefined,"
+  },
+  {
+    "label": "FIND — a found job carries no task lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "progress: linesOf(at.rec), ...(said ? { said } : {}) });",
+    "to": "progress: linesOf(at.rec) });"
+  },
+  {
+    "label": "REQUEST TASKS — a part carved later is never added",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const more = addTasks(rec, tasks);\n    if (!more) return null;\n    return more.already ? { done: true } : { rec: more.rec };",
+    "to": "    return { done: true };"
+  },
+  {
+    "label": "REQUEST TASKS — no writer is asked for the parts",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (r) await askProgress(env, id, uid);\n",
+    "to": ""
+  },
+  {
+    "label": "REQUEST TASKS — the sweep never keeps the narration to the request",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    await syncRequestTasks(env, { slug, key, uid: found.rec.uid, message: found.rec.message, parts: found.rec.parts, picker: found.rec.picker });\n    return;",
+    "to": "    return;"
+  },
+  {
+    "label": "REQUEST TASKS — the driver does not name a carved part",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!same && record.parts.length > rec.parts.length) {",
+    "to": "      if (false) {"
+  },
+  {
+    "label": "REQUEST TASKS — the acceptance opens no narration",
+    "files": [
+      "worker.js"
+    ],
+    "from": "ctx.waitUntil(syncRequestTasks(env, { slug, key, uid, message, parts: draft.parts, picker: draft.picker })",
+    "to": "ctx.waitUntil(Promise.resolve({ slug, key, uid, message, parts: draft.parts, picker: draft.picker })"
+  },
+  {
+    "label": "REQUEST TASKS — the sweep skips an unfinished request's narration",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    try { await ensureRequestTasks(env, at.slug, at.key); } catch { /* next tick */ }\n    if (await advanceRequest(env, ctx, at.slug, at.key, \"sweep\")) continue;",
+    "to": "    if (await advanceRequest(env, ctx, at.slug, at.key, \"sweep\")) continue;"
+  },
+  {
+    "label": "REQUEST TASKS — the sweep skips an ended request's narration",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (now - mark.endedAt <= REPLY_HORIZON_MS + REPLY_RETRY_GRACE_MS) {\n        try { await ensureRequestTasks(env, at.slug, at.key); } catch { /* next tick */ }\n      }\n",
+    "to": ""
+  },
+  {
+    "label": "REQUEST TASKS — every part is given the first part's lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  for (const p of rec.parts) { const said = saidOf(at.rec, p.n); if (said) out[p.n] = said; }",
+    "to": "  for (const p of rec.parts) { const said = saidOf(at.rec, 0); if (said) out[p.n] = said; }"
+  },
+  {
+    "label": "REQUEST TASKS — the requests list carries no lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "said: await saidForRequest(env, found.rec) }));",
+    "to": "said: null }));"
+  },
+  {
+    "label": "REQUEST TASKS — a request's read carries no lines",
+    "files": [
+      "worker.js"
+    ],
+    "from": "said: await saidForRequest(env, qRec) }) };",
+    "to": "said: null }) };"
+  },
+  {
+    "label": "VIEW — a part's task lines are left off the request's view",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...(said && typeof said === \"object\" && Object.hasOwn(said, p.n) && said[p.n] ? { said: said[p.n] } : {}),\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a part waiting to start shows its doing line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',",
+    "to": "  blocked: 'doing', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',"
+  },
+  {
+    "label": "PAGE — a running part shows its done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  started: 'doing', unverified: 'doing', done: 'done',",
+    "to": "  started: 'done', unverified: 'doing', done: 'done',"
+  },
+  {
+    "label": "PAGE — a part partly done shows its done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  partial: 'notdone', failed: 'notdone',",
+    "to": "  partial: 'done', failed: 'notdone',"
+  },
+  {
+    "label": "PAGE — a part is always named by its words",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "esc(siteSaidFor(p.said, SITE_SAID_FOR[status]) || String(p.words || ''))",
+    "to": "esc(String(p.words || ''))"
+  },
+  {
+    "label": "PAGE — a queued found job shows its doing line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const SITE_JOB_SAID = { queued: 'planned', done: 'done',",
+    "to": "const SITE_JOB_SAID = { queued: 'doing', done: 'done',"
+  },
+  {
+    "label": "PAGE — a found job's card always shows its done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const which = Object.hasOwn(SITE_JOB_SAID, v.state) ? SITE_JOB_SAID[v.state] : 'doing';",
+    "to": "  const which = 'done';"
+  },
+  {
+    "label": "PAGE — lines with a state missing are used",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const s = EditPoll.taskSaid(said);\n  return s &&",
+    "to": "  const s = said && typeof said === 'object' ? said : null;\n  return s &&"
+  },
+  {
+    "label": "PAGE — a drawn card never takes lines a later reading brings",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (drawn && drawn.view && EditPoll.taskSaid(v.said)) drawn.view.said = EditPoll.taskSaid(v.said);\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — the card's follow never takes the poll's lines",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (taskLines) c.view.said = taskLines;\n",
+    "to": ""
+  },
+  {
+    "label": "POLL READER — task lines with a state missing are read",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "      if (!t) return null;\n      out[k] = t;",
+    "to": "      if (!t) continue;\n      out[k] = t;"
+  },
+  {
+    "label": "POLL READER — task lines are not trimmed",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "      var t = typeof v[k] === \"string\" ? v[k].trim() : \"\";",
+    "to": "      var t = typeof v[k] === \"string\" ? v[k] : \"\";"
   }
 ]

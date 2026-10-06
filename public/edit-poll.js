@@ -240,6 +240,26 @@
   }
 
   /**
+   * A TASK'S OWN LINES (2026-10-06): the model's line for it in every state —
+   * `{ planned, doing, done, notdone }`, each a string with words in it — or
+   * null, read strictly: one state missing and none is used, so the page
+   * names the task by its words rather than show a line for the wrong state.
+   * No length is imposed here.
+   */
+  var TASK_STATES = ["planned", "doing", "done", "notdone"];
+  function taskSaid(v) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    var out = {};
+    for (var i = 0; i < TASK_STATES.length; i++) {
+      var k = TASK_STATES[i];
+      var t = typeof v[k] === "string" ? v[k].trim() : "";
+      if (!t) return null;
+      out[k] = t;
+    }
+    return out;
+  }
+
+  /**
    * WHAT A JOB THAT IS WAITING SAYS (stage 3b, 2026-09-05). The poll route
    * marks a pending answer `waiting: true` once the site's own lock or a
    * deploy's gate has refused the job's claim at least once (stages 6 and 3a):
@@ -966,6 +986,7 @@
     modelReply: modelReply,
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     progressLines: progressLines,
+    taskSaid: taskSaid,
     waitingMessage: waitingMessage,
     pendingReplyLine: pendingReplyLine,
     PENDING_LINES: PENDING_LINES,

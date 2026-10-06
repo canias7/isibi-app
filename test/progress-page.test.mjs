@@ -196,3 +196,87 @@ test("BUBBLE — the newest line replaces \"Thinking\", escaped, in its own styl
   assert.match(draw({ progressLine: "Found it.", waitNote: "Waiting — busy." }), /<div class="st-think"><i><\/i>Waiting — busy\.<\/div>/);
   assert.equal(draw({}), '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>');
 });
+
+// ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ──────────────────────
+
+const SAID = { planned: "I'll add a page with a form.", doing: "I'm adding the page now.", done: "I've added the page.", notdone: "I couldn't add the page." };
+const wordsOf = (html) => [...html.matchAll(/<span class="st-req-words">(.*?)<\/span>/g)].map((m) => m[1]);
+
+test("SAID — taskSaid reads the model's four lines strictly: one state missing, blank or not text and none is used; nothing is cut", () => {
+  const long = "I'm adding the page you asked for, with its form. ".repeat(40).trim();
+  assert.deepEqual(EditPoll.taskSaid({ ...SAID, doing: "  " + long + "  ", extra: 1 }), { ...SAID, doing: long });
+  for (const bad of [null, undefined, "x", [], [SAID], {}, { ...SAID, done: "" }, { ...SAID, notdone: "   " }, { ...SAID, planned: 7 }, (({ doing, ...r }) => r)(SAID)]) {
+    assert.equal(EditPoll.taskSaid(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("SAID — a request part is named by the model's line for the state its status is in, never the line of another state; with no lines, or lines that do not read, by its words as they are, with nothing put before them", () => {
+  const p = page({ site: SITE });
+  const draw = (status, said) => {
+    const v = partView(status, null);
+    v.parts[0].words = "Change the <Gallery> heading";
+    if (said !== undefined) v.parts[0].said = said;
+    p.ctx.siteReqState("origin-1", v.key, v);
+    return wordsOf(p.ctx.siteRequestHTML({ request: v.key }, p.s))[0];
+  };
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+  const want = { blocked: "planned", ready: "planned", queued: "planned", waiting: "planned", approval: "planned", "needs-rewrite": "planned", started: "doing", unverified: "doing", done: "done", partial: "notdone", failed: "notdone", "not-run": "notdone", cancelled: "notdone", expired: "notdone", refused: "notdone" };
+  for (const [status, which] of Object.entries(want)) {
+    assert.equal(draw(status, SAID), esc(SAID[which]), status + " was not named by its " + which + " line");
+  }
+  const words = "Change the &lt;Gallery&gt; heading";
+  assert.equal(draw("started"), words, "a part with no lines was not named by its words");
+  assert.equal(draw("started", { ...SAID, doing: "" }), words, "a part with a blank line was named by another state's line");
+  assert.equal(draw("started", { ...SAID, notdone: " " }), words, "lines with one state missing were used for another");
+  assert.equal(draw("started", "I'm on it."), words);
+  assert.equal(draw("some-new-status", SAID), words, "a status the page does not know took a line");
+  // WITH THE LINES ESCAPED, as the words are.
+  assert.equal(draw("done", { ...SAID, done: "I've changed <it>." }), "I&#39;ve changed &lt;it&gt;.");
+});
+
+test("SAID — a found job's card is named by the line for its state (queued planned, running doing, finished done, failed, lost or stopped not done), by its words without one; a later reading of the list brings lines a drawn card did not have", async () => {
+  const p = page({ site: { ...SITE, msgs: [] } });
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "editing", words: "add a gallery", at: 1 });
+  await settle();
+  const card = () => wordsOf(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s))[0];
+  assert.equal(card(), "add a gallery", "a card with no lines was not named by its words");
+  // A LATER READING OF THE LIST, with the lines now written.
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "editing", words: "add a gallery", at: 1, said: SAID });
+  assert.equal(p.said().filter((m) => m.jobCard).length, 1, "the card was drawn twice");
+  assert.equal(card(), SAID.doing.replace(/'/g, "&#39;"), "a drawn card did not take the lines a later reading brought");
+  // A READING WITH NO LINES, or lines that do not read, takes nothing away.
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "editing", words: "add a gallery", at: 1, said: { ...SAID, done: "" } });
+  assert.equal(card(), SAID.doing.replace(/'/g, "&#39;"));
+  const want = { queued: "planned", editing: "doing", started: "doing", "": "doing", done: "done", failed: "notdone", lost: "notdone", cancelled: "notdone" };
+  for (const [state, which] of Object.entries(want)) {
+    p.s.jobCards[SOLO].view.state = state;
+    assert.equal(card(), SAID[which].replace(/'/g, "&#39;"), (state || "(none)") + " was not named by its " + which + " line");
+  }
+});
+
+test("SAID — the card's follow takes the lines from the job's poll, and keeps them through a poll without them", async () => {
+  let n = 0;
+  const p = page({
+    site: { ...SITE, msgs: [] },
+    timers: true,
+    answer: (url) => {
+      if (url !== "/api/site/edit/" + SOLO) return null;
+      n++;
+      if (n === 1) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
+      if (n === 2) return { status: 202, body: { ok: true, status: "editing", progress: [], said: SAID } };
+      if (n === 3) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
+      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
+    },
+  });
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });
+  await settle();
+  const view = () => p.s.jobCards[SOLO].view;
+  assert.equal(view().said, null);
+  p.flush(); await settle();
+  assert.deepEqual(copy(view().said), SAID, "the poll's lines were not taken");
+  p.flush(); await settle();
+  assert.deepEqual(copy(view().said), SAID, "a poll without lines took them away");
+  p.flush(); await settle();
+  assert.equal(view().state, "done");
+  assert.equal(wordsOf(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s))[0], "I&#39;ve added the page.");
+});

@@ -31,6 +31,8 @@ import { platform, sendMessage, pump, tick, call, settle, deliver, T, USER } fro
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
+import { page as pageSrc } from "./fixtures/live-ask.mjs";
+import { createHash } from "node:crypto";
 import { gatewayKey, signJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { sweepJobObjects, JOB_RETENTION_MS } from "../builder/job-retention.mjs";
@@ -65,15 +67,21 @@ const heldAddon = (g) => ({
   [T.pages]: { pages: [writtenPage("/gallery")] },
 });
 const slugOf = (k) => "pg-" + k + "-" + Math.random().toString(16).slice(2, 8);
-const isTask = (m) => !!(m && m.body && m.body.kind === "edit-progress");
-const takeTask = (P) => { const i = P.queue.findIndex(isTask); assert.ok(i >= 0, "no progress task was queued"); return P.queue.splice(i, 1)[0]; };
+// A JOB'S OWN PROGRESS TASK. A request's narration (its parts' task lines,
+// `syncRequestTasks`) asks for a writer of its own at acceptance, under an id
+// that is no job's; the cases about a job's lines take the job's.
+let platformNow = null;
+const anyTask = (m) => !!(m && m.body && m.body.kind === "edit-progress");
+const isTask = (m) => anyTask(m) && !!platformNow && platformNow.jobs.has(m.body.id);
+const takeTask = (P) => { const i = P.queue.findIndex((m) => anyTask(m) && P.jobs.has(m.body.id)); assert.ok(i >= 0, "no progress task was queued"); return P.queue.splice(i, 1)[0]; };
 const calls = (P) => P.modelLog.filter((m) => m.tool === "write_progress").length;
 const settleMs = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
 async function withPlatform(opts, fn) {
   const compiler = installCompiler();
   const P = platform(opts);
-  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+  platformNow = P;
+  try { return await fn(P); } finally { P.close(); compiler.uninstall(); platformNow = null; }
 }
 
 /**
@@ -353,7 +361,11 @@ test("OPEN — THE RECORD'S OPENING THAT FAILS: the recorder opens it again befo
   const g = gate();
   await withPlatform({ slug: slugOf("open"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
     // THE STORE DOWN FOR THE OPENING'S ONE READ: the opening is not written.
-    P.failGet((k) => k.endsWith(".progress.json"));
+    // THE JOB'S OWN RECORD — a job's id — never the request's narration
+    // (2026-10-06), whose opening at the acceptance is read first and would
+    // take the fault in its place, leaving the job's opening untested (found
+    // by the sweep: the mutant that forgets a failed opening survived).
+    P.failGet((k) => { const m = /^jobs\/([0-9a-f]{32})\.progress\.json$/.exec(k); return !!m && P.jobs.has(m[1]); });
     const { job, running } = await startHeld(P, g);
     const rec = P.progressOf(job.id);
     assert.ok(rec, "the record never opened after its first opening failed");
@@ -531,9 +543,10 @@ test("OFF — with the switch off nothing is recorded, no task is ever sent, and
     await settle(P, r.key);
     await tick(P);
     assert.equal(P.progressOf(job.id), null, "a record was written with progress off");
-    assert.equal(P.sent.some(isTask), false, "a progress task was sent with progress off");
+    assert.equal(P.sent.some(anyTask), false, "a progress task was sent with progress off");
     const list = await call(P, "GET", "/api/site/requests/" + P.slug);
     assert.equal(Object.hasOwn(list.body, "jobs"), false);
+    assert.equal(JSON.stringify(list.body).includes('"said"'), false, "a task's lines were served with progress off");
     assert.equal(Object.hasOwn(list.body.requests[0].parts[0], "progress"), false);
   });
 });
@@ -730,6 +743,12 @@ test("LOG — EACH WRITER CALL IS MEASURED IN THE LOG: the outcome, the model, t
       const line = lines.find((l) => l.startsWith("progress: " + job.id + " written"));
       assert.ok(line, "no measurement line: " + lines.filter((l) => l.startsWith("progress:")).join(" | "));
       assert.match(line, /model \S+ milestones 1 facts 2 attempts 1 tokens 10\/5 ms \d+/);
+      // AND THE TASK LINES' CALL, measured the same way.
+      const t = requestTask(P);
+      await deliver(P, t);
+      const tline = lines.find((l) => l.startsWith("progress: tasks " + t.body.id + " written"));
+      assert.ok(tline, "no measurement line for the task lines: " + lines.filter((l) => l.startsWith("progress:")).join(" | "));
+      assert.match(tline, /model \S+ tasks 1 attempts 1 tokens \d+\/\d+ ms \d+/);
     });
   } finally { console.log = realLog; }
 });
@@ -780,5 +799,197 @@ test("ADD-ON — AN ADD-ON'S MILESTONES, IN ORDER: what it chose (decided), each
     assert.match(rec.marks[1].facts[0].text, /^Designed, not built yet: a new page \(“Gallery”, \/gallery\)/);
     assert.equal(rec.closed.why, "ended");
     await settle(P, r.key);
+  });
+});
+
+// ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ──────────────────────
+
+const LINES = (w) => ({ planned: "(planned) " + w, doing: "(doing) " + w, done: "(done) " + w, notdone: "(notdone) " + w });
+/** The request's narration task: the progress task whose id is no job's. */
+const requestTask = (P) => { const i = P.queue.findIndex((m) => anyTask(m) && !P.jobs.has(m.body.id)); assert.ok(i >= 0, "the request's narration asked for no writer"); return P.queue.splice(i, 1)[0]; };
+
+test("NAMES 1 — A REQUEST'S PART IS NAMED BY THE MODEL'S OWN LINE: its acceptance opens the request's narration and asks for a writer; the writer writes the part's line in every state; the request's view and the requests list carry them; the part's job writes none of its own", async () => {
+  await withPlatform({ slug: slugOf("names1"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
+    const r = await sendMessage(P, { message: ADD });
+    let view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(Object.hasOwn(view.body.request.parts[0], "said"), false, "a part carried lines before any were written");
+    await deliver(P, requestTask(P));
+    assert.deepEqual(P.tasksLog, [[{ id: "t0", words: ADD }]], "the writer was not shown the part's own words");
+    view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.deepEqual(view.body.request.parts[0].said, LINES(ADD));
+    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
+    assert.deepEqual(list.body.requests[0].parts[0].said, LINES(ADD));
+    await settle(P, r.key);
+    const job = [...P.jobs.values()].find((j) => j.op === "addon");
+    assert.deepEqual(P.progressOf(job.id).taskWords, [], "a request's part was named on its job's record as well");
+    assert.equal(P.tasksLog.length, 1, "the task lines were written more than once");
+  });
+});
+
+test("NAMES 2 — A PAGE-FILED JOB'S ONE TASK: its record opens with the customer's words and asks for a writer at once, which writes the task's lines before the milestone's line; the requests list and the job's poll carry them", async () => {
+  const g = gate();
+  await withPlatform({ slug: slugOf("names2"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
+    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
+    const id = filed.body.job;
+    const running = deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
+    await g.reached;
+    for (let n = 0; n < 50 && !P.progressOf(id)?.marks?.length; n++) await settleMs(5);
+    assert.deepEqual(P.progressOf(id).taskWords, [{ n: 0, words: "add a gallery page please" }]);
+    await deliver(P, takeTask(P));
+    const rec = P.progressOf(id);
+    assert.deepEqual(rec.tasks, [{ n: 0, ...LINES("add a gallery page please") }]);
+    assert.equal(rec.lines.length, 1, "the milestone's line was not written after the task's lines");
+    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
+    assert.deepEqual(list.body.jobs[0].said, LINES("add a gallery page please"));
+    const poll = await call(P, "GET", "/api/site/edit/" + id);
+    assert.deepEqual(poll.body.said, LINES("add a gallery page please"));
+    g.open();
+    await running;
+    const final = await call(P, "GET", "/api/site/edit/" + id);
+    assert.deepEqual(final.body.said, LINES("add a gallery page please"), "the finished job's answer lost its task's lines");
+  });
+});
+
+test("NAMES 3 — THE CALL FOR THE LINES FAILS: the part keeps its words; it is tried again after its wait, then given up with why — and a milestone of a job still gets its line", async () => {
+  await withPlatform({ slug: slugOf("names3"), replies: true, progress: true, answers: plainAddon(), tasksWith: async () => ({ status: 503 }) }, async (P) => {
+    const r = await sendMessage(P, { message: ADD });
+    const t = requestTask(P);
+    await deliver(P, t);
+    const id = t.body.id;
+    assert.equal(P.progressOf(id).taskTries, 1);
+    assert.equal(P.progressOf(id).tasks, null);
+    P.advance(PROGRESS_RETRY_MS + 1000);
+    await deliver(P, requestTask(P));
+    const rec = P.progressOf(id);
+    assert.equal(rec.tasks, null);
+    assert.equal(rec.tasksWhy, "send", "the lines were not given up after their tries");
+    assert.equal(P.queue.some((m) => anyTask(m) && m.body.id === id), false, "a writer was asked again after the lines were given up");
+    const view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(Object.hasOwn(view.body.request.parts[0], "said"), false);
+    assert.equal(view.body.request.parts[0].words, ADD, "the part lost its own words");
+    await settle(P, r.key);
+  });
+});
+
+test("NAMES 4 — A JOB THAT ENDED BEFORE ITS TASK'S LINES WERE WRITTEN still gets them, its writer's message lost: the cron's sweep of ended jobs asks once the grace has passed, and the lines land on the closed record for its card to show finished", async () => {
+  await withPlatform({ slug: slugOf("names4"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
+    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "e".repeat(32) });
+    const id = filed.body.job;
+    await deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
+    // THE WRITER'S MESSAGES, LOST.
+    for (let i = P.queue.length - 1; i >= 0; i--) if (anyTask(P.queue[i])) P.queue.splice(i, 1);
+    const ended = P.progressOf(id);
+    assert.ok(ended.closed, "the job's end did not close its record");
+    assert.equal(ended.tasks, null);
+    P.advance(PROGRESS_ASK_GRACE_MS + 1000);
+    await tick(P);
+    await deliver(P, takeTask(P));
+    assert.deepEqual(P.progressOf(id).tasks, [{ n: 0, ...LINES("add a gallery page please") }], "the ended job's task lines were not written");
+    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
+    assert.deepEqual(list.body.jobs[0].said, LINES("add a gallery page please"));
+    assert.equal(list.body.jobs[0].ended, true);
+  });
+});
+
+// A MENU AND TWO PAGES, for a link the add-on step sets aside as a part of its own (request-flow's M1).
+const NAV = (items) => "<SiteHeader links={[" + items.map(([l, h]) => "{ label: \"" + l + "\", href: \"" + h + "\" }").join(", ") + "]} />";
+const NAV_PAGES = [
+  { path: "index.tsx", source: pageSrc("/", NAV([["Home", "/"], ["Visit", "/visit"]]) + "<section className=\"hero\"><h1>Harbour Loaf</h1><p>Bread from the harbour.</p></section>") },
+  { path: "visit.tsx", source: pageSrc("/visit", NAV([["Home", "/"], ["Visit", "/visit"]]) + "<section className=\"come\"><h1>Come to the bakery</h1><p>The street.</p></section>") },
+];
+const narrationOf = (P, key) => P.progressOf(createHash("sha256").update("request-tasks:" + P.slug + "/" + key).digest("hex").slice(0, 32));
+
+test("NAMES 5 — A PART CARVED MID-REQUEST (the menu link the add-on step sets aside) is named by the model's own line too: the driver adds its words to the request's narration and asks for a writer, which writes it alone — the first part's lines are kept, never written again", async () => {
+  const LINK = "put a link to it in the menu";
+  const MSG = "Add a gallery page and " + LINK + ".";
+  await withPlatform({
+    slug: slugOf("names5"), pages: NAV_PAGES, replies: true, progress: true,
+    answers: {
+      route: [{ intent: "addon" }, { intent: "edit", layer: "nav" }],
+      [T.adds]: { kinds: ["page", "frame"], scopes: [{ kind: "page", words: "Add a gallery page" }, { kind: "frame", words: LINK }] },
+      "add:page": { page: [{ ...PAGE("/gallery", "Gallery"), link: { in: "page", page: "/", where: "a button in the hero band" } }] },
+      [T.pages]: { pages: [writtenPage("/gallery")] },
+      write_nav: { add: [{ to: "menu", label: "Gallery", href: "/gallery" }] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    // THE ACCEPTANCE'S ASK, delivered at once: the first part's lines are written before any part is carved.
+    await deliver(P, requestTask(P));
+    assert.deepEqual(P.tasksLog, [[{ id: "t0", words: MSG }]]);
+    // THE QUEUE ALONE, NO CRON: the driver that carves the part names it.
+    for (let i = 0; i < 4 && !(P.record(r.key) || {}).ended; i++) await pump(P);
+    await pump(P);
+    const rec = P.record(r.key);
+    assert.equal(rec.ended, true, "the request did not end on the queue alone");
+    assert.deepEqual(rec.parts.map((p) => [p.words, p.status]), [[MSG, "done"], [LINK, "done"]], "the link was not carved as a part of its own");
+    const nar = narrationOf(P, r.key);
+    assert.deepEqual(nar.taskWords, [{ n: 0, words: MSG }, { n: 1, words: LINK }], "the carved part was not added to the request's narration");
+    assert.deepEqual(P.tasksLog, [[{ id: "t0", words: MSG }], [{ id: "t1", words: LINK }]], "the writer was not asked for the carved part alone");
+    const view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.deepEqual(view.body.request.parts.map((p) => p.said), [LINES(MSG), LINES(LINK)]);
+  });
+});
+
+test("NAMES 6 — THE OPENING ASKS AT ONCE: a page-filed job's record, opened with its one task, asks for a writer before any milestone, so its card can be named while the job's first step is still running; an opening with no task asks for nothing", async () => {
+  await withPlatform({ slug: slugOf("names6"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
+    P.env.SITE_SECRETS_KEY = "platform-secret";
+    const gk = await gatewayKey("platform-secret");
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "d".repeat(32) });
+    const id = filed.body.job;
+    // THE JOB'S OWN MESSAGE IS NOT DELIVERED: only its opening is written.
+    P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1);
+    const tok = await signJobToken({ id, slug: P.slug, uid: USER.id, exp }, gk);
+    const opened = await call(P, "POST", "/api/job/" + id + "/progress", { op: "begin", run: "c_run00042", kind: "addon", words: "add a gallery page please", picker: "sonnet", pages: ["/"], task: true }, "Bearer " + tok);
+    assert.equal(opened.status, 200);
+    assert.deepEqual(P.progressOf(id).marks, []);
+    assert.equal(P.queue.filter((m) => anyTask(m) && m.body.id === id).length, 1, "the opening asked for no writer");
+    await deliver(P, takeTask(P));
+    assert.deepEqual(P.progressOf(id).tasks, [{ n: 0, ...LINES("add a gallery page please") }]);
+    // WITH NO TASK, nothing waits and no writer is asked.
+    const other = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a menu page", picker: "sonnet", idem: "c".repeat(32) });
+    P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1);
+    const tok2 = await signJobToken({ id: other.body.job, slug: P.slug, uid: USER.id, exp }, gk);
+    await call(P, "POST", "/api/job/" + other.body.job + "/progress", { op: "begin", run: "c_run00043", kind: "addon", words: "add a menu page" }, "Bearer " + tok2);
+    assert.deepEqual(P.progressOf(other.body.job).taskWords, []);
+    assert.equal(P.queue.some((m) => anyTask(m) && m.body.id === other.body.job), false, "an opening with nothing waiting asked for a writer");
+  });
+});
+
+test("NAMES 7 — A REQUEST WHOSE NARRATION NEVER OPENED (the acceptance's background write lost): the cron's sweep opens it from the request while the work still runs, asks for a writer, and the part gets its lines — with no page open", async () => {
+  const g = gate();
+  await withPlatform({ slug: slugOf("names7"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
+    const r = await sendMessage(P, { message: ADD });
+    // LOST: the narration's record and its writer's message.
+    const lost = requestTask(P);
+    P.objects.delete(progressKey(lost.body.id));
+    assert.equal(narrationOf(P, r.key), null);
+    const running = deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
+    await g.reached;
+    await tick(P);
+    assert.deepEqual(narrationOf(P, r.key).taskWords, [{ n: 0, words: ADD }], "the sweep did not open the narration");
+    await deliver(P, requestTask(P));
+    const view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.deepEqual(view.body.request.parts[0].said, LINES(ADD));
+    g.open();
+    await running;
+    await settle(P, r.key);
+  });
+});
+
+test("NAMES 8 — A REQUEST THAT ENDED BEFORE ITS PARTS' LINES WERE WRITTEN, the writer's message lost: the cron asks again once the ask's grace has passed, within the reply's horizon, and the finished card is named by its done line", async () => {
+  await withPlatform({ slug: slugOf("names8"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
+    const r = await sendMessage(P, { message: ADD });
+    requestTask(P);
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.ended, true);
+    assert.equal(narrationOf(P, r.key).tasks, null);
+    assert.equal(P.queue.some((m) => anyTask(m) && !P.jobs.has(m.body.id)), false, "the narration was asked for again inside its grace");
+    P.advance(PROGRESS_ASK_GRACE_MS + 1000);
+    await tick(P);
+    await deliver(P, requestTask(P));
+    const view = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.deepEqual(view.body.request.parts[0].said, LINES(ADD));
+    assert.equal(view.body.request.parts[0].status, "done");
   });
 });

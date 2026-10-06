@@ -248,6 +248,7 @@ import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelRepl
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, jobVerdict, progressContext, writeProgress,
+  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS,
 } from "./builder/site-progress.mjs";
@@ -6889,11 +6890,16 @@ async function progressFromJob(env, ids, body) {
   const run = typeof b.run === "string" ? b.run : "";
   const now = Date.now();
   if (b.op === "begin") {
+    // A PAGE-FILED JOB'S ONE TASK (`task`), in the customer's words, for its
+    // card on another device to be named by the model's own line for it; a
+    // request's part is named on the request's record (`syncRequestTasks`).
+    const words = typeof b.words === "string" ? b.words.trim() : "";
     const r = await progressUpdate(env, id, (rec) => {
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
-      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, at: now });
+      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now });
       return opened ? { rec: opened } : null;
     });
+    if (r) await askProgress(env, id, uid, now);
     return { ok: !!r };
   }
   if (b.op === "mark") {
@@ -6933,7 +6939,7 @@ async function progressFromJob(env, ids, body) {
  * the milestones already on their way land first, then closes — bounded, so
  * a store that hangs costs the job's end at most `PROGRESS_CLOSE_MS`.
  */
-function makeProgress(env, ctx, { id, run, uid, slug }) {
+function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
   if (!progressOn(env) || !isJobId(id) || typeof run !== "string" || !run) return null;
   // THE WAY IN IS FIXED AT THE START: the container's gateway, held as it
   // was handed in, or the Worker's own door.
@@ -6959,7 +6965,7 @@ function makeProgress(env, ctx, { id, run, uid, slug }) {
   };
   return {
     begin({ op, words = "", picker = "", pages = [] } = {}) {
-      opening = { kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [] };
+      opening = { kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [], ...(standalone ? { task: true } : {}) };
       step(open);
     },
     mark(stage, facts) {
@@ -7033,6 +7039,10 @@ async function writeProgressLine(env, task, owner) {
   // one too: what waited is given up, at no call, and said here.
   if (claimed.gaveUp) { console.log("progress:", job, "given up after", PROGRESS_TRIES, "tries"); return false; }
   const rec = claimed.rec;
+  // THE TASKS' LINES FIRST, when the record still needs them: no row is read
+  // for them, because they say no state — the page picks the line for the
+  // state it reads, so one written after the job ended claims nothing.
+  if (tasksNeeded(rec)) return writeTaskLines(env, task, owner, rec);
   const batch = batchFor(rec);
   const before = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (!before.ok) { await progressStops(env, job, owner, batch, before.why); return false; }
@@ -7064,6 +7074,44 @@ async function writeProgressLine(env, task, owner) {
     return next ? { rec: next } : null;
   });
   return !!done && pendingMarks(done.rec).length > 0;
+}
+
+/**
+ * THE TASKS' LINES: one call (two at most) for every task the record holds
+ * with no lines yet, in every state, committed on the lease alone beside those
+ * already written; a call that wrote nothing is tried again later, then given
+ * up (`tasksWhy`), and the customer's words stay on the card. True when more
+ * waits: a task added during the call, or milestones waiting for a line.
+ */
+async function writeTaskLines(env, task, owner, rec) {
+  const job = task.id;
+  const model = modelsFor(rec.picker || undefined).quick;
+  const t0 = Date.now();
+  // ONLY THE TASKS WITH NO LINES YET: a part carved since the last call is
+  // written on its own, and the lines already shown are never written again.
+  const tasks = unwrittenTasks(rec);
+  let out;
+  try {
+    out = await writeTasks({ send: quickSend(env, "progress", progressBudget) }, { tasks, context: progressContext(rec), model });
+  } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
+  try {
+    const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
+    console.log("progress: tasks", job, out.ok ? "written" : "not written (" + out.why + ")", "model", model, "tasks", tasks.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);
+  } catch { /* a log line never costs the lines */ }
+  if (!out.ok) {
+    const f = await progressUpdate(env, job, (r) => {
+      const failed = failTasks(r, { owner, why: out.why, now: Date.now() });
+      return failed ? { rec: failed.rec, retry: failed.retry } : null;
+    });
+    if (f && f.retry) await sendProgressTask(env, { id: job, uid: task.uid }, Math.ceil(PROGRESS_RETRY_MS / 1000));
+    return false;
+  }
+  const done = await progressUpdate(env, job, (r) => {
+    const next = commitTasks(r, { owner, tasks: out.tasks, now: Date.now() });
+    return next ? { rec: next } : null;
+  });
+  // MORE TO WRITE — a task added while the call ran, or milestones waiting.
+  return !!done && (tasksNeeded(done.rec) || (!done.rec.closed && pendingMarks(done.rec).length > 0));
 }
 
 /**
@@ -7104,28 +7152,120 @@ export async function runProgressSweep(env) {
     if (!at.read || !at.rec || writerNeeded(at.rec, now) !== "ask") continue;
     await askProgress(env, j.id, j.uid, now);
   }
+  // …AND A JOB THAT ENDED BEFORE ITS TASK'S LINES WERE WRITTEN, while its card
+  // can still be found (`PROGRESS_DISCOVERY_MS`): the lines say no state, so
+  // they are still worth writing, and nothing but this would ask again.
+  let ended = null;
+  try {
+    const since = new Date(now - PROGRESS_DISCOVERY_MS).toISOString();
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,op,state&op=in.(edit,addon)&state=in.(done,failed,cancelled,lost)&updated_at=gte.${encodeURIComponent(since)}&order=updated_at.desc&limit=50`, { headers: svcHeaders(env) });
+    if (r.ok) ended = await r.json();
+  } catch (e) { console.error("progress sweep: could not read ended jobs", errorClassForLog(e)); }
+  for (const j of Array.isArray(ended) ? ended : []) {
+    if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || !isTerminalEdit(j.state)) continue;
+    const at = await progressRecordAt(env, j.id);
+    if (!at.read || !at.rec || !tasksNeeded(at.rec) || writerNeeded(at.rec, now) !== "ask") continue;
+    await askProgress(env, j.id, j.uid, now);
+  }
 }
 
-/** A job's written lines for a reader (`linesOf`), or [] — with progress off, no record, or another owner's record. */
-async function progressLinesFor(env, job, uid) {
-  if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return [];
+/**
+ * A job's written lines and its task's own lines for a reader (`linesOf`,
+ * `saidOf`): `{ lines, said }` — none with progress off, no record, or another
+ * owner's record.
+ */
+async function progressViewFor(env, job, uid) {
+  if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return { lines: [], said: null };
   const at = await progressRecordAt(env, job);
-  return at.rec && at.rec.uid === uid ? linesOf(at.rec) : [];
+  return at.rec && at.rec.uid === uid ? { lines: linesOf(at.rec), said: saidOf(at.rec, 0) } : { lines: [], said: null };
+}
+/** A job's written lines alone (`progressViewFor`). */
+async function progressLinesFor(env, job, uid) {
+  return (await progressViewFor(env, job, uid)).lines;
 }
 
 /**
  * A FINISHED JOB'S SERVED ANSWER WITH ITS PROGRESS LINES ON IT (`progress`),
- * or the text exactly as it was — progress off, no lines, or a body that is
+ * and its task's own lines (`said`) when a page-filed job has them, or the
+ * text exactly as it was — progress off, neither written, or a body that is
  * not an object.
  */
 async function withProgressLines(env, job, uid, text) {
   if (!progressOn(env)) return text;
-  const lines = await progressLinesFor(env, job, uid);
-  if (!lines.length) return text;
+  const { lines, said } = await progressViewFor(env, job, uid);
+  if (!lines.length && !said) return text;
   let body;
   try { body = JSON.parse(text); } catch { return text; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return text;
-  return JSON.stringify({ ...body, progress: lines });
+  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });
+}
+
+/**
+ * A REQUEST'S OWN NARRATION RECORD (2026-10-06): where its parts' task lines
+ * are kept — a progress record of `op: "request"`, under an id of 32 hex
+ * characters made from the site and the request's key, so it lives under
+ * `jobs/` with the seven-day sweep and never on the request record, whose etag
+ * stays the driver's.
+ */
+async function requestTasksId(slug, key) {
+  return (await sha256hex("request-tasks:" + slug + "/" + key)).slice(0, 32);
+}
+
+/**
+ * A REQUEST'S NARRATION, KEPT TO ITS PARTS: opened at its acceptance with each
+ * part's words (as its card shows them), and given the words of every part
+ * carved from another since — a job's held additions, put off for later — so
+ * each part gets the model's own line in every state; then a writer is asked
+ * for whatever waits. Create-or-add, by compare-and-swap; another owner's
+ * record is never touched.
+ */
+async function syncRequestTasks(env, { slug, key, uid, message, parts, picker }) {
+  if (!progressOn(env) || !env || !env.SITES_BUCKET || typeof uid !== "string" || !uid) return;
+  const tasks = (Array.isArray(parts) ? parts : [])
+    .map((p) => ({ n: p.n, words: String((typeof p.shown === "string" && p.shown) ? p.shown : (p.words || "")).trim() }))
+    .filter((t) => Number.isInteger(t.n) && t.words);
+  if (!tasks.length) return;
+  const id = await requestTasksId(slug, key);
+  const r = await progressUpdate(env, id, (rec) => {
+    if (!rec) {
+      const opened = openRecord({ job: id, uid, slug, op: "request", run: key, words: message, picker, tasks, at: Date.now() });
+      return opened ? { rec: opened } : null;
+    }
+    if (rec.uid !== uid) return null;
+    const more = addTasks(rec, tasks);
+    if (!more) return null;
+    return more.already ? { done: true } : { rec: more.rec };
+  });
+  if (r) await askProgress(env, id, uid);
+}
+
+/**
+ * THE SWEEP'S HALF: the request read and its narration kept to its parts —
+ * opened where it never was, given any part carved since, and a writer asked
+ * for whatever waits with nobody on it. A request that will not read leaves
+ * its narration's own waiting lines asked for still.
+ */
+async function ensureRequestTasks(env, slug, key) {
+  if (!progressOn(env) || !env || !env.SITES_BUCKET) return;
+  let found = null;
+  try { found = await loadRequest(env, slug, key); } catch { found = null; }
+  if (found && found.rec) {
+    await syncRequestTasks(env, { slug, key, uid: found.rec.uid, message: found.rec.message, parts: found.rec.parts, picker: found.rec.picker });
+    return;
+  }
+  const id = await requestTasksId(slug, key);
+  const at = await progressRecordAt(env, id);
+  if (at.read && at.rec && writerNeeded(at.rec, Date.now()) === "ask") await askProgress(env, id, at.rec.uid);
+}
+
+/** A request's parts' task lines for its view (`requestView`'s `said`), by part: {} with progress off, none written, or another owner's record. */
+async function saidForRequest(env, rec) {
+  const out = {};
+  if (!progressOn(env) || !rec || !Array.isArray(rec.parts) || !env || !env.SITES_BUCKET) return out;
+  const at = await progressRecordAt(env, await requestTasksId(rec.slug, rec.key));
+  if (!at.rec || at.rec.uid !== rec.uid) return out;
+  for (const p of rec.parts) { const said = saidOf(at.rec, p.n); if (said) out[p.n] = said; }
+  return out;
 }
 
 /**
@@ -7177,7 +7317,8 @@ async function standaloneJobsFor(env, uid, slug) {
     const ended = isTerminalEdit(j.state);
     const when = typeof j.updated_at === "number" ? j.updated_at : Date.parse(String(j.updated_at || ""));
     if (ended && !(Number.isFinite(when) && Date.now() - when <= PROGRESS_DISCOVERY_MS)) continue;
-    out.push({ job: j.id, op: j.op, state: j.state, ended, words: at.rec.words, at: at.rec.at, progress: linesOf(at.rec) });
+    const said = saidOf(at.rec, 0);
+    out.push({ job: j.id, op: j.op, state: j.state, ended, words: at.rec.words, at: at.rec.at, progress: linesOf(at.rec), ...(said ? { said } : {}) });
   }
   return out;
 }
@@ -15111,6 +15252,13 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       let tag = same ? etag : await saveRequestRecord(env, record, etag);
       if (!tag) continue;
       let cur = same ? rec : record;
+      // A PART CARVED FROM ANOTHER (2026-10-06) — a job's held additions —
+      // gets the model's own line in every state, as the parts accepted with
+      // the message did; the sweep adds any this misses.
+      if (!same && record.parts.length > rec.parts.length) {
+        try { await syncRequestTasks(env, { slug, key, uid: record.uid, message: record.message, parts: record.parts, picker: record.picker }); }
+        catch (e) { console.error("progress: request tasks", slug, errorClassForLog(e)); }
+      }
       let again = false;
       if (file) {
         const q = await fileRequestJob(env, cur, file);
@@ -15248,6 +15396,11 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
     try { tag = await createRequestRecord(env, draft); } catch (e) { console.error("request store: record again", slug, errorClassForLog(e)); }
   }
   if (!tag) return { failed: true };
+  // ITS PARTS' OWN LINES (2026-10-06), asked for beside the work and held by
+  // this invocation (`waitUntil`); a lost ask is the sweep's to make again.
+  if (progressOn(env) && ctx && typeof ctx.waitUntil === "function") {
+    try { ctx.waitUntil(syncRequestTasks(env, { slug, key, uid, message, parts: draft.parts, picker: draft.picker }).catch((e) => console.error("progress: request tasks", slug, errorClassForLog(e)))); } catch { /* the sweep asks again */ }
+  }
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
 }
@@ -15364,8 +15517,17 @@ export async function runRequestSweep(env, ctx) {
       if (now - mark.endedAt <= REPLY_HORIZON_MS + REPLY_RETRY_GRACE_MS && repliesOn(env)) {
         try { const f = await loadRequest(env, at.slug, at.key); if (f && f.rec) await requestReply(env, f.rec); } catch { /* next tick */ }
       }
+      // ITS PARTS' LINES (2026-10-06), for a request that ended before they
+      // were written — within the reply's own horizon, so an ended request is
+      // not read for them all day.
+      if (now - mark.endedAt <= REPLY_HORIZON_MS + REPLY_RETRY_GRACE_MS) {
+        try { await ensureRequestTasks(env, at.slug, at.key); } catch { /* next tick */ }
+      }
       continue;
     }
+    // AN UNFINISHED REQUEST'S PARTS' LINES (2026-10-06): opened or asked for
+    // again where an acceptance's ask was lost.
+    try { await ensureRequestTasks(env, at.slug, at.key); } catch { /* next tick */ }
     if (await advanceRequest(env, ctx, at.slug, at.key, "sweep")) continue;
     // A MARKER WHOSE RECORD NEVER LANDED (the acceptance died between the two,
     // or its record write failed): nothing to move on, and it is taken away
@@ -15814,7 +15976,12 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // THE PROGRESS RECORDER IS THE RUN'S OWN (2026-10-06): it records under
     // this run's lease name, the one `edit_jobs` holds while this run has the
     // job, so a writer can tell this run's milestones from a newer run's.
-    progress = makeProgress(env, ctx, { id, run: owner, uid: job.uid, slug: job.slug });
+    // A REQUEST'S PART IS NAMED ON THE REQUEST'S OWN RECORD; a job the page
+    // filed itself names its one task here. Told apart as `requestJobEnded`
+    // tells them: by the request its stored body carries.
+    let partOfRequest = false;
+    try { partOfRequest = !!readRequestOf(JSON.parse(String(job.body || "")).request); } catch { partOfRequest = false; }
+    progress = makeProgress(env, ctx, { id, run: owner, uid: job.uid, slug: job.slug, standalone: !partOfRequest });
     const wantMs = inlineBudgetMs(0, capMs);
     const budgetMs = inlineBudgetMs(startedAt, capMs);
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
@@ -22979,13 +23146,15 @@ async function handleRequest(request, env, ctx) {
       }
       // A RUNNING JOB'S PROGRESS LINES SO FAR (2026-10-06): read off its
       // record, never written by this read; none with progress off.
-      const eLines = await progressLinesFor(env, ejid, eu.id);
+      const eProg = await progressViewFor(env, ejid, eu.id);
+      const eLines = eProg.lines;
       return Response.json({
         ok: row.state !== "failed" && row.state !== "lost",
         job: ejid,
         status: row.state,
         phase: row.phase || undefined,
         progress: eLines.length ? eLines : undefined,
+        said: eProg.said || undefined,
         ms: Number(row.ms) || 0,
         // A FINISHED JOB'S COST IS WHAT ITS ROW SETTLED (2026-09-25), and a
         // running one's what it holds so far.
@@ -23064,7 +23233,7 @@ async function handleRequest(request, env, ctx) {
             if (!at || at.slug !== qSlug) continue;
             let found = null;
             try { found = await loadRequest(env, qSlug, at.key); } catch { found = null; }
-            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec) }));
+            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec), said: await saidForRequest(env, found.rec) }));
           }
           views.sort((a, b) => a.at - b.at);
           // AND THIS OWNER'S STANDALONE JOBS ON THE SITE (2026-10-06), each with
@@ -23087,7 +23256,7 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec) }) };
+        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec) }) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });

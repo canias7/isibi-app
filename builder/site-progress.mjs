@@ -33,6 +33,20 @@
 //   line on the etag it read. Everything it decides is a function here; the
 //   Worker supplies the reads, the writes and the call.
 //
+// AND EACH TASK'S OWN LINE (2026-10-06), the owner's clarification: *"make
+// the assistant's task summaries and progress updates conversational and
+// first-person … Let the model generate the wording naturally from context,
+// matching whether the work is planned, happening or finished. Don't add
+// hardcoded prefixes to the user's words."* A request's card named each part
+// by the customer's own words, which are also that part's instruction to its
+// job and so stay as they are. Now the same writer, on the same record, asks
+// the model for each task's line in every state it can be in (`TASK_STATES`:
+// planned, doing, done, notdone) — a request's parts on a record of the
+// request's own, a page-filed job's one task on the job's — and the page
+// shows the one its authoritative status calls for. The model never decides
+// which state is true, so a line written late can never claim one; until
+// they are written the customer's words show, unprefixed.
+//
 // WHAT THE `says` CHECK PROVES, AND WHAT IT DOES NOT. The model lists every
 // fact it described, with the state it described it as, and a fact listed in
 // any other state than its own is refused and asked for once more. That
@@ -113,6 +127,17 @@ export const PROGRESS_DISCOVERY_MS = 24 * 3600 * 1000;
 /** The states of a milestone: waiting for a line, said by one, set aside when the job ended, or given up. */
 export const MARK_STATES = Object.freeze(["pending", "said", "skipped", "failed"]);
 
+/**
+ * THE STATES A TASK'S LINE IS WRITTEN IN, and the page shows the one its
+ * status calls for: planned (not started), doing (happening now), done, and
+ * notdone (not done, in full or in part — the final message says why).
+ */
+export const TASK_STATES = Object.freeze(["planned", "doing", "done", "notdone"]);
+/** A record's tasks, at most: a technical guard, as `PROGRESS_MAX_MARKS` is — a request holds a handful of parts. */
+export const PROGRESS_MAX_TASKS = 50;
+/** What one task-lines call may write: every task in four states, so more than a line's ceiling, and an answer cut there is not used, never shortened. */
+export const TASK_MAX_TOKENS = 2000;
+
 const JOB_RE = /^[0-9a-f]{32}$/;
 const RUN_RE = /^[A-Za-z0-9_:-]{4,80}$/;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -156,6 +181,50 @@ function readLine(l) {
   return { n: l.n, at, text, marks: l.marks.slice() };
 }
 
+/** What each task is, in the customer's words: `[{ n, words }]`, [] when there are none, null when the list does not read. */
+function readTaskWords(v) {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.length > PROGRESS_MAX_TASKS) return null;
+  const out = [];
+  for (const t of v) {
+    if (!t || typeof t !== "object" || !Number.isInteger(t.n) || t.n < 0 || typeof t.words !== "string" || !t.words.trim()) return null;
+    if (out.some((o) => o.n === t.n)) return null;
+    out.push({ n: t.n, words: t.words.trim() });
+  }
+  return out;
+}
+
+/** One task's lines in every state, each a string with words in it; null when any is missing. */
+function readSaid(e) {
+  if (!e || typeof e !== "object" || Array.isArray(e)) return null;
+  const out = {};
+  for (const k of TASK_STATES) {
+    const v = typeof e[k] === "string" ? e[k].replace(/\r\n/g, "\n").trim() : "";
+    if (!v) return null;
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The written task lines: null when none are written yet, false when they do
+ * not read — an entry for no task, a task twice, a state missing. They may
+ * cover only some of the tasks: a task added since (a request's part carved
+ * from another) waits for its own.
+ */
+function readTaskLines(v, words) {
+  if (v === undefined || v === null) return null;
+  if (!Array.isArray(v) || v.length > words.length) return false;
+  const out = [];
+  for (const e of v) {
+    if (!e || typeof e !== "object" || !words.some((t) => t.n === e.n) || out.some((o) => o.n === e.n)) return false;
+    const said = readSaid(e);
+    if (!said) return false;
+    out.push({ n: e.n, ...said });
+  }
+  return out.length ? out : null;
+}
+
 /**
  * A JOB'S PROGRESS RECORD, AS STORED, read strictly: the record, or null when
  * it is no record at all. Every list is all-or-nothing — one entry that does
@@ -166,13 +235,18 @@ export function readProgressRecord(raw) {
   if (typeof raw.job !== "string" || !JOB_RE.test(raw.job)) return null;
   if (typeof raw.uid !== "string" || !raw.uid || raw.uid.length > 80) return null;
   if (typeof raw.slug !== "string" || !SLUG_RE.test(raw.slug)) return null;
-  if (raw.op !== "edit" && raw.op !== "addon") return null;
+  // A REQUEST'S OWN RECORD (`op: "request"`) holds its parts' task lines and nothing else.
+  if (raw.op !== "edit" && raw.op !== "addon" && raw.op !== "request") return null;
   if (typeof raw.run !== "string" || !RUN_RE.test(raw.run)) return null;
   const at = num(raw.at);
   if (at === null || !Array.isArray(raw.marks) || !Array.isArray(raw.lines) || !Number.isInteger(raw.nf) || raw.nf < 0) return null;
   const marks = raw.marks.map(readMark);
   const lines = raw.lines.map(readLine);
   if (marks.some((m) => !m) || lines.some((l) => !l)) return null;
+  const taskWords = readTaskWords(raw.taskWords);
+  if (taskWords === null) return null;
+  const tasks = readTaskLines(raw.tasks, taskWords);
+  if (tasks === false) return null;
   const w = raw.writer;
   const writer = w && typeof w === "object" && typeof w.owner === "string" && w.owner && num(w.until) !== null && Number.isInteger(w.attempt)
     ? { owner: w.owner, until: w.until, attempt: w.attempt } : null;
@@ -186,17 +260,27 @@ export function readProgressRecord(raw) {
     asked: num(raw.asked) || 0,
     tries: Number.isInteger(raw.tries) && raw.tries >= 0 ? raw.tries : 0,
     ...(num(raw.retryAt) !== null ? { retryAt: raw.retryAt } : {}),
+    taskWords, tasks,
+    taskTries: Number.isInteger(raw.taskTries) && raw.taskTries >= 0 ? raw.taskTries : 0,
+    tasksWhy: typeof raw.tasksWhy === "string" && raw.tasksWhy ? raw.tasksWhy.slice(0, 40) : null,
   };
 }
 
-/** A job's record as it opens, at its start: no milestone yet, so nothing for a writer. */
-export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], at }) {
+/**
+ * A record as it opens: a job's at its start, with no milestone yet, or a
+ * request's at its acceptance (`op: "request"`). `tasks` is what each task is
+ * in the customer's words — a page-filed job's one, a request's parts — for
+ * the writer to give each its line in every state; none, and there is
+ * nothing for a writer until a milestone comes.
+ */
+export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at }) {
   if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
-  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon")) return null;
+  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request")) return null;
   return readProgressRecord({
     v: 1, job, uid, slug, op, run, at, words: typeof words === "string" ? words : "",
     picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
     nf: 0, marks: [], lines: [], writer: null, closed: null, asked: 0, tries: 0,
+    taskWords: Array.isArray(tasks) ? tasks : [], tasks: null, taskTries: 0, tasksWhy: null,
   });
 }
 
@@ -253,6 +337,18 @@ export const pendingMarks = (rec) => (rec ? rec.marks.filter((m) => m.state === 
 export const writerLive = (rec, now) => !!(rec && rec.writer && rec.writer.until > now);
 
 /**
+ * DO THE TASKS STILL NEED THEIR LINES? Even on a closed record: a task's lines
+ * carry no state — the page picks one from the status it reads — so a job
+ * that ended before they were written still gets them, for the card that
+ * shows it finished.
+ */
+export const tasksNeeded = (rec) => !!(rec && !rec.tasksWhy && unwrittenTasks(rec).length > 0);
+/** The tasks with no lines yet, in the customer's words, in order: what a writer is asked to write. */
+export const unwrittenTasks = (rec) => (rec && Array.isArray(rec.taskWords) ? rec.taskWords.filter((t) => !(Array.isArray(rec.tasks) && rec.tasks.some((x) => x.n === t.n))) : []);
+/** Do the record's milestones need a line? Only while it is open. */
+const linesNeeded = (rec) => !!(rec && !rec.closed && pendingMarks(rec).length > 0);
+
+/**
  * DOES THE RECORD NEED A WRITER ASKED FOR NOW — the one rule the recorder, the
  * writer letting go and the cron's recovery all read:
  *   none   closed, or nothing waiting;
@@ -262,7 +358,7 @@ export const writerLive = (rec, now) => !!(rec && rec.writer && rec.writer.until
  *   ask    a milestone waits and nobody is on it: ask (and say so on the record).
  */
 export function writerNeeded(rec, now) {
-  if (!rec || rec.closed || !pendingMarks(rec).length) return "none";
+  if (!linesNeeded(rec) && !tasksNeeded(rec)) return "none";
   if (writerLive(rec, now)) return "wait";
   if (num(rec.retryAt) !== null && rec.retryAt > now) return "wait";
   if (rec.asked && now - rec.asked < PROGRESS_ASK_GRACE_MS) return "wait";
@@ -282,11 +378,20 @@ export const markAsked = (rec, now) => ({ ...rec, asked: now });
  * lost) is this writer's still.
  */
 export function claimWriter(rec, owner, now) {
-  if (!rec || rec.closed || !pendingMarks(rec).length) return null;
+  if (!linesNeeded(rec) && !tasksNeeded(rec)) return null;
   if (typeof owner !== "string" || !owner) return null;
   if (rec.writer && rec.writer.owner === owner) return { rec: { ...rec, writer: { ...rec.writer, until: now + PROGRESS_LEASE_MS } }, claimed: true };
   if (writerLive(rec, now)) return null;
   if (num(rec.retryAt) !== null && rec.retryAt - now > PROGRESS_RETRY_SKEW_MS) return null;
+  // THE TASKS' LINES FIRST, ON TRIES OF THEIR OWN, so a call for them that
+  // keeps failing never costs the milestones theirs: given up after
+  // `PROGRESS_TRIES` (`tasksWhy`), and the customer's words stay on the card.
+  if (tasksNeeded(rec)) {
+    const t = rec.taskTries || 0;
+    if (t < PROGRESS_TRIES) return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: t + 1 }, taskTries: t + 1, retryAt: undefined, asked: 0 }, claimed: true };
+    rec = { ...rec, taskTries: 0, tasksWhy: "tries" };
+    if (!linesNeeded(rec)) return { rec: { ...rec, writer: null, retryAt: undefined, asked: 0 }, gaveUp: true };
+  }
   const tries = rec.tries || 0;
   if (tries >= PROGRESS_TRIES) {
     return { rec: { ...rec, writer: null, tries: 0, retryAt: undefined, asked: 0, marks: rec.marks.map((m) => (m.state === "pending" ? { ...m, state: "failed", why: "tries" } : m)) }, gaveUp: true };
@@ -299,6 +404,60 @@ export function claimWriter(rec, owner, now) {
 
 /** Does `owner` still hold a live lease on the record, which is still open? */
 export const holds = (rec, owner, now) => !!(rec && !rec.closed && rec.writer && rec.writer.owner === owner && rec.writer.until > now);
+/** Does `owner` still hold a live lease on the record, open or not — all a task's lines need, carrying no state. */
+const leaseHeld = (rec, owner, now) => !!(rec && rec.writer && rec.writer.owner === owner && rec.writer.until > now);
+
+/**
+ * THE TASKS' LINES COMMITTED: on the lease alone (a closed record takes them
+ * — see `tasksNeeded`), each in every state, beside the lines already written,
+ * which are kept. Null when the lease is gone, nothing new is in them, or any
+ * of them does not read or names no task the record holds. A task added while
+ * the call ran still waits (`tasksNeeded`), for the writer to be asked again.
+ */
+export function commitTasks(rec, { owner, tasks, now }) {
+  if (!leaseHeld(rec, owner, now) || !tasksNeeded(rec) || !Array.isArray(tasks)) return null;
+  const had = Array.isArray(rec.tasks) ? rec.tasks : [];
+  const fresh = tasks.filter((t) => !(t && typeof t === "object" && had.some((h) => h.n === t.n)));
+  if (!fresh.length) return null;
+  const read = readTaskLines([...had, ...fresh], rec.taskWords);
+  if (!read) return null;
+  return { ...rec, tasks: read, writer: null, taskTries: 0, retryAt: undefined };
+}
+
+/**
+ * TASKS ADDED TO A RECORD: a request's parts carved after its acceptance — a
+ * job's held additions, put off for later — each new one, by its number, in
+ * the customer's words, with the writer's tries begun again so it gets its
+ * lines (and any given up before it, a second time). `{ rec, added }`;
+ * `{ already: true }` when the record holds every one; null when one does not
+ * read or the record would hold more than `PROGRESS_MAX_TASKS`, and those
+ * parts are named by their words.
+ */
+export function addTasks(rec, tasks) {
+  if (!rec || !Array.isArray(rec.taskWords) || !Array.isArray(tasks)) return null;
+  const fresh = [];
+  for (const t of tasks) {
+    if (!t || typeof t !== "object" || rec.taskWords.some((w) => w.n === t.n) || fresh.some((f) => f.n === t.n)) continue;
+    fresh.push(t);
+  }
+  if (!fresh.length) return { already: true };
+  const taskWords = readTaskWords([...rec.taskWords, ...fresh]);
+  if (!taskWords) return null;
+  return { rec: { ...rec, taskWords, taskTries: 0, tasksWhy: null }, added: fresh.length };
+}
+
+/** A call for the tasks' lines that wrote nothing: tried again later while it has tries left, then given up with why. `{ rec, retry }`, or null without the lease. */
+export function failTasks(rec, { owner, why, now }) {
+  if (!leaseHeld(rec, owner, now)) return null;
+  if ((rec.taskTries || 0) < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };
+  return { rec: { ...rec, writer: null, taskTries: 0, retryAt: undefined, tasksWhy: String(why || "send").slice(0, 40) }, retry: false };
+}
+
+/** One task's lines for a reader — `{ planned, doing, done, notdone }` — or null when they are not written. */
+export function saidOf(rec, n) {
+  const t = rec && Array.isArray(rec.tasks) ? rec.tasks.find((x) => x.n === n) : null;
+  return t ? { planned: t.planned, doing: t.doing, done: t.done, notdone: t.notdone } : null;
+}
 
 /**
  * WHAT THE NEXT LINE MUST COVER: the milestones waiting, and their facts.
@@ -565,9 +724,9 @@ export const PROGRESS_TOOL = {
 // relying on an arbitrary short character limit"*). It asks for a short line;
 // nothing in code measures one.
 export const PROGRESS_SYSTEM =
-  "You write one short progress update in the chat while an AI website builder is still working on a customer's request. " +
-  "The builder's code records each step as it really happens and gives you the facts since your last update, each with an id and a state. " +
-  "Tell the customer, in your own words, what has happened and what comes next.\n\n" +
+  "You are an AI website builder, writing one short progress update in the chat while you are still working on a customer's request. " +
+  "Your code records each step as it really happens and gives you the facts since your last update, each with an id and a state. " +
+  "Tell the customer yourself what has happened and what comes next.\n\n" +
   "THE STATES\n" +
   "decided: worked out what to do; nothing has changed yet.\n" +
   "designed: designed; nothing has been built yet.\n" +
@@ -577,12 +736,137 @@ export const PROGRESS_SYSTEM =
   "next: planned; not started.\n" +
   "notdone: could not be made; the final message will say why.\n\n" +
   "RULES\n" +
+  "- Speak in the first person, naturally and conversationally, the way you would tell them yourself: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
   "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
   "- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\n" +
   "- Do not repeat what your earlier updates said.\n" +
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
   "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting or sign-off.\n" +
   "- In says, list every fact's id with the state you described it as.";
+
+// ── EACH TASK'S LINE, IN EVERY STATE IT CAN BE IN ──────────────────────────
+
+export const TASK_TOOL = {
+  name: "write_tasks",
+  description: "Write, for every task, the line you would show the customer in each of its states.",
+  input_schema: {
+    type: "object",
+    properties: {
+      tasks: {
+        type: "array",
+        description: "One entry per task, its id exactly as written in brackets.",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, planned: { type: "string" }, doing: { type: "string" }, done: { type: "string" }, notdone: { type: "string" } },
+          required: ["id", "planned", "doing", "done", "notdone"],
+        },
+      },
+    },
+    required: ["tasks"],
+  },
+};
+
+// CONCISE, AND NO EXAMPLE TO COPY (the owner: *"These are tone examples, not
+// templates … Don't add hardcoded prefixes to the user's words."*). The model
+// writes every state; code shows the one the task is really in.
+export const TASK_SYSTEM =
+  "You are an AI website builder. For each task in a customer's request, write the short line you would show them about it, once for each state it can be in; " +
+  "your code shows the line for the state the task is really in.\n\n" +
+  "THE STATES\n" +
+  "planned: not started yet; say you will do it.\n" +
+  "doing: happening now; say you are doing it.\n" +
+  "done: finished; say you did it.\n" +
+  "notdone: could not be done, in full or in part; say so, with no reason (the final message gives it).\n\n" +
+  "RULES\n" +
+  "- Speak in the first person, naturally and conversationally, the way you would tell them yourself.\n" +
+  "- Say what the task is in your own words; never hand their words back as an instruction.\n" +
+  "- Never say a change is published or live, and never mention steps, tools, files, code, models or ids.\n" +
+  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting.";
+
+/** The request one task-lines call sends: every task, each with its id and the customer's words for it. `fix` names what a first answer got wrong. */
+export function taskRequest({ tasks, context = "", model, fix = null }) {
+  const told = [];
+  if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST ANSWER LEFT OUT, OR LEFT A STATE EMPTY FOR, " + fix.missing.join(", ") + ".");
+  if (fix && fix.ids) told.push("YOUR LAST ANSWER PUT A TASK'S ID IN A LINE.");
+  const body = (context ? context + "\n\n" : "") +
+    "THE TASKS (write each in all four states; put its id in tasks):\n" +
+    tasks.map((t) => "[t" + t.n + "] " + flat(t.words)).join("\n") +
+    (told.length ? "\n\n" + told.join(" ") + " Write them again." : "");
+  return {
+    model,
+    max_tokens: TASK_MAX_TOKENS,
+    tools: [TASK_TOOL],
+    tool_choice: { type: "tool", name: TASK_TOOL.name },
+    system: [{ type: "text", text: TASK_SYSTEM }],
+    messages: [{ role: "user", content: body }],
+  };
+}
+
+/**
+ * TASK LINES, READ AND CHECKED: every task, by its id, with a line in every
+ * state, and no id in any line. `{ ok, tasks, missing, ids, why }`; the first
+ * entry for an id is the one read. Like `readProgress`, this reads the
+ * answer's shape, never its words — nothing here looks for a phrase.
+ */
+export function readTasks(reply, tasks) {
+  const none = (why) => ({ ok: false, tasks: [], missing: [], ids: false, why });
+  const block = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use" && b.name === TASK_TOOL.name) : null;
+  const input = block && block.input && typeof block.input === "object" ? block.input : null;
+  if (!input || !Array.isArray(input.tasks)) return none(reply && reply.stop_reason === "max_tokens" ? "cut" : "unreadable");
+  const want = (Array.isArray(tasks) ? tasks : []).map((t) => "t" + t.n);
+  const got = new Map();
+  for (const e of input.tasks) {
+    const id = e && typeof e.id === "string" ? e.id.trim() : "";
+    if (!want.includes(id) || got.has(id)) continue;
+    const said = readSaid(e);
+    if (said) got.set(id, said);
+  }
+  const missing = want.filter((id) => !got.has(id));
+  const ids = [...got.values()].some((said) => TASK_STATES.some((k) => /\[t\d+\]/.test(said[k])));
+  const ok = want.length > 0 && !missing.length && !ids;
+  return { ok, tasks: ok ? tasks.map((t) => ({ n: t.n, ...got.get("t" + t.n) })) : [], missing, ids, why: ok ? "" : ids ? "ids" : "uncovered" };
+}
+
+/**
+ * WRITE THE TASKS' LINES. Never throws. `{ ok: true, tasks, usage, attempts }`,
+ * or `{ ok: false, why, usage, attempts }` — `why` one of `no-tasks`, `send`,
+ * `deadline`, `unreadable`, `cut`, `uncovered`, `ids`. At most two calls: a
+ * first answer that left a task or a state out, or put an id in a line, is
+ * asked once more, told which.
+ */
+export async function writeTasks(deps, { tasks, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now() } = {}) {
+  const usage = [];
+  if (!Array.isArray(tasks) || !tasks.length) return { ok: false, why: "no-tasks", usage, attempts: 0 };
+  if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
+  const start = now();
+  let fix = null;
+  let attempts = 0;
+  let why = "unreadable";
+  while (attempts < 2) {
+    const left = deadlineMs - (now() - start);
+    if (left <= 0) return { ok: false, why: "deadline", usage, attempts };
+    attempts++;
+    let timer;
+    let reply;
+    try {
+      reply = await Promise.race([
+        Promise.resolve().then(() => deps.send(taskRequest({ tasks, context, model, fix }))),
+        new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("tasks deadline"), { deadline: true })), left); }),
+      ]);
+    } catch (e) {
+      return { ok: false, why: e && e.deadline ? "deadline" : "send", usage, attempts };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    usage.push(progressUsage(reply, model));
+    const read = readTasks(reply, tasks);
+    if (read.ok) return { ok: true, tasks: read.tasks, usage, attempts };
+    why = read.why;
+    if (why === "unreadable" || why === "cut") break;
+    fix = { missing: read.missing, ids: read.ids };
+  }
+  return { ok: false, why, usage, attempts };
+}
 
 /** What the model is shown besides the facts: their site, its pages, their words, and the updates already written. */
 export function progressContext(rec) {

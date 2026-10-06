@@ -1206,9 +1206,12 @@ function partProgress(p, progress) {
  * explain it (the page fetches each through the job poll, which writes its
  * model reply once). Nothing private: no uid, no files' keys. `progress`
  * (2026-10-06) is each run job's progress lines by job id, read at the look;
- * a part with none carries no `progress` at all.
+ * a part with none carries no `progress` at all. `said` is each part's own
+ * line in every state, by part number, read off the request's narration
+ * record at the look (`saidForRequest`): a part with none carries no `said`,
+ * and the page names it by its words.
  */
-export function requestView(rec, { progress = null } = {}) {
+export function requestView(rec, { progress = null, said = null } = {}) {
   // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
   // run carries it (`routedCost`) only when part 0 ran on the answer that
   // accepted the message and its job's reply was written; a part 0 routed
@@ -1245,6 +1248,8 @@ export function requestView(rec, { progress = null } = {}) {
       ...(p.route && p.route.op !== "addon" && p.route.fromAddon === true ? { addition: true } : {}),
       // WHAT ITS JOBS SAID WHILE THEY RAN (2026-10-06), when they said anything.
       ...((lines) => (lines.length ? { progress: lines } : {}))(partProgress(p, progress)),
+      // AND ITS OWN LINE IN EVERY STATE, when the model has written it.
+      ...(said && typeof said === "object" && Object.hasOwn(said, p.n) && said[p.n] ? { said: said[p.n] } : {}),
     })),
   };
 }

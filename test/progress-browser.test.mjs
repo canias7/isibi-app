@@ -44,15 +44,31 @@ const SOLO = "b3" + "0".repeat(30);
 const WORDS = "Add a Tasting Evenings page where people can join the waiting list";
 const SOLO_WORDS = "Change the Gallery heading to Photographs from our ovens";
 const L = (job, n, s, text) => ({ job, n, ms: s * 1000, text });
+// SUPPLIED MODEL ANSWERS, in the first person the instructions ask for (the
+// owner, 2026-10-06: *"conversational and first-person … These are tone
+// examples, not templates"*) — what a case hands the page, never a template.
 const LINES = [
-  L(JOB, 0, 30, "I'm adding a Tasting Evenings page with a waiting-list form, and somewhere to keep the sign-ups."),
-  L(JOB, 1, 91, "The sign-up list is designed: it keeps each person's name and email address. The page itself is next."),
-  L(JOB, 2, 165, "The page is designed, with a form asking for a name and an email address. Publishing comes after it is written."),
+  L(JOB, 0, 30, "I've worked out what to add: a Tasting Evenings page with a waiting-list form, and somewhere to keep the sign-ups."),
+  L(JOB, 1, 91, "I've designed the sign-up list — it keeps each person's name and email address. Next I'll design the page itself."),
+  L(JOB, 2, 165, "I've designed the page, with a form asking for a name and an email address. I'm building it now."),
 ];
 const SOLO_LINES = [
-  { n: 0, ms: 5000, text: "Found the Gallery heading. Changing it to “Photographs from our ovens”, then publishing." },
-  { n: 1, ms: 8000, text: "The new heading is made, not published yet. Publishing now." },
+  { n: 0, ms: 5000, text: "I found the Gallery heading and I'm changing it to “Photographs from our ovens”." },
+  { n: 1, ms: 8000, text: "I've made the new heading in the builder, and I'm putting it on your site now." },
 ];
+// EACH TASK'S OWN LINES, one per state; the page shows the one its status is in.
+const SAID_A = {
+  planned: "I'll add a Tasting Evenings page where people can join the waiting list.",
+  doing: "I'm adding your Tasting Evenings page with its waiting-list form.",
+  done: "I've added your Tasting Evenings page with its waiting list.",
+  notdone: "I couldn't add the Tasting Evenings page.",
+};
+const SAID_SOLO = {
+  planned: "Okay, I'll update the Gallery heading to “Photographs from our ovens”.",
+  doing: "I'm updating the Gallery heading now.",
+  done: "I've updated the Gallery heading to “Photographs from our ovens”.",
+  notdone: "I couldn't update the Gallery heading.",
+};
 const ADDON_ANSWER = { ok: true, kinds: ["page", "table"], added: ["src/routes/tasting-evenings.tsx"], tables: ["tasting_list"], cost: 18, reply: "✅ Your Tasting Evenings page is up, and sign-ups are kept.", replySource: "model" };
 const EDIT_ANSWER = { ok: true, layer: "text", changed: ["src/routes/gallery.tsx"], files: 1, cost: 2, reply: "✅ The Gallery heading now reads “Photographs from our ovens”.", replySource: "model" };
 
@@ -128,13 +144,16 @@ const kept = (page) => page.evaluate(() => {
   return { msgs: (s.msgs || []).map((m) => (m.request ? "card" : m.jobCard ? "job-card" : m.r === "u" ? "user" : "reply")), prog: (s.msgs || []).filter((m) => Array.isArray(m.prog)).map((m) => m.prog.length), jobs: (s.msgs || []).flatMap((m) => m.jobs || []) };
 });
 const lineTexts = (page, sel) => page.$$eval(sel, (els) => els.map((e) => e.textContent.replace(/^\d+:\d\d/, "").trim()));
+/** Each part's title on the thread's cards, in order. */
+const titles = (page) => page.$$eval(".st-req-part .st-req-words", (els) => els.map((e) => e.textContent));
 
-test("PATH A — a request's card: the part's fixed label stays, its lines appear under it with the newest live, read after read without doubling; once ended they stay, muted, above its reply — and none of them is a thread message", { skip: SKIP, timeout: 120000 }, async () => {
+test("PATH A — a request's card: the part's fixed label stays, its lines appear under it with the newest live, read after read without doubling; once ended they stay, muted, above its reply — and none of them is a thread message. The part is named by its words until the model's lines for it come, then by the line for its state: doing while it runs, done once it has", { skip: SKIP, timeout: 120000 }, async () => {
   let finished = false;
   let shown = 2;
+  let named = false;
   const view = () => ({
     key: KEY, state: finished ? "done" : "running", ended: finished, stop: false, at: Date.now() - 300000, updatedAt: Date.now(), routedUnsaid: 0,
-    parts: [{ n: 0, words: WORDS, status: finished ? "done" : "started", ids: [JOB], jobs: finished ? [JOB] : [], charged: 0, route: "addon", progress: LINES.slice(0, shown) }],
+    parts: [{ n: 0, words: WORDS, status: finished ? "done" : "started", ids: [JOB], jobs: finished ? [JOB] : [], charged: 0, route: "addon", progress: LINES.slice(0, shown), ...(named ? { said: SAID_A } : {}) }],
   });
   const S = { requests: () => [view()], view, polls: { [JOB]: () => (finished ? { final: true, body: { ...ADDON_ANSWER, progress: LINES } } : { body: { ok: true, status: "building", progress: LINES.slice(0, shown) } }) } };
   const app = await openApp(S);
@@ -144,13 +163,18 @@ test("PATH A — a request's card: the part's fixed label stays, its lines appea
     assert.equal(await page.textContent(".st-req-part .st-req-status"), "In progress", "the fixed label is gone beside the lines");
     assert.deepEqual(await lineTexts(page, ".st-req-part .st-req-prog li"), LINES.slice(0, 2).map((l) => l.text));
     assert.equal(await page.$$eval(".st-req-part .st-req-prog li.live", (els) => els.length), 1);
-    assert.match(await page.textContent(".st-req-part .st-req-prog li.live"), /The page itself is next/, "the newest line is not the live one");
+    assert.match(await page.textContent(".st-req-part .st-req-prog li.live"), /design the page itself/, "the newest line is not the live one");
     // READ AGAIN AND AGAIN: never doubled.
     for (const until = Date.now() + 5000; Date.now() < until && app.reads.request < 3;) await page.waitForTimeout(150);
     assert.ok(app.reads.request >= 2, "the page read the request only once");
     assert.equal(await page.$$eval(".st-req-part .st-req-prog li", (els) => els.length), 2, "a line was drawn twice");
+    // NAMED BY ITS WORDS, as they are, until its lines come; then by the line for running.
+    assert.deepEqual(await titles(page), [WORDS], "the part was not named by its words before its lines came");
+    named = true;
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_A.doing, { timeout: 20000 });
     shown = 3;
     await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 3, null, { timeout: 20000 });
+    assert.deepEqual(await titles(page), [SAID_A.doing]);
     await shot(page, "progress-a-running.png");
     finished = true;
     await page.waitForFunction(() => document.querySelectorAll(".st-req-done .st-req-prog li").length === 3, null, { timeout: 30000 });
@@ -162,6 +186,7 @@ test("PATH A — a request's card: the part's fixed label stays, its lines appea
     // THE CARD (WITH ITS LINES) STANDS ABOVE THE REPLY.
     const order = await page.$$eval("#stThread .st-msg.a", (els) => els.map((e) => (e.querySelector(".st-req") ? "card" : e.textContent.includes("is up") ? "reply" : "other")));
     assert.ok(order.indexOf("card") >= 0 && order.indexOf("card") < order.indexOf("reply"), "the lines are not above the reply: " + order.join(","));
+    assert.deepEqual(await titles(page), [SAID_A.done], "the finished part was not named by its done line");
     await shot(page, "progress-a-finished.png");
     const k = await kept(page);
     assert.deepEqual(k.msgs, ["card", "reply"], "a progress line became a thread message: " + k.msgs.join(","));
@@ -170,6 +195,7 @@ test("PATH A — a request's card: the part's fixed label stays, its lines appea
     await page.reload({ waitUntil: "load" });
     await page.waitForFunction(() => document.querySelectorAll(".st-req-done .st-req-prog li").length === 3, null, { timeout: 20000 });
     assert.deepEqual(await lineTexts(page, ".st-req-done .st-req-prog li"), LINES.map((l) => l.text));
+    assert.deepEqual(await titles(page), [SAID_A.done], "a reload lost the part's line");
     assert.deepEqual((await kept(page)).msgs, ["card", "reply"], "a reload added a message");
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
@@ -189,10 +215,10 @@ test("PATH B — a job this page watches: its newest line replaces \"Thinking\";
   try {
     const { page } = app;
     await page.waitForFunction(() => !!document.querySelector(".st-busy .st-think-prog"), null, { timeout: 20000 });
-    assert.match(await page.textContent(".st-busy .st-think-prog"), /Found the Gallery heading/);
+    assert.match(await page.textContent(".st-busy .st-think-prog"), /found the Gallery heading/);
     assert.equal(await page.$(".st-busy .st-think:not(.st-think-prog)"), null, "\"Thinking\" stayed beside the line");
     shown = 2;
-    await page.waitForFunction(() => { const e = document.querySelector(".st-busy .st-think-prog"); return !!e && e.textContent.includes("Publishing now"); }, null, { timeout: 20000 });
+    await page.waitForFunction(() => { const e = document.querySelector(".st-busy .st-think-prog"); return !!e && e.textContent.includes("putting it on your site now"); }, null, { timeout: 20000 });
     await shot(page, "progress-b-running.png");
     finished = true;
     await page.waitForFunction(() => [...document.querySelectorAll(".st-msg.a")].some((m) => m.textContent.includes("now reads")), null, { timeout: 30000 });
@@ -216,18 +242,18 @@ test("PATH B — a job this page watches: its newest line replaces \"Thinking\";
   } finally { await closeApp(app); }
 });
 
-test("FRESH DEVICE — no thread, no request, no job of its own: the requests list brings back the request's card with its lines, and the page-filed job's card with its words and lines, followed to its reply", { skip: SKIP, timeout: 120000 }, async () => {
+test("FRESH DEVICE — no thread, no request, no job of its own: the requests list brings back the request's card with its lines, and the page-filed job's card with its lines, followed to its reply — each named by the model's line for its state", { skip: SKIP, timeout: 120000 }, async () => {
   let soloDone = false;
   const view = () => ({
     key: KEY, state: "done", ended: true, stop: false, at: Date.now() - 600000, updatedAt: Date.now(), routedUnsaid: 0,
-    parts: [{ n: 0, words: WORDS, status: "done", ids: [JOB], jobs: [JOB], charged: 18, route: "addon", progress: LINES }],
+    parts: [{ n: 0, words: WORDS, status: "done", ids: [JOB], jobs: [JOB], charged: 18, route: "addon", progress: LINES, said: SAID_A }],
   });
-  const soloView = () => ({ job: SOLO, op: "edit", state: soloDone ? "done" : "editing", ended: soloDone, words: SOLO_WORDS, at: Date.now() - 30000, progress: SOLO_LINES.slice(0, 1) });
+  const soloView = () => ({ job: SOLO, op: "edit", state: soloDone ? "done" : "editing", ended: soloDone, words: SOLO_WORDS, at: Date.now() - 30000, progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO });
   const S = {
     requests: () => [view()], view, jobs: () => [soloView()],
     polls: {
       [JOB]: () => ({ final: true, body: { ...ADDON_ANSWER, progress: LINES } }),
-      [SOLO]: () => (soloDone ? { final: true, body: { ...EDIT_ANSWER, progress: SOLO_LINES } } : { body: { ok: true, status: "editing", progress: SOLO_LINES.slice(0, 1) } }),
+      [SOLO]: () => (soloDone ? { final: true, body: { ...EDIT_ANSWER, progress: SOLO_LINES, said: SAID_SOLO } } : { body: { ok: true, status: "editing", progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO } }),
     },
   };
   const app = await openApp(S, { seed: { site: siteRecord() } });
@@ -236,14 +262,61 @@ test("FRESH DEVICE — no thread, no request, no job of its own: the requests li
     await page.waitForFunction(() => document.querySelectorAll(".st-req-done .st-req-prog li").length === 3, null, { timeout: 20000 });
     await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part")].some((p) => p.textContent.includes("Gallery heading") && p.querySelector(".st-req-prog li.live")), null, { timeout: 20000 });
     const card = await page.$$eval(".st-req-part", (els) => els.filter((p) => p.textContent.includes("Gallery heading")).map((p) => ({ status: p.querySelector(".st-req-status").textContent, lines: p.querySelectorAll(".st-req-prog li").length })));
-    assert.deepEqual(card, [{ status: "In progress", lines: 1 }], "the found job's card is not drawn with its words, label and lines");
+    assert.deepEqual(card, [{ status: "In progress", lines: 1 }], "the found job's card is not drawn with its label and lines");
+    assert.deepEqual(await titles(page), [SAID_A.done, SAID_SOLO.doing], "the cards were not named by the lines for their states");
     await shot(page, "progress-fresh-running.png");
     soloDone = true;
     await page.waitForFunction(() => [...document.querySelectorAll(".st-msg.a")].some((m) => m.textContent.includes("now reads")), null, { timeout: 30000 });
     await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part")].some((p) => p.textContent.includes("Gallery heading") && p.querySelector(".st-req-status").textContent === "Finished"), null, { timeout: 20000 });
+    assert.deepEqual(await titles(page), [SAID_A.done, SAID_SOLO.done], "the finished job's card was not named by its done line");
     const k = await kept(page);
     assert.deepEqual(k.msgs, ["card", "reply", "job-card", "reply"], "the fresh device's thread is not the two cards and their replies: " + k.msgs.join(","));
     await shot(page, "progress-fresh-finished.png");
+    assert.deepEqual(app.errors, []);
+  } finally { await closeApp(app); }
+});
+
+test("TENSES — one request, three parts: each named by the model's line for the state it is in — the one finished in the past, the one running in the present, the one waiting on it in the future — and each moves to its next line as its status moves, nothing put before the customer's words", { skip: SKIP, timeout: 120000 }, async () => {
+  const MENU_WORDS = "put a link to it in the menu";
+  const SAID_MENU = {
+    planned: "Once the page is ready, I'll add a link to it in your menu.",
+    doing: "I'm adding the link to your menu now.",
+    done: "I've added a link to it in your menu.",
+    notdone: "I couldn't add the link to your menu.",
+  };
+  const JOB3 = "c4" + "0".repeat(30);
+  let stage = 0;
+  const part = (n, words, status, said, extra = {}) => ({ n, words, status, ids: [], jobs: [], charged: 0, route: n === 1 ? "addon" : "edit", said, ...extra });
+  const view = () => ({
+    key: KEY, state: stage < 2 ? "running" : "done", ended: stage >= 2, stop: false, at: Date.now() - 300000, updatedAt: Date.now(), routedUnsaid: 0,
+    parts: [
+      part(0, SOLO_WORDS, "done", SAID_SOLO, { ids: [SOLO], jobs: [SOLO] }),
+      part(1, WORDS, stage === 0 ? "started" : "done", SAID_A, { ids: [JOB], jobs: stage === 0 ? [] : [JOB], progress: LINES.slice(0, 2) }),
+      part(2, MENU_WORDS, stage === 0 ? "blocked" : stage === 1 ? "started" : "done", SAID_MENU, { ids: stage === 0 ? [] : [JOB3], jobs: stage >= 2 ? [JOB3] : [] }),
+    ],
+  });
+  const S = {
+    requests: () => [view()], view,
+    polls: {
+      [SOLO]: () => ({ final: true, body: { ...EDIT_ANSWER } }),
+      [JOB]: () => (stage === 0 ? { body: { ok: true, status: "building", progress: LINES.slice(0, 2) } } : { final: true, body: { ...ADDON_ANSWER } }),
+      [JOB3]: () => (stage < 2 ? { body: { ok: true, status: "editing" } } : { final: true, body: { ok: true, layer: "nav", changed: ["src/routes/index.tsx"], cost: 2, reply: "✅ Tasting Evenings is in your menu.", replySource: "model" } }),
+    },
+  };
+  const app = await openApp(S);
+  try {
+    const { page } = app;
+    await page.waitForFunction(() => document.querySelectorAll(".st-req-part").length === 3, null, { timeout: 20000 });
+    assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.doing, SAID_MENU.planned]);
+    for (const t of await titles(page)) assert.ok(![SOLO_WORDS, WORDS, MENU_WORDS].some((w) => t.includes(w)), "a customer's words were shown, or put after a prefix: " + t);
+    await shot(page, "names-tenses.png");
+    stage = 1;
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_MENU.doing, { timeout: 20000 });
+    assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.done, SAID_MENU.doing]);
+    stage = 2;
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_MENU.done, { timeout: 30000 });
+    assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.done, SAID_MENU.done]);
+    await shot(page, "names-tenses-finished.png");
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
 });

@@ -52,9 +52,11 @@ const SEQUENCED = new Set(["route", T.pick, T.tweak, T.pages, T.adds]);
 // `site_backends` and the project's own connection — for a part that writes a
 // row. Without it the site has no database, as before.
 const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
+// `tasksWith` (2026-10-06): the task-lines writer's own pace, faults or
+// answer, as `progressWith` is the progress writer's.
 // `progress` (2026-10-06): `PROGRESS_REPLIES` on, and `progressWith` the
 // progress writer's own pace, faults or answer, as `replyWith` is the reply's.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -154,6 +156,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const replyLog = [];
   // EVERY PROGRESS CALL'S FACTS, as the writer was shown them (2026-10-06).
   const progressLog = [];
+  const tasksLog = [];
   const filed = new Map();
   const afters = [];
   const hung = { promise: null, resolve: null, what: null };
@@ -385,6 +388,20 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       progressLog.push(facts);
       return say(tool, { text: facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) });
     }
+    // THE TASK-LINES WRITER, SUPPLIED (2026-10-06): each task's line in every
+    // state, marked with its state so a test reads which one a card shows —
+    // a supplied model, so the marks are the test's, never the product's.
+    if (tool === "write_tasks" && !Object.hasOwn(answers, "write_tasks")) {
+      const text = userText(args);
+      const tasks = [...text.matchAll(/^\[(t\d+)\] (.*)$/gm)].map((m) => ({ id: m[1], words: m[2] }));
+      if (typeof tasksWith === "function") {
+        const how = await tasksWith({ n: nextN("write_tasks"), tasks, text, signal });
+        if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
+        if (how && how.answer) { tasksLog.push(tasks); return say(tool, how.answer); }
+      }
+      tasksLog.push(tasks);
+      return say(tool, { tasks: tasks.map((t) => ({ id: t.id, planned: "(planned) " + t.words, doing: "(doing) " + t.words, done: "(done) " + t.words, notdone: "(notdone) " + t.words })) });
+    }
     if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
     if (tool === T.lane) {
       const field = Object.keys(props)[0] || "";
@@ -521,7 +538,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     return fn();
   }
   const P = {
-    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, hung, filed,
+    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, tasksLog, hung, filed,
     now, run,
     /** Move the clock: leases, the question's day, the sweeps' windows. */
     advance(ms) { clock += ms; },

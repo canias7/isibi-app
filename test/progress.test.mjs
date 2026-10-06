@@ -17,6 +17,7 @@ import {
   claimWriter, holds, batchFor, commitLine, failBatch, releaseWriter, linesOf, jobVerdict,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
   PROGRESS_STATES, PROGRESS_TOOL, PROGRESS_SYSTEM, progressContext, progressRequest, readProgress, writeProgress,
+  TASK_STATES, TASK_TOOL, TASK_SYSTEM, taskRequest, readTasks, writeTasks, tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, PROGRESS_MAX_TASKS,
   PROGRESS_LEASE_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_SKEW_MS, PROGRESS_MAX_MARKS, PROGRESS_MAX_TOKENS,
 } from "../builder/site-progress.mjs";
 
@@ -278,6 +279,192 @@ test("PROSE 2 — the instructions, concise, are what stand against that limit: 
   assert.ok(PROGRESS_SYSTEM.length < 2000, "the instructions are no longer concise: " + PROGRESS_SYSTEM.length + " characters");
   assert.doesNotMatch(PROGRESS_SYSTEM, /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
   assert.deepEqual(PROGRESS_TOOL.input_schema.properties.says.items.properties.as.enum, [...PROGRESS_STATES]);
+  // CONVERSATIONAL AND FIRST-PERSON, each fact in its state's tense (the
+  // owner's clarification): described, never given as a line to copy.
+  assert.match(PROGRESS_SYSTEM, /Speak in the first person, naturally and conversationally/);
+  assert.match(PROGRESS_SYSTEM, /next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do/);
+});
+
+const tasked = (over = {}) => open({ tasks: [{ n: 0, words: "Change the Gallery heading to Photographs from our ovens" }], ...over });
+const lines4 = (n, base) => ({ n, planned: "I'll " + base + ".", doing: "I'm " + base + " now.", done: "I've " + base + ".", notdone: "I couldn't " + base + "." });
+
+test("TASKS 1 — the record holds each task's words and, once written, its line in every state; a request's own record holds its parts; one entry that does not read makes the record unreadable", () => {
+  const rec = tasked();
+  assert.deepEqual(rec.taskWords, [{ n: 0, words: "Change the Gallery heading to Photographs from our ovens" }]);
+  assert.equal(rec.tasks, null);
+  assert.equal(tasksNeeded(rec), true);
+  assert.equal(tasksNeeded(open()), false, "a record with no task was owed lines");
+  const req = openRecord({ job: "cd".repeat(16), uid: "u-1", slug: "fold-lane-bakery", op: "request", run: "rq4d775233b8c1dbf127a4", words: "add a page and change the heading", tasks: [{ n: 0, words: "add a page" }, { n: 1, words: "change the heading" }], at: T0 });
+  assert.ok(req, "a request's own record did not open");
+  assert.equal(req.op, "request");
+  assert.deepEqual(req.taskWords.map((t) => t.n), [0, 1]);
+  // ROUND-TRIP, WRITTEN.
+  const done = { ...packRecord(rec), tasks: [lines4(0, "updating the Gallery heading")] };
+  const back = readProgressRecord(JSON.parse(JSON.stringify(done)));
+  assert.deepEqual(saidOf(back, 0), { planned: "I'll updating the Gallery heading.", doing: "I'm updating the Gallery heading now.", done: "I've updating the Gallery heading.", notdone: "I couldn't updating the Gallery heading." });
+  assert.equal(tasksNeeded(back), false);
+  assert.equal(saidOf(back, 1), null);
+  // ONE ENTRY THAT DOES NOT READ: the record does not read, never a shorter list.
+  for (const bad of [
+    { ...done, tasks: [{ ...lines4(0, "x"), doing: "  " }] },
+    { ...done, tasks: [lines4(0, "x"), lines4(1, "y")] },
+    { ...done, tasks: [lines4(1, "x")] },
+    { ...done, taskWords: [{ n: 0, words: "" }] },
+    { ...done, taskWords: [{ n: 0, words: "a" }, { n: 0, words: "b" }] },
+    { ...done, taskWords: Array.from({ length: PROGRESS_MAX_TASKS + 1 }, (_, n) => ({ n, words: "w" })), tasks: null },
+    { ...done, op: "build" },
+  ]) assert.equal(readProgressRecord(JSON.parse(JSON.stringify(bad))), null, JSON.stringify(bad).slice(0, 120));
+});
+
+test("TASKS 2 — the writer's rules: the tasks' lines come first, on tries of their own, and on the lease alone — a closed record still takes them, since they say no state; given up after their tries, they never cost the milestones a line", () => {
+  let rec = tasked();
+  assert.equal(writerNeeded(rec, T0), "ask", "a record owed task lines asked for no writer");
+  // CLOSED, AND STILL OWED THEM.
+  const closed = closeRecord(rec, "ended", T0 + 10);
+  assert.equal(tasksNeeded(closed), true);
+  assert.equal(writerNeeded(closed, T0 + 20), "ask", "a closed record owed task lines asked for no writer");
+  const c = claimWriter(closed, "w1", T0 + 20);
+  assert.ok(c && c.claimed, "a writer could not claim a closed record for its task lines");
+  assert.equal(c.rec.taskTries, 1);
+  assert.equal(c.rec.tries, 0, "the task lines' try was counted against the milestones");
+  const committed = commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "updating the heading")], now: T0 + 30 });
+  assert.ok(committed, "the lines were not committed on the lease alone");
+  assert.equal(committed.writer, null);
+  assert.equal(committed.taskTries, 0);
+  assert.equal(writerNeeded(committed, T0 + 40), "none");
+  // REFUSED: no lease, another's lease, a task left out.
+  assert.equal(commitTasks(c.rec, { owner: "w2", tasks: [lines4(0, "x")], now: T0 + 30 }), null);
+  assert.equal(commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "x")], now: T0 + 30 + 10 * 60 * 1000 }), null, "a lease that ran out committed");
+  assert.equal(commitTasks(c.rec, { owner: "w1", tasks: [], now: T0 + 30 }), null, "lines that cover no task were committed");
+  // A FAILED CALL: tried again later, then given up with why — and the milestones keep their own tries.
+  rec = add(tasked(), "picked", [fact("decided", "chose a page")], T0, 0);
+  const c1 = claimWriter(rec, "w1", T0);
+  assert.deepEqual([c1.rec.taskTries, c1.rec.tries], [1, 0]);
+  assert.equal(failTasks(c1.rec, { owner: "w9", why: "send", now: T0 + 1 }), null, "a writer without the lease let the lines go");
+  const f1 = failTasks(c1.rec, { owner: "w1", why: "send", now: T0 + 1 });
+  assert.equal(f1.retry, true);
+  assert.equal(writerNeeded(f1.rec, T0 + 2), "wait", "a retry not yet due was asked for");
+  const c2 = claimWriter(f1.rec, "w2", T0 + 1 + PROGRESS_RETRY_MS);
+  assert.equal(c2.rec.taskTries, 2);
+  const f2 = failTasks(c2.rec, { owner: "w2", why: "uncovered", now: T0 + 2 + PROGRESS_RETRY_MS });
+  assert.equal(f2.retry, false);
+  assert.equal(f2.rec.tasksWhy, "uncovered");
+  assert.equal(tasksNeeded(f2.rec), false);
+  const c3 = claimWriter(f2.rec, "w3", T0 + 3 + PROGRESS_RETRY_MS);
+  assert.ok(c3 && c3.claimed, "the milestone could not be claimed once the task lines were given up");
+  assert.deepEqual([c3.rec.tries, c3.rec.taskTries], [1, 0], "the milestone's try was not its own");
+  // A WRITER THAT DIED ON THE TASK LINES spends their tries, and the next claim gives them up with no call.
+  let d = tasked();
+  for (let k = 0; k < PROGRESS_TRIES; k++) d = { ...claimWriter(d, "dead" + k, T0 + k * (PROGRESS_LEASE_MS + 1)).rec };
+  const g = claimWriter(d, "w9", T0 + PROGRESS_TRIES * (PROGRESS_LEASE_MS + 1));
+  assert.ok(g && g.gaveUp, "every try spent did not give the task lines up");
+  assert.equal(g.rec.tasksWhy, "tries");
+});
+
+test("TASKS 5 — A PART ADDED LATER (a request's part carved after its acceptance): added in the customer's words and owed its own lines; the lines already written are kept and never asked for again; one added while a call ran still waits after its commit; adding begins the tries again, even after a give-up", () => {
+  const MSG = "add a gallery page and put a link to it in the menu";
+  const LINK = "put a link to it in the menu";
+  const req = openRecord({ job: "cd".repeat(16), uid: "u-1", slug: "fold-lane-bakery", op: "request", run: "rq4d775233b8c1dbf127a4", words: MSG, tasks: [{ n: 0, words: MSG }], at: T0 });
+  const c = claimWriter(req, "w1", T0);
+  const written = commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "adding your gallery page")], now: T0 + 1 });
+  assert.equal(tasksNeeded(written), false);
+  // THE PART CARVED: the parts as the request now holds them, the first already there.
+  const a = addTasks(written, [{ n: 0, words: MSG }, { n: 1, words: LINK }]);
+  assert.equal(a.added, 1);
+  assert.deepEqual(unwrittenTasks(a.rec), [{ n: 1, words: LINK }], "the writer would be asked for lines already written");
+  assert.equal(tasksNeeded(a.rec), true);
+  assert.equal(writerNeeded(a.rec, T0 + 2), "ask", "a part added later asked for no writer");
+  assert.deepEqual(saidOf(a.rec, 0), saidOf(written, 0), "the lines already written were lost");
+  assert.deepEqual(addTasks(a.rec, [{ n: 0, words: MSG }, { n: 1, words: LINK }]), { already: true }, "the same parts were added twice");
+  // THE RECORD READS WITH LINES FOR SOME OF ITS TASKS, the rest still owed.
+  const back = readProgressRecord(JSON.parse(JSON.stringify(packRecord(a.rec))));
+  assert.deepEqual(back.tasks.map((t) => t.n), [0]);
+  assert.equal(tasksNeeded(back), true);
+  // ITS LINES COMMITTED BESIDE THE FIRST'S.
+  const c2 = claimWriter(a.rec, "w2", T0 + 3);
+  assert.ok(c2 && c2.claimed);
+  const both = commitTasks(c2.rec, { owner: "w2", tasks: [lines4(1, "linking it in your menu")], now: T0 + 4 });
+  assert.deepEqual(both.tasks.map((t) => t.n), [0, 1]);
+  assert.deepEqual(saidOf(both, 0), saidOf(written, 0));
+  assert.equal(saidOf(both, 1).doing, "I'm linking it in your menu now.");
+  assert.equal(tasksNeeded(both), false);
+  // REFUSED: lines only for a task already written, or for a task the record does not hold.
+  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [lines4(0, "rewriting it")], now: T0 + 4 }), null, "lines already written were written again");
+  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [lines4(7, "x")], now: T0 + 4 }), null, "lines for no task were committed");
+  // ADDED WHILE A CALL RAN: the commit keeps it owed, and a writer is asked for it.
+  const c3 = claimWriter(a.rec, "w3", T0 + 5);
+  const mid = addTasks(c3.rec, [{ n: 2, words: "change the heading" }]).rec;
+  const after = commitTasks(mid, { owner: "w3", tasks: [lines4(1, "linking it")], now: T0 + 6 });
+  assert.deepEqual(unwrittenTasks(after).map((t) => t.n), [2]);
+  assert.equal(writerNeeded(after, T0 + 7), "ask", "a part added during the call was left waiting");
+  // GIVEN UP, THEN A PART ADDED: every owed task is tried again, on fresh tries.
+  let g = a.rec;
+  for (let k = 0; k < PROGRESS_TRIES; k++) {
+    const t0 = T0 + 10 + k * (PROGRESS_RETRY_MS + 10);
+    const ck = claimWriter(g, "g" + k, t0);
+    g = failTasks(ck.rec, { owner: "g" + k, why: "send", now: t0 + 1 }).rec;
+  }
+  assert.equal(g.tasksWhy, "send");
+  assert.equal(tasksNeeded(g), false);
+  const again = addTasks(g, [{ n: 2, words: "change the heading" }]).rec;
+  assert.deepEqual([again.tasksWhy, again.taskTries], [null, 0]);
+  assert.deepEqual(unwrittenTasks(again).map((t) => t.n), [1, 2]);
+  // REFUSED: a part with no words, or more than the record holds.
+  assert.equal(addTasks(a.rec, [{ n: 3, words: "  " }]), null);
+  assert.equal(addTasks(a.rec, Array.from({ length: PROGRESS_MAX_TASKS + 1 }, (_, n) => ({ n, words: "w" + n }))), null);
+});
+
+test("TASKS 3 — the check reads the answer's shape: every task, by its id, with a line in every state and no id in any line; the first entry for an id is the one read; no length is checked", () => {
+  const tasks = [{ n: 0, words: "add a page" }, { n: 2, words: "change the heading" }];
+  const say = (input, stop = "tool_use") => ({ stop_reason: stop, content: [{ type: "tool_use", name: "write_tasks", input }] });
+  const long = "I'm " + "carefully ".repeat(120) + "changing it now.";
+  const good = say({ tasks: [{ id: "t0", ...lines4(0, "adding the page") }, { id: "t2", ...lines4(2, "changing the heading"), doing: long }, { id: "t2", ...lines4(2, "other") }] });
+  const r = readTasks(good, tasks);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.tasks.map((t) => t.n), [0, 2]);
+  assert.equal(r.tasks[1].doing, long, "a long line was cut, or a later entry for the same id was read");
+  assert.deepEqual(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x") }] }), tasks).missing, ["t2"]);
+  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x") }, { id: "t2", ...lines4(2, "y"), done: "" }] }), tasks).why, "uncovered", "a task with a state left empty was taken");
+  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x"), planned: "I'll do [t0]." }, { id: "t2", ...lines4(2, "y") }] }), tasks).why, "ids");
+  assert.equal(readTasks(say({ tasks: "x" }), tasks).why, "unreadable");
+  assert.equal(readTasks({ stop_reason: "max_tokens", content: [] }, tasks).why, "cut");
+  assert.equal(readTasks(say({ tasks: [] }), []).ok, false, "an answer for no task read as written");
+});
+
+test("TASKS 4 — the call: each task with its id and the customer's words, beside the site and their message; a wrong first answer is asked once more, told which; then nothing is written", async () => {
+  const rec = tasked({ pages: ["/", "/gallery"] });
+  const req = taskRequest({ tasks: rec.taskWords, context: progressContext(rec), model: "grok-4.6", fix: { missing: ["t0"], ids: true } });
+  const body = req.messages[0].content;
+  assert.match(body, /THEIR SITE: fold-lane-bakery/);
+  assert.match(body, /\[t0\] Change the Gallery heading to Photographs from our ovens/);
+  assert.match(body, /LEFT OUT, OR LEFT A STATE EMPTY FOR, t0/);
+  assert.match(body, /PUT A TASK'S ID IN A LINE/);
+  assert.equal(req.tool_choice.name, TASK_TOOL.name);
+  assert.equal(req.system[0].text, TASK_SYSTEM);
+  const say = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "write_tasks", input }], usage: { input_tokens: 80, output_tokens: 40 } });
+  const wrong = say({ tasks: [] });
+  const right = say({ tasks: [{ id: "t0", ...lines4(0, "updating the Gallery heading") }] });
+  const sent = [];
+  const a = await writeTasks({ send: async (r) => { sent.push(r); return sent.length === 1 ? wrong : right; } }, { tasks: rec.taskWords, model: "m" });
+  assert.deepEqual([a.ok, a.attempts, a.tasks[0].doing], [true, 2, "I'm updating the Gallery heading now."]);
+  assert.match(sent[1].messages[0].content, /LEFT OUT, OR LEFT A STATE EMPTY FOR, t0/);
+  const b = await writeTasks({ send: async () => wrong }, { tasks: rec.taskWords, model: "m" });
+  assert.deepEqual([b.ok, b.why, b.attempts], [false, "uncovered", 2]);
+  assert.deepEqual((await writeTasks({ send: async () => { throw new Error("down"); } }, { tasks: rec.taskWords, model: "m" })).why, "send");
+  assert.deepEqual((await writeTasks({ send: () => new Promise(() => {}) }, { tasks: rec.taskWords, model: "m", deadlineMs: 30 })).why, "deadline");
+  assert.deepEqual((await writeTasks({ send: async () => right }, { tasks: [], model: "m" })).why, "no-tasks");
+});
+
+test("PROSE 3 — the task lines' instructions, concise: the four states defined, first person and conversational, their words never handed back as an instruction, never published or live; no line to copy and no length", () => {
+  for (const k of TASK_STATES) assert.match(TASK_SYSTEM, new RegExp("\\n" + k + ": "), "the state " + k + " is not defined for the model");
+  assert.deepEqual(TASK_STATES, ["planned", "doing", "done", "notdone"]);
+  assert.match(TASK_SYSTEM, /Speak in the first person, naturally and conversationally/);
+  assert.match(TASK_SYSTEM, /never hand their words back as an instruction/);
+  assert.match(TASK_SYSTEM, /Never say a change is published or live/);
+  assert.doesNotMatch(TASK_SYSTEM, /for example|e\.g\.|such as "|like this:|"I'll|"I'm|Okay, I/i, "the instructions carry a line to copy");
+  assert.doesNotMatch(TASK_SYSTEM, /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
+  assert.ok(TASK_SYSTEM.length < 1200, "the instructions are no longer concise: " + TASK_SYSTEM.length + " characters");
+  assert.deepEqual(TASK_TOOL.input_schema.properties.tasks.items.required, ["id", ...TASK_STATES]);
 });
 
 test("CALL 1 — the model is shown the site, its words and every earlier update, and each new fact with its id and state; asked again, it is told exactly what it left out or misstated", () => {
