@@ -14,6 +14,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   UI_SCENARIOS, readUiScenario, stepBoundMs, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_FIRST_LINE_MS, UI_FRESH_AWAY_MS,
   blocksPost, capRefusal, progressOnRefusal, progressSnapshot, keepSnapshot, narrationChargeVerdict, ownMoneyVerdict, describeUi,
@@ -448,7 +450,9 @@ test("THE QUERY is the free one container-logs makes — dry, the needle, the wi
 });
 
 test("THE STEP: with no press to read it probes and says whether the logs are readable; with the press's ids it reads until two reads agree, writes narration.json, and never fails the run", async () => {
-  const dir = fs.mkdtempSync("/tmp/claude-0/narration-");
+  // THE SYSTEM'S OWN TEMPORARY DIRECTORY, as every other test makes one: a
+  // path that exists in one machine only fails on every other (CI, first).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "narration-"));
   try {
     const logs = [];
     const fake = (events) => async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ result: { events: { events } } }) });

@@ -532,5 +532,13 @@ only; no product file changed, so the image stays `5f946c22d42a1b10`):
   script a workflow runs to be named in its path filter, the parked one
   included, and the canary workflow's parked filter did not name
   `scripts/narration-usage.mjs`. It does now, and the rerun was clean.
+- **Unit CI on `9476541e`** (the records on `81eb5b0f`): run 37546504128,
+  `9714 / 9691 / 1 / 22`, failed. The total matches the local run, and the
+  22 skipped are the real-browser cases (the new card-reader case among
+  them). The one failure: the new usage step's case made its temporary
+  directory under `/tmp/claude-0/`, a path that exists only in this session's
+  machine; it is the one change in the push that depends on its machine.
+  The case now uses the system's temporary directory, as every other test
+  does (`os.tmpdir()`), and passes locally with either.
 - **Balance 9**, read at 23:01 UTC: the ledger's last row 397, no job open,
   nothing spent.
