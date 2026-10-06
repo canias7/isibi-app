@@ -529,8 +529,30 @@ line:
   route sends it (`warningsTold`), keeps every seed skip, and sends `seedSkips`
   and `noPopulation` whole; `coverOther` is only the counted sentences
   (property counts, dropped parts). The four sentences name every item, and the
-  seed note says "starts empty" only of the tables skipped for who can read
-  them;
+  seed note says the display-only rule itself (*"I only add starter rows to a
+  table anyone can read and no visitor can change"*, 2026-10-06), never that
+  visitors cannot read the table;
+- **a failure says what it left behind** (2026-10-06,
+  `docs/history/2026-10-06-failure-outcome.md`):
+  - every failure after the design answers through one door (`aFail`); a
+    model call that failed (`aDown`) stands above the backend block and says
+    nothing changed by its position. The door's answer carries an `outcome`
+    from the exit's own evidence (`failureOutcome`): the
+    database `none`, `applied` (this change's names) or `unknown` (an apply
+    that stopped part-way), a database made along the way, a design that could
+    not be put back (`saved`) and photographs kept in the uploads; its summary
+    is `none`, `partial`, `unpublished` or `unknown`;
+  - its coverage is composed against that outcome (`aCoverage({ failed })`):
+    what the publish would have made is known to be nothing, the database's
+    kinds count what the apply landed, and what the site already had is the
+    stored schema until the apply lands;
+  - the facts lead from it (`outcomeOf`), never from `ok: false`;
+  - the publish exit tells `compileMsg` what landed, the schema sentence no
+    longer calls the site untouched, and the migration sentence names this
+    change's tables;
+  - older stored answers are read off what they carry, and the poll route
+    serves them with a note by the reply's rule (`replayedCoverNote`); the
+    browser prints a failure's note only beside an outcome;
 - **execution (code)**: every thing it names must be one it was shown, and
   must really have been applied or already be there — for a table, with the
   part that does the work (`tableParts`: `notify`, `confirm`, `sms`,

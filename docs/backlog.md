@@ -175,14 +175,26 @@ here; take a closed one out of both.**
   and parked."*).
 - **A refusal after the design stage carries no requirement outcomes, and its
   first fact says "Nothing was added" even where something was** (found
-  2026-10-06, mapping the refusals; not fixed, outside this batch). Only the
-  two designer refusals (`add`, `declined`) carry the requirement report. The
-  later ones — `no-photo`, `unseen-rewrite`, the merge refusals, `rewrote`,
-  `qr-dependency`, `not-landed`, `lost-photos`, `compile` — send their own
-  sentence and no requirement outcomes. And the reply's facts open every
-  `ok: false` with "Nothing was added", including the compile failure after
-  the database change was made, whose own sentence says "The database changes
-  for this were made … but the page didn't publish".
+  2026-10-06, mapping the refusals). Only the two designer refusals (`add`,
+  `declined`) carried the requirement report. The later ones — `no-photo`,
+  `unseen-rewrite`, the merge refusals, `rewrote`, `qr-dependency`,
+  `not-landed`, `lost-photos`, `compile`, and the site's database that could
+  not be made (`provision`) — sent their own sentence and no requirement
+  outcomes. And the reply's facts opened every `ok: false` with
+  "Nothing was added", including the compile failure after the database change
+  was made, whose own sentence says "The database changes for this were made …
+  but the page didn't publish". **Fixed on the branch, on the owner's word**
+  (2026-10-06, after Codex reproduced it on `08b9a657`; not merged or
+  deployed; `docs/history/2026-10-06-failure-outcome.md`):
+  - every failure after the design carries an `outcome` from its own evidence
+    (no changes, partial, unpublished, unknown), with its requirement and
+    warning outcomes composed against it;
+  - the facts lead from that outcome, never from `ok: false`;
+  - older stored answers are read off what they carry, and served to the page
+    with a note composed by the reply's rule;
+  - the browser prints a failure's note only beside an outcome.
+  Shown with supplied answers through the real routes, the poll route and a
+  request's background reply; not shown live.
 - **The lint's "worth knowing" list is cut, and can name pages that were never
   published** (found 2026-10-06, `WARN 4`'s probe; not fixed): `problems` is cut
   at four on the wire (`aProblems.slice(0, 4)`) and at three on the screen
@@ -194,12 +206,46 @@ here; take a closed one out of both.**
   "row 1". The report now reads such a skip as the table's (`row-failed`)
   and names the table once.
 - **The seed note's "isn't one visitors can read" is false of a table visitors
-  can read but not only read** (found 2026-10-06; not fixed): the engine seeds
-  only `display` tables (anyone reads, nobody writes), and the note says the
+  can read but not only read** (found 2026-10-06): the engine seeds only
+  `display` tables (anyone reads, nobody writes), and the note said the
   display-only sentence of every table skipped for that reason, including one
   that is public to read and writable by members. The reply model's fact
   states the rule exactly ("starter rows only go into tables that anyone can
-  read and visitors cannot change").
+  read and visitors cannot change"). **Fixed on the branch, on the owner's
+  word** (2026-10-06; `docs/history/2026-10-06-failure-outcome.md`): the note
+  says the same rule ("I only add starter rows to a table anyone can read and
+  no visitor can change"). It claims neither that visitors cannot read the
+  table nor that it starts empty.
+- **A dead add-on job's reconciled reply names no database change** (found
+  2026-10-06, mapping the failure exits; not fixed): `reconcileReply` stores
+  `{ ok: false, error: "reconciled", … }` with no database record, while the
+  reconcile settles the job's migration `applied_without_page`. Its facts no
+  longer say "Nothing was added". They say the answer does not record what
+  went in, but the tables that did are not named.
+- **An add-on part whose database changes went in is recorded by its request
+  as failed** (found 2026-10-06; not changed, the request driver's statuses
+  kept as asked): the request's own reply says "Not done … its own reply
+  above says why", and the part's own reply says what is live.
+- **A failure does not re-write the add-on's developer record**
+  (`addon-answer`; found 2026-10-06; not changed): it keeps the reading
+  composed before the publish (cannot-tell for the page), while the failure's
+  own answer says not done.
+- **A provision that fails after its Neon project was recorded leaves the
+  project, not linked to the site** (found 2026-10-06; not changed): the
+  next ask reuses it (`lookupProject`) rather than making a second, and the
+  failure's outcome says the site is unchanged, which it is, without naming
+  the project.
+- **A cancel or budget stop after a database was made says nothing about the
+  database** (`editStopped`, shared with the edit route, and ours; found
+  2026-10-06; not changed): its sentence says nothing was published, which
+  is true.
+- **A requirement carried by an existing table that the change would have
+  altered can read "already there" on a failure** (found 2026-10-06; not
+  changed): judgment is by item, not column. It is never called set up (now
+  guarded), but the column it needs was never on the site.
+- **Two name lists are still cut at three** (found 2026-10-06 in passing; not
+  changed): the pages an unseen rewrite left (`unseenPagesNote`) and the
+  pages a merge kept rather than removed (`keptReply`).
 - **A table whose starter rows were asked for and skipped is never reported as
   one nothing can fill** (found 2026-10-06; not fixed): `missingPopulation`
   counts any table the design gave seed rows as filled, whether or not the
@@ -326,7 +372,10 @@ here; take a closed one out of both.**
   the same day: the add-on `row` kind (not merged, not shown live).**
 - The seed-skip sentence drops its reason: "loaves: already has rows" is
   told as "isn't one visitors can read, so it starts empty". Found
-  2026-10-01 (supplied answers), not changed.
+  2026-10-01 (supplied answers). **Fixed on the branch** (2026-10-06): each
+  skip keeps the engine's reason (`2026-10-06-refusal-warnings.md`), and the
+  display-only one says the rule, not that visitors cannot read the table
+  (`2026-10-06-failure-outcome.md`).
 - The add-on route's test fixture reads every table as empty (its existence
   probe answers no rows), so a seed into an existing table looks inserted.
   Found 2026-10-01. **Addressed for the new tests**: a stateful database
@@ -1320,12 +1369,14 @@ here; take a closed one out of both.**
     step's own insert (`builder/site-rows.mjs`), its entries and the
     request's key in one statement, no page call and no publish.
     `docs/history/2026-10-01-add-row.md`.
-- **THE SEED-SKIP SENTENCE DROPS ITS REASON (found 2026-10-01; not
-  changed).** `seedSkipNote` (`builder/site-add.mjs`) keeps the table name
-  before the colon and says "that table isn't one visitors can read, so it
-  starts empty" for every skip. `seedSiteRows` also skips for "already has
-  rows", "no writable columns" and database errors. For `loaves` (public,
-  six rows) the sentence is wrong on both counts.
+- **THE SEED-SKIP SENTENCE DROPS ITS REASON (found 2026-10-01).**
+  `seedSkipNote` (`builder/site-add.mjs`) keeps the table name before the
+  colon and says "that table isn't one visitors can read, so it starts empty"
+  for every skip. `seedSiteRows` also skips for "already has rows", "no
+  writable columns" and database errors. For `loaves` (public, six rows) the
+  sentence is wrong on both counts. **Fixed on the branch (2026-10-06)**:
+  each reason its own sentence (`2026-10-06-refusal-warnings.md`), and the
+  display-only one the rule itself (`2026-10-06-failure-outcome.md`).
 - **THE ADD-ON ROUTE'S FIXTURE READS EVERY TABLE AS EMPTY (found 2026-10-01;
   not changed).** `test/fixtures/addon-route.mjs` answers the existence probe
   `SELECT 1 AS x FROM "<table>" LIMIT 1` with no rows. So a seed for an

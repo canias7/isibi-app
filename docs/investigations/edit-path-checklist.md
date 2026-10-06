@@ -1182,6 +1182,23 @@ the owner's free press, run 51, at 22:57 UTC):
       seed skip (with the engine's own reason) and empty table is its own
       fact and named on the screen. **Supplied answers through the real
       routes and a request's background reply**; not shown live.
+    - **A failed addition says what it left behind** (2026-10-06, on the
+      owner's word after Codex reproduced two gaps on `08b9a657`; on the
+      branch, not merged or deployed;
+      `docs/history/2026-10-06-failure-outcome.md`): the browser printed an
+      older refusal's "I've set that up", and the facts led a publish that
+      failed after the database changes went in with "Nothing was added".
+      Now every failure after the design carries an `outcome` from its own
+      evidence — no changes, partial (what went in, by name), unpublished (a
+      design saved, photographs kept), unknown (an apply that stopped
+      part-way) — with the requirements the judgment settled, and its
+      warnings, composed against it. The facts lead from it, never from
+      `ok: false`. Older stored answers are
+      read off what they carry and served with a note by the reply's rule,
+      and the browser prints a failure's note only beside an outcome. The
+      seed note says the rule, not that visitors cannot read the table.
+      **Supplied answers through the real routes, the poll route and a
+      request's background reply**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

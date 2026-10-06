@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 09:00 UTC)
+## Current handoff — read this first (2026-10-06, 10:42 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,76 +9,84 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The branch** is `main` plus five batches on top of `d53caefc`. None is
+- **The branch** is `main` plus six batches on top of `d53caefc`. None is
   merged or deployed, and no image is built:
   - **run 101's correction batch** (`936295a5`): the three corrections you
     passed;
   - **the requirement judgment** (`0f94d159`, which you passed);
   - **the incomplete-judgment fix** (`4b6271ff`, which Codex passed);
   - **the requirement-reporting fix** (`95f5a9d0`, which Codex passed);
-  - **this batch** (`46a7746c`, on your word after that review): a refused
-    addition tells the reply model, and the screen, what became of each
-    requirement the judgment kept, never as work done. And every missing
-    page, QR code, page or section held back with a code, seed skip and empty
-    table is its own fact and named on the screen
-    (`docs/history/2026-10-06-refusal-warnings.md`).
+  - **the refusal and warning-list fix** (`46a7746c`; you passed the
+    warning lists);
+  - **this batch** (`c4748136`, on your word after Codex reproduced two gaps
+    on `08b9a657`): a failed addition says what it left behind. That is
+    nothing, part of it live, saved but not live, or not known, and its
+    requirements and warnings are told against that, on the screen and to
+    the reply model. Older saved answers are read from what they carry, and
+    the seed sentence states the rule
+    (`docs/history/2026-10-06-failure-outcome.md`).
 - **Evidence**, all with supplied model answers through the real routes;
   nothing is shown live:
-  - **refusals beside a complete judgment**: four requirements (can't do yet,
-    not done, carried by what the site already had, unseen) are each a fact
-    under the refusal's own, and on the screen under its sentence. The one
-    the site already had reads "Your site already had that in place…",
-    never "I've set that up";
-  - **refusals beside an incomplete judgment** (empty, partial, cut off):
-    nothing is told, the refusal stands, nothing is applied or charged;
-  - **every designer declining**, and **a refusal inside a request**, whose
-    stored answer is replied to in the background, naming each requirement;
-  - **the lists above their old cuts**: five missing pages; a code and the
-    five pages that only showed it; 18 refused starter rows over six tables;
-    skips for who can read a table beside one that already had rows; five
-    tables nothing can fill. Each reaches the answer, the facts and the
-    screen;
-  - **mixed** requirements, pages and seed skips in one answer;
-  - **answers stored before this fix**, replayed safely;
-  - **the red check**: 15 of 16 new cases fail on the old code, the 16th
-    rightly passing on both;
-  - **the sweep**: 35 of 35 planted defects caught, 4 controls survived.
-    Twelve older planted defects were re-anchored and are still caught;
-    last round's sweep catches 35 of 35;
-  - **the suite**: `9553 / 9553 / 0 / 0` here.
-- **CI on `77da1770` is complete and green** (the fix's code with its
-  records on top):
-  - unit tests (run 37439432687): `9553 / 9541 / 0 / 12`, the same total as
-    here; CI skips its usual 6 and the 6 real-browser cases;
-  - the site build (run 37439432670): all seven jobs and the gate passed,
-    *"404 checks in 27 sections across 4 shards, every job green"*.
-- **Screenshots** (sent in the chat): the refusal before and after, and the
-  five missing pages before and after.
-- **Money**: balance **21** (read at 08:53 UTC on 6 October: last ledger
-  row 392, no job open). Nothing was spent in this batch.
+  - **Codex's two gaps, reproduced and closed**:
+    - the older refusal's "I've set that up" no longer reaches the screen.
+      The poll route serves "Your site already had that in place…" beside
+      a no-change outcome;
+    - the publish that failed after its table went in now leads with "Part
+      of this addition went in and is live: the site now stores signups.";
+  - **failures before and after the database change**: the same sign-up
+    request fails at the compile (nothing changed, both requirements still
+    to do) and after the apply (signups live, the page still to do);
+  - **the other outcomes**:
+    - a database change that stopped part-way (said as not known);
+    - a saved design and photographs kept in the uploads (saved, not live);
+    - a database made along the way (a change, never "Nothing was added");
+    - a database that could not be made;
+    - an incomplete judgment (nothing applied, charged or told);
+  - **older saved answers** through the facts, the screen and the real poll
+    route, and **a request** whose stored answer is replied to in the
+    background;
+  - **the red check**: all 18 new cases fail on `08b9a657`, 17 of them on
+    the gaps themselves. The 18th (an incomplete judgment) fails only on its
+    new outcome;
+  - **the sweep**: 60 of 60 planted defects caught, and the 4 controls survived;
+  - **the suite**: `9571 / 9571 / 0 / 0` here.
+- **CI**: started on the push of the fix with its records on top; read to
+  completion and recorded in the next commit.
+- **Screenshots** (sent in the chat): the older refusal and the partial
+  failure, each before and after.
+- **Money**: balance **21** (read at 10:37 UTC on 6 October: last ledger
+  row 392, no job queued or running). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Nothing to re-run**: every required job ran and passed.
-- **Review the batch** (`docs/history/2026-10-06-refusal-warnings.md`,
+- **Review the batch** (`docs/history/2026-10-06-failure-outcome.md`,
   remaining limits in §5).
-- **One visible change to know about**: on a success, a requirement met only
-  by something the site already had now says "Your site already had that in
-  place…" instead of "I've set that up…".
+- **Visible changes to know about**:
+  - on a failure, a requirement a page or a QR code was to carry reads
+    "Still to do";
+  - the database's failure no longer says "your site is untouched";
+  - the migration sentence names only this change's tables.
 - **Then, if you want it live**: merge and deploy. The image would roll from
-  deploy 2184's `589e3e4e85a20066` to `3f3862946e322404` (predicted, not
+  deploy 2184's `589e3e4e85a20066` to `01abfc1e158153f9` (predicted, not
   built), and `public/chat.js` changed, so the served-file check applies.
   Decide whether a paid press should show any of it.
 
 **Still open** (`docs/backlog.md`)
 - **Found here, not fixed**:
-  - later refusals (a missing photo, a compile failure, and others) carry no
-    requirement outcomes, and the reply's first fact says "Nothing was added"
-    even after a compile failure that followed a database change;
+  - a dead job's reconciled reply names no database change;
+  - a request records an add-on part whose database changes went in as
+    failed (the part's own reply says what is live);
+  - the developer record isn't re-written at a failure;
+  - a cancel or budget stop after a database was made says nothing about
+    the database;
+  - judgment is by item, not column;
+  - two more name lists are cut at three (an unseen rewrite's pages, and
+    the pages a merge kept);
+  - a provision that fails late leaves its project unlinked, for the next
+    ask to reuse.
+- **Found earlier, not fixed**:
   - the lint's "worth knowing" list is cut at four on the wire and three on
     the screen, and can name pages that were held back;
   - the seed engine numbers a refused row by the rows that went in;
-  - the seed sentence's "isn't one visitors can read" is false of a table
-    visitors can read but members write;
   - a table whose starter rows were skipped isn't also reported as one
     nothing can fill.
 - **Parked, as you asked**: a designer's requirements past its twelfth are
@@ -101,14 +109,14 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This batch: `docs/history/2026-10-06-refusal-warnings.md`.
-- The fixes before it: `docs/history/2026-10-06-requirement-reporting.md`,
+- This batch: `docs/history/2026-10-06-failure-outcome.md`.
+- The fixes before it: `docs/history/2026-10-06-refusal-warnings.md`,
+  `docs/history/2026-10-06-requirement-reporting.md`,
   `docs/history/2026-10-06-incomplete-judgment.md` and
   `docs/history/2026-10-05-judgment.md`.
 - Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
-
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -167,6 +175,129 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: a failed addition now says what it left behind — nothing, part of it live, saved but not live, or not known (on the branch, `c4748136`; nothing spent, merged or deployed)
+
+- **What was wrong, reproduced first** (Codex's two gaps on `08b9a657`, free):
+  - **the screen**: a refusal stored before the last batch printed *"I
+    couldn't add that. I've set that up, but I can't confirm from here that
+    The owner is emailed about each new enquiry…"*, while the reply model's
+    facts called the same requirement one the site already had;
+  - **the reply model's facts**: a sign-up page whose publish failed after
+    its table went in led with *"Nothing was added"*, quoting the route's own
+    sentence that the database changes were made. That sentence also
+    credited the change with `bookings`, a table the site already had;
+  - **every later failure had the same shape**: each was told "Nothing was
+    added" whatever it had done, and none carried what became of its
+    requirements and warnings. The publish failure also said "nothing was
+    changed" right after saying the tables were made. The database's own
+    failure said "your site is untouched", although its statements run one
+    at a time. And (found by the new tests) a compile failure before the
+    database change called a table nobody made one the site already had;
+  - **the seed sentence** said *"that table isn't one visitors can read, so
+    it starts empty"* of a table visitors read.
+- **Now**:
+  - **every failure after the design carries an outcome from its own
+    evidence**, in one of four states:
+    - nothing changed;
+    - part of it is live, by name ("the site now stores signups", or a
+      database made for the site);
+    - saved but not live (a design that could not be put back, photographs
+      kept in the uploads);
+    - not known (the database change stopped part-way).
+
+    `ok: false` alone never says that nothing changed or that something
+    already existed;
+  - **its requirements and warnings are told against that outcome**, on the
+    screen and to the reply model:
+    - what the publish would have made is not done;
+    - the database's parts count what went in;
+    - what the site already had is read from before this change;
+  - **the reply model's facts lead with the outcome**: *"Part of this
+    addition went in and is live: the site now stores signups."*, then *"The
+    rest of it did not go through: nothing was published, so the site's
+    pages are as they were."*;
+  - **no sentence contradicts what happened any more**:
+    - the publish failure says "so the rest of it wasn't published";
+    - the database's failure says *"Your live pages weren't changed, but
+      some of the database change may already have gone in before it
+      stopped; asking again won't make anything twice."*;
+    - the migration sentence names only this change's tables;
+    - a failure after a database was made says "so it wasn't published";
+  - **older saved answers** are read from what they carry (their database
+    record, or a refusal inside the design), never from their old success
+    wording:
+    - the poll route serves them with a note composed by the reply's own
+      rule, so "I've set that up" becomes "Your site already had that in
+      place…";
+    - the screen prints a failure's note only beside an outcome, so a raw
+      older answer shows its own sentence alone;
+  - **the seed sentence** states the rule: *"I only add starter rows to a
+    table anyone can read and no visitor can change."*;
+  - **found while closing the batch**:
+    - a database that could not be made now answers through the same door,
+      so its requirements are told, all still to do;
+    - a model call that failed now says nothing changed, because every such
+      call comes before any change;
+  - **execution, charging and retries are unchanged**.
+- **Visible changes to know about**:
+  - on a failure, a requirement a page or a QR code was to carry now reads
+    "Still to do" (it used to read as not yet known);
+  - the database's failure no longer says "your site is untouched";
+  - the migration sentence names only the tables this change made or
+    changed.
+- **Checked**:
+  - **18 new cases** through the modules, the real add-on route, the
+    browser's own failure screen, the real poll route serving a stored
+    answer, and a request whose stored answer is replied to in the
+    background. The route cases cover:
+    - one sign-up request failing before and after its database change;
+    - a database change that stopped part-way;
+    - a saved design, and photographs kept in the uploads;
+    - a database made along the way;
+    - an incomplete judgment;
+    - a database that could not be made;
+  - **the red check**: all 18 fail on `08b9a657`. With the new field's own
+    checks taken out, 17 still fail, on the gaps themselves:
+    - "now storing bookings, signups";
+    - no requirement outcome on a later failure;
+    - "your site is untouched";
+    - "Nothing was added" over a saved design, a database made and applied
+      changes;
+    - "I've set that up" on the screen;
+    - "so nothing was changed" beside applied tables.
+
+    The 18th, an incomplete judgment, rightly passes there apart from its
+    new outcome check: that behaviour was already right;
+  - **the sweep**: 60 of 60 planted defects caught on the final run, and the 4 controls survived. The first run caught 57 of 58, and its one survivor now has a case of its own;
+  - **re-anchored guards** in 11 older test files (the property kept, the
+    spelling moved), and the page's new check cut into 7 harnesses;
+  - **the full suite**: `9571 / 9571 / 0 / 0` here (the 9,553 before, plus
+    the 18 new cases);
+  - **CI on the push**: read to completion and recorded in the next
+    commit;
+  - the image would roll from deploy 2184's `589e3e4e85a20066` to
+    `01abfc1e158153f9` (predicted, not built).
+- **Kept separate** (backlog):
+  - a dead job's reconciled reply names no database change;
+  - a request records an add-on part whose database changes went in as
+    failed (its own reply says what is live);
+  - the developer record isn't re-written at a failure;
+  - a cancel or budget stop after a database was made says nothing about
+    the database;
+  - judgment is by item, not column;
+  - two more name lists are cut at three;
+  - a provision that fails late leaves its project unlinked, for the next
+    ask to reuse;
+  - the twelve-requirement intake limit, parked as you asked.
+- **Your earlier corrections are untouched**: the warning lists, the
+  requirement reporting, the incomplete judgment, the requirement judgment
+  and run 101's three. Their tests are in the suite.
+- **Not merged, not deployed, no image built, nothing pressed or spent**
+  (balance 21, read at 10:37 UTC: last ledger row 392, no job queued or running).
+
+**Recorded in**: `docs/history/2026-10-06-failure-outcome.md`, the backlog,
+the checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-06 — Your review: a refused addition now tells what became of each requirement, and every missing page, code, seed skip and empty table is named (on the branch, `46a7746c`; nothing spent, merged or deployed)
 
