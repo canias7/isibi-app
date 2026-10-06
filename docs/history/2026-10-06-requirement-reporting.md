@@ -222,7 +222,16 @@ before. It is now whole.
   cases), in 234 s, the real-browser cases included. The earlier corrections
   are among them, unchanged and green: run 101's three, the requirement
   judgment and the incomplete judgment.
-- **CI**: read after the push, and recorded on top.
+- **CI** on `52307af6` (this fix's code, `95f5a9d0`, with its records on
+  top), complete and green:
+  - **unit tests** (run 37428756462): `9537 / 9525 / 0 / 12`. The total
+    matches the local run; CI skips the same 12 as before (its usual 6 and the
+    6 real-browser cases);
+  - **the site build** (run 37428756480): all seven jobs and the gate passed.
+    The gate reads *"ALL CHECKS: 404 checks in 27 sections across 4 shards,
+    every job green"* (shard 1: 108 checks in 1 section; shard 2: 75 in 2;
+    shard 3: 158 in 16; shard 4: 62 in 8), for commit `52307af6` and
+    site-build inputs `48b57fb94e6b3d04` (3,972 files).
 - **The image** (predicted, not built): `7107b9a349d84ca8` at the branch
   before this fix becomes `140199b61e2581c4`. There are 194 inputs, none
   under `public/`. Three differ (`builder/site-reply.mjs`,

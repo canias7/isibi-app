@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 07:17 UTC)
+## Current handoff — read this first (2026-10-06, 07:24 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -37,12 +37,17 @@ is in git; the dated entries further down are the full story.*
     omission itself;
   - **the sweep**: 35 of 35 planted defects caught, 3 controls survived;
   - **the suite**: `9537 / 9537 / 0 / 0` here.
-- **CI**: running on this push; I read it and record it next.
+- **CI on `52307af6` is complete and green** (the fix's code with its
+  records on top):
+  - unit tests (run 37428756462): `9537 / 9525 / 0 / 12`, the same total as
+    here; CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37428756480): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*.
 - **Money**: balance **21** (read at 07:16 UTC on 6 October: last ledger
   row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Nothing to press yet**: CI is being read.
+- **Nothing to re-run**: every required job ran and passed.
 - **Review the fix** (`docs/history/2026-10-06-requirement-reporting.md`,
   remaining gaps in §5).
 - **The refusal item, kept separate as you asked** (backlog). It is **wider
@@ -198,7 +203,8 @@ since. Add new ones there.
     the 3 controls survived;
   - the full suite: `9537 / 9537 / 0 / 0` here (the 9,525 before, plus the
     12 new cases);
-  - CI: read after the push; the handoff has the result.
+  - CI on the push: green. Unit tests passed with the same total as here,
+    and the site build's seven jobs and its gate passed.
 - **Kept separate, as you asked**: the refusal limit, which is **wider than I
   recorded last time**. On a refusal the requirements reach neither the reply
   model nor the screen, even when the judgment finished. Nothing is applied
