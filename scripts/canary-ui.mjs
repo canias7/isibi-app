@@ -39,7 +39,7 @@ import {
   bookingGate,
 } from "./canary-rules.mjs";
 import { replyJobsOf, trackHeld, repliesNow, timedOut } from "./canary-replies.mjs";
-import { fieldPlan, formGate } from "./canary-form.mjs";
+import { fieldPlan, fieldBindings, formGate } from "./canary-form.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
 // THE APP'S FIRST-RUN GREETING, KEPT AS SEEN (`WELCOME_KEY` in public/chat.js).
@@ -1677,21 +1677,26 @@ function formOutcomeInPage() {
  * booking helper's shape (`bookInPage`) for a form nobody wrote in advance: a
  * context of its own, signed in to nothing; the page's ONE form read once it
  * is live, filled as `fieldPlan` decides and read again to be sure it holds
- * those values, and its button pressed once. THE WALL: a read goes out; any
- * other write is stopped and recorded; the form's request goes out only when
- * `submit` is set AND `formGate` says, BEFORE it leaves, that it is the one
- * request this check was written for. A page with no form or several, a field
- * this check does not fill, or values that did not hold, presses nothing. So a
+ * those values, and its button pressed once. BEFORE ANYTHING IS PRESSED, each
+ * filled field is bound to its column of the new table (`fieldBindings`, from
+ * the fields and `columns`, the owner's listing of the table); where that
+ * cannot be established, nothing is pressed and `why` says it is a limitation
+ * of the check. THE WALL: a read goes out; any other write is stopped and
+ * recorded; the form's request goes out only when `submit` is set AND
+ * `formGate` says, BEFORE it leaves, that it is the one request this check was
+ * written for, each entry under its own column. A page with no form or
+ * several, a field this check does not fill, or values that did not hold,
+ * presses nothing. So a
  * rehearsal records what would have been sent and sends nothing, and the paid
  * press sends that one entry and nothing else. Service workers are blocked,
  * because a request a service worker handles never reaches the wall.
  */
 export async function submitFormInPage(browser, {
-  origin, path, api, marker, submit = false, ms = 45_000, answerMs = 30_000, settleMs = 6_000, pollMs = 250, route = null,
+  origin, path, api, marker, columns = null, submit = false, ms = 45_000, answerMs = 30_000, settleMs = 6_000, pollMs = 250, route = null,
 } = {}) {
   const out = {
     at: new Date().toISOString(), url: origin + path, api, submit: submit === true,
-    ready: null, plan: null, filled: null, filledOk: false, pressed: false, posts: [], response: null, failed: null, message: null,
+    ready: null, plan: null, binding: null, filled: null, filledOk: false, pressed: false, posts: [], response: null, failed: null, message: null,
     aborted: [], errors: [], why: "",
   };
   const onApi = (u) => { try { const x = new URL(String(u)); return x.origin === origin && x.pathname === api; } catch { return false; } };
@@ -1714,7 +1719,7 @@ export async function submitFormInPage(browser, {
         let search = null;
         try { search = new URL(u).search; } catch { search = null; }
         // DECIDED HERE, BEFORE ANYTHING LEAVES: the one exact request, or none.
-        const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: out.plan });
+        const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, binding: out.binding });
         const entry = { method: m, path: api, body, sent: false, exact: gate.ok, exactWhy: gate.why };
         out.posts.push(entry);
         if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }
@@ -1752,6 +1757,8 @@ export async function submitFormInPage(browser, {
     if (out.ready.forms !== 1) { out.why = `the page has ${out.ready.forms} forms; this check sends exactly one — nothing was pressed`; return out; }
     out.plan = fieldPlan(out.ready.fields, marker);
     if (!out.plan.ok) { out.why = out.plan.why; return out; }
+    out.binding = fieldBindings(out.plan, columns);
+    if (!out.binding.ok) { out.why = `verification limitation: ${out.binding.why} — nothing was pressed`; return out; }
     for (const f of out.plan.fills) {
       const el = page.locator(`form ${f.selector}`).first();
       if (f.kind === "check") await el.check();

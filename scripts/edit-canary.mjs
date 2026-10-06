@@ -327,6 +327,9 @@ let failed = 0;
  * by the owner's route before and after, judged by `formVerdict`. Nothing is
  * pressed unless this is the paid press, the new page was found, exactly one
  * new table appeared, and that table reads empty — each refusal its own reason.
+ * The table's columns from the owner's listing go to the helper, which binds
+ * each field to its column before pressing (after Codex's review at
+ * `fb42ff16`: the entries are judged where they belong, not anywhere).
  */
 async function formStep({ spec, verdict, tablesBefore, tablesAfter, origin, spend }) {
   const marker = formMarker(process.env.GITHUB_RUN_ID || "");
@@ -346,7 +349,7 @@ async function formStep({ spec, verdict, tablesBefore, tablesAfter, origin, spen
   let browser = null;
   try {
     browser = await defaultLaunch();
-    submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: true });
+    submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, columns: added.columns, submit: true });
   } catch (e) {
     submitted = { posts: [], why: String((e && e.message) || e).slice(0, 200) };
   } finally {

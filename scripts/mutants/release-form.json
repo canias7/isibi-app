@@ -87,8 +87,8 @@
   "files": [
    "scripts/canary-form.mjs"
   ],
-  "from": " && f.required === true) fill = { kind: \"fill\", value: marker.text };",
-  "to": ") fill = { kind: \"fill\", value: marker.text };"
+  "from": " && f.required === true) fill = { kind: \"fill\", role: \"text\", value: marker.text };",
+  "to": ") fill = { kind: \"fill\", role: \"text\", value: marker.text };"
  },
  {
   "label": "F9: a second request leaves",
@@ -115,30 +115,6 @@
   "to": "if (false) return fail("
  },
  {
-  "label": "F12: a value the check did not enter leaves",
-  "files": [
-   "scripts/canary-form.mjs"
-  ],
-  "from": "    if (!texts.has(v)) return fail(",
-  "to": "    if (false) return fail("
- },
- {
-  "label": "F13: a body without the marker's address leaves",
-  "files": [
-   "scripts/canary-form.mjs"
-  ],
-  "from": "if (!values.includes(marker.email)) return fail(",
-  "to": "if (false) return fail("
- },
- {
-  "label": "F14: a ticked box the check did not tick leaves",
-  "files": [
-   "scripts/canary-form.mjs"
-  ],
-  "from": "if (ticked > ticks) return fail(",
-  "to": "if (false) return fail("
- },
- {
   "label": "F15: the site refusing the entry reads as taking it",
   "files": [
    "scripts/canary-form.mjs"
@@ -155,20 +131,220 @@
   "to": "Array.isArray(b),"
  },
  {
-  "label": "F17: a row without the marker's address passes",
-  "files": [
-   "scripts/canary-form.mjs"
-  ],
-  "from": "&& has(fresh[0], marker.name) && has(fresh[0], marker.email),\n",
-  "to": "&& has(fresh[0], marker.name),\n"
- },
- {
   "label": "F18: two new rows pass as one",
   "files": [
    "scripts/canary-form.mjs"
   ],
-  "from": "fresh.length === 1 && has(fresh[0], marker.name)",
-  "to": "fresh.length >= 1 && has(fresh[0], marker.name)"
+  "from": "a.length === b.length + 1 && fresh.length === 1;",
+  "to": "a.length === b.length + 1 && fresh.length >= 1;"
+ },
+ {
+  "label": "B1: a field naming part of a column binds to it",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "const hit = cols.filter((c) => norm(c) === n);",
+  "to": "const hit = cols.filter((c) => norm(c).includes(n));"
+ },
+ {
+  "label": "B2: a field matching several columns binds to the first",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "      if (hit.length > 1) return no(",
+  "to": "      if (false) return no("
+ },
+ {
+  "label": "B3: a field naming two columns binds to one of them",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (named.size > 1) return no(",
+  "to": "    if (false) return no("
+ },
+ {
+  "label": "B4: the first of several role columns is taken",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "      if (fit.length !== 1) {",
+  "to": "      if (fit.length < 1) {"
+ },
+ {
+  "label": "B5: a sentence field is bound by role too",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!column && (f.role === \"email\" || f.role === \"name\")) {",
+  "to": "    if (!column) {"
+ },
+ {
+  "label": "B6: the address field may land in a name column",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (f.role === \"email\" && nameColumn(column)) return no(",
+  "to": "    if (false) return no("
+ },
+ {
+  "label": "B7: the name field may land in an email column",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (f.role === \"name\" && emailColumn(column)) return no(",
+  "to": "    if (false) return no("
+ },
+ {
+  "label": "B8: one column bound to two fields",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (bindings.some((b) => b.column === column)) return no(",
+  "to": "    if (false) return no("
+ },
+ {
+  "label": "B9: case is not set aside",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "const norm = (s) => String(s == null ? \"\" : s).toLowerCase().replace(/[^a-z0-9]/g, \"\");",
+  "to": "const norm = (s) => String(s == null ? \"\" : s).replace(/[^a-zA-Z0-9]/g, \"\");"
+ },
+ {
+  "label": "B10: punctuation is not set aside",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "const norm = (s) => String(s == null ? \"\" : s).toLowerCase().replace(/[^a-z0-9]/g, \"\");",
+  "to": "const norm = (s) => String(s == null ? \"\" : s).toLowerCase().replace(/\\s+/g, \"\");"
+ },
+ {
+  "label": "B11: only the name attribute names a column",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "for (const [key, v] of [[\"name\", fd.name], [\"id\", fd.id], [\"label\", fd.label]]) {",
+  "to": "for (const [key, v] of [[\"name\", fd.name]]) {"
+ },
+ {
+  "label": "B12: no columns read binds by role from nothing",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "  if (!cols.length) return no(",
+  "to": "  if (false) return no("
+ },
+ {
+  "label": "B13: a field that names no column is bound anyway",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!column) return no(`the field \"${label}\" names no column of the table",
+  "to": "    if (false) return no(`the field \"${label}\" names no column of the table"
+ },
+ {
+  "label": "R1: the gate asks only whether each value is somewhere (the false positive back)",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (b.kind === \"check\" ? v !== true : v !== b.value) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "G1: an entry also sent under another key leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (entered.has(v.trim())) return fail(",
+  "to": "    if (false) return fail("
+ },
+ {
+  "label": "G2: a box the check did not tick leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (v === true) return fail(`\"${k}\" ticks a box the check did not tick`);",
+  "to": "    if (false) return fail(`\"${k}\" ticks a box the check did not tick`);"
+ },
+ {
+  "label": "G3: a value the check did not enter leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    return fail(`\"${k}\" carries a value the check did not enter`);",
+  "to": "    continue;"
+ },
+ {
+  "label": "G4: no bindings, and the request is judged anyway",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "  if (!bound) return fail(`which key each entry belongs under was not established",
+  "to": "  if (false) return fail(`which key each entry belongs under was not established"
+ },
+ {
+  "label": "G5: bindings not carrying the marker are trusted",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "  if (!bound.some((b) => b.role === \"email\" && b.value === mk.email) || !bound.some((b) => b.role === \"name\" && b.value === mk.name)) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "G6: the box's own key may carry anything",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (b.kind === \"check\" ? v !== true : v !== b.value) {",
+  "to": "    if (b.kind === \"check\" ? false : v !== b.value) {"
+ },
+ {
+  "label": "R2: the row check asks only whether each value is somewhere (the false positive back)",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!(b.kind === \"check\" ? v === true : typeof v === \"string\" && v.trim() === b.value)) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "V1: a stray copy in another column passes",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!keys.has(k) && typeof v === \"string\" && entered.has(v.trim())) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "V2: the binding check always passes",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    !!bound, !(s.plan && s.plan.ok) ? \"not reached: the form was not filled\"",
+  "to": "    true, !(s.plan && s.plan.ok) ? \"not reached: the form was not filled\""
+ },
+ {
+  "label": "V3: without bindings the row passes unjudged",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    one && !!where && where.ok,",
+  "to": "    one && (!where || where.ok),"
+ },
+ {
+  "label": "V4: a stored value must match to the space",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "typeof v === \"string\" && v.trim() === b.value)) {",
+  "to": "typeof v === \"string\" && v === b.value)) {"
+ },
+ {
+  "label": "V5: only the first entry of the row is checked",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "  const { entered, say } = sayer(bound);\n  for (const b of bound) {\n    const v = Object.hasOwn(row, b.column)",
+  "to": "  const { entered, say } = sayer(bound);\n  for (const b of bound.slice(0, 1)) {\n    const v = Object.hasOwn(row, b.column)"
  },
  {
   "label": "U1: a request the gate refuses leaves in the paid press",
@@ -211,12 +387,12 @@
   "to": "    if (false) { out.why = \"the form does not hold the marker's values — nothing was pressed\"; return out; }"
  },
  {
-  "label": "U6: the gate is asked about a different plan",
+  "label": "U6: the gate is asked without the bindings",
   "files": [
    "scripts/canary-ui.mjs"
   ],
-  "from": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: out.plan });",
-  "to": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: null });"
+  "from": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, binding: out.binding });",
+  "to": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, binding: null });"
  },
  {
   "label": "U7: a press the balance cannot pay for is sent anyway",
@@ -251,6 +427,22 @@
   "to": "  if (false) return \"the balance could not be read, so whether it covers this press is not known\";"
  },
  {
+  "label": "U11: a binding that was not established is pressed anyway",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (!out.binding.ok) { out.why = `verification limitation: ${out.binding.why} — nothing was pressed`; return out; }",
+  "to": "    if (false) { out.why = `verification limitation: ${out.binding.why} — nothing was pressed`; return out; }"
+ },
+ {
+  "label": "U12: the binding is made without the table's columns",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    out.binding = fieldBindings(out.plan, columns);",
+  "to": "    out.binding = fieldBindings(out.plan, null);"
+ },
+ {
   "label": "E1: the step runs outside the paid press",
   "files": [
    "scripts/edit-canary.mjs"
@@ -263,8 +455,8 @@
   "files": [
    "scripts/edit-canary.mjs"
   ],
-  "from": "submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: true });",
-  "to": "submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: false });"
+  "from": "marker, columns: added.columns, submit: true });",
+  "to": "marker, columns: added.columns, submit: false });"
  },
  {
   "label": "E3: a table already holding rows is written to",
@@ -305,5 +497,13 @@
   ],
   "from": "  if (!before.ok) return stop(",
   "to": "  if (false) return stop("
+ },
+ {
+  "label": "E8: the helper is not given the table's columns",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "marker, columns: added.columns, submit: true });",
+  "to": "marker, submit: true });"
  }
 ]
