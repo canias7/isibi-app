@@ -15,7 +15,7 @@ is in git; the dated entries further down are the full story.*
     passed are kept as they were (the preview kept through polling, the
     settled page facts, the reopened tab's preview check), with the
     grounding they came with;
-  - **the requirement gap's second half** (the commit after `4315ab4d`, on your review): a
+  - **the requirement gap's second half** (`0f94d159`, on your review): a
     genuine quote no longer makes a requirement yours. A model call judges
     what each requirement means and what carries it out; code checks that
     what it names was shown and really ran, with the part of a table that
@@ -38,17 +38,20 @@ is in git; the dated entries further down are the full story.*
     closed both;
   - **the suite**: `9519 / 9519 / 0 / 0` here (the 9,502 before, plus the
     17 new cases). Your three passed corrections are among them, unchanged.
-- **CI** on the push: read once it ends, and recorded then. The previous
-  push's last two runs never started for lack of a GitHub runner, and none
-  of their checks failed: the site build on `936295a5` (run 37371311514,
-  two of seven jobs) and the unit tests on `4315ab4d` (run 37373999399).
-  This push starts both workflows again, so neither needs a re-run.
+- **CI on `0f94d159` is complete and green**:
+  - unit tests (run 37392639709): `9519 / 9507 / 0 / 12`, the same total as
+    here; CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37392639829): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*.
+  - The previous push's two red runs (the site build on `936295a5`, run
+    37371311514; the unit tests on `4315ab4d`, run 37373999399) were GitHub
+    runner shortages: zero steps ran and no check failed. This push ran
+    both workflows in full, so neither needs a re-run.
 - **Money**: balance **21** (read at 00:02 UTC on 6 October: last ledger
   row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Nothing to press yet.** If a job on this push gets no runner, I'll name
-  the exact re-run.
+- **Nothing to re-run**: every required job ran and passed.
 - **Review the fix** (`docs/history/2026-10-05-judgment.md`, with its limits
   in §7).
 - **Then, if you want it live**: merge and deploy (the image would roll
@@ -81,6 +84,7 @@ is in git; the dated entries further down are the full story.*
 - Run 101's batch and the closed live check:
   `docs/history/2026-10-05-run101-corrections.md`.
 - The open items: `docs/backlog.md`.
+
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -165,8 +169,8 @@ since. Add new ones there.
     never called set up;
   - one that doesn't follow from their words at all is left out of the
     reply. It is kept in the record;
-  - it is judged before it can be handed to the next step, so nothing is
-    built for it;
+  - an extra or an unrelated one is judged before it can be handed to the
+    next step, so nothing is built for it;
   - something they did ask for, like "email me each time someone signs up",
     is still reported, and so is a dependency like storing the sign-ups;
   - an email they asked for that the platform couldn't set up (the address
@@ -188,7 +192,8 @@ since. Add new ones there.
   - the mutation sweep caught every planted defect: 37 of 37, after the
     first run found two gaps (35 of 37) and I closed them;
   - the full suite: `9519 / 9519 / 0 / 0` here;
-  - CI on the push: read once it ends, and recorded then.
+  - CI on the push: green. Unit tests passed with the same total as here,
+    and the site build's seven jobs and its gate passed.
 - **Cost**: one more small model call per add-on that writes requirements,
   and one more before each hand-off. That is about +1 credit on a typical
   add-on, up to +3–4 on a big one. This is an estimate from token counts;
@@ -204,7 +209,7 @@ since. Add new ones there.
 - **Not merged, not deployed, no image built, nothing pressed or spent.**
 
 **Recorded in**: `docs/history/2026-10-05-judgment.md`, the backlog, the
-checklist and the history index.
+checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-05 — Your review of run 101: the live check closed, and the four things it turned up fixed on the branch (nothing spent, merged or deployed)
 
