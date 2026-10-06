@@ -24,7 +24,8 @@ for review with this plan (§4.3). **The balance does not cover it today**
 writing the branch is `main` plus 22 commits to `1f3dc370`, then this plan's
 own: `f448aaba` (the scenario), `8eceb2bd` and `fb42ff16` (its records), then
 the form step's correction after Codex's review (§4.4), `09470116`, and its
-records. Their product content, in order, each reviewed:
+records (`d6de4ea9` and the CI record after it). Their product content, in
+order, each reviewed:
 
 | Commit | What | Review |
 |---|---|---|
@@ -36,7 +37,7 @@ records. Their product content, in order, each reviewed:
 | `46a7746c` (records `77da1770`, `08b9a657`) | a refusal's requirements told; every missing page, code, seed skip and empty table named | Codex; the owner passed the warning lists |
 | `c4748136`, `9c2ca743` (records `13bfcd17`, `9d309401`, `49a67763`, `1f3dc370`) | a failed addition says what it left behind; a database made beside an interrupted apply said as made, not empty | Codex, both (`9c2ca743` at `1f3dc370`) |
 | `f448aaba`, then `8eceb2bd` and `fb42ff16` (docs only) | the release check scenario (canary only) and these records | for review with this plan |
-| `09470116`, then its records (docs only) | the release check judges each form entry under the column its field is bound to, and reports a binding it cannot establish as a limitation (§4.4; canary only) | for review with this plan |
+| `09470116`, then `d6de4ea9` and the CI record (docs only) | the release check judges each form entry under the column its field is bound to, and reports a binding it cannot establish as a limitation (§4.4; canary only) | for review with this plan |
 
 **What reaches production**: `worker.js` and `builder/site-add.mjs`,
 `site-addon.mjs`, `site-migrations.mjs`, `site-reply.mjs` and
@@ -58,10 +59,10 @@ What one authorization covers, every step free except §2.8:
    - nothing in flight: no Actions run in progress or queued, read twice (the
      second right before the push), and no open job in `edit_jobs`;
    - unit CI green on the candidate itself, and the site build green with the
-     candidate's inputs fingerprint. At this writing: the unit tests run on
-     this push, read to completion and recorded in the commit after it; the
-     site build green on `49a67763` (run 37454790999), with nothing it reads
-     changed since;
+     candidate's inputs fingerprint. At this writing: unit tests green on
+     `d6de4ea9` (run 37466187566, `9592 / 9577 / 0 / 15`, the same total as
+     the local run); the site build green on `49a67763` (run 37454790999),
+     with nothing it reads changed since;
    - the image predicted on both ends;
    - the rollback, `git revert --no-commit d75d79f3..<candidate>`, giving back
      `main`'s own tree in a throwaway worktree;
@@ -317,8 +318,11 @@ a site, and no column is expected to be called `name` or `email`.
   guard written twice, so that each copy hid a defect in the other. It is now
   one term, and the rerun caught all 60;
 - **the full suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new cases);
-- **CI**: the unit tests run on this push; read to completion and recorded in
-  the commit after it.
+- **CI**: unit tests green on `d6de4ea9` (run 37466187566): `9592 / 9577 / 0
+  / 15`, the same total as here. CI has no Chromium, so the browser cases
+  skip there (15 skipped, 14 before FORM 8; by the count). The site build
+  was not owed a run: nothing it reads changed since its green run on
+  `49a67763` (run 37454790999).
 
 **What the bindings still trust** is the form's own words: a field whose
 name, id or label names a column is taken to be meant for it, and a lone

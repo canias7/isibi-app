@@ -29,7 +29,8 @@ is in git; the dated entries further down are the full story.*
     scenario `lv-release` and a new form step;
   - **the plan and its records** (`8eceb2bd`, `fb42ff16`);
   - **the form step's correction after Codex's review** (`09470116`, canary
-    only, deploys nothing; §4.4 of the plan), and these records.
+    only, deploys nothing; §4.4 of the plan), its records (`d6de4ea9`) and
+    the CI record after them.
 - **The correction** (Codex, at `fb42ff16`: the form gate and the row check
   passed the name and the address swapped, and both empty with the values
   in unrelated `note` and `source` columns, because they asked only whether
@@ -89,8 +90,11 @@ is in git; the dated entries further down are the full story.*
     survivor, two new rows passing as one, was a guard written twice, each
     copy hiding a defect in the other. It is now one term;
   - **the suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new cases).
-- **CI**: The unit tests run on this push; read to completion and recorded in
-  the commit after it.
+- **CI**: green on `d6de4ea9` (the correction with its records): unit tests
+  (run 37466187566) `9592 / 9577 / 0 / 15`, the same total as here. CI has
+  no Chromium, so the browser cases skip there (15 skipped, 14 before FORM 8;
+  by the count). The site build was not owed a run: nothing it reads changed
+  since its green run on `49a67763` (run 37454790999).
 - **Kept apart in the plan (§6)**: what controlled failure tests show (every
   failure outcome, refusals, warning lists, the incomplete judgment, older
   answers replayed) is not what the live check would prove. The live check
@@ -273,8 +277,10 @@ since. Add new ones there.
     copy hiding a defect in the other. It is now one term;
   - **the full suite**: `9592 / 9592 / 0 / 0` here (9,587 plus the 5 new
     cases);
-  - **CI**: the unit tests run on this push; read to completion and recorded
-    in the commit after it.
+  - **CI**: green on `d6de4ea9`: unit tests (run 37466187566) `9592 / 9577
+    / 0 / 15`, the same total as here (CI has no Chromium, so the browser
+    cases skip there: 15 skipped, 14 before FORM 8). The site build was not
+    owed a run: nothing it reads changed since its green run on `49a67763`.
 - **What the bindings still trust** is the form's own words: a field naming
   a column is taken to be meant for it, and a lone "name" or "email" column
   is taken to be the one for it. The gate and the read-back check what the
