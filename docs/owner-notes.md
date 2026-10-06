@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 13:34 UTC)
+## Current handoff — read this first (2026-10-06, 13:39 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -16,12 +16,13 @@ is in git; the dated entries further down are the full story.*
   readers answered `b2409b3c0649`, a cold container `c7fe818d446dd957`,
   queued jobs and the runner on, every zero-cost confirmation passed,
   nothing charged (`docs/history/2026-10-06-deploy-2185.md` §6.1).
-- **The live check (`lv-release`) is pending: the funds are not there.** The
-  balance read **21** again at 13:29 UTC, after run 102, and again at 13:34
-  UTC when you asked (last ledger row 392, no job open, unchanged since 5
-  October), below the 30 the press needs. The session does not raise it.
-  The press is ready, with every box in the release plan's §3.2, and refuses
-  below 30 before it sends anything.
+- **The live check (`lv-release`) is ready for your press.** The balance read
+  21 at 13:29 and 13:34 UTC; **at your request it was raised to 35** (13:37
+  UTC), and read back at 13:37:49 UTC: 35, last ledger row 392, no job open.
+  The live `/gallery` still reads "Photographs from Fold Lane" and
+  `/tasting-evenings` answers 404 (13:38 UTC). The press is yours, with every
+  box in the release plan's §3.2; it runs once and is not repeated if it
+  fails.
 - **The reporting work and the form step's correction are closed**: Codex
   passed `9c2ca743` at `1f3dc370`, and `09470116` at `b2409b3c`.
 - **What the release carried**: the 22 reviewed commits to `1f3dc370`, every
@@ -288,8 +289,10 @@ since. Add new ones there.
 - **Charges**: none. The balance has been 21, with the ledger's last row
   392, through the merge, the deploy and run 102.
 - **Read again at 13:34:28 UTC, when you asked**: still 21 (last ledger row
-  392, no job open), so the paid press stays pending and was not handed over
-  to run.
+  392, no job open).
+- **Raised to 35 at your request** (13:37:26 UTC), after you chose it over
+  topping it up yourself; read back at 13:37:49 UTC: 35, the ledger's last
+  row still 392, no job open. The paid press was then handed over to you.
 
 **Recorded in**: `docs/history/2026-10-06-deploy-2185.md`,
 `docs/deploy-record.md` and the history index.
