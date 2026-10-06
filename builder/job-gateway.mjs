@@ -698,7 +698,11 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       if (!body || typeof body !== "object" || Array.isArray(body) || !["begin", "mark", "close"].includes(body.op)) return json(400, { error: "bad progress" });
       let out = null;
       try { out = await progress({ id: who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }
-      return out && out.ok === true ? json(200, { ok: true }) : json(409, { error: "not recorded" });
+      // A STORE THAT FAILED IS NOT A REFUSAL (2026-10-06): 503, which the job's
+      // recorder sends again; a refusal (a closed record, another run's) is 409
+      // and never is. A throw here is the Worker's own failure: tried again.
+      if (out && out.ok === true) return json(200, { ok: true });
+      return !out || out.retry === true ? json(503, { error: "not recorded yet" }) : json(409, { error: "not recorded" });
     }
 
     if (!bucket) return json(503, { error: "no bucket" });

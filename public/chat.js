@@ -10093,13 +10093,18 @@ function siteRequestHTML(m, site) {
 // writes each task's line in every state (`said`); the status the server
 // gives picks which, here, so no line can claim a state the task is not in.
 // Without one, the task's words show as they are.
+// SEVEN STATES SINCE THE OUTCOME ROUND (2026-10-06, the owner: *"unverified
+// must not select a sentence saying the requested change is actively
+// happening"*): a part held for review shows its unconfirmed line, never its
+// doing line; one waiting on the customer, its waiting line; one done in part,
+// its partial line.
 const SITE_SAID_FOR = {
-  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',
-  started: 'doing', unverified: 'doing', done: 'done',
-  partial: 'notdone', failed: 'notdone', 'not-run': 'notdone', cancelled: 'notdone', expired: 'notdone', refused: 'notdone',
+  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',
+  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',
+  failed: 'notdone', 'not-run': 'notdone', cancelled: 'notdone', expired: 'notdone', refused: 'notdone', 'needs-rewrite': 'notdone',
 };
-/** A found job's state, as its card names it: queued, finished, not done, or happening now. */
-const SITE_JOB_SAID = { queued: 'planned', done: 'done', failed: 'notdone', lost: 'notdone', cancelled: 'notdone' };
+/** A found job's outcome, as the server read it, and which of its task's lines that outcome shows; an ended job whose outcome is not known shows its words. */
+const SITE_JOB_SAID = { queued: 'planned', running: 'doing', waiting: 'waiting', handoff: 'planned', unverified: 'unconfirmed', done: 'done', partial: 'partial', failed: 'notdone', cancelled: 'notdone' };
 function siteSaidFor(said, which) {
   const s = EditPoll.taskSaid(said);
   return s && typeof which === 'string' && Object.hasOwn(s, which) ? s[which] : '';
@@ -10162,15 +10167,32 @@ function siteKeepJobProgress(origin, job, before, lines) {
 // NEVER ACTED ON: the page that filed it is the one that hops, falls back or
 // offers an undo; this page brings its own preview up to date
 // (`siteReqRefresh`), as for another browser's request.
-const SITE_JOB_STATUS = { queued: { cls: 'queued', label: 'Queued' }, done: { cls: 'done', label: 'Finished' }, failed: { cls: 'failed', label: 'Not done' }, lost: { cls: 'failed', label: 'Not done' }, cancelled: { cls: 'cancelled', label: 'Stopped' } };
-const SITE_JOB_RUNNING = { cls: 'started', label: 'In progress' };
+// ITS LABEL AND ITS LINE ARE THE JOB'S OWN OUTCOME (2026-10-06), as the server
+// read it from the job's row and stored answer (`outcome`, `editJobOutcome` in
+// builder/request.mjs) — never `ok` alone, which called an addition that set
+// part of the ask aside finished (Codex's reproduction).
+const SITE_JOB_STATUS = { queued: { cls: 'queued', label: 'Queued' }, running: { cls: 'started', label: 'In progress' }, waiting: { cls: 'waiting', label: 'Waiting for your answer' }, handoff: { cls: 'handoff', label: 'Handed over' }, unverified: { cls: 'unverified', label: 'Checking it published' }, done: { cls: 'done', label: 'Finished' }, partial: { cls: 'partial', label: 'Partly done' }, failed: { cls: 'failed', label: 'Not done' }, cancelled: { cls: 'cancelled', label: 'Stopped' }, ended: { cls: 'ended', label: 'Ended' } };
+const SITE_JOB_RUNNING = SITE_JOB_STATUS.running;
 const siteJobFollowing = new Set();
+/**
+ * A FOUND JOB'S OUTCOME FOR ITS CARD: the server's own, or — with none — only
+ * what its row's state can say: queued, running, or ended with its outcome
+ * not known here (its words then, and no line of any state).
+ */
+function siteJobOutcome(v) {
+  const oc = EditPoll.jobOutcome(v && v.outcome);
+  if (oc) return oc;
+  if (v && v.state === 'queued' && v.ended !== true) return 'queued';
+  if (v && (v.ended === true || ['done', 'failed', 'lost', 'cancelled'].includes(v.state))) return 'ended';
+  return 'running';
+}
 function siteJobCardHTML(m, site) {
   const c = site && site.jobCards && typeof site.jobCards === 'object' ? site.jobCards[m.jobCard] : null;
   const v = c && c.view;
   if (!v) return '';
-  const st = Object.hasOwn(SITE_JOB_STATUS, v.state) ? SITE_JOB_STATUS[v.state] : SITE_JOB_RUNNING;
-  const which = Object.hasOwn(SITE_JOB_SAID, v.state) ? SITE_JOB_SAID[v.state] : 'doing';
+  const oc = siteJobOutcome(v);
+  const st = SITE_JOB_STATUS[oc];
+  const which = Object.hasOwn(SITE_JOB_SAID, oc) ? SITE_JOB_SAID[oc] : '';
   return '<div class="st-req"><ol class="st-req-parts"><li class="st-req-part st-req-' + esc(st.cls) + '"><span class="st-req-words">' + esc(siteSaidFor(v.said, which) || String(v.words || '')) + '</span>' +
     '<span class="st-req-status">' + esc(st.label) + '</span>' + progressListHTML(v.progress, st === SITE_JOB_RUNNING) + '</li></ol></div>';
 }
@@ -10178,9 +10200,11 @@ function siteJobCardHTML(m, site) {
 function siteJobDiscovered(origin, v) {
   const s = siteById(origin);
   if (!s || !v || typeof v !== 'object' || typeof v.job !== 'string' || !/^[0-9a-f]{32}$/.test(v.job)) return;
-  // A CARD ALREADY DRAWN takes its task's lines when they have been written since.
+  // A CARD ALREADY DRAWN takes its task's lines when they have been written
+  // since, and its outcome as the server reads it now (2026-10-06).
   const drawn = s.jobCards && typeof s.jobCards === 'object' && !Array.isArray(s.jobCards) && Object.hasOwn(s.jobCards, v.job) ? s.jobCards[v.job] : null;
   if (drawn && drawn.view && EditPoll.taskSaid(v.said)) drawn.view.said = EditPoll.taskSaid(v.said);
+  if (drawn && drawn.view && EditPoll.jobOutcome(v.outcome)) drawn.view.outcome = EditPoll.jobOutcome(v.outcome);
   // SHOWN HERE ALREADY: this page's own watch, the job it remembers, a reply
   // it holds or showed for it, or its card.
   if (editWatched.has(v.job)) return;
@@ -10192,7 +10216,7 @@ function siteJobDiscovered(origin, v) {
   for (const k of Object.keys(s.jobCards)) { const c = s.jobCards[k]; if (!c || !(now - (c.at || 0) < SITE_REQ_KEEP_MS)) delete s.jobCards[k]; }
   s.jobCards[v.job] = {
     at: now, closed: false,
-    view: { job: v.job, op: v.op === 'addon' ? 'addon' : 'edit', state: typeof v.state === 'string' ? v.state : '', words: typeof v.words === 'string' ? v.words : '', progress: EditPoll.progressLines(v), said: EditPoll.taskSaid(v.said) },
+    view: { job: v.job, op: v.op === 'addon' ? 'addon' : 'edit', state: typeof v.state === 'string' ? v.state : '', ended: v.ended === true, outcome: EditPoll.jobOutcome(v.outcome), words: typeof v.words === 'string' ? v.words : '', progress: EditPoll.progressLines(v), said: EditPoll.taskSaid(v.said) },
   };
   // WHERE IT FALLS IN TIME: before the first message the page knows to be
   // newer (a request made after it, or a message sent from this page), at the
@@ -10250,6 +10274,9 @@ function siteJobFollow(origin, job) {
     if (got.length) c.view.progress = got;
     const taskLines = r ? EditPoll.taskSaid(e && e.said) : null;
     if (taskLines) c.view.said = taskLines;
+    // ITS OWN OUTCOME AS THE SERVER READ IT (2026-10-06), on every answer that carries one.
+    const oc = r ? EditPoll.jobOutcome(e && e.outcome) : null;
+    if (oc) c.view.outcome = oc;
     if (read.act === 'gone') { c.closed = true; draw(); stop(); return; }
     if (read.act === 'retry' || (read.act === 'wait' && read.kind !== 'reply')) {
       if (read.act === 'wait' && e && typeof e.status === 'string') c.view.state = e.status;
@@ -10259,7 +10286,10 @@ function siteJobFollow(origin, job) {
       return;
     }
     if (read.act === 'ended') {
-      c.view.state = read.kind === 'cancelled' ? 'cancelled' : 'failed';
+      // WITH NO OUTCOME OF THE SERVER'S, what the poll's own reading says:
+      // stopped, held for review (never said as happening), or not done.
+      if (!oc) c.view.outcome = read.kind === 'cancelled' ? 'cancelled' : read.kind === 'needs_review' ? 'unverified' : 'failed';
+      c.view.ended = true;
       c.closed = true;
       draw();
       siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));
@@ -10267,8 +10297,12 @@ function siteJobFollow(origin, job) {
       return;
     }
     // ITS STORED ANSWER: the reply, once written — waited for while it is
-    // being written, up to the page's own reply watch.
-    c.view.state = r.ok && e && e.ok !== false ? 'done' : 'failed';
+    // being written, up to the page's own reply watch. ITS CARD SAYS THE
+    // OUTCOME THE SERVER READ FROM IT (2026-10-06), never success from
+    // `ok: true` alone; an answer that carries none leaves it ended, its
+    // outcome not known here, rather than keep a running one's.
+    c.view.ended = true;
+    if (!oc) c.view.outcome = null;
     if (read.act === 'wait' && Date.now() - startedAt < EditPoll.REPLY_WATCH_MS) { draw(); setTimeout(step, EditPoll.pollDelayMs(++attempt)); return; }
     c.closed = true;
     draw();

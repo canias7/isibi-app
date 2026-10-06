@@ -56,17 +56,24 @@ const SOLO_LINES = [
   { n: 0, ms: 5000, text: "I found the Gallery heading and I'm changing it to “Photographs from our ovens”." },
   { n: 1, ms: 8000, text: "I've made the new heading in the builder, and I'm putting it on your site now." },
 ];
-// EACH TASK'S OWN LINES, one per state; the page shows the one its status is in.
+// EACH TASK'S OWN LINES, one per state (seven since the outcome round,
+// 2026-10-06); the page shows the one its status is in.
 const SAID_A = {
   planned: "I'll add a Tasting Evenings page where people can join the waiting list.",
   doing: "I'm adding your Tasting Evenings page with its waiting-list form.",
+  waiting: "I need your answer before I can add the Tasting Evenings page.",
+  unconfirmed: "I tried to add your Tasting Evenings page, but I can't tell yet whether it went through.",
   done: "I've added your Tasting Evenings page with its waiting list.",
+  partial: "I've added part of the Tasting Evenings page, but not all of it.",
   notdone: "I couldn't add the Tasting Evenings page.",
 };
 const SAID_SOLO = {
   planned: "Okay, I'll update the Gallery heading to “Photographs from our ovens”.",
   doing: "I'm updating the Gallery heading now.",
+  waiting: "I need a quick answer from you before I update the Gallery heading.",
+  unconfirmed: "I tried to update the Gallery heading, but I can't tell yet whether it went through.",
   done: "I've updated the Gallery heading to “Photographs from our ovens”.",
+  partial: "I've updated part of the Gallery heading, but not all of it.",
   notdone: "I couldn't update the Gallery heading.",
 };
 const ADDON_ANSWER = { ok: true, kinds: ["page", "table"], added: ["src/routes/tasting-evenings.tsx"], tables: ["tasting_list"], cost: 18, reply: "✅ Your Tasting Evenings page is up, and sign-ups are kept.", replySource: "model" };
@@ -248,12 +255,13 @@ test("FRESH DEVICE — no thread, no request, no job of its own: the requests li
     key: KEY, state: "done", ended: true, stop: false, at: Date.now() - 600000, updatedAt: Date.now(), routedUnsaid: 0,
     parts: [{ n: 0, words: WORDS, status: "done", ids: [JOB], jobs: [JOB], charged: 18, route: "addon", progress: LINES, said: SAID_A }],
   });
-  const soloView = () => ({ job: SOLO, op: "edit", state: soloDone ? "done" : "editing", ended: soloDone, words: SOLO_WORDS, at: Date.now() - 30000, progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO });
+  // EACH ANSWER CARRIES THE JOB'S OWN OUTCOME, as the server serves it (2026-10-06).
+  const soloView = () => ({ job: SOLO, op: "edit", state: soloDone ? "done" : "editing", ended: soloDone, outcome: soloDone ? "done" : "running", words: SOLO_WORDS, at: Date.now() - 30000, progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO });
   const S = {
     requests: () => [view()], view, jobs: () => [soloView()],
     polls: {
       [JOB]: () => ({ final: true, body: { ...ADDON_ANSWER, progress: LINES } }),
-      [SOLO]: () => (soloDone ? { final: true, body: { ...EDIT_ANSWER, progress: SOLO_LINES, said: SAID_SOLO } } : { body: { ok: true, status: "editing", progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO } }),
+      [SOLO]: () => (soloDone ? { final: true, body: { ...EDIT_ANSWER, outcome: "done", progress: SOLO_LINES, said: SAID_SOLO } } : { body: { ok: true, status: "editing", outcome: "running", progress: SOLO_LINES.slice(0, 1), said: SAID_SOLO } }),
     },
   };
   const app = await openApp(S, { seed: { site: siteRecord() } });
@@ -281,7 +289,10 @@ test("TENSES — one request, three parts: each named by the model's line for th
   const SAID_MENU = {
     planned: "Once the page is ready, I'll add a link to it in your menu.",
     doing: "I'm adding the link to your menu now.",
+    waiting: "I need your answer before I add the link to your menu.",
+    unconfirmed: "I tried to add the link to your menu, but I can't tell yet whether it went through.",
     done: "I've added a link to it in your menu.",
+    partial: "I've added part of the link to your menu.",
     notdone: "I couldn't add the link to your menu.",
   };
   const JOB3 = "c4" + "0".repeat(30);
@@ -317,6 +328,83 @@ test("TENSES — one request, three parts: each named by the model's line for th
     await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_MENU.done, { timeout: 30000 });
     assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.done, SAID_MENU.done]);
     await shot(page, "names-tenses-finished.png");
+    assert.deepEqual(app.errors, []);
+  } finally { await closeApp(app); }
+});
+
+// ── THE OUTCOME ROUND (2026-10-06) ───────────────────────────────────────────
+
+// THE CANARY'S OWN READER, cut from scripts/canary-ui.mjs and run on the page
+// exactly as the canary runs it (`page.evaluate(readComposerInPage)`).
+const CANARY = readFileSync(new URL("../scripts/canary-ui.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const READER = (() => {
+  const head = "\nfunction readComposerInPage() {";
+  const at = CANARY.indexOf(head);
+  assert.ok(at > 0 && CANARY.indexOf(head, at + 1) < 0, "the canary's reader is gone from scripts/canary-ui.mjs, or is not one");
+  const end = CANARY.indexOf("\n}\n", at);
+  return CANARY.slice(at + 1, end + 2);
+})();
+const NO_MATCH = "I couldn't find a heading called “Gallery” on that page, so nothing was changed.";
+
+test("CANARY — THE REPLY READ APART FROM THE PROGRESS KEPT ABOVE IT: a watched job fails with two lines kept above its warning; the canary's own reader, on the real page, reads the reply's text beginning with the warning and carrying no kept line, and the lines apart (`progress`); the failure check passes on those replies — where the message read whole, as before, did not", { skip: SKIP, timeout: 120000 }, async () => {
+  const { newReplies, failureVerdict } = await import("../scripts/canary-ui.mjs");
+  let finished = false;
+  const FAILED = { ok: false, error: "no-match", msg: NO_MATCH, cost: 0, refunded: 1, layer: "data" };
+  const S = {
+    requests: () => [], view: () => null, jobs: () => [],
+    polls: { [SOLO]: () => (finished ? { final: true, body: { ...FAILED, progress: SOLO_LINES } } : { body: { ok: true, status: "editing", progress: SOLO_LINES.slice(0, 1) } }) },
+  };
+  const site = siteRecord({ msgs: [{ r: "u", t: SOLO_WORDS }] });
+  const watch = { [SLUG]: { job: SOLO, at: Date.now(), ask: SOLO_WORDS, op: "edit", layer: "data" } };
+  const app = await openApp(S, { seed: { site, watch } });
+  try {
+    const { page } = app;
+    await page.waitForFunction(() => !!document.querySelector(".st-busy .st-think-prog"), null, { timeout: 20000 });
+    finished = true;
+    await page.waitForFunction((m) => [...document.querySelectorAll(".st-msg.a")].some((e) => e.textContent.includes(m)), NO_MATCH, { timeout: 30000 });
+    assert.equal(await page.$$eval(".st-msg.a .st-prog-done li", (els) => els.length), 2, "the lines were not kept above the reply");
+    const s = await page.evaluate("(" + READER + ")()");
+    const replies = newReplies(1, s.messages);
+    assert.equal(replies.length, 1, JSON.stringify(s.messages.map((m) => m.text)));
+    const reply = replies[0];
+    assert.ok(reply.text.startsWith("⚠️"), "the reply as the canary reads it does not begin with its warning: " + JSON.stringify(reply.text.slice(0, 80)));
+    assert.ok(reply.text.includes(NO_MATCH));
+    for (const l of SOLO_LINES) assert.ok(!reply.text.includes(l.text), "a kept line was read as part of the reply");
+    assert.deepEqual(reply.progress, SOLO_LINES.map((l) => l.text), "the kept lines were not read apart");
+    const step = (texts) => ({ replies: texts, reply: texts.join("\n"), network: [{ method: "GET", path: "/api/site/edit/" + SOLO, status: 422, final: true, res: FAILED }] });
+    assert.deepEqual(failureVerdict(step(replies.map((m) => m.text)), { error: "no-match" }).ok, true, "the failure check missed the warning on the reply's own text");
+    // AS BEFORE: the message read whole begins with the kept lines, and the check misses it.
+    const whole = await page.$$eval(".st-msg.a", (els, m) => els.filter((e) => e.textContent.includes(m)).map((e) => String(e.innerText).replace(/⧉\s*$/, "").trim()), NO_MATCH);
+    assert.ok(!whole[0].startsWith("⚠️"), "the case no longer shows the old reading's failure");
+    assert.equal(failureVerdict(step(whole), { error: "no-match" }).ok, false);
+    await shot(page, "canary-reply-with-kept-lines.png");
+    assert.deepEqual(app.errors, []);
+  } finally { await closeApp(app); }
+});
+
+test("OUTCOMES — ANOTHER DEVICE'S CARDS SAY WHAT REALLY HAPPENED: a job done only in part is Partly done with its partial line; one held for review is Checking it published with its unconfirmed line, never its doing line; one waiting on the customer, its waiting line; one handed on, Handed over — each from the server's outcome", { skip: SKIP, timeout: 120000 }, async () => {
+  const J = (c) => c + "5" + "0".repeat(30);
+  const cards = [
+    { job: J("d"), outcome: "partial", label: "Partly done", which: "partial", answer: { ok: true, kinds: ["page", "frame"], added: ["src/routes/gallery.tsx"], skipped: ["frame"], cost: 6, reply: "I added the gallery page, but I couldn't put a link to it in your menu.", replySource: "model" } },
+    { job: J("e"), outcome: "unverified", label: "Checking it published", which: "unconfirmed", answer: { ok: true, kinds: ["page"], added: ["src/routes/gallery.tsx"], cost: 6, reply: "I couldn't confirm the gallery page went live; I'm checking.", replySource: "model" } },
+    { job: J("f"), outcome: "waiting", label: "Waiting for your answer", which: "waiting", answer: { ok: false, error: "clarify", clarify: { id: "q".repeat(32).slice(0, 32), text: "Which photos should lead?", options: ["Bread", "Cakes"] }, cost: 0, reply: "Which photos should lead the gallery?", replySource: "model" } },
+    { job: J("a"), outcome: "handoff", label: "Handed over", which: "planned", answer: { ok: false, escalate: true, layer: "text", cost: 0 } },
+  ];
+  const listed = cards.map((c, i) => ({ job: c.job, op: "edit", state: c.outcome === "unverified" ? "failed" : "done", ended: true, outcome: c.outcome, words: SOLO_WORDS, at: Date.now() - (60000 - i * 1000), progress: [], said: SAID_SOLO }));
+  const S = {
+    requests: () => [], view: () => null, jobs: () => listed,
+    polls: Object.fromEntries(cards.map((c) => [c.job, () => ({ final: true, body: { ...c.answer, outcome: c.outcome, said: SAID_SOLO } })])),
+  };
+  const app = await openApp(S, { seed: { site: siteRecord() } });
+  try {
+    const { page } = app;
+    await page.waitForFunction((n) => document.querySelectorAll(".st-req-part").length === n, cards.length, { timeout: 20000 });
+    for (const until = Date.now() + 8000; Date.now() < until && cards.some((c) => !app.reads.polls[c.job]);) await page.waitForTimeout(150);
+    await page.waitForTimeout(400);
+    const drawn = await page.$$eval(".st-req-part", (els) => els.map((p) => ({ words: p.querySelector(".st-req-words").textContent, label: p.querySelector(".st-req-status").textContent })));
+    assert.deepEqual(drawn, cards.map((c) => ({ words: SAID_SOLO[c.which], label: c.label })), "the cards do not say each job's real outcome");
+    for (const d of drawn) assert.notEqual(d.words, SAID_SOLO.doing, "an ended job was named by its doing line");
+    await shot(page, "outcome-cards.png");
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
 });

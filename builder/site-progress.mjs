@@ -40,12 +40,25 @@
 // hardcoded prefixes to the user's words."* A request's card named each part
 // by the customer's own words, which are also that part's instruction to its
 // job and so stay as they are. Now the same writer, on the same record, asks
-// the model for each task's line in every state it can be in (`TASK_STATES`:
-// planned, doing, done, notdone) — a request's parts on a record of the
+// the model for each task's line in every state it can be in
+// (`TASK_STATES`) — a request's parts on a record of the
 // request's own, a page-filed job's one task on the job's — and the page
 // shows the one its authoritative status calls for. The model never decides
 // which state is true, so a line written late can never claim one; until
-// they are written the customer's words show, unprefixed.
+// they are written the customer's words show, unprefixed. SEVEN STATES since
+// the outcome round (2026-10-06): a part waiting for the customer, one whose
+// publish could not be confirmed, and one done only in part each have a line
+// of their own, so none is named by a line that says something else.
+//
+// AND A LINE IS SHOWN ONLY ONCE IT IS CONFIRMED (2026-10-06, the owner: *"Close
+// the documented race where a failed or timed-out progress close lets a writer
+// commit after its last job-state check and after finalization; ensure stale
+// narration cannot appear …"*). A line is committed unconfirmed, and confirmed
+// only by a read of the job's row made AFTER it was committed that finds the
+// job still running under its run (`confirmLines`). A line committed after the
+// job's end — its close failed or timed out, and the writer's last check came
+// just before the finalize — finds no such read, so no reader is ever handed
+// it (`linesOf`). Nothing waits on a clock and nothing holds the job's end.
 //
 // WHAT THE `says` CHECK PROVES, AND WHAT IT DOES NOT. The model lists every
 // fact it described, with the state it described it as, and a fact listed in
@@ -121,6 +134,18 @@ export const PROGRESS_LINES_PER_TASK = 8;
  * refused and said in the log, never cut from what is there.
  */
 export const PROGRESS_MAX_MARKS = 200;
+/**
+ * A MILESTONE'S DELIVERY, TRIED AGAIN (2026-10-06, the owner: *"Fix
+ * makeProgress dropping a milestone when JOB_PROGRESS fails: retain its
+ * identity and retry automatically while appropriate, without needing another
+ * milestone or an open browser, and prevent duplicates when the first
+ * delivery landed but its response was lost."*). The waits between tries, so a
+ * delivery is tried `PROGRESS_SEND_WAITS_MS.length + 1` times over about half a
+ * minute while the job runs; the job's end cuts a wait short, for one last try.
+ * Each try carries the milestone's own number, so one that landed and whose
+ * answer was lost is recorded once (`appendMark`'s `already`).
+ */
+export const PROGRESS_SEND_WAITS_MS = Object.freeze([250, 500, 1000, 2000, 4000, 8000, 15000]);
 /** How long a standalone job stays discoverable from another device after it ends: the request list's day. */
 export const PROGRESS_DISCOVERY_MS = 24 * 3600 * 1000;
 
@@ -129,14 +154,18 @@ export const MARK_STATES = Object.freeze(["pending", "said", "skipped", "failed"
 
 /**
  * THE STATES A TASK'S LINE IS WRITTEN IN, and the page shows the one its
- * status calls for: planned (not started), doing (happening now), done, and
- * notdone (not done, in full or in part — the final message says why).
+ * status calls for: planned (still to be done), doing (happening now), waiting
+ * (on the customer's answer or go-ahead), unconfirmed (its publish began and
+ * could not be confirmed: never said as happening now, never as done), done,
+ * partial (done in part) and notdone (not done) — the final message says why.
  */
-export const TASK_STATES = Object.freeze(["planned", "doing", "done", "notdone"]);
+export const TASK_STATES = Object.freeze(["planned", "doing", "waiting", "unconfirmed", "done", "partial", "notdone"]);
 /** A record's tasks, at most: a technical guard, as `PROGRESS_MAX_MARKS` is — a request holds a handful of parts. */
 export const PROGRESS_MAX_TASKS = 50;
-/** What one task-lines call may write: every task in four states, so more than a line's ceiling, and an answer cut there is not used, never shortened. */
-export const TASK_MAX_TOKENS = 2000;
+/** What one task-lines call may write: up to `TASK_BATCH` tasks in every state, so more than a line's ceiling, and an answer cut there is not used, never shortened. */
+export const TASK_MAX_TOKENS = 4000;
+/** Tasks one call writes, at most: more wait for the next call, so one answer stays well inside its ceiling whatever the request's size. */
+export const TASK_BATCH = 8;
 
 const JOB_RE = /^[0-9a-f]{32}$/;
 const RUN_RE = /^[A-Za-z0-9_:-]{4,80}$/;
@@ -178,7 +207,7 @@ function readLine(l) {
   const at = num(l.at);
   const text = typeof l.text === "string" ? l.text.replace(/\r\n/g, "\n").trim() : "";
   if (at === null || !text || !Array.isArray(l.marks) || l.marks.some((n) => !Number.isInteger(n) || n < 0)) return null;
-  return { n: l.n, at, text, marks: l.marks.slice() };
+  return { n: l.n, at, text, marks: l.marks.slice(), ...(l.confirmed === true ? { confirmed: true } : {}) };
 }
 
 /** What each task is, in the customer's words: `[{ n, words }]`, [] when there are none, null when the list does not read. */
@@ -453,10 +482,10 @@ export function failTasks(rec, { owner, why, now }) {
   return { rec: { ...rec, writer: null, taskTries: 0, retryAt: undefined, tasksWhy: String(why || "send").slice(0, 40) }, retry: false };
 }
 
-/** One task's lines for a reader — `{ planned, doing, done, notdone }` — or null when they are not written. */
+/** One task's lines for a reader — one per state in `TASK_STATES` — or null when they are not written. */
 export function saidOf(rec, n) {
   const t = rec && Array.isArray(rec.tasks) ? rec.tasks.find((x) => x.n === n) : null;
-  return t ? { planned: t.planned, doing: t.doing, done: t.done, notdone: t.notdone } : null;
+  return t ? Object.fromEntries(TASK_STATES.map((k) => [k, t[k]])) : null;
 }
 
 /**
@@ -484,7 +513,9 @@ export function batchFor(rec) {
  * THE LINE COMMITTED: the record with the line added and its milestones said,
  * the lease let go — or null when `owner` no longer holds a live lease on an
  * open record, which is a writer that lost its claim, a job that ended, or a
- * newer writer: its line is not used.
+ * newer writer: its line is not used. COMMITTED UNCONFIRMED: no reader is
+ * handed it until a read of the job's row made after this finds the job still
+ * running (`confirmLines`).
  */
 export function commitLine(rec, { owner, marks, text, now }) {
   if (!holds(rec, owner, now)) return null;
@@ -528,12 +559,37 @@ export function releaseWriter(rec, owner) {
 }
 
 /**
- * WHAT A READER IS HANDED: the lines, in order, each with how far into the job
- * it was written — never the facts, the lease or anything private.
+ * WHAT A READER IS HANDED: the CONFIRMED lines, in order, each with how far
+ * into the job it was written — never the facts, the lease or anything
+ * private. A line not confirmed is no reader's: the poll, a request's view,
+ * the list, a reload and another device all read through here.
  */
 export function linesOf(rec) {
   if (!rec) return [];
-  return rec.lines.map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text }));
+  return rec.lines.filter((l) => l.confirmed === true).map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text }));
+}
+
+/** How many lines the record holds that are not confirmed yet. */
+export const unconfirmedLines = (rec) => (rec ? rec.lines.filter((l) => l.confirmed !== true).length : 0);
+
+/**
+ * LINES CONFIRMED, ON EVIDENCE: every line numbered below `below` — the lines
+ * the record held before the job's row was read — once that read found the job
+ * still running under its run (`jobVerdict` ok). Such a line was committed
+ * before the read, so before the job's end and its final reply. Open or
+ * closed, with or without a lease: the read is the evidence, and a line
+ * committed after it is never covered (lines are only appended, numbered in
+ * order). Null when none changes.
+ */
+export function confirmLines(rec, below) {
+  if (!rec || !Number.isInteger(below) || below <= 0) return null;
+  let changed = false;
+  const lines = rec.lines.map((l) => {
+    if (l.n >= below || l.confirmed === true) return l;
+    changed = true;
+    return { ...l, confirmed: true };
+  });
+  return changed ? { ...rec, lines } : null;
 }
 
 // ── THE JOB'S OWN ROW DECIDES WHETHER A LINE MAY BE WRITTEN ─────────────────
@@ -757,8 +813,8 @@ export const TASK_TOOL = {
         description: "One entry per task, its id exactly as written in brackets.",
         items: {
           type: "object",
-          properties: { id: { type: "string" }, planned: { type: "string" }, doing: { type: "string" }, done: { type: "string" }, notdone: { type: "string" } },
-          required: ["id", "planned", "doing", "done", "notdone"],
+          properties: { id: { type: "string" }, ...Object.fromEntries(TASK_STATES.map((k) => [k, { type: "string" }])) },
+          required: ["id", ...TASK_STATES],
         },
       },
     },
@@ -773,10 +829,14 @@ export const TASK_SYSTEM =
   "You are an AI website builder. For each task in a customer's request, write the short line you would show them about it, once for each state it can be in; " +
   "your code shows the line for the state the task is really in.\n\n" +
   "THE STATES\n" +
-  "planned: not started yet; say you will do it.\n" +
+  "planned: still to be done; say you will do it.\n" +
   "doing: happening now; say you are doing it.\n" +
+  "waiting: it cannot go on until they answer you or give you the go-ahead; say you need that from them.\n" +
+  "unconfirmed: you tried to make it but cannot yet tell whether it went through; say so, without saying it is happening now or that it is done.\n" +
   "done: finished; say you did it.\n" +
-  "notdone: could not be done, in full or in part; say so, with no reason (the final message gives it).\n\n" +
+  "partial: some of it was done and some was not; say so.\n" +
+  "notdone: it was not done; say so.\n" +
+  "Give no reasons: the final message gives them.\n\n" +
   "RULES\n" +
   "- Speak in the first person, naturally and conversationally, the way you would tell them yourself.\n" +
   "- Say what the task is in your own words; never hand their words back as an instruction.\n" +
@@ -789,7 +849,7 @@ export function taskRequest({ tasks, context = "", model, fix = null }) {
   if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST ANSWER LEFT OUT, OR LEFT A STATE EMPTY FOR, " + fix.missing.join(", ") + ".");
   if (fix && fix.ids) told.push("YOUR LAST ANSWER PUT A TASK'S ID IN A LINE.");
   const body = (context ? context + "\n\n" : "") +
-    "THE TASKS (write each in all four states; put its id in tasks):\n" +
+    "THE TASKS (write each in every state; put its id in tasks):\n" +
     tasks.map((t) => "[t" + t.n + "] " + flat(t.words)).join("\n") +
     (told.length ? "\n\n" + told.join(" ") + " Write them again." : "");
   return {

@@ -1193,7 +1193,8 @@ const cutFn = (head) => {
   return MOD.slice(open, shut + 3);
 };
 function inApp({ site, cancel = true, fetched = null } = {}) {
-  const el = (cls, text, extra = {}) => ({ classList: { contains: (c) => cls.includes(c) }, querySelector: (sel) => (sel === ".st-req" && extra.card ? {} : null), innerText: text, textContent: text });
+  // A REAL ELEMENT ANSWERS `querySelectorAll` too (the reader reads a reply's kept progress apart, 2026-10-06): none kept here.
+  const el = (cls, text, extra = {}) => ({ classList: { contains: (c) => cls.includes(c) }, querySelector: (sel) => (sel === ".st-req" && extra.card ? {} : null), querySelectorAll: () => [], innerText: text, textContent: text });
   const msgs = [el(["st-msg", "u"], "On the Visit page …"), el(["st-msg"], "On the Visit page … Queued", { card: true }), el(["st-msg"], "What is your Facebook page's address?")];
   const document = {
     getElementById: (id) => ({ stRevise: { value: "", disabled: false }, stSend: { disabled: false }, stPlus: {} })[id] || null,

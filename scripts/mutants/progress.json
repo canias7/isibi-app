@@ -368,8 +368,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "    opened = said(await send({ op: \"begin\", run, ...opening }));\n    return opened;",
-    "to": "    opened = said(await send({ op: \"begin\", run, ...opening }));\n    opening = null;\n    return opened;"
+    "from": "    opened = await deliver({ op: \"begin\", run, ...opening }, \"opening\");\n    return opened;",
+    "to": "    opened = await deliver({ op: \"begin\", run, ...opening }, \"opening\");\n    opening = null;\n    return opened;"
   },
   {
     "label": "RECORDER — a write is a detached promise, not held by the invocation",
@@ -384,7 +384,7 @@
     "files": [
       "worker.js"
     ],
-    "from": "    if (!at.read || !at.rec || writerNeeded(at.rec, now) !== \"ask\") continue;\n    await askProgress(env, j.id, j.uid, now);",
+    "from": "    if (writerNeeded(at.rec, now) !== \"ask\") continue;\n    await askProgress(env, j.id, j.uid, now);",
     "to": "    void at;"
   },
   {
@@ -448,8 +448,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });",
-    "to": "  return JSON.stringify({ ...body, ...(said ? { said } : {}) });"
+    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });",
+    "to": "  return JSON.stringify({ ...body, ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });"
   },
   {
     "label": "POLL — a running job's answer carries no lines",
@@ -592,8 +592,8 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "  const st = Object.hasOwn(SITE_JOB_STATUS, v.state) ? SITE_JOB_STATUS[v.state] : SITE_JOB_RUNNING;",
-    "to": "  const st = { cls: String(v.state), label: String(v.state) };"
+    "from": "  const st = SITE_JOB_STATUS[oc];",
+    "to": "  const st = { cls: String(oc), label: String(oc) };"
   },
   {
     "label": "PAGE — the requests list's jobs are not read",
@@ -802,7 +802,7 @@
     "files": [
       "builder/site-progress.mjs"
     ],
-    "from": "  return t ? { planned: t.planned, doing: t.doing, done: t.done, notdone: t.notdone } : null;",
+    "from": "  return t ? Object.fromEntries(TASK_STATES.map((k) => [k, t[k]])) : null;",
     "to": "  return null;"
   },
   {
@@ -898,8 +898,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "    if (r) await askProgress(env, id, uid, now);\n    return { ok: !!r };",
-    "to": "    return { ok: !!r };"
+    "from": "    if (r) await askProgress(env, id, uid, now);\n    return answer(r);",
+    "to": "    return answer(r);"
   },
   {
     "label": "JOB TASK — the recorder never says the job is page-filed",
@@ -938,8 +938,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "  const tasks = unwrittenTasks(rec);\n  let out;",
-    "to": "  const tasks = rec.taskWords;\n  let out;"
+    "from": "  const tasks = unwrittenTasks(rec).slice(0, TASK_BATCH);\n  let out;",
+    "to": "  const tasks = rec.taskWords.slice(0, TASK_BATCH);\n  let out;"
   },
   {
     "label": "WRITER — a failed call for the lines is not queued again",
@@ -970,16 +970,16 @@
     "files": [
       "worker.js"
     ],
-    "from": "said: saidOf(at.rec, 0) } : { lines: [], said: null };",
-    "to": "said: null } : { lines: [], said: null };"
+    "from": "said: saidOf(at.rec, 0), op: at.rec.op",
+    "to": "said: null, op: at.rec.op"
   },
   {
     "label": "POLL — a finished job's answer carries no task lines",
     "files": [
       "worker.js"
     ],
-    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });",
-    "to": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}) });"
+    "from": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });",
+    "to": "  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(outcome ? { outcome } : {}) });"
   },
   {
     "label": "POLL — a running job's answer carries no task lines",
@@ -994,8 +994,8 @@
     "files": [
       "worker.js"
     ],
-    "from": "progress: linesOf(at.rec), ...(said ? { said } : {}) });",
-    "to": "progress: linesOf(at.rec) });"
+    "from": "progress: linesOf(at.rec), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });",
+    "to": "progress: linesOf(at.rec), ...(outcome ? { outcome } : {}) });"
   },
   {
     "label": "REQUEST TASKS — a part carved later is never added",
@@ -1090,24 +1090,24 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',",
-    "to": "  blocked: 'doing', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'planned', 'needs-rewrite': 'planned',"
+    "from": "  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',",
+    "to": "  blocked: 'doing', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',"
   },
   {
     "label": "PAGE — a running part shows its done line",
     "files": [
       "public/chat.js"
     ],
-    "from": "  started: 'doing', unverified: 'doing', done: 'done',",
-    "to": "  started: 'done', unverified: 'doing', done: 'done',"
+    "from": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',",
+    "to": "  started: 'done', unverified: 'unconfirmed', done: 'done', partial: 'partial',"
   },
   {
     "label": "PAGE — a part partly done shows its done line",
     "files": [
       "public/chat.js"
     ],
-    "from": "  partial: 'notdone', failed: 'notdone',",
-    "to": "  partial: 'done', failed: 'notdone',"
+    "from": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',",
+    "to": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'done',"
   },
   {
     "label": "PAGE — a part is always named by its words",
@@ -1122,15 +1122,15 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "const SITE_JOB_SAID = { queued: 'planned', done: 'done',",
-    "to": "const SITE_JOB_SAID = { queued: 'doing', done: 'done',"
+    "from": "const SITE_JOB_SAID = { queued: 'planned', running: 'doing',",
+    "to": "const SITE_JOB_SAID = { queued: 'doing', running: 'doing',"
   },
   {
     "label": "PAGE — a found job's card always shows its done line",
     "files": [
       "public/chat.js"
     ],
-    "from": "  const which = Object.hasOwn(SITE_JOB_SAID, v.state) ? SITE_JOB_SAID[v.state] : 'doing';",
+    "from": "  const which = Object.hasOwn(SITE_JOB_SAID, oc) ? SITE_JOB_SAID[oc] : '';",
     "to": "  const which = 'done';"
   },
   {

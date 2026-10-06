@@ -247,10 +247,10 @@ import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelRepl
 // the per-job record and its one writer's rules, the call and its check.
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
-  claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, jobVerdict, progressContext, writeProgress,
-  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks,
+  claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
+  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
-  PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS,
+  PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -258,7 +258,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
   nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
-  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt,
+  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
@@ -6825,12 +6825,15 @@ async function putProgressRecord(env, job, rec, etag) {
  * is handed the record as it stands (null when there is none) and answers
  * `{ rec }` to write it, `{ done: true }` when nothing needs writing, or null
  * to refuse. A write that loses to another change is decided again on what
- * that left — six times, then given up and said. The answer, or null.
+ * that left — six times, then given up and said. The answer, or null; and
+ * `seen.store` set when the STORE stopped it (a read that failed, or six
+ * writes that did not land) rather than `decide` — the difference between a
+ * delivery worth trying again and a refusal (2026-10-06).
  */
-async function progressUpdate(env, job, decide) {
+async function progressUpdate(env, job, decide, seen = null) {
   for (let i = 0; i < 6; i++) {
     const at = await progressRecordAt(env, job);
-    if (!at.read) return null;
+    if (!at.read) { if (seen) seen.store = true; return null; }
     const out = decide(at.rec);
     if (!out) return null;
     if (out.done) return out;
@@ -6839,6 +6842,7 @@ async function progressUpdate(env, job, decide) {
     if (etag) return { ...out, etag };
   }
   console.error("progress: six writes in a row lost to other changes on", job);
+  if (seen) seen.store = true;
   return null;
 }
 
@@ -6889,6 +6893,11 @@ async function progressFromJob(env, ids, body) {
   const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   const run = typeof b.run === "string" ? b.run : "";
   const now = Date.now();
+  // THE STORE'S FAILURE IS NOT A REFUSAL (2026-10-06): the answer says so
+  // (`retry`), and the recorder sends the same body again; a refusal — a
+  // closed record, another run's, a fact that does not read — it never does.
+  const seen = {};
+  const answer = (r) => (r ? { ok: true } : seen.store ? { ok: false, retry: true } : { ok: false });
   if (b.op === "begin") {
     // A PAGE-FILED JOB'S ONE TASK (`task`), in the customer's words, for its
     // card on another device to be named by the model's own line for it; a
@@ -6898,9 +6907,9 @@ async function progressFromJob(env, ids, body) {
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
       const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now });
       return opened ? { rec: opened } : null;
-    });
+    }, seen);
     if (r) await askProgress(env, id, uid, now);
-    return { ok: !!r };
+    return answer(r);
   }
   if (b.op === "mark") {
     let ask = false;
@@ -6917,16 +6926,16 @@ async function progressFromJob(env, ids, body) {
       }
       ask = writerNeeded(added.rec, now) === "ask";
       return { rec: ask ? markAsked(added.rec, now) : added.rec };
-    });
+    }, seen);
     if (r && ask) await sendProgressTask(env, { id, uid });
-    return { ok: !!r };
+    return answer(r);
   }
   if (b.op === "close") {
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.closed) return { done: true };
       return { rec: closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now) };
-    });
-    return { ok: !!r };
+    }, seen);
+    return answer(r);
   }
   return { ok: false };
 }
@@ -6938,6 +6947,23 @@ async function progressFromJob(env, ids, body) {
  * none can throw into the job, and none is awaited by its work. `close` lets
  * the milestones already on their way land first, then closes — bounded, so
  * a store that hangs costs the job's end at most `PROGRESS_CLOSE_MS`.
+ *
+ * A DELIVERY THAT FAILS IS KEPT AND SENT AGAIN (2026-10-06, the owner: *"Fix
+ * makeProgress dropping a milestone when JOB_PROGRESS fails: retain its
+ * identity and retry automatically while appropriate, without needing another
+ * milestone or an open browser, and prevent duplicates when the first
+ * delivery landed but its response was lost."*). The opening and each
+ * milestone are sent as one body — the milestone under its own number — and a
+ * try that did not reach the record (the network, a timeout, the gateway's or
+ * the store's failure: `retry`) is made again after each of
+ * `PROGRESS_SEND_WAITS_MS`, on the chain's own timer, so nothing else need
+ * happen for it to land. A refusal (a closed record, another run's) is final.
+ * A try that landed and whose answer was lost is recorded once: the record
+ * knows the number (`appendMark`'s `already`). ORDER IS KEPT: the chain waits
+ * for a milestone before the next, so the record's last milestone is always
+ * the newest. The job's end cuts a wait short for one last try, and is never
+ * held past `PROGRESS_CLOSE_MS`; the close itself is tried once — its landing
+ * is no longer what keeps a late line from being shown (`confirmLines`).
  */
 function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
   if (!progressOn(env) || !isJobId(id) || typeof run !== "string" || !run) return null;
@@ -6949,18 +6975,51 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
   let seq = 0;
   let opened = false;
   let opening = null;
-  const said = (r) => !!(r && r.ok === true);
+  // THE JOB'S END, ONCE ASKED FOR: no wait after it, and a wait already
+  // running is cut short (`wake`) for the last try.
+  let ending = false;
+  let wake = null;
   const step = (fn) => {
     const p = chain.then(fn).catch((e) => { console.error("progress: could not record for", id, errorClassForLog(e)); return false; });
     chain = p.then(() => {}, () => {});
     if (ctx && typeof ctx.waitUntil === "function") { try { ctx.waitUntil(p); } catch { /* the record never costs the job */ } }
     return p;
   };
+  /** One try: "ok", "refused" (never sent again), or "again" — it never reached the record. */
+  const tryOnce = async (b) => {
+    try {
+      const r = await send(b);
+      if (r && r.ok === true) return "ok";
+      return r && r.retry === true ? "again" : "refused";
+    } catch { return "again"; }
+  };
+  const pause = (ms) => new Promise((ok) => {
+    const t = setTimeout(() => { wake = null; ok(); }, ms);
+    wake = () => { clearTimeout(t); wake = null; ok(); };
+  });
+  /**
+   * ONE DELIVERY, KEPT UNTIL IT IS ANSWERED: the same body each try, while the
+   * job runs. ONCE ITS END IS ASKED FOR — before a try failed or during the
+   * wait after one — one more try is made at once, and no more.
+   */
+  const deliver = async (b, what) => {
+    for (let i = 0, last = false; ; i++) {
+      const got = await tryOnce(b);
+      if (got === "ok") return true;
+      if (got === "refused") return false;
+      if (last || i >= PROGRESS_SEND_WAITS_MS.length) {
+        console.log("progress:", id, what, "not delivered after", i + 1, "tries");
+        return false;
+      }
+      if (!ending) await pause(PROGRESS_SEND_WAITS_MS[i]);
+      last = ending;
+    }
+  };
   // A RECORD THAT DID NOT OPEN IS OPENED AGAIN before the next milestone, so
-  // one failed write at the start does not lose the job's every line.
+  // one failed opening does not lose the job's every line.
   const open = async () => {
     if (opened || !opening) return opened;
-    opened = said(await send({ op: "begin", run, ...opening }));
+    opened = await deliver({ op: "begin", run, ...opening }, "opening");
     return opened;
   };
   return {
@@ -6971,10 +7030,12 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
     mark(stage, facts) {
       if (!Array.isArray(facts) || !facts.length) return;
       const n = seq++;
-      step(async () => ((await open()) ? said(await send({ op: "mark", run, stage, facts, seq: n })) : false));
+      step(async () => ((await open()) ? deliver({ op: "mark", run, stage, facts, seq: n }, "milestone " + n) : false));
     },
     async close(why = "ended") {
-      const p = step(async () => (opened ? said(await send({ op: "close", run, why })) : true));
+      ending = true;
+      if (wake) wake();
+      const p = step(async () => (opened ? (await tryOnce({ op: "close", run, why })) === "ok" : true));
       let timer;
       try {
         await Promise.race([p, new Promise((ok) => { timer = setTimeout(() => ok(false), PROGRESS_CLOSE_MS); })]);
@@ -6991,7 +7052,7 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
 async function jobRowForProgress(env, job) {
   if (!env || !env.SUPABASE_SERVICE_KEY || !isJobId(job)) return undefined;
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,state,lease_owner,lease_expires_at,cancel_requested_at,needs_review&id=eq.${encodeURIComponent(job)}`, { headers: svcHeaders(env) });
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,state,lease_owner,lease_expires_at,cancel_requested_at,needs_review,op&id=eq.${encodeURIComponent(job)}`, { headers: svcHeaders(env) });
     if (!r.ok) return undefined;
     const rows = await r.json();
     if (!Array.isArray(rows)) return undefined;
@@ -7020,12 +7081,35 @@ async function progressStops(env, job, owner, batch, why) {
 }
 
 /**
+ * THE RECORD'S LINES BELOW `below` CONFIRMED (`confirmLines`) — called only
+ * once a read of the job's row made after those lines were committed found
+ * the job still running under its run. True when they are confirmed now or
+ * were already; false when the store could not say.
+ */
+async function confirmProgressLines(env, job, below) {
+  if (!Number.isInteger(below) || below <= 0) return true;
+  const r = await progressUpdate(env, job, (rec) => {
+    if (!rec) return null;
+    const next = confirmLines(rec, below);
+    return next ? { rec: next } : { done: true };
+  });
+  return !!r;
+}
+
+/**
  * ONE LINE: true when it was committed and more may wait. The lease first;
  * then the job's row — a job that ended, was stopped, was held for review or
  * is another run's now has its record closed and no call made; then the
  * call; then the row AGAIN; then the commit on the etag the commit reads,
  * which a close at the job's end beats (`commitLine` refuses a closed record
  * or a lease no longer this writer's).
+ *
+ * AND THEN THE ROW A THIRD TIME (2026-10-06): the line is committed
+ * unconfirmed, and only a read made after the commit that finds the job still
+ * running confirms it — so a commit that lands after the job's end (its close
+ * failed or timed out, and the second read came just before the finalize) is
+ * never shown. The first read confirms, too, any line the claim found whose
+ * own confirmation never landed: it was committed before that read.
  */
 async function writeProgressLine(env, task, owner) {
   const job = task.id;
@@ -7046,6 +7130,7 @@ async function writeProgressLine(env, task, owner) {
   const batch = batchFor(rec);
   const before = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (!before.ok) { await progressStops(env, job, owner, batch, before.why); return false; }
+  if (unconfirmedLines(rec) > 0) await confirmProgressLines(env, job, rec.lines.length);
   if (!batch.facts.length) { await progressUpdate(env, job, (r) => { const out = releaseWriter(r, owner); return out ? { rec: out } : null; }); return false; }
   const model = modelsFor(rec.picker || undefined).quick;
   const t0 = Date.now();
@@ -7073,7 +7158,15 @@ async function writeProgressLine(env, task, owner) {
     const next = commitLine(r, { owner, marks: batch.marks, text: out.text, now: Date.now() });
     return next ? { rec: next } : null;
   });
-  return !!done && pendingMarks(done.rec).length > 0;
+  if (!done) return false;
+  // CONFIRMED BY A READ MADE AFTER THE COMMIT, covering only the lines this
+  // commit's record held — never one a later writer commits meanwhile. A row
+  // that could not be read leaves the line for the next writer or the cron; a
+  // job no longer running leaves it unshown, and its record closed.
+  const post = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
+  if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);
+  else if (post.why !== "unread") { await progressStops(env, job, owner, batch, post.why); return false; }
+  return pendingMarks(done.rec).length > 0;
 }
 
 /**
@@ -7089,7 +7182,10 @@ async function writeTaskLines(env, task, owner, rec) {
   const t0 = Date.now();
   // ONLY THE TASKS WITH NO LINES YET: a part carved since the last call is
   // written on its own, and the lines already shown are never written again.
-  const tasks = unwrittenTasks(rec);
+  // AT MOST `TASK_BATCH` A CALL (2026-10-06): every task is written in seven
+  // states now, so a long request's are written over several calls, each
+  // well inside its ceiling; what is left waits, and is asked for at once.
+  const tasks = unwrittenTasks(rec).slice(0, TASK_BATCH);
   let out;
   try {
     out = await writeTasks({ send: quickSend(env, "progress", progressBudget) }, { tasks, context: progressContext(rec), model });
@@ -7149,7 +7245,13 @@ export async function runProgressSweep(env) {
   for (const j of rows) {
     if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || (j.op !== "edit" && j.op !== "addon") || isTerminalEdit(j.state)) continue;
     const at = await progressRecordAt(env, j.id);
-    if (!at.read || !at.rec || writerNeeded(at.rec, now) !== "ask") continue;
+    if (!at.read || !at.rec) continue;
+    // A LINE WHOSE CONFIRMATION NEVER LANDED (2026-10-06): the job's row read
+    // now — after the record, so after every line it holds — confirms them
+    // while the job still runs. The list above was read before the record,
+    // so it proves nothing about them.
+    if (unconfirmedLines(at.rec) > 0 && jobVerdict(await jobRowForProgress(env, j.id), at.rec, Date.now()).ok) await confirmProgressLines(env, j.id, at.rec.lines.length);
+    if (writerNeeded(at.rec, now) !== "ask") continue;
     await askProgress(env, j.id, j.uid, now);
   }
   // …AND A JOB THAT ENDED BEFORE ITS TASK'S LINES WERE WRITTEN, while its card
@@ -7171,13 +7273,30 @@ export async function runProgressSweep(env) {
 
 /**
  * A job's written lines and its task's own lines for a reader (`linesOf`,
- * `saidOf`): `{ lines, said }` — none with progress off, no record, or another
- * owner's record.
+ * `saidOf`), and which kind of job its record says it is (`op`, for its
+ * outcome): `{ lines, said, op }` — none with progress off, no record, or
+ * another owner's record.
  */
 async function progressViewFor(env, job, uid) {
-  if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return { lines: [], said: null };
+  const none = { lines: [], said: null, op: null };
+  if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return none;
   const at = await progressRecordAt(env, job);
-  return at.rec && at.rec.uid === uid ? { lines: linesOf(at.rec), said: saidOf(at.rec, 0) } : { lines: [], said: null };
+  if (!at.rec || at.rec.uid !== uid) return none;
+  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === "edit" || at.rec.op === "addon" ? at.rec.op : null };
+}
+
+/**
+ * A JOB'S OWN OUTCOME FOR ITS CARD (2026-10-06, `editJobOutcome`): from its row
+ * and its stored answer, the kind of job it is read off its record — or, when
+ * the record could not say, off its row. Null when neither can.
+ */
+async function jobOutcomeFor(env, job, row, op) {
+  let kind = op === "edit" || op === "addon" ? op : null;
+  if (!kind) {
+    const r = await jobRowForProgress(env, job);
+    kind = r && (r.op === "edit" || r.op === "addon") ? r.op : null;
+  }
+  return kind ? editJobOutcome(row, kind) : null;
 }
 /** A job's written lines alone (`progressViewFor`). */
 async function progressLinesFor(env, job, uid) {
@@ -7186,18 +7305,19 @@ async function progressLinesFor(env, job, uid) {
 
 /**
  * A FINISHED JOB'S SERVED ANSWER WITH ITS PROGRESS LINES ON IT (`progress`),
- * and its task's own lines (`said`) when a page-filed job has them, or the
- * text exactly as it was — progress off, neither written, or a body that is
- * not an object.
+ * its task's own lines (`said`) when a page-filed job has them, and its own
+ * outcome (`outcome`, 2026-10-06) read from `row` — or the text exactly as it
+ * was: progress off, nothing to add, or a body that is not an object.
  */
-async function withProgressLines(env, job, uid, text) {
+async function withProgressLines(env, job, uid, text, row = null) {
   if (!progressOn(env)) return text;
-  const { lines, said } = await progressViewFor(env, job, uid);
-  if (!lines.length && !said) return text;
+  const { lines, said, op } = await progressViewFor(env, job, uid);
+  const outcome = row ? await jobOutcomeFor(env, job, row, op) : null;
+  if (!lines.length && !said && !outcome) return text;
   let body;
   try { body = JSON.parse(text); } catch { return text; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return text;
-  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}) });
+  return JSON.stringify({ ...body, ...(lines.length ? { progress: lines } : {}), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });
 }
 
 /**
@@ -7302,7 +7422,9 @@ async function standaloneJobsFor(env, uid, slug) {
   const since = new Date(Date.now() - PROGRESS_DISCOVERY_MS).toISOString();
   let rows = null;
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,slug,op,state,idem_key,created_at,updated_at&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&op=in.(edit,addon)&updated_at=gte.${encodeURIComponent(since)}&order=created_at.desc&limit=${STANDALONE_JOBS_MAX}`, { headers: svcHeaders(env) });
+    // ITS STORED ANSWER, BILLING AND REVIEW TOO (2026-10-06): what its own
+    // outcome is read from (`editJobOutcome`) — read here, never handed out.
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,slug,op,state,idem_key,created_at,updated_at,needs_review,billing,result&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&op=in.(edit,addon)&updated_at=gte.${encodeURIComponent(since)}&order=created_at.desc&limit=${STANDALONE_JOBS_MAX}`, { headers: svcHeaders(env) });
     if (r.ok) rows = await r.json();
   } catch (e) { console.error("standalone jobs: could not read edit_jobs", errorClassForLog(e)); }
   if (!Array.isArray(rows)) return [];
@@ -7318,7 +7440,8 @@ async function standaloneJobsFor(env, uid, slug) {
     const when = typeof j.updated_at === "number" ? j.updated_at : Date.parse(String(j.updated_at || ""));
     if (ended && !(Number.isFinite(when) && Date.now() - when <= PROGRESS_DISCOVERY_MS)) continue;
     const said = saidOf(at.rec, 0);
-    out.push({ job: j.id, op: j.op, state: j.state, ended, words: at.rec.words, at: at.rec.at, progress: linesOf(at.rec), ...(said ? { said } : {}) });
+    const outcome = editJobOutcome(j, j.op);
+    out.push({ job: j.id, op: j.op, state: j.state, ended, words: at.rec.words, at: at.rec.at, progress: linesOf(at.rec), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });
   }
   return out;
 }
@@ -23133,7 +23256,9 @@ async function handleRequest(request, env, ctx) {
         // AND ITS PROGRESS LINES (2026-10-06), when it wrote any, so a page
         // that missed the last of them while the job ran, or reopens it, keeps
         // them above the reply (`withProgressLines`).
-        return new Response(await withProgressLines(env, ejid, eu.id, await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id })), {
+        // AND ITS OWN OUTCOME (2026-10-06, `editJobOutcome`), so a card on another
+        // device says what really happened rather than reading `ok` alone.
+        return new Response(await withProgressLines(env, ejid, eu.id, await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id }), row), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),
@@ -23155,6 +23280,9 @@ async function handleRequest(request, env, ctx) {
         phase: row.phase || undefined,
         progress: eLines.length ? eLines : undefined,
         said: eProg.said || undefined,
+        // ITS OWN OUTCOME SO FAR (2026-10-06): queued, running, or held for
+        // review — none of which needs its kind — with progress on.
+        outcome: progressOn(env) ? (editJobOutcome(row, eProg.op || "edit") || undefined) : undefined,
         ms: Number(row.ms) || 0,
         // A FINISHED JOB'S COST IS WHAT ITS ROW SETTLED (2026-09-25), and a
         // running one's what it holds so far.

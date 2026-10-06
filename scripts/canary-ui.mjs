@@ -1307,6 +1307,33 @@ function readComposerInPage() {
   // THE JOB A PART'S REPLY IS MARKED WITH (2026-10-05), where the page marks
   // one: it stays when the reply settles.
   const jobMark = (m) => (m && typeof m.job === "string" ? m.job : "");
+  // A REPLY'S OWN WORDS, APART FROM THE PROGRESS KEPT ABOVE THEM (2026-10-06,
+  // the owner: *"fix the documented UI canary issue so final-reply checks read
+  // the reply itself separately from retained progress"*). A finished job's
+  // lines are drawn inside its reply's message, before the reply's words
+  // (`m.prog`, `.st-prog-done`), so the message read whole began with them —
+  // and a warning no longer began with its mark. Each kept block is cut once
+  // from the message's own text where it stands, and its lines are read on
+  // their own (`progress`). A request's card keeps its part's lines in its
+  // own list, never this one.
+  const keptBlocks = (m) => [...m.querySelectorAll(".st-prog-done")];
+  // EACH KEPT LINE'S WORDS, without the time drawn before them (`.at`).
+  const keptLine = (li) => {
+    const t = String(li.innerText || li.textContent || "");
+    const at = li.querySelector(".at");
+    const stamp = at ? String(at.innerText || at.textContent || "") : "";
+    return (stamp && t.startsWith(stamp) ? t.slice(stamp.length) : t).trim();
+  };
+  const keptLines = (m) => keptBlocks(m).flatMap((ul) => [...ul.querySelectorAll("li")]).map(keptLine).filter(Boolean);
+  const ownText = (m) => {
+    let t = String(m.innerText || m.textContent || "");
+    for (const ul of keptBlocks(m)) {
+      const block = String(ul.innerText || ul.textContent || "");
+      const at = block ? t.indexOf(block) : -1;
+      if (at >= 0) t = t.slice(0, at) + t.slice(at + block.length);
+    }
+    return t.replace(/⧉\s*$/, "").trim();
+  };
   return {
     signedIn: !!(window.Auth && Auth.isSignedIn && Auth.isSignedIn()),
     uid: window.Auth && Auth.userId ? Auth.userId() : "",
@@ -1327,7 +1354,9 @@ function readComposerInPage() {
       busy: m.classList.contains("st-busy"),
       // A REQUEST'S CARD, not a reply (`newReplies`).
       card: !!m.querySelector(".st-req"),
-      text: String(m.innerText || m.textContent || "").replace(/⧉\s*$/, "").trim(),
+      text: ownText(m),
+      // THE PROGRESS KEPT ABOVE A FINISHED JOB'S REPLY, read apart from it.
+      progress: keptLines(m),
       // A REPLY'S PLACE HELD: the waiting line drawn, and the job it is for.
       holding: !!m.querySelector(".st-think"),
       held: aligned && !m.classList.contains("st-busy") ? heldJob(kept[i]) : "",

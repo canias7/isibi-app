@@ -87,7 +87,7 @@ const FNS = [...new Set([
   "siteTablesAdd", "siteTablesRead",
   // A JOB'S PROGRESS LINES (2026-10-06): under a request part, kept on a
   // watched job's reply, and on the card of a job found from another device.
-  "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
+  "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobOutcome", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
   // AND EACH TASK NAMED BY THE MODEL'S OWN LINE FOR ITS STATE (2026-10-06).
   "siteSaidFor",
 ])];

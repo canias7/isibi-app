@@ -276,14 +276,18 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, p
     // AND ITS PROGRESS (2026-10-06): the record opened, each milestone and the
     // close at the job's end, written by the Worker (the gateway's
     // `/progress`), since nothing in here may send to the queue. A call that
-    // fails costs that milestone its line, never the job; the cron asks again
-    // for any milestone the record holds that nobody wrote.
+    // fails never costs the job; the cron asks again for any milestone the
+    // record holds that nobody wrote.
+    // AND SAYS WHETHER A TRY THAT FAILED IS WORTH MAKING AGAIN (2026-10-06):
+    // the gateway's 503 (the Worker's store down), a 429 or any 5xx is; a
+    // refusal is not. A call that never answers throws. Either way the
+    // recorder keeps the milestone and sends it again itself (`makeProgress`).
     env.JOB_PROGRESS = async (body) => {
       const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/progress", {
         method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.timeout(20_000),
       });
-      return { ok: r.ok };
+      return { ok: r.ok, retry: !r.ok && (r.status === 429 || r.status >= 500) };
     };
   }
   // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the

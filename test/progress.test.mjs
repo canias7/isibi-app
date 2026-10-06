@@ -14,7 +14,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, markAsked,
-  claimWriter, holds, batchFor, commitLine, failBatch, releaseWriter, linesOf, jobVerdict,
+  claimWriter, holds, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, jobVerdict,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
   PROGRESS_STATES, PROGRESS_TOOL, PROGRESS_SYSTEM, progressContext, progressRequest, readProgress, writeProgress,
   TASK_STATES, TASK_TOOL, TASK_SYSTEM, taskRequest, readTasks, writeTasks, tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, PROGRESS_MAX_TASKS,
@@ -142,7 +142,17 @@ test("ONE WRITER 4 — the commit: only the writer that still holds a live lease
   assert.deepEqual(done.marks.map((m) => m.state), ["said", "pending"]);
   assert.equal(done.writer, null);
   assert.equal(done.tries, 0);
-  assert.deepEqual(linesOf(done), [{ n: 0, ms: 20, text: "Chose a page." }], "a reader was handed more than the line and its time");
+  // COMMITTED UNCONFIRMED (2026-10-06): no reader is handed it until a read
+  // of the row made after the commit confirms it — and that read confirms
+  // only the lines the record held before it, never a later one.
+  assert.deepEqual(linesOf(done), [], "a reader was handed a line no read of the row has confirmed");
+  const shown = confirmLines(done, 1);
+  assert.deepEqual(linesOf(shown), [{ n: 0, ms: 20, text: "Chose a page." }], "a reader was handed more than the line and its time");
+  assert.equal(confirmLines(shown, 1), null, "a line confirmed twice changed the record");
+  const later = commitLine(claimWriter(shown, "w1", T0 + 30).rec, { owner: "w1", marks: [1], text: "Designed it.", now: T0 + 40 });
+  assert.deepEqual(linesOf(confirmLines(later, 1) || later).map((l) => l.n), [0], "a confirmation covered a line committed after its read");
+  assert.equal(confirmLines(later, 0), null);
+  assert.equal(confirmLines(null, 1), null);
 });
 
 test("ONE WRITER 5 — a failed attempt is tried again later, then its own milestones are given up with the reason; the lease let go without writing is let go; a close sets every waiting milestone aside", () => {
@@ -286,7 +296,12 @@ test("PROSE 2 — the instructions, concise, are what stand against that limit: 
 });
 
 const tasked = (over = {}) => open({ tasks: [{ n: 0, words: "Change the Gallery heading to Photographs from our ovens" }], ...over });
-const lines4 = (n, base) => ({ n, planned: "I'll " + base + ".", doing: "I'm " + base + " now.", done: "I've " + base + ".", notdone: "I couldn't " + base + "." });
+// A TASK'S LINE IN EVERY STATE (seven since the outcome round, 2026-10-06).
+const linesAll = (n, base) => ({
+  n, planned: "I'll " + base + ".", doing: "I'm " + base + " now.", waiting: "I need your answer before " + base + ".",
+  unconfirmed: "I tried " + base + ", but I can't tell yet whether it went through.", done: "I've " + base + ".",
+  partial: "I've done part of " + base + ".", notdone: "I couldn't " + base + ".",
+});
 
 test("TASKS 1 — the record holds each task's words and, once written, its line in every state; a request's own record holds its parts; one entry that does not read makes the record unreadable", () => {
   const rec = tasked();
@@ -299,16 +314,17 @@ test("TASKS 1 — the record holds each task's words and, once written, its line
   assert.equal(req.op, "request");
   assert.deepEqual(req.taskWords.map((t) => t.n), [0, 1]);
   // ROUND-TRIP, WRITTEN.
-  const done = { ...packRecord(rec), tasks: [lines4(0, "updating the Gallery heading")] };
+  const done = { ...packRecord(rec), tasks: [linesAll(0, "updating the Gallery heading")] };
   const back = readProgressRecord(JSON.parse(JSON.stringify(done)));
-  assert.deepEqual(saidOf(back, 0), { planned: "I'll updating the Gallery heading.", doing: "I'm updating the Gallery heading now.", done: "I've updating the Gallery heading.", notdone: "I couldn't updating the Gallery heading." });
+  assert.deepEqual(saidOf(back, 0), (({ n, ...said }) => said)(linesAll(0, "updating the Gallery heading")), "a reader was not handed the task's line in every state");
+  assert.deepEqual(Object.keys(saidOf(back, 0)), TASK_STATES);
   assert.equal(tasksNeeded(back), false);
   assert.equal(saidOf(back, 1), null);
   // ONE ENTRY THAT DOES NOT READ: the record does not read, never a shorter list.
   for (const bad of [
-    { ...done, tasks: [{ ...lines4(0, "x"), doing: "  " }] },
-    { ...done, tasks: [lines4(0, "x"), lines4(1, "y")] },
-    { ...done, tasks: [lines4(1, "x")] },
+    { ...done, tasks: [{ ...linesAll(0, "x"), doing: "  " }] },
+    { ...done, tasks: [linesAll(0, "x"), linesAll(1, "y")] },
+    { ...done, tasks: [linesAll(1, "x")] },
     { ...done, taskWords: [{ n: 0, words: "" }] },
     { ...done, taskWords: [{ n: 0, words: "a" }, { n: 0, words: "b" }] },
     { ...done, taskWords: Array.from({ length: PROGRESS_MAX_TASKS + 1 }, (_, n) => ({ n, words: "w" })), tasks: null },
@@ -327,14 +343,14 @@ test("TASKS 2 — the writer's rules: the tasks' lines come first, on tries of t
   assert.ok(c && c.claimed, "a writer could not claim a closed record for its task lines");
   assert.equal(c.rec.taskTries, 1);
   assert.equal(c.rec.tries, 0, "the task lines' try was counted against the milestones");
-  const committed = commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "updating the heading")], now: T0 + 30 });
+  const committed = commitTasks(c.rec, { owner: "w1", tasks: [linesAll(0, "updating the heading")], now: T0 + 30 });
   assert.ok(committed, "the lines were not committed on the lease alone");
   assert.equal(committed.writer, null);
   assert.equal(committed.taskTries, 0);
   assert.equal(writerNeeded(committed, T0 + 40), "none");
   // REFUSED: no lease, another's lease, a task left out.
-  assert.equal(commitTasks(c.rec, { owner: "w2", tasks: [lines4(0, "x")], now: T0 + 30 }), null);
-  assert.equal(commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "x")], now: T0 + 30 + 10 * 60 * 1000 }), null, "a lease that ran out committed");
+  assert.equal(commitTasks(c.rec, { owner: "w2", tasks: [linesAll(0, "x")], now: T0 + 30 }), null);
+  assert.equal(commitTasks(c.rec, { owner: "w1", tasks: [linesAll(0, "x")], now: T0 + 30 + 10 * 60 * 1000 }), null, "a lease that ran out committed");
   assert.equal(commitTasks(c.rec, { owner: "w1", tasks: [], now: T0 + 30 }), null, "lines that cover no task were committed");
   // A FAILED CALL: tried again later, then given up with why — and the milestones keep their own tries.
   rec = add(tasked(), "picked", [fact("decided", "chose a page")], T0, 0);
@@ -366,7 +382,7 @@ test("TASKS 5 — A PART ADDED LATER (a request's part carved after its acceptan
   const LINK = "put a link to it in the menu";
   const req = openRecord({ job: "cd".repeat(16), uid: "u-1", slug: "fold-lane-bakery", op: "request", run: "rq4d775233b8c1dbf127a4", words: MSG, tasks: [{ n: 0, words: MSG }], at: T0 });
   const c = claimWriter(req, "w1", T0);
-  const written = commitTasks(c.rec, { owner: "w1", tasks: [lines4(0, "adding your gallery page")], now: T0 + 1 });
+  const written = commitTasks(c.rec, { owner: "w1", tasks: [linesAll(0, "adding your gallery page")], now: T0 + 1 });
   assert.equal(tasksNeeded(written), false);
   // THE PART CARVED: the parts as the request now holds them, the first already there.
   const a = addTasks(written, [{ n: 0, words: MSG }, { n: 1, words: LINK }]);
@@ -383,18 +399,18 @@ test("TASKS 5 — A PART ADDED LATER (a request's part carved after its acceptan
   // ITS LINES COMMITTED BESIDE THE FIRST'S.
   const c2 = claimWriter(a.rec, "w2", T0 + 3);
   assert.ok(c2 && c2.claimed);
-  const both = commitTasks(c2.rec, { owner: "w2", tasks: [lines4(1, "linking it in your menu")], now: T0 + 4 });
+  const both = commitTasks(c2.rec, { owner: "w2", tasks: [linesAll(1, "linking it in your menu")], now: T0 + 4 });
   assert.deepEqual(both.tasks.map((t) => t.n), [0, 1]);
   assert.deepEqual(saidOf(both, 0), saidOf(written, 0));
   assert.equal(saidOf(both, 1).doing, "I'm linking it in your menu now.");
   assert.equal(tasksNeeded(both), false);
   // REFUSED: lines only for a task already written, or for a task the record does not hold.
-  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [lines4(0, "rewriting it")], now: T0 + 4 }), null, "lines already written were written again");
-  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [lines4(7, "x")], now: T0 + 4 }), null, "lines for no task were committed");
+  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [linesAll(0, "rewriting it")], now: T0 + 4 }), null, "lines already written were written again");
+  assert.equal(commitTasks(c2.rec, { owner: "w2", tasks: [linesAll(7, "x")], now: T0 + 4 }), null, "lines for no task were committed");
   // ADDED WHILE A CALL RAN: the commit keeps it owed, and a writer is asked for it.
   const c3 = claimWriter(a.rec, "w3", T0 + 5);
   const mid = addTasks(c3.rec, [{ n: 2, words: "change the heading" }]).rec;
-  const after = commitTasks(mid, { owner: "w3", tasks: [lines4(1, "linking it")], now: T0 + 6 });
+  const after = commitTasks(mid, { owner: "w3", tasks: [linesAll(1, "linking it")], now: T0 + 6 });
   assert.deepEqual(unwrittenTasks(after).map((t) => t.n), [2]);
   assert.equal(writerNeeded(after, T0 + 7), "ask", "a part added during the call was left waiting");
   // GIVEN UP, THEN A PART ADDED: every owed task is tried again, on fresh tries.
@@ -418,14 +434,14 @@ test("TASKS 3 — the check reads the answer's shape: every task, by its id, wit
   const tasks = [{ n: 0, words: "add a page" }, { n: 2, words: "change the heading" }];
   const say = (input, stop = "tool_use") => ({ stop_reason: stop, content: [{ type: "tool_use", name: "write_tasks", input }] });
   const long = "I'm " + "carefully ".repeat(120) + "changing it now.";
-  const good = say({ tasks: [{ id: "t0", ...lines4(0, "adding the page") }, { id: "t2", ...lines4(2, "changing the heading"), doing: long }, { id: "t2", ...lines4(2, "other") }] });
+  const good = say({ tasks: [{ id: "t0", ...linesAll(0, "adding the page") }, { id: "t2", ...linesAll(2, "changing the heading"), doing: long }, { id: "t2", ...linesAll(2, "other") }] });
   const r = readTasks(good, tasks);
   assert.equal(r.ok, true);
   assert.deepEqual(r.tasks.map((t) => t.n), [0, 2]);
   assert.equal(r.tasks[1].doing, long, "a long line was cut, or a later entry for the same id was read");
-  assert.deepEqual(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x") }] }), tasks).missing, ["t2"]);
-  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x") }, { id: "t2", ...lines4(2, "y"), done: "" }] }), tasks).why, "uncovered", "a task with a state left empty was taken");
-  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...lines4(0, "x"), planned: "I'll do [t0]." }, { id: "t2", ...lines4(2, "y") }] }), tasks).why, "ids");
+  assert.deepEqual(readTasks(say({ tasks: [{ id: "t0", ...linesAll(0, "x") }] }), tasks).missing, ["t2"]);
+  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...linesAll(0, "x") }, { id: "t2", ...linesAll(2, "y"), done: "" }] }), tasks).why, "uncovered", "a task with a state left empty was taken");
+  assert.equal(readTasks(say({ tasks: [{ id: "t0", ...linesAll(0, "x"), planned: "I'll do [t0]." }, { id: "t2", ...linesAll(2, "y") }] }), tasks).why, "ids");
   assert.equal(readTasks(say({ tasks: "x" }), tasks).why, "unreadable");
   assert.equal(readTasks({ stop_reason: "max_tokens", content: [] }, tasks).why, "cut");
   assert.equal(readTasks(say({ tasks: [] }), []).ok, false, "an answer for no task read as written");
@@ -443,7 +459,7 @@ test("TASKS 4 — the call: each task with its id and the customer's words, besi
   assert.equal(req.system[0].text, TASK_SYSTEM);
   const say = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "write_tasks", input }], usage: { input_tokens: 80, output_tokens: 40 } });
   const wrong = say({ tasks: [] });
-  const right = say({ tasks: [{ id: "t0", ...lines4(0, "updating the Gallery heading") }] });
+  const right = say({ tasks: [{ id: "t0", ...linesAll(0, "updating the Gallery heading") }] });
   const sent = [];
   const a = await writeTasks({ send: async (r) => { sent.push(r); return sent.length === 1 ? wrong : right; } }, { tasks: rec.taskWords, model: "m" });
   assert.deepEqual([a.ok, a.attempts, a.tasks[0].doing], [true, 2, "I'm updating the Gallery heading now."]);
@@ -455,9 +471,10 @@ test("TASKS 4 — the call: each task with its id and the customer's words, besi
   assert.deepEqual((await writeTasks({ send: async () => right }, { tasks: [], model: "m" })).why, "no-tasks");
 });
 
-test("PROSE 3 — the task lines' instructions, concise: the four states defined, first person and conversational, their words never handed back as an instruction, never published or live; no line to copy and no length", () => {
+test("PROSE 3 — the task lines' instructions, concise: every state defined (seven since the outcome round), the unconfirmed one never said as happening now or done, first person and conversational, their words never handed back as an instruction, never published or live; no line to copy and no length", () => {
   for (const k of TASK_STATES) assert.match(TASK_SYSTEM, new RegExp("\\n" + k + ": "), "the state " + k + " is not defined for the model");
-  assert.deepEqual(TASK_STATES, ["planned", "doing", "done", "notdone"]);
+  assert.deepEqual(TASK_STATES, ["planned", "doing", "waiting", "unconfirmed", "done", "partial", "notdone"]);
+  assert.match(TASK_SYSTEM, /\nunconfirmed: [^\n]*without saying it is happening now or that it is done/, "the unconfirmed state may be said as happening now");
   assert.match(TASK_SYSTEM, /Speak in the first person, naturally and conversationally/);
   assert.match(TASK_SYSTEM, /never hand their words back as an instruction/);
   assert.match(TASK_SYSTEM, /Never say a change is published or live/);

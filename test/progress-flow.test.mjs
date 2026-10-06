@@ -36,7 +36,7 @@ import { createHash } from "node:crypto";
 import { gatewayKey, signJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { sweepJobObjects, JOB_RETENTION_MS } from "../builder/job-retention.mjs";
-import { progressKey, PROGRESS_LEASE_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_MS, PROGRESS_TRIES, PROGRESS_LINES_PER_TASK } from "../builder/site-progress.mjs";
+import { progressKey, PROGRESS_LEASE_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_MS, PROGRESS_TRIES, PROGRESS_LINES_PER_TASK, TASK_STATES } from "../builder/site-progress.mjs";
 
 const ADD = "add a gallery page";
 const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
@@ -510,7 +510,9 @@ test("SAME — EXECUTION, PUBLISHING, MONEY AND THE FINAL REPLY ARE THE SAME wit
       await settle(P, r.key);
       const job = [...P.jobs.values()].find((j) => j.op === "addon");
       const fin = await call(P, "GET", "/api/site/edit/" + job.id);
-      const { progress: lines, ...answer } = fin.body;
+      // THE PROGRESS FEATURE'S OWN FIELDS — its lines and the job's outcome
+      // for its card (2026-10-06) — are absent with it off; the rest is the same.
+      const { progress: lines, outcome: _outcome, ...answer } = fin.body;
       out = {
         lines: lines || null,
         answer: JSON.stringify(answer).split(job.id).join("JOB"),
@@ -538,9 +540,13 @@ test("OFF — with the switch off nothing is recorded, no task is ever sent, and
     const job = [...P.jobs.values()].find((j) => j.op === "addon");
     const poll = await call(P, "GET", "/api/site/edit/" + job.id);
     assert.equal(Object.hasOwn(poll.body, "progress"), false);
+    // NOR THE JOB'S OWN OUTCOME (2026-10-06): a field of the progress feature, absent with it off.
+    assert.equal(Object.hasOwn(poll.body, "outcome"), false, "a running job's poll carried its outcome with progress off");
     g.open();
     await running;
     await settle(P, r.key);
+    const fin = await call(P, "GET", "/api/site/edit/" + job.id);
+    assert.equal(Object.hasOwn(fin.body, "outcome"), false, "a finished job's answer carried its outcome with progress off");
     await tick(P);
     assert.equal(P.progressOf(job.id), null, "a record was written with progress off");
     assert.equal(P.sent.some(anyTask), false, "a progress task was sent with progress off");
@@ -571,7 +577,7 @@ test("FIND — ANOTHER DEVICE FINDS A STANDALONE JOB: the requests list carries 
     assert.equal(v.words, "add a gallery page please");
     assert.equal(v.ended, false);
     assert.equal(v.progress.length, 1);
-    assert.equal(JSON.stringify(v).includes("run"), false, "the listing handed out the run's lease name");
+    assert.equal(Object.hasOwn(v, "run") || JSON.stringify(v).includes(P.progressOf(id).run), false, "the listing handed out the run's lease name");
     g.open();
     await running;
     const after = await call(P, "GET", "/api/site/requests/" + P.slug);
@@ -804,7 +810,8 @@ test("ADD-ON — AN ADD-ON'S MILESTONES, IN ORDER: what it chose (decided), each
 
 // ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ──────────────────────
 
-const LINES = (w) => ({ planned: "(planned) " + w, doing: "(doing) " + w, done: "(done) " + w, notdone: "(notdone) " + w });
+/** The supplied task-lines writer's answer for a task: its line in every state the product names, each marked with its state. */
+const LINES = (w) => Object.fromEntries(TASK_STATES.map((k) => ["" + k, "(" + k + ") " + w]));
 /** The request's narration task: the progress task whose id is no job's. */
 const requestTask = (P) => { const i = P.queue.findIndex((m) => anyTask(m) && !P.jobs.has(m.body.id)); assert.ok(i >= 0, "the request's narration asked for no writer"); return P.queue.splice(i, 1)[0]; };
 

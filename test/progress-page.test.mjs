@@ -89,8 +89,8 @@ test("FOUND — the card is followed to its end: the model's reply is said right
     answer: (url) => {
       if (url !== "/api/site/edit/" + SOLO) return null;
       return done
-        ? { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ The heading is changed.", replySource: "model", progress: [{ n: 0, ms: 5000, text: "Found it." }, { n: 1, ms: 8000, text: "Publishing now." }] }, headers: { "x-gf-edit": "final" } }
-        : { status: 202, body: { ok: true, status: "editing", progress: [{ n: 0, ms: 5000, text: "Found it." }] } };
+        ? { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ The heading is changed.", replySource: "model", outcome: "done", progress: [{ n: 0, ms: 5000, text: "Found it." }, { n: 1, ms: 8000, text: "Publishing now." }] }, headers: { "x-gf-edit": "final" } }
+        : { status: 202, body: { ok: true, status: "editing", outcome: "running", progress: [{ n: 0, ms: 5000, text: "Found it." }] } };
     },
   });
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });
@@ -102,7 +102,8 @@ test("FOUND — the card is followed to its end: the model's reply is said right
   p.flush();
   await settle();
   assert.equal(card().closed, true);
-  assert.equal(card().view.state, "done");
+  assert.equal(card().view.outcome, "done", "the card did not take the server's outcome");
+  assert.match(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s), /<span class="st-req-status">Finished<\/span>/);
   assert.equal(card().view.progress.length, 2);
   const msgs = p.said();
   assert.deepEqual(msgs.map((m) => (m.jobCard ? "card" : m.t)), ["card", "✅ The heading is changed."]);
@@ -199,10 +200,21 @@ test("BUBBLE — the newest line replaces \"Thinking\", escaped, in its own styl
 
 // ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ──────────────────────
 
-const SAID = { planned: "I'll add a page with a form.", doing: "I'm adding the page now.", done: "I've added the page.", notdone: "I couldn't add the page." };
+const SAID = {
+  planned: "I'll add a page with a form.", doing: "I'm adding the page now.", waiting: "I need your answer before I add the page.",
+  unconfirmed: "I tried to add the page, but I can't tell yet whether it went through.", done: "I've added the page.",
+  partial: "I've added part of the page.", notdone: "I couldn't add the page.",
+};
 const wordsOf = (html) => [...html.matchAll(/<span class="st-req-words">(.*?)<\/span>/g)].map((m) => m[1]);
 
-test("SAID — taskSaid reads the model's four lines strictly: one state missing, blank or not text and none is used; nothing is cut", () => {
+test("SAID — taskSaid reads the model's line in every state strictly (seven since the outcome round): one state missing, blank or not text and none is used; nothing is cut; the browser's lists of states and outcomes are the server's", async () => {
+  const { TASK_STATES } = await import("../builder/site-progress.mjs");
+  const { EDIT_JOB_OUTCOMES } = await import("../builder/request.mjs");
+  assert.deepEqual(EditPoll.TASK_STATES, TASK_STATES, "the browser's task states drifted from the server's");
+  assert.deepEqual(EditPoll.JOB_OUTCOMES, EDIT_JOB_OUTCOMES, "the browser's job outcomes drifted from the server's");
+  assert.deepEqual(Object.keys(SAID), TASK_STATES, "the case's lines do not cover every state");
+  for (const o of EDIT_JOB_OUTCOMES) assert.equal(EditPoll.jobOutcome(o), o);
+  for (const bad of [null, undefined, "", "finished", "DONE", ["done"], { done: true }, 1]) assert.equal(EditPoll.jobOutcome(bad), null, JSON.stringify(bad));
   const long = "I'm adding the page you asked for, with its form. ".repeat(40).trim();
   assert.deepEqual(EditPoll.taskSaid({ ...SAID, doing: "  " + long + "  ", extra: 1 }), { ...SAID, doing: long });
   for (const bad of [null, undefined, "x", [], [SAID], {}, { ...SAID, done: "" }, { ...SAID, notdone: "   " }, { ...SAID, planned: 7 }, (({ doing, ...r }) => r)(SAID)]) {
@@ -220,7 +232,9 @@ test("SAID — a request part is named by the model's line for the state its sta
     return wordsOf(p.ctx.siteRequestHTML({ request: v.key }, p.s))[0];
   };
   const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-  const want = { blocked: "planned", ready: "planned", queued: "planned", waiting: "planned", approval: "planned", "needs-rewrite": "planned", started: "doing", unverified: "doing", done: "done", partial: "notdone", failed: "notdone", "not-run": "notdone", cancelled: "notdone", expired: "notdone", refused: "notdone" };
+  // THE OUTCOME ROUND (2026-10-06): held for review is its unconfirmed line, never
+  // its doing line; waiting on the customer its waiting line; done in part its partial line.
+  const want = { blocked: "planned", ready: "planned", queued: "planned", waiting: "waiting", approval: "waiting", "needs-rewrite": "notdone", started: "doing", unverified: "unconfirmed", done: "done", partial: "partial", failed: "notdone", "not-run": "notdone", cancelled: "notdone", expired: "notdone", refused: "notdone" };
   for (const [status, which] of Object.entries(want)) {
     assert.equal(draw(status, SAID), esc(SAID[which]), status + " was not named by its " + which + " line");
   }
@@ -234,7 +248,7 @@ test("SAID — a request part is named by the model's line for the state its sta
   assert.equal(draw("done", { ...SAID, done: "I've changed <it>." }), "I&#39;ve changed &lt;it&gt;.");
 });
 
-test("SAID — a found job's card is named by the line for its state (queued planned, running doing, finished done, failed, lost or stopped not done), by its words without one; a later reading of the list brings lines a drawn card did not have", async () => {
+test("SAID — a found job's card is named by the line for the server's outcome (queued planned, running doing, waiting waiting, handed over planned, unverified unconfirmed, finished done, partial partial, failed or stopped not done), its label beside it; with no outcome, only what its state can say — ended shows its words; a later reading of the list brings lines and an outcome a drawn card did not have", async () => {
   const p = page({ site: { ...SITE, msgs: [] } });
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "editing", words: "add a gallery", at: 1 });
   await settle();
@@ -247,11 +261,31 @@ test("SAID — a found job's card is named by the line for its state (queued pla
   // A READING WITH NO LINES, or lines that do not read, takes nothing away.
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "editing", words: "add a gallery", at: 1, said: { ...SAID, done: "" } });
   assert.equal(card(), SAID.doing.replace(/'/g, "&#39;"));
-  const want = { queued: "planned", editing: "doing", started: "doing", "": "doing", done: "done", failed: "notdone", lost: "notdone", cancelled: "notdone" };
-  for (const [state, which] of Object.entries(want)) {
+  const label = () => (p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s).match(/<span class="st-req-status">(.*?)<\/span>/) || [])[1];
+  const want = {
+    queued: ["planned", "Queued"], running: ["doing", "In progress"], waiting: ["waiting", "Waiting for your answer"], handoff: ["planned", "Handed over"],
+    unverified: ["unconfirmed", "Checking it published"], done: ["done", "Finished"], partial: ["partial", "Partly done"], failed: ["notdone", "Not done"], cancelled: ["notdone", "Stopped"],
+  };
+  for (const [outcome, [which, shown]] of Object.entries(want)) {
+    p.s.jobCards[SOLO].view.outcome = outcome;
+    assert.equal(card(), SAID[which].replace(/'/g, "&#39;"), outcome + " was not named by its " + which + " line");
+    assert.equal(label(), shown, outcome + "'s label");
+  }
+  // NO OUTCOME OF THE SERVER'S: what the row's state alone can say.
+  p.s.jobCards[SOLO].view.outcome = null;
+  for (const [state, which] of Object.entries({ queued: "planned", editing: "doing", "": "doing" })) {
     p.s.jobCards[SOLO].view.state = state;
     assert.equal(card(), SAID[which].replace(/'/g, "&#39;"), (state || "(none)") + " was not named by its " + which + " line");
   }
+  for (const state of ["done", "failed", "lost", "cancelled"]) {
+    p.s.jobCards[SOLO].view.state = state;
+    assert.equal(card(), "add a gallery", state + " with no outcome took a line of some state");
+    assert.equal(label(), "Ended");
+  }
+  // A LATER READING OF THE LIST brings the outcome a drawn card did not have.
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "addon", state: "done", ended: true, words: "add a gallery", at: 1, outcome: "partial" });
+  assert.equal(card(), SAID.partial.replace(/'/g, "&#39;"));
+  assert.equal(label(), "Partly done");
 });
 
 test("SAID — the card's follow takes the lines from the job's poll, and keeps them through a poll without them", async () => {
@@ -265,7 +299,7 @@ test("SAID — the card's follow takes the lines from the job's poll, and keeps 
       if (n === 1) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
       if (n === 2) return { status: 202, body: { ok: true, status: "editing", progress: [], said: SAID } };
       if (n === 3) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
-      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
+      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", outcome: "done", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
     },
   });
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });
@@ -277,6 +311,35 @@ test("SAID — the card's follow takes the lines from the job's poll, and keeps 
   p.flush(); await settle();
   assert.deepEqual(copy(view().said), SAID, "a poll without lines took them away");
   p.flush(); await settle();
-  assert.equal(view().state, "done");
+  assert.equal(view().outcome, "done");
   assert.equal(wordsOf(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s))[0], "I&#39;ve added the page.");
+});
+
+test("OUTCOME — an answer that carries no outcome of the server's never leaves a running card running: a finished answer without one leaves the card ended, its words shown and no line of any state; a poll held for review without one is unverified, never Not done", async () => {
+  let n = 0;
+  const p = page({
+    site: { ...SITE, msgs: [] },
+    timers: true,
+    answer: (url) => {
+      if (url !== "/api/site/edit/" + SOLO) return null;
+      n++;
+      if (n === 1) return { status: 202, body: { ok: true, status: "editing", outcome: "running", progress: [], said: SAID } };
+      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
+    },
+  });
+  p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });
+  await settle();
+  const label = () => (p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s).match(/<span class="st-req-status">(.*?)<\/span>/) || [])[1];
+  assert.equal(label(), "In progress");
+  p.flush(); await settle();
+  assert.equal(p.s.jobCards[SOLO].closed, true);
+  assert.equal(label(), "Ended", "a finished answer with no outcome left the card running");
+  assert.equal(wordsOf(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s))[0], "Change the heading", "an ended card with no outcome took a line of some state");
+  // HELD FOR REVIEW, said only by the poll's own `review`.
+  const q = page({ site: { ...SITE, msgs: [] }, timers: true, answer: (url) => (url === "/api/site/edit/" + SOLO ? { status: 202, body: { ok: false, status: "failed", review: true, said: SAID } } : null) });
+  q.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "editing", words: "Change the heading", at: 1, progress: [] });
+  await settle();
+  assert.equal(q.s.jobCards[SOLO].closed, true);
+  assert.equal((q.ctx.siteJobCardHTML({ jobCard: SOLO }, q.s).match(/<span class="st-req-status">(.*?)<\/span>/) || [])[1], "Checking it published");
+  assert.equal(wordsOf(q.ctx.siteJobCardHTML({ jobCard: SOLO }, q.s))[0], SAID.unconfirmed.replace(/'/g, "&#39;"), "a job held for review was named by another state's line");
 });

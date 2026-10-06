@@ -814,6 +814,50 @@ function settle(rec, p, job, row, now) {
 }
 
 /**
+ * WHAT ONE JOB'S OWN OUTCOME IS, FOR ITS CARD (2026-10-06, the owner: *"Derive
+ * the displayed state and model-written summary from the actual outcome across
+ * Edit and Add-on, covering partial results, clarification, handoffs and
+ * unverified outcomes"*). A page-filed job has no request to settle it, and
+ * its card on another device read success from `ok: true` alone — so an
+ * addition that set part of the ask aside showed as finished (Codex's
+ * reproduction). These are `settle`'s own readings of the same row and
+ * answer, for one job rather than a part:
+ *   queued      filed, not yet claimed
+ *   running     claimed and running
+ *   unverified  it began publishing and could not confirm it (held for review)
+ *   waiting     it asked the customer something, and waits for the answer
+ *   handoff     this step could not make it and handed it on to another
+ *   done        finished, nothing it was asked for left undone
+ *   partial     finished, and named something asked for that it did not do,
+ *               or put a part off for later (`notDoneOf`, `deferred`)
+ *   failed      ended with its own reason, or with no answer at all
+ *   cancelled   stopped
+ * Null for a row that does not read. `op` is the job's own (`edit` or
+ * `addon`), which says which lists name what was not done.
+ */
+export const EDIT_JOB_OUTCOMES = Object.freeze(["queued", "running", "unverified", "waiting", "handoff", "done", "partial", "failed", "cancelled"]);
+export function editJobOutcome(row, op = "edit") {
+  if (!plain(row) || typeof row.state !== "string") return null;
+  if (row.needs_review === true) return "unverified";
+  if (LIVE_JOB.includes(row.state)) return row.state === "queued" ? "queued" : "running";
+  if (!ENDED_JOB.includes(row.state)) return null;
+  const ans = answerOf(row);
+  const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
+  if (stopped && !(ans && ans.body.ok === true)) return "cancelled";
+  if (answerless(row)) return "failed";
+  if (row.state === "done" && !ans) return "done";
+  const read = readRun(ans);
+  if (read.act === "hop" || read.act === "climb") return "handoff";
+  if (read.act === "recovered") return "done";
+  if (read.act === "success") {
+    if (read.ask) return "waiting";
+    return notDoneOf(ans.body, op === "addon" ? "addon" : "edit").length || read.deferred.length ? "partial" : "done";
+  }
+  if (read.act === "clarify" || (read.act === "refusal" && read.ask)) return "waiting";
+  return "failed";
+}
+
+/**
  * ONE STEP OF A REQUEST: settle the jobs that ended, apply the stop, expire
  * questions nobody answered, decide which parts may run, and choose the next
  * job — one at a time. `rows` maps job ids to their `edit_get` rows; a job

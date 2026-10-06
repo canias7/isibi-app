@@ -241,12 +241,16 @@
 
   /**
    * A TASK'S OWN LINES (2026-10-06): the model's line for it in every state —
-   * `{ planned, doing, done, notdone }`, each a string with words in it — or
-   * null, read strictly: one state missing and none is used, so the page
-   * names the task by its words rather than show a line for the wrong state.
-   * No length is imposed here.
+   * one per entry of `TASK_STATES`, each a string with words in it — or null,
+   * read strictly: one state missing and none is used, so the page names the
+   * task by its words rather than show a line for the wrong state. No length
+   * is imposed here. THE SAME LIST as `TASK_STATES` in
+   * builder/site-progress.mjs, which this browser global cannot import
+   * (`test/progress-page.test.mjs` asserts they agree): planned, doing,
+   * waiting (on the customer), unconfirmed (its publish could not be
+   * confirmed), done, partial and notdone.
    */
-  var TASK_STATES = ["planned", "doing", "done", "notdone"];
+  var TASK_STATES = ["planned", "doing", "waiting", "unconfirmed", "done", "partial", "notdone"];
   function taskSaid(v) {
     if (!v || typeof v !== "object" || Array.isArray(v)) return null;
     var out = {};
@@ -257,6 +261,16 @@
       out[k] = t;
     }
     return out;
+  }
+
+  /**
+   * A JOB'S OWN OUTCOME AS THE SERVER READ IT (2026-10-06, `editJobOutcome` in
+   * builder/request.mjs, the same list): one of these, or null — read
+   * strictly, never coerced, so a card shows only an outcome the server said.
+   */
+  var JOB_OUTCOMES = ["queued", "running", "unverified", "waiting", "handoff", "done", "partial", "failed", "cancelled"];
+  function jobOutcome(v) {
+    return typeof v === "string" && JOB_OUTCOMES.indexOf(v) >= 0 ? v : null;
   }
 
   /**
@@ -987,6 +1001,9 @@
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     progressLines: progressLines,
     taskSaid: taskSaid,
+    TASK_STATES: TASK_STATES,
+    jobOutcome: jobOutcome,
+    JOB_OUTCOMES: JOB_OUTCOMES,
     waitingMessage: waitingMessage,
     pendingReplyLine: pendingReplyLine,
     PENDING_LINES: PENDING_LINES,

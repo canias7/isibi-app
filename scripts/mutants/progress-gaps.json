@@ -1,0 +1,518 @@
+[
+  {
+    "label": "CONTROL: a comment only in the outcome rule — must survive",
+    "control": true,
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "export function editJobOutcome(row, op = \"edit\") {",
+    "to": "export function editJobOutcome(row, op = \"edit\") { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the recorder — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const tryOnce = async (b) => {",
+    "to": "  // comment-only control\n  const tryOnce = async (b) => {"
+  },
+  {
+    "label": "CONTROL: a comment only in the confirmation — must survive",
+    "control": true,
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export function confirmLines(rec, below) {",
+    "to": "export function confirmLines(rec, below) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the canary's reader — must survive",
+    "control": true,
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  const keptBlocks = (m) =>",
+    "to": "  // comment-only control\n  const keptBlocks = (m) =>"
+  },
+  {
+    "label": "OUTCOME — held for review is not read first",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (row.needs_review === true) return \"unverified\";\n  if (LIVE_JOB.includes(row.state))",
+    "to": "  if (LIVE_JOB.includes(row.state))"
+  },
+  {
+    "label": "OUTCOME — a queued job is called running",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (LIVE_JOB.includes(row.state)) return row.state === \"queued\" ? \"queued\" : \"running\";\n  if (!ENDED_JOB",
+    "to": "  if (LIVE_JOB.includes(row.state)) return \"running\";\n  if (!ENDED_JOB"
+  },
+  {
+    "label": "OUTCOME — a stop the answer names is not a stop",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (stopped && !(ans && ans.body.ok === true)) return \"cancelled\";\n  if (answerless(row)) return \"failed\";",
+    "to": "  if (row.state === \"cancelled\") return \"cancelled\";\n  if (answerless(row)) return \"failed\";"
+  },
+  {
+    "label": "OUTCOME — a hand-over is called not done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (read.act === \"hop\" || read.act === \"climb\") return \"handoff\";",
+    "to": "  if (read.act === \"hop\" || read.act === \"climb\") return \"failed\";"
+  },
+  {
+    "label": "OUTCOME — a success that asked is called done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    if (read.ask) return \"waiting\";\n    return notDoneOf(",
+    "to": "    return notDoneOf("
+  },
+  {
+    "label": "OUTCOME — a success that left work undone is called done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    return notDoneOf(ans.body, op === \"addon\" ? \"addon\" : \"edit\").length || read.deferred.length ? \"partial\" : \"done\";",
+    "to": "    return \"done\";"
+  },
+  {
+    "label": "OUTCOME — a part put off is not counted as undone",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    return notDoneOf(ans.body, op === \"addon\" ? \"addon\" : \"edit\").length || read.deferred.length ? \"partial\" : \"done\";",
+    "to": "    return notDoneOf(ans.body, op === \"addon\" ? \"addon\" : \"edit\").length ? \"partial\" : \"done\";"
+  },
+  {
+    "label": "OUTCOME — an addition's own lists are not read",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    return notDoneOf(ans.body, op === \"addon\" ? \"addon\" : \"edit\").length || read.deferred.length ? \"partial\" : \"done\";",
+    "to": "    return notDoneOf(ans.body, \"edit\").length || read.deferred.length ? \"partial\" : \"done\";"
+  },
+  {
+    "label": "OUTCOME — a question is called not done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (read.act === \"clarify\" || (read.act === \"refusal\" && read.ask)) return \"waiting\";\n  return \"failed\";\n}",
+    "to": "  return \"failed\";\n}"
+  },
+  {
+    "label": "OUTCOME — a refusal that asks is called not done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (read.act === \"clarify\" || (read.act === \"refusal\" && read.ask)) return \"waiting\";\n  return \"failed\";\n}",
+    "to": "  if (read.act === \"clarify\") return \"waiting\";\n  return \"failed\";\n}"
+  },
+  {
+    "label": "OUTCOME — no answer at all is called done",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (answerless(row)) return \"failed\";\n  if (row.state === \"done\" && !ans) return \"done\";\n  const read = readRun(ans);\n  if (read.act === \"hop\"",
+    "to": "  if (row.state === \"done\" && !ans) return \"done\";\n  if (!ans) return \"done\";\n  const read = readRun(ans);\n  if (read.act === \"hop\""
+  },
+  {
+    "label": "POLL — a finished job's answer carries no outcome",
+    "files": [
+      "worker.js"
+    ],
+    "from": "{ uid: eu.id }), row), {",
+    "to": "{ uid: eu.id })), {"
+  },
+  {
+    "label": "POLL — a running job's answer carries no outcome",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        outcome: progressOn(env) ? (editJobOutcome(row, eProg.op || \"edit\") || undefined) : undefined,",
+    "to": "        outcome: undefined,"
+  },
+  {
+    "label": "POLL — the outcome is served with progress off",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        outcome: progressOn(env) ? (editJobOutcome(row, eProg.op || \"edit\") || undefined) : undefined,",
+    "to": "        outcome: editJobOutcome(row, eProg.op || \"edit\") || undefined,"
+  },
+  {
+    "label": "FIND — the list carries no outcome",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const outcome = editJobOutcome(j, j.op);",
+    "to": "    const outcome = null;"
+  },
+  {
+    "label": "OUTCOME — a job whose record cannot be read gets none",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!kind) {\n    const r = await jobRowForProgress(env, job);",
+    "to": "  if (false) {\n    const r = await jobRowForProgress(env, job);"
+  },
+  {
+    "label": "OUTCOME — the kind is not read off the record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === \"edit\" || at.rec.op === \"addon\" ? at.rec.op : null };",
+    "to": "  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: \"edit\" };"
+  },
+  {
+    "label": "RACE — every line is handed to readers, confirmed or not",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  return rec.lines.filter((l) => l.confirmed === true).map(",
+    "to": "  return rec.lines.map("
+  },
+  {
+    "label": "RACE — a confirmation covers a line committed after its read",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    if (l.n >= below || l.confirmed === true) return l;",
+    "to": "    if (l.confirmed === true) return l;"
+  },
+  {
+    "label": "RACE — a committed line is confirmed on commit",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b) }],",
+    "to": "    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b), confirmed: true }],"
+  },
+  {
+    "label": "RACE — the writer never confirms its line after the commit",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);",
+    "to": "  if (false) await confirmProgressLines(env, job, done.rec.lines.length);"
+  },
+  {
+    "label": "RACE — the writer confirms its line without reading the row after the commit",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);",
+    "to": "  if (true) await confirmProgressLines(env, job, done.rec.lines.length);"
+  },
+  {
+    "label": "RACE — the next writer does not confirm a line left unconfirmed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (unconfirmedLines(rec) > 0) await confirmProgressLines(env, job, rec.lines.length);\n  if (!batch.facts.length) {",
+    "to": "  if (!batch.facts.length) {"
+  },
+  {
+    "label": "RACE — the cron never confirms a running job's line",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (unconfirmedLines(at.rec) > 0 && jobVerdict(await jobRowForProgress(env, j.id), at.rec, Date.now()).ok) await confirmProgressLines(env, j.id, at.rec.lines.length);\n",
+    "to": ""
+  },
+  {
+    "label": "RACE — the cron confirms without reading the row",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (unconfirmedLines(at.rec) > 0 && jobVerdict(await jobRowForProgress(env, j.id), at.rec, Date.now()).ok) await confirmProgressLines(env, j.id, at.rec.lines.length);",
+    "to": "    if (unconfirmedLines(at.rec) > 0) await confirmProgressLines(env, j.id, at.rec.lines.length);"
+  },
+  {
+    "label": "RACE — a stored line forgets it was confirmed",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  return { n: l.n, at, text, marks: l.marks.slice(), ...(l.confirmed === true ? { confirmed: true } : {}) };",
+    "to": "  return { n: l.n, at, text, marks: l.marks.slice() };"
+  },
+  {
+    "label": "RECORDER — a delivery is tried once",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!ending) await pause(PROGRESS_SEND_WAITS_MS[i]);\n      last = ending;",
+    "to": "      return false;"
+  },
+  {
+    "label": "RECORDER — a network failure is taken for a refusal",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    } catch { return \"again\"; }\n  };",
+    "to": "    } catch { return \"refused\"; }\n  };"
+  },
+  {
+    "label": "RECORDER — a store failure is taken for a refusal",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      return r && r.retry === true ? \"again\" : \"refused\";",
+    "to": "      return \"refused\";"
+  },
+  {
+    "label": "RECORDER — a refusal is sent again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (got === \"refused\") return false;\n      if (last ||",
+    "to": "      if (last ||"
+  },
+  {
+    "label": "RECORDER — the job's end allows more than one last try",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!ending) await pause(PROGRESS_SEND_WAITS_MS[i]);\n      last = ending;",
+    "to": "      if (!ending) await pause(PROGRESS_SEND_WAITS_MS[i]);"
+  },
+  {
+    "label": "RECORDER — a retry carries a new number",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      step(async () => ((await open()) ? deliver({ op: \"mark\", run, stage, facts, seq: n }, \"milestone \" + n) : false));",
+    "to": "      step(async () => ((await open()) ? deliver({ op: \"mark\", run, stage, facts, get seq() { return seq++; } }, \"milestone \" + n) : false));"
+  },
+  {
+    "label": "RECORDER — the Worker's door never says the store failed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const answer = (r) => (r ? { ok: true } : seen.store ? { ok: false, retry: true } : { ok: false });",
+    "to": "  const answer = (r) => (r ? { ok: true } : { ok: false });"
+  },
+  {
+    "label": "RECORDER — a read the store refused is not said",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (!at.read) { if (seen) seen.store = true; return null; }",
+    "to": "    if (!at.read) return null;"
+  },
+  {
+    "label": "RECORDER — six refused writes are not said",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  console.error(\"progress: six writes in a row lost to other changes on\", job);\n  if (seen) seen.store = true;",
+    "to": "  console.error(\"progress: six writes in a row lost to other changes on\", job);"
+  },
+  {
+    "label": "GATEWAY — a store failure is answered as a refusal",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "      return !out || out.retry === true ? json(503, { error: \"not recorded yet\" }) : json(409, { error: \"not recorded\" });",
+    "to": "      return json(409, { error: \"not recorded\" });"
+  },
+  {
+    "label": "GATEWAY — a refusal is answered as worth trying again",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "      return !out || out.retry === true ? json(503, { error: \"not recorded yet\" }) : json(409, { error: \"not recorded\" });",
+    "to": "      return json(503, { error: \"not recorded yet\" });"
+  },
+  {
+    "label": "CONTAINER — a 5xx is not worth trying again",
+    "files": [
+      "builder/container-env.mjs"
+    ],
+    "from": "      return { ok: r.ok, retry: !r.ok && (r.status === 429 || r.status >= 500) };",
+    "to": "      return { ok: r.ok, retry: false };"
+  },
+  {
+    "label": "TASKS — the unconfirmed state is not written",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "export const TASK_STATES = Object.freeze([\"planned\", \"doing\", \"waiting\", \"unconfirmed\", \"done\", \"partial\", \"notdone\"]);",
+    "to": "export const TASK_STATES = Object.freeze([\"planned\", \"doing\", \"waiting\", \"done\", \"partial\", \"notdone\"]);"
+  },
+  {
+    "label": "PROSE — the unconfirmed line may say it is happening now",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "you tried to make it but cannot yet tell whether it went through; say so, without saying it is happening now or that it is done.",
+    "to": "you tried to make it but cannot yet tell whether it went through; say so."
+  },
+  {
+    "label": "TASKS — a reader is handed the old four states",
+    "files": [
+      "builder/site-progress.mjs"
+    ],
+    "from": "  return t ? Object.fromEntries(TASK_STATES.map((k) => [k, t[k]])) : null;",
+    "to": "  return t ? { planned: t.planned, doing: t.doing, done: t.done, notdone: t.notdone } : null;"
+  },
+  {
+    "label": "TASKS — every task is written in one call",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const tasks = unwrittenTasks(rec).slice(0, TASK_BATCH);",
+    "to": "  const tasks = unwrittenTasks(rec);"
+  },
+  {
+    "label": "PAGE — a part held for review shows its doing line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',",
+    "to": "  started: 'doing', unverified: 'doing', done: 'done', partial: 'partial',"
+  },
+  {
+    "label": "PAGE — a part done in part shows its not-done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',",
+    "to": "  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'notdone',"
+  },
+  {
+    "label": "PAGE — a part waiting on the customer shows its planned line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',",
+    "to": "  blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'planned', approval: 'waiting',"
+  },
+  {
+    "label": "PAGE — a found job held for review shows its doing line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "handoff: 'planned', unverified: 'unconfirmed', done: 'done', partial: 'partial', failed: 'notdone', cancelled: 'notdone' };",
+    "to": "handoff: 'planned', unverified: 'doing', done: 'done', partial: 'partial', failed: 'notdone', cancelled: 'notdone' };"
+  },
+  {
+    "label": "PAGE — a found job done in part shows its done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "handoff: 'planned', unverified: 'unconfirmed', done: 'done', partial: 'partial', failed: 'notdone', cancelled: 'notdone' };",
+    "to": "handoff: 'planned', unverified: 'unconfirmed', done: 'done', partial: 'done', failed: 'notdone', cancelled: 'notdone' };"
+  },
+  {
+    "label": "PAGE — the card's follow never takes the server's outcome",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (oc) c.view.outcome = oc;\n    if (read.act === 'gone')",
+    "to": "    if (read.act === 'gone')"
+  },
+  {
+    "label": "PAGE — a finished answer with no outcome keeps a running one's",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    c.view.ended = true;\n    if (!oc) c.view.outcome = null;",
+    "to": "    c.view.ended = true;"
+  },
+  {
+    "label": "PAGE — success is read from ok alone again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    c.view.ended = true;\n    if (!oc) c.view.outcome = null;",
+    "to": "    c.view.ended = true;\n    c.view.outcome = r.ok && e && e.ok !== false ? 'done' : 'failed';"
+  },
+  {
+    "label": "PAGE — a poll held for review with no outcome is called not done",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      if (!oc) c.view.outcome = read.kind === 'cancelled' ? 'cancelled' : read.kind === 'needs_review' ? 'unverified' : 'failed';",
+    "to": "      if (!oc) c.view.outcome = read.kind === 'cancelled' ? 'cancelled' : 'failed';"
+  },
+  {
+    "label": "PAGE — a drawn card never takes the list's outcome",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (drawn && drawn.view && EditPoll.jobOutcome(v.outcome)) drawn.view.outcome = EditPoll.jobOutcome(v.outcome);\n",
+    "to": ""
+  },
+  {
+    "label": "PAGE — a found card is drawn without the list's outcome",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "ended: v.ended === true, outcome: EditPoll.jobOutcome(v.outcome), words:",
+    "to": "ended: v.ended === true, outcome: null, words:"
+  },
+  {
+    "label": "PAGE — an ended card with no outcome shows its done line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (v && (v.ended === true || ['done', 'failed', 'lost', 'cancelled'].includes(v.state))) return 'ended';",
+    "to": "  if (v && (v.ended === true || ['done', 'failed', 'lost', 'cancelled'].includes(v.state))) return 'done';"
+  },
+  {
+    "label": "PAGE — an outcome with no line of its own shows the doing line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const which = Object.hasOwn(SITE_JOB_SAID, oc) ? SITE_JOB_SAID[oc] : '';",
+    "to": "  const which = Object.hasOwn(SITE_JOB_SAID, oc) ? SITE_JOB_SAID[oc] : 'doing';"
+  },
+  {
+    "label": "POLL READER — an outcome the server never said is read",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "    return typeof v === \"string\" && JOB_OUTCOMES.indexOf(v) >= 0 ? v : null;",
+    "to": "    return typeof v === \"string\" && v ? v : null;"
+  },
+  {
+    "label": "POLL READER — the unconfirmed state is not read",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "  var TASK_STATES = [\"planned\", \"doing\", \"waiting\", \"unconfirmed\", \"done\", \"partial\", \"notdone\"];",
+    "to": "  var TASK_STATES = [\"planned\", \"doing\", \"waiting\", \"done\", \"partial\", \"notdone\"];"
+  },
+  {
+    "label": "CANARY — the reply is read whole, kept lines and all",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      text: ownText(m),",
+    "to": "      text: String(m.innerText || m.textContent || \"\").replace(/⧉\\s*$/, \"\").trim(),"
+  },
+  {
+    "label": "CANARY — a kept line is read with its time",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    return (stamp && t.startsWith(stamp) ? t.slice(stamp.length) : t).trim();",
+    "to": "    return t.trim();"
+  },
+  {
+    "label": "CANARY — the kept lines are not read apart",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      progress: keptLines(m),",
+    "to": "      progress: [],"
+  }
+]

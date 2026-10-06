@@ -30,6 +30,7 @@ import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
 import { CONFIG_KEY } from "../../site-config.mjs";
 import { T, USER, TOKEN, SOURCE_KEY, PARTS_KEY, PAGES, ROUTES, OLD_DESC, CHAT, cut, userText, after } from "./live-ask.mjs";
+import { TASK_STATES } from "../../builder/site-progress.mjs";
 
 export { T, USER, TOKEN, SOURCE_KEY, ROUTES };
 const realEditPoll = createRequire(import.meta.url)("../../public/edit-poll.js");
@@ -400,7 +401,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
         if (how && how.answer) { tasksLog.push(tasks); return say(tool, how.answer); }
       }
       tasksLog.push(tasks);
-      return say(tool, { tasks: tasks.map((t) => ({ id: t.id, planned: "(planned) " + t.words, doing: "(doing) " + t.words, done: "(done) " + t.words, notdone: "(notdone) " + t.words })) });
+      // IN EVERY STATE THE PRODUCT NAMES (`TASK_STATES`), read from it rather than listed twice.
+      return say(tool, { tasks: tasks.map((t) => ({ id: t.id, ...Object.fromEntries(TASK_STATES.map((k) => [k, "(" + k + ") " + t.words])) })) });
     }
     if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
     if (tool === T.lane) {

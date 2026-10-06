@@ -512,7 +512,8 @@ const cutFn = (head) => {
 };
 
 test("the reader inside the app reads each message's held job off the page's own thread — only while the drawn and kept counts agree — the waiting line off the drawing, the page's life, and whether it showed a request's own reply", () => {
-  const el = (cls, text, extra = {}) => ({ classList: { contains: (c) => cls.includes(c) }, querySelector: (sel) => (sel === ".st-req" ? (extra.card ? {} : null) : sel === ".st-think" ? (extra.think ? {} : null) : null), innerText: text, textContent: text });
+  // A REAL ELEMENT ANSWERS `querySelectorAll` too (the reader reads a reply's kept progress apart, 2026-10-06): none kept here.
+  const el = (cls, text, extra = {}) => ({ classList: { contains: (c) => cls.includes(c) }, querySelector: (sel) => (sel === ".st-req" ? (extra.card ? {} : null) : sel === ".st-think" ? (extra.think ? {} : null) : null), querySelectorAll: () => [], innerText: text, textContent: text });
   const kept = [
     { r: "u", t: "Put the Classes page in the menu on every page." },
     { r: "a", t: "", request: KEY(1) },
@@ -550,6 +551,40 @@ test("the reader inside the app reads each message's held job off the page's own
   // A HELD MARK THE PAGE'S OWN READER REFUSES is no job.
   const bad = run(drawn, { ...site, msgs: [kept[0], kept[1], { r: "a", t: HOLD_LINE, held: { job: 7 } }] });
   assert.deepEqual(bad.messages.map((m) => m.held), ["", "", ""]);
+});
+
+test("the reader inside the app reads a reply's own words apart from the progress kept above it (2026-10-06): the kept lines, drawn first inside the reply's message, are cut once from its text and read on their own, without their times — so a warning still begins with its mark; a reply with none kept, and a request's card, read as before", () => {
+  // STAND-INS FOR THE THREAD'S OWN MARKUP: a finished job's reply holds its
+  // kept lines (`.st-prog-done`, each line's time in `.at`) before its words,
+  // and the message's whole text reads them first — as innerText does.
+  const li = (at, text) => ({ innerText: at + text, textContent: at + text, querySelector: (sel) => (sel === ".at" ? { innerText: at, textContent: at } : null) });
+  const LINES = [li("0:05", "I found the lesson and I'm changing its price."), li("0:08", "I'm putting it on your site now.")];
+  const block = { innerText: LINES.map((l) => l.innerText).join("\n"), textContent: LINES.map((l) => l.textContent).join(""), querySelectorAll: (sel) => (sel === "li" ? LINES : []) };
+  const WARN = "⚠️ I couldn't find that lesson, so nothing was changed.";
+  const msg = (cls, text, { kept = [], card = false } = {}) => ({
+    classList: { contains: (c) => cls.includes(c) }, innerText: text, textContent: text,
+    querySelector: (sel) => (sel === ".st-req" && card ? {} : null),
+    querySelectorAll: (sel) => (sel === ".st-prog-done" ? kept : []),
+  });
+  const drawn = [
+    msg(["st-msg", "u"], "Change the hour lesson to 45."),
+    msg(["st-msg"], block.innerText + "\n" + WARN + "\n⧉", { kept: [block] }),
+    msg(["st-msg"], "✅ Done.\n⧉"),
+    msg(["st-msg"], "1. Change the price\nIn progress\n0:05 a part's own line", { card: true }),
+  ];
+  const ctx = vm.createContext({
+    document: { getElementById: (id) => ({ stRevise: { value: "", disabled: false }, stSend: { disabled: false }, stPlus: {} })[id] || null, querySelectorAll: (sel) => (sel === "#stThread .st-msg" ? drawn : []), querySelector: () => null },
+    window: { EditPoll }, EditPoll, getComputedStyle: () => ({ display: "none" }), performance: { timeOrigin: 1 },
+    Auth: { isSignedIn: () => true, userId: () => UID }, siteDraft: () => ({ imgs: [] }), siteAttachFor: "s1", siteBusy: false,
+    siteById: () => ({ msgs: [] }), siteOpenId: "s1",
+  });
+  vm.runInContext(cutFn("function readComposerInPage() {"), ctx);
+  const s = JSON.parse(JSON.stringify(vm.runInContext("readComposerInPage()", ctx)));
+  assert.equal(s.messages[1].text, WARN, "the reply's own text carries the kept lines, or lost its warning's mark");
+  assert.deepEqual(s.messages[1].progress, ["I found the lesson and I'm changing its price.", "I'm putting it on your site now."]);
+  assert.deepEqual([s.messages[2].text, s.messages[2].progress], ["✅ Done.", []], "a reply with nothing kept read differently");
+  assert.deepEqual([s.messages[3].card, s.messages[3].progress], [true, []], "a request's card was read as a reply's kept lines");
+  assert.match(s.messages[3].text, /a part's own line/, "a request card's own lines were cut from its text");
 });
 
 test("the reader of a request inside the app hands back, with no reply on it yet, whether one is being written or failed — and which reply it is", async () => {
