@@ -321,8 +321,12 @@ claims neither that visitors cannot read the table nor that it starts empty.
   new cases). The first run on the final code found one guard still pinned
   to the old spelling of the merge's last refusal (`add-goes-to-addon`).
   It was re-anchored, and the second run was clean.
-- **CI**: started on the push of the fix with its records on top; read to
-  completion and recorded in the next commit.
+- **CI on `13bfcd17`** (the fix with its records on top) is complete and
+  green:
+  - unit tests (run 37451667975): `9571 / 9559 / 0 / 12`, the same total as
+    here. CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37451668063): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*.
 - **The image** (predicted, not built): `3f3862946e322404` at `08b9a657`
   becomes `01abfc1e158153f9`. There are 194 inputs, none under `public/`.
   The live image is deploy 2184's `589e3e4e85a20066`.

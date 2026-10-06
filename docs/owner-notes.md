@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 10:42 UTC)
+## Current handoff — read this first (2026-10-06, 10:51 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -50,14 +50,19 @@ is in git; the dated entries further down are the full story.*
     new outcome;
   - **the sweep**: 60 of 60 planted defects caught, and the 4 controls survived;
   - **the suite**: `9571 / 9571 / 0 / 0` here.
-- **CI**: started on the push of the fix with its records on top; read to
-  completion and recorded in the next commit.
+- **CI on `13bfcd17` is complete and green** (the fix's code with its
+  records on top):
+  - unit tests (run 37451667975): `9571 / 9559 / 0 / 12`, the same total as
+    here. CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37451668063): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*.
 - **Screenshots** (sent in the chat): the older refusal and the partial
   failure, each before and after.
 - **Money**: balance **21** (read at 10:37 UTC on 6 October: last ledger
   row 392, no job queued or running). Nothing was spent in this batch.
 
 **Yours to decide**
+- **Nothing to re-run**: every required job ran and passed.
 - **Review the batch** (`docs/history/2026-10-06-failure-outcome.md`,
   remaining limits in §5).
 - **Visible changes to know about**:
@@ -274,8 +279,9 @@ since. Add new ones there.
     spelling moved), and the page's new check cut into 7 harnesses;
   - **the full suite**: `9571 / 9571 / 0 / 0` here (the 9,553 before, plus
     the 18 new cases);
-  - **CI on the push**: read to completion and recorded in the next
-    commit;
+  - **CI on the push**: green. Unit tests passed with the same total as
+    here (`9571 / 9559 / 0 / 12`), and the site build's seven jobs and its
+    gate passed;
   - the image would roll from deploy 2184's `589e3e4e85a20066` to
     `01abfc1e158153f9` (predicted, not built).
 - **Kept separate** (backlog):
