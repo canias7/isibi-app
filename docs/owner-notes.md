@@ -1,63 +1,53 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 19:16 UTC)
+## Current handoff — read this first (2026-10-06, 23:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Model-written progress during Edit and Add-on is built on the branch,
-  off by default, for your review** (`PROGRESS_REPLIES`; the three newest
-  entries below, `docs/history/2026-10-06-progress-messages.md`, and the
-  design as built in `docs/investigations/progress-messages-plan.md`, whose
-  §0 maps each of your corrections and requests to where it is met).
-  - **The gaps you asked to close are closed** (the newest entry; the plan's
-    §2.11, §2.5 and §2.6): each card's state and the model's line come from
-    the job's real outcome (partly done, waiting for your answer, handed
-    over, checking it published, finished, not done, stopped), and a job held
-    for review is never shown as happening now; no progress line appears
-    after the final reply, on any reader; a milestone whose delivery fails is
-    kept and sent again on its own, never doubled; the UI canary reads a
-    reply apart from its kept progress. Codex's reproduction is OUTCOME 1 in
-    `test/progress-gaps.test.mjs`.
-  - **Your wording clarification stays in** (the plan's §2.10): the first
-    person, and each task named by the model's own line for its state, now
-    one of seven, picked by code; your words unprefixed until the lines
-    arrive.
-  - **Not merged, not deployed, no image built, nothing pressed or spent.**
-    Shown with supplied model answers only; no real model has written a
-    progress line or a task line.
-  - **The evidence**: the red check on `ba8a12dc` (the 13 reproduction cases
-    13 of 13 failing first); 99 progress cases (19 new, then 25, 35, 14 and 6
-    in real Chromium) and the two canary files (30 and 47), all passing; the
-    sweeps (the new spec's 60 mutants and the earlier spec's 15 moved ones:
-    every survivor closed by a case and killed on its rerun, every control
-    surviving); the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`;
-    unit CI green on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21
-    real-browser cases skipped there); the site build green on it (run
-    37515372064: "404 checks in 27 sections across 4 shards, every job
-    green").
-  - **A merge would roll the image**: `c7fe818d446dd957` → `5f946c22d42a1b10`
-    (predicted, not built; 194 → 195 inputs).
+- **The progress correction round is closed**: Codex reviewed `7abe6c3d` and
+  confirmed the outcome labels, the late-progress suppression, the delivery
+  retries without duplicates and the separate final-reply reading (the
+  newest entry; the history's §7).
+- **The release and its one live check are prepared, for your approval**:
+  `docs/investigations/progress-release-plan.md`.
+  - **One merge and one image roll**: `main` `b2409b3c` → the branch,
+    building `c7fe818d446dd957` → **`5f946c22d42a1b10`** once. Progress stays
+    off until the switch.
+  - **The switch**: your secret `PROGRESS_REPLIES` = `on`, then *Deploy to
+    Cloudflare* on `main`, which reuses the image (no second roll).
+  - **The paid press**: `lv-progress` on `fold-lane-bakery`. One message, an
+    FAQ page with its menu link and the Classes heading. The tab is closed
+    once progress shows, and the request is followed to its end in a fresh
+    browser session. It is judged on the pages, the replies, eight progress
+    checks and a no-charge check, and a free step after it reads the
+    narration's attempts, tokens, time and cost from the logs.
+  - **About 20 credits (16–26); hard cap 32.** Raise the balance from 9 to
+    exactly 32; the press refuses to start above 32 or below 28.
+  - **Not merged, not deployed, no image built, the secret not set, nothing
+    pressed or spent.**
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
   `c7fe818d446dd957`), runtime-confirmed by run 102; the release closed on
   run 103.
-- **The balance is 9** (read at 18:58 UTC: the ledger's last row 397, no job
-  open). Anything paid next needs it raised first.
+- **The balance is 9** (read at 23:01 UTC: the ledger's last row 397, no job
+  open).
 
 **Yours to decide**
-- **The progress implementation, with the wording and gaps rounds**: your
-  review of the branch.
-- **Switching it on and a live look**: `PROGRESS_REPLIES` on in a deploy,
-  then a paid press to read the first real lines and task titles in their
-  states, their words and their cost (about 0.15–0.35 credit a call,
-  estimated, absorbed). The canary's reply reading, which had to be settled
-  before that press, is fixed.
+- **The stage**, as one approval or step by step:
+  1. the deployment and its single container roll;
+  2. the switch;
+  3. the funds, to exactly 32;
+  4. the paid press.
+
+  The plan's §2 lists each step and §3 each box by its description.
 - **What run 103 left on the bakery** (the demo-site rule): the Tasting
   Evenings page, the `tasting_list` table, the menu links, the Gallery
   heading, and the one marked entry (`Canary release 37473592366`,
-  `canary-release-37473592366@example.com`). Taking any of it out is yours.
+  `canary-release-37473592366@example.com`). The live check would add the
+  FAQ page, its menu links and the new Classes heading. Taking any of it out
+  is yours.
 
 **Still open** (`docs/backlog.md`)
 - **Limits of the progress work** (the plan's §7): the model's words are not
@@ -112,7 +102,8 @@ is in git; the dated entries further down are the full story.*
 
 **Links**
 - The progress work: `docs/history/2026-10-06-progress-messages.md` and
-  `docs/investigations/progress-messages-plan.md`.
+  `docs/investigations/progress-messages-plan.md`; its release and live
+  check, `docs/investigations/progress-release-plan.md`.
 - The release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run 102, §7
   run 103) and the plan, `docs/investigations/release-plan.md`.
 - The reporting work: `docs/history/2026-10-06-failure-outcome.md`,
@@ -179,6 +170,99 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Codex's review closed the progress corrections; the release and its one live check prepared for your approval (on the branch; nothing merged, deployed, built, switched on, pressed or spent)
+
+- **What you asked**: Codex reviewed `7abe6c3d` and independently confirmed
+  the corrected outcome labels, the suppression of late progress, the
+  automatic delivery retries without duplicate milestones and the separate
+  final-reply reading. So: close this correction round. Prepare one release
+  and one combined live Edit/Add-on check on a demo site with the existing
+  canary, using fresh changes that take both routes by themselves. Capture
+  real first-person progress before the work finishes, check the published
+  result and the final replies, and check recovery after closing the tab
+  and reopening in a fresh browser session. Record the model's real words,
+  attempts, tokens, time and the platform's narration cost, and confirm
+  narration adds no charge for the customer. Reuse the controlled tests for
+  failures; no second audit and no extra container builds. Give the exact
+  steps, the expected image, the test message, the credit estimate and a
+  hard spending cap, and state the bounded-retry and process-loss limits
+  honestly. Prepare everything, but keep the branch unmerged and progress
+  off until you approve.
+- **The round is closed** in the records: the history's §7, and the
+  progress plan's header and §8.
+- **The stage to approve** is `docs/investigations/progress-release-plan.md`.
+  In short:
+  1. **The release**: `main` fast-forwards from `b2409b3c`. Its one deploy
+     builds the image once, **`c7fe818d446dd957` → `5f946c22d42a1b10`**,
+     with progress still off (the deploy's fallback is `off`).
+  2. **The checks**: the served files checked; a 15–20 minute wait for the
+     new image; your free runtime press.
+  3. **The switch**: you set the secret `PROGRESS_REPLIES` to `on` and run
+     *Deploy to Cloudflare* on `main`. That reuses the image, so nothing
+     rolls a second time.
+  4. **The funds**: you raise the balance to exactly 32.
+  5. **The paid press**: `lv-progress` on `fold-lane-bakery`. The boxes are
+     listed one by one in the plan's §3.
+- **The test message**: *"Add an FAQ page with a link in the menu, answering
+  what customers ask us most: how long a sourdough loaf keeps, how best to
+  store it, and when we're open. And change the Classes page heading 'Spend
+  a Saturday morning with the starter' to 'Spend a Saturday morning at the
+  bench'."*
+  - The bakery has no FAQ page and nothing in the menu for one, and that
+    heading is the live page's own (all read at 23:06 UTC).
+  - The page goes through the add-on step and the heading through an edit,
+    and neither is named in the message.
+- **What the press does**:
+  1. It sends the message in the real app.
+  2. It waits until a progress line shows while the work is still running.
+  3. It closes that tab and reads the request for 30 seconds with no page
+     open.
+  4. It opens the site in a fresh browser session, signed in afresh as the
+     same account. That session must find the request and show every line
+     again, then follow it to its end.
+
+  It is judged on:
+  - the published pages and the final replies;
+  - eight progress checks, including that each running part and each
+    finished part showed the model's own line for its state;
+  - **a no-charge check**: the balance moved by exactly the press's own
+    routing and jobs, with no other ledger row.
+
+  After it, a free step reads each narration call's attempts, tokens, time
+  and model from the Worker's logs and prices them at our own rates. The
+  lines' words are recorded word for word, never judged.
+- **The money**:
+  - **about 20 credits** for the customer (16–26). R2 of run 99, a page with
+    its menu link, cost 12 for its add-on; runs 101 and 103, a page with a
+    form and a table, 16 and 18;
+  - the narration is ours, not charged;
+  - **the hard cap is 32**: every charge is refused rather than overdrawn,
+    so the balance at the press is the most it can spend. The press refuses
+    to start above 32 or below 28;
+  - the balance is **9** (read at 23:01 UTC), so raise it by 23 to exactly
+    32 before the press, and add nothing while it runs.
+- **The limits, plainly** (the plan's §7):
+  - **Bounded retry**: a milestone the container cannot deliver is tried
+    again after 0.25, 0.5, 1, 2, 4, 8 and 15 seconds. That is 8 tries in
+    about 31 seconds, plus one last try at the job's end. A refusal is
+    never resent.
+  - **Process loss**: a milestone still waiting when the job's process dies
+    is lost. One that reached the record but was never written is asked for
+    again by the cron.
+  - A true line whose confirmation never lands before its job ends is never
+    shown.
+  - The words are not checked, only the state each line is written for.
+  - The cost read from the logs is a floor (cached input isn't in a line).
+  - This is one sample on one site.
+- **Evidence**:
+  - 21 cases for the new press;
+  - the card reader in real Chromium;
+  - two sweeps. The canary code: 51 mutants, 48 caught first and the 3
+    survivors closed by new cases. The card reader: 7 of 7. Every control
+    survived;
+  - the full suite, CI and the image at this commit are in the history's
+    §7.
 
 ## 2026-10-06 — Your request after Codex's reproduction: progress cards and lines from each job's real outcome, no line after the final reply, a failed milestone kept and sent again, the canary's reply read apart (on the branch, `84d46faf`; nothing spent, merged or deployed)
 

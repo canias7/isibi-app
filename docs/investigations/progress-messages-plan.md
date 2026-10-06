@@ -13,6 +13,14 @@ failed milestone delivery kept and sent again, the canary's reply read apart
 from kept progress) is §2.11, with §2.5, §2.6, §2.10 and §7 brought up to
 date.
 
+**The correction round is closed** (2026-10-06): Codex reviewed `7abe6c3d`
+and independently confirmed the corrected outcome labels, the suppression
+of late progress, the automatic delivery retries without duplicate
+milestones, and the separate final-reply reading. **The release and its one
+live check are prepared, not executed**: `docs/investigations/progress-release-plan.md`
+(one merge and its one image roll, the switch, and the paid press
+`lv-progress`).
+
 The owner's request for the plan: *"Now prepare the concrete implementation
 plan for model-written progress messages during Edit and Add-on only. …
 The model should naturally explain what it is doing, what it found and what
@@ -953,6 +961,10 @@ real-browser cases skipped there); the site build green on it (run
 ## 8. Decisions
 
 All five of the first plan's decisions were taken as recommended (§0). What
-remains yours, when you want it: turning `PROGRESS_REPLIES` on in a deploy,
-and a paid live press to read the first real lines and their cost (about
-0.15–0.35 credit per call, estimated, absorbed).
+remains yours is the release stage, prepared in
+`docs/investigations/progress-release-plan.md`: the merge with its one image
+roll (`c7fe818d446dd957` → `5f946c22d42a1b10`), `PROGRESS_REPLIES` on in a
+redeploy that rolls nothing, and the paid press `lv-progress`, which reads
+the first real lines, task lines and their cost (about 0.15–0.35 credit per
+call, estimated, absorbed). The press is estimated at about 20 credits
+charged to the account (16–26), with a hard cap of 32.

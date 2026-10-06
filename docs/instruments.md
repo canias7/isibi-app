@@ -1237,7 +1237,8 @@ The stage it belongs to, with the press's boxes and the cost, is
   message, a scenario that says so sends nothing unless the balance covers its
   whole budget. A request the server has taken on runs to its end whatever the
   balance, so a press started short would end with a part refused for want of
-  credits on a live site. Only `lv-release` asks for it (budget 30).
+  credits on a live site. `lv-release` asks for it (budget 30), and since
+  2026-10-06 `lv-progress` (budget 28, beside a hard cap of 32).
 - **Proven in the tests** (`test/canary-form.test.mjs`): the decisions, each
   refusal by name; the helper in a real Chromium against a page served in
   the test, sending exactly one entry in the paid press and nothing in a
@@ -1254,3 +1255,68 @@ The stage it belongs to, with the press's boxes and the cost, is
   and not), the controls, and a real Chromium against pages whose own code
   swaps or misplaces the entries. A sweep of 60 mutants, all caught, its 3 controls surviving; two of them put the old membership check back into the gate and the row check, and both are caught. The full record is §4.4 of
   `docs/investigations/release-plan.md`.
+
+### THE PROGRESS LIVE CHECK (`lv-progress`, 2026-10-06 — prepared on the branch, not merged or pressed)
+
+The owner, after Codex confirmed the progress corrections on `7abe6c3d`:
+*"…one combined live Edit/Add-on verification using the existing canary and
+a demo site … capture actual first-person progress before completion,
+verify the published results and final replies, and check recovery after
+closing the originating tab and reopening on a fresh browser session. Record
+the real model wording, attempts, tokens, latency and platform narration
+cost, confirming narration adds no customer charge."* The stage it belongs
+to, with the presses' boxes, the switch and the cost, is
+`docs/investigations/progress-release-plan.md`.
+- **WHAT IT IS**: one request-mode press on `fold-lane-bakery`, one message,
+  an FAQ page with its menu link (the add-on) and the Classes heading (an
+  edit), judged like every request press (`requestBatchVerdict`), plus the
+  progress checks below.
+- **THE STEP MODE `away: "fresh"`** (`followFresh`): the tab that sent the
+  message watches the request's card, keeping each change of what it draws
+  (`progressSnapshot`, `keepSnapshot`, off the card reader `cards` in
+  `readComposerInPage`), until a progress line is on screen while the
+  request runs (or it ends, or `UI_FIRST_LINE_MS`, 6 minutes, pass). Then
+  that tab is closed; the request is read through the requests list alone
+  for `UI_FRESH_AWAY_MS` (30 s), any read of its own route recorded; and a
+  **fresh browser session** opens the site: a new context, signed in afresh
+  through the second sign-in the driver is handed (`freshSession`, the
+  canary's own `signIn` used again), holding nothing of the first tab's. It
+  must find the request on the server and draw its card, and is followed
+  until it shows the request closed. A later message, if a scenario has
+  one, goes from that session's tab (`rec.tab`), as after `away`.
+- **ITS EXTRA CHECKS** (`progressChecks`, `scripts/canary-requests.mjs`, only
+  for a press whose scenario says `progress`), each failing the press: a
+  line on screen in the sending tab before the end; that tab closed with
+  the request still running; the list alone read with no page open and no
+  read of the request's route; the fresh session signed in afresh as the
+  same account, finding the request and drawing its card; every line the
+  sending tab showed shown again there; the request followed to its end;
+  a running part named by the model's own line for doing it; every part
+  done at the end and named by its line for having done it. The words are
+  recorded, never judged. Coverage `progress-each-part` records whether
+  each part showed a line.
+- **ITS PREFLIGHT**, before anything is sent: the funds (`fundsFirst`,
+  budget 28), **the hard cap** (`cap: 32`, `capRefusal`: no more in the
+  account than the press may spend, since every charge refuses rather than
+  overdraws), and progress on (`progressOnRefusal`: the requests list
+  carries `jobs` only with `PROGRESS_REPLIES` on).
+- **NARRATION ADDS NO CHARGE** (`narrationChargeVerdict`, after the money):
+  the balance moved by exactly the press's own routing and jobs, and the
+  ledger between its two balance reads holds no row under any other ref;
+  the window's rows are printed. It writes `narration-ids.json` (the
+  press's window, requests and jobs) for the next step.
+- **THE NARRATION'S USAGE** (`scripts/narration-usage.mjs`, the workflow step
+  *narration usage (free, read-only)*, after the press, `if: always()`): the
+  Worker's own `progress:` log lines for the press's ids, through the free
+  telemetry query (`dry: true`), with CI's Cloudflare token, which the press
+  itself is never handed. Each writer call's attempts, tokens, time and
+  model; every delivery that gave up; totals priced at the platform's own
+  rates (`pageCost`, a floor: cached input is not in a line). It reads until
+  two reads agree, writes `narration.json`, never fails the run, and when
+  the logs cannot be read it names the dashboard instead. With no press to
+  read, it only says whether the logs are readable.
+- **Proven with the stand-in app and supplied log events only**
+  (`test/canary-progress.test.mjs`; the stand-in moved to
+  `test/fixtures/canary-rq-app.mjs`), and the card reader in real Chromium
+  (case 7 of `test/progress-browser.test.mjs`). The sweeps are recorded in
+  `docs/history/2026-10-06-progress-messages.md` §7.

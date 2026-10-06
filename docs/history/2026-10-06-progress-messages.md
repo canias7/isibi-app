@@ -451,3 +451,86 @@ spent):
   "Ended" and the customer's words.
 - The test platform answers every column of a job-table read (the backlog),
   so the outcome's two reads are pinned from the source (OUTCOME 7).
+
+## 7. The round closed, and the release prepared (2026-10-06, late)
+
+**Closed by Codex's review.** The owner: *"Codex reviewed 7abe6c3d and
+independently confirmed the corrected outcome labels, suppression of late
+progress, automatic delivery retries without duplicate milestones, and
+separate final-reply reading. Close this correction round and prepare one
+release plus one combined live Edit/Add-on verification using the existing
+canary and a demo site."* The full request is quoted at the top of
+`docs/investigations/progress-release-plan.md`. That is the stage to
+authorize: one merge and its one image roll, the switch, and one paid press.
+**Nothing in it has been executed**: not merged, not deployed, no image
+built, `PROGRESS_REPLIES` not set, nothing pressed or spent.
+
+**The press, `lv-progress`** (canary scripts, the canary workflow and tests
+only; no product file changed, so the image stays `5f946c22d42a1b10`):
+- **The message**, one, on `fold-lane-bakery`: an FAQ page with a link in
+  the menu (the add-on) and the Classes heading 'Spend a Saturday morning
+  with the starter' → 'Spend a Saturday morning at the bench' (an edit).
+  - Read live at 23:06 UTC (version `01791295110535-tgh1l6`, run 103's last
+    publish): `/classes` 200 with that heading; `/faq` 404; the home page
+    links `/`, `/bake-list`, `/classes`, `/gallery`, `/order`, `/starter`,
+    `/tasting-evenings`, `/visit` and `/wholesale`, with no FAQ.
+  - The published page's code carries the heading once, as the story lead's
+    headline. That component also draws its picture's label and caption from
+    the headline.
+  - No earlier scenario asked for either change.
+- **The step mode `away: "fresh"`**:
+  - the sending tab watches the request's card until a progress line shows
+    while the request runs (at most 6 minutes), then is closed;
+  - the list alone is read for 30 s;
+  - a fresh browser session follows the request to its end: a new context,
+    signed in afresh with a second magic-link session of the same account.
+- **The checks**: eight progress checks (`progressChecks`), the coverage
+  `progress-each-part`, and **the no-charge check**
+  (`narrationChargeVerdict`): the balance moved by exactly the press's own
+  routing and jobs, and no other ledger row was written while it ran.
+- **The preflight**:
+  - the funds: budget 28;
+  - **the hard cap, 32**: the press refuses above it, and every charge
+    refuses rather than overdraws. Read in `edit_reserve` (*"a bill larger
+    than the balance moves nothing"*) and `credit_debit` (`insufficient`);
+  - progress on: the requests list carries `jobs` only with
+    `PROGRESS_REPLIES` on, `[]` even when its read fails.
+- **The usage step** (`scripts/narration-usage.mjs`, a workflow step of its
+  own after the press, free and read-only): each narration call's attempts,
+  tokens, time and model from the Worker's own log lines, with the
+  platform's cost at its own rates (a floor).
+- **The estimate**: about 20 credits charged to the account, range 16–26.
+  - R2 of run 99 (a page with its menu link, no form or table): add-on 12.
+  - Runs 101 and 103 (a page with a form and a table): 16 and 18.
+  - The requirement judgment is newer than R2: about +1.
+  - The narration is absorbed by the platform.
+
+**The evidence so far**:
+- `test/canary-progress.test.mjs`, 21 cases, passing; case 7 of
+  `test/progress-browser.test.mjs` (the card reader in real Chromium),
+  passing.
+- The five canary files together: 192 of 192 after the budget and cap were
+  set.
+- **The sweep of the canary code** (`scripts/mutants/progress-release.json`,
+  51 mutants, 4 controls). The first run killed 48, and every control
+  survived. The 3 survivors each got a case and were killed on a rerun (3 of
+  3, the 2 controls surviving):
+  - a doing line shown on a part that was not running;
+  - the median of three calls, where two calls had made the fastest one
+    pass;
+  - the usage step's `if: always()`. The workflow test read each step's
+    chunk, which runs on to the next step's comment, and that comment says
+    `if: always()` in prose: the recorded trap. The test now blanks
+    comments first.
+- **The same sweep on the finished tree**, after the budget and the cap
+  were set: 51 of 51 killed, the 4 controls surviving.
+- **The card reader's sweep** (`scripts/mutants/progress-release-cards.json`,
+  real Chromium): 7 of 7 killed, the control surviving.
+- **The full suite** on the finished tree: `9714 / 9714 / 0 / 0` locally,
+  22 more than `84d46faf`'s 9,692 (the 21 new canary cases and the new
+  browser case). Its first run failed once: `ci-browser-order` requires every
+  script a workflow runs to be named in its path filter, the parked one
+  included, and the canary workflow's parked filter did not name
+  `scripts/narration-usage.mjs`. It does now, and the rerun was clean.
+- **Balance 9**, read at 23:01 UTC: the ledger's last row 397, no job open,
+  nothing spent.
