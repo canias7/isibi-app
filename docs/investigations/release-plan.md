@@ -11,10 +11,17 @@ from what the live check would prove. Keep unrelated gaps and model-written
 progress updates parked. Preparation only: no merge, deployment, container
 image build or paid retest until I approve the prepared plan."*
 
-**Prepared, not run.** Nothing is merged, deployed, built, pressed or spent.
-The press below is a new canary scenario, `lv-release`, prepared on the branch
-for review with this plan (§4.3). **The balance does not cover it today**
-(§5): the press refuses at no cost until it does.
+**Executed through §2.6 on 2026-10-06, on the owner's approval**: `main`
+`d75d79f3` → `b2409b3c`, deploy 2185 with the image built once as predicted
+(`c7fe818d446dd957`), the served files byte-identical, the image window, and
+the runtime confirmed by the owner's free press, run 102
+(`docs/history/2026-10-06-deploy-2185.md`). **§2.7 is not met**: the balance
+read 21 at 13:29 UTC, below the 30 the paid press needs, so **the live check
+(§2.8) is pending**. Everything below stands as written for that press.
+
+*As prepared:* the press below is a new canary scenario, `lv-release`,
+prepared on the branch for review with this plan (§4.3). **The balance did
+not cover it** (§5): the press refuses at no cost until it does.
 
 ## 1. What is released
 

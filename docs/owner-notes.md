@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 13:23 UTC)
+## Current handoff — read this first (2026-10-06, 13:29 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -12,14 +12,15 @@ is in git; the dated entries further down are the full story.*
   13:02:20 UTC, a fast-forward of 28 commits. The one deploy run (2185,
   37467698447) built the image once, as predicted, and the served files are
   byte-identical to the merged ones (`chat.js` 903,533 bytes `dd876c6f…`).
-  **Not yet runtime-confirmed**: the image window ended at 13:22 UTC, and
-  the session's one dispatch of the free runtime check was refused (403),
-  so **the free runtime press is yours**, with the inputs in the release
-  plan's §3.1 (`docs/history/2026-10-06-deploy-2185.md` §6).
-- **The live check (`lv-release`) is pending** until the runtime check passes
-  and the balance reads at least 30. It read **21** at 13:02 and again at
-  13:22 UTC (last ledger row 392, no job open). The session does not raise
-  it, and the press itself sends nothing below 30.
+  **Runtime-confirmed by your free press, run 102** (13:28 UTC): both
+  readers answered `b2409b3c0649`, a cold container `c7fe818d446dd957`,
+  queued jobs and the runner on, every zero-cost confirmation passed,
+  nothing charged (`docs/history/2026-10-06-deploy-2185.md` §6.1).
+- **The live check (`lv-release`) is pending: the funds are not there.** The
+  balance read **21** again at 13:29 UTC, after run 102 (last ledger row 392,
+  no job open), below the 30 the press needs. The session does not raise it.
+  The press is ready, with every box in the release plan's §3.2, and refuses
+  below 30 before it sends anything.
 - **The reporting work and the form step's correction are closed**: Codex
   passed `9c2ca743` at `1f3dc370`, and `09470116` at `b2409b3c`.
 - **What the release carried**: the 22 reviewed commits to `1f3dc370`, every
@@ -113,11 +114,11 @@ is in git; the dated entries further down are the full story.*
   the new form. It proves no failure path.
 
 **Yours to decide**
-- **The free runtime press**, if the session's one dispatch is refused: its
-  exact inputs are in the release plan's §3.1 and in my report.
-- **The funds**: the paid press needs a balance of at least 30, and 35 leaves
-  room above the estimate's top. Raising it is yours; the session reads it
-  again before the paid press and never raises it.
+- **The funds, then the paid press**: it needs a balance of at least 30, and
+  35 leaves room above the estimate's top (17–27 credits, most likely about
+  25; an estimate, not a cap). Raising it is yours. When it is raised, the
+  session reads it again, and the one `lv-release` press is yours (boxes in
+  the release plan's §3.2), run once and not repeated if it fails.
 - **The one entry the paid press writes** (a marked visitor entry in the new
   table) stays on the bakery, as the page and table do (the demo-site rule).
 
@@ -231,7 +232,7 @@ since. Add new ones there.
 
 ---
 
-## 2026-10-06 — Deploy 2185: the release merged and deployed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the runtime check and the live check follow
+## 2026-10-06 — Deploy 2185: the release merged, deployed and runtime-confirmed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the paid live check pending for funds (balance 21)
 
 - **Your word**: Codex passed `09470116` at `b2409b3c`, and you approved
   executing the release plan, with the balance read again before the paid
@@ -266,12 +267,25 @@ since. Add new ones there.
 - **The image window** ended at 13:22:16 UTC; nothing was rebuilt or
   redeployed.
 - **The free runtime check**: the session's one dispatch was refused (13:22
-  UTC, `403 Resource not accessible by integration`) and not retried. The
-  press is yours, with the inputs in the release plan's §3.1.
-- **The paid `lv-release` press is pending**: the balance read 21 again at
-  13:22:40 UTC (last ledger row 392, no job open), below the 30 it needs.
-  The session reads it again after the runtime check, and never raises it.
-- **Nothing charged so far.**
+  UTC, `403 Resource not accessible by integration`) and not retried. **You
+  pressed it: run 102** (37470900917, from `main` on `b2409b3c`, `success`,
+  13:27:14–13:28:37 UTC):
+  - `build-health 200 deploy=b2409b3c0649 image=c7fe818d446dd957`;
+  - `runtime 200 deploy=b2409b3c0649 async=true runner=true`, the control
+    site async too;
+  - the two readers agree, the Worker is the expected build, and a cold
+    container gets the expected image;
+  - the zero-cost confirmations passed: both sites queue a job, a forged
+    replay marker and another account's job answer 404, and the free job
+    ended at cost 0;
+  - `ALL FREE CHECKS PASSED`, and the run stopped before the paid edit.
+  **Deploy 2185 is runtime-confirmed.**
+- **The paid `lv-release` press is pending: the funds are not there.** The
+  balance was read again before it, as you required: **21** at 13:29:05 UTC
+  (last ledger row 392, no job open), below the 30 it needs. The session did
+  not raise it, and the press was not handed over to run.
+- **Charges**: none. The balance has been 21, with the ledger's last row
+  392, through the merge, the deploy and run 102.
 
 **Recorded in**: `docs/history/2026-10-06-deploy-2185.md`,
 `docs/deploy-record.md` and the history index.

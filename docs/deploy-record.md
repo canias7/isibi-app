@@ -1330,8 +1330,14 @@ to `1f3dc370`, the release check `f448aaba` and the form step's correction
 - **the served files** byte-identical to `b2409b3c`'s at 13:06:13 (`chat.js`
   903,533 `dd876c6f…`; `edit-poll.js` and `styles.css` unchanged);
 - **the image window** waited once, to 13:22 UTC;
-- **the runtime check and the live check**: pending at this writing
-  (`docs/history/2026-10-06-deploy-2185.md` §6–§7).
+- **runtime-confirmed by the owner's free press, run 102** (13:28 UTC): both
+  readers answered `b2409b3c0649`, a cold container `c7fe818d446dd957`,
+  queued jobs and the runner on, every zero-cost confirmation passed, nothing
+  charged (balance 21, last row 392)
+  (`docs/history/2026-10-06-deploy-2185.md` §6.1);
+- **the live check (`lv-release`) is pending**: the balance read 21 again at
+  13:29:05 UTC, below the 30 the press needs, and the session does not raise
+  it (`docs/history/2026-10-06-deploy-2185.md` §7).
 
 ## The served-file check, driven end to end on deploy 2139
 
