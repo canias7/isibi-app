@@ -241,7 +241,21 @@ because nothing here can see them.
   here; unit CI skips them). The three corrections the owner passed in run
   101's batch and the requirement judgment are among them, unchanged and
   green.
-- **CI**: read after the push, and recorded on top.
+- **CI** on `4865cb97` (this fix's code, `4b6271ff`, with its records on
+  top), complete and green:
+  - **unit tests** (run 37398006134): `9525 / 9513 / 0 / 12`. The total
+    matches the local run; CI skips the same 12 as before (its usual 6 and
+    the 6 real-browser cases);
+  - **the site build** (run 37398006135): all seven jobs and the gate
+    passed. The gate reads *"ALL CHECKS: 404 checks in 27 sections across 4
+    shards, every job green"* (shard 1: 108 checks in 1 section; shard 2: 75
+    in 2; shard 3: 158 in 16; shard 4: 62 in 8), for commit `4865cb97` and
+    site-build inputs `7aa0b0cc1382a4e9` (3,972 files);
+  - **the published-site job's step list came back empty from the API**,
+    though it ran for two minutes on a runner and concluded `success`. Its
+    log shows both checks ran: site-routing *"14 passed, 0 failed"* and
+    site-runtime *"47 passed, 0 failed"*. A reporting gap, not a skipped
+    job.
 - **The image** (predicted, not built): `589e3e4e85a20066` at `d53caefc`
   (deploy 2184's) became `1df286f23782ff82` with run 101's batch and
   `08b996804d8121ea` with the judgment, and becomes `7107b9a349d84ca8` with

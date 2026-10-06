@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 01:12 UTC)
+## Current handoff — read this first (2026-10-06, 01:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -43,12 +43,19 @@ is in git; the dated entries further down are the full story.*
     happen (history §5). The controls survived in both;
   - **the suite**: `9525 / 9525 / 0 / 0` here (the 9,519 before, plus the
     6 new cases). Your earlier corrections are among them, unchanged.
-- **CI**: running on this push; I read it and record it next.
+- **CI on `4865cb97` is complete and green** (the fix's code with its
+  records on top):
+  - unit tests (run 37398006134): `9525 / 9513 / 0 / 12`, the same total as
+    here; CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37398006135): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*. One job's
+    step list came back empty from GitHub's API, but its log shows both of
+    its checks ran and passed (14 and 47).
 - **Money**: balance **21** (read at 01:01 UTC on 6 October: last ledger row 392, no job open). Nothing was
   spent in this batch.
 
 **Yours to decide**
-- **Nothing to press yet**: CI is being read.
+- **Nothing to re-run**: every required job ran and passed.
 - **Review the fix** (`docs/history/2026-10-06-incomplete-judgment.md`, with
   its limits in §6).
 - **The refusal limit** (history §6): when a designer refuses its part and
@@ -216,7 +223,8 @@ since. Add new ones there.
     requirement to reach a hand-off, and that now stops the addition;
   - the full suite: `9525 / 9525 / 0 / 0` here (the 9,519 before, plus the
     6 new cases);
-  - CI: read after the push; the handoff has the result.
+  - CI on the push: green. Unit tests passed with the same total as here,
+    and the site build's seven jobs and its gate passed.
 - **Found, not fixed** (you said not to widen this): the cover note names at
   most two requirements in most of its sentences (three in "Still to do"),
   with no count of the rest. A third requirement told as set up then
