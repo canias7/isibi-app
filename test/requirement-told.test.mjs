@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 import {
   requirementReport, requirementNote, toldNote, propertyNote, requirementOutcomes, cleanRequirements, TOLD, SITE_KINDS,
 } from "../builder/site-requirements.mjs";
-import { appliedFacts } from "../builder/site-add.mjs";
+import { appliedFacts, existingFacts } from "../builder/site-add.mjs";
 import { addonReplyFacts, replyOutcomeOf, writeReply, REPLY_TOOL } from "../builder/site-reply.mjs";
 import { addon as routeAddon, writtenPage, storedAnswer, SITE_CONN } from "./fixtures/addon-route.mjs";
 import { invalidateSiteSchema } from "../site-schema.mjs";
@@ -53,6 +53,9 @@ const SET_UP = ["Each signup is kept so the owner can read them", "Only the owne
 const CONFIGURED = ["Each signup is kept as a collected entry"];
 const SCHEDULED = ["The reminder runs every morning", "The reminder is sent to everyone who booked", "The reminder goes out at nine"];
 const UNSEEN = ["Each signup gets a welcome message", "Each signup is tagged with where it came from", "Signups older than a year are archived"];
+// ADDED 2026-10-06: carried by what the site already had, above the set-up
+// sentence's old cut of two — never "set up" by this change.
+const ALREADY = ["Each enquiry is emailed to the owner", "Each enquiry is kept for a year", "Enquiries are visible only to the owner"];
 
 // ── ENTRIES THAT REACH EACH STATE THROUGH `requirementOutcomes`, judged ──────
 const J = (carried, by = []) => ({ follows: "asked", carried, by, reason: "r" });
@@ -66,6 +69,7 @@ const setUp = (need) => E({ need, status: "covered", from: "table", item: "signu
 const configured = (need) => E({ need, status: "covered", from: "table", item: "signups", kind: "table", by: "signups is a collect table", judged: J("yes", ["table:signups"]) });
 const scheduled = (need) => E({ need, status: "covered", from: "job", item: "nightly_a", kind: "job", judged: J("yes", ["job:nightly_a"]) });
 const unseen = (need) => E({ need, status: "covered", from: "table", item: "signups", kind: "table", judged: J("unsure") });
+const already = (need) => E({ need, status: "covered", from: "table", item: "enquiries", kind: "table", judged: J("yes", ["table:enquiries"]) });
 // WHAT REALLY RAN: the table and the job applied; the function step failed.
 const MADE = appliedFacts({
   spec: {
@@ -75,11 +79,13 @@ const MADE = appliedFacts({
   },
   tables: ["signups"], functions: ["send_reminder"], jobs: [{ name: "nightly_a", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }],
 });
-const OPTS = { made: MADE, reportable: REPORTABLE, failed: ["function"], judged: true };
+// …AND WHAT THE SITE ALREADY HAD: a table nothing in this change touched.
+const EXISTING = existingFacts({ spec: { tables: [{ name: "enquiries", access: "collect", columns: [{ name: "name" }, { name: "message" }] }] } });
+const OPTS = { made: MADE, reportable: REPORTABLE, failed: ["function"], judged: true, existing: EXISTING };
 /** Every kind of outcome at once, each above its old cut, in an order the note does not use. */
 const MIXED = () => [
   ...UNSEEN.map(unseen), ...SET_UP.map(setUp), ...MISSING.map(missing), ...BLOCKED.map(blocked),
-  ...SCHEDULED.map(scheduled), ...UNSUPPORTED.map(unsupported), ...FAILED.map(failedStep), ...CONFIGURED.map(configured),
+  ...SCHEDULED.map(scheduled), ...ALREADY.map(already), ...UNSUPPORTED.map(unsupported), ...FAILED.map(failedStep), ...CONFIGURED.map(configured),
 ];
 /** What the note says, in its own order: every requirement, told as what became of it. */
 const TOLD_ORDER = [
@@ -88,6 +94,7 @@ const TOLD_ORDER = [
   ...BLOCKED.map((n) => ["blocked", n, "blocked"]),
   ...SET_UP.map((n) => ["set-up", n, "unverified"]), ...CONFIGURED.map((n) => ["set-up", n, "configured"]),
   ...SCHEDULED.map((n) => ["scheduled", n, "unverified"]),
+  ...ALREADY.map((n) => ["already-there", n, "unverified"]),
   ...UNSEEN.map((n) => ["unseen", n, "unknown"]),
 ];
 /** An answer as the route sends it, from a report: the note, the list, and the rest beside them. */
@@ -98,16 +105,22 @@ const bodyOf = (report, { other = "", ...extra } = {}) => ({
   coverOther: other || undefined,
   ...extra,
 });
-const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", scheduled: "note", unseen: "not-done" };
-const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CONFIGURED, ...SCHEDULED, ...UNSEEN];
+const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", scheduled: "note", "already-there": "note", unseen: "not-done" };
+const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CONFIGURED, ...SCHEDULED, ...ALREADY, ...UNSEEN];
 
 test("TOLD 1 — the report: every requirement of every kind of outcome, above every old cut and mixed, in the note's order, with what became of it and why where its sentence says", () => {
-  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "unseen"]);
+  // RE-ANCHORED 2026-10-06: "already-there", for what the site already had.
+  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen"]);
   const r = requirementReport(MIXED(), OPTS);
   assert.deepEqual(r.told.map((o) => [o.told, o.need, o.state]), TOLD_ORDER);
   // THE REASON RIDES WHERE ITS SENTENCE GIVES ONE, and nowhere else.
   for (const o of r.told) assert.equal(Object.hasOwn(o, "why"), o.told === "unsupported" || o.told === "blocked", JSON.stringify(o));
   assert.ok(r.told.filter((o) => o.told === "blocked").every((o) => o.why === "the function step could not do its part"), JSON.stringify(r.told));
+  // "ALREADY THERE" IS WHAT THE RECORD SAYS WAS FOUND WHERE IT ALREADY WAS, and
+  // nothing else: every set-up entry was found among what this change applied.
+  const rec = requirementOutcomes(MIXED(), OPTS);
+  assert.deepEqual([...new Set(rec.filter((o) => ALREADY.includes(o.need)).map((o) => o.foundIn))], ["existing"]);
+  assert.deepEqual([...new Set(rec.filter((o) => SET_UP.includes(o.need) || CONFIGURED.includes(o.need)).map((o) => o.foundIn))], ["applied"]);
   // THE PROPERTY COUNTS ARE THEIR OWN, never among the requirements.
   const withProps = requirementReport(MIXED(), { ...OPTS, invalid: ["onConflict", "softDelete"], unexpressed: ["language"] });
   assert.deepEqual([withProps.told.length, withProps.invalid, withProps.unexpressed], [TOLD_ORDER.length, ["onConflict", "softDelete"], ["language"]]);
@@ -120,6 +133,8 @@ test("TOLD 2 — the note the browser prints names every one in its own sentence
   assert.ok(note.includes("And this one is waiting on another part of the same change that didn't work: " + BLOCKED.map((n) => n + " — the function step could not do its part").join("; ") + "."), note);
   assert.ok(note.includes("I've set that up, but I can't confirm from here that " + [...SET_UP, ...CONFIGURED].join("; or that ") + " — have a look"), note);
   assert.ok(note.includes("Scheduled as you asked: " + SCHEDULED.join("; ") + ". Automatic running"), note);
+  assert.ok(note.includes("Your site already had that in place, but I can't confirm from here that " + ALREADY.join("; or that ") + " — have a look"), note);
+  assert.doesNotMatch(note.slice(note.indexOf("I've set that up"), note.indexOf("Scheduled as you asked")), new RegExp(ALREADY.join("|")), "what the site already had was said to be set up");
   assert.ok(note.includes("I can't see from here whether " + UNSEEN.join("; or whether ") + " — nothing I can check"), note);
   assert.doesNotMatch(note, /more like it|\band \d+ more\b/i);
   for (const n of ALL) assert.equal(note.split(n).length - 1, 1, "said other than once: " + n);
@@ -177,6 +192,7 @@ test("TOLD 4 — each requirement is its own fact, its kind the state's; the not
   assert.deepEqual(told.filter((x) => x.kind === "note").map((x) => x.text), [
     ...[...SET_UP, ...CONFIGURED].map((n) => "Set up, but nothing here can check that it works: " + n + "."),
     ...SCHEDULED.map((n) => "Scheduled as asked; its automatic running has not been seen yet: " + n + "."),
+    ...ALREADY.map((n) => "Their site already had this before this request, and nothing here can check that it works: " + n + "."),
   ]);
   assert.ok(told.some((x) => x.text === "Their site cannot do this yet: People can pay by bank transfer (this kind of change cannot do that yet)."));
   assert.ok(told.some((x) => x.text === "Not done: The number of signups is counted every hour."));
@@ -406,12 +422,14 @@ test("TOLD 10 — the whole path in a request: the addition's answer stored by i
   } finally { P.close(); compiler.uninstall(); }
 });
 
-test("TOLD 11 — kept separate, and pinned so a change to it is deliberate: a refusal's answer carries the whole list too, and still nothing it lists reaches the customer, whether or not the judgment finished", async () => {
-  // THE OWNER (2026-10-06): *"Keep the documented refusal-path limitation
-  // visible as a separate item."* Measured here as it stands: on a refusal
-  // (`ok: false`) the reply's facts are the refusal's own, and the browser
-  // prints the refusal's sentence — the cover note, complete or not, reaches
-  // neither. The judgment finished in this case.
+test("TOLD 11 — RE-ANCHORED 2026-10-06, the limitation it pinned now closed: a refusal's answer carries the whole list, and every requirement in it reaches the reply model and the screen, under the refusal's own sentence", async () => {
+  // THIS CASE PINNED THE OMISSION "so a change to it is deliberate": the
+  // facts and the screen were the refusal's own, and the bank transfer the
+  // customer asked for reached neither. The owner (2026-10-06): *"close …
+  // requirement details disappearing from refused Add-on responses."* It now
+  // pins the fix; the fuller cases — an incomplete judgment beside a refusal,
+  // what the site already had, a refusal's stored answer replayed — are in
+  // `test/addon-refusal-warnings.test.mjs`.
   const MSG = "Add a spinning 3D model of our shop to the home page, and let people pay by bank transfer";
   const PAY = { need: "People can pay by bank transfer", status: "unsupported", why: "this step cannot take payments", basis: "asked", words: "let people pay by bank transfer" };
   const r = await addon("rt-told-refused", MSG, {
@@ -422,11 +440,12 @@ test("TOLD 11 — kept separate, and pinned so a change to it is deliberate: a r
   assert.equal(r.body.error, "add", "the designer's answer was not refused — this case tests nothing: " + JSON.stringify(r.body).slice(0, 300));
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["unsupported", PAY.need]]);
   assert.match(r.body.coverNote, /One thing your site can't do yet: People can pay by bank transfer/);
-  // …AND NEITHER THE REPLY MODEL NOR THE SCREEN HEARS OF IT.
-  assert.ok(!facts(r.body).some((x) => /bank transfer/.test(x)), JSON.stringify(facts(r.body)));
+  // …AND NOW BOTH THE REPLY MODEL AND THE SCREEN HEAR OF IT.
+  assert.deepEqual(facts(r.body).filter((x) => /bank transfer/.test(x)), ["not-done: Their site cannot do this yet: People can pay by bank transfer (this step cannot take payments)."]);
+  assert.match(facts(r.body)[0], /^not-done: Nothing was added\. The builder's own reason: /, "the refusal's own fact is no longer first");
   const b = browserReply(r.body, false);
   assert.ok(b.ok, b.why);
-  assert.doesNotMatch(b.text, /bank transfer/, b.text);
+  assert.equal(b.text, "⚠️ " + r.body.msg + " " + r.body.coverNote, b.text);
 });
 
 test("TOLD 12 — what the note says beside the requirements reaches the reply model once, as its own fact: four undone requirements and a page the writer did not produce, through the route", async () => {
@@ -442,13 +461,16 @@ test("TOLD 12 — what the note says beside the requirements reaches the reply m
   const f = addonReplyFacts(r.body).facts;
   // THE REQUIREMENTS, ONE FACT EACH…
   assert.deepEqual(f.filter((x) => four.some((n) => x.text.includes(n))).map((x) => x.kind + ": " + x.text), four.map((n) => "not-done: Not done: " + n + "."));
-  // …THE MISSING PAGE'S OWN SENTENCE, ONCE, BESIDE THEM…
+  // …THE MISSING PAGE, ONCE, BESIDE THEM — RE-ANCHORED 2026-10-06: as a fact
+  // of its own (`warningsTold`), no longer the note's sentence.
   const beside = f.filter((x) => /\/prices/.test(x.text));
   assert.equal(beside.length, 1, JSON.stringify(f));
-  assert.match(beside[0].text, /^One page I set out to add isn't there — \/prices/);
+  assert.equal(beside[0].text, "A page this change set out to add did not make it through, so it is not on the site: /prices.");
   assert.equal(beside[0].kind, "not-done");
-  // …AND THE REQUIREMENTS' OWN SENTENCES NOWHERE AMONG THE FACTS.
-  assert.ok(!f.some((x) => /Still to do/.test(x.text)), JSON.stringify(f));
+  assert.deepEqual(r.body.warningsTold, [{ what: "page", name: "/prices" }]);
+  // …AND THE REQUIREMENTS' OWN SENTENCES NOWHERE AMONG THE FACTS, NOR THE
+  // PAGE'S.
+  assert.ok(!f.some((x) => /Still to do|One page I set out/.test(x.text)), JSON.stringify(f));
   // THE NOTE THE BROWSER PRINTS HAS BOTH, the requirements first.
   assert.ok(r.body.coverNote.startsWith("Still to do: " + four.join("; ") + ". One page I set out to add isn't there — /prices"), r.body.coverNote);
 });

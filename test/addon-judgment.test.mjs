@@ -605,8 +605,10 @@ test("JUDGE 16 — a designer's refusal still reports only what follows from the
   // A JUDGMENT BESIDE A REFUSAL THAT DOES NOT FINISH (2026-10-06): asked once
   // more like any other; still short, the refusal stays the answer — nothing
   // was applied or charged, and it says the addition did not happen — and
-  // what nobody judged is not told. A stated limit: the bank transfer they
-  // asked for is then not named beside it.
+  // what nobody judged is not told. On the owner's word that evening this is
+  // the rule, not a limit: *"an incomplete judgment must never become a claim
+  // that work succeeded."* A judgment that finishes beside a refusal is told
+  // to the reply model and on the screen (`test/addon-refusal-warnings.test.mjs`).
   const short = await addon("fw-judge-refused-short", MSG, {
     kinds: ["three"],
     answers: { three: { three: { page: "/" }, requirements: [PAY, SPIN] } },

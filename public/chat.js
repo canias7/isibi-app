@@ -11233,18 +11233,25 @@ function addonAnswer(httpOk, a, o) {
       o.finish(said.ask ? askReplyMsg(modelSaid, askFromReply(o.origin, said.ask, o.imgs)) : modelSaid);
       return;
     }
+    // WHAT EACH REQUIREMENT CAME TO, UNDER THE REFUSAL'S OWN SENTENCE
+    // (2026-10-06). A refused addition has carried the server's note since
+    // 2026-09-14 and this printed none of it, so "your site can't take
+    // payments yet" beside a refused 3D model was never seen. PRINTED
+    // VERBATIM, `coverNote`'s rule: the server composes a refusal's note
+    // without anything that says work was done.
+    const cover = typeof a.coverNote === 'string' && a.coverNote.trim() ? ' ' + a.coverNote.trim() : '';
     if (said.ask) {
       const told = typeof a.msg === 'string' && a.msg.trim() ? '⚠️ ' + a.msg : '';
-      o.finish(askReplyMsg(told + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
+      o.finish(askReplyMsg(told + cover + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
       return;
     }
     // The route's own sentence, when it wrote one.
-    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + alsoTail(a, false)); return; }
+    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + cover + alsoTail(a, false)); return; }
     // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
     // `ok: false` without a reason is still the route saying the addition did
     // not finish — never that nothing changed or nothing was charged, which an
     // error alone does not establish.
-    o.finish(addonOutcomeMsg('unsaid') + alsoTail(a, false));
+    o.finish(addonOutcomeMsg('unsaid') + cover + alsoTail(a, false));
     return;
   }
   return applyAddonResult(a, o);

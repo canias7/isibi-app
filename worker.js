@@ -272,7 +272,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, warningReport, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -29987,7 +29987,9 @@ async function handleRequest(request, env, ctx) {
               }
               return j;
             };
-            const aCoverage = () => {
+            // `refused` (2026-10-06): the answer is a refusal, and nothing
+            // this request asked for was added — see the note's own half below.
+            const aCoverage = ({ refused = false } = {}) => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
               // ── WHAT EACH REQUIREMENT CAME TO, WHOLE (2026-10-06) ──────────
@@ -30001,10 +30003,14 @@ async function handleRequest(request, env, ctx) {
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
+              // THE PROPERTY COUNTS: names the design used that the database
+              // does not offer, or that this step could not carry.
+              const aProps = propertyNote(aRep.invalid, aRep.unexpressed);
+              // THE PARTIAL OUTCOME'S OWN SENTENCE, counted by kind (see the
+              // list below for where it sits and why).
+              const aPartly = droppedNote([...aDropped.values()]);
               const aOther = [
-                // THE PROPERTY COUNTS: names the design used that the
-                // database does not offer, or that this step could not carry.
-                propertyNote(aRep.invalid, aRep.unexpressed),
+                aProps,
                 // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
                 // into the requirements' sentences: those are about
                 // REQUIREMENTS the designers declared, and a page that did not
@@ -30017,7 +30023,7 @@ async function handleRequest(request, env, ctx) {
                 // about this change whether or not a requirement named it.
                 // Without it a change that built one of two things read as
                 // "✅ Done — updated /." and nothing else.
-                droppedNote([...aDropped.values()]),
+                aPartly,
                 // …AND WHAT WENT WITH THEM. Beside the sentence above,
                 // never instead of it: one says the page is not there, this
                 // says a code that was going to open it was not added — or,
@@ -30040,6 +30046,23 @@ async function handleRequest(request, env, ctx) {
                 // run 47's shape.
                 populationNote(aNoFill),
               ].filter(Boolean);
+              // ── EVERY MISSING PAGE, CODE, SEED SKIP AND EMPTY TABLE, ONE BY
+              // ONE (2026-10-06) ─────────────────────────────────────────────
+              //
+              // The four sentences above named three and counted the rest, and
+              // the reply model was given them as one fact. `warningsTold` is
+              // each thing on its own, from the same selections; `coverOther`
+              // keeps only the two COUNTED sentences, which name no items.
+              const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill });
+              const aCounted = [aProps, aPartly].filter(Boolean);
+              // ⚠ A REFUSAL'S NOTE (2026-10-06): the requirements and the
+              // change's own items, and NOT the two counted sentences — "so
+              // it's on the database's own default" and "Part of that didn't
+              // get built" describe a change that was built, and nothing was.
+              // The browser prints this under the refusal's own sentence.
+              const aNote = refused
+                ? [toldNote(aRep.told), ...aOther.filter((x) => x !== aProps && x !== aPartly)]
+                : [toldNote(aRep.told), ...aOther];
               return {
                 // THE CUSTOMER'S HALF: a sentence, or nothing at all. Never the
                 // property names, never the counts, never the status tokens.
@@ -30058,11 +30081,13 @@ async function handleRequest(request, env, ctx) {
                 // steps were really handed an outstanding requirement.
                 // THE BROWSER PRINTS IT VERBATIM when there is no model reply:
                 // every requirement's sentence, then the rest, in that order.
-                coverNote: [toldNote(aRep.told), ...aOther].filter(Boolean).join(" "),
+                coverNote: aNote.filter(Boolean).join(" "),
                 // THE REPLY'S HALF, one entry per requirement the customer
-                // hears about, and what the note says beside them.
+                // hears about, one per thing this change could not do, and the
+                // counted sentences beside them (none on a refusal).
                 requirementsTold: aRep.told.length ? aRep.told : undefined,
-                coverOther: aOther.length ? aOther.join(" ") : undefined,
+                warningsTold: aWarned.length ? aWarned : undefined,
+                coverOther: !refused && aCounted.length ? aCounted.join(" ") : undefined,
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
@@ -30109,8 +30134,10 @@ async function handleRequest(request, env, ctx) {
                 // do nothing with it and the things they CAN act on already
                 // have their own sentences.
                 unseenPages: aUnseenPages.length ? aUnseenPages : undefined,
-                seedSkips: aSeedSkips.length ? aSeedSkips.slice(0, 12) : undefined,
-                noPopulation: aNoFill.length ? aNoFill.slice(0, 12) : undefined,
+                // WHOLE (2026-10-06): both were cut at twelve, and a thirteenth
+                // was on no list anybody read.
+                seedSkips: aSeedSkips.length ? aSeedSkips : undefined,
+                noPopulation: aNoFill.length ? aNoFill : undefined,
                 // WHAT THE BACKEND LOOKUP REALLY ANSWERED, so a support read
                 // never has to infer it: `ready`, `none` or `incomplete` (an
                 // `unreadable` site never reaches here — it stops above).
@@ -30223,7 +30250,7 @@ async function handleRequest(request, env, ctx) {
                 // here leaves the requirements unjudged and untold — the
                 // refusal is the answer, and it says nothing was added.
                 if (aReq.length) await aJudge(aReq.slice());
-                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage() }, { status: 422 });
+                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage({ refused: true }) }, { status: 422 });
               }
               // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
               //
@@ -30475,7 +30502,7 @@ async function handleRequest(request, env, ctx) {
               // say why — run 28's three blind declines. The coverage list
               // survives an answer that designed nothing, which is the whole
               // reason it rides beside `value` rather than inside it.
-              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage() }, { status: 422 });
+              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage({ refused: true }) }, { status: 422 });
             }
             // THE FOLD: what the look and the schema store, what the page call
             // is told, and the union of kit parts it is shown the props of.
@@ -30835,7 +30862,9 @@ async function handleRequest(request, env, ctx) {
                 // Read off the engine's own answer rather than re-derived, so
                 // the sentence and the migration entry can never disagree about
                 // which tables started empty.
-                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice(0, 12) : [];
+                // EVERY ONE (2026-10-06): this kept the first twelve, so a
+                // thirteenth table reached neither the note nor the reply.
+                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice() : [];
                 // WHICH TABLES THIS CHANGE READS AND NOTHING CAN FILL. Asked of
                 // `merged` — the spec the apply really ran — so a table the
                 // cleaner refused is not reported, and asked AFTER the seed so a
@@ -31637,12 +31666,17 @@ async function handleRequest(request, env, ctx) {
               // answering `no-change` or `nothing-returned` is exactly that,
               // asked by the one function that can tell.
               if (!aHeld.ok) {
+                // THE PAGE THE CODES WERE GOING TO OPEN IS NAMED FIRST
+                // (2026-10-06): the codes' own sentence says "that page", and
+                // on this refusal nothing before it said which — the missing
+                // page reached neither the screen nor the stored answer.
                 return Response.json({
                   ok: false, error: "qr-dependency", cost: 0,
+                  missingPages: aGone.length ? aGone.slice() : undefined,
                   droppedQrs: aDeadQr.dropped.slice(),
                   heldPages: aDeadQr.withheld.map((w) => w.path),
                   heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name) : undefined,
-                  msg: deadQrNote(aDeadQr).trim(),
+                  msg: [missingPagesNote(aGone), deadQrNote(aDeadQr)].filter(Boolean).join(" ").trim(),
                 }, { status: 422 });
               }
               aMerge = aHeld;

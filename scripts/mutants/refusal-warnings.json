@@ -1,0 +1,318 @@
+[
+ {
+  "label": "CONTROL: a comment in the notes changes nothing",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "// ── EVERY ITEM, NAMED, IN THE NOTE AND IN THE REPLY (2026-10-06) ───────────",
+  "to": "// ── EVERY ITEM, NAMED, IN THE NOTE AND IN THE REPLY (2026-10-06, control) ──",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the facts changes nothing",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "// ── WHAT THIS CHANGE COULD NOT DO, ONE FACT PER THING (2026-10-06) ─────────",
+  "to": "// ── WHAT THIS CHANGE COULD NOT DO, ONE FACT PER THING (2026-10-06, ctl) ────",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the route changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // ONE (2026-10-06) ─────────────────────────────────────────────",
+  "to": "              // ONE (2026-10-06, control) ────────────────────────────────────",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the browser changes nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    // WHAT EACH REQUIREMENT CAME TO, UNDER THE REFUSAL'S OWN SENTENCE",
+  "to": "    // WHAT EACH REQUIREMENT CAME TO, UNDER THE REFUSAL'S OWN SENTENCE (control)",
+  "control": true
+ },
+ {
+  "label": "F1: a refusal's facts read no requirement again",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    coverFacts(F, a, { refused: true });\n",
+  "to": ""
+ },
+ {
+  "label": "F2: a refusal's older \"set up\" told as set up",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const as = refused && (o.told === \"set-up\" || o.told === \"scheduled\") ? \"already-there\" : o.told;",
+  "to": "    const as = o.told;"
+ },
+ {
+  "label": "F3: a refusal falls back to its older note",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const s = refused ? \"\" : said(a.coverNote);",
+  "to": "    const s = said(a.coverNote);"
+ },
+ {
+  "label": "F4: a refusal tells the counted sentences",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  const rest = refused ? \"\" : said(a.coverOther);",
+  "to": "  const rest = said(a.coverOther);"
+ },
+ {
+  "label": "F5: the mapping applied to a success too",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const as = refused && (o.told === \"set-up\" || o.told === \"scheduled\") ? \"already-there\" : o.told;",
+  "to": "    const as = (o.told === \"set-up\" || o.told === \"scheduled\") ? \"already-there\" : o.told;"
+ },
+ {
+  "label": "F6: what the site already had said as set up",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  \"already-there\": [\"note\", (o) => \"Their site already had this before this request, and nothing here can check that it works: \" + o.need + \".\"],",
+  "to": "  \"already-there\": [\"note\", (o) => \"Set up, but nothing here can check that it works: \" + o.need + \".\"],"
+ },
+ {
+  "label": "F7: the cleaner's refusal composes its note as a success",
+  "files": [
+   "worker.js"
+  ],
+  "from": "msg: addRefusal(clean.why, k), ...aCoverage({ refused: true }) }, { status: 422 });",
+  "to": "msg: addRefusal(clean.why, k), ...aCoverage() }, { status: 422 });"
+ },
+ {
+  "label": "F8: a refusal's note keeps the counted sentences",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                ? [toldNote(aRep.told), ...aOther.filter((x) => x !== aProps && x !== aPartly)]",
+  "to": "                ? [toldNote(aRep.told), ...aOther]"
+ },
+ {
+  "label": "F9: the browser's refusal drops the note",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + cover + alsoTail(a, false)); return; }",
+  "to": "    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + alsoTail(a, false)); return; }"
+ },
+ {
+  "label": "F10: the codes' refusal no longer names the missing page",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  msg: [missingPagesNote(aGone), deadQrNote(aDeadQr)].filter(Boolean).join(\" \").trim(),",
+  "to": "                  msg: deadQrNote(aDeadQr).trim(),"
+ },
+ {
+  "label": "A1: what the site already had told as set up (the report)",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  const before = (r) => r.foundIn === \"existing\";",
+  "to": "  const before = (r) => false;"
+ },
+ {
+  "label": "A2: what this change set up told as already there",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  const before = (r) => r.foundIn === \"existing\";",
+  "to": "  const before = (r) => !!r.foundIn;"
+ },
+ {
+  "label": "A3: the first carrier named decides where it was found",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "          const pick = rd.found.find((f) => f.where === \"applied\") || rd.found[0];",
+  "to": "          const pick = rd.found[0];"
+ },
+ {
+  "label": "A4: the note says nothing of what the site already had",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  const there = of(\"already-there\");",
+  "to": "  const there = [];"
+ },
+ {
+  "label": "W1: the report names three missing pages",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  for (const r of missingRoutes(missing)) out.push({ what: \"page\", name: r });",
+  "to": "  for (const r of missingRoutes(missing).slice(0, 3)) out.push({ what: \"page\", name: r });"
+ },
+ {
+  "label": "W2: the missing-page sentence names three",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const named = list.join(\", \");\n  return list.length === 1\n    ? \"One page I set out",
+  "to": "  const named = list.slice(0, 3).join(\", \");\n  return list.length === 1\n    ? \"One page I set out"
+ },
+ {
+  "label": "W3: the codes' sentence names three of each",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const names = (l) => l.map((d) => d.name).join(\", \");",
+  "to": "  const names = (l) => l.slice(0, 3).map((d) => d.name).join(\", \");"
+ },
+ {
+  "label": "W4: the withheld pages' sentence names three",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const where = (l) => l.map((d) => routeOf(d.path) || d.path).join(\", \");",
+  "to": "  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(\", \");"
+ },
+ {
+  "label": "W5: a repeated code told twice",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    return (Array.isArray(list) ? list : []).filter((d) => d && typeof d[key] === \"string\" && d[key] && !seen.has(d[key]) && seen.add(d[key]));",
+  "to": "    return (Array.isArray(list) ? list : []).filter((d) => d && typeof d[key] === \"string\" && d[key]);"
+ },
+ {
+  "label": "W6: a held page loses whether it was new",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  for (const d of held) out.push({ what: \"held-page\", name: routeOf(d.path) || d.path, added: d.added === true });",
+  "to": "  for (const d of held) out.push({ what: \"held-page\", name: routeOf(d.path) || d.path, added: false });"
+ },
+ {
+  "label": "W7: a refused row names a table that is not one",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const row = /^(\\S+) row \\d+$/.exec(head);",
+  "to": "    const row = null;"
+ },
+ {
+  "label": "W8: \"already has rows\" not recognised",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  [\"has-rows\", /^already has rows$/],",
+  "to": "  [\"has-rows\", /^already had rows$/],"
+ },
+ {
+  "label": "W9: every seed skip said to start empty (the old sentence)",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const empty = list.filter((s) => s.why === \"not-display\").map((s) => s.name);",
+  "to": "  const empty = list.filter((s) => s.why !== \"row-failed\").map((s) => s.name);"
+ },
+ {
+  "label": "W10: the empty-table sentence names three",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const named = list.join(\", \");\n  return list.length === 1\n    ? \"Nothing can put rows",
+  "to": "  const named = list.slice(0, 3).join(\", \");\n  return list.length === 1\n    ? \"Nothing can put rows"
+ },
+ {
+  "label": "W11: the report keeps the first reason no more — the last wins",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!name || out.some((o) => o.name === name)) continue;",
+  "to": "    if (!name) continue;\n    { const at = out.findIndex((o) => o.name === name); if (at >= 0) out.splice(at, 1); }"
+ },
+ {
+  "label": "W12: the warned items never told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  for (const o of warned) F.add(\"not-done\", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : \"\" }));\n",
+  "to": ""
+ },
+ {
+  "label": "W13: a warned item rides as a note",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  for (const o of warned) F.add(\"not-done\", WARNED_FACTS[o.what]",
+  "to": "  for (const o of warned) F.add(\"note\", WARNED_FACTS[o.what]"
+ },
+ {
+  "label": "W14: a list that does not read is trusted",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  && (o.why === undefined || (typeof o.why === \"string\" && Object.hasOwn(SEED_FACTS, o.why)));",
+  "to": "  && true;"
+ },
+ {
+  "label": "W15: an empty list read as whole",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  : Array.isArray(v) && v.length > 0 && v.every(",
+  "to": "  : Array.isArray(v) && v.every("
+ },
+ {
+  "label": "W16: a seed skip's reason dropped",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  seed: (o) => (o.why ? SEED_FACTS[o.why](o.name) : \"Starter rows were ready for the table \" + o.name + \" and were not put in.\"),",
+  "to": "  seed: (o) => \"Starter rows were ready for the table \" + o.name + \" and were not put in.\","
+ },
+ {
+  "label": "W17: the route keeps twelve seed skips",
+  "files": [
+   "worker.js"
+  ],
+  "from": "aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice() : [];",
+  "to": "aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice(0, 12) : [];"
+ },
+ {
+  "label": "W18: the wire sends twelve seed skips",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                seedSkips: aSeedSkips.length ? aSeedSkips : undefined,",
+  "to": "                seedSkips: aSeedSkips.length ? aSeedSkips.slice(0, 12) : undefined,"
+ },
+ {
+  "label": "W19: the wire cuts the empty tables",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                noPopulation: aNoFill.length ? aNoFill : undefined,",
+  "to": "                noPopulation: aNoFill.length ? aNoFill.slice(0, 3) : undefined,"
+ },
+ {
+  "label": "W20: the route sends no item list",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                warningsTold: aWarned.length ? aWarned : undefined,",
+  "to": "                warningsTold: undefined,"
+ },
+ {
+  "label": "W21: the counted sentences carry the item sentences again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                coverOther: !refused && aCounted.length ? aCounted.join(\" \") : undefined,",
+  "to": "                coverOther: !refused && aOther.length ? aOther.join(\" \") : undefined,"
+ }
+]

@@ -4894,22 +4894,38 @@ export function missingPages(requested, survived) {
   return out;
 }
 
+// ── EVERY ITEM, NAMED, IN THE NOTE AND IN THE REPLY (2026-10-06) ───────────
+//
+// The owner: individual missing pages, QR codes, seed skips and unfillable
+// tables were disappearing behind shortened lists — three named and "and N
+// more", or, for the codes, three named and the rest never mentioned. *"Carry
+// every relevant outcome through the stored answer, reply-model facts and
+// existing customer display paths, preserving accurate states, reasons and
+// legitimate deduplication."* So each list is SELECTED ONCE, by the readers
+// below, and read twice: by its sentence, which the browser prints, and by
+// `warningReport`, which the reply model is given one entry at a time. No
+// count stands in for a name.
+
+/** The missing pages, each once, in order. */
+function missingRoutes(routes) {
+  return [...new Set((Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r))];
+}
+
 /**
  * The sentence for pages that were asked for and are not there.
  *
  * NAMED, never counted: a route is the one thing about a missing page the
  * customer can act on — they can ask for that page again — where "one page is
- * missing" leaves them to work out which. Bounded at three with the rest
- * counted, the same shape every other list-bearing sentence here uses.
+ * missing" leaves them to work out which. Every one of them (2026-10-06): it
+ * named three and counted the rest.
  */
 export function missingPagesNote(routes) {
-  const list = (Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r);
+  const list = missingRoutes(routes);
   if (!list.length) return "";
-  const named = list.slice(0, 3).join(", ");
-  const rest = list.length > 3 ? " and " + (list.length - 3) + " more" : "";
+  const named = list.join(", ");
   return list.length === 1
     ? "One page I set out to add isn't there — " + named + " didn't make it through, so nothing on your site links to it yet. Ask me for it again on its own and I'll have another go."
-    : list.length + " pages I set out to add aren't there — " + named + rest + " didn't make it through. Ask me for them again and I'll have another go.";
+    : list.length + " pages I set out to add aren't there — " + named + " didn't make it through. Ask me for them again and I'll have another go.";
 }
 
 /**
@@ -5310,6 +5326,19 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
 }
 
 /**
+ * What went with the missing pages, each code, page and component once: the
+ * one selection `deadQrNote` and `warningReport` both read, so the sentence
+ * and the reply's facts can never name different things.
+ */
+function qrOutcomes({ dropped = [], withheld = [], withheldParts = [] } = {}) {
+  const once = (list, key) => {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : []).filter((d) => d && typeof d[key] === "string" && d[key] && !seen.has(d[key]) && seen.add(d[key]));
+  };
+  return { drop: once(dropped, "name"), held: once(withheld, "path"), parts: once(withheldParts, "name") };
+}
+
+/**
  * The sentence for a code that was going to open a page that is not there.
  *
  * SAID BESIDE `missingPagesNote`, never instead of it: that one says the page
@@ -5329,12 +5358,12 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
  * "I left / as it was" is not true of it. The customer asked for a section, so
  * the section is what they hear about.
  */
-export function deadQrNote({ dropped = [], withheld = [], withheldParts = [] } = {}) {
+export function deadQrNote(deadQr = {}) {
   const out = [];
-  const names = (l) => l.slice(0, 3).map((d) => d && d.name).filter(Boolean).join(", ");
-  const drop = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name);
-  const held = (Array.isArray(withheld) ? withheld : []).filter((d) => d && d.path);
-  const parts = (Array.isArray(withheldParts) ? withheldParts : []).filter((d) => d && d.name);
+  // EVERY NAME (2026-10-06): this named the first three of each and said
+  // nothing at all about a fourth.
+  const names = (l) => l.map((d) => d.name).join(", ");
+  const { drop, held, parts } = qrOutcomes(deadQr || {});
   if (drop.length) {
     out.push("I didn't add the QR code" + (drop.length === 1 ? " " : "s ") + names(drop) +
       " — " + (drop.length === 1 ? "it was" : "they were") + " going to open that page, and a code that opens nothing " +
@@ -5343,7 +5372,7 @@ export function deadQrNote({ dropped = [], withheld = [], withheldParts = [] } =
   // TWO SENTENCES FOR TWO KINDS OF WITHHOLDING, because "I left it as it was"
   // is FALSE of a page this change invented — there was no "as it was" — and a
   // customer reading it would go looking for a page that has never existed.
-  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(", ");
+  const where = (l) => l.map((d) => routeOf(d.path) || d.path).join(", ");
   const kept = held.filter((d) => d.added !== true);
   const never = held.filter((d) => d.added === true);
   if (kept.length) {
@@ -5469,13 +5498,18 @@ export function readTables({ spec = null, sources = [] } = {}) {
  * means for the thing they asked for rather than reporting a permission.
  */
 export function populationNote(names) {
-  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n);
+  const list = fillTables(names);
   if (!list.length) return "";
-  const named = list.slice(0, 3).join(", ");
-  const rest = list.length > 3 ? " and " + (list.length - 3) + " more" : "";
+  // EVERY TABLE (2026-10-06): it named three and counted the rest.
+  const named = list.join(", ");
   return list.length === 1
     ? "Nothing can put rows into " + named + " yet, so whatever reads it will show nothing until something does — a form, an import, or add the first rows yourself."
-    : "Nothing can put rows into " + named + rest + " yet, so whatever reads them will show nothing until something does — a form, an import, or add the first rows yourself.";
+    : "Nothing can put rows into " + named + " yet, so whatever reads them will show nothing until something does — a form, an import, or add the first rows yourself.";
+}
+
+/** The tables nothing can fill, each once, in order. */
+function fillTables(names) {
+  return [...new Set((Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n))];
 }
 
 /**
@@ -5494,26 +5528,105 @@ export function populationNote(names) {
  * THE EFFECT IS SAID, NOT THE RULE. "Only display tables are seeded" is our
  * vocabulary; what the customer needs is that the table starts empty and what
  * that means for the page they asked for.
+ *
+ * ⚠ AND THAT EFFECT IS SAID ONLY OF THE SKIP IT IS TRUE OF (2026-10-06).
+ * `seedSiteRows` skips for five reasons, and this said "isn't one visitors can
+ * read, so it starts empty" of all of them — of a table that "already has
+ * rows" too, which is the opposite. The other four are named with no reason
+ * here; the reply model is told each one's own (`warningReport`).
  */
 export function seedSkipNote(skipped) {
-  const list = (Array.isArray(skipped) ? skipped : []).map((s) => String(s || "")).filter(Boolean);
-  // TWO EMPTY CHECKS, AND THE REDUNDANCY IS DELIBERATE — said here because a
-  // sweep cannot say it and the next session deletes what nothing appears to
-  // need. The first refuses an empty LIST; the second refuses a list whose
-  // entries carry no table name (`"  "`, `": nothing"`). Each catches the
-  // other's input today, so a mutant removing either alone survives; a mutant
-  // removing BOTH composes a sentence about nothing, which is exactly the
-  // "imply seeding was required when it wasn't" the owner ruled out, and that
-  // pair is what the sweep mutates.
+  // NOTHING SELECTED SAYS NOTHING — never a sentence about no table, which is
+  // the "imply seeding was required when it wasn't" the owner ruled out. An
+  // empty list and a list whose entries carry no table name (`"  "`,
+  // `": nothing"`) both select nothing (`seedSkipsOf`). The early return below
+  // is a shortcut, declared rather than deleted: without it the three groups
+  // are empty and so is the sentence. What really stands between a list of
+  // blanks and a sentence about no table is `seedSkipsOf`'s blank-name check,
+  // and that is what the sweep mutates (2026-10-06; it was two checks here).
+  const list = seedSkipsOf(skipped);
   if (!list.length) return "";
-  const named = list.map((s) => s.split(":")[0].trim()).filter(Boolean);
-  const uniq = [...new Set(named)];
-  if (!uniq.length) return "";
-  const head = uniq.slice(0, 3).join(", ");
-  const rest = uniq.length > 3 ? " and " + (uniq.length - 3) + " more" : "";
-  return uniq.length === 1
-    ? "I had starter rows ready for " + head + " and didn't put them in — that table isn't one visitors can read, so it starts empty."
-    : "I had starter rows ready for " + head + rest + " and didn't put them in — those tables aren't ones visitors can read, so they start empty.";
+  // EVERY TABLE (2026-10-06): it named three and counted the rest.
+  const empty = list.filter((s) => s.why === "not-display").map((s) => s.name);
+  const some = list.filter((s) => s.why === "row-failed").map((s) => s.name);
+  const other = list.filter((s) => s.why !== "not-display" && s.why !== "row-failed").map((s) => s.name);
+  const out = [];
+  if (empty.length) {
+    out.push(empty.length === 1
+      ? "I had starter rows ready for " + empty[0] + " and didn't put them in — that table isn't one visitors can read, so it starts empty."
+      : "I had starter rows ready for " + empty.join(", ") + " and didn't put them in — those tables aren't ones visitors can read, so they start empty.");
+  }
+  // A ROW REFUSED IS NOT A TABLE SKIPPED: each row is tried on its own, so
+  // this says what is known — not all of them went in — and no more.
+  if (some.length) out.push("Not all of the starter rows I had ready for " + some.join(", ") + " went in.");
+  if (other.length) out.push("I had starter rows ready for " + other.join(", ") + " and didn't put them in.");
+  return out.join(" ");
+}
+
+// THE REASON THE ENGINE GAVE, read off its own sentence: `seedSiteRows` writes
+// "<table>: <reason>" in five shapes, four of them fixed. The fifth is a
+// database error's own text, and that — or any reason this does not know — is
+// kept as no reason (`""`) rather than guessed. A sixth names a row,
+// "<table> row <n>: <error>": that row was refused, and each of the table's
+// other rows was tried on its own (`row-failed`).
+const SEED_WHY = Object.freeze([
+  ["not-display", /^only display tables are seeded\b/],
+  ["has-rows", /^already has rows$/],
+  ["no-table", /^not a table in this schema$/],
+  ["no-columns", /^no writable columns$/],
+]);
+
+/**
+ * The tables the design had starter rows for that got none: each once, by
+ * the name before the first colon, with the first reason given for it.
+ */
+function seedSkipsOf(skipped) {
+  const out = [];
+  for (const s of Array.isArray(skipped) ? skipped : []) {
+    const text = String(s || "");
+    const cut = text.indexOf(":");
+    const head = (cut < 0 ? text : text.slice(0, cut)).trim();
+    // A TABLE'S NAME HAS NO SPACE IN IT, so "<table> row <n>" is a row.
+    const row = /^(\S+) row \d+$/.exec(head);
+    const name = row ? row[1] : head;
+    if (!name || out.some((o) => o.name === name)) continue;
+    const said = cut < 0 ? "" : text.slice(cut + 1).trim();
+    const hit = row ? ["row-failed"] : SEED_WHY.find(([, re]) => re.test(said));
+    out.push({ name, why: hit ? hit[0] : "" });
+  }
+  return out;
+}
+
+/**
+ * WHAT THIS CHANGE COULD NOT DO, ONE ENTRY PER THING (2026-10-06) — the reply
+ * model's half of the four sentences above, from the same selections, in the
+ * note's order:
+ *
+ *   - `page`: a page this change set out to add that is not there;
+ *   - `qr`: a code not added because the page it opens is not there (`route`);
+ *   - `held-page` / `held-section`: a page or a component kept out because
+ *     its change depended on such a code — `added` says whether it was new,
+ *     because "left as it was" is false of one that never existed;
+ *   - `seed`: a table whose starter rows were not put in, with the engine's
+ *     reason (`why`: `not-display`, `has-rows`, `no-table`, `no-columns`,
+ *     `row-failed` when the database refused at least one of its rows, or
+ *     absent when it gave one this does not recognise);
+ *   - `fill`: a table this change reads that nothing can put rows into.
+ *
+ * WHOLE: no cut and no count. Each list is deduplicated as its sentence is,
+ * and nothing more — a page that is both missing and withheld is two entries,
+ * because those are two different things to know about it.
+ */
+export function warningReport({ missing = [], deadQr = null, seedSkips = [], noFill = [] } = {}) {
+  const out = [];
+  for (const r of missingRoutes(missing)) out.push({ what: "page", name: r });
+  const { drop, held, parts } = qrOutcomes(deadQr || {});
+  for (const d of drop) out.push({ what: "qr", name: d.name, ...(typeof d.route === "string" && d.route ? { route: d.route } : {}) });
+  for (const d of held) out.push({ what: "held-page", name: routeOf(d.path) || d.path, added: d.added === true });
+  for (const d of parts) out.push({ what: "held-section", name: d.name, added: d.added === true });
+  for (const s of seedSkipsOf(seedSkips)) out.push({ what: "seed", name: s.name, ...(s.why ? { why: s.why } : {}) });
+  for (const n of fillTables(noFill)) out.push({ what: "fill", name: n });
+  return out;
 }
 
 export function addRepairNote(round) {

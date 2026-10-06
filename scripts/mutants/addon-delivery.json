@@ -134,8 +134,8 @@
     "files": [
       "builder/site-add.mjs"
     ],
-    "from": "  const named = list.slice(0, 3).join(\", \");",
-    "to": "  const named = \"\";"
+    "from": "  const list = missingRoutes(routes);\n  if (!list.length) return \"\";\n  const named = list.join(\", \");",
+    "to": "  const list = missingRoutes(routes);\n  if (!list.length) return \"\";\n  const named = \"\";"
   },
   {
     "label": "FIX 2: the missing-page list is never put on the wire",

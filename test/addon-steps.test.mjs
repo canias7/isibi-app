@@ -887,7 +887,10 @@ test("a requested page is missing only when nothing that survived carries its fi
   assert.deepEqual(missingPages([], ["index.tsx"]), []);
   assert.equal(missingPagesNote([]), "");
   assert.match(missingPagesNote(["/prices"]), /One page I set out to add isn't there — \/prices/);
-  assert.match(missingPagesNote(["/a", "/b", "/c", "/d"]), /4 pages .* \/a, \/b, \/c and 1 more/);
+  // RE-ANCHORED 2026-10-06: every page, never "and 1 more" (owner: no count
+  // in place of the items it hides).
+  assert.match(missingPagesNote(["/a", "/b", "/c", "/d"]), /4 pages .* \/a, \/b, \/c, \/d didn't make it through/);
+  assert.doesNotMatch(missingPagesNote(["/a", "/b", "/c", "/d"]), /\bmore\b/);
 });
 
 test("configuration is recorded and never promoted, and only a checked behaviour is delivered", () => {

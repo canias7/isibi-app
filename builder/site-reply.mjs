@@ -351,29 +351,86 @@ const TOLD_FACTS = Object.freeze({
   blocked: ["not-done", (o) => "Not done, because another part of this change it depends on did not work: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
   "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "."],
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "."],
+  // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
+  // up", and never said to be this request's work.
+  "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "."],
   unseen: ["not-done", (o) => "Nothing here can see whether this is in place: " + o.need + "."],
 });
 
+// ── WHAT THIS CHANGE COULD NOT DO, ONE FACT PER THING (2026-10-06) ─────────
+//
+// The owner: individual missing pages, QR codes, seed skips and unfillable
+// tables were disappearing behind shortened lists. The route sends each one
+// (`warningsTold`, from `warningReport`), and each is a fact of its own, so
+// the reply model must name every one (`readReply`'s `covers`). NOT DONE,
+// every one, as the single sentence they replace was.
+// A SEED SKIP SAYS ITS OWN REASON (`warningReport`'s `why`), never another's:
+// "starts empty" is false of a table that already had rows.
+const SEED_FACTS = Object.freeze({
+  "not-display": (n) => "Starter rows were ready for the table " + n + " and were not put in: starter rows only go into tables that anyone can read and visitors cannot change.",
+  "has-rows": (n) => "Starter rows were ready for the table " + n + " and were not put in: it already had rows.",
+  "no-table": (n) => "Starter rows were ready for a table called " + n + " and were not put in: the site has no table by that name.",
+  "no-columns": (n) => "Starter rows were ready for the table " + n + " and were not put in: it has no columns they could go in.",
+  "row-failed": (n) => "Not every starter row for the table " + n + " went in: the database refused at least one.",
+});
+const WARNED_FACTS = Object.freeze({
+  page: (o) => "A page this change set out to add did not make it through, so it is not on the site: " + o.name + ".",
+  qr: (o) => "A QR code was not added, because the page it would open did not make it through: " + o.name + (o.route ? " (it would have opened " + o.route + ")" : "") + ".",
+  "held-page": (o) => (o.added
+    ? "A new page was not added, because it depended on a QR code that was not added: "
+    : "Left exactly as it was, because its change depended on a QR code that was not added: ") + o.name + ".",
+  "held-section": (o) => (o.added
+    ? "A new section was not written, because it depended on a QR code that was not added: "
+    : "A section was left exactly as it was, because its change depended on a QR code that was not added: ") + o.name + ".",
+  seed: (o) => (o.why ? SEED_FACTS[o.why](o.name) : "Starter rows were ready for the table " + o.name + " and were not put in."),
+  fill: (o) => "Nothing can put rows into the table " + o.name + " yet, so whatever reads it shows nothing until something does (a form, an import, or the owner adding the first rows).",
+});
+
 /**
- * The requirements' facts, then what the note says beside them. CANNOT-TELL
- * READS AS THE WHOLE NOTE: a list that is absent (an answer stored before the
- * route sent one) or has an entry that does not read is not trusted to be
- * whole, and the note, which says every requirement, is one fact as before.
+ * A list on the answer, read strictly: `[]` when the answer does not carry
+ * it, its entries when every one reads, and `null` when it is there and
+ * anything in it does not — cannot-tell, never a shorter list.
  */
-function coverFacts(F, a) {
-  const list = a.requirementsTold;
-  const whole = Array.isArray(list) && list.length > 0 && list.every((o) => o && typeof o === "object" && !Array.isArray(o)
-    && typeof o.need === "string" && flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string"));
-  if (!whole) {
-    const s = said(a.coverNote);
+const entriesOf = (v, reads) => (v === undefined ? []
+  : Array.isArray(v) && v.length > 0 && v.every((o) => o && typeof o === "object" && !Array.isArray(o) && reads(o)) ? v : null);
+const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string");
+const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name === "string" && !!flat(o.name)
+  && (o.added === undefined || typeof o.added === "boolean")
+  && (o.route === undefined || typeof o.route === "string")
+  && (o.why === undefined || (typeof o.why === "string" && Object.hasOwn(SEED_FACTS, o.why)));
+
+/**
+ * The requirements' facts, the change's own shortfalls, then what the note
+ * says beside them. CANNOT-TELL READS AS THE WHOLE NOTE: a list that has an
+ * entry that does not read is not trusted to be whole, and the note, which
+ * names everything, is one fact — as it is for an answer that carries
+ * neither list (one stored before the route sent them, or one with nothing
+ * to tell but the note).
+ *
+ * ⚠ ON A REFUSAL (2026-10-06, `refused`): nothing was added, so nothing here
+ * may say it was set up — the owner: *"On refusal, report only what the
+ * available evidence establishes; an incomplete judgment must never become a
+ * claim that work succeeded."* A requirement an older answer told as set up
+ * or scheduled can only have been carried by what the site already had, and
+ * is said so; the note is never the fallback, because an older one may say
+ * "I've set that up"; and `coverOther` is not told, because its sentences
+ * describe a change that was built. What nobody judged was never in the list.
+ */
+function coverFacts(F, a, { refused = false } = {}) {
+  const told = entriesOf(a.requirementsTold, toldReads);
+  const warned = entriesOf(a.warningsTold, warnedReads);
+  if (!told || !warned || (!told.length && !warned.length)) {
+    const s = refused ? "" : said(a.coverNote);
     if (s) F.add("not-done", s);
     return;
   }
-  for (const o of list) {
-    const [kind, text] = TOLD_FACTS[o.told];
+  for (const o of told) {
+    const as = refused && (o.told === "set-up" || o.told === "scheduled") ? "already-there" : o.told;
+    const [kind, text] = TOLD_FACTS[as];
     F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "" }));
   }
-  const rest = said(a.coverOther);
+  for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));
+  const rest = refused ? "" : said(a.coverOther);
   if (rest) F.add("not-done", rest);
 }
 
@@ -840,6 +897,11 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     (Array.isArray(a.notAdded) ? a.notAdded : []).forEach((nA, i) => {
       if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name) : "one entry") + ". The builder's own reason: " + quote(nA.msg), "notAdded:" + i);
     });
+    // WHAT EACH REQUIREMENT CAME TO, ON A REFUSAL TOO (2026-10-06). The
+    // refused answer has carried them since 2026-09-14 and this branch read
+    // none of them: "their site cannot take payments by bank transfer" beside
+    // a refused 3D model reached neither the reply nor the screen.
+    coverFacts(F, a, { refused: true });
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   heldFacts(F, a, a.ok === true, inRequest === true);

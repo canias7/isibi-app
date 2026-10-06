@@ -277,7 +277,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -547,6 +547,18 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
         if (metaJunk) return new Response(JSON.stringify({ command: "SELECT", rowCount: 1, rows: [["{not json"]], fields: [{ name: "v", dataTypeID: 25 }] }), { status: 200, headers: { "content-type": "application/json" } });
         return new Response(JSON.stringify({ command: "SELECT", rowCount: 1, rows: [[meta.value]], fields: [{ name: "v", dataTypeID: 25 }] }),
           { status: 200, headers: { "content-type": "application/json" } });
+      }
+      // ── A STARTER ROW THE DATABASE REFUSES (2026-10-06) ───────────────────
+      //
+      // `seedSiteRows` puts each row in with its own INSERT and records a row
+      // the database refuses as "<table> row <n>: <error>", the table's other
+      // rows going in. `rowFail` (a pattern over the table's name) refuses
+      // every row of the tables it matches, in Postgres's own error shape, so
+      // a case can drive more skips than tables — six tables is the most one
+      // designer may add (`MAX_ADD_TABLES`). Absent, every case is as it was.
+      const ins = rowFail ? /^INSERT INTO "([^"]+)"/i.exec(q.trim()) : null;
+      if (ins && ins[1] !== "_meta" && rowFail.test(ins[1])) {
+        return new Response(JSON.stringify({ message: "invalid input syntax for type integer", code: "22P02" }), { status: 400, headers: { "content-type": "application/json" } });
       }
       if (fnFail && /CREATE OR REPLACE FUNCTION/i.test(q)
         && (fnFail === true || new RegExp("FUNCTION\\s+\"?" + String(fnFail) + "\"?\\s*\\(", "i").test(q))) {

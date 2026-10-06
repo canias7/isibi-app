@@ -1495,7 +1495,15 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
           else if (ev && ev.kind === "config") { st = "configured"; cfg = String(ev.name) + ": " + String(ev.token); }
           else { st = "unverified"; if (ev && ev.kind === "contradicted") contra = String(ev.name) + ": " + String(ev.token); }
         }
-        if (rd.present === "found" && rd.found.length) { byName = String(rd.found[0].item.name || ""); where = rd.found[0].where; }
+        // WHAT THIS CHANGE APPLIED FIRST, when it applied any of the carriers
+        // (2026-10-06): `foundIn: "existing"` is what the customer hears as
+        // "the site already had it" (`requirementReport`), which must mean that
+        // every carrier found was already there — a requirement this change
+        // helped carry out was set up by it, whichever carrier was named first.
+        if (rd.present === "found" && rd.found.length) {
+          const pick = rd.found.find((f) => f.where === "applied") || rd.found[0];
+          byName = String(pick.item.name || ""); where = pick.where;
+        }
       }
       out.push({
         ...r, state: st,
@@ -1906,9 +1914,11 @@ export function reconcileHandoffs(outcomes) {
  * The sentence each requirement belongs to, in the note's order: the site
  * cannot do it yet; the work is not there; a part of this change it needs did
  * not work; it is there and nothing here checked it; a job is there and its
- * running has not been seen; nothing here could see whether it is there.
+ * running has not been seen; the site already had what does it, before this
+ * change, and nothing here checked it; nothing here could see whether it is
+ * there.
  */
-export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "unseen"]);
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen"]);
 
 /**
  * WHAT THE CUSTOMER IS TOLD ABOUT EACH REQUIREMENT: `{ told, invalid,
@@ -1984,8 +1994,18 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   for (const r of unsupported) tell(r, "unsupported", true);
   for (const r of [...gone, ...broke]) tell(r, "still-to-do", false);
   for (const r of blocked) tell(r, "blocked", true);
-  for (const r of unsure.filter((x) => !jobKind(x))) tell(r, "set-up", false);
-  for (const r of unsure.filter(jobKind)) tell(r, "scheduled", false);
+  // ── "I'VE SET THAT UP" IS SAID ONLY OF WHAT THIS CHANGE SET UP (2026-10-06) ─
+  //
+  // A requirement whose every carrier was found among what the site ALREADY
+  // had (`foundIn: "existing"`) was not set up by this change, and on a
+  // refusal nothing was — the owner: *"On refusal, report only what the
+  // available evidence establishes."* It has its own sentence, on every path:
+  // the record has kept this distinction since 2026-09-15; the sentence did
+  // not.
+  const before = (r) => r.foundIn === "existing";
+  for (const r of unsure.filter((x) => !before(x) && !jobKind(x))) tell(r, "set-up", false);
+  for (const r of unsure.filter((x) => !before(x) && jobKind(x))) tell(r, "scheduled", false);
+  for (const r of unsure.filter(before)) tell(r, "already-there", false);
   for (const r of unseen) tell(r, "unseen", false);
   return { told: out, invalid: bad, unexpressed: lost };
 }
@@ -2031,6 +2051,13 @@ export function toldNote(told) {
   if (scheduled.length) {
     parts.push("Scheduled as you asked: " + scheduled.map((r) => r.need).join("; ")
       + ". Automatic running hasn't been verified from here yet, so have a look after the first one is due.");
+  }
+  // THE SITE ALREADY HAD IT (2026-10-06): the set-up sentence's own words,
+  // without the claim that this change did the setting up.
+  const there = of("already-there");
+  if (there.length) {
+    parts.push("Your site already had that in place, but I can't confirm from here that " + there.map((r) => r.need).join("; or that ")
+      + " — have a look and tell me if it isn't right.");
   }
   // ── AND A DIFFERENT SENTENCE FOR A DIFFERENT SILENCE ─────────────────────
   //

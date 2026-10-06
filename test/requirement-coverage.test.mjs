@@ -59,7 +59,9 @@ const C = blank(CHAT);
 // blanked text, and a blanker that ate the file satisfies each absence check
 // perfectly — this repository's most-recorded trap, met in a lint, a router
 // guard, an absence check and a scope scan.
-assert.ok(W.includes("const aCoverage = () =>"), "the blanker ate the worker's coverage composer");
+// RE-ANCHORED 2026-10-06: the composer takes `{ refused }`, so a refusal's
+// note says nothing that describes a change that was built.
+assert.ok(W.includes("const aCoverage = ({ refused = false } = {}) =>"), "the blanker ate the worker's coverage composer");
 assert.ok(C.includes("function addonReplyText"), "the blanker ate the browser's addon reader");
 
 const toolReply = (name, input) => ({ content: [{ type: "tool_use", name, input }], usage: { input_tokens: 1, output_tokens: 1 } });
@@ -467,9 +469,11 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // hear what the change could not do.
   const spread = W.split("...aCoverage(").length - 1;
   assert.ok(spread >= 4, "not every exit carries the coverage: " + spread + " of 4");
-  assert.match(W, /error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\), \.\.\.aCoverage\(\)/,
+  // RE-ANCHORED 2026-10-06: both refusals say they are refusals, so their
+  // note says nothing that describes a change that was built.
+  assert.match(W, /error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\), \.\.\.aCoverage\(\{ refused: true \}\)/,
     "a cleaner's refusal drops the coverage");
-  assert.match(W, /error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\), \.\.\.aCoverage\(\)/,
+  assert.match(W, /error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\), \.\.\.aCoverage\(\{ refused: true \}\)/,
     "the all-declined answer drops the coverage — the one shape this was built for");
   // RE-ANCHORED 2026-09-14. The composer took the kinds that RAN and decided a
   // hand-off against them; it reads `aTold` — the steps really handed an
@@ -492,7 +496,7 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // and one set. What replaces the old assertion is the pair below, which is
   // the same property one layer over: the composer must read the recorded
   // `aTold` and the APPLIED result, and must not reach for the picked kinds.
-  const covAt = at("const aCoverage = () => {", "the coverage composer");
+  const covAt = at("const aCoverage = ({ refused = false } = {}) => {", "the coverage composer");
   const covBody = W.slice(covAt, W.indexOf("\n            };", covAt));
   assert.ok(covBody.length > 200, "the composer's body could not be found: " + covBody.length);
   assert.match(covBody, /told: \[\.\.\.aTold\]/, "the note is not told which steps were handed a requirement");
@@ -698,7 +702,10 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // RE-ANCHORED 2026-10-06: the requirements' sentences come from the report
   // the reply's facts are written from (`toldNote(aRep.told)`), and the rest
   // from one list (`aOther`) the field spreads whole.
-  assert.match(W, /coverNote: \[toldNote\(aRep\.told\), \.\.\.aOther\]\.filter\(Boolean\)\.join\(" "\),/, "the server sends a field the browser does not read");
+  // RE-ANCHORED 2026-10-06: the note is `aNote` — the same two halves, and on
+  // a refusal the counted sentences left out.
+  assert.match(W, /coverNote: aNote\.filter\(Boolean\)\.join\(" "\),/, "the server sends a field the browser does not read");
+  assert.match(W, /: \[toldNote\(aRep\.told\), \.\.\.aOther\];/, "the note's success half is not the requirements' sentences and the rest");
   const otherAt = W.indexOf("const aOther = [");
   assert.ok(otherAt > 0, "the note's other sentences are not composed in one list");
   const other = W.slice(otherAt, W.indexOf("].filter(Boolean);", otherAt));

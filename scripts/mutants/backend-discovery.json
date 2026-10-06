@@ -318,15 +318,15 @@
   "files": [
    "builder/site-add.mjs"
   ],
-  "from": "  if (!list.length) return \"\";\n  const named = list.map((s) => s.split(\":\")[0].trim()).filter(Boolean);\n  const uniq = [...new Set(named)];\n  if (!uniq.length) return \"\";",
-  "to": "  const named = list.map((s) => s.split(\":\")[0].trim()).filter(Boolean);\n  const uniq = [...new Set(named)];"
+  "from": "    if (!name || out.some((o) => o.name === name)) continue;",
+  "to": "    if (out.some((o) => o.name === name)) continue;"
  },
  {
   "label": "the seed skips are never read off the engine's answer",
   "files": [
    "worker.js"
   ],
-  "from": "                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice(0, 12) : [];",
+  "from": "                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice() : [];",
   "to": "                aSeedSkips = [];"
  },
  {

@@ -110,8 +110,8 @@
     "files": [
       "builder/site-add.mjs"
     ],
-    "from": "  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(\", \");",
-    "to": "  const where = (l) => l.slice(0, 3).map((d) => d.path).join(\", \");"
+    "from": "  const where = (l) => l.map((d) => routeOf(d.path) || d.path).join(\", \");",
+    "to": "  const where = (l) => l.map((d) => d.path).join(\", \");"
   },
   {
     "label": "the route hands deadQrs every page, so a page the site already had can be withheld",

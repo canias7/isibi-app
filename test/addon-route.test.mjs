@@ -2025,8 +2025,13 @@ test("on a site that already has things of a kind, a requirement naming none of 
   // THE CUSTOMER HEARS THE TWO DIFFERENT SENTENCES, and neither is "still to do".
   assert.match(r.body.coverNote, /can't see from here whether something counts what is stored/,
     "the unanswerable need is not said as unanswerable: " + r.body.coverNote);
-  assert.match(r.body.coverNote, /I've set that up, but I can't confirm from here that the poster's code/,
+  // RE-ANCHORED 2026-10-06: there and unchecked, and said to be the site's
+  // own — "I've set that up" was a claim about a code this job-only change
+  // never made (`foundIn: "existing"`, the distinction the record has kept
+  // since 2026-09-15 and the sentence did not).
+  assert.match(r.body.coverNote, /Your site already had that in place, but I can't confirm from here that the poster's code/,
     "the existing QR code is not said as there-and-unchecked: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've set that up/, "a code this change never made was said to be set up by it: " + r.body.coverNote);
   assert.doesNotMatch(r.body.coverNote, /Still to do/,
     "a site's own contents were reported as still to do: " + r.body.coverNote);
 });

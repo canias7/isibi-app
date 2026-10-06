@@ -126,8 +126,8 @@
     "files": [
       "builder/site-add.mjs"
     ],
-    "from": "  const parts = (Array.isArray(withheldParts) ? withheldParts : []).filter((d) => d && d.name);",
-    "to": "  const parts = [];"
+    "from": "  const names = (l) => l.map((d) => d.name).join(\", \");\n  const { drop, held, parts } = qrOutcomes(deadQr || {});",
+    "to": "  const names = (l) => l.map((d) => d.name).join(\", \");\n  const { drop, held } = qrOutcomes(deadQr || {}); const parts = [];"
   },
   {
     "label": "a component that never existed is reported as one left alone",
