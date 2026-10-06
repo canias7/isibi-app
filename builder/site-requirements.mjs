@@ -611,42 +611,71 @@ export function carrierOf(id) {
 export const carrierId = (c) => c.kind + ":" + c.name + (c.part ? ":" + c.part : "");
 
 /**
- * THE JUDGMENT'S ANSWER, CLEANED. `{ verdicts: Map<id, {follows, carried, by,
- * reason}>, invalid: [{id?, why, item?}] }`.
+ * THE JUDGMENT'S ANSWER, CLEANED, AND WHETHER IT IS WHOLE. `{ verdicts:
+ * Map<id, {follows, carried, by, reason}>, invalid: [{id?, why, item?}],
+ * missing: [{id, why}] }`.
  *
  * `ids` are the requirement ids the judgment was shown and `items` the item ids
  * it was shown; a verdict about anything else is not a verdict, and an item it
  * names that it was never shown is not evidence — both are dropped AND counted,
- * never repaired. A `yes` left naming nothing the code can check reads
- * `unsure`: a claim with nothing to look for may not stand in for one.
+ * never repaired.
+ *
+ * ── EVERY REQUIREMENT IT WAS SHOWN NEEDS A VERDICT (owner, 2026-10-06) ──────
+ *
+ * *"runJudge accepts {verdicts:[]} as failed:false with no invalid entries …
+ * a genuinely requested part can disappear from handoffs and customer
+ * reporting. Require a valid verdict for every submitted requirement before
+ * proceeding … Keep legitimate "unsure" judgments distinct from missing
+ * judgments."* So `missing` names every requirement this answer left without a
+ * verdict anybody can use, with why: none at all (`no-verdict`), no `follows`
+ * or no `carried` from their own lists, or a `yes` naming nothing it was shown
+ * (`yes-without-items`). That last one was read as `unsure` until now, and it
+ * is not one: `unsure` is a judgment the model makes and may give, and is
+ * whole; a claim that something carries it out, naming nothing that can be
+ * looked at, is an answer that did not finish. The caller asks once more and
+ * then stops (`runJudge`); nothing proceeds on a partial answer.
+ *
+ * `meaningOnly` is the judgment before a hand-off, which is asked only whether
+ * each requirement follows: its `carried` and `by` are not read (they are
+ * `unsure` and nothing), and it is whole when every requirement has a
+ * `follows`.
  */
-export function readVerdicts(input, { ids = [], items = [] } = {}) {
-  const known = new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string"));
+export function readVerdicts(input, { ids = [], items = [], meaningOnly = false } = {}) {
+  const shown = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string"))];
+  const known = new Set(shown);
   const listed = new Set((Array.isArray(items) ? items : []).filter((x) => typeof x === "string").map((x) => x.trim().toLowerCase()));
   const verdicts = new Map();
   const invalid = [];
+  // WHY EACH REQUIREMENT'S VERDICT COULD NOT BE USED, the first reason seen.
+  const unusable = new Map();
+  const refuse = (id, why) => { invalid.push({ id, why }); if (!unusable.has(id)) unusable.set(id, why); };
   const raw = input && typeof input === "object" && Array.isArray(input.verdicts) ? input.verdicts : null;
-  if (!raw) return { verdicts, invalid: [{ why: "no-verdicts" }] };
-  for (const v of raw) {
+  if (!raw) invalid.push({ why: "no-verdicts" });
+  for (const v of raw || []) {
     if (!v || typeof v !== "object" || Array.isArray(v)) { invalid.push({ why: "unreadable" }); continue; }
     const id = typeof v.id === "string" ? v.id.trim() : "";
     if (!known.has(id)) { invalid.push({ id: id.slice(0, 40), why: "unknown-id" }); continue; }
     if (verdicts.has(id)) { invalid.push({ id, why: "repeated" }); continue; }
     const follows = typeof v.follows === "string" && FOLLOWS.includes(v.follows) ? v.follows : "";
-    const said = typeof v.carried === "string" && CARRIED.includes(v.carried) ? v.carried : "";
-    if (!follows || !said) { invalid.push({ id, why: follows ? "no-carried" : "no-follows" }); continue; }
+    if (!follows) { refuse(id, "no-follows"); continue; }
+    const reason = str(v.reason, MAX_REASON).replace(/\s+/g, " ");
+    if (meaningOnly) { verdicts.set(id, { follows, carried: "unsure", by: [], reason }); continue; }
+    const carried = typeof v.carried === "string" && CARRIED.includes(v.carried) ? v.carried : "";
+    if (!carried) { refuse(id, "no-carried"); continue; }
+    // WHAT CARRIES IT OUT IS READ ONLY FOR A "YES": for "no" and "unsure" the
+    // list means nothing, and is not evidence of anything.
     const by = [];
-    for (const b of Array.isArray(v.by) ? v.by : []) {
+    for (const b of carried === "yes" && Array.isArray(v.by) ? v.by : []) {
       const key = typeof b === "string" ? b.trim().toLowerCase() : "";
       if (!key) continue;
       if (!listed.has(key) || !carrierOf(key)) { invalid.push({ id, why: "unlisted-item", item: key.slice(0, 80) }); continue; }
       if (!by.includes(key)) by.push(key);
     }
-    if (said === "yes" && !by.length) invalid.push({ id, why: "yes-without-items" });
-    const carried = said === "yes" && !by.length ? "unsure" : said;
-    verdicts.set(id, { follows, carried, by: carried === "yes" ? by : [], reason: str(v.reason, MAX_REASON).replace(/\s+/g, " ") });
+    if (carried === "yes" && !by.length) { refuse(id, "yes-without-items"); continue; }
+    verdicts.set(id, { follows, carried, by, reason });
   }
-  return { verdicts, invalid };
+  const missing = shown.filter((id) => !verdicts.has(id)).map((id) => ({ id, why: unusable.get(id) || "no-verdict" }));
+  return { verdicts, invalid, missing };
 }
 
 /**
@@ -2000,7 +2029,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], judged = false, setAside = [], verdictsInvalid = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged });
   const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;
   return {
@@ -2051,6 +2080,10 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     ...(judged ? { judged: true } : {}),
     ...(Array.isArray(setAside) && setAside.length ? { setAside: setAside.slice(0, MAX_REQUIREMENTS) } : {}),
     ...(Array.isArray(verdictsInvalid) && verdictsInvalid.length ? { verdictsInvalid: verdictsInvalid.slice(0, MAX_REQUIREMENTS) } : {}),
+    // WHAT A JUDGMENT LEFT WITHOUT A VERDICT AND WAS ASKED FOR AGAIN
+    // (2026-10-06), and whether the second answer finished it: an entry still
+    // `finished: false` is why the addition stopped.
+    ...(Array.isArray(verdictsMissing) && verdictsMissing.length ? { verdictsMissing: verdictsMissing.slice(0, MAX_REQUIREMENTS) } : {}),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
     invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
     // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as

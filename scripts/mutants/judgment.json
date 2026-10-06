@@ -8,8 +8,8 @@
 
   { "label": "J1: a verdict may name a thing it was never shown", "files": ["builder/site-requirements.mjs"],
     "from": "      if (!listed.has(key) || !carrierOf(key)) {", "to": "      if (!carrierOf(key)) {" },
-  { "label": "J2: a yes naming nothing checkable stays a yes", "files": ["builder/site-requirements.mjs"],
-    "from": "    const carried = said === \"yes\" && !by.length ? \"unsure\" : said;", "to": "    const carried = said;" },
+  { "label": "J2: a yes naming nothing checkable stays a yes (re-anchored 2026-10-06)", "files": ["builder/site-requirements.mjs"],
+    "from": "    if (carried === \"yes\" && !by.length) { refuse(id, \"yes-without-items\"); continue; }", "to": "    if (carried === \"yes\" && !by.length) { verdicts.set(id, { follows, carried, by, reason }); continue; }" },
   { "label": "J3: what carries it out is taken from the verdict before the hand-off", "files": ["builder/site-requirements.mjs"],
     "from": "    const carried = final && v ? v.carried : \"unsure\";", "to": "    const carried = v ? v.carried : \"unsure\";" },
   { "label": "J4: the last judgment re-decides the meaning a step was briefed on", "files": ["builder/site-requirements.mjs"],
@@ -47,10 +47,10 @@
     "from": "    if (!WORD[kind]) continue;\n    push(kind + \":\" + flat(r.item)", "to": "    if (WORD[kind]) continue;\n    push(kind + \":\" + flat(r.item)" },
   { "label": "A5: a designed page's photographs are not listed by placement", "files": ["builder/site-add.mjs"],
     "from": "        push(\"photo:\" + flat(v.path), \"the photographs on \" + flat(v.path) + \", if this request shows any there\");", "to": "" },
-  { "label": "A6: an answer with no verdicts is read as a judgment", "files": ["builder/site-add.mjs"],
-    "from": "  if (read.invalid.some((x) => x.why === \"no-verdicts\")) {", "to": "  if (false) {" },
-  { "label": "A7: a truncated judgment is read", "files": ["builder/site-add.mjs"],
-    "from": "  if (reply && reply.stop_reason === \"max_tokens\") {\n    const e = new Error(\"judge truncated at max_tokens\");", "to": "  if (false) {\n    const e = new Error(\"judge truncated at max_tokens\");" },
+  { "label": "A6: an answer with no verdicts is read as a judgment (re-anchored 2026-10-06)", "files": ["builder/site-add.mjs"],
+    "from": "  if (!first.read.missing.length) {", "to": "  if (true) {" },
+  { "label": "A7: a truncated judgment is read (re-anchored 2026-10-06)", "files": ["builder/site-add.mjs"],
+    "from": "    if (reply && reply.stop_reason === \"max_tokens\") {\n      const e = new Error(\"judge truncated at max_tokens\");", "to": "    if (false) {\n      const e = new Error(\"judge truncated at max_tokens\");" },
   { "label": "A8: before a hand-off the judgment is shown the things too", "files": ["builder/site-add.mjs"],
     "from": "      (step\n        ? \"\\n\\nThese are about to be handed", "to": "      (false\n        ? \"\\n\\nThese are about to be handed" },
   { "label": "A9: the rules no longer say a table that keeps addresses sends nothing", "files": ["builder/site-add.mjs"],
@@ -80,6 +80,6 @@
     "from": "                if (aReq.length) await aJudge(aReq.slice());\n                return Response.json({ ok: false, error: \"add\"", "to": "                return Response.json({ ok: false, error: \"add\"" },
   { "label": "W12: the last judgment is not shown what was designed", "files": ["worker.js"],
     "from": "              const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries }) : [];", "to": "              const items = final ? judgeItems({ answers: [], existing: aExisting(), spec: aSpec, refs: entries }) : [];" },
-  { "label": "W13: the hand-off judgment's failure is ignored", "files": ["worker.js"],
-    "from": "                if (jh.failed) return aDown(jh.error, \"The builder is busy — try again in a moment.\");", "to": "" }
+  { "label": "W13: the hand-off judgment's failure is ignored (re-anchored 2026-10-06)", "files": ["worker.js"],
+    "from": "                if (jh.failed) return aDown(jh.error, jh.incomplete ? aUnfinished : \"The builder is busy — try again in a moment.\");", "to": "" }
 ]

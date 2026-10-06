@@ -2556,7 +2556,18 @@ const judgedLine = (r) => JSON.stringify(Object.fromEntries(
   ["id", "need", "basis", "words", "status", "from", "by", "kind", "item", "step", "answers", "why"]
     .map((k) => [k, r[k]]).filter(([, v]) => typeof v === "string" && v)));
 
-export function judgeRequest({ message, entries = [], items = [], step = "", model }) {
+/**
+ * WHY A REQUIREMENT'S VERDICT COULD NOT BE USED, in words the model can act on
+ * when it is asked once more (`readVerdicts`' own reasons).
+ */
+const MISSED_SAYS = Object.freeze({
+  "no-verdict": "no verdict",
+  "no-follows": "no `follows` from the four allowed",
+  "no-carried": "no `carried` from the three allowed",
+  "yes-without-items": "\"yes\" naming nothing that is listed",
+});
+
+export function judgeRequest({ message, entries = [], items = [], step = "", model, missed = [] }) {
   return {
     model,
     max_tokens: JUDGE_MAX_TOKENS,
@@ -2575,48 +2586,116 @@ export function judgeRequest({ message, entries = [], items = [], step = "", mod
         ? "\n\nThese are about to be handed to the " + step + " step, which has not designed anything for them yet. " +
           "Judge only whether each follows from what they asked, and answer `carried` with \"unsure\"."
         : "\n\nWhat this request designed, and what the site already has:\n" +
-          (items.length ? items.map((i) => "- " + i.id + " — " + i.text).join("\n") : "(nothing)")) },
+          (items.length ? items.map((i) => "- " + i.id + " — " + i.text).join("\n") : "(nothing)")) +
+      // ASKED ONCE MORE (2026-10-06): what the last answer left without a
+      // verdict anybody can use, each by its id and why — the reply writer's
+      // own way of asking again (`replyRequest`'s `missed`).
+      ((Array.isArray(missed) ? missed : []).length
+        ? "\n\nYOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: " +
+          missed.map((m) => m.id + " (" + (MISSED_SAYS[m.why] || MISSED_SAYS["no-verdict"]) + ")").join(", ") +
+          ". Answer every requirement listed this time, once each, by its id."
+        : "") },
     ],
   };
 }
 
 /**
- * Run one judgment. `send` injected, one call. `{ verdicts, invalid, usage,
- * failed, error?, ask?, raw? }`.
+ * Run one judgment. `send` injected. `{ verdicts, invalid, missing, usage,
+ * attempts, failed, incomplete?, error?, ask?, raw?, extraUsage?, askedAgain? }`
+ * — `askedAgain` is what the first answer left without a verdict, and why, for
+ * the record.
  *
- * A JUDGMENT THAT CANNOT BE READ IS A FAILED ONE: a throw, a truncated answer,
- * or an answer with no list of verdicts in it. The caller stops before anything
- * is applied, as it does when a designer's call fails — reporting requirements
- * nobody judged is the defect this exists to close. A list that skips some is
- * read for what it says, and the skipped ones are unjudged.
+ * A THROW IS A FAILED JUDGMENT, as a designer's failed call is: the caller
+ * stops before anything is applied, with the existing sentence for a call that
+ * did not go through.
+ *
+ * A TRUNCATED ANSWER IS AN UNFINISHED ONE (`incomplete`), on either call, and
+ * is not asked again: the same budget would cut it the same way, and the reply
+ * writer's bound does not re-ask an unreadable answer either. An entry with no
+ * id is unfinished before any call: nothing can name it to the model.
+ *
+ * ── AN ANSWER THAT LEAVES ANY REQUIREMENT WITHOUT A VERDICT IS ASKED ONCE
+ * MORE, AND THEN THE ADDITION STOPS (owner, 2026-10-06) ─────────────────────
+ *
+ * *"Require a valid verdict for every submitted requirement before proceeding
+ * … Treat missing or malformed coverage as incomplete model output: recover
+ * within the existing bounded policy or use the existing failure path before
+ * applying or publishing anything."* The existing bound is the reply writer's
+ * (`writeReply`): at most two calls, the second naming what the first left
+ * out. So a first answer that leaves any requirement without a verdict —
+ * `readVerdicts`' own `missing`: an empty list, a list that is not one, a
+ * verdict outside its lists, a `yes` naming nothing it was shown — is asked
+ * once more, each of them named and why. The verdicts of both answers are
+ * kept, the second's where it gave one. Anything still missing after that
+ * makes the judgment `incomplete` and `failed`, and the caller takes the
+ * failure path: an internal answer that did not finish is never turned into a
+ * question for the customer about what they already asked clearly.
+ *
+ * ONE CALL IS BILLED. `usage` is the first call's; the second is the model
+ * finishing its own answer, so its tokens ride apart (`extraUsage`), for the
+ * record, and are ours.
+ *
+ * A QUESTION, ON EITHER CALL, IS STILL A QUESTION: the model judged that a
+ * choice only they can make is open, which is not an unfinished answer.
  */
 export async function runJudge(deps, { message, entries = [], items = [], step = "", model = ADD_MODEL } = {}) {
-  const list = (Array.isArray(entries) ? entries : []).filter((r) => r && typeof r.id === "string" && r.id);
-  const none = { verdicts: new Map(), invalid: [] };
-  if (!list.length) return { ...none, usage: null, failed: false };
-  let reply;
-  try {
-    reply = await deps.send(judgeRequest({ message, entries: list, items, step, model }));
-  } catch (e) {
-    return { ...none, usage: null, failed: true, error: e };
+  const given = (Array.isArray(entries) ? entries : []).filter((r) => r && typeof r === "object");
+  const list = given.filter((r) => typeof r.id === "string" && r.id);
+  const none = { verdicts: new Map(), invalid: [], missing: [] };
+  // A REQUIREMENT IT CANNOT NAME CANNOT GET A VERDICT, so the judgment cannot
+  // finish, and no call is made for it. The route stamps every id
+  // (`cleanRequirements`), so this is a wiring fault; skipped, it would be the
+  // same silent omission as an answer that leaves one out.
+  if (list.length < given.length) {
+    const e = new Error("judge given " + (given.length - list.length) + " requirement(s) without an id");
+    e.incomplete = true;
+    return { ...none, missing: given.filter((r) => !list.includes(r)).map((r) => ({ id: "", why: "no-id", need: typeof r.need === "string" ? r.need.slice(0, 80) : "" })), usage: null, attempts: 0, failed: true, incomplete: true, error: e };
   }
-  const usage = addUsage(reply, model);
-  if (reply && reply.stop_reason === "max_tokens") {
-    const e = new Error("judge truncated at max_tokens");
-    e.truncated = true;
-    return { ...none, usage, failed: true, error: e };
+  if (!list.length) return { ...none, usage: null, attempts: 0, failed: false };
+  const ids = list.map((r) => r.id);
+  const shown = (Array.isArray(items) ? items : []).map((i) => i && i.id);
+  const call = async (missed) => {
+    let reply;
+    try {
+      reply = await deps.send(judgeRequest({ message, entries: list, items, step, model, missed }));
+    } catch (e) {
+      return { error: e, usage: null };
+    }
+    const usage = addUsage(reply, model);
+    if (reply && reply.stop_reason === "max_tokens") {
+      const e = new Error("judge truncated at max_tokens");
+      e.truncated = true;
+      e.incomplete = true;
+      return { error: e, usage };
+    }
+    const ask = askOf(reply);
+    if (ask) return { ask, usage, raw: reply };
+    const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+    const use = blocks.find((b) => b && b.type === "tool_use");
+    const input = use && use.input && typeof use.input === "object" ? use.input : null;
+    return { read: readVerdicts(input, { ids, items: shown, meaningOnly: !!step }), usage, raw: reply };
+  };
+  const first = await call([]);
+  if (first.error) return { ...none, usage: first.usage, attempts: 1, failed: true, ...(first.error.incomplete ? { incomplete: true } : {}), error: first.error };
+  if (first.ask) return { ...none, usage: first.usage, attempts: 1, failed: false, ask: first.ask, raw: first.raw };
+  if (!first.read.missing.length) {
+    return { verdicts: first.read.verdicts, invalid: first.read.invalid, missing: [], usage: first.usage, attempts: 1, failed: false, raw: first.raw };
   }
-  const ask = askOf(reply);
-  if (ask) return { ...none, usage, failed: false, ask, raw: reply };
-  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
-  const use = blocks.find((b) => b && b.type === "tool_use");
-  const input = use && use.input && typeof use.input === "object" ? use.input : null;
-  const read = readVerdicts(input, { ids: list.map((r) => r.id), items: (Array.isArray(items) ? items : []).map((i) => i && i.id) });
-  if (read.invalid.some((x) => x.why === "no-verdicts")) {
-    const e = new Error("judge answered no verdicts");
-    return { ...none, invalid: read.invalid, usage, failed: true, error: e, raw: reply };
+  const second = await call(first.read.missing);
+  const invalid = [...first.read.invalid, ...(second.read ? second.read.invalid.map((x) => ({ ...x, attempt: 2 })) : [])];
+  const after = { usage: first.usage, extraUsage: second.usage || null, attempts: 2, askedAgain: first.read.missing };
+  if (second.error) return { ...none, invalid, missing: first.read.missing, ...after, failed: true, ...(second.error.incomplete ? { incomplete: true } : {}), error: second.error };
+  if (second.ask) return { ...none, invalid, ...after, failed: false, ask: second.ask, raw: second.raw };
+  const verdicts = new Map(first.read.verdicts);
+  for (const [id, v] of second.read.verdicts) verdicts.set(id, v);
+  const missing = ids.filter((id) => !verdicts.has(id))
+    .map((id) => second.read.missing.find((m) => m.id === id) || { id, why: "no-verdict" });
+  if (missing.length) {
+    const e = new Error("judge left " + missing.length + " requirement(s) without a verdict after two answers");
+    e.incomplete = true;
+    return { verdicts, invalid, missing, ...after, failed: true, incomplete: true, error: e, raw: second.raw };
   }
-  return { verdicts: read.verdicts, invalid: read.invalid, usage, failed: false, raw: reply };
+  return { verdicts, invalid, missing: [], ...after, failed: false, raw: second.raw };
 }
 
 /* --------------------------------------------------------- what came back */

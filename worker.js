@@ -29115,6 +29115,9 @@ async function handleRequest(request, env, ctx) {
                     : (what || "The builder is busy — try again in a moment."),
                 upstream: (e && e.status) || null, upstreamType: k.type, billing: k.billing || undefined,
                 timeout: timedOut || undefined,
+                // A JUDGMENT THAT DID NOT FINISH (2026-10-06): named for whoever
+                // reads the answer back; the customer's sentence is the caller's.
+                incomplete: (e && e.incomplete === true) || undefined,
               }, { status: 503 });
             };
             // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
@@ -29932,13 +29935,41 @@ async function handleRequest(request, env, ctx) {
             // told. The calls are billed with the designers' (`aDesignUsage`).
             const aSetAside = [];
             const aVerdictsBad = [];
+            // WHAT A JUDGMENT LEFT WITHOUT A VERDICT AND WAS ASKED FOR AGAIN,
+            // and whether the second answer gave one — on the record, so a
+            // judgment that did not finish says what it left out.
+            const aVerdictsMissing = [];
+            // ── A JUDGMENT THAT DID NOT FINISH STOPS THE ADDITION (2026-10-06) ──
+            //
+            // The owner: *"Require a valid verdict for every submitted
+            // requirement before proceeding, both before handoffs and at the
+            // final judgment … Do not ask the user to repeat an already-clear
+            // request because an internal model answer was incomplete."*
+            // `runJudge` asks once more for whatever its first answer left
+            // without a verdict and then answers `incomplete`; the callers
+            // below take the failure path every designer's failed call takes,
+            // before anything is applied or charged, with this sentence — what
+            // happened, whose it is, and nothing for them to repeat.
+            const aUnfinished = "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.";
             const aJudge = async (entries, step = "") => {
               const final = !step;
               const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries }) : [];
               const j = await runJudge({ send: aQuick("judge:" + (step || "final")) }, { message: aInstruction, entries, items, step, model: aModels.quick });
+              // ONE CALL BILLED: the first. A second call finishing the model's
+              // own answer is ours, and is counted on a mark of its own: a mark
+              // keeps eight details (`MAX_DETAIL_KEYS`), and a ninth here was
+              // dropped without a word.
               if (j.usage) aDesignUsage.push(j.usage);
-              aMark("judge:" + (step || "final"), j.failed ? "fail" : "ok", { entries: entries.length, items: items.length, verdicts: j.verdicts.size, invalid: j.invalid.length, asked: j.ask ? 1 : 0 });
+              aMark("judge:" + (step || "final"), j.failed ? "fail" : "ok", {
+                entries: entries.length, items: items.length, verdicts: j.verdicts.size, invalid: j.invalid.length, asked: j.ask ? 1 : 0,
+                attempts: j.attempts || 0, missing: (j.missing || []).length,
+              });
+              if (j.extraUsage) aMark("judge:" + (step || "final") + ":again", "ok", { in: j.extraUsage.in, out: j.extraUsage.out });
               for (const x of j.invalid) aVerdictsBad.push({ at: step || "final", ...x });
+              for (const x of j.askedAgain || []) {
+                const e = entries.find((r) => r && r.id === x.id);
+                aVerdictsMissing.push({ at: step || "final", id: x.id, need: e ? e.need : "", why: x.why, finished: j.verdicts.has(x.id) });
+              }
               if (j.failed || j.ask) return j;
               const out = applyVerdicts(entries, j.verdicts, { final });
               const by = new Map([...out.kept, ...out.optional, ...out.unrelated].map((e) => [e.id, e]));
@@ -30093,7 +30124,7 @@ async function handleRequest(request, env, ctx) {
               const aHanding = (handoffsByStep(aReq)[k] || []).filter((r) => !r.judged);
               if (aHanding.length) {
                 const jh = await aJudge(aHanding, k);
-                if (jh.failed) return aDown(jh.error, "The builder is busy — try again in a moment.");
+                if (jh.failed) return aDown(jh.error, jh.incomplete ? aUnfinished : "The builder is busy — try again in a moment.");
                 if (jh.ask) { aStepAsk = { kind: k, ask: jh.ask }; break; }
               }
               const aBrief = requirementBrief(aReq.filter((r) => r.judged), k);
@@ -30169,8 +30200,9 @@ async function handleRequest(request, env, ctx) {
                 // — "it could not express this" — reaches a customer as a bare
                 // refusal sentence. Nothing ran, so nothing is claimed covered.
                 // JUDGED FIRST, SO WHAT IT TELLS FOLLOWS FROM THEIR WORDS
-                // (2026-10-05): a judgment that fails or asks here leaves the
-                // requirements unjudged, and an unjudged one is never told.
+                // (2026-10-05): a judgment that fails, asks or does not finish
+                // here leaves the requirements unjudged and untold — the
+                // refusal is the answer, and it says nothing was added.
                 if (aReq.length) await aJudge(aReq.slice());
                 return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage() }, { status: 422 });
               }
@@ -30377,7 +30409,7 @@ async function handleRequest(request, env, ctx) {
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ungrounded: aUngrounded, suggestions: aSuggested,
-              judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad,
+              judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad, verdictsMissing: aVerdictsMissing,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
               made: aMade(), reportable: aReportable(), existing: aExisting(),
@@ -30409,7 +30441,7 @@ async function handleRequest(request, env, ctx) {
             const aFinalJudge = !aStepAsk && aReq.length ? await aJudge(aReq.slice()) : null;
             if (aFinalJudge && aFinalJudge.ask) aStepAsk = { kind: "requirements", ask: aFinalJudge.ask };
             await aSaveAnswer();
-            if (aFinalJudge && aFinalJudge.failed) return aDown(aFinalJudge.error, "The builder is busy — try again in a moment.");
+            if (aFinalJudge && aFinalJudge.failed) return aDown(aFinalJudge.error, aFinalJudge.incomplete ? aUnfinished : "The builder is busy — try again in a moment.");
             // THE QUESTION IS THE ADDITION'S ANSWER: kept by the route's ending
             // (`askReport`), with this whole request as what its answer resumes.
             // Nothing was designed into the site, applied or charged for it —

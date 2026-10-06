@@ -140,12 +140,12 @@ test("JUDGE 2 — what a table does is read off the table as stored, one reader 
   assert.deepEqual(existingFacts({ spec }).items, [{ kind: "table", name: "signups", parts: ["notify"] }]);
 });
 
-test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was shown, only things it was shown, every verdict from its own constants; a 'yes' that names nothing checkable is 'unsure'; nothing is repaired", () => {
-  const ids = ["table#0", "table#1", "page#0", "page#1", "page#2"];
+test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was shown, only things it was shown, every verdict from its own constants, nothing repaired — and every requirement it was shown is accounted for, with a verdict anybody can use or named as missing, and why", () => {
+  const ids = ["table#0", "table#1", "page#0", "page#1", "page#2", "page#3"];
   const items = ["table:signups", "table:signups:notify", "page:/sign-up"];
-  const { verdicts, invalid } = readVerdicts({ verdicts: [
-    { id: "table#0", follows: "needed", carried: "yes", by: ["table:signups", "TABLE:SIGNUPS", " table:signups:notify "], reason: "  kept\n so the owner can read them " },
-    { id: "table#1", follows: "optional", carried: "no", reason: "works without it" },
+  const { verdicts, invalid, missing } = readVerdicts({ verdicts: [
+    { id: "table#0", follows: "needed", carried: "yes", by: ["table:signups", "TABLE:SIGNUPS", " table:signups:notify ", "function:send_confirmation"], reason: "  kept\n so the owner can read them " },
+    { id: "table#1", follows: "optional", carried: "no", by: ["function:anything"], reason: "works without it" },
     { id: "page#0", follows: "asked", carried: "yes", by: ["function:send_confirmation"], reason: "x" },
     { id: "page#1", follows: "implied", carried: "yes", by: ["page:/sign-up"], reason: "x" },
     { id: "page#2", follows: "asked", carried: ["yes"], reason: "x" },
@@ -153,12 +153,35 @@ test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was show
     { id: "made-up#7", follows: "asked", carried: "no", reason: "x" },
     "not an object",
   ] }, { ids, items });
-  assert.deepEqual([...verdicts.keys()], ["table#0", "table#1", "page#0"]);
+  assert.deepEqual([...verdicts.keys()], ["table#0", "table#1"]);
+  // A THING IT NAMES THAT IT WAS NEVER SHOWN IS DROPPED BESIDE ONE IT WAS; FOR
+  // "NO" THE LIST IS NOT READ AT ALL.
   assert.deepEqual(verdicts.get("table#0"), { follows: "needed", carried: "yes", by: ["table:signups", "table:signups:notify"], reason: "kept so the owner can read them" });
-  assert.deepEqual(verdicts.get("page#0"), { follows: "asked", carried: "unsure", by: [], reason: "x" }, "a yes naming only what it was never shown kept its yes");
-  assert.deepEqual(invalid.map((x) => x.why), ["unlisted-item", "yes-without-items", "no-follows", "no-carried", "repeated", "unknown-id", "unreadable"]);
+  assert.deepEqual(verdicts.get("table#1"), { follows: "optional", carried: "no", by: [], reason: "works without it" });
+  // RE-ANCHORED 2026-10-06 (the owner: "Keep legitimate 'unsure' judgments
+  // distinct from missing judgments"): a "yes" naming only what it was never
+  // shown was read as "unsure". It is not a verdict — it is named as missing.
+  assert.deepEqual(missing, [
+    { id: "page#0", why: "yes-without-items" }, { id: "page#1", why: "no-follows" },
+    { id: "page#2", why: "no-carried" }, { id: "page#3", why: "no-verdict" },
+  ]);
+  assert.deepEqual(invalid.map((x) => x.why), ["unlisted-item", "unlisted-item", "yes-without-items", "no-follows", "no-carried", "repeated", "unknown-id", "unreadable"]);
+  // "UNSURE" IS A VERDICT, AND A WHOLE ONE.
+  const unsure = readVerdicts({ verdicts: [{ id: "page#0", follows: "asked", carried: "unsure", reason: "x" }] }, { ids: ["page#0"], items });
+  assert.deepEqual([unsure.verdicts.get("page#0").carried, unsure.missing], ["unsure", []]);
+  // AN EMPTY LIST, A LIST THAT IS NOT ONE, NO ANSWER AT ALL: every requirement missing.
+  for (const input of [{ verdicts: [] }, { verdicts: "all fine" }, null]) {
+    assert.deepEqual(readVerdicts(input, { ids: ["a#0", "b#1"] }).missing, [{ id: "a#0", why: "no-verdict" }, { id: "b#1", why: "no-verdict" }], JSON.stringify(input));
+  }
   assert.deepEqual(readVerdicts(null, { ids }).invalid, [{ why: "no-verdicts" }]);
   assert.deepEqual(readVerdicts({ verdicts: "all fine" }, { ids }).invalid, [{ why: "no-verdicts" }]);
+  assert.deepEqual(readVerdicts({ verdicts: [] }, { ids }).invalid, []);
+  // BEFORE A HAND-OFF, MEANING ONLY: a `follows` is a whole verdict there, and
+  // `carried` and `by` are not read.
+  const before = readVerdicts({ verdicts: [{ id: "a#0", follows: "asked", carried: "yes", by: ["page:/nowhere"], reason: "r" }, { id: "b#1", follows: "optional" }] }, { ids: ["a#0", "b#1"], meaningOnly: true });
+  assert.deepEqual([...before.verdicts.entries()], [["a#0", { follows: "asked", carried: "unsure", by: [], reason: "r" }], ["b#1", { follows: "optional", carried: "unsure", by: [], reason: "" }]]);
+  assert.deepEqual([before.missing, before.invalid], [[], []]);
+  assert.deepEqual(readVerdicts({ verdicts: [{ id: "a#0", carried: "no" }] }, { ids: ["a#0"], meaningOnly: true }).missing, [{ id: "a#0", why: "no-follows" }]);
   // THE ID SHAPES: a kind this layer knows, a name, and for a table a part from the vocabulary.
   assert.deepEqual(carrierOf("table:signups:confirm"), { kind: "table", name: "signups", part: "confirm" });
   assert.deepEqual(carrierOf("page:/sign-up"), { kind: "page", name: "/sign-up" });
@@ -229,17 +252,76 @@ test("JUDGE 5 — the judgment's call: one tool, a question beside it, the rules
   assert.match(req.system[0].text, /Never ask about an optional extra/);
 });
 
-test("JUDGE 6 — the judgment's runner: a throw, a truncated answer and an answer with no verdicts are failures; a question is a question; skipped entries are simply unjudged", async () => {
+test("JUDGE 6 — the judgment's runner: a throw fails at once and a cut-off answer is unfinished, neither asked again; an entry it cannot name is unfinished before any call; an answer that leaves any requirement without a usable verdict is asked once more, naming each and why, and fails as incomplete if still short — never a third call; a question is a question on either call; one call is billed", async () => {
   const entries = [{ id: "table#0", need: "a", status: "covered" }, { id: "table#1", need: "b", status: "covered" }];
-  const reply = (input, extra = {}) => ({ content: [{ type: "tool_use", name: "judge_requirements", input }], usage: { input_tokens: 9, output_tokens: 3 }, ...extra });
-  assert.equal((await runJudge({ send: async () => { throw new Error("down"); } }, { entries })).failed, true);
-  const cut = await runJudge({ send: async () => reply({ verdicts: [] }, { stop_reason: "max_tokens" }) }, { entries });
-  assert.deepEqual([cut.failed, cut.error.truncated, cut.usage.out], [true, true, 3]);
-  assert.equal((await runJudge({ send: async () => ({ content: [{ type: "text", text: "fine" }] }) }, { entries })).failed, true);
-  const asked = await runJudge({ send: async () => reply({ verdicts: [], question: { text: "Pay online, or at the lesson?" } }) }, { entries });
-  assert.deepEqual([asked.failed, asked.ask.text, asked.verdicts.size], [false, "Pay online, or at the lesson?", 0]);
-  const part = await runJudge({ send: async () => reply({ verdicts: [{ id: "table#0", follows: "asked", carried: "no", reason: "r" }] }) }, { entries });
-  assert.deepEqual([part.failed, [...part.verdicts.keys()]], [false, ["table#0"]]);
+  const reply = (input, extra = {}, usage = { input_tokens: 9, output_tokens: 3 }) => ({ content: [{ type: "tool_use", name: "judge_requirements", input }], usage, ...extra });
+  const A = { id: "table#0", follows: "asked", carried: "no", reason: "r" };
+  const B = { id: "table#1", follows: "needed", carried: "unsure", reason: "r" };
+  const run = async (answers, more = {}) => {
+    const sent = [];
+    const j = await runJudge({ send: async (req) => { sent.push(req); const a = answers[sent.length - 1]; if (a instanceof Error) throw a; return a; } }, { entries, ...more });
+    return { j, sent, last: sent.length ? sent[sent.length - 1].messages[0].content : "" };
+  };
+  // A WHOLE ANSWER: one call, nothing asked again.
+  const done = await run([reply({ verdicts: [A, B] })]);
+  assert.deepEqual([done.sent.length, done.j.failed, done.j.attempts, [...done.j.verdicts.keys()], done.j.missing], [1, false, 1, ["table#0", "table#1"], []]);
+  assert.doesNotMatch(done.last, /YOUR LAST ANSWER/);
+  // A THROW FAILS AT ONCE, as a designer's call does…
+  const down = await run([new Error("down")]);
+  assert.deepEqual([down.sent.length, down.j.failed, !!down.j.incomplete], [1, true, false]);
+  // …AND A CUT-OFF ANSWER IS AN UNFINISHED ONE, on either call, never asked
+  // again: the same budget would cut it the same way.
+  const cut = await run([reply({ verdicts: [] }, { stop_reason: "max_tokens" })]);
+  assert.deepEqual([cut.sent.length, cut.j.failed, cut.j.incomplete, cut.j.error.truncated, cut.j.error.incomplete, cut.j.usage.out], [1, true, true, true, true, 3]);
+  const cutLate = await run([reply({ verdicts: [A] }), reply({ verdicts: [A, B] }, { stop_reason: "max_tokens" }), reply({ verdicts: [A, B] })]);
+  assert.deepEqual([cutLate.sent.length, cutLate.j.failed, cutLate.j.incomplete], [2, true, true]);
+  // AN ENTRY IT CANNOT NAME CANNOT GET A VERDICT: unfinished, and no call.
+  let unnamed = 0;
+  const noId = await runJudge({ send: async () => { unnamed++; return reply({ verdicts: [A, B] }); } }, { entries: [...entries, { need: "c", status: "covered" }] });
+  assert.deepEqual([unnamed, noId.failed, noId.incomplete, noId.missing], [0, true, true, [{ id: "", why: "no-id", need: "c" }]]);
+  // EMPTY, PARTIAL, MALFORMED, NOT A LIST, NO TOOL CALL AT ALL: asked once
+  // more, each requirement named with why; the verdicts of both kept.
+  const firsts = [
+    [reply({ verdicts: [] }), /table#0 \(no verdict\), table#1 \(no verdict\)/],
+    [reply({ verdicts: [A] }), /: table#1 \(no verdict\)\./],
+    [reply({ verdicts: [A, { ...B, follows: "maybe" }] }), /: table#1 \(no `follows` from the four allowed\)\./],
+    [reply({ verdicts: [A, { ...B, carried: "probably" }] }), /: table#1 \(no `carried` from the three allowed\)\./],
+    [reply({ verdicts: [A, { ...B, carried: "yes", by: ["function:never_shown"] }] }), /: table#1 \("yes" naming nothing that is listed\)\./],
+    [reply({ verdicts: "fine" }), /table#0 \(no verdict\), table#1 \(no verdict\)/],
+    [{ content: [{ type: "text", text: "fine" }] }, /table#0 \(no verdict\), table#1 \(no verdict\)/],
+  ];
+  for (const [first, named] of firsts) {
+    const r = await run([first, reply({ verdicts: [A, B] }, {}, { input_tokens: 70, output_tokens: 7 })]);
+    assert.equal(r.sent.length, 2, JSON.stringify(first));
+    assert.match(r.last, /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE/);
+    assert.match(r.last, named);
+    assert.deepEqual([r.j.failed, r.j.attempts, [...r.j.verdicts.keys()].sort(), r.j.missing], [false, 2, ["table#0", "table#1"], []]);
+    // ONE CALL BILLED: the first; the second is ours, kept apart.
+    assert.equal(r.j.extraUsage.in, 70);
+    assert.notEqual(r.j.usage && r.j.usage.in, 70);
+  }
+  // BOTH ANSWERS KEPT: a second answer giving only what the first left out
+  // finishes the judgment with the first's verdicts…
+  const rest = await run([reply({ verdicts: [A] }), reply({ verdicts: [B] })]);
+  assert.deepEqual([rest.j.failed, rest.j.verdicts.get("table#0").carried, rest.j.verdicts.get("table#1").follows, rest.j.askedAgain], [false, "no", "needed", [{ id: "table#1", why: "no-verdict" }]]);
+  // …AND THE SECOND'S WHERE IT GAVE ONE: it answered with what it missed in front of it.
+  const later = await run([reply({ verdicts: [A, { ...B, follows: "maybe" }] }), reply({ verdicts: [{ ...A, carried: "unsure" }, B] })]);
+  assert.deepEqual([later.j.failed, later.j.verdicts.get("table#0").carried], [false, "unsure"]);
+  // STILL SHORT AFTER THE SECOND: incomplete and failed, and never a third call.
+  const short = await run([reply({ verdicts: [] }), reply({ verdicts: [A] }), reply({ verdicts: [A, B] })]);
+  assert.deepEqual([short.sent.length, short.j.failed, short.j.incomplete, short.j.missing], [2, true, true, [{ id: "table#1", why: "no-verdict" }]]);
+  assert.deepEqual([...short.j.verdicts.keys()], ["table#0"]);
+  // A THROW ON THE SECOND CALL IS A FAILED CALL, not an unfinished answer.
+  const late = await run([reply({ verdicts: [] }), new Error("down")]);
+  assert.deepEqual([late.sent.length, late.j.failed, !!late.j.incomplete], [2, true, false]);
+  // A QUESTION, ON EITHER CALL, IS A QUESTION.
+  const q1 = await run([reply({ verdicts: [], question: { text: "Pay online, or at the lesson?" } })]);
+  assert.deepEqual([q1.sent.length, q1.j.failed, q1.j.ask.text], [1, false, "Pay online, or at the lesson?"]);
+  const q2 = await run([reply({ verdicts: [] }), reply({ verdicts: [], question: { text: "Pay online, or at the lesson?" } })]);
+  assert.deepEqual([q2.sent.length, q2.j.failed, q2.j.ask.text], [2, false, "Pay online, or at the lesson?"]);
+  // BEFORE A HAND-OFF, MEANING ONLY: a `follows` for each is whole at once.
+  const before = await run([reply({ verdicts: [{ id: "table#0", follows: "asked", carried: "yes", by: ["x:y"] }, { id: "table#1", follows: "optional" }] })], { step: "page" });
+  assert.deepEqual([before.sent.length, before.j.failed, before.j.missing], [1, false, []]);
   // NOTHING TO JUDGE IS NO CALL.
   let calls = 0;
   await runJudge({ send: async () => { calls++; return reply({ verdicts: [] }); } }, { entries: [] });
@@ -343,7 +425,10 @@ test("JUDGE 9 — one message, three requirements: the storage they need and the
     [/confirmation email/, "unrelated", "no"],
   ]));
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 600));
+  // A WHOLE ANSWER IS ONE CALL: nothing asked again, nothing recorded missing.
+  assert.equal(judged(r).length, 1, "a whole answer was asked again");
   const rec = storedAnswer(r, "fw-judge-three").coverage;
+  assert.equal(rec.verdictsMissing, undefined);
   // THE NOTIFICATION'S OWN CLAIM NAMES A SETTING THAT HOLDS ("a collect table"),
   // so it reads `configured` — the same customer sentence as `unverified`.
   assert.deepEqual(rec.requirements.map((q) => [q.need, q.state, q.carriedBy, q.implementation]), [
@@ -404,39 +489,61 @@ test("JUDGE 11 — a notification the site already sends: carried by the existin
   assert.match(coverOf(none), /Still to do: The owner is emailed about each new enquiry/);
 });
 
-test("JUDGE 12 — what the judgment cannot settle is never told as done: an entry it skipped is unjudged and silent, and a thing it names that it was never shown is recorded as invalid and buys nothing", async () => {
+test("JUDGE 12 — what the judgment leaves without a usable verdict is never dropped: it is asked once more, and still short the addition stops before anything is applied or charged — an entry skipped twice, a \"yes\" naming only what it was never shown, and nothing at all before a hand-off", async () => {
+  // RE-ANCHORED 2026-10-06. This case asserted the defect the owner then
+  // reproduced: an entry the judgment skipped was "unjudged and silent" and
+  // the addition went on. Now it is named back to the model once, and a
+  // second answer that still skips it stops the addition (`aDown`).
+  const stopped = (r) => {
+    assert.deepEqual([r.status, r.body.ok, r.body.error, r.body.cost, r.body.incomplete], [503, false, "send", 0, true], JSON.stringify(r.body).slice(0, 300));
+    assert.equal(r.body.clarify, undefined, "an unfinished internal answer was turned into a question for the customer");
+    assert.equal(r.body.msg, "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.");
+    assert.ok(!r.sql.some((q) => /CREATE TABLE/i.test(q)), "a table was applied on a judgment that did not finish");
+    assert.equal(r.compiles.length, 0, "a page was compiled on a judgment that did not finish");
+    assert.deepEqual(r.charges, [], "something was charged on a judgment that did not finish");
+  };
   const skipped = await signupAsk("fw-judge-skip", SIGNUP, [STORE, EMAIL], judging([[/kept so the owner/, "needed", "yes", ["table:signups"]]]));
-  assert.equal(skipped.body.ok, true);
+  stopped(skipped);
+  assert.equal(judged(skipped).length, 2, "the judgment was not asked exactly once more");
+  assert.match(judged(skipped)[1], /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: table#1 \(no verdict\)\./);
+  // THE RECORD IS WRITTEN, with nothing applied from the half that came back.
   const rec = storedAnswer(skipped, "fw-judge-skip").coverage;
-  assert.deepEqual(rec.requirements.map((q) => [q.need, q.state, !!q.unjudged]), [[STORE.need, "unverified", false], [EMAIL.need, "unknown", true]]);
-  assert.equal(rec.counts.unjudged, 1);
-  assert.doesNotMatch(coverOf(skipped), /confirmation email/, coverOf(skipped));
+  assert.deepEqual(rec.requirements.map((q) => [q.need, !!q.unjudged]), [[STORE.need, true], [EMAIL.need, true]]);
+  assert.deepEqual(rec.verdictsMissing.map((x) => [x.at, x.id, x.why, x.finished]), [["final", "table#1", "no-verdict", false]]);
   const unlisted = await signupAsk("fw-judge-unlisted", SIGNUP, [STORE, EMAIL], judging([
     [/kept so the owner/, "needed", "yes", ["table:signups"]],
     [/confirmation email/, "needed", "yes", ["function:send_confirmation"]],
   ]));
+  stopped(unlisted);
+  assert.match(judged(unlisted)[1], /: table#1 \("yes" naming nothing that is listed\)\./);
   const u = storedAnswer(unlisted, "fw-judge-unlisted").coverage;
-  assert.deepEqual(u.verdictsInvalid.filter((x) => x.why === "unlisted-item").map((x) => x.item), ["function:send_confirmation"]);
-  const e = u.requirements.find((q) => q.need === EMAIL.need);
-  assert.deepEqual([e.state, e.capped, e.carried], ["unknown", true, "unsure"]);
-  assert.doesNotMatch(coverOf(unlisted), /I've set that up[^.]*confirmation email/, coverOf(unlisted));
-  // AN ENTRY THE JUDGMENT SKIPPED BEFORE A HAND-OFF IS NOT HANDED ON: that it
-  // follows from their words is what nobody established.
+  assert.deepEqual(u.verdictsInvalid.filter((x) => x.why === "unlisted-item").map((x) => [x.item, x.attempt || 1]), [["function:send_confirmation", 1], ["function:send_confirmation", 2]]);
+  assert.deepEqual(u.verdictsMissing.map((x) => [x.at, x.id, x.why, x.finished]), [["final", "table#1", "yes-without-items", false]]);
+  // BEFORE A HAND-OFF: nothing at all, twice — the next designer never runs.
   const SKIP = { need: "The booking form also asks for a mobile number", status: "elsewhere", step: "page", basis: "needed", words: "book a lesson" };
   const early = await addon("fw-judge-skip-early", "Add a page where students can book a lesson", {
     kinds: ["table", "page"], publishes: true, written: [writtenPage("/book")],
     answers: { table: { table: [table("lesson_bookings", ["student"])], requirements: [SKIP] }, page: { page: [PAGE("/book", "Book")] } },
     judge: () => ({ verdicts: [] }),
   });
-  assert.equal(early.body.ok, true, JSON.stringify(early.body).slice(0, 400));
-  assert.match(judged(early)[0], /about to be handed to the page step/, "no judgment ran before the hand-off — this sub-case tests nothing");
-  assert.doesNotMatch(promptFor(early, "page").text, /mobile number|What this addition still has to do/, "an unjudged requirement was handed on to be built");
+  stopped(early);
+  assert.equal(judged(early).length, 2);
+  for (const t of judged(early)) assert.match(t, /about to be handed to the page step/);
+  assert.equal(promptFor(early, "page"), undefined, "the page designer ran on a judgment that did not finish");
 });
 
 test("JUDGE 13 — a judgment that fails stops the addition before anything is applied, as a designer's failed call does; one that asks is the addition's question, at no cost", async () => {
   const down = await signupAsk("fw-judge-down", SIGNUP, [STORE, EMAIL], { judge: "fail" });
   assert.equal(down.status, 503, JSON.stringify(down.body));
   assert.deepEqual([down.body.ok, down.body.error, down.body.cost], [false, "send", 0]);
+  // A CALL THAT DID NOT GO THROUGH keeps the existing sentence; an answer that
+  // came back cut off is unfinished, and asks them for nothing (2026-10-06).
+  assert.deepEqual([down.body.msg, down.body.incomplete], ["The builder is busy — try again in a moment.", undefined]);
+  const cut = await signupAsk("fw-judge-cut", SIGNUP, [STORE, EMAIL], { judge: "cut" });
+  assert.deepEqual([cut.status, cut.body.error, cut.body.cost, cut.body.incomplete, cut.charges.length], [503, "send", 0, true, 0]);
+  assert.equal(cut.body.msg, "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.");
+  assert.equal(judged(cut).length, 1, "a cut-off answer was asked again");
+  assert.ok(!cut.sql.some((q) => /CREATE TABLE/i.test(JSON.stringify(q))), "a table was applied after the judgment was cut off");
   assert.ok(!down.sql.some((q) => /CREATE TABLE/i.test(JSON.stringify(q))), "a table was applied after the judgment failed");
   assert.equal(down.compiles.length, 0, "a page was compiled after the judgment failed");
   // THE RECORD IS STILL WRITTEN, with nothing judged and nothing told.
@@ -491,6 +598,20 @@ test("JUDGE 16 — a designer's refusal still reports only what follows from the
   assert.equal(judged(r).length, 1, "the refusal did not judge the requirements first");
   assert.match(coverOf(r), /One thing your site can't do yet: People can pay by bank transfer/, coverOf(r));
   assert.doesNotMatch(coverOf(r), /spins slowly/, coverOf(r));
+  // A JUDGMENT BESIDE A REFUSAL THAT DOES NOT FINISH (2026-10-06): asked once
+  // more like any other; still short, the refusal stays the answer — nothing
+  // was applied or charged, and it says the addition did not happen — and
+  // what nobody judged is not told. A stated limit: the bank transfer they
+  // asked for is then not named beside it.
+  const short = await addon("fw-judge-refused-short", MSG, {
+    kinds: ["three"],
+    answers: { three: { three: { page: "/" }, requirements: [PAY, SPIN] } },
+    judge: () => ({ verdicts: [] }),
+  });
+  assert.deepEqual([short.status, short.body.error, short.body.cost, short.charges.length], [422, "add", 0, 0]);
+  assert.equal(short.body.msg, r.body.msg);
+  assert.equal(judged(short).length, 2, "the judgment beside a refusal was not asked again");
+  assert.equal(coverOf(short), "");
 });
 
 test("JUDGE 17 — the judgment is billed with the designers' calls it rides beside", async () => {
@@ -500,6 +621,148 @@ test("JUDGE 17 — the judgment is billed with the designers' calls it rides bes
   assert.equal(small.body.ok, true);
   assert.equal(big.body.ok, true);
   assert.ok(Number(big.body.cost) > Number(small.body.cost), "the judgment's tokens were not billed: " + small.body.cost + " vs " + big.body.cost);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A JUDGMENT THAT DOES NOT FINISH (owner, 2026-10-06)
+//
+// *"I reproduced an explicit request, "Add a signup form and send a
+// confirmation email to each person who signs up," with a grounded email
+// requirement: runJudge accepts {verdicts:[]} as failed:false … The worker
+// continues because it checks failed/ask, so a genuinely requested part can
+// disappear from handoffs and customer reporting."* Through the route, on that
+// message: the email asked for, and the email field handed to the page step.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OWNER_MSG = "Add a signup form and send a confirmation email to each person who signs up";
+const SEND = { need: "Each person who signs up is emailed a confirmation", status: "covered", by: "signups.confirm emails the address they gave", item: "signups", kind: "table", basis: "asked", words: "send a confirmation email to each person who signs up" };
+const FIELD = { need: "The signup form asks for their email address so the confirmation can be sent", status: "elsewhere", step: "page", item: "/signup", basis: "asked", words: "send a confirmation email to each person who signs up" };
+const ownerAsk = (slug, opts) => addon(slug, OWNER_MSG, {
+  kinds: ["table", "page"], publishes: true, written: [writtenPage("/signup")],
+  answers: {
+    table: { table: [table("signups", ["name", "email"], { confirm: { to: "email", subject: "You're signed up", body: "<p>Thanks, {name}</p>" } })], requirements: [SEND, FIELD] },
+    page: { page: [PAGE("/signup", "Sign up")] },
+  },
+  ...opts,
+});
+/** What a model that finished would answer, per requirement; meaning only before a hand-off. */
+const WHOLE = [[/emailed a confirmation/, "asked", "yes", ["table:signups:confirm"]], [/asks for their email address/, "asked", "yes", ["page:/signup"]]];
+const verdictOf = (e, step) => {
+  const [, follows, carried, by] = WHOLE.find(([re]) => re.test(e.need));
+  return step ? { id: e.id, follows, carried: "unsure", reason: "r" } : { id: e.id, follows, carried, by, reason: "r" };
+};
+const all = (entries, step) => entries.map((e) => verdictOf(e, step));
+const nothing = () => [];
+const but = (re, wrong = null) => (entries, step) => entries.flatMap((e) => (re.test(e.need) ? (wrong ? [wrong(verdictOf(e, step))] : []) : [verdictOf(e, step)]));
+/** The model's answer to each call: the first, and the second naming what the first left out. */
+const answering = (first, second = first) => ({ judge: ({ entries, step, again }) => ({ verdicts: (again ? second : first)(entries, step) }) });
+const SET_UP = "I've set that up, but I can't confirm from here that Each person who signs up is emailed a confirmation; or that The signup form asks for their email address so the confirmation can be sent — have a look and tell me if it isn't right.";
+const BIG = { input_tokens: 4000000, output_tokens: 10 };
+const madeAll = (r) => {
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 400));
+  assert.ok(r.sql.some((q) => /CREATE TABLE/i.test(q)), "the table was not applied — this case tests nothing");
+  // NO SILENT OMISSION: the email they asked for, and the field it needs, in
+  // the cover note and in the facts the reply model is given.
+  assert.equal(coverOf(r), SET_UP);
+  assert.ok(facts(r.body).includes("not-done: " + SET_UP), JSON.stringify(facts(r.body)));
+  // …AND IN THE HAND-OFF: the page designer was told about the field.
+  assert.match(promptFor(r, "page").text, /asks for their email address so the confirmation can be sent/, "the field was not handed to the page step");
+  // ONE CHARGE.
+  assert.equal(r.charges.length, 1, "charged " + r.charges.length + " times");
+};
+
+test("JUDGE 18 — the owner's message with a whole answer: one judgment before the hand-off and one at the end, nothing asked again; the email they asked for and the field it needs reported and handed on; one charge (the control)", async () => {
+  const r = await ownerAsk("fw-whole", { ...answering(all), judgeUsage: BIG });
+  madeAll(r);
+  assert.equal(judged(r).length, 2);
+  for (const t of judged(r)) assert.doesNotMatch(t, /YOUR LAST ANSWER/);
+});
+
+test("JUDGE 19 — an empty answer, before the hand-off and at the end, asked once more each time and finished: nothing lost from the hand-off or the report, and charged exactly what a whole first answer costs", async () => {
+  const control = await ownerAsk("fw-empty-control", { ...answering(all), judgeUsage: BIG });
+  const r = await ownerAsk("fw-empty-recovered", { ...answering(nothing, all), judgeUsage: BIG });
+  madeAll(r);
+  const shown = judged(r);
+  assert.equal(shown.length, 4, "each judgment was not asked exactly once more");
+  assert.match(shown[1], /about to be handed to the page step[\s\S]*YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: table#1 \(no verdict\)/);
+  assert.match(shown[3], /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: table#0 \(no verdict\), table#1 \(no verdict\)/);
+  // NO DUPLICATE CHARGE: the second call of each judgment is ours.
+  assert.deepEqual(r.charges, control.charges, "the asked-again judgments were billed");
+  // THE SECOND CALLS ARE COUNTED, as ours: on the timeline, apart from the bill.
+  for (const at of ["page", "final"]) {
+    const mark = r.traces.find((t) => t && t.phase === "judge:" + at);
+    assert.deepEqual(mark && [mark.status, mark.detail.attempts, mark.detail.missing], ["ok", 2, 0], "the mark does not say the judgment was asked again: " + JSON.stringify(mark));
+    const again = r.traces.find((t) => t && t.phase === "judge:" + at + ":again");
+    assert.deepEqual(again && again.detail, { in: BIG.input_tokens, out: BIG.output_tokens }, "the second call's tokens are not on the timeline: " + JSON.stringify(again));
+  }
+  assert.ok(!control.traces.some((t) => t && /:again$/.test(t.phase)), "a whole first answer was marked as asked again");
+  assert.deepEqual(storedAnswer(r, "fw-empty-recovered").coverage.verdictsMissing.map((x) => [x.at, x.id, x.why, x.finished]),
+    [["page", "table#1", "no-verdict", true], ["final", "table#0", "no-verdict", true], ["final", "table#1", "no-verdict", true]]);
+  assert.equal(storedAnswer(control, "fw-empty-control").coverage.verdictsMissing, undefined);
+});
+
+test("JUDGE 20 — an empty answer at the end, twice: the addition stops before anything is applied or charged, the customer is not asked to say again what they asked, and the record keeps what was asked", async () => {
+  const r = await ownerAsk("fw-empty-stops", { judge: ({ entries, step }) => ({ verdicts: step ? all(entries, step) : [] }) });
+  assert.deepEqual([r.status, r.body.ok, r.body.error, r.body.cost, r.body.incomplete], [503, false, "send", 0, true], JSON.stringify(r.body).slice(0, 300));
+  assert.equal(judged(r).length, 3, "one before the hand-off, two at the end, and no more");
+  assert.ok(!r.sql.some((q) => /CREATE TABLE/i.test(q)), "the table was applied");
+  assert.equal(r.compiles.length, 0, "a page was compiled");
+  assert.deepEqual(r.charges, [], "something was charged");
+  // THE FAILURE PATH, WORDED AS WHAT HAPPENED AND WHOSE IT IS — not a question,
+  // and nothing for them to repeat.
+  assert.equal(r.body.clarify, undefined);
+  assert.equal(r.body.msg, "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.");
+  assert.doesNotMatch(r.body.msg, /\b(again|repeat|rephrase|clarify|resend)\b|send it/i);
+  // THE RECORD SAYS WHAT HAPPENED: the email has no verdict at all; the
+  // field's meaning was judged before the hand-off and what carries it out
+  // never was; and the judgment at the end left both, asked twice.
+  const rec = storedAnswer(r, "fw-empty-stops").coverage;
+  assert.deepEqual(rec.requirements.map((q) => [q.need, !!q.unjudged, q.state]), [[SEND.need, true, "unknown"], [FIELD.need, false, "unknown"]]);
+  assert.deepEqual(rec.requirements[1].judged, { follows: "asked", carried: "unsure", by: [], reason: "r" });
+  assert.deepEqual(rec.verdictsMissing.map((x) => [x.at, x.id, x.need, x.why, x.finished]), [["final", "table#0", SEND.need, "no-verdict", false], ["final", "table#1", FIELD.need, "no-verdict", false]]);
+});
+
+test("JUDGE 21 — a partial answer that leaves out the email they asked for: asked again for exactly that one, finished, and reported; left out twice, the addition stops", async () => {
+  const r = await ownerAsk("fw-partial-recovered", answering(but(/emailed a confirmation/), all));
+  madeAll(r);
+  const shown = judged(r);
+  assert.equal(shown.length, 3);
+  assert.match(shown[2], /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: table#0 \(no verdict\)\./, "the second call did not name exactly the one left out");
+  const rec = storedAnswer(r, "fw-partial-recovered").coverage;
+  assert.deepEqual(rec.requirements.find((q) => q.need === SEND.need).carriedBy, ["table:signups:confirm"]);
+  assert.deepEqual(rec.verdictsMissing.map((x) => [x.at, x.id, x.why, x.finished]), [["final", "table#0", "no-verdict", true]]);
+  const twice = await ownerAsk("fw-partial-stops", answering(but(/emailed a confirmation/)));
+  assert.deepEqual([twice.status, twice.body.incomplete, twice.body.cost, twice.charges.length], [503, true, 0, 0]);
+  assert.ok(!twice.sql.some((q) => /CREATE TABLE/i.test(q)));
+});
+
+test("JUDGE 22 — an invalid verdict for the email they asked for — a `follows` or `carried` from no list, a \"yes\" naming only what it was never shown, a verdict under an id it was never given — is asked again, naming why, and finished; never read as \"unsure\"", async () => {
+  const wrongs = [
+    [(v) => ({ ...v, follows: "implied" }), "no `follows` from the four allowed", "no-follows"],
+    [(v) => ({ ...v, carried: "maybe" }), "no `carried` from the three allowed", "no-carried"],
+    [(v) => ({ ...v, by: ["function:send_confirmation"] }), "\"yes\" naming nothing that is listed", "yes-without-items"],
+    [(v) => ({ ...v, id: "table#9" }), "no verdict", "no-verdict"],
+  ];
+  for (const [wrong, why, code] of wrongs) {
+    const r = await ownerAsk("fw-invalid-" + code, answering(but(/emailed a confirmation/, wrong), all));
+    madeAll(r);
+    const shown = judged(r);
+    assert.equal(shown.length, 3, why);
+    assert.ok(shown[2].includes("WITHOUT A VERDICT ANYBODY CAN USE: table#0 (" + why + ")."), "the second call did not say why: " + shown[2].slice(-240));
+    assert.deepEqual(storedAnswer(r, "fw-invalid-" + code).coverage.verdictsMissing.map((x) => [x.id, x.why, x.finished]), [["table#0", code, true]]);
+  }
+  // INVALID TWICE: stops, as missing does.
+  const twice = await ownerAsk("fw-invalid-stops", answering(but(/emailed a confirmation/, (v) => ({ ...v, carried: "maybe" }))));
+  assert.deepEqual([twice.status, twice.body.incomplete, twice.body.cost, twice.charges.length], [503, true, 0, 0]);
+});
+
+test("JUDGE 23 — \"unsure\" is a whole verdict, not a missing one: nothing is asked again, and the email they asked for is still reported, as something nobody here can see", async () => {
+  const r = await ownerAsk("fw-unsure", answering(but(/emailed a confirmation/, (v) => ({ ...v, carried: "unsure", by: [] }))));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  assert.equal(judged(r).length, 2, "an unsure verdict was asked again");
+  assert.match(coverOf(r), /I can't see from here whether Each person who signs up is emailed a confirmation/);
+  assert.doesNotMatch(coverOf(r), /I've set that up[^.]*emailed a confirmation/);
+  assert.equal(r.charges.length, 1);
 });
 
 test("JUDGE 14 — every report of requirements on the route is made with judging in force", () => {

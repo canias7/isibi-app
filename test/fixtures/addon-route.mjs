@@ -277,7 +277,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -461,6 +461,9 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = fa
     // route a gate short of everything under test.
     if (url.includes("/rpc/use_credits")) {
       let want = 0; try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
+      // EVERY CHARGE ASKED FOR, IN ORDER (2026-10-06): a case about money is
+      // about how many times it was taken, which the reply's `cost` cannot say.
+      if (charges) charges.push(want);
       return new Response(String(want), { status: 200, headers: { "content-type": "application/json" } });
     }
     // NEON, SQL OVER HTTP — the seam `applySiteSchema` really uses (`neon()` is
@@ -630,9 +633,11 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = fa
       // The route asks a model whether each requirement follows from what was
       // asked, and which listed thing carries it out (`judge_requirements`). A
       // case says what that model answers with `judge`: an answer, `"fail"`
-      // (the call is refused), or a function of what the route REALLY showed
+      // (the call is refused), `"cut"` (the answer ran out of tokens), or a
+      // function of what the route REALLY showed
       // it — the requirement lines and the listed ids, read off the request it
-      // sent. A case that says nothing is answered as a model would answer the
+      // sent, and `again` when this is the second call naming what the first
+      // left without a verdict. A case that says nothing is answered as a model would answer the
       // requirement its designer wrote: it follows on its own `basis`, and is
       // carried by the thing the designer named explicitly (its kind and
       // `item`) when that thing is listed; otherwise "unsure", never a name
@@ -656,6 +661,9 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = fa
         }
         const handing = /about to be handed to the (\S+) step/.exec(text);
         const step = handing ? handing[1] : "";
+        // ASKED ONCE MORE (2026-10-06): the route's second call names what the
+        // first answer left without a verdict, and a case can answer it apart.
+        const again = /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE/.test(text);
         const ids = items.map((i) => i.id);
         const auto = () => ({
           verdicts: entries.map((e) => {
@@ -673,14 +681,17 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = fa
             return by.length ? { id: e.id, follows, carried: "yes", by, reason: "auto" } : { id: e.id, follows, carried: "unsure", reason: "auto" };
           }),
         });
-        const said = typeof judge === "function" ? judge({ entries, items, step, text }) : judge;
+        const said = typeof judge === "function" ? judge({ entries, items, step, text, again }) : judge;
         if (said === "fail") return new Response(JSON.stringify({ error: { type: "invalid_request_error", message: "refused" } }), { status: 400, headers: { "content-type": "application/json" } });
-        const input = said && typeof said === "object" ? said : auto();
+        // `"cut"` IS AN ANSWER THE TOKEN BUDGET CUT OFF (2026-10-06): what the
+        // provider says when its limit ends the answer, in either shape.
+        const cut = said === "cut";
+        const input = said && typeof said === "object" ? said : cut ? { verdicts: [] } : auto();
         // `judgeUsage` IS WHAT THE CALL COST, when a case is about the bill.
         const ju = judgeUsage && typeof judgeUsage === "object" ? judgeUsage : { input_tokens: 10, output_tokens: 5 };
         const jbody = anthropic
-          ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input }], usage: ju }
-          : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: ju.input_tokens, completion_tokens: ju.output_tokens } };
+          ? { stop_reason: cut ? "max_tokens" : "tool_use", content: [{ type: "tool_use", name: asked, input }], usage: ju }
+          : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: cut ? "length" : "stop" }], usage: { prompt_tokens: ju.input_tokens, completion_tokens: ju.output_tokens } };
         return new Response(JSON.stringify(jbody), { status: 200, headers: { "content-type": "application/json" } });
       }
       const supplied = answers[kind] || {};
@@ -714,7 +725,7 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, ungrounded = fa
  * serve every later one.
  */
 export async function addon(slug, instruction, opts) {
-  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [], traces = [];
+  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [], traces = [], charges = [];
   // EVERY PROMPT THE IMAGE PROVIDER WAS REALLY PAID FOR. Collected here rather
   // than inside the stub so it comes back on the result — a case about buying
   // photographs is about WHICH pictures were bought, and the reply's count
@@ -729,7 +740,7 @@ export async function addon(slug, instruction, opts) {
   // apart needs a site that already has something. `stored` replaces the whole
   // schema rather than merging, so a case says exactly what the site is.
   const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots, traces });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots, traces, charges });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -788,7 +799,7 @@ export async function addon(slug, instruction, opts) {
     const res = await worker.fetch(req, env, ctx);
     await Promise.allSettled(ctx.pending);
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, traces, shots, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, traces, shots, charges, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 
