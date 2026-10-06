@@ -764,3 +764,21 @@ test("EDIT — AN EDIT'S MILESTONES: its plan becomes a line while its step runs
     await settle(P, r.key);
   });
 });
+
+test("ADD-ON — AN ADD-ON'S MILESTONES, IN ORDER: what it chose (decided), each design (designed, not built), its pages (prepared, not published) and its publish (happening now) — never published", async () => {
+  await withPlatform({ slug: slugOf("addon"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
+    const r = await sendMessage(P, { message: ADD });
+    await deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
+    const job = [...P.jobs.values()].find((j) => j.op === "addon");
+    const rec = P.progressOf(job.id);
+    assert.deepEqual(rec.marks.map((m) => [m.stage, m.facts.map((f) => f.state)]), [
+      ["picked", ["decided", "next"]],
+      ["designed", ["designed", "next"]],
+      ["pages", ["prepared", "next"]],
+      ["publish", ["doing"]],
+    ], "the add-on's milestones are not each recorded, in order, in their states");
+    assert.match(rec.marks[1].facts[0].text, /^Designed, not built yet: a new page \(“Gallery”, \/gallery\)/);
+    assert.equal(rec.closed.why, "ended");
+    await settle(P, r.key);
+  });
+});
