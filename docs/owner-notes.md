@@ -46,12 +46,19 @@ is in git; the dated entries further down are the full story.*
     Twelve older planted defects were re-anchored and are still caught;
     last round's sweep catches 35 of 35;
   - **the suite**: `9553 / 9553 / 0 / 0` here.
-- **CI on the push**: running when this was written. The next record reads it
-  to completion.
+- **CI on `77da1770` is complete and green** (the fix's code with its
+  records on top):
+  - unit tests (run 37439432687): `9553 / 9541 / 0 / 12`, the same total as
+    here; CI skips its usual 6 and the 6 real-browser cases;
+  - the site build (run 37439432670): all seven jobs and the gate passed,
+    *"404 checks in 27 sections across 4 shards, every job green"*.
+- **Screenshots** (sent in the chat): the refusal before and after, and the
+  five missing pages before and after.
 - **Money**: balance **21** (read at 08:53 UTC on 6 October: last ledger
   row 392, no job open). Nothing was spent in this batch.
 
 **Yours to decide**
+- **Nothing to re-run**: every required job ran and passed.
 - **Review the batch** (`docs/history/2026-10-06-refusal-warnings.md`,
   remaining limits in §5).
 - **One visible change to know about**: on a success, a requirement met only
@@ -228,6 +235,9 @@ since. Add new ones there.
     and all 12 are still caught. Last round's sweep, re-run, catches 35 of 35;
   - **the full suite**: `9553 / 9553 / 0 / 0` here (the 9,537 before, plus
     the 16 new cases);
+  - **CI on the push**: green. Unit tests passed with the same total as here
+    (`9553 / 9541 / 0 / 12`), and the site build's seven jobs and its gate
+    passed;
   - the image would roll to `3f3862946e322404` (predicted, not built).
 - **Kept separate** (backlog):
   - **later refusals** (a missing photo, a compile failure, and others) carry

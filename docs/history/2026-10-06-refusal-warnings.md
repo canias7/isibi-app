@@ -295,8 +295,23 @@ refused row and for the rest).
   cases), in 227 s, the real-browser cases included. The earlier corrections
   are among them, unchanged and green: run 101's three, the requirement
   judgment, the incomplete judgment and the requirement reporting.
-- **CI**: read to completion after the push, in the record that follows this
-  one.
+- **CI** on `77da1770` (this fix's code, `46a7746c`, with its records on top),
+  complete and green:
+  - **unit tests** (run 37439432687): `9553 / 9541 / 0 / 12`. The total
+    matches the local run; CI skips the same 12 as before (its usual 6 and the
+    6 real-browser cases);
+  - **the site build** (run 37439432670): all seven jobs and the gate passed.
+    The gate reads *"ALL CHECKS: 404 checks in 27 sections across 4 shards,
+    every job green"* (shard 1: 108 checks in 1 section; shard 2: 75 in 2;
+    shard 3: 158 in 16; shard 4: 62 in 8), for commit `77da1770` and
+    site-build inputs `9a14e4144e208f4c` (3,972 files).
+- **Screenshots** (headless Chromium, the repo's own `public/`, every answer
+  supplied, no model reply): **before** (`f060a8b8`'s page and note) a refused
+  addition beside three requirements shows only the refusal's sentence, and an
+  addition five of whose six pages did not come names three and says "and 2
+  more"; **after**, the refusal's sentence is followed by each requirement —
+  the one the site already had saying *"Your site already had that in place"*
+  — and all five pages are named.
 - **The image** (predicted, not built): `140199b61e2581c4` at the branch before
   this fix becomes `3f3862946e322404` at `46a7746c`. There are 194 inputs, none
   under `public/`. Four differ (`builder/site-add.mjs`,
