@@ -1,0 +1,309 @@
+[
+ {
+  "label": "CONTROL: a comment in the form decisions changes nothing",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "// NOTHING IS GUESSED, the rules test's booking rule",
+  "to": "// NOTHING IS GUESSED (control), the rules test's booking rule",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the browser helper changes nothing",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": " * ONE VISITOR'S ENTRY, THROUGH THE FORM AN ADDITION MADE (2026-10-06). The",
+  "to": " * ONE VISITOR'S ENTRY, THROUGH THE FORM AN ADDITION MADE (2026-10-06, c). The",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the driver's step changes nothing",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": " * THE RELEASE CHECK'S FORM STEP (2026-10-06): the new page's one form, sent",
+  "to": " * THE RELEASE CHECK'S FORM STEP (2026-10-06, control): the new page's one form, sent",
+  "control": true
+ },
+ {
+  "label": "F1: the marker's address is a real domain",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "\"@example.com\",",
+  "to": "\"@gofarther.dev\","
+ },
+ {
+  "label": "F2: several new tables read as the one",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (added.length !== 1) return",
+  "to": "if (added.length < 1) return"
+ },
+ {
+  "label": "F3: a required field it cannot fill is pressed anyway",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    else if (f.required === true) return { ok: false, fills: [], why:",
+  "to": "    else if (false) return { ok: false, fills: [], why:"
+ },
+ {
+  "label": "F4: a form with no email field is filled",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (emails !== 1) return",
+  "to": "if (emails > 1) return"
+ },
+ {
+  "label": "F5: a form with no name field is filled",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (names < 1) return",
+  "to": "if (false) return"
+ },
+ {
+  "label": "F6: a name is told by the name attribute alone",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "/name/i.test(what)",
+  "to": "/name/i.test(String(f.name || \"\"))"
+ },
+ {
+  "label": "F7: a field with neither a name nor an id is filled by guess",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!selector) return { ok: false, fills: [], why:",
+  "to": "    if (false) return { ok: false, fills: [], why:"
+ },
+ {
+  "label": "F8: optional sentence fields are filled too",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": " && f.required === true) fill = { kind: \"fill\", value: marker.text };",
+  "to": ") fill = { kind: \"fill\", value: marker.text };"
+ },
+ {
+  "label": "F9: a second request leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (n !== 1) return fail(",
+  "to": "if (n < 1) return fail("
+ },
+ {
+  "label": "F10: a query string leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (search) return fail(",
+  "to": "if (false) return fail("
+ },
+ {
+  "label": "F11: a credential leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (lower.authorization) return fail(",
+  "to": "if (false) return fail("
+ },
+ {
+  "label": "F12: a value the check did not enter leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "    if (!texts.has(v)) return fail(",
+  "to": "    if (false) return fail("
+ },
+ {
+  "label": "F13: a body without the marker's address leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (!values.includes(marker.email)) return fail(",
+  "to": "if (false) return fail("
+ },
+ {
+  "label": "F14: a ticked box the check did not tick leaves",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "if (ticked > ticks) return fail(",
+  "to": "if (false) return fail("
+ },
+ {
+  "label": "F15: the site refusing the entry reads as taking it",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "status >= 200 && status < 300,",
+  "to": "status > 0,"
+ },
+ {
+  "label": "F16: a table that already held rows reads as empty",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "Array.isArray(b) && b.length === 0,",
+  "to": "Array.isArray(b),"
+ },
+ {
+  "label": "F17: a row without the marker's address passes",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "&& has(fresh[0], marker.name) && has(fresh[0], marker.email),\n",
+  "to": "&& has(fresh[0], marker.name),\n"
+ },
+ {
+  "label": "F18: two new rows pass as one",
+  "files": [
+   "scripts/canary-form.mjs"
+  ],
+  "from": "fresh.length === 1 && has(fresh[0], marker.name)",
+  "to": "fresh.length >= 1 && has(fresh[0], marker.name)"
+ },
+ {
+  "label": "U1: a request the gate refuses leaves in the paid press",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }\n        entry.stopped = out.submit ? gate.why : \"a rehearsal stops the entry inside the browser\";",
+  "to": "        if (out.submit) { entry.sent = true; return r.fallback(); }\n        entry.stopped = out.submit ? gate.why : \"a rehearsal stops the entry inside the browser\";"
+ },
+ {
+  "label": "U2: a rehearsal sends the entry",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }\n        entry.stopped = out.submit ? gate.why : \"a rehearsal stops the entry inside the browser\";",
+  "to": "        if (gate.ok) { entry.sent = true; return r.fallback(); }\n        entry.stopped = out.submit ? gate.why : \"a rehearsal stops the entry inside the browser\";"
+ },
+ {
+  "label": "U3: a page of several forms is filled",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "if (out.ready.forms !== 1) { out.why = `the page has ${out.ready.forms} forms;",
+  "to": "if (out.ready.forms < 1) { out.why = `the page has ${out.ready.forms} forms;"
+ },
+ {
+  "label": "U4: a plan that refused is pressed anyway",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (!out.plan.ok) { out.why = out.plan.why; return out; }",
+  "to": "    if (false) { out.why = out.plan.why; return out; }"
+ },
+ {
+  "label": "U5: values that did not hold are pressed anyway",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (!out.filledOk) { out.why = \"the form does not hold the marker's values — nothing was pressed\"; return out; }",
+  "to": "    if (false) { out.why = \"the form does not hold the marker's values — nothing was pressed\"; return out; }"
+ },
+ {
+  "label": "U6: the gate is asked about a different plan",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: out.plan });",
+  "to": "const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: null });"
+ },
+ {
+  "label": "U7: a press the balance cannot pay for is sent anyway",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      if (short) { stop(`step ${n}`, `${short} — nothing is sent`); break; }",
+  "to": "      if (false) { stop(`step ${n}`, `${short} — nothing is sent`); break; }"
+ },
+ {
+  "label": "U8: the balance is never short of a budget",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  return now < budget ? `the balance (${now}) does not cover",
+  "to": "  return now < 0 ? `the balance (${now}) does not cover"
+ },
+ {
+  "label": "U9: the funds check stops a later message too",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "const short = n === 1 && scenario.fundsFirst === true ? fundsRefusal(",
+  "to": "const short = scenario.fundsFirst === true ? fundsRefusal("
+ },
+ {
+  "label": "U10: an unreadable balance passes the funds check",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  if (!(Number.isFinite(now) && now >= 0)) return \"the balance could not be read, so whether it covers this press is not known\";",
+  "to": "  if (false) return \"the balance could not be read, so whether it covers this press is not known\";"
+ },
+ {
+  "label": "E1: the step runs outside the paid press",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  if (spend !== true) return stop(\"not run: only the paid press sends a visitor's entry\");\n",
+  "to": ""
+ },
+ {
+  "label": "E2: the paid press only rehearses",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: true });",
+  "to": "submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: false });"
+ },
+ {
+  "label": "E3: a table already holding rows is written to",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  if (before.rows.length) return stop(",
+  "to": "  if (false) return stop("
+ },
+ {
+  "label": "E4: the step is told it may spend whatever the press says",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "origin: BEFORE.origin, spend: SPEND });",
+  "to": "origin: BEFORE.origin, spend: true });"
+ },
+ {
+  "label": "E5: the form's checks do not count",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "        for (const c of requests.form.checks) check(c.name, c.ok, c.why);\n",
+  "to": ""
+ },
+ {
+  "label": "E6: a failed form step leaves the press passed",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "        requests.ok = requests.ok && requests.form.ok;\n",
+  "to": ""
+ },
+ {
+  "label": "E7: an unread owner listing is written past",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  if (!before.ok) return stop(",
+  "to": "  if (false) return stop("
+ }
+]

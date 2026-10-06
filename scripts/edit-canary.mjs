@@ -70,7 +70,11 @@ import { requestBatchVerdict } from "./canary-requests.mjs";
 import { removalVerdict } from "./canary-remove.mjs";
 // THE ADDITIONS BATCH (2026-10-02): judged on what landed, by the product's own readers.
 import { additionsVerdict } from "./canary-additions.mjs";
-import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
+import { OWNER_ROWS_LIMIT, readRowList } from "./canary-rows.mjs";
+// THE RELEASE CHECK'S FORM STEP (2026-10-06): the new page's one form, sent
+// once by a visitor, and the new table read back by the owner's route.
+import { formMarker, formDataPath, addedTable, formVerdict } from "./canary-form.mjs";
+import { defaultLaunch, submitFormInPage } from "./canary-ui.mjs";
 // BATCH 1: the route a paid press expects, read from its own box and compared
 // with the router's answer before the edit is posted.
 import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid, failureSaid } from "./canary-route.mjs";
@@ -317,6 +321,42 @@ function call(method, path, { body, headers } = {}) {
 if (PROBES) globalThis.fetch = guardFetch(globalThis.fetch, (url, method) => probeFetchAllowed(url, method, SUPABASE_URL));
 
 let failed = 0;
+/**
+ * THE RELEASE CHECK'S FORM STEP (2026-10-06): the new page's one form, sent
+ * once by a visitor in a real browser (`submitFormInPage`), the new table read
+ * by the owner's route before and after, judged by `formVerdict`. Nothing is
+ * pressed unless this is the paid press, the new page was found, exactly one
+ * new table appeared, and that table reads empty — each refusal its own reason.
+ */
+async function formStep({ spec, verdict, tablesBefore, tablesAfter, origin, spend }) {
+  const marker = formMarker(process.env.GITHUB_RUN_ID || "");
+  const at = Number.isSafeInteger(spec.expect.form.page) ? spec.expect.form.page : 0;
+  const found = verdict && verdict.newPages && Array.isArray(verdict.newPages.found) ? verdict.newPages.found[at] : null;
+  const path = found && !found.why && typeof found.route === "string" ? found.route : "";
+  const added = addedTable(tablesBefore, tablesAfter);
+  const stop = (why, extra = {}) => ({ ok: false, marker, ...extra, checks: [{ name: "the new page's form was sent once by a visitor", ok: false, why }] });
+  if (spend !== true) return stop("not run: only the paid press sends a visitor's entry");
+  if (!path) return stop(`not sent: the new page was not found (${(found && found.why) || "no new page"}) — nothing was pressed`);
+  if (!added.ok) return stop(`not sent: ${added.why} — nothing was pressed`);
+  const rowsOf = async () => readRowList(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(added.table)}?order=id&dir=asc&limit=${OWNER_ROWS_LIMIT}`), { owner: true });
+  const before = await rowsOf();
+  if (!before.ok) return stop(`not sent: the owner's read of ${added.table} did not answer (${before.why}) — nothing was pressed`, { table: added.table, path });
+  if (before.rows.length) return stop(`not sent: ${added.table} already holds ${before.rows.length} rows, so one more could not be told apart — nothing was pressed`, { table: added.table, path, before });
+  let submitted = null;
+  let browser = null;
+  try {
+    browser = await defaultLaunch();
+    submitted = await submitFormInPage(browser, { origin, path, api: formDataPath(CANARY, added.table), marker, submit: true });
+  } catch (e) {
+    submitted = { posts: [], why: String((e && e.message) || e).slice(0, 200) };
+  } finally {
+    if (browser) { try { await browser.close(); } catch { /* already gone */ } }
+  }
+  const after = await rowsOf();
+  const v = formVerdict({ submitted, before, after, marker, table: added.table });
+  return { ...v, marker, table: added.table, path, submitted, before, after };
+}
+
 const check = (name, ok, detail) => {
   console.log(`  ${ok ? "ok  " : "FAIL"}  ${name}${detail ? "  ->  " + detail : ""}`);
   if (!ok) failed++;
@@ -1288,6 +1328,22 @@ if (UI_ASK) {
       const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });
       requests.money = money;
       check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
+      // THE NEW PAGE'S FORM, SENT ONCE BY A VISITOR (2026-10-06, the owner:
+      // "Include checking the resulting pages and submitting any form created
+      // by that test"). Only a scenario that asks for it (`expect.form`), only
+      // in the paid press, and only once the checks above found the new page
+      // and exactly one new table, empty: otherwise nothing is pressed and the
+      // step says why. The table is read by the owner's route before and
+      // after, so the one row is what the database holds (`formVerdict`). It
+      // costs nothing: no model is called, and the site's own data route takes
+      // the entry. Its checks count like every other.
+      if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.form) {
+        requests.form = await formStep({ spec: UI_ASK.scenario, verdict: requests, tablesBefore, tablesAfter, origin: BEFORE.origin, spend: SPEND });
+        console.log("\n  THE NEW PAGE'S FORM (sent once by a visitor; its row read back by the owner's route):");
+        for (const c of requests.form.checks) check(c.name, c.ok, c.why);
+        requests.checks = requests.checks.concat(requests.form.checks);
+        requests.ok = requests.ok && requests.form.ok;
+      }
       // COVERAGE: recorded, never a check.
       console.log("\n  COVERAGE (which hand-over this run went through; recorded, never failed on):");
       for (const c of requests.coverage) console.log(`    ${c.covered ? "COVERED    " : "NOT COVERED"}  ${c.name} — ${c.why}`);

@@ -39,6 +39,7 @@ import {
   bookingGate,
 } from "./canary-rules.mjs";
 import { replyJobsOf, trackHeld, repliesNow, timedOut } from "./canary-replies.mjs";
+import { fieldPlan, formGate } from "./canary-form.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
 // THE APP'S FIRST-RUN GREETING, KEPT AS SEEN (`WELCOME_KEY` in public/chat.js).
@@ -558,6 +559,53 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Change the Gallery page heading 'Photographs from the bakery' to 'Photographs from Fold Lane'.", ms: 8 * 60_000 }),
     ]),
   }),
+  // THE RELEASE CHECK (2026-10-06, prepared, not pressed). The owner, after
+  // the failure-reporting fix passed review: *"…one combined Edit/Add-on live
+  // verification with the exact request, expected results and estimated
+  // credit cost against the last recorded balance of 21. Include checking the
+  // resulting pages and submitting any form created by that test."* ONE
+  // message — an edit and an add-on that makes a page with a form and a table
+  // of its own (its menu link the builder's) — judged like every request
+  // press on what landed; then, beside those checks, the new page's form is
+  // sent ONCE by a visitor (`submitFormInPage`) and the new table must hold
+  // exactly that one entry, read by the owner's route (`formVerdict`). The
+  // menu's label is matched by the word the page is about, so the builder may
+  // name it "Tasting Evenings" or "Tasting evening". Look and nav are allowed
+  // beside text because the router may send the heading or the menu link
+  // through them; the page rung because it hands a new page to the add-on
+  // step. The changes and the one entry stay on the bakery (the demo-site
+  // rule).
+  "lv-release": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    // ABOUT 17-28, MOST LIKELY ABOUT 25: run 101's first message — the same
+    // shape, a page with a form and its own table beside a heading — cost 24
+    // before the add-on's requirement judgment, which adds about 1 more. The
+    // press sends nothing unless the balance covers all of it (`fundsFirst`).
+    budget: 30,
+    fundsFirst: true,
+    addon: true,
+    layers: Object.freeze(["text", "look", "nav", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/gallery", from: "Photographs from Fold Lane", to: "Photographs from our ovens" }),
+      ]),
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["tasting"]) })]),
+      menu: Object.freeze({ label: "Tasting", page: 0 }),
+      // ONE NEW TABLE, A VISITOR'S TO SEND TO AND NOBODY'S TO READ (`collect`),
+      // with a column for the email address; every other table as it was.
+      tables: Object.freeze({ added: 1, pair: Object.freeze({ read: "none", write: "anyone" }), column: "email" }),
+      // THE NEW PAGE'S FORM, SENT ONCE BY A VISITOR, its row read back.
+      form: Object.freeze({ page: 0 }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a Tasting Evenings page where people can join the waiting list for our next tasting evening by leaving their name and email address, and change the Gallery page heading 'Photographs from Fold Lane' to 'Photographs from our ovens'.",
+        ms: 20 * 60_000,
+      }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -807,6 +855,22 @@ export function budgetRefusal({ start, now, budget }) {
   }
   const spent = start - now;
   return spent >= budget ? `the scenario has spent ${spent} of its ${budget}-credit budget` : "";
+}
+
+/**
+ * THE BALANCE AGAINST A WHOLE PRESS, BEFORE ITS FIRST MESSAGE (2026-10-06).
+ * `budgetRefusal` asks what a press has spent so far; it cannot ask whether
+ * the account can pay for the press at all, and a request the server has
+ * taken on runs to its end whatever the balance — so a press that starts
+ * short ends with a part refused for want of credits, on a live site, after
+ * the rest has been paid for. A scenario that says so (`fundsFirst`) sends
+ * nothing unless the balance read just before its first message covers its
+ * whole budget. An unreadable balance is a refusal, as there.
+ */
+export function fundsRefusal({ now, budget }) {
+  if (!(Number.isFinite(now) && now >= 0)) return "the balance could not be read, so whether it covers this press is not known";
+  if (!(Number.isFinite(budget) && budget > 0)) return "the scenario names no budget for the balance to cover";
+  return now < budget ? `the balance (${now}) does not cover this press's budget of ${budget} credits` : "";
 }
 
 /** A data URL as what can be compared without carrying it: name, bytes, sha256. */
@@ -1570,6 +1634,155 @@ export async function bookInPage(browser, {
   return out;
 }
 
+/**
+ * THE PAGE'S ONE FORM, AS A VISITOR SEES IT: how many forms there are, whether
+ * the first is live (React has attached to it and to its button), its button's
+ * words, and every field with what it says it is for.
+ */
+function formFieldsInPage() {
+  const forms = [...document.querySelectorAll("form")];
+  const live = (el) => !!el && Object.keys(el).some((k) => k.startsWith("__reactProps") || k.startsWith("__reactFiber"));
+  const form = forms[0] || null;
+  const submit = form ? form.querySelector('button[type="submit"], input[type="submit"], button:not([type])') : null;
+  const labelOf = (el) => {
+    let t = "";
+    if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t = l.textContent || ""; }
+    if (!t) { const l = el.closest("label"); if (l) t = l.textContent || ""; }
+    return String(t || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  };
+  const shown = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+  const fields = form ? [...form.querySelectorAll("input, textarea, select")].map((el) => ({
+    tag: el.tagName.toLowerCase(), type: String(el.getAttribute("type") || "").toLowerCase(),
+    name: el.getAttribute("name") || "", id: el.id || "", label: labelOf(el),
+    required: el.required === true || el.getAttribute("aria-required") === "true",
+    visible: shown(el), disabled: el.disabled === true,
+    value: el.type === "checkbox" ? (el.checked ? "on" : "") : String(el.value || ""),
+  })) : [];
+  return {
+    forms: forms.length, hydrated: !!form && live(form) && live(submit),
+    submit: submit ? String(submit.textContent || submit.value || "").replace(/\s+/g, " ").trim() : null, fields,
+  };
+}
+
+/** What the page says once its form was sent: its toasts and live regions, and whether the form is still there. */
+function formOutcomeInPage() {
+  const said = [...document.querySelectorAll('[role="status"], [role="alert"], [aria-live], li[data-sonner-toast]')]
+    .map((el) => String(el.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 6);
+  const main = document.querySelector("main") || document.body;
+  return { said, form: !!document.querySelector("form"), text: String((main && main.innerText) || "").replace(/\s+/g, " ").trim().slice(0, 600) };
+}
+
+/**
+ * ONE VISITOR'S ENTRY, THROUGH THE FORM AN ADDITION MADE (2026-10-06). The
+ * booking helper's shape (`bookInPage`) for a form nobody wrote in advance: a
+ * context of its own, signed in to nothing; the page's ONE form read once it
+ * is live, filled as `fieldPlan` decides and read again to be sure it holds
+ * those values, and its button pressed once. THE WALL: a read goes out; any
+ * other write is stopped and recorded; the form's request goes out only when
+ * `submit` is set AND `formGate` says, BEFORE it leaves, that it is the one
+ * request this check was written for. A page with no form or several, a field
+ * this check does not fill, or values that did not hold, presses nothing. So a
+ * rehearsal records what would have been sent and sends nothing, and the paid
+ * press sends that one entry and nothing else. Service workers are blocked,
+ * because a request a service worker handles never reaches the wall.
+ */
+export async function submitFormInPage(browser, {
+  origin, path, api, marker, submit = false, ms = 45_000, answerMs = 30_000, settleMs = 6_000, pollMs = 250, route = null,
+} = {}) {
+  const out = {
+    at: new Date().toISOString(), url: origin + path, api, submit: submit === true,
+    ready: null, plan: null, filled: null, filledOk: false, pressed: false, posts: [], response: null, failed: null, message: null,
+    aborted: [], errors: [], why: "",
+  };
+  const onApi = (u) => { try { const x = new URL(String(u)); return x.origin === origin && x.pathname === api; } catch { return false; } };
+  const sleep = (t) => new Promise((r) => setTimeout(r, t));
+  let ctx = null;
+  try {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, serviceWorkers: "block" });
+    if (route) await route(ctx, "visitor");
+    await ctx.route(() => true, async (r) => {
+      const req = r.request();
+      const m = req.method();
+      if (m === "GET" || m === "HEAD") return r.fallback();
+      const u = String(req.url());
+      if (m === "POST" && onApi(u)) {
+        const raw = req.postData();
+        let body = null;
+        try { body = JSON.parse(raw || "null"); } catch { body = { unparsed: String(raw || "").slice(0, 200) }; }
+        let headers = null;
+        try { headers = await req.allHeaders(); } catch { headers = null; }
+        let search = null;
+        try { search = new URL(u).search; } catch { search = null; }
+        // DECIDED HERE, BEFORE ANYTHING LEAVES: the one exact request, or none.
+        const gate = formGate({ n: out.posts.length + 1, raw, search, headers, marker, plan: out.plan });
+        const entry = { method: m, path: api, body, sent: false, exact: gate.ok, exactWhy: gate.why };
+        out.posts.push(entry);
+        if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }
+        entry.stopped = out.submit ? gate.why : "a rehearsal stops the entry inside the browser";
+        if (out.submit && out.posts.length === 1) out.why = `the form's request was stopped in the browser and never sent — ${gate.why}`;
+        return r.abort("blockedbyclient");
+      }
+      if (!u.includes("/cdn-cgi/")) out.aborted.push(`${m} ${u}`);
+      return r.abort("blockedbyclient");
+    });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => out.errors.push(String((e && e.message) || e).slice(0, 300)));
+    page.on("console", (m) => { if (m.type() === "error") out.errors.push(m.text().slice(0, 300)); });
+    page.on("response", async (res) => {
+      const req = res.request();
+      if (req.method() !== "POST" || !onApi(req.url()) || out.response) return;
+      const e = { status: res.status(), text: "" };
+      try { e.text = String(await res.text()).slice(0, 2000); } catch { /* a body the browser no longer holds */ }
+      try { e.json = JSON.parse(e.text); } catch { /* not JSON: kept as text */ }
+      out.response = e;
+    });
+    page.on("requestfailed", (req) => {
+      if (req.method() !== "POST" || !onApi(req.url()) || out.failed) return;
+      const f = typeof req.failure === "function" ? req.failure() : null;
+      out.failed = (f && f.errorText) || "failed";
+    });
+    await page.goto(out.url, { waitUntil: "domcontentloaded", timeout: ms });
+    const end = Date.now() + ms;
+    for (;;) {
+      out.ready = await page.evaluate(formFieldsInPage).catch(() => null);
+      if (out.ready && out.ready.hydrated) break;
+      if (Date.now() >= end) { out.why = out.ready && out.ready.forms === 0 ? "the page has no form — nothing was pressed" : "the form never became interactive — nothing was pressed"; return out; }
+      await sleep(pollMs);
+    }
+    if (out.ready.forms !== 1) { out.why = `the page has ${out.ready.forms} forms; this check sends exactly one — nothing was pressed`; return out; }
+    out.plan = fieldPlan(out.ready.fields, marker);
+    if (!out.plan.ok) { out.why = out.plan.why; return out; }
+    for (const f of out.plan.fills) {
+      const el = page.locator(`form ${f.selector}`).first();
+      if (f.kind === "check") await el.check();
+      else await el.fill(f.value);
+    }
+    out.filled = await page.evaluate(formFieldsInPage).catch(() => null);
+    const now = (out.filled && Array.isArray(out.filled.fields)) ? out.filled.fields : [];
+    const holds = (f) => now.some((x) => (f.field.name ? x.name === f.field.name : x.id === f.field.id) && (f.kind === "check" ? x.value === "on" : x.value === f.value));
+    out.filledOk = out.plan.fills.every(holds);
+    if (!out.filledOk) { out.why = "the form does not hold the marker's values — nothing was pressed"; return out; }
+    await page.locator('form button[type="submit"], form input[type="submit"], form button:not([type])').first().click();
+    out.pressed = true;
+    // THE REQUEST'S END: its answer, its failure, or the rehearsal's stop.
+    const aEnd = Date.now() + answerMs;
+    while (!(out.response || out.failed || (out.posts[0] && !out.posts[0].sent)) && Date.now() < aEnd) await sleep(pollMs);
+    // THE PAGE'S OWN WORDS, once they arrive.
+    const mEnd = Date.now() + settleMs;
+    for (;;) {
+      out.message = await page.evaluate(formOutcomeInPage).catch(() => null);
+      if ((out.message && out.message.said.length) || Date.now() >= mEnd) break;
+      await sleep(pollMs);
+    }
+    if (!out.posts.length) out.why = "the form made no request to the new table";
+  } catch (e) {
+    out.why = String((e && e.message) || e).slice(0, 200);
+  } finally {
+    if (ctx) { try { await ctx.close(); } catch { /* already gone */ } }
+  }
+  return out;
+}
+
 /** The job's own stored reply, as the page read it under `x-gf-edit: final`. */
 export function finalReplyOf(step) {
   const fin = (Array.isArray(step && step.network) ? step.network : []).filter((e) => e.final && e.res && typeof e.res === "object");
@@ -2248,6 +2461,8 @@ export async function runUi(opts) {
       r.balanceBefore = bal;
       const over = budgetRefusal({ start: rec.balance.start, now: bal, budget: scenario.budget });
       if (over) { stop(`step ${n}`, `${over} — nothing more is sent`); break; }
+      const short = n === 1 && scenario.fundsFirst === true ? fundsRefusal({ now: bal, budget: scenario.budget }) : "";
+      if (short) { stop(`step ${n}`, `${short} — nothing is sent`); break; }
       // A LATER MESSAGE GOES FROM THE TAB THE RUN OPENED, or not at all: a page
       // that reloaded or left since would make it a first message somewhere
       // else, whatever it says.
