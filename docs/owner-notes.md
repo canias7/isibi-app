@@ -65,8 +65,11 @@ is in git; the dated entries further down are the full story.*
     passing as one, is caught by a case added since (a row gone and two
     come: one more than before, but not "exactly that one row");
   - **the suite**: `9587 / 9587 / 0 / 0` here (9,576 plus the 11 new cases).
-- **CI**: the unit tests run on this push; read to completion and recorded
-  in the commit after it.
+- **CI**: green on `8eceb2bd` (the release check with these records): unit
+  tests (run 37460064005) `9587 / 9573 / 0 / 14`, the same total as here.
+  CI has no Chromium, so the two new browser cases skip there (14 skipped,
+  12 before; by the count). The site build was not owed a run: nothing it
+  reads changed since its green run on `49a67763` (run 37454790999).
 - **Kept apart in the plan (§6)**: what controlled failure tests show (every
   failure outcome, refusals, warning lists, the incomplete judgment, older
   answers replayed) is not what the live check would prove. The live check
@@ -245,7 +248,10 @@ since. Add new ones there.
     passing as one, is caught by a case added since (a row gone and two
     come: one more than before, but not "exactly that one row");
   - **the full suite**: `9587 / 9587 / 0 / 0` here;
-  - **CI**: read after the push, and recorded in the commit after it;
+  - **CI**: green on `8eceb2bd`: unit tests (run 37460064005) `9587 / 9573
+    / 0 / 14`, the same total as here (CI has no Chromium, so the two new
+    browser cases skip there: 14 skipped, 12 before). The site build was not
+    owed a run: nothing it reads changed since its green run on `49a67763`;
   - **the existing canary tests**: 462 of 462 after two fixes found on the
     way (the step was first written with the spend gate's own words, which
     the guards locate it by, and the workflow's box had to name it).

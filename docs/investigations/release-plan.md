@@ -22,8 +22,8 @@ for review with this plan (§4.3). **The balance does not cover it today**
 (deploy 2184, image `589e3e4e85a20066`, live and runtime-confirmed by run
 100), an ancestor of the branch, so the merge is one fast-forward. At this
 writing the branch is `main` plus 22 commits to `1f3dc370`, then this plan's
-two (`f448aaba`, the scenario, and these records). Their product content, in
-order, each reviewed:
+three: `f448aaba` (the scenario), `8eceb2bd` (these records) and the CI record
+after it, docs only. Their product content, in order, each reviewed:
 
 | Commit | What | Review |
 |---|---|---|
@@ -34,7 +34,7 @@ order, each reviewed:
 | `95f5a9d0` (records `52307af6`, `f060a8b8`) | every requirement told to the reply model, one fact each | Codex |
 | `46a7746c` (records `77da1770`, `08b9a657`) | a refusal's requirements told; every missing page, code, seed skip and empty table named | Codex; the owner passed the warning lists |
 | `c4748136`, `9c2ca743` (records `13bfcd17`, `9d309401`, `49a67763`, `1f3dc370`) | a failed addition says what it left behind; a database made beside an interrupted apply said as made, not empty | Codex, both (`9c2ca743` at `1f3dc370`) |
-| `f448aaba` and the records commit after it | the release check scenario (canary only) and these records | for review with this plan |
+| `f448aaba`, then `8eceb2bd` and the CI record (docs only) | the release check scenario (canary only) and these records | for review with this plan |
 
 **What reaches production**: `worker.js` and `builder/site-add.mjs`,
 `site-addon.mjs`, `site-migrations.mjs`, `site-reply.mjs` and
@@ -56,7 +56,10 @@ What one authorization covers, every step free except §2.8:
    - nothing in flight: no Actions run in progress or queued, read twice (the
      second right before the push), and no open job in `edit_jobs`;
    - unit CI green on the candidate itself, and the site build green with the
-     candidate's inputs fingerprint;
+     candidate's inputs fingerprint. At this writing: unit tests green on
+     `8eceb2bd` (run 37460064005, `9587 / 9573 / 0 / 14`, the same total as
+     the local run), and the site build green on `49a67763` (run
+     37454790999), with nothing it reads changed since;
    - the image predicted on both ends;
    - the rollback, `git revert --no-commit d75d79f3..<candidate>`, giving back
      `main`'s own tree in a throwaway worktree;
