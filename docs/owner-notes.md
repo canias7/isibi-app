@@ -1,20 +1,26 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 12:49 UTC)
+## Current handoff — read this first (2026-10-06, 13:07 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
-  runtime-confirmed by your free press (run 100).
-- **The reporting work is closed**: Codex passed the correction `9c2ca743` at
-  branch head `1f3dc370`, with CI green. The provisioned-plus-unknown case,
-  the model facts, the stored-answer replay and the browser fallback passed
-  independent review.
-- **The branch** is `main` plus 22 commits to `1f3dc370`, every batch in it
-  reviewed and closed. None is merged or deployed, and no image is built:
+- **Deploy 2185 is live** (`main` `b2409b3c`, image **`c7fe818d446dd957`**),
+  on your approval of the release plan. `main` `d75d79f3` → `b2409b3c` at
+  13:02:20 UTC, a fast-forward of 28 commits. The one deploy run (2185,
+  37467698447) built the image once, as predicted, and the served files are
+  byte-identical to the merged ones (`chat.js` 903,533 bytes `dd876c6f…`).
+  **Not yet runtime-confirmed**: the free runtime check follows the image
+  window, which ends at 13:22 UTC (`docs/history/2026-10-06-deploy-2185.md`).
+- **The live check (`lv-release`) is pending** until the runtime check passes
+  and the balance reads at least 30. It read **21** at 13:02 UTC (last ledger
+  row 392, no job open). The session does not raise it.
+- **The reporting work and the form step's correction are closed**: Codex
+  passed `9c2ca743` at `1f3dc370`, and `09470116` at `b2409b3c`.
+- **What the release carried**: the 22 reviewed commits to `1f3dc370`, every
+  batch in them reviewed and closed:
   - run 101's corrections (`936295a5`, yours);
   - the requirement judgment (`0f94d159`, yours);
   - the incomplete-judgment fix (`4b6271ff`, Codex);
@@ -23,8 +29,8 @@ is in git; the dated entries further down are the full story.*
     lists);
   - the failure reporting (`c4748136`) and its correction (`9c2ca743`),
     Codex.
-- **The release is prepared for one authorization**
-  (`docs/investigations/release-plan.md`), on top of those 22 commits:
+- **And the release check** (`docs/investigations/release-plan.md`), on top
+  of those 22 commits:
   - **the release check** (`f448aaba`, canary only, deploys nothing): the
     scenario `lv-release` and a new form step;
   - **the plan and its records** (`8eceb2bd`, `fb42ff16`);
@@ -47,7 +53,8 @@ is in git; the dated entries further down are the full story.*
     reported as a limitation of the check. It never passes;
   - the gate stops the four before they leave, the row check fails them,
     and the ordinary and renamed controls pass.
-- **The plan, in short**:
+- **The plan, in short** (the merge, the deploy and the served files done;
+  the runtime check and the live check to follow):
   - **the merge**: a fast-forward of `main` from `d75d79f3` to the
     candidate; that push is the one deploy;
   - **the image**: built once, `589e3e4e85a20066` → **`c7fe818d446dd957`**
@@ -103,11 +110,11 @@ is in git; the dated entries further down are the full story.*
   the new form. It proves no failure path.
 
 **Yours to decide**
-- **Approve the release plan, or change it**
-  (`docs/investigations/release-plan.md`). One authorization covers the
-  merge, the deploy, the free runtime press and the paid press.
+- **The free runtime press**, if the session's one dispatch is refused: its
+  exact inputs are in the release plan's §3.1 and in my report.
 - **The funds**: the paid press needs a balance of at least 30, and 35 leaves
-  room above the estimate's top. Raising it is yours.
+  room above the estimate's top. Raising it is yours; the session reads it
+  again before the paid press and never raises it.
 - **The one entry the paid press writes** (a marked visitor entry in the new
   table) stays on the bakery, as the page and table do (the demo-site rule).
 
@@ -220,6 +227,46 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Deploy 2185: the release merged and deployed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the runtime check and the live check follow
+
+- **Your word**: Codex passed `09470116` at `b2409b3c`, and you approved
+  executing the release plan, with the balance read again before the paid
+  run, at least 30 required, and never raised by the session.
+- **Before the merge** (13:01–13:02 UTC, all free):
+  - unit CI green on the candidate itself (run 37466687110, `9592 / 9577 /
+    0 / 15`);
+  - the site build's inputs fingerprint the same on `49a67763` and
+    `b2409b3c` (`5b2b0577046173b7`, 3,972 files), so its green run
+    37454790999 stands;
+  - the image predicted `589e3e4e85a20066` → `c7fe818d446dd957`;
+  - nothing in flight, read twice; no open job;
+  - the rollback giving back `main`'s tree;
+  - no skip-CI marker in the 28 messages;
+  - the served files deploy 2184's own;
+  - balance 21, last ledger row 392.
+- **The merge**: `main` `d75d79f3` → `b2409b3c` at 13:02:20 UTC, one
+  fast-forward push of 28 commits.
+- **The deploy**: run 2185 (37467698447), the only run the push started,
+  `success`, 13:02:27–13:05:22 UTC:
+  - the image built once, as predicted: `c7fe818d446dd957`, 194 inputs
+    (13:04:54);
+  - the drain found no live leases;
+  - 25 secrets uploaded, `MODEL_REPLIES` and `REQUEST_FLOW` among them;
+  - one asset uploaded, `+ /chat.js` (85 already there);
+  - the container `589e3e4e85a20066` → `c7fe818d446dd957`, `SUCCESS
+    Modified application` at 13:05:15;
+  - `DEPLOY_ID` `b2409b3c…`.
+- **The served files** (13:06:13 UTC): byte-identical to `b2409b3c`'s.
+  `chat.js` is now 903,533 bytes `dd876c6f…`; `edit-poll.js` and
+  `styles.css` are unchanged.
+- **Next**: the image window to 13:22 UTC, then the free runtime check (the
+  session's dispatch tried once, or your press), then the balance read
+  again, then the paid `lv-release` press only at 30 or more.
+- **Nothing charged so far.**
+
+**Recorded in**: `docs/history/2026-10-06-deploy-2185.md`,
+`docs/deploy-record.md` and the history index.
 
 ## 2026-10-06 — Your review: the release check's form step judged its entries anywhere; now each under the column its field is bound to (on the branch, `09470116`; nothing spent, merged or deployed)
 

@@ -1298,6 +1298,41 @@ the only run that push started, `completed` / `success`, the job **2m46s**
   requirement the customer did not state; and the canary's preview baseline
   for a closed-tab message (`docs/history/2026-10-05-deploy-2184.md` §7).
 
+**Deploy 2185 (2026-10-06) was predicted on both ends and built as
+predicted**, on the owner's word (*"I approve executing the prepared release
+plan"*, the stage in `docs/investigations/release-plan.md`): `main`
+`d75d79f3` → `b2409b3c`, a fast-forward of 28 commits (the reporting batches
+to `1f3dc370`, the release check `f448aaba` and the form step's correction
+`09470116`, with their records), at 13:02:20 UTC. Run 37467698447, `push` on
+`b2409b3c`, the only run that push started, `completed` / `success`, the job
+**2m55s** (13:02:27–13:05:22):
+- **before** (13:01–13:02 UTC): unit CI on the candidate `9592 / 9577 / 0 /
+  15` (run 37466687110); the site build reused, its fingerprint the same on
+  `49a67763` and `b2409b3c` (`5b2b0577046173b7`, 3,972 files; run
+  37454790999 green); nothing in flight (read twice, the second right before
+  the push); no open job; the rollback giving back `main`'s tree
+  (`9e6a94d5…`); no skip-CI marker in the 28 messages; the served files
+  `d75d79f3`'s own (`chat.js` 895,780 `188dc2a9…`, `edit-poll.js` 50,048
+  `b2a9aba6…`, `styles.css` 349,252 `54f6dd2b…`, read at 13:01:54); balance
+  21, last row 392;
+- **the image**: `built isibi-app-sitebuildcontainer:c7fe818d446dd957
+  (registry answered 404; 194 inputs off ./Dockerfile)` at 13:04:54, as
+  predicted (`589e3e4e85a20066` → `c7fe818d446dd957`); digest
+  `sha256:766d0…`;
+- **the drain** `no live leases after 0s — deploying`; the gate left to
+  expire for `b2409b3c…`;
+- **Wrangler**: 25 secrets, `MODEL_REPLIES` and `REQUEST_FLOW` among them,
+  both printed masked as at deploys 2182–2184 (`BAND_SPLIT_EVERYONE: off`
+  prints plain); 1 asset uploaded (`+ /chat.js`), 85 already there; the
+  container's `- …:589e3e4e85a20066` / `+ …:c7fe818d446dd957`, `SUCCESS
+  Modified application` at **13:05:15Z**; `DEPLOY_ID`
+  `b2409b3c064917b9d2aaa3bace6e126b20fdb52c`;
+- **the served files** byte-identical to `b2409b3c`'s at 13:06:13 (`chat.js`
+  903,533 `dd876c6f…`; `edit-poll.js` and `styles.css` unchanged);
+- **the image window** waited once, to 13:22 UTC;
+- **the runtime check and the live check**: pending at this writing
+  (`docs/history/2026-10-06-deploy-2185.md` §6–§7).
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the
