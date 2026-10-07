@@ -438,7 +438,7 @@ test("WIRE 2 — the funds check stands before the first send of a scenario that
   assert.equal(U.split("fundsRefusal({ now: bal").length - 1, 1, "the funds check is asked more than once");
   // ONLY THE RELEASE CHECKS ASK FOR IT — the release's and, since 2026-10-06, the
   // progress live check's: every other scenario's behaviour is as it was.
-  assert.deepEqual(Object.entries(UI_SCENARIOS).filter(([, v]) => v.fundsFirst === true).map(([k]) => k), ["lv-release", "lv-progress"]);
+  assert.deepEqual(Object.entries(UI_SCENARIOS).filter(([, v]) => v.fundsFirst === true).map(([k]) => k), ["lv-release", "lv-progress", "lv-combined"]);
 });
 
 test("WIRE 3 — the helper binds each field to its column after reading the form and before filling or pressing anything, stops there when the binding is not established, and hands the gate those bindings", () => {

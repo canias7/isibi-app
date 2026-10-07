@@ -233,7 +233,7 @@ function askedProblems(name, scenario) {
 
 test("every scenario's menu words, where it has any, are words its own message asks for", () => {
   const withMenu = Object.entries(UI_SCENARIOS).filter(([, s]) => s.expect && (s.expect.menu || s.expect.menuFinish));
-  assert.deepEqual(withMenu.map(([n]) => n), ["rq-1-classes", "rq-2-wholesale", "rq-menu-link", "lv-reopen", "lv-release", "lv-progress"]);
+  assert.deepEqual(withMenu.map(([n]) => n), ["rq-1-classes", "rq-2-wholesale", "rq-menu-link", "lv-reopen", "lv-release", "lv-progress", "lv-combined"]);
   assert.deepEqual(withMenu.flatMap(([n, s]) => askedProblems(n, s)), []);
   // NONE OF THEIR MESSAGES NAMES THE LINK'S WORDS, so none asks for any.
   assert.deepEqual(withMenu.filter(([, s]) => labelWords(s.expect.menu || s.expect.menuFinish)).map(([n]) => n), []);

@@ -669,6 +669,78 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // THE COMBINED RELEASE CHECK (2026-10-07, prepared, not pressed). The owner,
+  // after Codex passed the provisioning recovery on 092ff48a: *"…prepare the
+  // concrete release and combined Edit/Add-on verification plan: … the
+  // smallest useful set of live scenarios covering mixed requests, dependency
+  // order, clarification, model-written progress, closed-tab completion,
+  // final results and charges, with the expected credit budget and stop
+  // conditions. Keep deliberate provisioning failures in offline tests."* ONE
+  // press, three messages, fresh on the bakery, each a path an earlier press
+  // proved live and none repeated as it was:
+  // 1. A MENU LINK NAMED BEFORE THE PAGE IT NEEDS, and that page (R1's order,
+  //    run 95): the link must wait for the page. The page is the long part, so
+  //    this message carries the progress check — its tab closed once a line
+  //    shows, the request followed to its end in a fresh browser session
+  //    (`away: "fresh"`, run 105). No form and no table: nothing is provisioned.
+  // 2. A HEADING AND A FOOTER LINK WHOSE ADDRESS IT DOES NOT GIVE (R3, run 99):
+  //    the heading is done, and the link's step asks for the address — the
+  //    message ends on that question with nothing else running
+  //    (`until: "question"`). A question can share a message with nothing that
+  //    is still running (`questionShown`), so it is not message 1's.
+  // 3. THE ANSWER, which resumes that part to its end.
+  // Judged like every request press on what landed — the page found by what it
+  // says (its menu label is in every header), its link in every menu, the
+  // heading, the footer link to the answered address, everything else as it
+  // was — and beside that on what the customer was shown (`progressChecks`).
+  // Look and nav are allowed beside text because the router may send a heading
+  // or a link through them; the page rung because it hands a new page to the
+  // add-on step. The changes stay on the bakery (the demo-site rule).
+  "lv-combined": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    // ABOUT 22-38, MOST LIKELY ABOUT 28: message 1 is R1 without its
+    // description (run 95: routing 3, the page's routing 1 and its add-on 12,
+    // the link's routing 3, its menu step refunded — 19; the add-on's
+    // requirement judgment, newer, about 1 more; run 105's add-on 14); message
+    // 2 is R3's first (run 99: routing 3, the heading 2, the link's routing 1 —
+    // 6); message 3 its answer (routing 1, the footer link 1 — 2). Narration is
+    // the platform's, never charged. The press sends nothing unless the
+    // balance covers the budget (`fundsFirst`) and is no more than the hard cap
+    // (`cap`); every charge refuses rather than overdraws.
+    budget: 38,
+    fundsFirst: true,
+    cap: 40,
+    addon: true,
+    layers: Object.freeze(["text", "look", "nav", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/order", from: "Pick a loaf and a collection slot", to: "Choose your loaf and a collection time" }),
+      ]),
+      // MATCHED ON THE PAGE'S OWN WORDS, not its name, which its menu link
+      // carries into every header.
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["kitchen", "dairy"]) })]),
+      // NO WORDS FOR THE LINK: the message names the page, not the link's
+      // words, so any label linking the page does (`labelFits`).
+      menu: Object.freeze({ page: 0 }),
+      social: Object.freeze({ network: "tiktok", host: "tiktok.com", path: "/@harbourloaf" }),
+      progress: true,
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite", "progress-each-part", "step-question", "answer-resumes"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Put a link to the new Allergens page in the menu, and add an Allergens page saying all our loaves are baked in one kitchen that also handles nuts, seeds and dairy, so we can't promise any loaf is free of them, and that anyone with an allergy should ask us at the counter.",
+        away: "fresh",
+        ms: 14 * 60_000,
+      }),
+      Object.freeze({
+        say: "Change the Order page heading 'Pick a loaf and a collection slot' to 'Choose your loaf and a collection time', and add a link to our TikTok in the footer.",
+        until: "question",
+        ms: 6 * 60_000,
+      }),
+      Object.freeze({ say: "It's tiktok.com/@harbourloaf", ms: 7 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.

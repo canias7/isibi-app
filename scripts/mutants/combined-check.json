@@ -1,0 +1,155 @@
+[
+ {
+  "label": "scenario: message 1 not read in a fresh session",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "away: \"fresh\",\n        ms: 14 * 60_000,",
+  "to": "away: true,\n        ms: 14 * 60_000,"
+ },
+ {
+  "label": "scenario: message 1 bounded past the press",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "away: \"fresh\",\n        ms: 14 * 60_000,",
+  "to": "away: \"fresh\",\n        ms: 20 * 60_000,"
+ },
+ {
+  "label": "scenario: message 2 does not end on its question",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "until: \"question\",\n        ms: 6 * 60_000,",
+  "to": "ms: 6 * 60_000,"
+ },
+ {
+  "label": "scenario: the answer gives another address",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "{ say: \"It's tiktok.com/@harbourloaf\", ms: 7 * 60_000 }",
+  "to": "{ say: \"It's tiktok.com/harbourloaf\", ms: 7 * 60_000 }"
+ },
+ {
+  "label": "scenario: a lower budget",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    budget: 38,",
+  "to": "    budget: 30,"
+ },
+ {
+  "label": "scenario: a higher hard cap",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    cap: 40,",
+  "to": "    cap: 60,"
+ },
+ {
+  "label": "scenario: the funds not checked first",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    budget: 38,\n    fundsFirst: true,",
+  "to": "    budget: 38,\n    fundsFirst: false,"
+ },
+ {
+  "label": "scenario: the data layer opened",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    cap: 40,\n    addon: true,\n    layers: Object.freeze([\"text\", \"look\", \"nav\", \"page\"]),",
+  "to": "    cap: 40,\n    addon: true,\n    layers: Object.freeze([\"text\", \"look\", \"nav\", \"page\", \"data\"]),"
+ },
+ {
+  "label": "scenario: progress not judged",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      social: Object.freeze({ network: \"tiktok\", host: \"tiktok.com\", path: \"/@harbourloaf\" }),\n      progress: true,",
+  "to": "      social: Object.freeze({ network: \"tiktok\", host: \"tiktok.com\", path: \"/@harbourloaf\" }),\n      progress: false,"
+ },
+ {
+  "label": "scenario: the footer link checked against another address",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "path: \"/@harbourloaf\"",
+  "to": "path: \"/harbourloaf\""
+ },
+ {
+  "label": "scenario: the page looked for by its name",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "about: Object.freeze([\"kitchen\", \"dairy\"])",
+  "to": "about: Object.freeze([\"allergens\"])"
+ },
+ {
+  "label": "scenario: the link's words asked for",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      menu: Object.freeze({ page: 0 }),\n      social:",
+  "to": "      menu: Object.freeze({ page: 0, label: \"Allergens\" }),\n      social:"
+ },
+ {
+  "label": "scenario: the heading's words changed",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "to: \"Choose your loaf and a collection time\"",
+  "to": "to: \"Choose your loaf\""
+ },
+ {
+  "label": "scenario: the dependency's coverage dropped",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "covers: Object.freeze([\"edit-and-addon\", \"several-parts\", \"waits-for-prerequisite\", \"progress-each-part\", \"step-question\", \"answer-resumes\"]),",
+  "to": "covers: Object.freeze([\"edit-and-addon\", \"several-parts\", \"progress-each-part\", \"step-question\", \"answer-resumes\"]),"
+ },
+ {
+  "label": "order: the card is never read",
+  "files": [
+   "scripts/canary-requests.mjs"
+  ],
+  "from": "const cards = step && step.fresh && typeof step.fresh === \"object\" ? [...arrOf(step.fresh.before), ...arrOf(step.fresh.after)] : [];",
+  "to": "const cards = [];"
+ },
+ {
+  "label": "order: only the sending tab's card",
+  "files": [
+   "scripts/canary-requests.mjs"
+  ],
+  "from": "[...arrOf(step.fresh.before), ...arrOf(step.fresh.after)]",
+  "to": "[...arrOf(step.fresh.before)]"
+ },
+ {
+  "label": "order: the card's statuses not read",
+  "files": [
+   "scripts/canary-requests.mjs"
+  ],
+  "from": "parts: arrOf(c.parts).map((p) => [p.n, p.status])",
+  "to": "parts: arrOf(c.parts).map((p) => [p.n, \"blocked\"])"
+ },
+ {
+  "label": "order: a closed-tab message's readings taken for the card",
+  "files": [
+   "scripts/canary-requests.mjs"
+  ],
+  "from": "const cards = step && step.fresh && typeof step.fresh === \"object\" ? [...arrOf(step.fresh.before), ...arrOf(step.fresh.after)] : [];",
+  "to": "const cards = step && (step.fresh || step.away) ? [...arrOf((step.fresh || step.away).before), ...arrOf((step.fresh || step.away).after)] : [];"
+ },
+ {
+  "label": "control: a comment",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  // THE COMBINED RELEASE CHECK (2026-10-07, prepared, not pressed). The owner,",
+  "to": "  // THE COMBINED RELEASE CHECK (2026-10-07, prepared, not yet pressed). The owner,",
+  "control": true
+ }
+]

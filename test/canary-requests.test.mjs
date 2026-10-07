@@ -426,6 +426,36 @@ test("the order the router gave is mapped onto the request's parts, and every vi
   assert.equal(relationsOf(folded).unread.length, 1);
 });
 
+// A MESSAGE READ IN A FRESH BROWSER SESSION (2026-10-07): its own route is read
+// only through the list while its tab is closed, so the card's readings — in
+// the tab that sent it and in the fresh session — are judged too.
+const card = (ms, parts) => ({ ms, ended: false, closed: false, parts: parts.map(([n, status]) => ({ n, status, words: "", label: "", lines: [], live: "", said: null })) });
+
+test("ORDER, READ OFF THE CARD TOO: a fresh-session message's card readings are judged with its list readings — one showing the link started while its page ran fails by name; in order they pass, counted; another message's card is never read", () => {
+  const listOnly = [{ ms: 200_000, parts: [[0, "blocked"], [1, "started"]] }];
+  const early = { ...orderedStep(listOnly), fresh: { before: [card(4_000, [[0, "blocked"], [1, "started"]]), card(9_000, [[0, "started"], [1, "started"]])], after: [card(400_000, [[0, "done"], [1, "done"]])] } };
+  const w = jobOrderVerdict(early);
+  assert.equal(w.ok, false, "a card reading out of order passed");
+  assert.match(w.why, /^at 9 s part 0 was started while part 1, which it needs, was started/);
+  assert.equal(w.views, 4);
+  // THE SAME LIST READINGS ALONE pass: the card is what caught it.
+  assert.equal(jobOrderVerdict(orderedStep(listOnly)).ok, true);
+  // IN ORDER, from the sending tab to the fresh session's end.
+  const good = { ...orderedStep(listOnly), fresh: { before: [card(4_000, [[0, "blocked"], [1, "started"]])], after: [card(300_000, [[0, "queued"], [1, "done"]]), card(400_000, [[0, "done"], [1, "done"]])] } };
+  const v = jobOrderVerdict(good);
+  assert.equal(v.ok, true, v.why);
+  assert.equal(v.vacuous, undefined);
+  assert.equal(v.views, 4);
+  // A FRESH MESSAGE WHOSE LIST WAS NEVER READ is still watched, through its card.
+  assert.equal(jobOrderVerdict({ ...orderedStep([]), fresh: { before: [card(4_000, [[0, "blocked"], [1, "started"]])], after: [] } }).ok, true);
+  // ONLY THE MESSAGE'S OWN FRESH READINGS: a card kept elsewhere on the step is not one.
+  assert.equal(jobOrderVerdict({ ...orderedStep(listOnly), away: { before: [card(9_000, [[0, "started"], [1, "started"]])] } }).ok, true);
+  // NO ORDER NAMED: still nothing to order, whatever the card shows.
+  const none = jobOrderVerdict({ ...orderedStep([], { dependsOn: undefined }), fresh: { before: [card(9_000, [[0, "started"], [1, "started"]])], after: [] } });
+  assert.equal(none.ok, true);
+  assert.equal(none.vacuous, true);
+});
+
 // ── THE REPLIES ──────────────────────────────────────────────────────────────
 
 const final = (job, res) => ({ method: "GET", path: `/api/site/edit/${job}`, final: true, status: 200, res });

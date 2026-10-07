@@ -244,7 +244,16 @@ export function relationsOf(step) {
  */
 export function jobOrderVerdict(step) {
   const { relations, unread } = relationsOf(step);
-  const trail = step && step.request && Array.isArray(step.request.trail) ? step.request.trail : [];
+  // AND THE CARD, FOR A MESSAGE READ IN A FRESH BROWSER SESSION (2026-10-07):
+  // its own route is read only through the requests list while its tab is
+  // closed, so most of what the canary saw of it is the request's card — each
+  // reading of the parts as the page kept them, in the tab that sent it and in
+  // the fresh session (`fresh.before`, `fresh.after`). Each is checked too.
+  const cards = step && step.fresh && typeof step.fresh === "object" ? [...arrOf(step.fresh.before), ...arrOf(step.fresh.after)] : [];
+  const trail = [
+    ...(step && step.request && Array.isArray(step.request.trail) ? step.request.trail : []),
+    ...cards.map((c) => ({ ms: c.ms, parts: arrOf(c.parts).map((p) => [p.n, p.status]) })),
+  ];
   if (!relations.length) return { ok: true, vacuous: true, relations, unread, views: trail.length, why: "no part waited for another" };
   const bad = [];
   for (const v of trail) {
