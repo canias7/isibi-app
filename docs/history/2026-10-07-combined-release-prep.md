@@ -18,7 +18,8 @@ the branch unmerged and do not deploy, build the container image, provision
 live resources or run paid tests until I approve that release plan."*
 
 On the branch, unmerged. Nothing deployed, no container built, no live
-resource provisioned, no model called, nothing paid.
+resource provisioned, no model called, nothing paid. The balance was raised to
+exactly 40 at the owner's request (§6).
 
 ## 1. The reviewed commit
 
@@ -31,7 +32,7 @@ empty at this round's commits).
 
 ## 2. The site build's gate on `570adb45`
 
-**Run 37674861320** (the push of `570adb45`, 19:29–19:50 UTC), not complete:
+**Run 37674861320, attempt 1** (the push of `570adb45`, 19:29–19:50 UTC), not complete:
 - **Green**: the published-site checks; shards 3 and 4 (158 and 62 checks,
   sixteen and eight sections); the kit job's first steps (`page-gen` and
   `publish-pages` 398 of 398, `kit-typecheck` 4 passed, `kit-render` all
@@ -74,15 +75,54 @@ UTC), all passing:
 | `site-build.mjs`, shard 1 | 109 of 109 (`style-overrides`), completed |
 | `site-build.mjs`, shard 2 | 76 of 76 (`logo-and-serving` 70, `dead-link` 5, the preamble 1), completed |
 
-A local run is not the gate: CI's own reading needs the re-run.
+A local run is not the gate: CI's own reading needed the re-run (attempt 2,
+below).
+
+**Attempt 2, the owner's re-run: green.** The owner pressed *Re-run failed
+jobs* (attempt 2, 22:28:20–22:35:27 UTC). The four stopped jobs ran again on
+`570adb45`; GitHub kept attempt 1's three green jobs. Each job's step list and
+its own log, read after the run:
+
+| Job | Chromium install | Tests |
+|---|---|---|
+| kit and generator checks (22:28:26–22:32:44) | 122 s | its first steps green again; `contrast-cases` 16 passed, 0 failed; `kit-a11y` all passed (2,628 named controls across 2,008 components); `kit-effects` all passed (2,068 components mounted and unmounted); `kit-paint` all passed, light and dark (18,407 pieces of text each) |
+| theme checks (22:28:26–22:32:18) | 23 s | `theme-seam` 11 passed, 0 failed; `theme-render` 29 passed, 0 failed |
+| `site-build.mjs`, shard 1 (22:28:26–22:33:51) | 32 s | `style-overrides`, 108 checks, complete, none failed |
+| `site-build.mjs`, shard 2 (22:28:26–22:35:10) | 21 s | `logo-and-serving` and `dead-link`, 75 checks, complete, none failed |
+
+**The gate** (`all checks`, 22:35:13–22:35:26, `success`):
+- the jobs it waits on (`kit`, `theme`, `site`, `shards`) all `success`;
+- four reports downloaded, each digest checked: `site-build-report-1` and
+  `-2` from attempt 2 (22:33:48 and 22:35:07), `-3` and `-4` from attempt 1
+  (19:38:34 and 19:35:44);
+- each report on commit `570adb45af4f6018444d49013ab14668609b2bcf` and this
+  checkout's harness file, run as its own shard, complete, with no failed
+  check and its preamble passed;
+- every one of the 27 declared sections run exactly once, in its own shard:
+  shard 1 `style-overrides` (108 checks); shard 2 `logo-and-serving` and
+  `dead-link` (75); shard 3 sixteen sections (158); shard 4 eight sections
+  (62);
+- `site build inputs de6345b9058cd1cc (3974 files)`;
+- **`ALL CHECKS: 404 checks in 27 sections across 4 shards, every job
+  green`**: the shards' 403 section checks and the preamble every shard runs,
+  counted once.
+
+**One count apart from the local run**: `kit-a11y` counted 2,628 named
+controls on CI and 2,626 locally. The count is what the browser's
+accessibility tree holds, and the browsers differ: CI installed Chrome for
+Testing 151.0.7922.34, the local run used Chromium 141.0.7390.37. The check
+passes on a floor of 1,000 with no unnamed control, which both runs meet.
+Every other count above matches the local run.
 
 **No workflow correction**: the owner made one conditional on the install
-stalling again; it has stalled once. Recorded in the backlog.
+stalling again. It stalled once, in attempt 1, and not in attempt 2, where it
+took 21 to 122 seconds. Recorded in the backlog.
 
 **The inputs**: the gate's fingerprint is `de6345b9058cd1cc` at `570adb45`,
-at `092ff48a` and at `b791dec0` (3,974 files, read at each), none of whose files
-is one of its inputs. So a green re-run on `570adb45` is evidence for the
-candidate.
+at `092ff48a`, at `b791dec0` and at `43c5b635` (3,974 files, read at each); the
+commits after `570adb45` change none of its inputs. So the green re-run on
+`570adb45` is evidence for the candidate; it is read again on the candidate
+before any merge.
 
 ## 3. The release plan
 
@@ -101,7 +141,7 @@ candidate.
   leaves out, ending on the link step's question; the answer.
 - **The money**: about 28 credits (22–38); budget 38; hard cap 40; the
   balance, 10 at 20:42 UTC (ledger row 401, no job open), raised to exactly
-  40.
+  40 (done at the owner's request, §6).
 - **The stop conditions**, the evidence kept apart, the limitations, and each
   press's boxes by their descriptions.
 
@@ -132,7 +172,8 @@ kept statuses, kept whenever they change).
 | # | Commit | What |
 |---|---|---|
 | F1 | `b791dec0` | Canary: the combined release check, three messages; the order check reads the card of a fresh-session message; the plan and the tests |
-| F2 | these records | the verification gate, the release plan, the handoff |
+| F2 | `43c5b635` | the verification gate, the release plan, the handoff |
+| F3 | these records | the green re-run, the funds, the handoff |
 
 ## 5. The tests
 
@@ -156,12 +197,18 @@ kept statuses, kept whenever they change).
 - **Sweep** (`scripts/mutants/combined-check.json`): 18 of 18 killed, the comment-only control survived
 - **The full suite**: **9885 tests, 9885 pass, 0 fail, 0 skipped**
 - Unit CI on `b791dec0`: run 37686599138, `9885 / 9863 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run); no site build ran, since none of its inputs changed.
+- The site build on `570adb45`, attempt 2: green (§2). Unit CI on `43c5b635`: run 37687074060, `9885 / 9863 / 0 / 22`.
 
-## 6. What stays open
+## 6. The funds
 
-- **The gate**: the owner's re-run of run 37674861320; the session then reads
-  it (every job, the gate, four shard reports, every section once, the
-  inputs) and records it.
+Raised from 10 to exactly 40 at the owner's request, at 22:06:15 UTC (the last
+reading before, 10 at 20:42). Read back at 22:06:32: 40, the ledger's last row
+401, no job open; and again at 22:41:15, the same. That is the one top-up for
+this test: nothing more is added before or during the press.
+
+## 7. What stays open
+
+- **The gate**: closed, green on the owner's re-run (attempt 2, §2).
 - **The plan**: the owner's approval. Until then nothing is merged, deployed,
   built, provisioned or paid.
 - **An uncertain database creation can require manual settlement** (the

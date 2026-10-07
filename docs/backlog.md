@@ -23,8 +23,9 @@ here; take a closed one out of both.**
 - **The site build's Chromium install can stall in apt** (2026-10-07, run
   37674861320 on `570adb45`): four jobs reached their 20-minute limit while
   `npx playwright install --with-deps chromium` waited on Ubuntu's
-  `noble-security` index, before any of their tests ran; seen once; a focused
-  correction only if it happens again; in full below.
+  `noble-security` index, before any of their tests ran; seen once (the
+  re-run installed in 21 to 122 seconds); a focused correction only if it
+  happens again; in full below.
 - **The task titles' narration calls were not found in the logs' read**
   (found in run 105; investigated from existing logs on 2026-10-07): the
   calls happened, inside the window, under the id searched, in a shape the
@@ -926,9 +927,10 @@ here; take a closed one out of both.**
   - **Not the 2026-10-05 failure**: run 37371311514 lost two jobs to GitHub
     giving no runner, with zero steps run.
   - **What was done**: the eight steps that never ran passed locally on
-    `570adb45`; the re-run is the owner's press (the session's one re-run
-    request answered 403); `docs/history/2026-10-07-combined-release-prep.md`
-    §2.
+    `570adb45`; the owner re-ran the four jobs (attempt 2, 22:28–22:35 UTC;
+    the session's one re-run request had answered 403), and they passed,
+    Chromium installing in 21 to 122 seconds, with the gate green;
+    `docs/history/2026-10-07-combined-release-prep.md` §2.
   - **If it happens again** (the owner, 2026-10-07: *"If Chromium installation
     stalls again, diagnose that setup failure and make a focused correction
     if needed, preserving all tests and their assertions"*): diagnose from

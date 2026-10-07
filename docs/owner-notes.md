@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, the verification gate and the release plan)
+## Current handoff — read this first (2026-10-07, the gate green, the release plan for your approval)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,55 +9,67 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Production is as it was**: `main` is `bcc22295`, progress messages live
   (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187).
-- **Nothing was spent** (no model called, no paid run). The balance is 10
-  (read 20:42 UTC, ledger row 401, no job open).
+- **The verification gate is green**: your re-run of run 37674861320
+  (attempt 2) passed every job, and `all checks` read four shard reports,
+  every section once and the candidate's inputs (the next section).
 - **The reviewed commit is `092ff48a`.** Codex passed 90 assertions of its
   own against the provisioner and the project search there: uncertain
   creation, delayed visibility, repeated retries, eventual adoption, reuse
   and incomplete pagination. The fixes stand as reviewed: neither
   `site-provision.mjs` nor `site-db.mjs` has changed since.
-- **The verification gate is not green yet, and the re-run is yours** (the
-  next section).
-- **The release plan is ready for your approval**:
+- **The funds are in**: raised from 10 to exactly 40 at your request at
+  22:06:15 UTC. Read back at 22:06:32: 40, the last row still 401, no job
+  open; the same at 22:41.
+- **Nothing was spent** (no model called, no paid run).
+- **The release plan waits for your approval**:
   `docs/investigations/combined-release-plan.md` (summary below). Nothing is
   merged, deployed, built, provisioned or paid until you approve it.
-- **This round's commits**: `b791dec0` (the canary's combined release check and
-  the order check reading a fresh-session message's card, with the plan and
-  its tests) and these records. The record:
+- **This round's commits**: `b791dec0` (the canary's combined release check
+  and the order check reading a fresh-session message's card, with the plan
+  and its tests), `43c5b635` (the records, the plan and the handoff) and
+  these records (the green gate and the funds). The record:
   `docs/history/2026-10-07-combined-release-prep.md`.
 
 **The gate, exactly**
-- **Run 37674861320 on `570adb45`** is not a complete reading: the
-  published-site checks, shards 3 and 4 (158 and 62 checks) and the kit
-  job's first steps are green; the theme checks, shards 1 and 2 and the rest
-  of the kit job stopped at their 20-minute limit inside `npx playwright
-  install --with-deps chromium` (apt waiting on Ubuntu's `noble-security`
-  index from 19:30 UTC), before any of their tests ran; so `all checks`
-  failed on the cancellations and on shards 1 and 2's missing reports.
-- **The re-run attempt**: I sent the one request you asked for — re-run the
-  failed jobs — between 20:16 and 20:41 UTC. It answered **403**
-  (*"Resource not accessible by integration"*): this session's GitHub access
-  cannot re-run a job, as it cannot dispatch one. Under your rule it was not
-  tried again, through any client.
-- **The re-run is your press, and free**: *Actions → site build → run
-  37674861320 → Re-run jobs → Re-run failed jobs*.
-- **Meanwhile, locally** on `570adb45`, the eight steps that never ran all
-  pass: contrast-cases 16 of 16; kit-a11y, kit-effects and kit-paint all
-  passed; theme-seam 11 of 11; theme-render 29 of 29; `site-build.mjs` shard
-  1 109 of 109 and shard 2 76 of 76, both complete. A local run is not the
-  gate.
-- **The inputs match**: the gate's fingerprint is `de6345b9058cd1cc` at
-  `570adb45`, at `092ff48a` and at `b791dec0` (3,974 files, read at each), so a green re-run is
-  evidence for the candidate.
-- **When the re-run ends**, the session reads it — every job `success`, the
-  gate with four shard reports and every section run once, the inputs — and
-  records the attempt and its results here. If the Chromium install stalls
-  again, the session diagnoses that step and makes a focused correction,
-  keeping every test and its assertions (it has stalled once; the 2026-10-05
-  cancellations were GitHub giving no runner; the backlog has it).
+- **Attempt 1** (the push of `570adb45`, 19:29–19:50 UTC) was incomplete:
+  the theme checks, shards 1 and 2 and the rest of the kit job stopped at
+  their 20-minute limit inside `npx playwright install --with-deps chromium`
+  (apt waiting on Ubuntu's `noble-security` index), before any of their
+  tests ran. My one re-run request answered **403** (this session's GitHub
+  access cannot re-run a job), and I didn't retry.
+- **Attempt 2, your press** (*Re-run failed jobs*, 22:28:20–22:35:27 UTC):
+  the four jobs ran again and passed. GitHub kept attempt 1's three green
+  jobs (the published-site checks and shards 3 and 4). Read from each job's
+  own log:
+  - the kit job: contrast-cases 16 passed, 0 failed; kit-a11y, kit-effects
+    and kit-paint all passed; its first steps passed again;
+  - the theme checks: theme-seam 11 passed, 0 failed; theme-render 29
+    passed, 0 failed;
+  - shard 1 (`style-overrides`, 108 checks) and shard 2 (`logo-and-serving`
+    and `dead-link`, 75 checks), both complete, none failed.
+- **The gate** (`all checks`, 22:35:13–22:35:26) found every job it waits on
+  `success`, and four shard reports: 1 and 2 from attempt 2, 3 and 4 from
+  attempt 1. Each is on commit `570adb45` and this harness, complete, with no
+  failed check. Each of the 27 sections ran exactly once, in its own shard,
+  and the inputs are `de6345b9058cd1cc` (3,974 files). Its verdict: **"ALL
+  CHECKS: 404 checks in 27 sections across 4 shards, every job green"**. That
+  is the shards' 403 section checks plus the preamble every shard runs,
+  counted once.
+- **The inputs match the candidate**: the fingerprint is `de6345b9058cd1cc`
+  at `570adb45`, `092ff48a`, `b791dec0` and `43c5b635`. These records touch
+  only documents, none of its inputs. It is read again on the candidate
+  before any merge.
+- **No correction was needed**: Chromium installed in 21 to 122 seconds in
+  each of the four jobs. The stall stays in the backlog, seen once.
+- **One count differs from my local run**: kit-a11y counted 2,628 named
+  controls on CI and 2,626 locally. The count comes from the browser's
+  accessibility tree, and the browsers differ (Chrome for Testing
+  151.0.7922.34 on CI, Chromium 141.0.7390.37 here). The check passes on a
+  floor of 1,000 with no unnamed control, which both meet. Every other count
+  matches the local run.
 
 **The release plan, in short** (each step and every box in the plan)
-1. Your re-run, green (above).
+1. Your re-run: **done, green** (above).
 2. Before the merge, the session: nothing in flight; unit CI green on the
    candidate; the gate's inputs read again; the image predicted on both
    ends; the rollback verified in a throwaway worktree; `chat.js` read as
@@ -69,7 +81,8 @@ is in git; the dated entries further down are the full story.*
 4. The deploy read, `chat.js` served byte for byte as merged (939,255 bytes,
    `dfa075929c9889e0…`), the image window waited once.
 5. **Your free runtime check** (the plan's §3.1).
-6. **The funds**: raise the balance from 10 to **exactly 40**.
+6. The funds: **done**, 40 since 22:06 UTC (above). Nothing more is added,
+   and the press sends nothing outside 38 to 40.
 7. **Your paid press**, `lv-combined` (the plan's §3.2), three messages on
    the bakery:
    - *"Put a link to the new Allergens page in the menu, and add an
@@ -116,12 +129,11 @@ time); a project that appeared afterwards would not be tracked.
 order check's card cases; every canary test file, 21 files, 496 of 496; a red
 check on `092ff48a`'s canary scripts, 11 of 86 failing (8 of the new file's
 9, the two scenario lists, the card case on the old order check); the sweep:
-18 of 18 killed, the comment-only control survived; the full suite: **9885 tests, 9885 pass, 0 fail, 0 skipped**. Unit CI on `b791dec0`: run 37686599138, `9885 / 9863 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run); no site build ran, since none of its inputs changed.
+18 of 18 killed, the comment-only control survived; the full suite: **9885 tests, 9885 pass, 0 fail, 0 skipped**. Unit CI on `b791dec0`: run 37686599138, `9885 / 9863 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run); no site build ran, since none of its inputs changed. Since: the site build on `570adb45`, attempt 2, green (above); unit CI on `43c5b635`, run 37687074060, `9885 / 9863 / 0 / 22`.
 
 **Yours to decide**
-- **The site build's re-run** (free).
 - **The release plan**: the merge, its deploy and one image build, your free
-  check, the funds, your paid press.
+  check, your paid press. The re-run and the funds are done.
 - **An unsettled database attempt**, if one ever appears: yours to settle
   (above).
 - **Live verification not in this plan** (each paid, none prepared): a
@@ -131,7 +143,8 @@ check on `092ff48a`'s canary scripts, 11 of 86 failing (8 of the new file's
   project cannot be produced safely on a live site.
 
 **Still open** (`docs/backlog.md`)
-- The site build's Chromium install can stall in apt (new; seen once).
+- The site build's Chromium install can stall in apt (seen once, in attempt
+  1; not in the re-run).
 - Provisioning: Neon's own refusal is trusted to mean a create made nothing
   on HTTP's meaning of those statuses — no Neon document says it; Neon's
   search, paging and error body are from its API reference, not measured
@@ -162,6 +175,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The site build's gate is green on your re-run; the funds at exactly 40 (records only, on the branch; nothing merged, deployed, built, paid or provisioned)
+
+- **The gate**: you re-ran the four jobs that had stopped in run
+  37674861320 (attempt 2, 22:28–22:35 UTC). All four passed, and Chromium
+  installed in 21 to 122 seconds each time. `all checks` then passed on
+  `570adb45` with four shard reports, each of the 27 sections run once and
+  the inputs `de6345b9058cd1cc`: 404 checks. The candidate has the same
+  inputs, so the result stands for it. No workflow correction was needed.
+- **The funds**: raised from 10 to exactly 40 at your request at 22:06:15
+  UTC. Read back at 22:06:32 and at 22:41: the last row still 401, no job
+  open.
+- **Unchanged**: the reviewed commit is `092ff48a` (Codex's 90 assertions),
+  and an uncertain database creation can still require manual settlement
+  (how, in the handoff).
+- **What is left is your approval of the release plan.**
 
 ## 2026-10-07 — The verification gate and the release plan (on the branch, `b791dec0`; nothing merged, deployed, built, paid or provisioned)
 

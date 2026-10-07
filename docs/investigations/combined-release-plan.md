@@ -15,9 +15,11 @@ that release plan."*
 
 **Status (2026-10-07, prepared, not pressed).** Nothing was merged, deployed,
 built or pressed, and nothing was spent. The press is a new canary scenario,
-`lv-combined` (§4), prepared on the branch with this plan. **Two things stand
-between this plan and its first step**: the site build's re-run (§2.1, the
-owner's press: the session's re-run answered 403) and the owner's approval.
+`lv-combined` (§4), prepared on the branch with this plan. **The site build's
+re-run is done and green** (§2.1: the owner's press, attempt 2 of run
+37674861320, 22:28–22:35 UTC). **The funds are in** (§2.8: 40 since 22:06 UTC,
+at the owner's request). **One thing stands between this plan and its next
+step: the owner's approval.**
 
 **In one view:**
 - **The release**: one fast-forward of `main` (`bcc22295` → the candidate)
@@ -36,8 +38,8 @@ owner's press: the session's re-run answered 403) and the owner's approval.
 
 - **The money**: about **28 credits** expected (22–38). **The budget, 38**:
   the press sends nothing unless the balance covers it. **The hard cap,
-  40**: raise the balance from 10 to exactly 40, and no charge can take it
-  below zero (§5).
+  40**: raise the balance from 10 to exactly 40 (done at the owner's request,
+  22:06 UTC), and no charge can take it below zero (§5).
 
 ## 1. What is released
 
@@ -94,6 +96,12 @@ What one authorization covers. Every step is free except §2.8.
    its shard, and the inputs `de6345b9058cd1cc` (3,974 files). If the
    Chromium install stalls again, the session diagnoses that setup step and
    makes a focused correction, keeping every test and its assertions.
+   **Done (22:35 UTC)**: the owner pressed attempt 2 at 22:28:20 UTC. The four
+   jobs passed, Chromium installing in 21 to 122 seconds, and `all checks`
+   passed at 22:35:26 with four shard reports (1 and 2 from attempt 2, 3 and 4
+   from attempt 1), every section once, on `570adb45` with the inputs
+   `de6345b9058cd1cc` (3,974 files): *"ALL CHECKS: 404 checks in 27 sections
+   across 4 shards, every job green"*. No correction was needed.
 2. **Before the merge** (the session):
    - nothing in flight: no Actions run in progress or queued, read twice
      (the second right before the push), and no open job in `edit_jobs`;
@@ -107,8 +115,8 @@ What one authorization covers. Every step is free except §2.8.
    - the rollback verified in a throwaway worktree: `git revert --no-commit
      bcc22295..<candidate>` gives back `main`'s own tree;
    - `chat.js` as served read before the push (today `0e68e3242f209272…`);
-   - the balance and the ledger's last row read (today 10, row 401, no job
-     open, read 20:42 UTC);
+   - the balance and the ledger's last row read (40 since 22:06 UTC, row
+     401, no job open, read again at 22:41 UTC);
    - no commit carrying the skip-CI marker.
 3. **The merge** (the session, on the owner's word): `main` `bcc22295` → the
    candidate, one fast-forward push. **The deploy is that push**: *Deploy to
@@ -127,7 +135,10 @@ What one authorization covers. Every step is free except §2.8.
    the merged commit, a cold container answers `335396c8c0e0fbcb`, queued
    jobs and the runner are on, and nothing is charged.
 8. **The funds** (the owner, §5): raise the balance to **exactly 40**. Add
-   nothing while the press runs.
+   nothing while the press runs. **Done early, at the owner's request**
+   (22:06:15 UTC): 40, read back at 22:06:32 and at 22:41, the ledger's last
+   row 401, no job open. The session reads it again before the press, and the
+   press sends nothing outside 38 to 40.
 9. **The paid live check** (the owner's press, §3.2), only after 7 and 8.
 10. **The readings and the record** (the session, free): the press's log and
     evidence; the site read back; the two requests' records and their jobs in
@@ -263,7 +274,9 @@ The new page, its links, the heading and the footer link stay on the bakery
   so the balance at the press is the most it can spend. The press sends
   nothing while the balance is above 40.
 - **The balance** was 10 at the last reading (20:42 UTC, ledger row 401, no
-  job open): **raise the balance from 10 to exactly 40**.
+  job open): **raise the balance from 10 to exactly 40**. Done at the owner's
+  request at 22:06:15 UTC: 40, read back at 22:06:32 and again at 22:41 (the
+  ledger's last row 401, no job open).
 - An estimate is not a cap; the cap is the balance.
 
 ## 6. The stop conditions
@@ -321,7 +334,6 @@ router itself asks; how often a real model takes these paths.
 - **Time**: the three messages' bounds and their reply floors take the press's
   whole 30 minutes; a page build much slower than run 105's would pass message
   1's bound, and nothing more would be sent.
-- **The site build's gate** is not green yet (§2.1).
 
 ## 9. This preparation's commits
 
