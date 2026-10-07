@@ -1,0 +1,146 @@
+{
+ "provenance": {
+  "run": 37556753281,
+  "artifact": 11455249488,
+  "job": 112584663243,
+  "note": "run 105's own narration-ids.json and narration.json from canary-evidence.zip, unchanged: the press ids and window, and the usage reading the workflow step wrote",
+  "files": {
+   "narration.json": "e71502ecfa27b3f868e22635cdf14d8efc9655413aae9f127597893746aed913",
+   "narration-ids.json": "e933d54077926b6e2b6d8a95094231ec15cd3cd7d0934388590a6f51cf340a13"
+  }
+ },
+ "ids": {
+  "scenario": "lv-progress",
+  "slug": "fold-lane-bakery",
+  "from": "2026-10-07T01:23:41.213Z",
+  "to": "2026-10-07T01:36:03.394Z",
+  "requests": [
+   "22ff4e8a7dce383dfaf075e99fb11d51"
+  ],
+  "jobs": [
+   "559f49d4eda1bcf05ac46dd126bca586",
+   "47cdc74849fb855b833ec2286743338a",
+   "ad27f17ec38e92825c7326f7f9263380"
+  ]
+ },
+ "reading": {
+  "measured": true,
+  "query": {
+   "ok": true,
+   "reads": 2,
+   "window": {
+    "from": "2026-10-07T01:21:41.213Z",
+    "to": "2026-10-07T01:37:01.014Z"
+   }
+  },
+  "ids": [
+   "559f49d4eda1bcf05ac46dd126bca586",
+   "47cdc74849fb855b833ec2286743338a",
+   "ad27f17ec38e92825c7326f7f9263380",
+   "76c1ddfb9c4ddfcf96dc9031c2dea728"
+  ],
+  "calls": [
+   {
+    "ts": 1791336362712,
+    "kind": "line",
+    "id": "559f49d4eda1bcf05ac46dd126bca586",
+    "ok": true,
+    "why": "",
+    "model": "grok-4.6",
+    "milestones": 1,
+    "facts": 2,
+    "tasks": null,
+    "attempts": 1,
+    "in": 832,
+    "out": 57,
+    "ms": 11561,
+    "usd": 0.002006,
+    "credits": 0.25075
+   },
+   {
+    "ts": 1791336385845,
+    "kind": "line",
+    "id": "559f49d4eda1bcf05ac46dd126bca586",
+    "ok": true,
+    "why": "",
+    "model": "grok-4.6",
+    "milestones": 1,
+    "facts": 2,
+    "tasks": null,
+    "attempts": 1,
+    "in": 861,
+    "out": 53,
+    "ms": 10391,
+    "usd": 0.00204,
+    "credits": 0.255
+   },
+   {
+    "ts": 1791336531785,
+    "kind": "line",
+    "id": "559f49d4eda1bcf05ac46dd126bca586",
+    "ok": true,
+    "why": "",
+    "model": "grok-4.6",
+    "milestones": 2,
+    "facts": 2,
+    "tasks": null,
+    "attempts": 1,
+    "in": 106,
+    "out": 59,
+    "ms": 23014,
+    "usd": 0.000566,
+    "credits": 0.07075
+   },
+   {
+    "ts": 1791336783515,
+    "kind": "line",
+    "id": "ad27f17ec38e92825c7326f7f9263380",
+    "ok": true,
+    "why": "",
+    "model": "grok-4.6",
+    "milestones": 1,
+    "facts": 2,
+    "tasks": null,
+    "attempts": 1,
+    "in": 1336,
+    "out": 65,
+    "ms": 7310,
+    "usd": 0.003062,
+    "credits": 0.38275
+   },
+   {
+    "ts": 1791336799780,
+    "kind": "line",
+    "id": "ad27f17ec38e92825c7326f7f9263380",
+    "ok": true,
+    "why": "",
+    "model": "grok-4.6",
+    "milestones": 1,
+    "facts": 2,
+    "tasks": null,
+    "attempts": 1,
+    "in": 210,
+    "out": 64,
+    "ms": 12060,
+    "usd": 0.000804,
+    "credits": 0.1005
+   }
+  ],
+  "events": [],
+  "otherIds": 0,
+  "totals": {
+   "calls": 5,
+   "written": 5,
+   "lines": 5,
+   "tasks": 0,
+   "attempts": 5,
+   "in": 3345,
+   "out": 298,
+   "ms": 64336,
+   "msMedian": 11561,
+   "msMost": 23014,
+   "usd": 0.008478,
+   "credits": 1.05975
+  }
+ }
+}

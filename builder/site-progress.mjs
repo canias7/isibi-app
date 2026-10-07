@@ -1001,6 +1001,27 @@ export function progressUsage(reply, model) {
 }
 
 /**
+ * WHAT ONE NARRATION CALL COST US, AS ONE LOG LINE (2026-10-07) — the line
+ * `scripts/narration-usage.mjs` reads back (`parseCall`), built here for both
+ * writers (`kind` "line" or "tasks") and printed as ONE string, so its shape
+ * never rests on how a log joins arguments. With the cached input the answers
+ * reported beside the fresh (`progressUsage`): the line used to print fresh
+ * tokens only, so every cost read from it was a floor while the writer held
+ * the rest. A `why` or a name is one word here, so the line always reads.
+ */
+export function usageLogLine({ kind, id, ok, why = "", model, milestones = 0, facts = 0, tasks = 0, attempts = 0, usage = [], ms = 0 } = {}) {
+  const sum = (Array.isArray(usage) ? usage : []).reduce((t, u) => ({
+    in: t.in + (Number(u && u.in) || 0), out: t.out + (Number(u && u.out) || 0),
+    cacheRead: t.cacheRead + (Number(u && u.cacheRead) || 0), cacheWrite: t.cacheWrite + (Number(u && u.cacheWrite) || 0),
+  }), { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 });
+  const word = (v) => String(v == null ? "" : v).replace(/[\s()]+/g, "-") || "-";
+  const n = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
+  return "progress: " + (kind === "tasks" ? "tasks " : "") + word(id) + " " + (ok ? "written" : "not written (" + word(why) + ")") +
+    " model " + word(model) + " " + (kind === "tasks" ? "tasks " + n(tasks) : "milestones " + n(milestones) + " facts " + n(facts)) +
+    " attempts " + n(attempts) + " tokens " + n(sum.in) + "/" + n(sum.out) + " cache " + n(sum.cacheRead) + "/" + n(sum.cacheWrite) + " ms " + n(ms);
+}
+
+/**
  * WRITE ONE UPDATE. Never throws. `{ ok: true, text, usage, attempts }`, or
  * `{ ok: false, why, usage, attempts }` — `why` one of `no-facts`, `send`,
  * `deadline`, `unreadable`, `cut`, `uncovered`, `misstated`, `ids`. At most

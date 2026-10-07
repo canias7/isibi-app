@@ -1,0 +1,111 @@
+[
+  {
+    "label": "CONTROL: a comment only in usageLogLine — must survive",
+    "control": true,
+    "files": ["builder/site-progress.mjs"],
+    "from": "export function usageLogLine({ kind, id, ok, why = \"\", model, milestones = 0, facts = 0, tasks = 0, attempts = 0, usage = [], ms = 0 } = {}) {",
+    "to": "export function usageLogLine({ kind, id, ok, why = \"\", model, milestones = 0, facts = 0, tasks = 0, attempts = 0, usage = [], ms = 0 } = {}) { // comment-only control"
+  },
+  {
+    "label": "FORMAT — the cached pair left out of the line again",
+    "files": ["builder/site-progress.mjs"],
+    "from": " + \" cache \" + n(sum.cacheRead) + \"/\" + n(sum.cacheWrite) + \" ms \" + n(ms);",
+    "to": " + \" ms \" + n(ms);"
+  },
+  {
+    "label": "FORMAT — the cached input of every attempt after the first not summed",
+    "files": ["builder/site-progress.mjs"],
+    "from": "cacheRead: t.cacheRead + (Number(u && u.cacheRead) || 0),",
+    "to": "cacheRead: (Number(u && u.cacheRead) || 0),"
+  },
+  {
+    "label": "FORMAT — a why with spaces or brackets printed as it came",
+    "files": ["builder/site-progress.mjs"],
+    "from": "const word = (v) => String(v == null ? \"\" : v).replace(/[\\s()]+/g, \"-\") || \"-\";",
+    "to": "const word = (v) => String(v == null ? \"\" : v) || \"-\";"
+  },
+  {
+    "label": "WRITER — the line writer hands the formatter no usage",
+    "files": ["worker.js"],
+    "from": "facts: batch.facts.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }));",
+    "to": "facts: batch.facts.length, attempts: out.attempts, usage: [], ms: Date.now() - t0 }));"
+  },
+  {
+    "label": "WRITER — the task writer's line printed as a line call",
+    "files": ["worker.js"],
+    "from": "console.log(usageLogLine({ kind: \"tasks\", id: job,",
+    "to": "console.log(usageLogLine({ kind: \"line\", id: job,"
+  },
+  {
+    "label": "READER — a line from before the cached pair no longer reads",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "tokens (\\d+)\\/(\\d+)(?: cache (\\d+)\\/(\\d+))? ms (\\d+)\\s*$/;",
+    "to": "tokens (\\d+)\\/(\\d+) cache (\\d+)\\/(\\d+) ms (\\d+)\\s*$/;"
+  },
+  {
+    "label": "READER — an unlogged cache read as zero, so an old call is never a floor",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "cacheRead: m[12] !== undefined ? Number(m[12]) : null,",
+    "to": "cacheRead: m[12] !== undefined ? Number(m[12]) : 0,"
+  },
+  {
+    "label": "MESSAGE — the first candidate taken, readable or not",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  return found.find((m) => parseCall(m) || parseEvent(m)) || found.reduce((a, b) => (b.length > a.length ? b : a));",
+    "to": "  return found[0];"
+  },
+  {
+    "label": "MESSAGE — source.message never read",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  add(e && e.source && e.source.message);\n",
+    "to": "\n"
+  },
+  {
+    "label": "UNREAD — a line of the press that neither parser reads dropped as another's",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  const mine = (msg) => [...ids].some((id) => id && msg.includes(id)) || (typeof slug === \"string\" && slug !== \"\" && msg.includes(slug));",
+    "to": "  const mine = () => false;"
+  },
+  {
+    "label": "UNREAD — every unread line kept, however many",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "      if (unparsed.length < UNPARSED_KEPT) unparsed.push({ ts, text: msg.slice(0, UNPARSED_CHARS) });",
+    "to": "      unparsed.push({ ts, text: msg.slice(0, UNPARSED_CHARS) });"
+  },
+  {
+    "label": "UNREAD — a long unread line kept whole",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "      if (unparsed.length < UNPARSED_KEPT) unparsed.push({ ts, text: msg.slice(0, UNPARSED_CHARS) });",
+    "to": "      if (unparsed.length < UNPARSED_KEPT) unparsed.push({ ts, text: msg });"
+  },
+  {
+    "label": "MISSING — no call is ever owed",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  const missing = (Array.isArray(expect) ? expect : []).filter((x) => x && !priced.some((c) => c.id === x.id && c.kind === x.kind));",
+    "to": "  const missing = [];"
+  },
+  {
+    "label": "MISSING — any call under the record's id pays the task-lines call owed",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  const missing = (Array.isArray(expect) ? expect : []).filter((x) => x && !priced.some((c) => c.id === x.id && c.kind === x.kind));",
+    "to": "  const missing = (Array.isArray(expect) ? expect : []).filter((x) => x && !priced.some((c) => c.id === x.id));"
+  },
+  {
+    "label": "COMPLETE — unread lines leave the account whole",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "    complete: priced.length > 0 && missing.length === 0 && unparsedCount === 0,",
+    "to": "    complete: priced.length > 0 && missing.length === 0,"
+  },
+  {
+    "label": "DESCRIBE — an incomplete account printed as whole",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "  const whole = missing.length === 0 && unparsedCount === 0;",
+    "to": "  const whole = true;"
+  },
+  {
+    "label": "STEP — the press's owed calls never handed to the reader",
+    "files": ["scripts/narration-usage.mjs"],
+    "from": "    usage = usageOf(q.events, ids, { expect, slug: ask.slug });",
+    "to": "    usage = usageOf(q.events, ids, { slug: ask.slug });"
+  }
+]

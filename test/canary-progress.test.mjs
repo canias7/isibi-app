@@ -24,6 +24,7 @@ import {
 import { progressChecks, requestBatchVerdict, replyChecks, coverageOf, COVERAGE } from "../scripts/canary-requests.mjs";
 import { rqApp, part, view, drive, SLUG } from "./fixtures/canary-rq-app.mjs";
 import * as NU from "../scripts/narration-usage.mjs";
+import { usageLogLine, TASK_STATES } from "../builder/site-progress.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const failed = (checks) => checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.why}`);
@@ -437,15 +438,33 @@ test("NARRATION ADDS NO CHARGE: passes only when the balance moved by exactly th
 
 const W = (job, extra = "milestones 2 facts 3 attempts 1 tokens 812/64 ms 2310") => `progress: ${job} written model grok-4.6 ${extra}`;
 
-test("THE LOG LINES ARE THE WORKER'S OWN: the line writer's and the task writer's log calls print exactly what the reader parses", () => {
+test("THE LOG LINES ARE THE WORKER'S OWN: both writers print their usage through the one formatter, as one string, and every line it can build is one the reader parses — the cached input with it", () => {
   const src = fs.readFileSync(ROOT + "worker.js", "utf8");
-  assert.ok(src.includes(`console.log("progress:", job, out.ok ? "written" : "not written (" + out.why + ")", "model", model, "milestones", batch.marks.length, "facts", batch.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);`), "the line writer's log line changed");
-  assert.ok(src.includes(`console.log("progress: tasks", job, out.ok ? "written" : "not written (" + out.why + ")", "model", model, "tasks", tasks.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);`), "the task writer's log line changed");
-  // console.log joins its arguments with one space, which is what the reader reads.
-  const line = ["progress:", "f1", "written", "model", "grok-4.6", "milestones", 2, "facts", 3, "attempts", 1, "tokens", "812/64", "ms", 2310].join(" ");
-  assert.deepEqual(NU.parseCall(line), { kind: "line", id: "f1", ok: true, why: "", model: "grok-4.6", milestones: 2, facts: 3, tasks: null, attempts: 1, in: 812, out: 64, ms: 2310 });
-  const tasks = ["progress: tasks", "abc", "not written (cut)", "model", "grok-4.6", "tasks", 2, "attempts", 2, "tokens", "420/233", "ms", 3021].join(" ");
-  assert.deepEqual(NU.parseCall(tasks), { kind: "tasks", id: "abc", ok: false, why: "cut", model: "grok-4.6", milestones: null, facts: null, tasks: 2, attempts: 2, in: 420, out: 233, ms: 3021 });
+  // EACH WRITER'S OWN BODY, landmark to landmark (both landmarks found first).
+  const a = src.indexOf("async function writeProgressLine("), b = src.indexOf("async function writeTaskLines("), c = src.indexOf("async function runProgressTask(");
+  assert.ok(a > 0 && b > a && c > b, "the writers' landmarks moved");
+  const lineBody = src.slice(a, b), taskBody = src.slice(b, c);
+  assert.match(lineBody, /console\.log\(usageLogLine\(\{ kind: "line", id: job, ok: out\.ok, why: out\.why, model, milestones: batch\.marks\.length, facts: batch\.facts\.length, attempts: out\.attempts, usage: out\.usage,/, "the line writer does not print its usage through usageLogLine");
+  assert.match(taskBody, /console\.log\(usageLogLine\(\{ kind: "tasks", id: job, ok: out\.ok, why: out\.why, model, tasks: tasks\.length, attempts: out\.attempts, usage: out\.usage,/, "the task writer does not print its usage through usageLogLine");
+  assert.doesNotMatch(lineBody + taskBody, /console\.log\("progress:( tasks)?", job, out\.ok/, "a writer still prints its usage as several arguments");
+  // EVERY LINE THE FORMATTER BUILDS READS BACK AS ITS OWN CALL — written or
+  // not, with any why or name, the cached input summed over the attempts.
+  const cases = [
+    [{ kind: "line", id: "f1", ok: true, model: "grok-4.6", milestones: 2, facts: 3, attempts: 1, usage: [{ in: 812, out: 64, cacheRead: 640, cacheWrite: 0 }], ms: 2310 },
+      { kind: "line", id: "f1", ok: true, why: "", model: "grok-4.6", milestones: 2, facts: 3, tasks: null, attempts: 1, in: 812, out: 64, cacheRead: 640, cacheWrite: 0, ms: 2310 }],
+    [{ kind: "tasks", id: "abc", ok: false, why: "cut", model: "grok-4.6", tasks: 2, attempts: 2, usage: [{ in: 400, out: 200, cacheRead: 10, cacheWrite: 2 }, { in: 20, out: 33, cacheRead: 5, cacheWrite: 1 }], ms: 3021 },
+      { kind: "tasks", id: "abc", ok: false, why: "cut", model: "grok-4.6", milestones: null, facts: null, tasks: 2, attempts: 2, in: 420, out: 233, cacheRead: 15, cacheWrite: 3, ms: 3021 }],
+    [{ kind: "line", id: "f2", ok: false, why: "odd (two words)", model: "a model", milestones: 1, facts: 1, attempts: 0, usage: null, ms: 7.6 },
+      { kind: "line", id: "f2", ok: false, why: "odd-two-words-", model: "a-model", milestones: 1, facts: 1, tasks: null, attempts: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0, ms: 8 }],
+  ];
+  for (const [given, read] of cases) {
+    const line = usageLogLine(given);
+    assert.equal(typeof line, "string");
+    assert.deepEqual(NU.parseCall(line), read, line);
+  }
+  // A LINE FROM BEFORE 2026-10-07 — no cached pair — still reads, its cache unknown.
+  const old = ["progress: tasks", "abc", "not written (cut)", "model", "grok-4.6", "tasks", 2, "attempts", 2, "tokens", "420/233", "ms", 3021].join(" ");
+  assert.deepEqual(NU.parseCall(old), { kind: "tasks", id: "abc", ok: false, why: "cut", model: "grok-4.6", milestones: null, facts: null, tasks: 2, attempts: 2, in: 420, out: 233, cacheRead: null, cacheWrite: null, ms: 3021 });
   assert.equal(NU.parseCall("progress: f1 milestone refused — closed"), null);
   assert.equal(NU.parseCall("reply: edit fell back (send) facts 3 attempts 1 tokens 0/0 ms 12000"), null);
   // AND THE LINES THAT SAY A DELIVERY OR A WRITER GAVE UP.
@@ -506,9 +525,140 @@ test("USAGE: the press's own calls only, priced at the platform's own rates as a
   assert.ok(Math.abs(u.totals.usd - usd) < 1e-12, `${u.totals.usd} vs ${usd}`);
   assert.ok(Math.abs(u.totals.credits - usd / 0.008) < 1e-9);
   const told = NU.describeUsage(u);
-  assert.match(told, /NARRATION USAGE: 2 call\(s\), 2 written/);
-  assert.match(told, /a floor/);
+  assert.match(told, /NARRATION USAGE: 2 call\(s\) read, 2 written/);
+  assert.match(told, /a floor/, "lines with no cached pair were not said to be a floor");
   assert.match(told, /NOT DELIVERED/);
+});
+
+// ── WHAT THE USAGE STEP CANNOT ACCOUNT FOR (2026-10-07, after run 105) ─────
+
+const LINE_OF = (o) => ({ timestamp: o.ts || 1, $metadata: { message: usageLogLine({ model: "grok-4.6", attempts: 1, ms: 1000, usage: [{ in: 100, out: 10, cacheRead: 300, cacheWrite: 0 }], ...o }) } });
+
+test("A REQUEST WITH NO TASK-LINES CALL READ MAKES THE ACCOUNT INCOMPLETE, named — never a total passed off as the narration's cost; with its call read, the account is whole", () => {
+  const ask = { slug: "fold-lane-bakery", requests: [KEY], jobs: ["f1"] };
+  const ids = NU.pressIds(ask);
+  const rid = NU.requestTasksId(ask.slug, KEY);
+  const expect = NU.expectedCalls(ask);
+  assert.deepEqual(expect, [{ kind: "tasks", id: rid, request: KEY }]);
+  const lineOnly = NU.usageOf([LINE_OF({ kind: "line", id: "f1", ok: true, milestones: 1, facts: 2 })], ids, { expect, slug: ask.slug });
+  assert.equal(lineOnly.totals.calls, 1);
+  assert.equal(lineOnly.complete, false, "a request's missing task-lines call left the account whole");
+  assert.deepEqual(lineOnly.missing, expect);
+  const told = NU.describeUsage(lineOnly);
+  assert.match(told, /^NARRATION USAGE \(INCOMPLETE\): 1 call\(s\) read/);
+  assert.match(told, /NOT the narration's whole cost/);
+  assert.match(told, new RegExp(`NOT READ: no task-lines call was read for request ${KEY.slice(0, 12)} \\(record ${rid.slice(0, 12)}\\) — its usage is not in the total above: not measured, and not zero`));
+  const both = NU.usageOf([LINE_OF({ kind: "line", id: "f1", ok: true, milestones: 1, facts: 2 }), LINE_OF({ ts: 2, kind: "tasks", id: rid, ok: true, tasks: 2 })], ids, { expect, slug: ask.slug });
+  assert.equal(both.complete, true);
+  assert.deepEqual(both.missing, []);
+  assert.doesNotMatch(NU.describeUsage(both), /INCOMPLETE|NOT READ|a floor/);
+  // ONLY A TASK-LINES CALL PAYS WHAT IS OWED: another kind under the record's id does not.
+  const wrongKind = NU.usageOf([LINE_OF({ kind: "line", id: rid, ok: true, milestones: 1, facts: 1 })], ids, { expect, slug: ask.slug });
+  assert.equal(wrongKind.complete, false, "a line call under the request's id stood in for its task-lines call");
+  // A FAILED TASK-LINES CALL IS STILL A CALL READ: its usage is in the total.
+  const failed = NU.usageOf([LINE_OF({ kind: "tasks", id: rid, ok: false, why: "uncovered", tasks: 2 })], ids, { expect, slug: ask.slug });
+  assert.equal(failed.complete, true);
+  assert.equal(failed.totals.written, 0);
+  // NO CALL AT ALL: not measured, as before — no total, no cost.
+  const none = NU.usageOf([], ids, { expect, slug: ask.slug });
+  assert.equal(none.complete, false);
+  assert.match(NU.describeUsage(none), /^NARRATION USAGE UNAVAILABLE: .*not a verified zero$/);
+});
+
+test("A NARRATION LINE OF THE PRESS THAT NEITHER PARSER READS IS KEPT AND SHOWN, never dropped: a failed writer task, a lost queue send, a failed request sync by the site's name — the first twenty kept, cut, the count whole; another press's are only counted", () => {
+  const ask = { slug: "fold-lane-bakery", requests: [KEY], jobs: ["f1"] };
+  const ids = NU.pressIds(ask);
+  const rid = NU.requestTasksId(ask.slug, KEY);
+  const ev = (ts, message) => ({ timestamp: ts, $metadata: { message } });
+  // AS THE WORKER PRINTS THEM (worker.js's console.error lines), formatted as a log formats a call's arguments.
+  const said = (...a) => util.format(...a);
+  const events = [
+    ev(3, said("progress: task failed", rid, "TypeError")),
+    ev(1, said("progress: could not queue", "f1", "QueueError")),
+    ev(2, said("progress: request tasks", "fold-lane-bakery", "R2Error")),
+    ev(4, said("progress: task failed", "0".repeat(32), "TypeError")),
+    ev(5, "progress: something new about " + "x".repeat(400) + " f1"),
+  ];
+  const u = NU.usageOf(events, ids, { expect: NU.expectedCalls(ask), slug: ask.slug });
+  assert.equal(u.unparsedCount, 4);
+  assert.deepEqual(u.unparsed.map((l) => l.ts), [1, 2, 3, 5], "the unread lines are not this press's, in time order");
+  assert.equal(u.unparsed[3].text.length, NU.UNPARSED_CHARS, "a long unread line was not cut to the kept length");
+  assert.equal(u.otherIds, 1, "another press's line was not counted apart");
+  assert.equal(u.complete, false);
+  // WITH NO CALL READ, THE UNREAD LINES ARE STILL SAID.
+  assert.equal(u.calls.length, 0);
+  // AND WITH A CALL READ, THE ACCOUNT LISTS THEM AND SAYS IT IS NOT WHOLE.
+  const withCall = NU.usageOf([...events, LINE_OF({ ts: 6, kind: "tasks", id: rid, ok: true, tasks: 2 })], ids, { expect: NU.expectedCalls(ask), slug: ask.slug });
+  assert.deepEqual(withCall.missing, [], "the request's task-lines call was read");
+  assert.equal(withCall.complete, false, "unread lines of the press left the account whole");
+  const told = NU.describeUsage(withCall);
+  assert.match(told, /^NARRATION USAGE \(INCOMPLETE\)/);
+  assert.match(told, new RegExp(`UNREAD LINE [0-9:-]+: progress: task failed ${rid} TypeError`));
+  assert.match(told, /UNREAD LINE [0-9:-]+: progress: request tasks fold-lane-bakery R2Error/);
+  // MORE THAN ARE KEPT: the count stays whole and says how many more.
+  const many = NU.usageOf(Array.from({ length: NU.UNPARSED_KEPT + 7 }, (_, i) => ev(i, said("progress: could not read", "f1", "R2Error"))), ids, { expect: [], slug: ask.slug });
+  assert.equal(many.unparsedCount, NU.UNPARSED_KEPT + 7);
+  assert.equal(many.unparsed.length, NU.UNPARSED_KEPT);
+  const manyTold = NU.describeUsage({ ...many, calls: [LINE_OF({ kind: "line", id: "f1", ok: true, milestones: 1, facts: 1 })].map((e) => ({ ts: 1, ...NU.parseCall(e.$metadata.message), usd: 0, credits: 0, floor: false })), totals: { ...many.totals, calls: 1 } });
+  assert.match(manyTold, new RegExp(`… and 7 more unread line\\(s\\) of this press \\(${NU.UNPARSED_KEPT + 7} in all\\)`));
+});
+
+test("THE MESSAGE THAT READS, NOT THE FIRST FOUND: a field holding only a call's first argument never hides the whole line another field holds", () => {
+  const whole = usageLogLine({ kind: "tasks", id: "abc", ok: true, model: "grok-4.6", tasks: 2, attempts: 1, usage: [{ in: 5, out: 5 }], ms: 10 });
+  assert.equal(NU.messageOf({ $metadata: { message: "progress: tasks" }, source: { message: whole } }), whole);
+  assert.equal(NU.messageOf({ $metadata: { message: "progress: tasks" }, source: { message: whole.split(" ") } }), whole);
+  assert.equal(NU.messageOf({ $metadata: { message: whole }, source: { message: "progress: tasks" } }), whole);
+  // NONE READS: the longest is kept, so the unread line is shown whole.
+  assert.equal(NU.messageOf({ $metadata: { message: "progress: x" }, source: { message: "progress: x y z" } }), "progress: x y z");
+});
+
+test("PRICED WHOLE WHERE THE LINE NAMES THE CACHED INPUT, a floor only where it does not — and said so, call by call", () => {
+  const withCache = NU.usageOf([LINE_OF({ kind: "line", id: "f1", ok: true, milestones: 1, facts: 1 })], new Set(["f1"]));
+  // grok-4.6: $2 per million fresh in, $6 per million out, the cached input at a quarter of the fresh.
+  const usd = 100 * 2e-6 + 10 * 6e-6 + 300 * 0.5e-6;
+  assert.ok(Math.abs(withCache.totals.usd - usd) < 1e-12, `${withCache.totals.usd} vs ${usd}`);
+  assert.equal(withCache.calls[0].floor, false);
+  assert.equal(withCache.totals.cacheRead, 300);
+  const told = NU.describeUsage(withCache);
+  assert.match(told, /cached 300 read \/ 0 written/);
+  assert.doesNotMatch(told, /a floor/);
+  const old = NU.usageOf([{ timestamp: 1, $metadata: { message: W("f1", "milestones 1 facts 1 attempts 1 tokens 100/10 ms 1000") } }], new Set(["f1"]));
+  assert.equal(old.calls[0].floor, true);
+  assert.equal(old.totals.floorCalls, 1);
+  assert.match(NU.describeUsage(old), /1 call\(s\) logged before cached input was in the line: theirs is not counted/);
+  assert.match(NU.describeUsage(old), /cache not logged/);
+});
+
+test("RUN 105, READ AGAIN: its saved reading priced five line calls and no task-lines call as measured; the press's own cards prove that call was made; the corrected reader says the account is incomplete and names the request — the saved reading stays as it was", async () => {
+  const fx = JSON.parse(fs.readFileSync(ROOT + "test/fixtures/run105-narration.json", "utf8"));
+  // THE SAVED READING, AS RECORDED: kept, never rewritten.
+  assert.equal(fx.provenance.run, 37556753281);
+  assert.deepEqual([fx.reading.measured, fx.reading.totals.calls, fx.reading.totals.lines, fx.reading.totals.tasks], [true, 5, 5, 0]);
+  assert.equal(Object.hasOwn(fx.reading, "complete"), false, "the saved reading was rewritten");
+  const rid = NU.requestTasksId(fx.ids.slug, fx.ids.requests[0]);
+  assert.ok(fx.reading.ids.includes(rid), "the request's narration record was not among the ids read");
+  // THE CALL WAS MADE: both parts' cards carried the model's own lines in
+  // every state, which only the task-lines call writes (`writeTaskLines`).
+  const zlib = await import("node:zlib");
+  const ev = JSON.parse(zlib.gunzipSync(fs.readFileSync(ROOT + "test/fixtures/run105-evidence.json.gz")));
+  const saids = [];
+  const walk = (v) => { if (!v || typeof v !== "object") return; if (v.said && typeof v.said === "object" && !Array.isArray(v.said)) saids.push(v.said); for (const x of Object.values(v)) walk(x); };
+  walk(ev.ui);
+  const whole = saids.filter((s) => TASK_STATES.every((k) => typeof s[k] === "string" && s[k].trim()));
+  assert.ok(whole.length >= 2, "the saved cards do not hold both parts' task lines in every state");
+  // THE SAME FIVE CALLS, AS THE WORKER THEN PRINTED THEM (no cached pair),
+  // READ BY THE CORRECTED READER WITH THE PRESS'S OWN IDS.
+  const events = fx.reading.calls.map((c) => ({ timestamp: c.ts, $metadata: { message: `progress: ${c.kind === "tasks" ? "tasks " : ""}${c.id} ${c.ok ? "written" : `not written (${c.why})`} model ${c.model} ${c.kind === "tasks" ? `tasks ${c.tasks}` : `milestones ${c.milestones} facts ${c.facts}`} attempts ${c.attempts} tokens ${c.in}/${c.out} ms ${c.ms}` } }));
+  const u = NU.usageOf(events, NU.pressIds(fx.ids), { expect: NU.expectedCalls(fx.ids), slug: fx.ids.slug });
+  assert.deepEqual([u.totals.calls, u.totals.lines, u.totals.tasks], [5, 5, 0]);
+  assert.ok(Math.abs(u.totals.usd - fx.reading.totals.usd) < 1e-12, "the five calls were not priced as the saved reading priced them");
+  assert.equal(u.complete, false, "run 105's reading still passes for a whole account");
+  assert.deepEqual(u.missing, [{ kind: "tasks", id: rid, request: fx.ids.requests[0] }]);
+  assert.equal(u.totals.floorCalls, 5, "lines with no cached pair were not each a floor");
+  const told = NU.describeUsage(u);
+  assert.match(told, /^NARRATION USAGE \(INCOMPLETE\): 5 call\(s\) read/);
+  assert.match(told, /— a floor — NOT the narration's whole cost/);
+  assert.match(told, new RegExp(`NOT READ: no task-lines call was read for request ${fx.ids.requests[0].slice(0, 12)} \\(record ${rid.slice(0, 12)}\\)`));
 });
 
 test("A LOG EVENT'S MESSAGE is read wherever its shape keeps it: the field, an array of words, or a string deeper in the event", () => {
@@ -563,7 +713,20 @@ test("THE STEP: with no press to read it says only whether the logs are readable
     assert.equal(got.totals.calls, 2);
     assert.ok(got.totals.usd > 0);
     assert.deepEqual(got.query.window, { from: "2026-10-06T19:58:00.000Z", to: "2026-10-06T20:30:00.000Z" });
-    assert.match(logs.pop(), /^NARRATION USAGE: 2 call\(s\)/);
+    // THE PRESS HAD A REQUEST AND NO TASK-LINES CALL WAS READ: measured, and
+    // INCOMPLETE — the request named, and where to read the rest.
+    assert.deepEqual([read.complete, got.complete], [false, false]);
+    assert.deepEqual(got.missing.map((m) => m.request), [KEY]);
+    const told = logs.pop();
+    assert.match(told, /^NARRATION USAGE \(INCOMPLETE\): 2 call\(s\) read/);
+    assert.match(told, /NOT READ: no task-lines call was read for request/);
+    assert.match(told, /the rest: read it from the dashboard instead/);
+    // WITH THE REQUEST'S TASK-LINES CALL READ TOO, THE ACCOUNT IS WHOLE.
+    const rid = NU.requestTasksId("fold-lane-bakery", KEY);
+    const all = [{ timestamp: 1, $metadata: { message: W("f1") } }, { timestamp: 2, $metadata: { message: `progress: tasks ${rid} written model grok-4.6 tasks 2 attempts 1 tokens 500/250 cache 100/0 ms 3000` } }];
+    const whole = await NU.main({ env, fetchImpl: fake(all), reads: 3, ...at });
+    assert.deepEqual([whole.measured, whole.complete, saved().complete], [true, true, true]);
+    assert.match(logs.pop(), /^NARRATION USAGE: 2 call\(s\) read/);
     // THE QUERY ANSWERED, AND NO CALL OF THE PRESS'S IDS WAS IN IT — nothing at
     // all, another id's calls, or the press's delivery lines alone: the usage
     // is NOT MEASURED. No cost is written, zero or otherwise, and the query's

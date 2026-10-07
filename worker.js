@@ -248,7 +248,7 @@ import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelRepl
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
-  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH,
+  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
@@ -7139,10 +7139,11 @@ async function writeProgressLine(env, task, owner) {
     out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec), model });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   // WHAT IT COST US, IN THE LOG: a line is not charged to the customer, so the
-  // ledger never shows it, and this is where attempts, tokens and time are read.
+  // ledger never shows it, and this is where attempts, tokens — fresh and
+  // cached — and time are read; one string, the shape the reader reads
+  // (`usageLogLine`, 2026-10-07).
   try {
-    const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
-    console.log("progress:", job, out.ok ? "written" : "not written (" + out.why + ")", "model", model, "milestones", batch.marks.length, "facts", batch.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);
+    console.log(usageLogLine({ kind: "line", id: job, ok: out.ok, why: out.why, model, milestones: batch.marks.length, facts: batch.facts.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }));
   } catch { /* a log line never costs the line */ }
   if (!out.ok) {
     const f = await progressUpdate(env, job, (r) => {
@@ -7191,8 +7192,7 @@ async function writeTaskLines(env, task, owner, rec) {
     out = await writeTasks({ send: quickSend(env, "progress", progressBudget) }, { tasks, context: progressContext(rec), model });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   try {
-    const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
-    console.log("progress: tasks", job, out.ok ? "written" : "not written (" + out.why + ")", "model", model, "tasks", tasks.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);
+    console.log(usageLogLine({ kind: "tasks", id: job, ok: out.ok, why: out.why, model, tasks: tasks.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }));
   } catch { /* a log line never costs the lines */ }
   if (!out.ok) {
     const f = await progressUpdate(env, job, (r) => {

@@ -351,7 +351,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (SEQUENCED.has(key) && Array.isArray(a)) return a[nextN(key)];
     return a;
   };
-  const say = (tool, input) => resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: { input_tokens: 10, output_tokens: 5 } });
+  // THE ANSWER'S USAGE: ten in and five out unless a narration case hands its
+  // own (`progressWith`/`tasksWith` answering `{ usage }`, 2026-10-07) — every
+  // other call's usage, which money is priced from, stays as it was.
+  const say = (tool, input, usage = null) => resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } });
   async function model(args, signal = null) {
     const tool = (args.tool_choice && args.tool_choice.name) || "";
     const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
@@ -381,13 +384,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (tool === "write_progress" && !Object.hasOwn(answers, "write_progress")) {
       const text = userText(args);
       const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => ({ id: m[1], state: m[2], text: m[3] }));
+      let usage = null;
       if (typeof progressWith === "function") {
         const how = await progressWith({ n: nextN("write_progress"), facts, text, signal });
         if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
-        if (how && how.answer) { progressLog.push(facts); return say(tool, how.answer); }
+        if (how && how.usage) usage = how.usage;
+        if (how && how.answer) { progressLog.push(facts); return say(tool, how.answer, usage); }
       }
       progressLog.push(facts);
-      return say(tool, { text: facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) });
+      return say(tool, { text: facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) }, usage);
     }
     // THE TASK-LINES WRITER, SUPPLIED (2026-10-06): each task's line in every
     // state, marked with its state so a test reads which one a card shows —
@@ -395,14 +400,16 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (tool === "write_tasks" && !Object.hasOwn(answers, "write_tasks")) {
       const text = userText(args);
       const tasks = [...text.matchAll(/^\[(t\d+)\] (.*)$/gm)].map((m) => ({ id: m[1], words: m[2] }));
+      let usage = null;
       if (typeof tasksWith === "function") {
         const how = await tasksWith({ n: nextN("write_tasks"), tasks, text, signal });
         if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
-        if (how && how.answer) { tasksLog.push(tasks); return say(tool, how.answer); }
+        if (how && how.usage) usage = how.usage;
+        if (how && how.answer) { tasksLog.push(tasks); return say(tool, how.answer, usage); }
       }
       tasksLog.push(tasks);
       // IN EVERY STATE THE PRODUCT NAMES (`TASK_STATES`), read from it rather than listed twice.
-      return say(tool, { tasks: tasks.map((t) => ({ id: t.id, ...Object.fromEntries(TASK_STATES.map((k) => [k, "(" + k + ") " + t.words])) })) });
+      return say(tool, { tasks: tasks.map((t) => ({ id: t.id, ...Object.fromEntries(TASK_STATES.map((k) => [k, "(" + k + ") " + t.words])) })) }, usage);
     }
     if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
     if (tool === T.lane) {

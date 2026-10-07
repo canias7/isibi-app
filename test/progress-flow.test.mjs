@@ -36,6 +36,7 @@ import { createHash } from "node:crypto";
 import { gatewayKey, signJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { sweepJobObjects, JOB_RETENTION_MS } from "../builder/job-retention.mjs";
+import * as NU from "../scripts/narration-usage.mjs";
 import { progressKey, PROGRESS_LEASE_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_MS, PROGRESS_TRIES, PROGRESS_LINES_PER_TASK, TASK_STATES } from "../builder/site-progress.mjs";
 
 const ADD = "add a gallery page";
@@ -733,13 +734,19 @@ test("GATEWAY — FROM THE CONTAINER: the job's recorder writes through /progres
   });
 });
 
-test("LOG — EACH WRITER CALL IS MEASURED IN THE LOG: the outcome, the model, the milestones and facts, the attempts, the tokens in and out, and the milliseconds — not charged, so the ledger never shows it", async () => {
+test("LOG — EACH WRITER CALL IS MEASURED IN THE LOG: the outcome, the model, the milestones and facts, the attempts, the tokens in and out — fresh and cached — and the milliseconds, as ONE string the usage step reads back whole; not charged, so the ledger never shows it", async () => {
   const g = gate();
   const lines = [];
   const realLog = console.log;
-  console.log = (...a) => { lines.push(a.join(" ")); };
+  // EACH CALL'S ARGUMENTS KEPT APART (2026-10-07): the line is one string, so
+  // its shape never rests on how a log joins a call's arguments.
+  const calls = [];
+  console.log = (...a) => { calls.push(a); lines.push(a.join(" ")); };
+  // THE ANSWERS' CACHED INPUT: what a provider reports beside the fresh, which
+  // the line used to leave out (so every cost read from it was a floor).
+  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 700, cache_creation_input_tokens: 3 };
   try {
-    await withPlatform({ slug: slugOf("log"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
+    await withPlatform({ slug: slugOf("log"), replies: true, progress: true, answers: heldAddon(g), progressWith: () => ({ usage }), tasksWith: () => ({ usage }) }, async (P) => {
       const { job, running } = await startHeld(P, g);
       const ledgerBefore = P.ledger.length;
       await deliver(P, takeTask(P));
@@ -748,13 +755,26 @@ test("LOG — EACH WRITER CALL IS MEASURED IN THE LOG: the outcome, the model, t
       await running;
       const line = lines.find((l) => l.startsWith("progress: " + job.id + " written"));
       assert.ok(line, "no measurement line: " + lines.filter((l) => l.startsWith("progress:")).join(" | "));
-      assert.match(line, /model \S+ milestones 1 facts 2 attempts 1 tokens 10\/5 ms \d+/);
-      // AND THE TASK LINES' CALL, measured the same way.
+      assert.equal(calls.find((a) => a.join(" ") === line).length, 1, "the measurement line was printed as several arguments");
+      const read = NU.parseCall(line);
+      assert.ok(read, "the usage step cannot read the writer's own line: " + line);
+      assert.deepEqual({ kind: read.kind, id: read.id, ok: read.ok, milestones: read.milestones, facts: read.facts, attempts: read.attempts, in: read.in, out: read.out, cacheRead: read.cacheRead, cacheWrite: read.cacheWrite },
+        { kind: "line", id: job.id, ok: true, milestones: 1, facts: 2, attempts: 1, in: 10, out: 5, cacheRead: 700, cacheWrite: 3 });
+      assert.ok(Number.isInteger(read.ms) && read.ms >= 0);
+      // AND THE TASK LINES' CALL, measured the same way and read the same way.
       const t = requestTask(P);
       await deliver(P, t);
       const tline = lines.find((l) => l.startsWith("progress: tasks " + t.body.id + " written"));
       assert.ok(tline, "no measurement line for the task lines: " + lines.filter((l) => l.startsWith("progress:")).join(" | "));
-      assert.match(tline, /model \S+ tasks 1 attempts 1 tokens \d+\/\d+ ms \d+/);
+      assert.equal(calls.find((a) => a.join(" ") === tline).length, 1, "the task lines' measurement was printed as several arguments");
+      const tread = NU.parseCall(tline);
+      assert.ok(tread, "the usage step cannot read the task writer's own line: " + tline);
+      assert.deepEqual({ kind: tread.kind, id: tread.id, ok: tread.ok, tasks: tread.tasks, in: tread.in, out: tread.out, cacheRead: tread.cacheRead, cacheWrite: tread.cacheWrite },
+        { kind: "tasks", id: t.body.id, ok: true, tasks: 1, in: 10, out: 5, cacheRead: 700, cacheWrite: 3 });
+      // PRICED WHOLE BY THE STEP: the cached input in, no call a floor.
+      const u = NU.usageOf([{ timestamp: 1, $metadata: { message: line } }, { timestamp: 2, $metadata: { message: tline } }], new Set([job.id, t.body.id]));
+      assert.equal(u.totals.floorCalls, 0);
+      assert.equal(u.totals.cacheRead, 1400);
     });
   } finally { console.log = realLog; }
 });
