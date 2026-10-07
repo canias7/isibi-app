@@ -38,6 +38,7 @@ commit before it, a mutation sweep with a comment-only control, and its
 related suites (largest: 4824/4824 schema, add-on, data and build; 4570/4570
 page, request flow and image). **The full suite once at the end**
 (`32a2e9ca`, repo root, Chromium present): **9863 tests, 9863 pass, 0 fail, 0 skipped**.
+Unit CI: green on `32a2e9ca` (run 37631248299, `9863 / 9841 / 0 / 22`, the total matching the local run, the 22 real-browser cases skipped as on every CI run); red once on `b3ba67f0` (run 37617079560, `9845 / 9822 / 1 / 22`: the image test's case that the worker tree carries everything the job runner imports, fixed in `be72a031` and reproduced locally on `b3ba67f0`), green on every push since. Site build green on `282da3e1` (run 37630057430, all eight jobs), the last commit touching its paths.
 
 **What changed for a customer, in short**: a database left by a failed
 attempt is reused or set aside, never deleted while it might be the site's,

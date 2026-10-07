@@ -184,6 +184,7 @@ called, no paid run, nothing restored.
 
 - Each change: its own cases, a red check on the commit before it, a sweep with a comment-only control, and its related suites (the numbers are in the commit messages and the table above; the largest related runs: 2811 of 2811 for the seed change, 4346 of 4346 for the inventory change, 4824 of 4824 for the rejected columns, 4570 of 4570 for the undo and two-tab change).
 - The full unit suite once at the end (`32a2e9ca`, the repo root, Chromium present): **9863 tests, 9863 pass, 0 fail, 0 skipped**.
+- Unit CI: green on `32a2e9ca` (run 37631248299, `9863 / 9841 / 0 / 22`, the total matching the local run, the 22 real-browser cases skipped as on every CI run); red once on `b3ba67f0` (run 37617079560, `9845 / 9822 / 1 / 22`: the image test's case that the worker tree carries everything the job runner imports, fixed in `be72a031` and reproduced locally on `b3ba67f0`), green on every push since. Site build green on `282da3e1` (run 37630057430, all eight jobs), the last commit touching its paths.
 
 ### What stays open after the round
 
