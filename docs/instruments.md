@@ -1274,8 +1274,12 @@ to, with the presses' boxes, the switch and the cost, is
 - **THE STEP MODE `away: "fresh"`** (`followFresh`): the tab that sent the
   message watches the request's card, keeping each change of what it draws
   (`progressSnapshot`, `keepSnapshot`, off the card reader `cards` in
-  `readComposerInPage`), until a progress line is on screen while the
-  request runs (or it ends, or `UI_FIRST_LINE_MS`, 6 minutes, pass). Then
+  `readComposerInPage`), until a progress line is live on its own running
+  part while the request runs (`liveOnItsPart`; or it ends, or
+  `UI_FIRST_LINE_MS`, 6 minutes, pass). A done part's kept lines never
+  count: the page marks a line live only on a part that runs, and Codex's
+  second review showed the driver taking a kept line while another part
+  waited, with every check passing and no live line seen. Then
   that tab is closed; the request is read through the requests list alone
   for `UI_FRESH_AWAY_MS` (30 s), any read of its own route recorded; and a
   **fresh browser session** opens the site: a new context, signed in afresh
@@ -1286,7 +1290,9 @@ to, with the presses' boxes, the switch and the cost, is
   one, goes from that session's tab (`rec.tab`), as after `away`.
 - **ITS EXTRA CHECKS** (`progressChecks`, `scripts/canary-requests.mjs`, only
   for a press whose scenario says `progress`), each failing the press: a
-  line on screen in the sending tab before the end; that tab closed with
+  line live on its own running part in the sending tab before the end,
+  read off that tab's own readings rather than the driver's record; that
+  tab closed with
   the request still running; the list alone read with no page open and no
   read of the request's route; the fresh session signed in afresh as the
   same account, finding the request and drawing its card; every line the
@@ -1314,7 +1320,13 @@ to, with the presses' boxes, the switch and the cost, is
   rates (`pageCost`, a floor: cached input is not in a line). It reads until
   two reads agree, writes `narration.json`, never fails the run, and when
   the logs cannot be read it names the dashboard instead. With no press to
-  read, it only says whether the logs are readable.
+  read, it only says whether the logs are readable. **A read that answers
+  with no call under the press's ids measures nothing** (`measured: false`
+  beside `query.ok: true`, no cost written: never a verified zero). The
+  recorder's delivery lines are read in its own words (*"progress: <id>
+  milestone 0 not delivered after 8 tries"*), checked against the real
+  recorder's output (RECORDER 7 in `test/progress-gaps.test.mjs`); whether
+  the container's lines reach the query is not yet seen live.
 - **Proven with the stand-in app and supplied log events only**
   (`test/canary-progress.test.mjs`; the stand-in moved to
   `test/fixtures/canary-rq-app.mjs`), and the card reader in real Chromium

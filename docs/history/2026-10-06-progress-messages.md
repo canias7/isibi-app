@@ -551,3 +551,107 @@ only; no product file changed, so the image stays `5f946c22d42a1b10`):
   preparation's files is an input.
 - **Balance 9**, read at 23:01 UTC: the ledger's last row 397, no job open,
   nothing spent.
+
+## 8. The release check's verification gaps, after Codex's second review (2026-10-07)
+
+The owner: *"Keep the builder correction round closed and fix only these
+release-verification gaps. Codex reproduced followFresh selecting a retained
+line from a done part while another part remains queued, with all eight
+progressChecks passing despite no live progress line ever being observed.
+Require the first qualifying line to be visibly live on its own currently
+running part, and add that false-positive case as a failing control. In
+narration-usage.mjs, successful telemetry queries returning no matching call
+records currently produce ok:true and a zero-dollar total; report measurement
+unavailable rather than verified zero cost, keeping log-query success
+separate from evidence of usage. Fix parseEvent to read the actual recorder
+output, 'progress: <id> milestone 0 not delivered after 8 tries' … Test
+against the actual producer format. Also align the workflow's stale 25/30
+budget comment with the implemented 28/32 limits."* No builder or Worker
+file is touched. The image stays `5f946c22d42a1b10`, the plan's one release
+and one roll stand, and nothing is merged, deployed, switched, funded or
+pressed.
+
+**1. A kept line is not progress.**
+- **Reproduced on `bd68b767`'s code** through the stand-in app:
+  - the sending tab's first reading shows part 0 done with its two lines
+    kept and part 1 queued; part 1 then runs with no line of its own;
+  - the driver took part 0's kept line as the first line;
+  - no line was ever live in that tab;
+  - 8 of 8 checks passed.
+- **The fix**:
+  - the driver takes the first line only when it is live on its own
+    running part (`liveOnItsPart`: status `started`, and a live line that
+    is one of the part's own). The real page marks a part's newest line
+    live only while that part runs (`public/chat.js`, `progressListHTML`);
+  - the first check no longer trusts the driver's record. It re-reads the
+    sending tab's own readings for one made while the request ran, with
+    that part running and that line live.
+- **The failing control**, on the fixed code: no first line is taken, and
+  the first two checks fail by name.
+  - Beside it, in `progressChecks`' case-by-case test: the old driver's
+    record of Codex's case, a first line no reading shows live, a live
+    reading of the ended request, and a live line on another part. Each
+    fails the first check alone.
+  - A line that does become live later, on the running part, is taken; it
+    is the part's live line, not its oldest.
+- **In real Chromium** (case 7 of `test/progress-browser.test.mjs`, now in
+  three moments), the real page in Codex's state:
+  - part 0 done with three kept lines, none live, and part 1 waiting;
+  - `liveOnItsPart` finds nothing, while the running part's line is read
+    live.
+
+**2. No call read is no measurement.**
+- **Before**: a query that answered with no call under the press's ids
+  returned `ok: true` and wrote `usd: 0`. The log printed *"platform cost
+  … $0.00000"*, a verified zero nothing had measured (reproduced on the old
+  reader).
+- **Now**:
+  - `narration.json` keeps `query.ok` (the logs were read) apart from
+    `measured` (they held the press's calls), and writes a cost only from
+    calls read;
+  - that case logs *"NARRATION USAGE UNAVAILABLE: … not a verified zero"*,
+    with where else to read it, and keeps the press's delivery lines;
+  - the probe says that readable logs measure no usage.
+
+**3. The recorder's own delivery line.**
+- **What it prints**: the recorder (`makeProgress`'s `deliver`,
+  `worker.js`) names what it gave up in words: *"progress: <id> milestone 0
+  not delivered after 2 tries"*, or *"… opening …"*.
+- **The red check**: the old reader expected one token there and missed
+  it. The new RECORDER 7 in `test/progress-gaps.test.mjs` failed on it,
+  quoting that line.
+- **How RECORDER 7 reads the line**: it runs the real job through the
+  container's gateway with the milestone, then the opening, never landing.
+  It captures what the recorder prints, formatted as `console.log` formats
+  it, and reads each line back with `parseEvent`. `usageOf` keeps them
+  under the job's id. Every line the recorder printed is read.
+- **The invented line** (`mark:3`) is gone from the tests. The canary
+  file's case now builds its lines from the producer's own arguments.
+
+**4. The workflow's note** on the press said budget 25 and cap 30. It says
+28 and 32, and a test holds it to the scenario's own figures.
+
+**The evidence**:
+- **Three red checks**, each on the code before this round:
+  - Codex's case through the driver passed 8 of 8 checks, the kept line
+    taken;
+  - RECORDER 7 failed on the old reader, quoting the recorder's line;
+  - the old reader wrote `ok: true` and `usd: 0` for a read with no call.
+- **The sweep** (`scripts/mutants/progress-release.json`, now 65 mutants and
+  4 controls, 14 of them new and 2 re-pointed at the rewritten lines). The
+  first run killed 63, and every control survived. The 2 survivors were
+  guards the new rule had made redundant: the driver's "not ended" (an
+  ended card has no running part) and the live line's "not empty" (empty
+  lines are dropped on reading). Each got the case that makes it
+  observable (a page out of step showing a live line on an ended request;
+  an unfiltered record with an empty line), and both were killed on a
+  rerun, the control surviving.
+- **The focused files** (every canary and progress file, RECORDER 7 and the
+  real-browser cases among them): 694 of 694.
+- **The full suite**: `9716 / 9716 / 0 / 0` locally. The 2 more are the
+  control and RECORDER 7.
+
+**Found while fixing, not changed**: whether the container's delivery lines
+reach the usage step's query is unverified. Workers Logs keep container
+output with observability on, but no live read has shown them; the writers'
+call lines come from the Worker itself. The plan says so.

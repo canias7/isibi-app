@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 23:20 UTC)
+## Current handoff — read this first (2026-10-07)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,6 +11,16 @@ is in git; the dated entries further down are the full story.*
   confirmed the outcome labels, the late-progress suppression, the delivery
   retries without duplicates and the separate final-reply reading (the
   newest entry; the history's §7).
+- **The release check's four verification gaps from Codex's second review
+  are fixed** (the newest entry; the history's §8), in the canary and its
+  workflow only:
+  - the first progress line must be live on its own running part, with
+    Codex's false positive kept as a failing control;
+  - a log read with no call says the usage is not measured, never a
+    zero cost;
+  - the recorder's real delivery line is read, tested against its real
+    output;
+  - the workflow note says 28/32.
 - **The release and its one live check are prepared, for your approval**:
   `docs/investigations/progress-release-plan.md`.
   - **One merge and one image roll**: `main` `b2409b3c` → the branch,
@@ -26,8 +36,8 @@ is in git; the dated entries further down are the full story.*
     narration's attempts, tokens, time and cost from the logs.
   - **About 20 credits (16–26); hard cap 32.** Raise the balance from 9 to
     exactly 32; the press refuses to start above 32 or below 28.
-  - **Ready on the branch at `cc3b955d`**, with unit CI green there (run
-    37546973039) and the image predicted at it.
+  - **Ready on the branch** with this round's fixes; CI and the image are
+    in the newest entry.
   - **Not merged, not deployed, no image built, the secret not set, nothing
     pressed or spent.**
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
@@ -172,6 +182,60 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Codex's second review: the release check's four verification gaps fixed (on the branch; no builder or Worker file touched; nothing merged, deployed, switched, funded or pressed)
+
+- **What you asked**: keep the builder correction round closed and fix only
+  the release check's gaps. Require the first progress line to be visibly
+  live on its own running part, with Codex's false positive as a failing
+  control. Have the usage step say the measurement is unavailable, not a
+  verified zero, when the logs hold no call, and keep "the logs were read"
+  apart from "usage was found". Read the recorder's real delivery line,
+  tested against its real output. Fix the workflow note's 25/30.
+- **1. A kept line is not progress.**
+  - **Reproduced first**: on the code as it was, the press took a done
+    part's kept line as the first line while the other part waited. No line
+    was ever live in that tab, and all eight checks passed.
+  - **The fix**: the first line counts only when it is live on its own
+    running part, which is the only way the real page draws one. The first
+    check re-reads the tab's own screens instead of trusting the record.
+  - **The control**: on Codex's case the press now takes no first line and
+    fails its first check by name. In a real browser, the real page in that
+    exact state shows the kept lines with none live, and the canary takes
+    nothing.
+- **2. No call read is no measurement.**
+  - **Before**: an answered log read with no call for the press said
+    `ok: true` and printed a platform cost of $0.00000.
+  - **Now**: it says *"NARRATION USAGE UNAVAILABLE … not a verified zero"*
+    and writes no cost. `narration.json` keeps "the logs were read" and
+    "usage was measured" as two separate facts.
+- **3. The recorder's real line.**
+  - **What it prints**: when it gives a delivery up, the recorder prints
+    *"progress: <job> milestone 0 not delivered after 2 tries"* (or
+    "opening").
+  - **What was wrong**: the reader expected one word there and missed it,
+    and the test used an invented `mark:3` line.
+  - **The new check**: a test runs the real job through the container's
+    door with deliveries failing, captures what the recorder actually
+    prints, and reads it back. It failed on the old reader, quoting that
+    exact line, and passes now.
+- **4. The workflow's note** says budget 28 and cap 32, and a test keeps it
+  equal to the press's own figures.
+- **Unchanged**:
+  - the plan's one release and one image roll (`c7fe818d446dd957` →
+    `5f946c22d42a1b10`);
+  - the test message, about 20 credits, and the hard cap of 32;
+  - the balance of 9.
+- **Evidence**:
+  - each gap reproduced on the old code first;
+  - the sweep: 65 mutants, 63 caught at first. The 2 survivors were
+    guards the new rule made redundant; each got a case, and both are now
+    caught. Every control survived;
+  - every canary and progress file: 694 of 694;
+  - the full suite: `9716 / 9716 / 0 / 0`.
+- **Found, not changed**: whether the container's delivery lines reach the
+  usage step's log read is not yet seen live. The writers' call lines come
+  from the Worker, so the usage itself is unaffected. The plan says so.
 
 ## 2026-10-06 — Codex's review closed the progress corrections; the release and its one live check prepared for your approval (on the branch; nothing merged, deployed, built, switched on, pressed or spent)
 
