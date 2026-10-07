@@ -216,7 +216,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted } from "./builder/site-addon.mjs";
+import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -28608,7 +28608,7 @@ async function handleRequest(request, env, ctx) {
                     // really took a photograph off must not tell the customer
                     // their site is untouched.
                     msg: pKeptParts.length
-                      ? "I couldn't make that change without rewriting " + pKeptParts.slice(0, 3).join(" and ") +
+                      ? "I couldn't make that change without rewriting " + pKeptParts.join(" and ") +
                         " unseen — " + (pKeptParts.length === 1 ? "it is" : "they are") +
                         " too long to show the builder in one go, so I didn't make it. " +
                         "Ask for a smaller part of it and I'll do that."
@@ -28619,7 +28619,7 @@ async function handleRequest(request, env, ctx) {
                           "so I didn't make it. Say “take the photo off” if that is what you wanted.",
                     keptParts: pKeptParts.length ? pKeptParts : undefined,
                     unseenParts: pUnseenParts.length ? pUnseenParts : undefined,
-                    problems: pProblems.slice(0, 4),
+                    problems: pProblems,
                   }, { status: 409 });
                 }
                 // ⚠ EXPLAINED, NOT CLIMBED (2026-09-23) — and this reverses the
@@ -28629,8 +28629,8 @@ async function handleRequest(request, env, ctx) {
                 // better, and it risks the pages nobody asked about. A writer
                 // that sent no page back is a model failure, ours. Both are a
                 // sentence at no cost for the edit.
-                if (!wrote) return explain("page/no-page-back", { page: wantRoute }, { problems: pProblems.slice(0, 4) });
-                return explain("page/no-change", { page: wantRoute }, { problems: pProblems.slice(0, 4) });
+                if (!wrote) return explain("page/no-page-back", { page: wantRoute }, { problems: pProblems });
+                return explain("page/no-change", { page: wantRoute }, { problems: pProblems });
               }
               // ── AND A LOSS THE PROTECTION COULD NOT REACH IS WITHHELD ────
               //
@@ -28672,7 +28672,7 @@ async function handleRequest(request, env, ctx) {
                   // THE COUNT, NEVER THE URLS — `lostPhotosMsg`'s own rule, one
                   // path over: a storage key tells a customer nothing.
                   photosBlocked: n,
-                  problems: pProblems.slice(0, 4),
+                  problems: pProblems,
                 }, { status: 409 });
               }
               // ── AND WHAT THE REWRITE TOOK OFF THE PAGE IS ASKED ABOUT ─────
@@ -28698,7 +28698,7 @@ async function handleRequest(request, env, ctx) {
                 does: eLook2.tsx, inPart: !!partNameOf(target.path),
                 send: eQuick("keep_check"), model: eQuickModel,
               });
-              const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems.slice(0, 4) });
+              const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems });
               if (pStop) return pStop;
               // THE PAGE THIS EDIT CHANGES, so a request that names a page is
               // held to it: "…from the home page" grants nothing on /prices.
@@ -28799,11 +28799,12 @@ async function handleRequest(request, env, ctx) {
                 // claim about the PUBLICATION, and a later authorised picture
                 // rung can take the same photograph off. The urls go into
                 // `ePhotosHeld` above and are intersected with what ships.
-                ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
-                problems: pProblems.slice(0, 4),
+                // EVERY PAGE IT LEFT ALONE, every page reordered (2026-10-07): four were named.
+                ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path),
+                problems: pProblems,
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is
                 // byte-identical and the field's PRESENCE is the signal.
-                reordered: alsoOn.length ? alsoOn.slice(0, 4) : undefined,
+                reordered: alsoOn.length ? alsoOn : undefined,
                 // ── AND A COMPONENT WE REFUSED TO REPLACE IS NAMED ──────────
                 //
                 // NAMED, NEVER DROPPED IN SILENCE — the addon's rule, for the
@@ -29514,6 +29515,9 @@ async function handleRequest(request, env, ctx) {
               // EVERY ONE (2026-10-03): each is a change asked for and not made,
               // so none is dropped past a count.
               keptParts: flat("keptParts").length ? [...new Set(flat("keptParts"))] : undefined,
+              // …AND EVERY STEP'S PROBLEMS (2026-10-07): the catch-all took the
+              // first step's and dropped a second page step's findings.
+              problems: flat("problems").length ? [...new Set(flat("problems"))] : undefined,
               unseenParts: flat("unseenParts").length ? [...new Set(flat("unseenParts"))] : undefined,
               // NOT A SUM OF THE RUNGS — see the intersection above. What the
               // protection held AND the publication still shows.
@@ -30532,6 +30536,8 @@ async function handleRequest(request, env, ctx) {
             const aGrounding = { asked: aAskedWords, known: aReq };
             const aUngrounded = [];
             const aSuggested = [];
+            // …AND ANY PAST A DESIGNER'S OWN LIMIT (2026-10-07): never offered, kept for the record.
+            const aSuggestOver = [];
             // AND THE PROPERTIES THE MODEL WROTE THAT THE ENGINE CANNOT KEEP
             // (owner, 2026-09-13: "Validate model-authored properties before
             // applying changes"). Names only, and the customer never sees them.
@@ -30983,7 +30989,9 @@ async function handleRequest(request, env, ctx) {
               // fourth. The report is every requirement the customer hears
               // about (`requirementsTold`); the reply's facts are written from
               // it one by one, and the note from it whole.
-              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true });
+              // …AND WHAT EACH STEP WROTE DOWN PAST WHAT IT KEEPS TRACK OF
+              // (2026-10-07, `skipped`): told as not checked, never dropped.
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped });
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
@@ -31078,23 +31086,24 @@ async function handleRequest(request, env, ctx) {
                 warningsTold: aWarned.length ? aWarned : undefined,
                 coverOther: built && aCounted.length ? aCounted.join(" ") : undefined,
                 // THE WIRE'S HALF, for the browser to render and a test to read.
-                requirements: open.length ? open.slice(0, 12) : undefined,
+                // WHOLE, as every list below (2026-10-07): each was cut at twelve.
+                requirements: open.length ? open : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
                 coverage: requirementCounts(aReq, aReqSkipped),
-                invalidProps: bad.length ? bad.slice(0, 12) : undefined,
-                changedProps: aChanged.size ? [...aChanged].slice(0, 12) : undefined,
+                invalidProps: bad.length ? bad : undefined,
+                changedProps: aChanged.size ? [...aChanged] : undefined,
                 // SEPARATE FROM `invalidProps` ON THE WIRE TOO, not folded into
                 // it with a flag: a reader that cannot tell the two apart is
                 // back to one sentence for two findings, which is the defect.
-                unexpressedProps: aUnexpressed.size ? [...aUnexpressed].slice(0, 12) : undefined,
+                unexpressedProps: aUnexpressed.size ? [...aUnexpressed] : undefined,
                 // THE KIT NAMES THAT ARE NOT KIT NAMES, developer-facing like
                 // the two above. The customer's own clause is the missing-page
                 // one below; a component name is not something they can act on.
-                unknownComponents: aUnknownKit.size ? [...aUnknownKit].slice(0, 12) : undefined,
+                unknownComponents: aUnknownKit.size ? [...aUnknownKit] : undefined,
                 // AND THE FIELDS BINNED INSIDE AN ITEM THAT WAS BUILT —
                 // developer-facing for the same reason: a column name the
                 // designer wrote is not something the customer chose.
-                droppedFields: aDropped.size ? [...aDropped.values()].slice(0, 12) : undefined,
+                droppedFields: aDropped.size ? [...aDropped.values()] : undefined,
                 // AND THE PAGES THAT WERE ASKED FOR AND ARE NOT THERE, NAMED —
                 // a route is the one thing about a missing page a customer can
                 // do something with.
@@ -31261,6 +31270,7 @@ async function handleRequest(request, env, ctx) {
               for (const t of Array.isArray(ran.suggestions) ? ran.suggestions : []) {
                 if (typeof t === "string" && !aSuggested.some((x) => x.toLowerCase() === t.toLowerCase())) aSuggested.push(t);
               }
+              for (const t of Array.isArray(ran.suggestionsOver) ? ran.suggestionsOver : []) if (typeof t === "string" && !aSuggestOver.includes(t)) aSuggestOver.push(t);
               for (const r of Array.isArray(ran.reqSkipped) ? ran.reqSkipped : []) aReqSkipped.push(r);
               aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined, needs: aGround.list.length, ungrounded: aGround.ungrounded.length, suggested: (ran.suggestions || []).length, asked: ran.ask ? 1 : 0 });
               if (ran.usage) aDesignUsage.push(ran.usage);
@@ -31514,7 +31524,7 @@ async function handleRequest(request, env, ctx) {
             // before a single statement reached Postgres.
             const aRecord = (failed = null) => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
-              ungrounded: aUngrounded, suggestions: aSuggested,
+              ungrounded: aUngrounded, suggestions: aSuggested, suggestionsOver: aSuggestOver,
               judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad, verdictsMissing: aVerdictsMissing,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
@@ -31589,6 +31599,11 @@ async function handleRequest(request, env, ctx) {
                 // one where the database refused it, and one number cannot say
                 // which happened.
                 lost: aUnexpressed.size,
+              });
+              // THE STATES ON A MARK OF THEIR OWN (2026-10-07): the trace keeps
+              // eight keys a mark (`MAX_DETAIL_KEYS`) and this one carried
+              // seventeen, so the nine after `lost` were dropped unread.
+              aMark("coverage:states", "ok", {
                 done: st.filter((r) => r.state === "delivered").length,
                 // SIX STATES ON FIVE KEYS, and the grouping is the finding
                 // rather than a shortening: `failed` and `blocked` are both
@@ -31615,6 +31630,8 @@ async function handleRequest(request, env, ctx) {
                 // suggestion, or set aside as not following from their words.
                 setAside: aSetAside.length,
                 unsent: st.filter((r) => r.handoff === "undelivered").length,
+              });
+              aMark("coverage:unbuilt", "ok", {
                 unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
               });
             }
@@ -31952,7 +31969,10 @@ async function handleRequest(request, env, ctx) {
                 // asked honestly instead. A function or job body reading the
                 // table is the run-47 shape exactly, which is the one this has
                 // to catch.
-                try { aNoFill = missingPopulation({ spec: merged, seed: aSeed, readers: readTables({ spec: merged }) }); }
+                // FROM WHAT THE ENGINE REALLY PUT IN (2026-10-07): the design's
+                // own seed counted a table as filled whose every starter row
+                // was refused, and nobody was told it starts empty.
+                try { aNoFill = missingPopulation({ spec: merged, seed: aSeeded ? aSeeded.seeded : {}, readers: readTables({ spec: merged }) }); }
                 catch (e) { aNoFill = []; }
                 aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length, jobs: aJobs.length });
                 // WHAT THE DATABASE NOW HOLDS, AS A MILESTONE: the created
@@ -32268,7 +32288,8 @@ async function handleRequest(request, env, ctx) {
             // not replaced — already has its own sentence.
             const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });
             if (aPagesSent.withheld.length) {
-              aUnseenPages = aPagesSent.withheld.slice(0, 12);
+              // EVERY ONE (2026-10-07): twelve were kept for the record.
+              aUnseenPages = aPagesSent.withheld.slice();
               aMark("pages", "window", { shown: aPagesSent.shown.length, withheld: aPagesSent.withheld.length, chars: aPagesSent.chars });
             }
             const aPagesT0 = Date.now();
@@ -32535,7 +32556,9 @@ async function handleRequest(request, env, ctx) {
             // an answer, and sending it up rebuilds a customer's site, for ~25
             // credits, in reply to a request that should have been one sentence.
             if (!aMerge.ok && aMerge.msg) {
-              return aFail({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim() }, 422);
+              // …AND THE PAGES IT KEPT (2026-10-07): a refusal whose every
+              // removal was refused said why and dropped which pages.
+              return aFail({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim(), ...(Array.isArray(aMerge.kept) && aMerge.kept.length ? { kept: aMerge.kept } : {}) }, 422);
             }
             // …AND NEITHER DOES A CONSIDERED REFUSAL FROM THE MODEL, which is the
             // same rule one branch up and did not cover the commonest case of it.
@@ -32570,7 +32593,8 @@ async function handleRequest(request, env, ctx) {
             }
             // No usable/effective output is a stop, including unknown reasons.
             // The explanatory refusals and the model's own note above win.
-            if (!aMerge.ok) return aFail(addonFailure(aMerge.reason, { problems: aProblems.slice(0, 4) }), 200);
+            // EVERY PROBLEM (2026-10-07): four were sent.
+            if (!aMerge.ok) return aFail(addonFailure(aMerge.reason, { problems: aProblems }), 200);
 
             // ── WHAT WAS THERE IS STILL THERE (owner, 2026-09-04: "add a second one") ──
             //
@@ -34143,7 +34167,8 @@ async function handleRequest(request, env, ctx) {
               // addon declared no tables, so an ordinary page addon's response
               // is byte-identical to before.
               seeded: aSeeded ? aSeeded.seeded : undefined,
-              seedSkipped: (aSeeded && aSeeded.skipped && aSeeded.skipped.length) ? aSeeded.skipped.slice(0, 6) : undefined,
+              // EVERY SKIP (2026-10-07): six were sent.
+              seedSkipped: (aSeeded && aSeeded.skipped && aSeeded.skipped.length) ? aSeeded.skipped.slice() : undefined,
               seedTopUp: aSeedTopUp || undefined,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
               // A COMPONENT THE SITE ALREADY HAD AND THE WRITER WAS NOT SHOWN
@@ -34173,7 +34198,10 @@ async function handleRequest(request, env, ctx) {
                 (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)),
                 unseenPagesNote(aRewrote),
               ].filter(Boolean).join(" ") || undefined,
-              problems: aProblems.slice(0, 4),
+              // EVERY PROBLEM ABOUT WHAT WENT OUT (2026-10-07): four were sent,
+              // and one about a page that was then held back or put back was
+              // said beside a site that does not have it (`problemsShipped`).
+              problems: problemsShipped(aProblems, (aValid.pages || []).map((p) => p && p.path), [...(aMerge.added || []), ...(aMerge.changed || [])]),
               // THE RENDER SENTENCE IS THE FINAL BUILD'S — the repaired one
               // when the round held — and the round's own sentence rides
               // beside it: a fix there was no time for, or one that did not

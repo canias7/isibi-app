@@ -110,7 +110,8 @@ const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CO
 
 test("TOLD 1 — the report: every requirement of every kind of outcome, above every old cut and mixed, in the note's order, with what became of it and why where its sentence says", () => {
   // RE-ANCHORED 2026-10-06: "already-there", for what the site already had.
-  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen"]);
+  // RE-ANCHORED 2026-10-07: and what a step wrote down past what it keeps track of (`not-tracked`).
+  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen", "not-tracked"]);
   const r = requirementReport(MIXED(), OPTS);
   assert.deepEqual(r.told.map((o) => [o.told, o.need, o.state]), TOLD_ORDER);
   // THE REASON RIDES WHERE ITS SENTENCE GIVES ONE, and nowhere else.
@@ -404,7 +405,11 @@ test("TOLD 10 — the whole path in a request: the addition's answer stored by i
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     const { rec } = await settle(P, r.key);
     await pump(P);
-    assert.deepEqual(rec.parts.map((p) => p.status), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // RE-ANCHORED 2026-10-07: AN ADDITION THAT TOLD FOUR REQUESTED THINGS
+    // "STILL TO DO" IS DONE IN PART — its part was recorded as finished, with
+    // every one of the four undone. Each is on the part as not done.
+    assert.deepEqual(rec.parts.map((p) => p.status), ["done", "partial"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(rec.parts[1].notDone.map((x) => [x.what, x.why]), GALLERY_NEEDS.map((n) => [n, "still-to-do"]), JSON.stringify(rec.parts[1].notDone));
     const job = P.jobsOf(r.key).find((j) => j.op === "addon");
     // THE WRITER WAS GIVEN EVERY ONE, FROM THE ANSWER ITS JOB STORED…
     const given = P.replyLog.find((fs) => fs.some((x) => x.text.includes(GALLERY_NEEDS[0])));

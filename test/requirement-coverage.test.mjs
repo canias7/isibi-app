@@ -619,9 +619,15 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
     "the access vocabulary is a second list instead of the engine's own");
   // HOP 8: the trace, counts only — `tr.at` keeps finite numbers and drops
   // everything else, and the needs are the customer's words.
+  // RE-ANCHORED 2026-10-07: THREE MARKS NOW — the trace keeps eight keys a
+  // mark (`MAX_DETAIL_KEYS`) and the one mark carried seventeen, so the nine
+  // after `lost` were dropped unread. Read from the first to the end of the
+  // last; the keys reaching the stored trace are a route case's
+  // (addon-judgment's JUDGE 7).
   const markAt = W.indexOf('aMark("coverage", "ok", {');
-  assert.ok(markAt > 0, "the coverage leaves no trace mark");
-  const markCall = W.slice(markAt, W.indexOf("});", markAt) + 3);
+  const lastAt = markAt < 0 ? -1 : W.indexOf('aMark("coverage:unbuilt", "ok", {', markAt);
+  assert.ok(markAt > 0 && lastAt > markAt, "the coverage leaves no trace mark");
+  const markCall = W.slice(markAt, W.indexOf("});", lastAt) + 3);
   assert.ok(markCall.includes("...requirementCounts(aReq, aReqSkipped)"), "the mark lost the counts");
   assert.ok(markCall.includes("bad: aBadProps.size"), "the mark lost the invalid-property count");
   // …AND THE THREE STATES BESIDE THE THREE STATUSES, or a run where every

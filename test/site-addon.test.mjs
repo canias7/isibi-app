@@ -1772,7 +1772,8 @@ test("the page layer computes it and BOTH ends of the wire carry it", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /import \{[^}]*orderingMoved[^}]*\} from "\.\/builder\/site-addon\.mjs"/);
   assert.match(w, /const alsoOn = orderingMoved\(target\.source, wrote\.source, eSrc, target\.path\);/);
-  assert.match(w, /reordered: alsoOn\.length \? alsoOn\.slice\(0, 4\) : undefined,/);
+  // RE-ANCHORED 2026-10-07: every page reordered, not the first four.
+  assert.match(w, /reordered: alsoOn\.length \? alsoOn : undefined,/);
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /Array\.isArray\(e\.reordered\)/);
   assert.match(c, /listed on other pages too/);

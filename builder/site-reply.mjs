@@ -363,6 +363,9 @@ const TOLD_FACTS = Object.freeze({
   // up", and never said to be this request's work.
   "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "."],
   unseen: ["not-done", (o) => "Nothing here can see whether this is in place: " + o.need + "."],
+  // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07, `overCapNeeds`): written
+  // down by the designer and never judged or checked — not done, saying why.
+  "not-tracked": ["not-done", (o) => "Not checked in this change, because " + (o.why || "it was past the limit one step keeps track of") + ": " + o.need + ". They can ask for it on its own."],
 });
 
 // ── WHAT THIS CHANGE COULD NOT DO, ONE FACT PER THING (2026-10-06) ─────────
@@ -380,6 +383,11 @@ const SEED_FACTS = Object.freeze({
   "no-table": (n) => "Starter rows were ready for a table called " + n + " and were not put in: the site has no table by that name.",
   "no-columns": (n) => "Starter rows were ready for the table " + n + " and were not put in: it has no columns they could go in.",
   "row-failed": (n) => "Not every starter row for the table " + n + " went in: the database refused at least one.",
+  // AND THREE THE ENGINE NOW SAYS (2026-10-07): every row refused, rows past
+  // what one table takes at the start, and rows naming none of its columns.
+  "none-went-in": (n) => "None of the starter rows for the table " + n + " went in: the database refused every one.",
+  "over-cap": (n) => "Only the first starter rows for the table " + n + " went in: the rest were more than one table takes at the start.",
+  "row-unusable": (n) => "Some starter rows for the table " + n + " were not put in: they named none of its columns.",
 });
 const WARNED_FACTS = Object.freeze({
   page: (o) => "A page this change set out to add did not make it through, so it is not on the site: " + o.name + ".",
@@ -992,7 +1000,9 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     // WHAT A DESIGNER SUGGESTED BESIDE THE ASK (2026-10-05, run 101): never a
     // requirement, never done or not done — an extra nobody asked for and
     // nothing was made for, theirs to ask for if they want it.
-    const ideas = strings(a.suggestions).slice(0, 3);
+    // EVERY ONE (2026-10-07): this kept three, so a second designer's
+    // suggestions never reached the reply.
+    const ideas = strings(a.suggestions);
     if (ideas.length) F.add("note", "Something they did not ask for, so nothing was made for it, which they could ask for if they want: " + listOf(ideas.map(quote)) + ".");
     const frames = Number(a.photos) || 0;
     if (frames > 0) F.add("note", "There " + (frames === 1 ? "is an empty space" : "are " + frames + " empty spaces") + " for a photo; uploading their own in the Data panel fills " + (frames === 1 ? "it" : "them") + ".");

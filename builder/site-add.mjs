@@ -1660,7 +1660,8 @@ export function addTool(kind) {
         "for it. Answer this even when you answer no design at all: a requirement you could not express is the " +
         "single most useful thing you can tell us, and leaving it out is the one outcome that reaches the customer " +
         "as silence. The one exception is a question back to them: then leave this out too, since nothing is " +
-        "designed until they reply.",
+        "designed until they reply. At most " + MAX_REQUIREMENTS + ": when what they asked for needs more than " +
+        "that, leave none of it out — ask them, as your question, which part to do first.",
     };
     // ── AN EXTRA IS A SUGGESTION, NEVER A REQUIREMENT (2026-10-05, run 101) ──
     //
@@ -2292,8 +2293,11 @@ export function readAddAnswer(reply, kind) {
   // step that then refused everything could never be tied back to that refusal,
   // and six kinds answering makes that the ordinary case rather than a corner.
   const req = cleanRequirements(input ? input.requirements : null, kind);
-  // AND ITS SUGGESTIONS, beside the requirements and never among them (2026-10-05).
-  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped, suggestions: cleanSuggestions(input ? input.suggestions : null) };
+  // AND ITS SUGGESTIONS, beside the requirements and never among them (2026-10-05),
+  // with any past the tool's limit kept for the record (2026-10-07).
+  const suggestionsOver = [];
+  const suggestions = cleanSuggestions(input ? input.suggestions : null, suggestionsOver);
+  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped, suggestions, suggestionsOver };
 }
 
 /**
@@ -2308,7 +2312,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
   // a consumer that will one day forget to — and the failure shapes are where
   // that costs most, since a truncated answer is exactly when a half-read list
   // would be silently dropped.
-  const none = { requirements: [], reqSkipped: [], suggestions: [] };
+  const none = { requirements: [], reqSkipped: [], suggestions: [], suggestionsOver: [] };
   let reply;
   try {
     reply = await deps.send(addRequest({ kind, message, site, model, brief }));
@@ -2337,6 +2341,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
     requirements: answer.requirements,
     reqSkipped: answer.skipped,
     suggestions: answer.suggestions,
+    suggestionsOver: answer.suggestionsOver,
     usage: addUsage(reply, model),
     failed: false,
     raw: reply,
@@ -5570,9 +5575,14 @@ export function seedSkipNote(skipped) {
 function seedSkipSentence(list) {
   if (!list.length) return "";
   // EVERY TABLE (2026-10-06): it named three and counted the rest.
-  const empty = list.filter((s) => s.why === "not-display").map((s) => s.name);
-  const some = list.filter((s) => s.why === "row-failed").map((s) => s.name);
-  const other = list.filter((s) => s.why !== "not-display" && s.why !== "row-failed").map((s) => s.name);
+  const named = (why) => [...new Set(list.filter((s) => s.why === why).map((s) => s.name))];
+  const SAID = ["not-display", "row-failed", "none-went-in", "over-cap", "row-unusable"];
+  const empty = named("not-display");
+  const some = named("row-failed");
+  const none = named("none-went-in");
+  const over = named("over-cap");
+  const unusable = named("row-unusable");
+  const other = [...new Set(list.filter((s) => !SAID.includes(s.why)).map((s) => s.name))];
   const out = [];
   if (empty.length) {
     out.push("I had starter rows ready for " + empty.join(", ") + " and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change.");
@@ -5580,6 +5590,9 @@ function seedSkipSentence(list) {
   // A ROW REFUSED IS NOT A TABLE SKIPPED: each row is tried on its own, so
   // this says what is known — not all of them went in — and no more.
   if (some.length) out.push("Not all of the starter rows I had ready for " + some.join(", ") + " went in.");
+  if (none.length) out.push("None of the starter rows I had ready for " + none.join(", ") + " went in.");
+  if (over.length) out.push("I put in only the first starter rows for " + over.join(", ") + " — the rest were more than one table takes at the start.");
+  if (unusable.length) out.push("Some starter rows I had ready for " + unusable.join(", ") + " named none of its columns, so they weren't put in.");
   if (other.length) out.push("I had starter rows ready for " + other.join(", ") + " and didn't put them in.");
   return out.join(" ");
 }
@@ -5595,7 +5608,16 @@ const SEED_WHY = Object.freeze([
   ["has-rows", /^already has rows$/],
   ["no-table", /^not a table in this schema$/],
   ["no-columns", /^no writable columns$/],
+  // THREE MORE THE ENGINE SAYS (2026-10-07): every row it tried refused,
+  // rows past what one table takes at the start, and a row naming none of
+  // its columns (that one on a row, like a refused row).
+  ["none-went-in", /^none of its \d+ starter rows? went in$/],
+  ["over-cap", /^\d+ starter rows? past the first \d+ (?:was|were) not put in$/],
 ]);
+/** A row the engine could not use at all: its own reason, on the row. */
+const SEED_ROW_UNUSABLE = /^names none of its columns$/;
+/** The reasons about a table's rows, as against the table skipped whole. */
+const SEED_ROW_WHYS = Object.freeze(["row-failed", "row-unusable", "over-cap", "none-went-in"]);
 
 /**
  * The tables the design had starter rows for that got none: each once, by
@@ -5610,12 +5632,21 @@ function seedSkipsOf(skipped) {
     // A TABLE'S NAME HAS NO SPACE IN IT, so "<table> row <n>" is a row.
     const row = /^(\S+) row \d+$/.exec(head);
     const name = row ? row[1] : head;
-    if (!name || out.some((o) => o.name === name)) continue;
+    if (!name) continue;
     const said = cut < 0 ? "" : text.slice(cut + 1).trim();
-    const hit = row ? ["row-failed"] : SEED_WHY.find(([, re]) => re.test(said));
-    out.push({ name, why: hit ? hit[0] : "" });
+    const hit = row ? [SEED_ROW_UNUSABLE.test(said) ? "row-unusable" : "row-failed"] : SEED_WHY.find(([, re]) => re.test(said));
+    const why = hit ? hit[0] : "";
+    // A TABLE SKIPPED WHOLE HAS ONE REASON, ITS FIRST — and nothing else can
+    // be said of its rows. THE REASONS ABOUT ITS ROWS (2026-10-07) are each
+    // said once beside one another: a row refused, a row naming no column,
+    // rows past the limit, none in at all. The first reason given used to
+    // stand for every table, so those were never said beside a refused row.
+    const rowsWhy = SEED_ROW_WHYS.includes(why);
+    if (out.some((o) => o.name === name && (o.why === why || (!rowsWhy && !SEED_ROW_WHYS.includes(o.why))))) continue;
+    out.push({ name, why });
   }
-  return out;
+  // EVERY ROW REFUSED SAYS SO, and "not every row went in" is not said beside it.
+  return out.filter((o) => !(o.why === "row-failed" && out.some((x) => x.name === o.name && x.why === "none-went-in")));
 }
 
 /**

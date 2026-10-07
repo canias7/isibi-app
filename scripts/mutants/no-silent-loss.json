@@ -1,0 +1,427 @@
+[
+ {
+  "label": "CONTROL: a comment only in overCapNeeds — must survive",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "export function overCapNeeds(skipped) {",
+  "to": "export function overCapNeeds(skipped) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "LIMIT — a set-aside requirement loses its step",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\", ...(owner ? { from: owner } : {}) });",
+  "to": "skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\" });"
+ },
+ {
+  "label": "LIMIT — what was past the limit is never told",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  for (const r of overCapNeeds(skipped)) tell(r, \"not-tracked\", true);\n",
+  "to": ""
+ },
+ {
+  "label": "LIMIT — an unreadable entry told as past the limit",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "if (!s || typeof s !== \"object\" || s.why !== \"over-cap\" || typeof s.need !== \"string\" || !s.need.trim()) continue;",
+  "to": "if (!s || typeof s !== \"object\" || typeof s.need !== \"string\" || !s.need.trim()) continue;"
+ },
+ {
+  "label": "LIMIT — the note says nothing of it",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  const untracked = of(\"not-tracked\");\n  if (untracked.length) {",
+  "to": "  const untracked = of(\"not-tracked\");\n  if (false) {"
+ },
+ {
+  "label": "BRIEF — cut at twelve again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  const mine = handoffsByStep(list)[step] || [];",
+  "to": "  const mine = (handoffsByStep(list)[step] || []).slice(0, MAX_REQUIREMENTS);"
+ },
+ {
+  "label": "RECORD — requirements cut at twelve again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    requirements: outcomes,",
+  "to": "    requirements: outcomes.slice(0, MAX_REQUIREMENTS),"
+ },
+ {
+  "label": "RECORD — the set-aside list cut at twelve again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    unreadable: all(skipped),",
+  "to": "    unreadable: all(skipped).slice(0, MAX_REQUIREMENTS),"
+ },
+ {
+  "label": "RECORD — missing pages cut at twelve again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    missingPages: all(missingPages),",
+  "to": "    missingPages: all(missingPages).slice(0, MAX_REQUIREMENTS),"
+ },
+ {
+  "label": "RECORD — applied items cut again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    applied: all(made),",
+  "to": "    applied: all(made).slice(0, MAX_REQUIREMENTS * 2),"
+ },
+ {
+  "label": "RECORD — suggestions past a designer's limit not kept",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    ...(all(suggestionsOver).length ? { suggestionsOver: all(suggestionsOver) } : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "SUGGEST — a fourth suggestion vanishes again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "if (out.length >= MAX_SUGGESTIONS) { if (Array.isArray(over) && !over.some((x) => plain(x) === plain(t))) over.push(t); continue; }",
+  "to": "if (out.length >= MAX_SUGGESTIONS) continue;"
+ },
+ {
+  "label": "TOOL — the designer not told the limit or to ask",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "\"designed until they reply. At most \" + MAX_REQUIREMENTS + \": when what they asked for needs more than \" +\n        \"that, leave none of it out — ask them, as your question, which part to do first.\",",
+  "to": "\"designed until they reply.\","
+ },
+ {
+  "label": "SUGGEST — a designer's extra suggestions not handed up",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    suggestionsOver: answer.suggestionsOver,\n",
+  "to": ""
+ },
+ {
+  "label": "SEED — a row naming no column read as refused",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "SEED_ROW_UNUSABLE.test(said) ? \"row-unusable\" : \"row-failed\"",
+  "to": "\"row-failed\""
+ },
+ {
+  "label": "SEED — one reason per table again",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "if (out.some((o) => o.name === name && (o.why === why || (!rowsWhy && !SEED_ROW_WHYS.includes(o.why))))) continue;",
+  "to": "if (out.some((o) => o.name === name)) continue;"
+ },
+ {
+  "label": "SEED — a table skipped whole told two reasons",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "if (out.some((o) => o.name === name && (o.why === why || (!rowsWhy && !SEED_ROW_WHYS.includes(o.why))))) continue;",
+  "to": "if (out.some((o) => o.name === name && o.why === why)) continue;"
+ },
+ {
+  "label": "SEED — every row refused also told as some",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return out.filter((o) => !(o.why === \"row-failed\" && out.some((x) => x.name === o.name && x.why === \"none-went-in\")));",
+  "to": "  return out;"
+ },
+ {
+  "label": "SEED — none in read as no reason",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  [\"none-went-in\", /^none of its \\d+ starter rows? went in$/],\n",
+  "to": ""
+ },
+ {
+  "label": "SEED — the note says nothing of none in",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (none.length) out.push(\"None of the starter rows I had ready for \" + none.join(\", \") + \" went in.\");\n",
+  "to": ""
+ },
+ {
+  "label": "ENGINE — a refused row numbered by how many went in",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      const place = t.name + \" row \" + (at + 1);",
+  "to": "      const place = t.name + \" row \" + (n + 1);"
+ },
+ {
+  "label": "ENGINE — rows past the limit cut without a word",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      out.skipped.push(t.name + \": \" + more + \" starter row\" + (more === 1 ? \"\" : \"s\") + \" past the first \" + MAX_SEED_ROWS + \" \" + (more === 1 ? \"was\" : \"were\") + \" not put in\");\n",
+  "to": ""
+ },
+ {
+  "label": "ENGINE — a row that is not an entry passed over",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "if (!row || typeof row !== \"object\" || Array.isArray(row)) { out.skipped.push(place + \": names none of its columns\"); continue; }",
+  "to": "if (!row || typeof row !== \"object\" || Array.isArray(row)) continue;"
+ },
+ {
+  "label": "ENGINE — a row naming no column passed over",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "if (!cols.length) { out.skipped.push(place + \": names none of its columns\"); continue; }",
+  "to": "if (!cols.length) continue;"
+ },
+ {
+  "label": "ENGINE — every row refused not said of the table",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "    else if (tried) out.skipped.push(t.name + \": none of its \" + tried + \" starter row\" + (tried === 1 ? \"\" : \"s\") + \" went in\");",
+  "to": ""
+ },
+ {
+  "label": "ENGINE — rows tried not counted",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      tried++;\n",
+  "to": ""
+ },
+ {
+  "label": "FACTS — what was past the limit unreadable as a told entry",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  \"not-tracked\": [\"not-done\",",
+  "to": "  \"not-trackd\": [\"not-done\","
+ },
+ {
+  "label": "FACTS — none in told as not every",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "\"None of the starter rows for the table \" + n + \" went in: the database refused every one.\"",
+  "to": "\"Not every starter row for the table \" + n + \" went in: the database refused at least one.\""
+ },
+ {
+  "label": "FACTS — suggestions cut at three again",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const ideas = strings(a.suggestions);",
+  "to": "    const ideas = strings(a.suggestions).slice(0, 3);"
+ },
+ {
+  "label": "NOTDONE — past the limit not read as not done",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "const TOLD_UNDONE = Object.freeze([\"unsupported\", \"still-to-do\", \"blocked\", \"not-tracked\"]);",
+  "to": "const TOLD_UNDONE = Object.freeze([\"unsupported\", \"still-to-do\", \"blocked\"]);"
+ },
+ {
+  "label": "NOTDONE — set up read as not done",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "const TOLD_UNDONE = Object.freeze([\"unsupported\", \"still-to-do\", \"blocked\", \"not-tracked\"]);",
+  "to": "const TOLD_UNDONE = Object.freeze([\"unsupported\", \"still-to-do\", \"blocked\", \"not-tracked\", \"set-up\"]);"
+ },
+ {
+  "label": "NOTDONE — the told requirements not read",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    for (const r of list(b.requirementsTold)) if (plain(r) && TOLD_UNDONE.includes(r.told)) add(str(r.need) || \"requirement\", r.told);\n",
+  "to": ""
+ },
+ {
+  "label": "NOTDONE — work kept out not read",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    for (const w of list(b.warningsTold)) if (plain(w) && WARNED_UNDONE.includes(w.what)) add(str(w.name) || w.what, w.what);\n",
+  "to": ""
+ },
+ {
+  "label": "NOTDONE — a missing page said twice",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "const WARNED_UNDONE = Object.freeze([\"qr\", \"held-page\", \"held-section\"]);",
+  "to": "const WARNED_UNDONE = Object.freeze([\"qr\", \"held-page\", \"held-section\", \"page\"]);"
+ },
+ {
+  "label": "NAMES — linking pages cut at four",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "if (linkers.length) { kept.push({ path, why: \"linked\", from: linkers }); continue; }",
+  "to": "if (linkers.length) { kept.push({ path, why: \"linked\", from: linkers.slice(0, 4) }); continue; }"
+ },
+ {
+  "label": "NAMES — kept removals cut at three",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "  for (const k of Array.isArray(kept) ? kept : []) {",
+  "to": "  for (const k of Array.isArray(kept) ? kept.slice(0, 3) : []) {"
+ },
+ {
+  "label": "NAMES — kept components cut at three",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === \"string\" && n.trim());\n  if (!list.length) return \"\";\n  const one = list.length === 1;\n  return \"I left \"",
+  "to": "  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === \"string\" && n.trim()).slice(0, 3);\n  if (!list.length) return \"\";\n  const one = list.length === 1;\n  return \"I left \""
+ },
+ {
+  "label": "NAMES — unseen pages cut at three",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "    .filter((n) => typeof n === \"string\" && n.trim());\n  if (!list.length) return \"\";\n  const one = list.length === 1;\n  return \"Your site is big enough",
+  "to": "    .filter((n) => typeof n === \"string\" && n.trim()).slice(0, 3);\n  if (!list.length) return \"\";\n  const one = list.length === 1;\n  return \"Your site is big enough"
+ },
+ {
+  "label": "PROBLEMS — a page held back still told",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "    return !path || !wrote.has(path) || out.has(path);",
+  "to": "    return true;"
+ },
+ {
+  "label": "PROBLEMS — what cannot be placed dropped",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "    return !path || !wrote.has(path) || out.has(path);",
+  "to": "    return out.has(path);"
+ },
+ {
+  "label": "ROUTE — the report never hears what was set aside",
+  "files": [
+   "worker.js"
+  ],
+  "from": "judged: true, skipped: aReqSkipped });",
+  "to": "judged: true });"
+ },
+ {
+  "label": "ROUTE — the wire's requirements cut at twelve",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                requirements: open.length ? open : undefined,",
+  "to": "                requirements: open.length ? open.slice(0, 12) : undefined,"
+ },
+ {
+  "label": "ROUTE — unseen pages cut at twelve",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              aUnseenPages = aPagesSent.withheld.slice();",
+  "to": "              aUnseenPages = aPagesSent.withheld.slice(0, 12);"
+ },
+ {
+  "label": "ROUTE — seed skips cut at six",
+  "files": [
+   "worker.js"
+  ],
+  "from": "aSeeded.skipped.slice() : undefined,",
+  "to": "aSeeded.skipped.slice(0, 6) : undefined,"
+ },
+ {
+  "label": "ROUTE — problems cut at four again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              problems: problemsShipped(aProblems, (aValid.pages || []).map((p) => p && p.path), [...(aMerge.added || []), ...(aMerge.changed || [])]),",
+  "to": "              problems: aProblems.slice(0, 4),"
+ },
+ {
+  "label": "ROUTE — the pages kept dropped from the refusal",
+  "files": [
+   "worker.js"
+  ],
+  "from": ", ...(Array.isArray(aMerge.kept) && aMerge.kept.length ? { kept: aMerge.kept } : {}) }, 422);",
+  "to": " }, 422);"
+ },
+ {
+  "label": "ROUTE — a later step's problems dropped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              problems: flat(\"problems\").length ? [...new Set(flat(\"problems\"))] : undefined,\n",
+  "to": ""
+ },
+ {
+  "label": "ROUTE — the states mark folded back into the counts",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              aMark(\"coverage:states\", \"ok\", {",
+  "to": "              aMark(\"coverage\", \"ok\", {"
+ },
+ {
+  "label": "ROUTE — what nothing fills read from the design's seed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "seed: aSeeded ? aSeeded.seeded : {}, readers: readTables({ spec: merged })",
+  "to": "seed: aSeed, readers: readTables({ spec: merged })"
+ },
+ {
+  "label": "ROUTE — a designer's extra suggestions not collected",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              for (const t of Array.isArray(ran.suggestionsOver) ? ran.suggestionsOver : []) if (typeof t === \"string\" && !aSuggestOver.includes(t)) aSuggestOver.push(t);\n",
+  "to": ""
+ },
+ {
+  "label": "ROUTE — the page step's problems cut again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (!wrote) return explain(\"page/no-page-back\", { page: wantRoute }, { problems: pProblems });",
+  "to": "if (!wrote) return explain(\"page/no-page-back\", { page: wantRoute }, { problems: pProblems.slice(0, 4) });"
+ },
+ {
+  "label": "PAGE — problems cut at three again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim());\n  if (!p.length) return '';",
+  "to": "  const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);\n  if (!p.length) return '';"
+ },
+ {
+  "label": "PAGE — suggestions cut at three again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const ideas = (Array.isArray(a.suggestions) ? a.suggestions : []).filter((t) => typeof t === 'string' && t.trim());",
+  "to": "  const ideas = (Array.isArray(a.suggestions) ? a.suggestions : []).filter((t) => typeof t === 'string' && t.trim()).slice(0, 3);"
+ }
+]

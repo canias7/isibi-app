@@ -12190,7 +12190,8 @@ function addonReplyText(a) {
   }
   for (const r of onlyLinked) out += ' On ' + r.page + ' I only added the link to ' + r.to.join(', ') + ' — nothing else there needed to change for this.';
   // AN EXTRA A DESIGNER SUGGESTED (2026-10-05): offered, never claimed. The server's rule.
-  const ideas = (Array.isArray(a.suggestions) ? a.suggestions : []).filter((t) => typeof t === 'string' && t.trim()).slice(0, 3);
+  // EVERY ONE (2026-10-07): three were shown, so a second designer's were not.
+  const ideas = (Array.isArray(a.suggestions) ? a.suggestions : []).filter((t) => typeof t === 'string' && t.trim());
   if (ideas.length) out += ' You didn\u2019t ask for ' + (ideas.length === 1 ? 'this' : 'these') + ', so I didn\u2019t add ' + (ideas.length === 1 ? 'it' : 'them') + ': ' + ideas.join('; ') + ' \u2014 say if you\u2019d like ' + (ideas.length === 1 ? 'it' : 'any of them') + '.';
   // A COMPONENT WE KEPT RATHER THAN REPLACE (2026-09-17). The writer returned
   // a rewrite of one of this site's own components and had not been shown what
@@ -12270,7 +12271,8 @@ function alsoTail(r, done) {
   return '\nI only did part of it this time. Say ' + q.join(', then ') + ', and I\u2019ll do those next.';
 }
 function problemNote(list) {
-  const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
+  // EVERY ONE (2026-10-07): three were shown and the rest left unsaid.
+  const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim());
   if (!p.length) return '';
   // The lint's own sentences, which are written to the person who has to act on
   // them. Rewording them here would be a second place they can be wrong.

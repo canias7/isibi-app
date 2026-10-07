@@ -284,7 +284,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null, removes = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -739,7 +739,8 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
         ? { ...supplied, requirements: supplied.requirements.map((e) => (e && typeof e === "object" && !Object.hasOwn(e, "basis") && !Object.hasOwn(e, "words") ? { ...e, basis: "asked", words: shownAsk } : e)) }
         : supplied;
       const inputObj = asked === "pick_adds" ? { kinds }
-        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}) }
+        // …AND THE PAGES IT TAKES AWAY (`removes`, 2026-10-07), for a case about a removal.
+        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}), ...(removes ? { remove: removes } : {}) }
         : designed;
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }

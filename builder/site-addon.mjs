@@ -214,6 +214,25 @@ export function mergeAddonSchema(prior, designed) {
  * wrote, which are never removed in the same breath. Answers `{ gone, kept }`,
  * `kept` naming each refused removal and why (`keptReply` words it).
  */
+/**
+ * THE LINT'S PROBLEMS ABOUT WHAT WENT OUT (2026-10-07). Each is "<path>:
+ * <what>" (`lintPages`); one naming a page this change wrote that did not then
+ * go out — held back, or put back as it was — is about nothing on the site,
+ * and was said beside it. One naming no page this change wrote (a component,
+ * or text with no path) cannot be placed, so it is kept rather than dropped.
+ * Every one that stays is kept: no cut.
+ */
+export function problemsShipped(problems, written, shipped) {
+  const wrote = new Set((Array.isArray(written) ? written : []).filter((p) => typeof p === "string" && p));
+  const out = new Set((Array.isArray(shipped) ? shipped : []).filter((p) => typeof p === "string" && p));
+  return (Array.isArray(problems) ? problems : []).filter((q) => {
+    if (typeof q !== "string" || !q.trim()) return false;
+    const at = q.indexOf(": ");
+    const path = at > 0 ? q.slice(0, at) : "";
+    return !path || !wrote.has(path) || out.has(path);
+  });
+}
+
 export function takePagesAway(byPath, remove, written) {
   const gone = [];
   const kept = [];
@@ -235,7 +254,9 @@ export function takePagesAway(byPath, remove, written) {
     const linkers = [...byPath.values()]
       .filter((p) => p.path !== path && !gone.includes(p.path) && typeof p.source === "string" && p.source.includes('"' + route + '"'))
       .map((p) => p.path);
-    if (linkers.length) { kept.push({ path, why: "linked", from: linkers.slice(0, 4) }); continue; }
+    // EVERY PAGE THAT LINKS TO IT (2026-10-07): four were named, so the
+    // customer took four links out and the removal was refused again.
+    if (linkers.length) { kept.push({ path, why: "linked", from: linkers }); continue; }
     byPath.delete(path);
     gone.push(path);
   }
@@ -546,7 +567,8 @@ export function fileForRoute(route) {
  */
 export function keptReply(kept) {
   let out = "";
-  for (const k of Array.isArray(kept) ? kept.slice(0, 3) : []) {
+  // EVERY PAGE KEPT (2026-10-07): three were named and a fourth left silently.
+  for (const k of Array.isArray(kept) ? kept : []) {
     if (!k || !k.path) continue;
     out += k.why === "home"
       ? " I left " + routeOf(k.path) + " — that is the home page, and removing it would leave the site with no front door."
@@ -575,7 +597,8 @@ export function keptReply(kept) {
  * is every addon that has ever run until this shipped.
  */
 export function keptPartsNote(names) {
-  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  // EVERY ONE (2026-10-07): three were named and the rest left unsaid.
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim());
   if (!list.length) return "";
   const one = list.length === 1;
   return "I left " + list.join(", ") + " exactly as " + (one ? "it is" : "they are") +
@@ -604,7 +627,7 @@ export function keptPartsNote(names) {
  * do. `""` for an empty list, so an ordinary addon says nothing.
  */
 export function unseenPartsNote(names) {
-  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim());
   if (!list.length) return "";
   const one = list.length === 1;
   return "I couldn't load the components your site already has, so I left every one of them alone rather than " +
@@ -632,8 +655,9 @@ export function unseenPartsNote(names) {
  * ask for that page on its own, where it is the whole of the request and fits.
  */
 export function unseenPagesNote(paths) {
+  // EVERY PAGE (2026-10-07): three were named and the rest left unsaid.
   const list = (Array.isArray(paths) ? paths : []).map((p) => routeOf(p) || p)
-    .filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+    .filter((n) => typeof n === "string" && n.trim());
   if (!list.length) return "";
   const one = list.length === 1;
   return "Your site is big enough now that I can't hold every page at once, so " + list.join(", ") + " " +

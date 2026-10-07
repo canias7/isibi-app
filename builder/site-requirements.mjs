@@ -372,8 +372,10 @@ export function cleanRequirements(raw, from = "") {
   // `over-cap` IS ITS OWN WHY, never `not-an-entry`: the entry was perfectly
   // readable and we chose not to carry it, which is a different thing to tell
   // a developer and needs a different fix.
+  // …AND THE STEP THAT WROTE IT (2026-10-07), so the record and the
+  // customer's report can say whose list it was past the end of.
   for (const r of items.slice(MAX_REQUIREMENTS)) {
-    skipped.push({ need: str(r && r.need, MAX_NEED), why: "over-cap" });
+    skipped.push({ need: str(r && r.need, MAX_NEED), why: "over-cap", ...(owner ? { from: owner } : {}) });
   }
   for (const r of items.slice(0, MAX_REQUIREMENTS)) {
     if (!r || typeof r !== "object" || Array.isArray(r)) { skipped.push({ need: "", why: "not-an-entry" }); continue; }
@@ -526,12 +528,16 @@ export function groundRequirements(list, { asked = [], known = [] } = {}) {
  * on, never said to be set up or missing; offered to them as theirs to ask for.
  * Strings only, trimmed, distinct, at most `MAX_SUGGESTIONS`.
  */
-export function cleanSuggestions(raw) {
+export function cleanSuggestions(raw, over = null) {
   const out = [];
   for (const v of Array.isArray(raw) ? raw : []) {
     const t = str(v, MAX_IDEA).replace(/\s+/g, " ");
-    if (t && !out.some((x) => plain(x) === plain(t))) out.push(t);
-    if (out.length >= MAX_SUGGESTIONS) break;
+    if (!t || out.some((x) => plain(x) === plain(t))) continue;
+    // PAST THE LIMIT, KEPT FOR THE RECORD (2026-10-07, `over`): a fourth
+    // distinct suggestion was dropped without a trace. It is still never
+    // offered — the tool says three — but the developer record has it.
+    if (out.length >= MAX_SUGGESTIONS) { if (Array.isArray(over) && !over.some((x) => plain(x) === plain(t))) over.push(t); continue; }
+    out.push(t);
   }
   return out;
 }
@@ -804,7 +810,11 @@ export function requirementCounts(list, skipped) {
  * something possible "on this page". Generic where the kind is unknown.
  */
 export function requirementBrief(list, step) {
-  const mine = (handoffsByStep(list)[step] || []).slice(0, MAX_REQUIREMENTS);
+  // EVERY ONE HANDED TO THIS STEP (2026-10-07): the brief printed twelve and
+  // `told` marked the step as handed all of them, so a thirteenth read as
+  // delivered to a step that never heard it. Each step keeps at most
+  // `MAX_REQUIREMENTS` of its own, so the list is bounded upstream.
+  const mine = handoffsByStep(list)[step] || [];
   if (!mine.length) return "";
   const where = step === "page" || step === "component" ? "this page has to make possible"
     : "the part you are designing has to make possible";
@@ -1918,7 +1928,26 @@ export function reconcileHandoffs(outcomes) {
  * change, and nothing here checked it; nothing here could see whether it is
  * there.
  */
-export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen"]);
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen", "not-tracked"]);
+
+/**
+ * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07).
+ * `MAX_REQUIREMENTS` is a real bound — every requirement kept is judged, and
+ * the judgment's answer is capped — so the entries past it are never judged,
+ * handed on or checked against what was built. They were recorded for the
+ * developer (`over-cap`) and told to nobody. They are told now, each by its
+ * own words, as not checked in this change — never as done and never as
+ * missing, because nothing looked.
+ */
+export const OVER_CAP_WHY = "one step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements";
+export function overCapNeeds(skipped) {
+  const out = [];
+  for (const s of Array.isArray(skipped) ? skipped : []) {
+    if (!s || typeof s !== "object" || s.why !== "over-cap" || typeof s.need !== "string" || !s.need.trim()) continue;
+    out.push({ need: s.need.trim(), state: "over-cap", why: OVER_CAP_WHY, ...(typeof s.from === "string" && s.from ? { from: s.from } : {}) });
+  }
+  return out;
+}
 
 /**
  * WHAT THE CUSTOMER IS TOLD ABOUT EACH REQUIREMENT: `{ told, invalid,
@@ -1932,7 +1961,7 @@ export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set
  * exact: the same need in the same sentence is said once. Two different needs
  * are two entries, and one need told two different ways is two.
  */
-export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false } = {}) {
+export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [] } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
@@ -2007,6 +2036,9 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   for (const r of unsure.filter((x) => !before(x) && jobKind(x))) tell(r, "scheduled", false);
   for (const r of unsure.filter(before)) tell(r, "already-there", false);
   for (const r of unseen) tell(r, "unseen", false);
+  // PAST THE LIMIT AT INTAKE (2026-10-07, `overCapNeeds`): never judged, so
+  // never in the outcomes above — told last, each by its own words.
+  for (const r of overCapNeeds(skipped)) tell(r, "not-tracked", true);
   return { told: out, invalid: bad, unexpressed: lost };
 }
 
@@ -2072,6 +2104,12 @@ export function toldNote(told) {
     parts.push("I can't see from here whether " + unseen.map((r) => r.need).join("; or whether ")
       + " — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.");
   }
+  // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07): named, every one, and why.
+  const untracked = of("not-tracked");
+  if (untracked.length) {
+    parts.push("One step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements, so I didn't check these here: "
+      + untracked.map((r) => r.need).join("; ") + " — ask me for them on their own if they matter.");
+  }
   return parts.join(" ");
 }
 
@@ -2127,7 +2165,13 @@ export function requirementNote(list, opts = {}) {
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [] } = {}) {
+  // WHOLE (2026-10-07): every list here was cut at twelve, so a change with
+  // more requirements, properties or pages than that kept a record that
+  // stopped part-way and said nothing of it. Each is bounded where it is
+  // made — a step keeps `MAX_REQUIREMENTS` requirements, a change designs a
+  // bounded number of things — so the record keeps all of what it is given.
+  const all = (v) => (Array.isArray(v) ? v : []);
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged });
   const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;
   return {
@@ -2165,42 +2209,45 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
       delivered: outcomes.filter((r) => r.handoff === "delivered").length,
       undelivered: outcomes.filter((r) => r.handoff === "undelivered").length,
     },
-    requirements: outcomes.slice(0, MAX_REQUIREMENTS),
+    requirements: outcomes,
     // WHAT A DESIGNER DECLARED THAT THEIR WORDS DO NOT HOLD UP (2026-10-05),
     // and the extras it offered instead: kept here for whoever reads the
     // record, and in no count above.
-    ...(Array.isArray(ungrounded) && ungrounded.length ? { ungrounded: ungrounded.slice(0, MAX_REQUIREMENTS) } : {}),
-    ...(Array.isArray(suggestions) && suggestions.length ? { suggestions: suggestions.slice(0, MAX_REQUIREMENTS) } : {}),
+    ...(all(ungrounded).length ? { ungrounded: all(ungrounded) } : {}),
+    ...(all(suggestions).length ? { suggestions: all(suggestions) } : {}),
+    // A DESIGNER'S SUGGESTIONS PAST ITS OWN LIMIT (2026-10-07): never offered,
+    // and kept here rather than dropped without a trace.
+    ...(all(suggestionsOver).length ? { suggestionsOver: all(suggestionsOver) } : {}),
     // …AND WHAT THE JUDGMENT FOUND DOES NOT FOLLOW FROM THEIR WORDS, AND WHAT
     // IN ITS ANSWER WAS NOT A VERDICT (2026-10-05). Each in no count above and
     // never told; here so a run can be read back. An entry it said nothing
     // about stays in `requirements`, marked `unjudged`.
     ...(judged ? { judged: true } : {}),
-    ...(Array.isArray(setAside) && setAside.length ? { setAside: setAside.slice(0, MAX_REQUIREMENTS) } : {}),
-    ...(Array.isArray(verdictsInvalid) && verdictsInvalid.length ? { verdictsInvalid: verdictsInvalid.slice(0, MAX_REQUIREMENTS) } : {}),
+    ...(all(setAside).length ? { setAside: all(setAside) } : {}),
+    ...(all(verdictsInvalid).length ? { verdictsInvalid: all(verdictsInvalid) } : {}),
     // WHAT A JUDGMENT LEFT WITHOUT A VERDICT AND WAS ASKED FOR AGAIN
     // (2026-10-06), and whether the second answer finished it: an entry still
     // `finished: false` is why the addition stopped.
-    ...(Array.isArray(verdictsMissing) && verdictsMissing.length ? { verdictsMissing: verdictsMissing.slice(0, MAX_REQUIREMENTS) } : {}),
-    unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
-    invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
+    ...(all(verdictsMissing).length ? { verdictsMissing: all(verdictsMissing) } : {}),
+    unreadable: all(skipped),
+    invalidProps: all(invalid),
     // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as
     // `"GET"`, a schedule raised to the floor. Developer-facing, because a
     // customer cannot act on a property name; what they hear is the count of
     // guarantees that are not in place, which is `invalidProps`' clause.
-    changedProps: (Array.isArray(altered) ? altered : []).slice(0, MAX_REQUIREMENTS),
+    changedProps: all(altered),
     // WHAT THE ENGINE WOULD HAVE USED AND THIS STEP COULD NOT CARRY — the other
     // half of `invalidProps`, and the half a customer's sentence deliberately
     // does not name. THIS is where the names belong: `language` here says the
     // addon's function tool has no property for it, which is a thing to go and
     // build, where the same name under `invalidProps` would say the database
     // never heard of it, which is false.
-    unexpressedProps: (Array.isArray(unexpressed) ? unexpressed : []).slice(0, MAX_REQUIREMENTS),
+    unexpressedProps: all(unexpressed),
     // WHAT THIS CHANGE REALLY APPLIED, and the guarantees each item really has —
     // the evidence every `delivered` above was decided from. Kept beside the
     // verdicts so a person reading the record can see WHY one was unverified
     // rather than having to re-derive it against the database.
-    applied: (Array.isArray(made) ? made : []).slice(0, MAX_REQUIREMENTS * 2),
+    applied: all(made),
     handedTo: requirementsByStep(list),
     // WHICH STEPS WERE REALLY HANDED THEM, beside the list of who was NAMED.
     // The two disagreeing is the finding: a step named by a requirement that
@@ -2214,7 +2261,7 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // loop. `shownSteps` is per kind, in run order, and each entry is taken
     // from the object really handed to that call (`shownSchema`). It is the
     // smallest thing that settles "did this step see that table?" as a fact.
-    shownSteps: (Array.isArray(shown) ? shown : []).filter((x) => x && typeof x === "object").slice(0, MAX_REQUIREMENTS),
+    shownSteps: all(shown).filter((x) => x && typeof x === "object"),
     ran: (Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"),
     failedSteps: (Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"),
     // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist
@@ -2234,9 +2281,9 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // The third is this round's: which of the site's pages the prompt window
     // could not carry, which is the one fact that explains a weak result on a
     // large site.
-    missingPages: (Array.isArray(missingPages) ? missingPages : []).slice(0, MAX_REQUIREMENTS),
-    unknownComponents: (Array.isArray(unknownKit) ? unknownKit : []).slice(0, MAX_REQUIREMENTS),
-    unseenPages: (Array.isArray(unseenPages) ? unseenPages : []).slice(0, MAX_REQUIREMENTS),
+    missingPages: all(missingPages),
+    unknownComponents: all(unknownKit),
+    unseenPages: all(unseenPages),
     // ── AND A FOURTH, FOR THE SAME REASON THE FIRST TWO ARE HERE ───────────
     //
     // Owner, 2026-09-20: *"preserve the dropped-item diagnostic in the stored
@@ -2248,7 +2295,6 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // THE NAMES LIVE HERE AND NOT IN THE SENTENCE, which is the split
     // `unknownComponents` above already makes: `{what, name}` is what a
     // developer needs and `tide-chart` is not something a customer can act on.
-    droppedFields: (Array.isArray(dropped) ? dropped : [])
-      .filter((d) => d && typeof d === "object").slice(0, MAX_REQUIREMENTS),
+    droppedFields: all(dropped).filter((d) => d && typeof d === "object"),
   };
 }

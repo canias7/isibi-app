@@ -493,6 +493,9 @@ export function readRun(ans) {
  *                (`missingPages`), a part of the design that could not be
  *                built (`droppedFields`).
  */
+/** The requirement outcomes that are not done (`requirementReport`'s `told`), and the warnings that are work kept out (`warningReport`'s `what`). */
+const TOLD_UNDONE = Object.freeze(["unsupported", "still-to-do", "blocked", "not-tracked"]);
+const WARNED_UNDONE = Object.freeze(["qr", "held-page", "held-section"]);
 export function notDoneOf(body, op = "edit") {
   const b = plain(body) ? body : {};
   const out = [];
@@ -505,6 +508,14 @@ export function notDoneOf(body, op = "edit") {
     for (const k of list(b.skipped)) add(typeof k === "string" ? k : plain(k) ? k.name || k.kind : "entry", plain(k) && k.why ? k.why : "set-aside");
     for (const m of list(b.missingPages)) add(typeof m === "string" ? m : "page", "missing");
     for (const f of list(b.droppedFields)) if (plain(f)) add(f.name || f.what || "part", "dropped");
+    // WHAT ITS OWN REPORT SAYS IS NOT DONE (2026-10-07): a requirement the
+    // site cannot do yet, one whose work is not there, one waiting on a part
+    // that did not work, and one past what a step keeps track of — and a QR
+    // code, page or section kept out — so an addition that told the customer
+    // "still to do" is never a part recorded as finished. A missing page is
+    // `missingPages`' above, said once.
+    for (const r of list(b.requirementsTold)) if (plain(r) && TOLD_UNDONE.includes(r.told)) add(str(r.need) || "requirement", r.told);
+    for (const w of list(b.warningsTold)) if (plain(w) && WARNED_UNDONE.includes(w.what)) add(str(w.name) || w.what, w.what);
     return out;
   }
   for (const p of list(b.partial)) if (plain(p) && !p.ask && p.error !== "clarify") add(p.page || p.layer || "step", p.error || p.reason || "not-done");

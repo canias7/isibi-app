@@ -489,10 +489,19 @@ test("WARN 5 — seed skips and empty tables through the route, past every old c
     },
   });
   assert.equal(rows.body.ok, true, JSON.stringify(rows.body).slice(0, 400));
-  assert.equal(rows.body.seedSkips.length, 18, "not every refused row is on the answer: " + JSON.stringify(rows.body.seedSkips));
-  assert.deepEqual(rows.body.warningsTold, LISTS.map((n) => ({ what: "seed", name: n, why: "row-failed" })));
-  for (const n of LISTS) assert.ok(facts(rows.body).includes("not-done: Not every starter row for the table " + n + " went in: the database refused at least one."), n);
-  assert.match(screen(rows.body, true), /Not all of the starter rows I had ready for breads, cakes, pies, tarts, buns, rolls went in\./);
+  // RE-ANCHORED 2026-10-07: EVERY ROW OF EACH TABLE WAS REFUSED, so each table
+  // is said as none of its rows going in — "not every row went in" read as
+  // some having gone in. The answer carries every refused row (each by its
+  // place in the design) and the line for each table.
+  assert.equal(rows.body.seedSkips.length, 24, "not every refused row is on the answer: " + JSON.stringify(rows.body.seedSkips));
+  for (const n of LISTS) {
+    assert.deepEqual(rows.body.seedSkips.filter((x) => x.startsWith(n + " row ")).map((x) => x.split(":")[0]), [1, 2, 3].map((i) => n + " row " + i), n + ": a refused row was not numbered by its place");
+    assert.ok(rows.body.seedSkips.includes(n + ": none of its 3 starter rows went in"), n);
+  }
+  assert.deepEqual(rows.body.warningsTold, LISTS.map((n) => ({ what: "seed", name: n, why: "none-went-in" })));
+  for (const n of LISTS) assert.ok(facts(rows.body).includes("not-done: None of the starter rows for the table " + n + " went in: the database refused every one."), n);
+  assert.match(screen(rows.body, true), /None of the starter rows I had ready for breads, cakes, pies, tarts, buns, rolls went in\./);
+  assert.doesNotMatch(screen(rows.body, true), /Not all of the starter rows/);
   // WHO CAN READ IT, BESIDE A TABLE THAT ALREADY HAD ROWS — two reasons, each its own.
   const COLLECT = ["orders", "returns", "reviews", "requests", "waitlist"];
   const two = await addon("rw-seed-reasons", "add order, return, review, request and waitlist forms, and put soup and bread on the specials", {

@@ -383,6 +383,16 @@ test("JUDGE 7 — the owner's first reproduction through the route: the confirma
   // THE COVERAGE MARK COUNTS WHAT LEFT THE LIST.
   const mark = r.traces.find((t) => t && t.phase === "coverage");
   assert.ok(mark, "no coverage mark");
+  // …AND THE STATES REACH THE STORED TRACE (2026-10-07): one mark of seventeen
+  // keys kept its first eight, so `setAside`, `unsent` and the states never
+  // arrived. Each mark now fits, and the keys after `lost` are on their own.
+  const states = r.traces.find((t) => t && t.phase === "coverage:states");
+  assert.ok(states && states.detail, "no states mark: " + JSON.stringify(r.traces.map((t) => t && t.phase)));
+  for (const k of ["done", "broke", "unsure", "gone", "unseen", "unjudged", "setAside", "unsent"]) assert.ok(Object.hasOwn(states.detail, k), "the states mark lost `" + k + "`: " + JSON.stringify(states.detail));
+  assert.ok(states.detail.setAside >= 1, "what left the list is not counted: " + JSON.stringify(states.detail));
+  const unbuilt = r.traces.find((t) => t && t.phase === "coverage:unbuilt");
+  assert.ok(unbuilt && unbuilt.detail && Object.hasOwn(unbuilt.detail, "unbuilt"), "the unbuilt count left no mark");
+  for (const k of ["total", "covered", "elsewhere", "unsupported", "unreadable", "bad", "moved", "lost"]) assert.ok(Object.hasOwn(mark.detail || {}, k), "the counts mark lost `" + k + "`");
   const jm = r.traces.find((t) => t && t.phase === "judge:final");
   assert.ok(jm && jm.status === "ok", "the judgment left no mark: " + JSON.stringify(r.traces.map((t) => t && t.phase)));
 });

@@ -2054,7 +2054,8 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
       out.skipped.push(t.name + ": only display tables are seeded (" + accessLabel(t) + ")");
       continue;
     }
-    const rows = Array.isArray(rawRows) ? rawRows.slice(0, MAX_SEED_ROWS) : [];
+    const given = Array.isArray(rawRows) ? rawRows : [];
+    const rows = given.slice(0, MAX_SEED_ROWS);
     if (!rows.length) continue;
 
     // THE DECLARED CASING IS WHAT THE COLUMN IS CALLED, and this lower-cased it.
@@ -2103,10 +2104,23 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
       already = Array.isArray(c) && c.length > 0;
     } catch (e) { out.skipped.push(t.name + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120)); continue; }
     if (already) { out.skipped.push(t.name + ": already has rows"); continue; }
+    // ROWS PAST THE LIMIT ARE SAID (2026-10-07), never cut without a word: a
+    // table starts with at most `MAX_SEED_ROWS` rows, and the rest are named
+    // by count on the report.
+    if (given.length > MAX_SEED_ROWS) {
+      const more = given.length - MAX_SEED_ROWS;
+      out.skipped.push(t.name + ": " + more + " starter row" + (more === 1 ? "" : "s") + " past the first " + MAX_SEED_ROWS + " " + (more === 1 ? "was" : "were") + " not put in");
+    }
 
     let n = 0;
-    for (const row of rows) {
-      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    let tried = 0;
+    // EACH ROW BY ITS PLACE IN THE DESIGN (2026-10-07): a refused row was
+    // numbered by how many had gone in before it, so the second of two
+    // refused rows was "row 1" too.
+    for (let at = 0; at < rows.length; at++) {
+      const row = rows[at];
+      const place = t.name + " row " + (at + 1);
+      if (!row || typeof row !== "object" || Array.isArray(row)) { out.skipped.push(place + ": names none of its columns"); continue; }
       const cols = [], vals = [];
       const used = new Set();
       for (const [k, v] of Object.entries(row)) {
@@ -2123,7 +2137,9 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
           : typeof v === "boolean" ? (v ? 1 : 0)
           : v);
       }
-      if (!cols.length) continue;
+      // A ROW NAMING NONE OF THE TABLE'S COLUMNS IS SAID, never passed over.
+      if (!cols.length) { out.skipped.push(place + ": names none of its columns"); continue; }
+      tried++;
       try {
         await sqlQuery(uuid, "INSERT INTO " + sqlIdent(t.name) + " (" + cols.join(",") + ") VALUES (" +
           cols.map(() => "?").join(",") + ")", vals);
@@ -2131,10 +2147,13 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
       } catch (e) {
         // One bad row must not cost the other eleven — a site with 3 of 4 services
         // is alive; a site with none is the failure this whole function exists for.
-        out.skipped.push(t.name + " row " + (n + 1) + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120));
+        out.skipped.push(place + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120));
       }
     }
     if (n) out.seeded[t.name] = n;
+    // EVERY ROW TRIED WAS REFUSED (2026-10-07): said of the table, so "not
+    // every row went in" is never read as some having gone in.
+    else if (tried) out.skipped.push(t.name + ": none of its " + tried + " starter row" + (tried === 1 ? "" : "s") + " went in");
   }
   return out;
 }
