@@ -19,8 +19,9 @@
 //   - the frame's own scroll position and the words typed into its form;
 //   - that the workspace really was drawn again meanwhile (the thread element
 //     is replaced on every drawing), and that the card shows the progress;
-//   - that each published change loads the frame exactly once, at its new
-//     address, and shows the new page.
+//   - that the published changes load the frame at most once each, at a new
+//     address every time, and that it ends on the newest — changes found
+//     together loading it once (2026-10-07, `sitePreviewHold`).
 // Three different sites: a bakery's home page, a teacher's site open on a
 // page other than home, and a draft that has never been published (its frame
 // is drawn from stored HTML, not from an address). And the two cases where a
@@ -173,13 +174,16 @@ const waitFor = async (app, cond, ms, what) => {
 
 /**
  * THE LOADS AFTER THE PUBLISHES: each at a newer address than the one before,
- * none repeated, at most one per published change, the last the final version.
+ * none repeated, at most one per published change, the last the frame's own.
+ * ONE MOVE PER MOVE SINCE 2026-10-07: the address counts the preview's moves,
+ * and changes a reading finds together are one move (`sitePreviewHold`), so
+ * two published changes load the frame once or twice, never three times.
  */
-function assertNewerEachTime(loads, at, published) {
+function assertNewerEachTime(loads, at, published, src) {
   assert.ok(loads.length >= 1 && loads.length <= published, "loads after " + published + " published change(s): " + JSON.stringify(loads));
   const vs = loads.map((l) => { const u = new URL("https://x" + l); assert.equal(u.pathname, at, "a load left the picked page: " + l); return Number(u.searchParams.get("v")); });
   vs.forEach((v, i) => assert.ok(i === 0 ? v >= 1 : v > vs[i - 1], "a load did not move to a newer address: " + JSON.stringify(loads)));
-  assert.equal(vs[vs.length - 1], published, "the last load is not the last published version: " + JSON.stringify(loads));
+  assert.equal(new URL(src).search, "?v=" + vs[vs.length - 1], "the last load is not the frame's address: " + JSON.stringify({ loads, src }));
 }
 
 const editAnswer = (changed, words) => ({
@@ -223,8 +227,13 @@ async function watchAndPublish({ site, request, path: at = "/" }) {
     // THE PUBLISHES: each job's answer moves the preview on. Two applied before
     // the page draws again are one load of the newer address — never a repeat.
     app.finish();
-    const last = base + (at === "/" ? "/" : at) + "?v=" + request.parts.length;
-    await waitFor(app, async () => (await app.src()) === last && loadsOf().includes(new URL(last).pathname + new URL(last).search), 40000, "the last published change to load");
+    // EVERY PART'S REPLY ON THE THREAD, and the frame's address loaded.
+    const replies = request.parts.map((p) => String(p.answer.reply).replace(/^✅ /, ""));
+    await waitFor(app, async () => {
+      const t = await app.thread();
+      const src = await app.src();
+      return replies.every((x) => t.includes(x)) && src !== start && loadsOf().includes(new URL(src).pathname + new URL(src).search);
+    }, 40000, "the last published change to load");
     await app.page.waitForTimeout(2500);
     const after = {
       mark: await app.frameMark(),
@@ -262,9 +271,9 @@ test("KEEP 1 — a bakery's home page: the page reads its running request again 
   assert.equal(r.during.state.note, "Two loaves on Saturday, please.");
   // EACH PUBLISHED CHANGE: one load, at a new address, in the same element, showing the new page.
   assert.equal(r.after.mark, "kept-1", "a published change replaced the frame element rather than moving it");
-  assertNewerEachTime(r.after.loads, "/", 2);
-  assert.equal(r.after.src, site.url + "?v=2");
-  assert.match(r.after.state.version, /version 2$/, "the frame does not show the published page");
+  assertNewerEachTime(r.after.loads, "/", 2, r.after.src);
+  assert.equal(r.after.src, site.url + "?v=" + r.after.loads.length, "a move did not load the frame once");
+  assert.match(r.after.state.version, new RegExp("version " + r.after.loads.length + "$"), "the frame does not show the newest address");
   assert.equal(r.after.state.name, "", "the frame did not load the new page");
 });
 
@@ -284,7 +293,7 @@ test("KEEP 2 — a teacher's site open on a page other than home: the frame stay
   assert.equal(r.during.mark, "kept-1");
   assert.deepEqual(r.during.loads, []);
   assert.deepEqual([r.during.state.scroll, r.during.state.name], [900, "Ada Lovelace"]);
-  assertNewerEachTime(r.after.loads, "/lessons", 1);
+  assertNewerEachTime(r.after.loads, "/lessons", 1, r.after.src);
   assert.equal(r.after.src, site.url + "lessons?v=1");
   assert.equal(r.after.mark, "kept-1");
 });
