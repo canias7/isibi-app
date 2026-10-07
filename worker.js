@@ -258,7 +258,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
   nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
-  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless,
+  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
@@ -7493,7 +7493,10 @@ async function standaloneJobsFor(env, uid, slug) {
     const when = typeof j.updated_at === "number" ? j.updated_at : Date.parse(String(j.updated_at || ""));
     if (ended && !(Number.isFinite(when) && Date.now() - when <= PROGRESS_DISCOVERY_MS)) continue;
     const said = saidOf(at.rec, 0);
-    const outcome = editJobOutcome(j, j.op);
+    // AN ENDED JOB WHOSE ANSWER DOES NOT SAY WHAT STANDS (2026-10-07) is read
+    // with its database record, as the driver and the job poll read it.
+    const ev = wantsEvidence(j) ? await endedEvidence(env, j.slug, j.id) : null;
+    const outcome = editJobOutcome(ev ? { ...j, migration: ev.migration } : j, j.op);
     out.push({ job: j.id, op: j.op, state: j.state, ended, words: at.rec.words, at: at.rec.at, progress: linesOf(at.rec), ...(said ? { said } : {}), ...(outcome ? { outcome } : {}) });
   }
   return out;
@@ -15544,9 +15547,11 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
           try { const obj = await env.SITES_BUCKET.get(resultKey(id)); if (obj) row.build = readResult(JSON.parse(await obj.text())); }
           catch { /* read again on the next step */ }
         }
-        // A JOB THAT ENDED WITH NO ANSWER, WITH WHAT ITS DATABASE RECORD SAYS
-        // STANDS (2026-10-07), so its part is never told as one that changed nothing.
-        if (answerless(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
+        // A JOB THAT ENDED WITH NO ANSWER — OR STOPPED WITH ONE THAT RECORDS
+        // NOTHING OF WHAT STANDS (2026-10-07, Codex's review) — WITH WHAT ITS
+        // DATABASE RECORD SAYS STANDS, so its part is never told as one that
+        // changed nothing (`wantsEvidence`).
+        if (wantsEvidence(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
         rows[id] = row;
       }
       const { record, file } = nextStep(base, rows, Date.now());
@@ -23457,7 +23462,8 @@ async function handleRequest(request, env, ctx) {
       // A JOB THAT ENDED WITH NO ANSWER, AND WHAT ITS DATABASE RECORD SAYS
       // STANDS (2026-10-07, `endedEvidence`): handed back with its note, which
       // the page prints after its own sentence.
-      const eLeft = (row.state === "failed" || row.state === "lost") && !row.needs_review ? await endedEvidence(env, row.slug, ejid) : null;
+      // A STOPPED JOB TOO (2026-10-07): one whose answer records nothing of what stands is read from its database record, as the driver reads it.
+      const eLeft = ((row.state === "failed" || row.state === "lost") && !row.needs_review) || wantsEvidence(row) ? await endedEvidence(env, row.slug, ejid) : null;
       return Response.json({
         ok: row.state !== "failed" && row.state !== "lost",
         job: ejid,
@@ -23469,7 +23475,9 @@ async function handleRequest(request, env, ctx) {
         said: eProg.said || undefined,
         // ITS OWN OUTCOME SO FAR (2026-10-06): queued, running, or held for
         // review — none of which needs its kind — with progress on.
-        outcome: progressOn(env) ? (editJobOutcome(row, eProg.op || "edit") || undefined) : undefined,
+        // …READ WITH THE DATABASE RECORD JUST READ (2026-10-07), so a job that
+        // stopped or died after its tables went in reads as done in part.
+        outcome: progressOn(env) ? (editJobOutcome(eLeft ? { ...row, migration: eLeft.migration } : row, eProg.op || "edit") || undefined) : undefined,
         ms: Number(row.ms) || 0,
         // A FINISHED JOB'S COST IS WHAT ITS ROW SETTLED (2026-09-25), and a
         // running one's what it holds so far.

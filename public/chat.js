@@ -10190,6 +10190,14 @@ const SITE_REQ_STATUS = {
   'not-run': 'Not run', cancelled: 'Stopped', 'needs-rewrite': 'Needs a full rewrite', expired: 'Question expired', refused: 'Not run',
   approval: 'Needs your go-ahead',
 };
+// WHAT A STOPPED OR FAILED PART LEFT STANDING (2026-10-07, the view's `left`):
+// its label says so, and its line is the one for that state — never "Stopped"
+// and the not-done line over a part whose table went in.
+const SITE_REQ_LEFT = {
+  partial: { cancelled: 'Stopped after part of it went in', failed: 'Partly done', said: 'partial' },
+  unpublished: { cancelled: 'Stopped with part of it saved', failed: 'Saved, not live', said: 'notdone' },
+  unknown: { cancelled: 'Stopped part-way', failed: 'Stopped part-way', said: 'unconfirmed' },
+};
 /** The request's card, under its message: each part and its status, Stop, and a part's rewrite button. */
 function siteRequestHTML(m, site) {
   const st = site && site.requests && site.requests[m.request];
@@ -10201,6 +10209,8 @@ function siteRequestHTML(m, site) {
     if (status === 'waiting' && p.question && p.question.queued === true) label = 'Has a question to ask next';
     if (status === 'expired' && p.why === 'unapproved') label = 'Go-ahead not given';
     if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
+    const left = (status === 'cancelled' || status === 'failed') && typeof p.left === 'string' && Object.hasOwn(SITE_REQ_LEFT, p.left) ? SITE_REQ_LEFT[p.left] : null;
+    if (left) label = left[status];
     // ITS GO-AHEAD, while it waits for one; gone while a press is in flight.
     const pressing = (st.approving || []).includes(p.n);
     const rewrite = status === 'approval'
@@ -10210,7 +10220,7 @@ function siteRequestHTML(m, site) {
     // label stays the fixed status; the lines are the model's words.
     // AND IT IS NAMED BY THE MODEL'S OWN LINE FOR ITS STATE, once written; by
     // its words, as they are, until then.
-    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
+    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   const stop = !v.ended && !v.stop

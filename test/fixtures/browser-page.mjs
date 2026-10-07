@@ -51,6 +51,8 @@ const KEYS = cutStatement("\ndocument.addEventListener('keydown', (e) => {", "\n
 const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-ans");
 // THE LABELS OF A REQUEST'S CARD (2026-10-03, the combined request flow).
 const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approval:");
+// …AND THOSE OF A STOPPED OR FAILED PART THAT LEFT SOMETHING STANDING (2026-10-07).
+const REQ_LEFT = cutStatement("\nconst SITE_REQ_LEFT = {", "\n};\n", "unconfirmed");
 // WHICH OF A TASK'S LINES EACH OF THOSE STATUSES SHOWS (2026-10-06).
 const REQ_SAID = cutStatement("\nconst SITE_SAID_FOR = {", "\n};\n", "notdone");
 
@@ -132,6 +134,7 @@ const SRC = [
   ...LINES.map(cutLine),
   KEYS,
   REQ_STATUS,
+  REQ_LEFT,
   REQ_SAID,
   "function wireThread(thread, site) {" + CLICKS + "}",
   "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",

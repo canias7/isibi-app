@@ -42,7 +42,7 @@ import { connForDatabase } from "../site-db.mjs";
 import { failureOutcome, failureNote, replayedCoverNote, seedSkipNote, notLandedMsg } from "../builder/site-add.mjs";
 import { addonReplyFacts, replyOutcomeOf, outcomeOf, outcomeReads, toldAs, FAILURE_STATES } from "../builder/site-reply.mjs";
 import { migrationNote, newMigration, withApplied, migrationSummary } from "../builder/site-migrations.mjs";
-import { planParts, newRequest, nextStep, noteJobId, editJobOutcome, leftOf, leftOfRecord } from "../builder/request.mjs";
+import { planParts, newRequest, nextStep, noteJobId, editJobOutcome, leftOf, leftOfRecord, requestView } from "../builder/request.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
 /** A record's summary as the driver hands it in, in a given state. */
 const migrationSummaryOf = (entry, status) => migrationSummary({ ...entry, status });
@@ -729,6 +729,8 @@ const rqOf = (message) => {
 };
 const ended = (body, state = "failed", more = {}) => ({ ok: true, state, billing: "refunded", needs_review: false, result: body === null ? null : { status: 422, body: JSON.stringify(body) }, ...more });
 const settleWith = (rec, row) => nextStep(rec, { ["a".repeat(32)]: row }, Date.now()).record;
+/** THE REQUEST AS EVERY READER SEES IT (2026-10-07): the page's GET, the request's reply and its queued writer all read `requestView`, serialized — never the richer record, which once held a part's `left` the view dropped. */
+const seen = (rec) => JSON.parse(JSON.stringify(requestView(rec)));
 
 test("STATUS 1 — A FAILURE AFTER THE TABLES WENT IN IS DONE IN PART: ROUTE 1's own answer makes the part partial with what it did not do, never wholly failed; its card says partial; the request's facts say done in part — and the same request failing before the apply stays failed", async () => {
   const after = await signupAsk("fo-status-after", { notServed: true });
@@ -738,7 +740,7 @@ test("STATUS 1 — A FAILURE AFTER THE TABLES WENT IN IS DONE IN PART: ROUTE 1's
   assert.deepEqual([rec.parts[0].status, rec.parts[0].why, rec.parts[0].left], ["partial", "partly-done", "partial"]);
   assert.deepEqual(rec.parts[0].notDone.map((n) => n.why), ["compile"]);
   assert.equal(editJobOutcome(ended(after.body), "addon"), "partial");
-  const f = requestReplyFacts(rec).facts.map((x) => x.text);
+  const f = requestReplyFacts(seen(rec)).facts.map((x) => x.text);
   assert.ok(f.some((t) => /^Done only in part:/.test(t)), JSON.stringify(f));
   assert.ok(!f.some((t) => /^Not done:/.test(t)), "a part whose tables stand was told as not done: " + JSON.stringify(f));
   // BEFORE THE APPLY: nothing stands, and the part fails as it always did.
@@ -754,13 +756,13 @@ test("STATUS 2 — A STOP AFTER THE TABLES WENT IN (the publish gate's cancel ca
   const stopped = { ...after.body, detail: "cancelled" };
   const rec = settleWith(rqOf(SIGNUP), ended(stopped));
   assert.deepEqual([rec.parts[0].status, rec.parts[0].left], ["cancelled", "partial"]);
-  const f = requestReplyFacts(rec).facts.map((x) => x.text);
+  const f = requestReplyFacts(seen(rec)).facts.map((x) => x.text);
   assert.ok(f.some((t) => /^Stopped at their request, after part of it had gone in and is live:/.test(t)), JSON.stringify(f));
   assert.ok(!f.some((t) => /before it changed anything/.test(t)), JSON.stringify(f));
   // NOTHING STANDING: the old sentence, which is true there.
   const clean = settleWith(rqOf(SIGNUP), ended({ ok: false, error: "cancelled", outcome: failureOutcome(), msg: "I stopped that edit before anything was published." }, "cancelled"));
   assert.deepEqual([clean.parts[0].status, Object.hasOwn(clean.parts[0], "left")], ["cancelled", false]);
-  assert.ok(requestReplyFacts(clean).facts.some((x) => /before it changed anything/.test(x.text)));
+  assert.ok(requestReplyFacts(seen(clean)).facts.some((x) => /before it changed anything/.test(x.text)));
   // A STOP AFTER A DATABASE WAS MADE FOR THE SITE (the gates' own evidence, `aStopEvidence`): partial too.
   const prov = settleWith(rqOf(SIGNUP), ended({ ok: false, error: "cancelled", outcome: failureOutcome({ provisioned: true }), msg: "I stopped that edit before anything was published." }, "cancelled"));
   assert.equal(prov.parts[0].left, "partial");
@@ -776,7 +778,7 @@ test("STATUS 3 — ONLY WHAT AN ANSWER RECORDS IS READ: an ordinary refusal with
   const unknown = { ok: false, error: "schema", outcome: failureOutcome({ database: "unknown" }), msg: "x" };
   const rec3 = settleWith(rqOf(SIGNUP), ended(unknown));
   assert.deepEqual([rec3.parts[0].status, rec3.parts[0].left], ["failed", "unknown"]);
-  assert.ok(requestReplyFacts(rec3).facts.some((x) => /^Not done, part-way through, so whether any of it went in is not known:/.test(x.text)));
+  assert.ok(requestReplyFacts(seen(rec3)).facts.some((x) => /^Not done, part-way through, so whether any of it went in is not known:/.test(x.text)));
   assert.equal(leftOf({ ok: true }), "");
   // A SUCCESS IS NEVER READ AS LEAVING SOMETHING, whatever it carries.
   assert.equal(leftOf({ ok: true, landed: ["your site is now at new.gofarther.app"] }), "", "a success read as done in part");
@@ -785,7 +787,7 @@ test("STATUS 3 — ONLY WHAT AN ANSWER RECORDS IS READ: an ordinary refusal with
   assert.equal(leftOf({ ok: false, error: "x", migration: { status: "junk" } }), "");
 });
 
-test("STATUS 4 — A JOB THAT DIED WITH NO ANSWER AFTER ITS TABLES WENT IN: the driver hands its database record in, the part is tried again keeping what stands, and if the last try dies too it fails told as after part of it had gone in", () => {
+test("STATUS 4 — A JOB THAT DIED WITH NO ANSWER AFTER ITS TABLES WENT IN: the driver hands its database record in, the part is tried again keeping what stands, and if the last try dies too it is DONE IN PART — the one rule a refusal after the same already followed (2026-10-07, Codex's review: consistent part status)", () => {
   const applied = migrationSummaryOf(withApplied(newMigration({ job: "a".repeat(32), slug: "fold-lane", added: ["signups"] }), ["signups"]), "applied_without_page");
   assert.equal(leftOfRecord(applied), "partial");
   assert.equal(leftOfRecord({ status: "failed" }), "unknown");
@@ -798,12 +800,13 @@ test("STATUS 4 — A JOB THAT DIED WITH NO ANSWER AFTER ITS TABLES WENT IN: the 
   // THE RETRY'S OWN JOB DIES BEFORE ANY DATABASE WORK: what the first left still stands.
   const rec2 = noteJobId(once.record, once.file.key, "b".repeat(32));
   const last = nextStep(rec2, { ["b".repeat(32)]: ended(null, "lost") }, Date.now()).record;
-  assert.deepEqual([last.parts[0].status, last.parts[0].why, last.parts[0].left], ["failed", "no-answer", "partial"]);
-  assert.ok(requestReplyFacts(last).facts.some((x) => /^Not done, after part of it had gone in and is live:/.test(x.text)), JSON.stringify(requestReplyFacts(last).facts));
+  assert.deepEqual([last.parts[0].status, last.parts[0].why, last.parts[0].left], ["partial", "partly-done", "partial"]);
+  assert.deepEqual(last.parts[0].notDone, [{ what: last.parts[0].words, why: "no-answer" }]);
+  assert.ok(requestReplyFacts(requestView(last)).facts.some((x) => /^Done only in part:/.test(x.text)), JSON.stringify(requestReplyFacts(requestView(last)).facts));
   // THE RETRY DIES TOO, ITS OWN APPLY NEVER HEARD FROM: what is known to be
   // live is the stronger reading, and it stands over "not known".
   const unheard = nextStep(rec2, { ["b".repeat(32)]: ended(null, "lost", { migration: { status: "failed" } }) }, Date.now()).record;
-  assert.deepEqual([unheard.parts[0].status, unheard.parts[0].left], ["failed", "partial"], "a weaker reading replaced what is known to be live");
+  assert.deepEqual([unheard.parts[0].status, unheard.parts[0].left], ["partial", "partial"], "a weaker reading replaced what is known to be live");
   // …AND THE OTHER WAY ROUND: a first try not known, a retry whose tables went in.
   const first = nextStep(rqOf(SIGNUP), { ["a".repeat(32)]: ended(null, "lost", { migration: { status: "failed" } }) }, Date.now());
   assert.equal(first.record.parts[0].left, "unknown");

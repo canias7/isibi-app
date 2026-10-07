@@ -764,6 +764,53 @@ export function leftOfRecord(m) {
 /** The stronger of two readings of what a part's jobs left standing: something live, then something unknown, then something saved. */
 const LEFT_ORDER = ["", "unpublished", "unknown", "partial"];
 const strongerLeft = (a, b) => (LEFT_ORDER.indexOf(b) > LEFT_ORDER.indexOf(a || "") ? b : a || "");
+/** One of the three things a job can leave standing, or "" — a value read from storage is never trusted further than that. */
+export const leftValue = (v) => (v === "partial" || v === "unpublished" || v === "unknown" ? v : "");
+
+/**
+ * WHAT ONE ENDED JOB LEFT STANDING, FROM EVERY RECORD OF IT (2026-10-07,
+ * corrected after Codex's review): its own answer (`leftOf`) and, where the
+ * answer records nothing either way, its database record as the driver read
+ * it (`row.migration`, `leftOfRecord`) — the stronger of the two. A stop whose
+ * answer said nothing about the tables it had already applied was told as
+ * stopped "before it changed anything".
+ */
+export function leftOfRow(row) {
+  const ans = answerOf(row);
+  return strongerLeft(ans ? leftOf(ans.body) : "", leftOfRecord(row && row.migration));
+}
+/**
+ * DOES THIS ENDED JOB'S DATABASE RECORD NEED READING (2026-10-07)? One with no
+ * usable answer, and one stopped whose answer records nothing about what
+ * stands — the two whose parts would otherwise be told as having changed
+ * nothing. The caller reads the record (`endedEvidence`) and hands it in as
+ * `row.migration`.
+ */
+export function wantsEvidence(row) {
+  if (!row || !ENDED_JOB.includes(row.state) || row.needs_review === true) return false;
+  if (answerless(row)) return true;
+  const ans = answerOf(row);
+  const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
+  return stopped && !(ans && ans.body.ok === true) && !(ans && leftOf(ans.body));
+}
+/**
+ * A PART THAT DID NOT FINISH, WITH EVERYTHING ITS TRIES LEFT STANDING
+ * (2026-10-07): one rule for every way a run job can fail. Something of it
+ * live — from this try or an earlier one — is done in part, never wholly
+ * failed, and nothing that needs it runs; something saved but not live, or an
+ * apply that stopped part-way, fails and keeps what it left.
+ */
+function endUnfinished(p, left, why, outcome) {
+  p.left = strongerLeft(p.left, left);
+  if (outcome) p.outcome = outcome;
+  if (p.left === "partial") {
+    p.status = "partial"; p.why = "partly-done";
+    p.notDone = [{ what: p.words, why: String(why || "failed").slice(0, 60) }];
+    return;
+  }
+  p.status = "failed"; p.why = why;
+  if (!p.left) delete p.left;
+}
 
 /**
  * SETTLE ONE JOB THAT ENDED: what its answer means for its part.
@@ -782,9 +829,11 @@ function settle(rec, p, job, row, now) {
     job.end.act = "cancelled";
     p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled";
     // A STOP AFTER SOMETHING WENT IN (2026-10-07): the part is still stopped,
-    // and what its job left standing is kept on it, so it is never told as
-    // stopped "before it changed anything".
-    const left = ans ? leftOf(ans.body) : "";
+    // and what its tries left standing is kept on it — from its answer, from
+    // its database record where the answer records nothing (Codex: the branch
+    // ignored `row.migration`), and from an earlier try — so it is never told
+    // as stopped "before it changed anything".
+    const left = strongerLeft(p.left, leftOfRow(row));
     if (left) p.left = left;
     return;
   }
@@ -795,7 +844,7 @@ function settle(rec, p, job, row, now) {
     const left = leftOfRecord(row.migration);
     if (left) p.left = strongerLeft(p.left, left);
     if (p.retries < RETRIES) { p.retries++; p.status = "ready"; return; }
-    p.status = "failed"; p.why = "no-answer"; return;
+    endUnfinished(p, "", "no-answer"); return;
   }
   // DONE WITH NO ANSWER THAT READS: a publish the reconcile kept, or one the
   // sweep finalized — live, and what it changed not recorded.
@@ -848,8 +897,8 @@ function settle(rec, p, job, row, now) {
     job.end.handOff = to.act;
     if (to.act === "hop") { p.route = handedRoute(p.route || {}, to, read); p.hops = p.route.hops; p.status = "ready"; return; }
     if (to.act === "rewrite") { askApproval(p, to.why, now); p.outcome = { job: job.id, kind: "escalate" }; return; }
-    if (to.act === "stop") { p.status = "failed"; p.why = "handed-back"; p.outcome = { job: job.id, kind: "escalate" }; return; }
-    p.status = "failed"; p.why = "unreadable"; return;
+    if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
+    endUnfinished(p, "", "unreadable"); return;
   }
   if (read.act === "recovered") { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "recovered" }; p.done = "made the change (what it changed was not recorded)"; return; }
   if (read.act === "success") {
@@ -867,6 +916,10 @@ function settle(rec, p, job, row, now) {
   }
   if (read.act === "clarify" || (read.act === "refusal" && read.ask)) {
     p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer";
+    // A QUESTION AFTER SOMETHING WENT IN (2026-10-07): what this try, or an
+    // earlier one, left standing stays on the part while it waits.
+    const left = strongerLeft(p.left, leftOf(ans.body));
+    if (left) p.left = left;
     p.outcome = { job: job.id, kind: "asked" }; return;
   }
   if (read.act === "refusal") {
@@ -874,17 +927,11 @@ function settle(rec, p, job, row, now) {
     // went in stands, and nothing that needs the part runs, as for any part
     // done in part — never recorded as wholly failed; one that left something
     // saved but not live, or whose apply stopped part-way, fails, and says so.
-    const left = leftOf(ans.body);
-    if (left === "partial") {
-      p.status = "partial"; p.why = "partly-done"; p.left = left;
-      p.notDone = [{ what: p.words, why: read.error || "refused" }];
-      p.outcome = { job: job.id, kind: "refused" }; return;
-    }
-    p.status = "failed"; p.why = read.error || "refused"; p.outcome = { job: job.id, kind: "refused" };
-    if (left) p.left = left;
+    // An EARLIER try's standing work counts the same (`endUnfinished`).
+    endUnfinished(p, leftOf(ans.body), read.error || "refused", { job: job.id, kind: "refused" });
     return;
   }
-  p.status = "failed"; p.why = "unreadable"; p.outcome = { job: job.id, kind: "unreadable" };
+  endUnfinished(p, "", "unreadable", { job: job.id, kind: "unreadable" });
 }
 
 /**
@@ -917,9 +964,11 @@ export function editJobOutcome(row, op = "edit") {
   if (!ENDED_JOB.includes(row.state)) return null;
   const ans = answerOf(row);
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
-  if (stopped && !(ans && ans.body.ok === true)) return "cancelled";
-  if (answerless(row)) return "failed";
-  // A FAILURE AFTER PART OF IT WENT LIVE IS DONE IN PART (2026-10-07), as `settle` reads it.
+  // A STOP OR A DEATH AFTER PART OF IT WENT LIVE IS DONE IN PART (2026-10-07),
+  // read from its answer and, where that records nothing, its database record
+  // (`row.migration`, handed in by the caller) — as `settle` reads it.
+  if (stopped && !(ans && ans.body.ok === true)) return leftOfRow(row) === "partial" ? "partial" : "cancelled";
+  if (answerless(row)) return leftOfRecord(row.migration) === "partial" ? "partial" : "failed";
   if (ans && leftOf(ans.body) === "partial") return "partial";
   if (row.state === "done" && !ans) return "done";
   const read = readRun(ans);
@@ -1351,6 +1400,10 @@ export function requestView(rec, { progress = null, said = null } = {}) {
       // for a reader that checks each one's row and ledger (the UI canary).
       ids: p.jobs.filter((j) => j.id).map((j) => j.id),
       ...(p.why ? { why: p.why } : {}),
+      // WHAT ITS TRIES LEFT STANDING (2026-10-07): the reply's facts and the
+      // card read it here — dropped from this view, a part stopped after its
+      // table went in was told as stopped "before it changed anything".
+      ...(leftValue(p.left) && p.status !== "done" ? { left: leftValue(p.left) } : {}),
       ...(p.status === "waiting" && p.question ? { question: { id: p.question.id, text: p.question.text, options: p.question.options, ...(p.question.note ? { note: p.question.note } : {}), ...(p.question.queued ? { queued: true } : {}) } } : {}),
       ...(typeof p.answer === "string" ? { answer: p.answer } : {}),
       // THE JOBS WHOSE OWN REPLY EXPLAINS THIS PART: every run that ended with an

@@ -287,6 +287,12 @@ const LEFT_SAID = Object.freeze({
   unpublished: "with part of it saved but not live",
   unknown: "part-way through, so whether any of it went in is not known",
 });
+/** The same, for a part that goes on — waiting, queued, expired — after an earlier try left something (2026-10-07). */
+const LEFT_STANDS = Object.freeze({
+  partial: "part of it already went in and is live",
+  unpublished: "part of it was already saved but is not live",
+  unknown: "an earlier try stopped part-way, so whether any of it went in is not known",
+});
 const count = (n, one, many) => (n === 1 ? "one " + one : n + " " + (many || one + "s"));
 
 /** A page file as the address people see: `src/routes/gallery.tsx` → `/gallery` (the browser's `sitePathOf`). */
@@ -1293,6 +1299,12 @@ export function requestReplyFacts(v) {
       F.add("pending", "Queued, and waiting: " + w + ". Their site takes no new changes until an earlier change that stopped part-way through publishing has been checked; it goes ahead after that.", item);
     } else {
       F.add("pending", "Queued, not started yet: " + w + ".", item);
+    }
+    // AN EARLIER TRY'S STANDING WORK, ON A PART THAT GOES ON OR WAITS
+    // (2026-10-07, the view's `left`): said beside its status — the stopped,
+    // failed and partial facts above already say it in their own words.
+    if (Object.hasOwn(LEFT_STANDS, p.left) && !["done", "partial", "cancelled", "failed"].includes(p.status)) {
+      F.add("note", "From an earlier try at " + w + ", " + LEFT_STANDS[p.left] + ".", item);
     }
   }
   if (unsaid > 0) F.add("money", "Reading their message cost " + count(unsaid, "credit") + ".");

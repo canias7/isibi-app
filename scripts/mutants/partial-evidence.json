@@ -1,0 +1,171 @@
+[
+ {
+  "label": "CONTROL: a comment only in leftOfRow \u2014 must survive",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "export function leftOfRow(row) {",
+  "to": "export function leftOfRow(row) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "VIEW \u2014 left not serialized (Codex's defect)",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "      ...(leftValue(p.left) && p.status !== \"done\" ? { left: leftValue(p.left) } : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "VIEW \u2014 any stored value serialized",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "export const leftValue = (v) => (v === \"partial\" || v === \"unpublished\" || v === \"unknown\" ? v : \"\");",
+  "to": "export const leftValue = (v) => (typeof v === \"string\" ? v : \"\");"
+ },
+ {
+  "label": "ROW \u2014 the database record not read",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  return strongerLeft(ans ? leftOf(ans.body) : \"\", leftOfRecord(row && row.migration));",
+  "to": "  return ans ? leftOf(ans.body) : \"\";"
+ },
+ {
+  "label": "EVIDENCE \u2014 a stop whose answer records nothing not read",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  return stopped && !(ans && ans.body.ok === true) && !(ans && leftOf(ans.body));",
+  "to": "  return false;"
+ },
+ {
+  "label": "STOP \u2014 the database record ignored (Codex's defect)",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    const left = strongerLeft(p.left, leftOfRow(row));\n    if (left) p.left = left;\n    return;",
+  "to": "    const left = strongerLeft(p.left, ans ? leftOf(ans.body) : \"\");\n    if (left) p.left = left;\n    return;"
+ },
+ {
+  "label": "STOP \u2014 an earlier try's standing work dropped",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    const left = strongerLeft(p.left, leftOfRow(row));\n    if (left) p.left = left;\n    return;",
+  "to": "    const left = leftOfRow(row);\n    p.left = left;\n    if (!left) delete p.left;\n    return;"
+ },
+ {
+  "label": "UNFINISHED \u2014 something live told as wholly failed",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (p.left === \"partial\") {\n    p.status = \"partial\"; p.why = \"partly-done\";",
+  "to": "  if (false) {\n    p.status = \"partial\"; p.why = \"partly-done\";"
+ },
+ {
+  "label": "UNFINISHED \u2014 an earlier try's standing work dropped",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  p.left = strongerLeft(p.left, left);\n  if (outcome) p.outcome = outcome;",
+  "to": "  p.left = left;\n  if (outcome) p.outcome = outcome;"
+ },
+ {
+  "label": "QUESTION \u2014 what stands not kept while waiting",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    const left = strongerLeft(p.left, leftOf(ans.body));\n    if (left) p.left = left;\n    p.outcome = { job: job.id, kind: \"asked\" }; return;",
+  "to": "    p.outcome = { job: job.id, kind: \"asked\" }; return;"
+ },
+ {
+  "label": "ANSWERLESS \u2014 the last try's death told as wholly failed",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    endUnfinished(p, \"\", \"no-answer\"); return;",
+  "to": "    p.status = \"failed\"; p.why = \"no-answer\"; return;"
+ },
+ {
+  "label": "REFUSAL \u2014 an earlier try's standing work ignored",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    endUnfinished(p, leftOf(ans.body), read.error || \"refused\", { job: job.id, kind: \"refused\" });",
+  "to": "    delete p.left; endUnfinished(p, leftOf(ans.body), read.error || \"refused\", { job: job.id, kind: \"refused\" });"
+ },
+ {
+  "label": "OUTCOME \u2014 a stop over a standing table read as stopped",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (stopped && !(ans && ans.body.ok === true)) return leftOfRow(row) === \"partial\" ? \"partial\" : \"cancelled\";",
+  "to": "  if (stopped && !(ans && ans.body.ok === true)) return \"cancelled\";"
+ },
+ {
+  "label": "OUTCOME \u2014 a death after the tables read as failed",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (answerless(row)) return leftOfRecord(row.migration) === \"partial\" ? \"partial\" : \"failed\";",
+  "to": "  if (answerless(row)) return \"failed\";"
+ },
+ {
+  "label": "FACTS \u2014 an earlier try's work on a waiting part not said",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "      F.add(\"note\", \"From an earlier try at \" + w + \", \" + LEFT_STANDS[p.left] + \".\", item);",
+  "to": ""
+ },
+ {
+  "label": "CARD \u2014 the left label not used",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (left) label = left[status];",
+  "to": ""
+ },
+ {
+  "label": "CARD \u2014 the not-done line kept over a standing table",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "siteSaidFor(p.said, left ? left.said : SITE_SAID_FOR[status])",
+  "to": "siteSaidFor(p.said, SITE_SAID_FOR[status])"
+ },
+ {
+  "label": "WORKER \u2014 the driver reads the record only for an answerless job",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        if (wantsEvidence(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }",
+  "to": "        if (answerless(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }"
+ },
+ {
+  "label": "WORKER \u2014 the poll reads no record for a stopped job",
+  "files": [
+   "worker.js"
+  ],
+  "from": "      const eLeft = ((row.state === \"failed\" || row.state === \"lost\") && !row.needs_review) || wantsEvidence(row) ? await endedEvidence(env, row.slug, ejid) : null;",
+  "to": "      const eLeft = ((row.state === \"failed\" || row.state === \"lost\") && !row.needs_review) ? await endedEvidence(env, row.slug, ejid) : null;"
+ },
+ {
+  "label": "WORKER \u2014 the poll's outcome read without the record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        outcome: progressOn(env) ? (editJobOutcome(eLeft ? { ...row, migration: eLeft.migration } : row, eProg.op || \"edit\") || undefined) : undefined,",
+  "to": "        outcome: progressOn(env) ? (editJobOutcome(row, eProg.op || \"edit\") || undefined) : undefined,"
+ },
+ {
+  "label": "WORKER \u2014 the job list reads no record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    const ev = wantsEvidence(j) ? await endedEvidence(env, j.slug, j.id) : null;",
+  "to": "    const ev = null;"
+ }
+]
