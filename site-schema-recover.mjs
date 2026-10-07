@@ -153,6 +153,55 @@ export function declaredNames(spec) {
 }
 
 /**
+ * THE DECLARED COLUMNS THE DATABASE REALLY HAS (2026-10-07, Codex's review of
+ * the cleanup batch). A column the engine could not add stayed declared in the
+ * stored schema — the declaration was written whatever the ALTER answered —
+ * and every designer reading the declaration took it as available: the
+ * add-on's designers, the page writer, the data and rules steps. So a reader
+ * asks the catalog it has already read: each declared table the catalog has is
+ * cut to the declared columns its own rows name (matched case-insensitively,
+ * as the engine names them), and the reference, rule and type entries kept per
+ * column are cut alike. A table the catalog does not have is left as declared:
+ * cannot tell is not "has none". Returns `{ spec, missing }` — a copy, and each
+ * declared column the database does not have as `{ table, column }`.
+ */
+export function liveDeclared(spec, columns) {
+  if (!spec || typeof spec !== "object" || !Array.isArray(spec.tables)) return { spec, missing: [] };
+  const live = new Map();
+  for (const r of Array.isArray(columns) ? columns : []) {
+    if (!r || typeof r.t !== "string" || typeof r.c !== "string") continue;
+    const k = r.t.toLowerCase();
+    if (!live.has(k)) live.set(k, new Set());
+    live.get(k).add(r.c.toLowerCase());
+  }
+  const missing = [];
+  const nameOf = (c) => String(typeof c === "string" ? c : ((c && c.name) || ""));
+  const tables = spec.tables.map((t) => {
+    if (!t || typeof t !== "object" || !t.name || !Array.isArray(t.columns)) return t;
+    const has = live.get(String(t.name).toLowerCase());
+    if (!has) return t;
+    const gone = new Set();
+    const kept = t.columns.filter((c) => {
+      const n = nameOf(c);
+      if (!n || has.has(n.toLowerCase())) return true;
+      gone.add(n.toLowerCase());
+      missing.push({ table: t.name, column: n });
+      return false;
+    });
+    if (!gone.size) return t;
+    const out = { ...t, columns: kept };
+    for (const k of ["refs", "refModes", "rules"]) {
+      if (out[k] && typeof out[k] === "object" && !Array.isArray(out[k])) out[k] = Object.fromEntries(Object.entries(out[k]).filter(([c]) => !gone.has(c.toLowerCase())));
+    }
+    for (const k of ["num", "json"]) {
+      if (Array.isArray(out[k])) out[k] = out[k].filter((c) => !gone.has(String(c).toLowerCase()));
+    }
+    return out;
+  });
+  return { spec: missing.length ? { ...spec, tables } : spec, missing };
+}
+
+/**
  * WHAT THE DATABASE REALLY HOLDS AND WHAT THE SPEC SAYS IT HOLDS — four
  * outcomes, and the two that used to be one are the reason this exists.
  *

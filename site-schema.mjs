@@ -965,6 +965,9 @@ export async function applySiteSchema(uuid, spec) {
   spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
+  // THE COLUMNS EACH TABLE ASKED FOR AND DID NOT GET (2026-10-07), so the
+  // stored declaration's union below cannot bring one back from an earlier copy.
+  const notAddedBy = new Map();
   // CONSTRAINTS THAT WOULD NOT APPLY, collected rather than logged.
   //
   // A `checks` rule usually fails for one reason and it is a reason the owner
@@ -1198,9 +1201,23 @@ export async function applySiteSchema(uuid, spec) {
     // answers a column that is there, so what still throws here is a column the
     // table does not have and was asked for; it joins the refused guarantees
     // below — not a failure of the apply, never silent.
+    const notAdded = new Set();
     for (let ai = 0; ai < appAdds.length; ai++) {
       try { await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + appAdds[ai]); }
-      catch (e) { refused.push({ table: t.name, feature: "column", rule: appAddNames[ai], why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) }); }
+      catch (e) { refused.push({ table: t.name, feature: "column", rule: appAddNames[ai], why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) }); notAdded.add(appAddNames[ai].toLowerCase()); }
+    }
+    // …AND A COLUMN THAT DID NOT GO IN IS NOT A COLUMN (2026-10-07, Codex's
+    // review of the cleanup batch). `colNames` is read below as "the columns
+    // really created" — by the public projection, the column-scoped write
+    // grants (one GRANT naming a missing column fails whole, leaving the table
+    // unwritable), the rules' column checks and the stored declaration every
+    // designer later reads — so the refused ones leave it here, with what each
+    // keeps per column, and the declaration never offers them.
+    if (notAdded.size) {
+      const keep = (n) => !notAdded.has(String(n).toLowerCase());
+      for (const list of [colNames, numCols, jsonCols]) { const kept = list.filter(keep); list.length = 0; list.push(...kept); }
+      for (const map of [refs, refModes, rules]) for (const k of Object.keys(map)) if (!keep(k)) delete map[k];
+      notAddedBy.set(String(t.name).toLowerCase(), notAdded);
     }
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
     // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
@@ -1764,9 +1781,11 @@ export async function applySiteSchema(uuid, spec) {
           if (Array.isArray(prevT.columns) && Array.isArray(t.columns)) {
             const colName = (c) => String(typeof c === "string" ? c : ((c && c.name) || "")).toLowerCase();
             const have = new Set(t.columns.map(colName).filter(Boolean));
+            // A COLUMN THIS APPLY WAS REFUSED is not restored from the copy before it (2026-10-07).
+            const refusedHere = notAddedBy.get(key) || new Set();
             for (const c of prevT.columns) {
               const n = colName(c);
-              if (!n || have.has(n)) continue;
+              if (!n || have.has(n) || refusedHere.has(n)) continue;
               t.columns.push(c);
               have.add(n);
             }

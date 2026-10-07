@@ -1,0 +1,131 @@
+[
+ {
+  "label": "engine: a refused column not marked",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "notAdded.add(appAddNames[ai].toLowerCase()); }",
+  "to": "}"
+ },
+ {
+  "label": "engine: refused columns kept as created",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      for (const list of [colNames, numCols, jsonCols]) { const kept = list.filter(keep); list.length = 0; list.push(...kept); }\n",
+  "to": ""
+ },
+ {
+  "label": "engine: per-column entries kept",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      for (const map of [refs, refModes, rules]) for (const k of Object.keys(map)) if (!keep(k)) delete map[k];\n",
+  "to": ""
+ },
+ {
+  "label": "engine: the union restores a refused column",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "if (!n || have.has(n) || refusedHere.has(n)) continue;",
+  "to": "if (!n || have.has(n)) continue;"
+ },
+ {
+  "label": "engine: the refused set not kept for the union",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      notAddedBy.set(String(t.name).toLowerCase(), notAdded);\n",
+  "to": ""
+ },
+ {
+  "label": "reader: a table the catalog lacks is emptied",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "    if (!has) return t;\n",
+  "to": "    if (!has) return { ...t, columns: [] };\n"
+ },
+ {
+  "label": "reader: case-sensitive match",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "      if (!n || has.has(n.toLowerCase())) return true;",
+  "to": "      if (!n || has.has(n)) return true;"
+ },
+ {
+  "label": "reader: per-column maps kept",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "      if (out[k] && typeof out[k] === \"object\" && !Array.isArray(out[k])) out[k] = Object.fromEntries(Object.entries(out[k]).filter(([c]) => !gone.has(c.toLowerCase())));\n",
+  "to": ""
+ },
+ {
+  "label": "reader: type lists kept",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "      if (Array.isArray(out[k])) out[k] = out[k].filter((c) => !gone.has(String(c).toLowerCase()));\n",
+  "to": ""
+ },
+ {
+  "label": "reader: the input changed in place",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "    const out = { ...t, columns: kept };",
+  "to": "    const out = Object.assign(t, { columns: kept });"
+ },
+ {
+  "label": "reader: rows not rows read",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": "    if (!r || typeof r.t !== \"string\" || typeof r.c !== \"string\") continue;",
+  "to": "    if (!r) continue;"
+ },
+ {
+  "label": "designers: the stored spec offered whole",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (!st.missing.length) { const live = liveDeclared(st.spec, st.columns); return { ok: true, spec: live.spec, recovered: [], unavailable: live.missing }; }",
+  "to": "if (!st.missing.length) return { ok: true, spec: st.spec, recovered: [] };"
+ },
+ {
+  "label": "designers: the recovered spec offered whole",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  const live = liveDeclared(out.spec, st.columns);\n  return { ok: true, spec: live.spec,",
+  "to": "  const live = liveDeclared(out.spec, st.columns);\n  return { ok: true, spec: out.spec,"
+ },
+ {
+  "label": "data step: the declaration offered whole",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  try { dSpec = liveDeclared(dSpec, await sqlQuery(ddb, RECOVER_QUERIES.columns)).spec; }",
+  "to": "                  try { await sqlQuery(ddb, RECOVER_QUERIES.columns); }"
+ },
+ {
+  "label": "data step: an unread catalog keeps the declaration",
+  "files": [
+   "worker.js"
+  ],
+  "from": "catch (e) { console.error(\"data edit catalog read failed:\", ownerSlug, errorClassForLog(e)); dSpec = null; }",
+  "to": "catch (e) { console.error(\"data edit catalog read failed:\", ownerSlug, errorClassForLog(e)); }"
+ },
+ {
+  "label": "CONTROL: a comment",
+  "files": [
+   "site-schema-recover.mjs"
+  ],
+  "from": " * THE DECLARED COLUMNS THE DATABASE REALLY HAS (2026-10-07, Codex's review of",
+  "to": " * THE DECLARED COLUMNS THE DATABASE REALLY HAS (2026-10-07, Codex's review of (sweep control)",
+  "control": true
+ }
+]

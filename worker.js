@@ -30,7 +30,7 @@ import { backendState, unsetDbFilter, dbNameFromConn } from "./site-backend-stat
 // declaration through. `reconcileSpec` takes them injected rather than
 // importing them, so the comparison can never be against a second copy — see
 // site-schema-recover.mjs.
-import { readSchemaState, reconcileSpec, RECOVER_QUERIES } from "./site-schema-recover.mjs";
+import { readSchemaState, reconcileSpec, RECOVER_QUERIES, liveDeclared } from "./site-schema-recover.mjs";
 import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
@@ -7700,7 +7700,11 @@ function withStoredSpec(spec, stored) {
 async function specForAddon(conn) {
   const st = await readStoredSpec(conn);
   if (!st.ok) return { ok: false, why: st.state + ":" + st.why };
-  if (!st.missing.length) return { ok: true, spec: st.spec, recovered: [] };
+  // A DECLARED COLUMN THE DATABASE DOES NOT HAVE IS NOT OFFERED (2026-10-07,
+  // `liveDeclared`): a column the engine could not add stayed declared, and
+  // every designer this spec reaches took it as one it could use. Cut to the
+  // catalog read above, and named (`unavailable`) for whoever logs it.
+  if (!st.missing.length) { const live = liveDeclared(st.spec, st.columns); return { ok: true, spec: live.spec, recovered: [], unavailable: live.missing }; }
 
   let grants = [], policies = [], triggers = [];
   try {
@@ -7718,7 +7722,8 @@ async function specForAddon(conn) {
   const out = reconcileSpec({ stored: st.spec, live: { columns: st.columns, grants, policies, triggers }, emit: { policiesFor, grantsFor } });
   const left = st.missing.filter((n) => !out.recovered.some((r) => String(r.name).toLowerCase() === String(n).toLowerCase()));
   if (left.length) return { ok: false, why: "unrecoverable-tables", tables: left.slice(0, 8) };
-  return { ok: true, spec: out.spec, recovered: out.recovered.map((r) => r.name) };
+  const live = liveDeclared(out.spec, st.columns);
+  return { ok: true, spec: live.spec, recovered: out.recovered.map((r) => r.name), unavailable: live.missing };
 }
 
 /**
@@ -26035,6 +26040,16 @@ async function handleRequest(request, env, ctx) {
                   const rows = await sqlQuery(ddb, "SELECT v FROM _meta WHERE k = 'schema'");
                   if (rows && rows[0] && rows[0].v) dSpec = JSON.parse(rows[0].v);
                 } catch (e) { console.error("data edit schema read failed:", ownerSlug, e && e.message); }
+                // …AND NEVER A COLUMN THE TABLE DOES NOT HAVE (2026-10-07,
+                // `liveDeclared`): the data model is shown each list's columns
+                // and may write any of them, so the declaration is cut to the
+                // catalog's own; a catalog that cannot be read sends the step
+                // to the catalog-first reader below, which stops rather than
+                // guess.
+                if (dSpec) {
+                  try { dSpec = liveDeclared(dSpec, await sqlQuery(ddb, RECOVER_QUERIES.columns)).spec; }
+                  catch (e) { console.error("data edit catalog read failed:", ownerSlug, errorClassForLog(e)); dSpec = null; }
+                }
               }
               if (!dSpec) {
                 const dRead = await specForAddon(ddb);
