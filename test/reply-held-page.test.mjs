@@ -63,6 +63,11 @@ const SRC = [
   cutLine("const siteTablesOrder ="),
   cut("function siteTablesAdd("),
   cut("function siteTablesRead("),
+  // …AND READ AGAIN WHEN AN ADDITION THAT DID NOT GO THROUGH LEFT TABLES STANDING (2026-10-07).
+  cutLine("const SITE_ROUTES_WAIT_MS ="),
+  cut("function siteTablesStanding("),
+  cut("function siteTablesSync("),
+  cut("function siteTablesAfter("),
   cut("function siteHoldUnsent("),
   cutLine("const siteNewDraft ="),
   cut("function siteDraft("),

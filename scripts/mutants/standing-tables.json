@@ -1,0 +1,155 @@
+[
+ {
+  "label": "route: the inventory never answered",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const rTables = url.searchParams.get(\"tables\") === \"1\"",
+  "to": "const rTables = false"
+ },
+ {
+  "label": "route: cannot-tell answered as none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "? { tables: await withinMs(routeTableNames(env, ru2.id, rslug, true), ROUTE_TABLES_MS, \"routes tables:\", rslug) }",
+  "to": "? { tables: (await withinMs(routeTableNames(env, ru2.id, rslug, true), ROUTE_TABLES_MS, \"routes tables:\", rslug)) || [] }"
+ },
+ {
+  "label": "evidence: an applied failure's tables not named",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (f && f.database === 'applied') out.names.push(...strs(f.tables));\n",
+  "to": ""
+ },
+ {
+  "label": "evidence: an unknown failure not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (f && f.database === 'unknown') out.unknown = true;\n",
+  "to": ""
+ },
+ {
+  "label": "evidence: the record's tables not named",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    out.names.push(...strs(m.tables));\n",
+  "to": ""
+ },
+ {
+  "label": "evidence: an unsettled record not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (m.status === 'pending' || m.status === 'failed') out.unknown = true;\n",
+  "to": ""
+ },
+ {
+  "label": "sync: the read takes the latest clock",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const sent = ++siteTablesOrder.clock;\n  const ctl = new AbortController();\n  const timer = setTimeout(() => ctl.abort(), SITE_ROUTES_WAIT_MS);\n  return apiFetch('/api/site/routes?slug=' + encodeURIComponent(slug) + '&tables=1'",
+  "to": "  const sent = Infinity;\n  const ctl = new AbortController();\n  const timer = setTimeout(() => ctl.abort(), SITE_ROUTES_WAIT_MS);\n  return apiFetch('/api/site/routes?slug=' + encodeURIComponent(slug) + '&tables=1'"
+ },
+ {
+  "label": "sync: a list that is not names taken",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      if (!d.tables.every((x) => typeof x === 'string' && x)) return false;\n",
+  "to": ""
+ },
+ {
+  "label": "after: read whatever the evidence",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!st.names.length && !st.unknown) return false;\n  const s = siteById(origin);",
+  "to": "  const s = siteById(origin);"
+ },
+ {
+  "label": "after: the site's list not read again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteTablesAdd(s, st.names);\n  sitesSave();\n  siteTablesSync(origin);",
+  "to": "  siteTablesAdd(s, st.names);\n  sitesSave();"
+ },
+ {
+  "label": "after: the named tables not kept at once",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteTablesAdd(s, st.names);\n  sitesSave();\n  siteTablesSync(origin);",
+  "to": "  sitesSave();\n  siteTablesSync(origin);"
+ },
+ {
+  "label": "sync post: this page's own failure not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    siteTablesAfter(origin, a);\n    return addonAnswer(r && r.ok, a,",
+  "to": "    return addonAnswer(r && r.ok, a,"
+ },
+ {
+  "label": "request job: a stop with no answer not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "e.escalate === true) { siteTablesAfter(origin, e); return true; }",
+  "to": "e.escalate === true) { return true; }"
+ },
+ {
+  "label": "request job: a failure read by any reader not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteTablesAfter(origin, body);\n  if (!mine && siteReqRefresh(",
+  "to": "  if (!mine && siteReqRefresh("
+ },
+ {
+  "label": "found job: a stop with no answer not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      // …AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).\n      siteTablesAfter(origin, e);\n      stop();",
+  "to": "      stop();"
+ },
+ {
+  "label": "found job: a stored refusal not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH (2026-10-07).\n    siteTablesAfter(origin, e);\n    siteReqRefresh(origin, !!r.ok, e, addon);",
+  "to": "    siteReqRefresh(origin, !!r.ok, e, addon);"
+ },
+ {
+  "label": "own watch: a stop with no answer not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    // AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).\n    siteTablesAfter(origin, e);\n    finish(",
+  "to": "    finish("
+ },
+ {
+  "label": "own watch: a stored refusal not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    siteTablesAfter(origin, once);\n    return reader(httpOk, once,",
+  "to": "    return reader(httpOk, once,"
+ },
+ {
+  "label": "CONTROL: a comment",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    // AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).\n    siteTablesAfter(origin, e);\n    finish(",
+  "to": "    // AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07). (sweep control)\n    siteTablesAfter(origin, e);\n    finish(",
+  "control": true
+ }
+]

@@ -21837,11 +21837,23 @@ async function handleRequest(request, env, ctx) {
       // (`sitePageRoutes`, 2026-10-03), so the router and the picker are told
       // the same pages.
       const uniq = sitePageRoutes(rPages);
+      // …AND THE SITE'S TABLES, WHEN ASKED (`tables=1`, 2026-10-07, Codex's
+      // review of the cleanup batch): an addition that did not go through can
+      // leave tables standing, and the page reads them here at once rather
+      // than at the next routing answer. THE ROUTING ROUTE'S OWN READER
+      // (`routeTableNames`), bounded the same way, with its three answers kept
+      // apart: names, an empty list for a site that has none, and `null` when
+      // they cannot be told — never "none" for a read that did not answer.
+      // Unasked, the answer is what it always was.
+      const rTables = url.searchParams.get("tables") === "1"
+        ? { tables: await withinMs(routeTableNames(env, ru2.id, rslug, true), ROUTE_TABLES_MS, "routes tables:", rslug) }
+        : {};
       return Response.json({
         ok: true,
         slug: rslug,
         routes: uniq,
         ...(uniq.length ? {} : { why: "nothing stored — this site has not published a build yet" }),
+        ...rTables,
       });
     }
 

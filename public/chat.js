@@ -9349,6 +9349,76 @@ function siteTablesRead(s, names, sent) {
   s.tables = next;
   return true;
 }
+/**
+ * WHAT AN ADDITION THAT DID NOT GO THROUGH LEFT IN THE DATABASE (2026-10-07,
+ * Codex's review of the cleanup batch): the tables its evidence names as
+ * standing, and whether it says some may stand that it cannot name. Read from
+ * the evidence alone — a failure's outcome (`failureOutcomeOf`: what went in
+ * when its database change landed, `unknown` when it stopped part-way), or,
+ * for a job that ended with no answer or stopped, its database record
+ * (`migration`: the tables it records applied, and a record that never
+ * settled, or failed, cannot name what stands).
+ */
+function siteTablesStanding(e) {
+  const out = { names: [], unknown: false };
+  if (!e || typeof e !== 'object') return out;
+  const strs = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
+  const f = failureOutcomeOf(e);
+  if (f && f.database === 'applied') out.names.push(...strs(f.tables));
+  if (f && f.database === 'unknown') out.unknown = true;
+  const m = e.migration;
+  if (m && typeof m === 'object' && !Array.isArray(m)) {
+    out.names.push(...strs(m.tables));
+    if (m.status === 'pending' || m.status === 'failed') out.unknown = true;
+  }
+  out.names = [...new Set(out.names)];
+  return out;
+}
+/**
+ * THE SITE'S TABLES READ AGAIN FROM THE SERVER (2026-10-07): its own
+ * inventory, through the routing route's reader (`/api/site/routes` with
+ * `tables=1`), taken on the clock a routing call keeps (`siteTablesRead`) —
+ * so an answer to a routing call sent after this read still wins, and a table
+ * an addition put there after it went out is kept. A read that cannot tell
+ * (no answer, `null`, a list that is not names) changes nothing.
+ */
+function siteTablesSync(origin) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return Promise.resolve(false);
+  const slug = s.slug;
+  const sent = ++siteTablesOrder.clock;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SITE_ROUTES_WAIT_MS);
+  return apiFetch('/api/site/routes?slug=' + encodeURIComponent(slug) + '&tables=1', { signal: ctl.signal })
+    .then(async (r) => {
+      const d = await r.json().catch(() => null);
+      const t = siteById(origin);
+      if (!r.ok || !d || d.ok !== true || !t || t.slug !== slug || !Array.isArray(d.tables)) return false;
+      if (!d.tables.every((x) => typeof x === 'string' && x)) return false;
+      if (!siteTablesRead(t, d.tables, sent)) return false;
+      sitesSave();
+      return true;
+    })
+    .catch(() => false)
+    .then((changed) => { clearTimeout(timer); return changed; });
+}
+/**
+ * AN ADDITION THAT DID NOT GO THROUGH, OR WAS STOPPED, AND LEFT TABLES
+ * STANDING (2026-10-07): the tables its evidence names join the page's list at
+ * once, and the site's own list is read again — so a table that stands is
+ * known when the failure is read, not at the next routing answer. True when
+ * the evidence said any stand, or may.
+ */
+function siteTablesAfter(origin, e) {
+  const st = siteTablesStanding(e);
+  if (!st.names.length && !st.unknown) return false;
+  const s = siteById(origin);
+  if (!s || !s.slug) return false;
+  siteTablesAdd(s, st.names);
+  sitesSave();
+  siteTablesSync(origin);
+  return true;
+}
 // Ask the router whether this is a question, then either answer it or build.
 //
 // ONE extra call in front of the build path, ~0.3 credits, and it pays for
@@ -9953,7 +10023,9 @@ async function siteRequestJobReply(origin, key, part, job) {
   if (s.msgs.some((m) => m && m.req === key && m.job === job)) return true;
   // A JOB WITH NO STORED REPLY, OR A HAND-OVER (the server's to act on): the
   // request's own reply says what became of the part.
-  if ((read.act !== 'reply' && !held) || !e || typeof e !== 'object' || e.escalate === true) return true;
+  // …WITH WHAT ITS DATABASE RECORD SAYS STANDS (2026-10-07): a job stopped or
+  // dead after its tables went in brings the site's table list up to date.
+  if ((read.act !== 'reply' && !held) || !e || typeof e !== 'object' || e.escalate === true) { siteTablesAfter(origin, e); return true; }
   // A QUESTION WAITING ITS TURN is not drawn as live: its card comes when the
   // server puts it in the site's slot. AND THE PARTS THIS STEP LEFT ARE THE
   // REQUEST'S OWN, on its card and run after it by the server, so the page's
@@ -9995,6 +10067,9 @@ async function siteRequestJobReply(origin, key, part, job) {
   // addition's answer carries none). Never another browser's request or one
   // picked up from the server (`own`), and never over something asked for
   // since, whose own result decides the offer.
+  // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH brings the
+  // site's table list up to date here, whoever's reader said it (`siteTablesAfter`).
+  siteTablesAfter(origin, body);
   if (!mine && siteReqRefresh(origin, !!r.ok, body, addon) && st.own === true && !siteReqAskedSince(s, key)) {
     siteUndoKeep(s, body);
     sitesSave();
@@ -10439,6 +10514,8 @@ function siteJobFollow(origin, job) {
       // AND WHAT STANDS, IN THE SERVER'S OWN NOTE (2026-10-07): a job that
       // died after an addition's database change went in says so.
       siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : ''));
+      // …AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).
+      siteTablesAfter(origin, e);
       stop();
       return;
     }
@@ -10462,6 +10539,8 @@ function siteJobFollow(origin, job) {
       const o = { site: null, d: { intent: addon ? 'addon' : 'edit', layer: '' }, instruction: c.view.words, origin: '', finish: (t) => siteJobSay(origin, job, t), fallback: null, imgs: [], handedOff: false, slug: '' };
       try { (addon ? addonAnswer : editAnswer)(!!r.ok, e, o); } catch (err) { /* what was said stands */ }
     }
+    // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH (2026-10-07).
+    siteTablesAfter(origin, e);
     siteReqRefresh(origin, !!r.ok, e, addon);
   };
   // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).
@@ -11216,6 +11295,8 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // `httpOk` is the POLL's, which for a stored reply IS the edit's own
     // status: a 422 handed back by the poll says the edit did not compile
     // exactly as an inline 422 does.
+    // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH (2026-10-07).
+    siteTablesAfter(origin, once);
     return reader(httpOk, once, { site, d, instruction, origin, finish: said, fallback, imgs, handedOff: !!handedOff, slug });
   };
   const step = async () => {
@@ -11307,6 +11388,8 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // AND WHAT STANDS, IN THE SERVER'S OWN NOTE (2026-10-07): a job that died
     // after an addition's database change went in says so — printed
     // verbatim, as a failure's `coverNote` is, never composed here.
+    // AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).
+    siteTablesAfter(origin, e);
     finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : '') + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
@@ -11599,6 +11682,11 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
       watchEditJob(site, d, said.job, origin, tell, fallback, instruction, imgs, addonAnswer);
       return;
     }
+    // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH (2026-10-07):
+    // the site's table list brought up to date now (`siteTablesAfter`) —
+    // here, by the page that owns the site, never inside the reader, which
+    // the paid runs' harness executes on its own.
+    siteTablesAfter(origin, a);
     return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish: tell, fallback, slug, imgs });
     // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
     // addition may have been filed, and a rewrite on top of it would charge

@@ -170,6 +170,8 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
     siteBuild: { react: true, rphase: "thinking" }, paintReactLive: () => { paints++; },
     replyTellsEnding: () => false, editReplyHold: () => { throw new Error("not held here"); },
     editAnswer: (ok, e, o) => o.finish(e.reply), scheduleCreditRefresh: () => {}, alsoTail: () => "", wholeRequestNote: () => "",
+    // An edit's answer leaves no table standing; the table list's own cases are test/standing-tables.test.mjs.
+    siteTablesAfter: () => false,
     Response, Headers,
   });
   vm.runInContext([cutLine("const editWatched ="), cut("function siteKeepJobProgress("), cut("function watchEditJob(")].join("\n"), ctx);

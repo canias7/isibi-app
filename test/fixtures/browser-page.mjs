@@ -87,6 +87,8 @@ const FNS = [...new Set([
   // A SITE'S TABLE LIST, IN ORDER (2026-10-05): every addition's tables, and
   // each routing answer's read, kept by when its call went out.
   "siteTablesAdd", "siteTablesRead",
+  // …AND READ AGAIN WHEN AN ADDITION THAT DID NOT GO THROUGH LEFT TABLES STANDING (2026-10-07).
+  "siteTablesStanding", "siteTablesSync", "siteTablesAfter",
   // A JOB'S PROGRESS LINES (2026-10-06): under a request part, kept on a
   // watched job's reply, and on the card of a job found from another device.
   "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobOutcome", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
