@@ -7489,9 +7489,11 @@ const STANDALONE_JOBS_MAX = 20;
  * the table — the Data panel included, which files no job.
  */
 const NEWER_WORK_LIMIT = 50;
-async function newerWorkSince(env, uid, slug, rec) {
+// `queued`: whether the site's edits are queued now, as the request handler
+// read it — the canary configuration is read at that one fork, never here.
+async function newerWorkSince(env, uid, slug, rec, queued) {
   if (!env || !env.SUPABASE_SERVICE_KEY || !rec || !Number.isFinite(rec.at) || typeof rec.key !== "string") return null;
-  if (!editAsyncFor(env, { uid, slug })) return null;
+  if (queued !== true) return null;
   try {
     const since = new Date(rec.at).toISOString();
     const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,idem_key&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&created_at=gt.${encodeURIComponent(since)}&order=created_at.asc&limit=${NEWER_WORK_LIMIT}`, { headers: svcHeaders(env) });
@@ -23657,7 +23659,7 @@ async function handleRequest(request, env, ctx) {
         // a late-read request's undo offer. A read only: the request is not
         // moved on.
         if (request.method === "GET" && url.searchParams.get("newer") === "1") {
-          return Response.json({ ok: true, newer: await newerWorkSince(env, qu.id, qSlug, found.rec) });
+          return Response.json({ ok: true, newer: await newerWorkSince(env, qu.id, qSlug, found.rec, editAsyncFor(env, { uid: qu.id, slug: qSlug })) });
         }
         const moved = request.method === "DELETE"
           ? await stopRequest(env, ctx, qSlug, qKey, qu.id)

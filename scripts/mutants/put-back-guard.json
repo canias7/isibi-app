@@ -140,7 +140,7 @@
   "files": [
    "worker.js"
   ],
-  "from": "  if (!editAsyncFor(env, { uid, slug })) return null;\n  try {\n    const since",
+  "from": "  if (queued !== true) return null;\n  try {\n    const since",
   "to": "  try {\n    const since"
  },
  {
