@@ -1434,6 +1434,47 @@ job **45 s** (01:17:45–01:18:30):
   the logs, so their usage stays unverified. Not run again, under the owner's
   rule (`docs/history/2026-10-07-deploy-2186.md` §8).
 
+**Deploy 2188 (2026-10-07) was predicted on both ends and built as
+predicted**, on the owner's word (*"I approve releasing the prepared batch and
+running its one combined live verification, with a maximum spend of 40
+credits"*, the stage in `docs/investigations/combined-release-plan.md`):
+`main` `bcc22295` → `9d6bda8a`, a fast-forward of 36 commits (the Edit/Add-on
+cleanup batch, its correction round and follow-up, the recovery correction
+reviewed by Codex at `092ff48a`, the prepared `lv-combined` press, and their
+records), pushed at 23:04:49 UTC. Run 37700151308, `push` on `9d6bda8a`, the
+only run that push started, `completed` / `success`, the job **3m11s**
+(23:04:56–23:08:07), the image step 2m17s (23:05:22–23:07:39), Wrangler 23 s:
+- **before** (23:03–23:04 UTC): the candidate `9d6bda8a`, `main` its
+  ancestor; **no product file changed since the reviewed `092ff48a`** (the
+  only file outside docs, tests and scripts is the dispatch-only canary form,
+  `.github/workflows/edit-canary.yml`), and only documents between
+  `570adb45` and `092ff48a`; unit CI green on the candidate itself (run
+  37698296313, `9885 / 9863 / 0 / 22`); the site build's gate green on
+  `570adb45` (run 37674861320 attempt 2, 404 checks), its inputs
+  `de6345b9058cd1cc` (3,974 files) the same at `9d6bda8a`; nothing in flight
+  (read twice, the second right before the push); no open job in any
+  account; balance 40, last row 401 (23:03:55); the rollback giving back
+  `main`'s tree (`dcd4e727…`); no skip-CI marker in the 36 messages;
+  `chat.js` served as `bcc22295`'s (920,280 `0e68e324…`, 23:04:25);
+- **the image**: `built isibi-app-sitebuildcontainer:335396c8c0e0fbcb
+  (registry answered 404; 196 inputs off ./Dockerfile)` at 23:07:39, as
+  predicted (`5f946c22d42a1b10` → `335396c8c0e0fbcb`, 195 → 196 inputs,
+  seventeen differing);
+- **the drain** `no live leases after 1s — deploying` (the 1 printed masked);
+- **Wrangler**: 26 secrets, `PROGRESS_REPLIES`, `MODEL_REPLIES` and
+  `REQUEST_FLOW` printed masked (progress stays on); 1 asset uploaded
+  (`+ /chat.js`), 85 already there; the container's `- …:5f946c22d42a1b10` /
+  `+ …:335396c8c0e0fbcb`, `SUCCESS Modified application` at **23:07:59Z**;
+  `DEPLOY_ID` `9d6bda8afc4e8a99850bd1aff8cf412531a0ef23`, Version ID
+  `f2fc7b48-4b07-4c83-a8f4-…`;
+- **the served files** byte-identical to `9d6bda8a`'s at 23:08:44
+  (`chat.js` 939,255 `dfa07592…`; `edit-poll.js` `fa71335f…`, `styles.css`
+  `d7474cd7…` and `/` `84a910b8…`, unchanged by the release);
+- **the image window** waited once, to 23:25:05 UTC;
+- **the free runtime check is the owner's press**: the session's one
+  dispatch answered `403 Resource not accessible by integration` (23:25:15),
+  not retried (`docs/history/2026-10-07-combined-release.md`).
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

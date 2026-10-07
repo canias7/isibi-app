@@ -1,14 +1,38 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, the gate green, the release plan for your approval)
+## Current handoff — read this first (2026-10-07, deploy 2188 released on your approval; your two presses next)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
+**Your two presses now** (the session's dispatch answered `403 Resource not
+accessible by integration` at 23:25:15 UTC and was not retried). *Actions →
+edit canary → Run workflow*, boxes by description, every other box as it is:
+1. **The free runtime check, first.** "Use workflow from": `main`; "Run the ONE
+   paid edit as well (yes/no)": `no`; "Refuse to spend unless the Worker
+   reports this deploy sha …": `9d6bda8a`; "Refuse to spend unless a cold
+   container reports this image id (exact) …": `335396c8c0e0fbcb`. It passes
+   when both readers answer `9d6bda8a`, a cold container `335396c8c0e0fbcb`,
+   and nothing is charged.
+2. **Then, only once 1 is green, the paid press, once.** "Use workflow from":
+   `main`; "Run the ONE paid edit as well (yes/no)": `yes`; "RUN A NAMED
+   SCENARIO IN A REAL BROWSER …": `lv-combined`; "The site to edit …":
+   `fold-lane-bakery`; the deploy sha box `9d6bda8a`; the image box
+   `335396c8c0e0fbcb`. It sends nothing unless the balance is between 38 and
+   40 (it is 40), stops before message 2 or 3 once it has spent 38, and is not
+   to be pressed again if it fails.
+
 **State now**
-- **Production is as it was**: `main` is `bcc22295`, progress messages live
-  (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187).
+- **Released on your word, deployed, not yet runtime-confirmed**: `main`
+  `bcc22295` → **`9d6bda8a`** (36 commits, one fast-forward, 23:04:49 UTC);
+  **deploy 2188** (run 37700151308) green, the image **built
+  `335396c8c0e0fbcb`** as predicted and rolled from `5f946c22d42a1b10` at
+  23:07:59; `chat.js` served byte for byte as merged (939,255 bytes,
+  `dfa07592…`); progress on; the image window over at 23:25. Every preflight
+  check passed, and **no product file changed since the reviewed
+  `092ff48a`** (only the canary's dispatch form, docs, tests and canary
+  scripts). `docs/history/2026-10-07-combined-release.md`.
 - **The verification gate is green**: your re-run of run 37674861320
   (attempt 2) passed every job, and `all checks` read four shard reports,
   every section once and the candidate's inputs (the next section).
@@ -21,9 +45,9 @@ is in git; the dated entries further down are the full story.*
   22:06:15 UTC. Read back at 22:06:32: 40, the last row still 401, no job
   open; the same at 22:41.
 - **Nothing was spent** (no model called, no paid run).
-- **The release plan waits for your approval**:
-  `docs/investigations/combined-release-plan.md` (summary below). Nothing is
-  merged, deployed, built, provisioned or paid until you approve it.
+- **The release plan was approved** (`docs/investigations/combined-release-plan.md`):
+  the merge and the deploy are done; the free check and the paid press are
+  your presses (above). Nothing is spent yet.
 - **This round's commits**: `b791dec0` (the canary's combined release check
   and the order check reading a fresh-session message's card, with the plan
   and its tests), `43c5b635` (the records, the plan and the handoff) and
@@ -175,6 +199,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Deploy 2188: the combined release merged and deployed on your approval (`9d6bda8a`, image `335396c8c0e0fbcb`); the free check and the paid press are yours
+
+- **The preflight passed**: candidate `9d6bda8a`; no product change since the
+  reviewed `092ff48a`; the gate's inputs the same; unit CI green on the
+  candidate; nothing running; balance 40; the image predicted; the rollback
+  verified.
+- **The release**: one fast-forward of `main` (`bcc22295` → `9d6bda8a`), deploy
+  2188 green, the image built once (`5f946c22d42a1b10` → `335396c8c0e0fbcb`),
+  `chat.js` served as merged, the image window waited.
+- **Blocked**: my one dispatch of the free runtime check answered 403
+  (*Resource not accessible by integration*); not retried. Your two presses
+  are in the handoff. Nothing spent.
 
 ## 2026-10-07 — The site build's gate is green on your re-run; the funds at exactly 40 (records only, on the branch; nothing merged, deployed, built, paid or provisioned)
 
