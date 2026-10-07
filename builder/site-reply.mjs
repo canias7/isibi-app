@@ -777,24 +777,40 @@ function outcomeFacts(F, e) {
  * ONE FACT PER ROW CHANGE (2026-10-07), from `changes` (`dataChanges` in
  * site-apply.mjs): which entry, each field, from what to what — the before
  * side as the route read it, the after side as the database handed it back.
- * A field the change left as it already was is said so; values the database
- * did not hand back are said as written, never as read.
+ * A field is said to have been "already" right only where `dataChanges`
+ * decided it on the whole, typed values (`same: true`); a before side nobody
+ * read is said as not read, never as empty; a value the database did not hand
+ * back is said as written, field by field; a value shown only in part says
+ * so, and two that differ past the part shown are said to differ (Codex's
+ * review: a cut display that looked the same was told as nothing changed).
  */
 function dataChangeFacts(F, list) {
   const val = (v) => (v === null || v === undefined || v === "" ? "empty" : quote(v));
+  const shown = (v, cut) => val(v) + (cut === true ? " (only the start is shown here; the entry keeps the whole of it)" : "");
+  const WRITTEN = " (as written; the database did not hand this back)";
   list.forEach((c, i) => {
     const table = flat(c.table);
-    const unread = c.readBack === false || (Array.isArray(c.fields) && c.fields.some((f) => f && f.readBack === false));
-    const asWritten = unread ? " The database did not hand the entry back, so these are the values written, not values read back." : "";
     if (c.added && typeof c.added === "object" && !Array.isArray(c.added)) {
-      const bits = Object.entries(c.added).map(([k, v]) => flat(k) + " " + val(v));
-      F.add("changed", "Added an entry to " + table + (bits.length ? ": " + bits.join(", ") : "") + "." + asWritten, "change:" + i);
+      const unread = new Set(Array.isArray(c.unread) ? c.unread : []);
+      const cut = new Set(Array.isArray(c.cut) ? c.cut : []);
+      const whole = c.readBack === false;
+      const bits = Object.entries(c.added).map(([k, v]) => flat(k) + " " + shown(v, cut.has(k)) + (!whole && unread.has(k) ? WRITTEN : ""));
+      F.add("changed", "Added an entry to " + table + (bits.length ? ": " + bits.join(", ") : "") + "." +
+        (whole ? " The database did not hand the entry back, so these are the values written, not values read back." : ""), "change:" + i);
       return;
     }
     const fields = (Array.isArray(c.fields) ? c.fields : []).filter((f) => f && typeof f.column === "string");
+    // NOTHING HANDED BACK AT ALL is said once for the entry; a field missing from what came back, on that field.
+    const whole = fields.length > 0 && fields.every((f) => f.readBack === false);
+    const asWritten = whole ? " The database did not hand the entry back, so these are the values written, not values read back." : "";
     const entry = c.label !== undefined && c.label !== null && flat(c.label) ? "the entry " + quote(c.label) : "an entry";
-    const moved = fields.filter((f) => f.same !== true).map((f) => flat(f.column) + " from " + val(f.was) + " to " + val(f.now));
-    const same = fields.filter((f) => f.same === true).map((f) => flat(f.column) + " was already " + val(f.now));
+    const step = (f) => {
+      const now = shown(f.now, f.nowCut) + (!whole && f.readBack === false ? WRITTEN : "");
+      if (f.wasUnknown === true) return flat(f.column) + " is now " + now + " (what it was before was not read)";
+      return flat(f.column) + " from " + shown(f.was, f.wasCut) + " to " + now + (f.differsPastCut === true ? " (the two differ past the start shown)" : "");
+    };
+    const moved = fields.filter((f) => f.same !== true).map(step);
+    const same = fields.filter((f) => f.same === true).map((f) => flat(f.column) + " was already " + shown(f.now, f.nowCut));
     if (moved.length) F.add("changed", "Changed " + entry + " in " + table + ": " + moved.join("; ") + "." + asWritten, "change:" + i);
     if (same.length) F.add("nothing", "Nothing to change for " + entry + " in " + table + ": " + same.join("; ") + ".", "change-same:" + i);
     if (!moved.length && !same.length) F.add("changed", "Updated " + entry + " in " + table + "." + asWritten, "change:" + i);

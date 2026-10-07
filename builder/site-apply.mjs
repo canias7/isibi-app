@@ -757,22 +757,51 @@ export const MAX_CHANGE_VALUE = 200;
  *
  * Removals are not here: their whole row already rides back as `was` on
  * `applied`, the undo a deleted row has. One entry per update or addition:
- *   { table, id, label?, fields: [{ column, was, now, same?, readBack? }] }
- *   { table, id?, added: { column: value }, readBack? }
+ *   { table, id, label?, fields: [{ column, was?, now, same?, wasUnknown?, readBack?, wasCut?, nowCut?, differsPastCut? }] }
+ *   { table, id?, added: { column: value }, unread?: [column], cut?: [column], readBack? }
  * `label` names the entry: the first declared column, other than one this
  * change wrote, whose value before it was words — what the list shows it as.
+ *
+ * ── EQUALITY IS DECIDED ON THE VALUES, NEVER ON WHAT IS SHOWN (2026-10-07) ──
+ *
+ * Codex's review: `same` compared `String(was)` and `String(now)` after both
+ * were cut to 200 characters, so two long values differing past the cut read
+ * as "already right" and the narration was told the change did nothing; 40
+ * and "40" read as equal; a before value nobody read showed as null. Now:
+ *   * `same` is decided by `sameValue` on the values as read and handed back,
+ *     whole and typed: `true` only when the before side was read AND the
+ *     after side came back from the database; `false` when both are known
+ *     and differ; absent when either side is not known — never guessed;
+ *   * a before value the route did not read (`wasUnknown`, no `was`) is not
+ *     null, which is a value a row can hold;
+ *   * each after value says where it came from: read back, or only what was
+ *     written (`readBack: false`, per field — a row handed back without that
+ *     field does not make the requested value a reading);
+ *   * shortening is for showing only and is marked on what it touched
+ *     (`wasCut`, `nowCut`), and two differing values whose shown starts are
+ *     the same say so (`differsPastCut`).
  */
+/** Equal as stored: a type is part of a value (40 is not "40"), null equals only null, an object equals one with the same keys and values in any order. */
+export function sameValue(a, b) {
+  if (a === b) return true;
+  if (typeof a === "number" && typeof b === "number") return Number.isNaN(a) && Number.isNaN(b);
+  if (a === null || b === null || a === undefined || b === undefined || typeof a !== typeof b) return false;
+  if (typeof a === "object") return canonical(a) === canonical(b);
+  return false;
+}
+const canonical = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));
+/** A value as the reply may show it: numbers, booleans and null as they are; anything else as text, cut at `MAX_CHANGE_VALUE` with "…" and marked. */
+function shownValue(v) {
+  if (v === null || v === undefined) return { value: null, cut: false };
+  if (typeof v === "number" || typeof v === "boolean") return { value: v, cut: false };
+  const s = typeof v === "string" ? v : canonical(v);
+  return s.length > MAX_CHANGE_VALUE ? { value: s.slice(0, MAX_CHANGE_VALUE) + "…", cut: true } : { value: s, cut: false };
+}
 export function dataChanges(applied, tables) {
   const byName = new Map();
   for (const t of Array.isArray(tables) ? tables : []) {
     if (t && typeof t.name === "string") byName.set(t.name, t);
   }
-  const cut = (v) => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === "number" || typeof v === "boolean") return v;
-    const s = String(v);
-    return s.length > MAX_CHANGE_VALUE ? s.slice(0, MAX_CHANGE_VALUE) + "…" : s;
-  };
   const plainRow = (r) => (r && typeof r === "object" && !Array.isArray(r) ? r : null);
   const out = [];
   for (const c of Array.isArray(applied) ? applied : []) {
@@ -782,22 +811,44 @@ export function dataChanges(applied, tables) {
     const cols = t && Array.isArray(t.columns) ? t.columns.filter((x) => typeof x === "string" && x !== "id") : [];
     const stored = plainRow(c.stored);
     const wrote = Object.keys(c.values);
+    // WHAT THE DATABASE HANDED BACK FOR ONE FIELD, or what was written when it handed back nothing for it.
+    const after = (k) => (stored && Object.hasOwn(stored, k) ? { raw: stored[k], read: true } : { raw: c.values[k], read: false });
     if (c.id === undefined) {
       const id = stored && Number.isSafeInteger(Number(stored.id)) ? Number(stored.id) : undefined;
-      const added = {};
-      for (const k of wrote) added[k] = cut(stored && Object.hasOwn(stored, k) ? stored[k] : c.values[k]);
-      out.push({ table: c.table, ...(id !== undefined ? { id } : {}), added, ...(stored ? {} : { readBack: false }) });
+      const added = {}, unread = [], cutCols = [];
+      for (const k of wrote) {
+        const a = after(k);
+        const sv = shownValue(a.raw);
+        added[k] = sv.value;
+        if (!a.read) unread.push(k);
+        if (sv.cut) cutCols.push(k);
+      }
+      out.push({ table: c.table, ...(id !== undefined ? { id } : {}), added,
+        ...(stored ? (unread.length ? { unread } : {}) : { readBack: false }), ...(cutCols.length ? { cut: cutCols } : {}) });
       continue;
     }
     const before = plainRow(t && Array.isArray(t.rows) ? t.rows.find((r) => r && Number(r.id) === c.id) : null);
     const words = (k) => before && typeof before[k] === "string" && before[k].trim();
     const name = cols.find((k) => !wrote.includes(k) && words(k)) || cols.find((k) => words(k)) || "";
     const fields = wrote.map((k) => {
-      const was = cut(before && Object.hasOwn(before, k) ? before[k] : null);
-      const now = cut(stored && Object.hasOwn(stored, k) ? stored[k] : c.values[k]);
-      return { column: k, was, now, ...(String(was) === String(now) ? { same: true } : {}), ...(stored ? {} : { readBack: false }) };
+      const known = !!before && Object.hasOwn(before, k);
+      const a = after(k);
+      const w = known ? shownValue(before[k]) : null;
+      const n = shownValue(a.raw);
+      // EQUAL ONLY WHEN BOTH SIDES ARE READINGS, decided on the values themselves.
+      const same = known && a.read ? sameValue(before[k], a.raw) : undefined;
+      return {
+        column: k,
+        ...(known ? { was: w.value } : { wasUnknown: true }),
+        now: n.value,
+        ...(same === undefined ? {} : { same }),
+        ...(a.read ? {} : { readBack: false }),
+        ...(w && w.cut ? { wasCut: true } : {}),
+        ...(n.cut ? { nowCut: true } : {}),
+        ...(same === false && w && w.cut && n.cut && w.value === n.value ? { differsPastCut: true } : {}),
+      };
     });
-    out.push({ table: c.table, id: c.id, ...(name ? { label: cut(before[name]) } : {}), fields });
+    out.push({ table: c.table, id: c.id, ...(name ? { label: shownValue(before[name]).value } : {}), fields });
   }
   return out;
 }

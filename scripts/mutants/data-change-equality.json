@@ -1,0 +1,115 @@
+[
+ {
+  "label": "CONTROL: a comment only in sameValue \u2014 must survive",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "export function sameValue(a, b) {",
+  "to": "export function sameValue(a, b) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "EQUAL \u2014 decided on the shown values (Codex's defect)",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const same = known && a.read ? sameValue(before[k], a.raw) : undefined;",
+  "to": "      const same = known && a.read ? String(w.value) === String(n.value) : undefined;"
+ },
+ {
+  "label": "EQUAL \u2014 types ignored",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "  if (a === null || b === null || a === undefined || b === undefined || typeof a !== typeof b) return false;",
+  "to": "  if (a === null || b === null || a === undefined || b === undefined) return false;\n  if (typeof a !== typeof b) return String(a) === String(b);"
+ },
+ {
+  "label": "EQUAL \u2014 claimed for a value only written",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const same = known && a.read ? sameValue(before[k], a.raw) : undefined;",
+  "to": "      const same = known ? sameValue(before[k], a.raw) : undefined;"
+ },
+ {
+  "label": "EQUAL \u2014 claimed without a before reading",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const same = known && a.read ? sameValue(before[k], a.raw) : undefined;",
+  "to": "      const same = a.read ? sameValue(known ? before[k] : null, a.raw) : undefined;"
+ },
+ {
+  "label": "BEFORE \u2014 an unread before shown as null",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "        ...(known ? { was: w.value } : { wasUnknown: true }),",
+  "to": "        was: known ? w.value : null,"
+ },
+ {
+  "label": "AFTER \u2014 a field missing from the row read as read back",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    const after = (k) => (stored && Object.hasOwn(stored, k) ? { raw: stored[k], read: true } : { raw: c.values[k], read: false });",
+  "to": "    const after = (k) => (stored && Object.hasOwn(stored, k) ? { raw: stored[k], read: true } : { raw: c.values[k], read: !!stored });"
+ },
+ {
+  "label": "CUT \u2014 the shortening not marked on the after side",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "        ...(n.cut ? { nowCut: true } : {}),",
+  "to": ""
+ },
+ {
+  "label": "CUT \u2014 a difference past the cut not said",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "        ...(same === false && w && w.cut && n.cut && w.value === n.value ? { differsPastCut: true } : {}),",
+  "to": ""
+ },
+ {
+  "label": "ADDED \u2014 a field missing from the returned row not marked",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "        if (!a.read) unread.push(k);",
+  "to": ""
+ },
+ {
+  "label": "FACTS \u2014 an unread before said as a change from empty",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "      if (f.wasUnknown === true) return flat(f.column) + \" is now \" + now + \" (what it was before was not read)\";",
+  "to": ""
+ },
+ {
+  "label": "FACTS \u2014 a value only written not marked on its field",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "      const now = shown(f.now, f.nowCut) + (!whole && f.readBack === false ? WRITTEN : \"\");",
+  "to": "      const now = shown(f.now, f.nowCut);"
+ },
+ {
+  "label": "FACTS \u2014 a difference past the cut not said",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "(f.differsPastCut === true ? \" (the two differ past the start shown)\" : \"\")",
+  "to": "\"\""
+ },
+ {
+  "label": "FACTS \u2014 an added field only written not marked",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "(!whole && unread.has(k) ? WRITTEN : \"\")",
+  "to": "\"\""
+ }
+]

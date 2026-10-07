@@ -125,16 +125,17 @@ test("DATA 1 — THE EVIDENCE OF EACH CHANGE: the entry by the words its list sh
   const out = dataChanges(applied, tables);
   assert.equal(out.length, 6, "a removal was told twice, or a change was dropped: " + JSON.stringify(out));
   // THE VALUE THE DATABASE KEPT, not the one asked for.
-  assert.deepEqual(out[0], { table: "loaves", id: 2, label: "Dark Rye", fields: [{ column: "price", was: 5.2, now: "5.60" }] });
+  assert.deepEqual(out[0], { table: "loaves", id: 2, label: "Dark Rye", fields: [{ column: "price", was: 5.2, now: "5.60", same: false }] });
   // THE ENTRY IS NAMED BY WHAT IT WAS, never by the words this change wrote over it.
   assert.equal(out[1].label, "Toasted sunflower, flax and sesame through a wholemeal dough.");
-  assert.deepEqual(out[1].fields, [{ column: "name", was: "Seeded Wholemeal", now: "Seeded Spelt" }]);
-  // NO ROW CAME BACK: the value written, said as such.
-  assert.deepEqual(out[2].fields, [{ column: "price", was: 5.8, now: 5.8, same: true, readBack: false }]);
+  assert.deepEqual(out[1].fields, [{ column: "name", was: "Seeded Wholemeal", now: "Seeded Spelt", same: false }]);
+  // NO ROW CAME BACK: the value written, said as such — and never "already right", which only a value read back can show (2026-10-07).
+  assert.deepEqual(out[2].fields, [{ column: "price", was: 5.8, now: 5.8, readBack: false }]);
   // ALREADY RIGHT.
   assert.deepEqual(out[3].fields, [{ column: "price", was: 6, now: 6, same: true }]);
   // CUT FOR THE REPLY, AND MARKED.
   assert.equal(out[4].fields[0].now, "x".repeat(MAX_CHANGE_VALUE) + "…");
+  assert.deepEqual([out[4].fields[0].nowCut, out[4].fields[0].same], [true, false]);
   assert.equal(out[4].fields[0].was, BAKERY_LOAVES[5].description);
   // AN ADDITION, with the id the database gave it.
   assert.deepEqual(out[5], { table: "loaves", id: 9, added: { name: "Spelt", price: "6.20" } });
@@ -234,4 +235,77 @@ test("DATA 6 — AN ANSWER STORED BEFORE THE EVIDENCE EXISTED IS TOLD AS IT WAS:
   const f = factsOf(unread);
   assert.equal(f.length, 1, JSON.stringify(f));
   assert.match(f[0], /^changed: Changed the entry “Dark Rye” in loaves: price from “5\.20” to “5\.6”\. The database did not hand the entry back, so these are the values written, not values read back\.$/);
+});
+
+// ── EQUALITY ON THE VALUES, NEVER ON WHAT IS SHOWN (2026-10-07, Codex's review) ──
+
+const LOAF_TABLE = (rows = BAKERY_LOAVES) => [{ name: "loaves", columns: ["name", "description", "price", "photo"], rows }];
+const factsOfChanges = (changes) => factsOf({ ok: true, layer: "data", applied: changes.map((c) => ({ table: c.table, id: c.id, columns: c.fields ? c.fields.map((f) => f.column) : Object.keys(c.added || {}) })), changes, failed: 0, cost: 1 });
+
+test("DATA 7 — TWO LONG VALUES THAT DIFFER ONLY PAST THE CUT: not the same — the change is told as made, both shown starts marked as starts, and said to differ past them; never \"already\" or \"nothing to change\"", () => {
+  const head = "A slow loaf, ".repeat(20);
+  const wasLong = head + "proved overnight.";
+  const nowLong = head + "proved for two nights.";
+  assert.ok(wasLong.slice(0, MAX_CHANGE_VALUE) === nowLong.slice(0, MAX_CHANGE_VALUE) && wasLong !== nowLong, "this case tests nothing: the values do not share their shown start");
+  const rows = BAKERY_LOAVES.map((r) => (r.id === 5 ? { ...r, description: wasLong } : r));
+  const [c] = dataChanges([{ table: "loaves", id: 5, values: { description: nowLong }, stored: { ...rows[4], description: nowLong } }], LOAF_TABLE(rows));
+  const f = c.fields[0];
+  assert.deepEqual([f.same, f.wasCut, f.nowCut, f.differsPastCut], [false, true, true, true], JSON.stringify(f).slice(0, 200));
+  assert.equal(f.was, f.now, "this case tests nothing: the shown values differ");
+  const facts = factsOfChanges([c]);
+  assert.ok(facts.some((t) => t.startsWith("changed: Changed the entry “Walnut Levain” in loaves: description from") && t.includes("differ past the start shown")), JSON.stringify(facts));
+  assert.ok(!facts.some((t) => /already|Nothing to change/.test(t)), "a change past the cut was told as nothing changed: " + JSON.stringify(facts));
+  // AND A REAL NO-OP OF THE SAME LONG VALUE is told as one.
+  const [same] = dataChanges([{ table: "loaves", id: 5, values: { description: wasLong }, stored: { ...rows[4] } }], LOAF_TABLE(rows));
+  assert.equal(same.fields[0].same, true);
+  assert.ok(factsOfChanges([same]).some((t) => t.startsWith("nothing: Nothing to change for the entry “Walnut Levain” in loaves: description was already")));
+});
+
+test("DATA 8 — A TYPE IS PART OF A VALUE; NULL IS A VALUE; A BEFORE NOBODY READ IS NEITHER: 40 and \"40\" differ, \"40\" and \"40\" are a real no-op, a null before is said empty, and a row the route never read is said as not read — never as empty, never as the same", () => {
+  const rows = BAKERY_LOAVES.map((r) => (r.id === 2 ? { ...r, price: 40 } : r.id === 3 ? { ...r, price: "40" } : r));
+  const [typed, noop] = dataChanges([
+    { table: "loaves", id: 2, values: { price: "40" }, stored: { ...rows[1], price: "40" } },
+    { table: "loaves", id: 3, values: { price: "40" }, stored: { ...rows[2], price: "40" } },
+  ], LOAF_TABLE(rows));
+  assert.deepEqual([typed.fields[0].same, noop.fields[0].same], [false, true]);
+  const [nulled] = dataChanges([{ table: "loaves", id: 1, values: { photo: "loaf.jpg" }, stored: { ...BAKERY_LOAVES[0], photo: "loaf.jpg" } }], LOAF_TABLE());
+  assert.deepEqual(nulled.fields[0], { column: "photo", was: null, now: "loaf.jpg", same: false });
+  assert.ok(factsOfChanges([nulled]).some((t) => t.includes("photo from empty to “loaf.jpg”")));
+  // THE ROW WAS NEVER READ (not among the rows the route read): its before is unknown, not null.
+  const [unread] = dataChanges([{ table: "loaves", id: 99, values: { price: 7 }, stored: { id: 99, name: "Fig", price: 7 } }], LOAF_TABLE());
+  assert.deepEqual(unread.fields[0], { column: "price", wasUnknown: true, now: 7 });
+  assert.equal(Object.hasOwn(unread.fields[0], "was"), false, "an unread before was shown as a value");
+  const uf = factsOfChanges([unread]);
+  assert.ok(uf.some((t) => t.includes("price is now “7” (what it was before was not read)")), JSON.stringify(uf));
+  assert.ok(!uf.some((t) => /from empty|already/.test(t)), JSON.stringify(uf));
+});
+
+test("DATA 9 — A ROW HANDED BACK WITHOUT A FIELD: that field is the value written, marked on the field, and never claimed already right; the fields that came back are readings; an addition says the same of each field", () => {
+  const [c] = dataChanges([{ table: "loaves", id: 4, values: { name: "Olive Loaf", price: 5.8 }, stored: { id: 4, name: "Olive Loaf" } }], LOAF_TABLE());
+  const [name, price] = c.fields;
+  assert.deepEqual(name, { column: "name", was: "Olive & Rosemary", now: "Olive Loaf", same: false });
+  assert.deepEqual(price, { column: "price", was: 5.8, now: 5.8, readBack: false });
+  const f = factsOfChanges([c]);
+  assert.ok(f.some((t) => t.includes("price from “5.8” to “5.8” (as written; the database did not hand this back)")), JSON.stringify(f));
+  assert.ok(!f.some((t) => /already|did not hand the entry back/.test(t)), JSON.stringify(f));
+  const [added] = dataChanges([{ table: "loaves", values: { name: "Fig", price: 7 }, stored: { id: 8, name: "Fig" } }], LOAF_TABLE());
+  assert.deepEqual(added, { table: "loaves", id: 8, added: { name: "Fig", price: 7 }, unread: ["price"] });
+  const af = factsOfChanges([added]);
+  assert.ok(af.some((t) => t === "changed: Added an entry to loaves: name “Fig”, price “7” (as written; the database did not hand this back)."), JSON.stringify(af));
+});
+
+test("DATA 10 — THROUGH THE ROUTE: a long description changed only past the cut is told as changed, with its starts marked, and the row keeps every character", async () => {
+  const head = "A slow loaf, ".repeat(20);
+  const wasLong = head + "proved overnight.";
+  const nowLong = head + "proved for two nights.";
+  const db = rowsDb({ tables: loaves(BAKERY_LOAVES.map((r) => (r.id === 5 ? { ...r, description: wasLong } : r))), meta: { schema: JSON.stringify(SPEC) } });
+  const r = await dataEdit("dce-past-cut", "Say the walnut loaf is proved for two nights.", { changes: [{ table: "loaves", id: 5, values: { description: nowLong } }] }, db);
+  assert.equal(r.status, 200, r.text.slice(0, 300));
+  const f = r.reply.changes[0].fields[0];
+  assert.deepEqual([f.same, f.differsPastCut], [false, true], JSON.stringify(f).slice(0, 200));
+  assert.equal(db.rows("loaves").find((x) => x.id === 5).description, nowLong, "the row lost characters");
+  const facts = factsOf(r.reply);
+  assert.ok(facts.some((t) => t.startsWith("changed: Changed the entry “Walnut Levain” in loaves: description from")), JSON.stringify(facts));
+  assert.ok(!facts.some((t) => /already|Nothing to change/.test(t)), JSON.stringify(facts));
+  assert.equal(replyOutcomeOf(editReplyFacts(r.reply)), "done");
 });
