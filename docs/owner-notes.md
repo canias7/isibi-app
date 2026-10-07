@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, the correction round and its follow-up pass)
+## Current handoff — read this first (2026-10-07, the correction round, its follow-up pass, and the recovery correction)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -22,13 +22,21 @@ is in git; the dated entries further down are the full story.*
   restarted: a follow-up pass closed what this handoff had left open on late
   undo, and checked every reader of the stored schema for rejected columns
   (`dc531bef`, `320d6767`, `a921a64d`; §8 of the same record).
+- **Codex's latest database recovery findings are fixed, on the branch**
+  (`570adb45`). These are NEW findings, reported on `78a83b39`, separate from
+  the earlier provisioning fixes (`71e47213`, row 1 below), two of whose
+  readings they correct: a provider that made the project and then answered
+  503 left one project and no note, and the retry a second; and a listing
+  whose full pages repeated their cursor was read as "no such project". Both
+  were reproduced before the fix and fixed together — the section after the
+  table, and §9 of the same record.
 
 **Each finding, its fix, its commit and its tests** (every model answer in
 the tests is supplied; nothing here is evidence of what a real model writes)
 
 | Finding | What changed | Commit | Tests |
 |---|---|---|---|
-| 1. Provisioning recovery (a recorded project dropped on a stale reading of the slug's row; a failed drop then a failed note leaving an untracked project) | every create is written down first, under an attempt id the Neon project's own name carries, so a lost create is found by exact name; a project is dropped only when the slug's row names another; every other unrecorded project is claimed, never dropped; nothing new is made while an earlier attempt of this account is unsettled; a create's error read by HTTP's meaning; a note cleared only when its project is settled; another account's notes untouched; the add-on no longer promises a retry fixes an unsettled state | `71e47213` | 28 + 60 cases (Codex's ordering, the double failure, lost creates, failed clears, three interleavings, account isolation, route cases); red check 25/25 on `430a3a64`; sweep 47: 41, then 6/6 |
+| 1. Provisioning recovery — the earlier fix (a recorded project dropped on a stale reading of the slug's row; a failed drop then a failed note leaving an untracked project) | every create is written down first, under an attempt id the Neon project's own name carries, so a lost create is found by exact name; a project is dropped only when the slug's row names another; every other unrecorded project is claimed, never dropped; nothing new is made while an earlier attempt of this account is unsettled; a create's error read by HTTP's meaning — two of those readings were wrong (a 503 taken as nothing made; an empty search past the lease taken as never made) and are corrected by Codex's latest findings, below; a note cleared only when its project is settled; another account's notes untouched; the add-on no longer promises a retry fixes an unsettled state | `71e47213` | 28 + 60 cases (Codex's ordering, the double failure, lost creates, failed clears, three interleavings, account isolation, route cases); red check 25/25 on `430a3a64`; sweep 47: 41, then 6/6 |
 | 2. Partial evidence end to end (`requestView` dropped `left`; the stop branch ignored `row.migration`) | `left` carried by the serialized view into the request reply and its queued writer; the stop branch reads the answer and the database record; an earlier try's standing work kept across retries, refusals, questions and stops under one rule; the job's outcome partial for a stop or death over a standing table; the card labels it | `b1a2ebb0` | 10 cases through the real Worker, queue, serialized view, card, poll and job list; red check 7/8 on `71e47213`; sweep 20: 18, then 2/2 |
 | 3. Data change equality (values compared after the 200-character cut) | `same` decided on the whole typed values; unknown never null; each value says whether it was read back; shortening only for showing, marked, with a difference past the cut said | `5d09f018` | DATA 7–10, DATA 1 updated; red check 5 fail on `b1a2ebb0`; sweep 13/13 |
 | 4. Seed outcomes (over the limit beside none going in contradicted) | the engine records each starter row by its place (in, refused, named no column, past the limit and never tried); one strict reader; warnings, facts and the fallback note derived from it; the add-on cleaner no longer drops or cuts rows before the engine. The image's worker tree carries the new module (`be72a031`) | `b3ba67f0`, `be72a031` | 8 cases checking evidence, not sentences (two through the route); red check 8/8 on `5d09f018`; sweep 30: 29, then 1/1 |
@@ -38,6 +46,18 @@ the tests is supplied; nothing here is evidence of what a real model writes)
 | The preview browser test | the frame's content is checked against what the test's server has published, one publish at a time | `32a2e9ca` | old test passes against a preview stuck after its first move, new one fails it; 4/4 in Chromium |
 | Follow-up: late undo against work that leaves no job row (a request before its first job, the queue off, the Data panel) | where the offer is used, each row offered back is checked against the table as the data step reads it: back under its id, or under a new id with its values in the table's declared columns, it is set aside, and a table too long to read whole sets its rows aside; where the offer is kept, the server also reads the site's request markers by when each was taken on, and a site off the queue answers cannot tell | `dc531bef`, `a921a64d` | 4 put-back cases (two through the real edit route) and NEWER 4 (the real acceptance with its first filing refused); red check: 3 fail on `6945ab3a`, the controls pass; sweep 25: 24, then 1/1 |
 | Follow-up: rejected columns beyond the designers | every reader that hands columns to a model was checked and reads live columns; the add-on's read after its apply feeds only the reply's connections; no code change | `320d6767` | COL 3c, a regression guard (passes before and after) |
+
+**Codex's latest findings — new, reported on `78a83b39`, fixed in `570adb45`**
+
+| Finding | Reproduced before the fix (`78a83b39`) | What changed | Tests |
+|---|---|---|---|
+| A create answered 503 after Neon made the project cleared its note | first attempt: 1 project, 0 notes; the retry: 2 projects, 0 notes — and 4 after four tries | only Neon's own refusal of a create (a 4xx refusing the request as asked, with Neon's error body) clears its note; a 503, any other 5xx, a 408, 409 or 429, a timeout or an unreadable answer keeps it, marked uncertain; the project is looked for by the attempt's own name and claimed when found, ownership checked; when it is not found the note stays open and no second project is made — neither the lease running out nor a search finding nothing settles it | CODEX 3 (seen at once: claimed, 1 project, 0 notes, then reused; seen only later: 1 project and 1 note through every retry, then claimed, 1 project, 0 notes; made nothing: 0 projects, 1 note, held), LOST 2, LOST 4 (each of 503, 500, 502, 504, 408, 409, 429), REFUSE 1, CLEAR 2 |
+| A listing whose full pages repeated their cursor answered "none" | `[]` after two page reads | the search answers whether it reached its end: complete only on a short page; a repeated cursor or a cycle, a full page with no cursor, the page limit and a malformed page each say so; a failed read throws; none of them clears a note or lets a create run | CODEX 4 (the exact case, then every ending through the provisioner), SEARCH 1, NAME 1 |
+| Reviewed with them: the 5xx / answered reading, delayed visibility, the lease | — | an answered 5xx no longer makes an empty search conclusive; a project that shows late is claimed by a later attempt; the lease only says another attempt's unanswered create may still be running; a refused or removed note whose clear failed is settled next time | CODEX 3, LOST 2, CLEAN 1 (safe cleanup: dropped only when the site's row names another project; a failed drop keeps both and the note), CLEAR 2 |
+
+Red check on `78a83b39`: 14 of 121 fail — 11 for the behaviour, 3 only
+because the search's answer changed shape. Sweep: 25 of 25 killed, the
+comment-only control survived.
 
 **Tests actually run**: for each change its own cases, a red check on the
 commit before it, a mutation sweep with a comment-only control, and its
@@ -62,9 +82,19 @@ marked failed with the seven jobs that ran all green and the eighth, the
 aggregate, never created, during GitHub server errors between 15:10 and 15:19
 UTC.
 
-**What changed for a customer, in short**: a database left by a failed
-attempt is reused or set aside, never deleted while it might be the site's,
-never doubled; a request stopped after part of it went in is told so in its
+**The recovery correction** (`570adb45`): its own cases, the red check and
+the sweep (in the section above); every test file reaching provisioning or
+the Neon module, 56 files, 2007 of 2007; then the regression gate, the full
+suite at `570adb45` from the repo root with Chromium present: **9875 tests, 9875 pass, 0 fail, 0 skipped**.
+Unit CI on `570adb45`: run 37674861322, `9875 / 9853 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run). **Site build on `570adb45` (run 37674861320) is not a complete reading**: the published-site checks, shards 3 and 4 (158 and 62 checks) and the kit job's first steps (`page-gen` and `publish-pages` 398 of 398, `kit-typecheck` 4 passed, `kit-render` all passed) are green; the other four jobs (the theme checks, shards 1 and 2, the rest of the kit job) stopped at their 20-minute limit inside `npx playwright install --with-deps chromium`, apt waiting on Ubuntu's `noble-security` index from 19:30 UTC, before any of their tests started, so `all checks` failed on those three cancelled jobs and the two missing shard reports. The eight steps that never ran, run locally on `570adb45` with Chromium as the workflow runs them, all pass: contrast-cases 16 of 16; kit-a11y, kit-effects and kit-paint all passed; theme-seam 11 of 11; theme-render 29 of 29; `site-build.mjs` shard 1 109 of 109 (`style-overrides`) and shard 2 76 of 76 (`logo-and-serving`, `dead-link`), both complete. A local run is not the gate: CI's own reading needs the failed jobs re-run, which is your press; I did not try it. The records commit changes no input of these checks (the gate's fingerprint `de6345b9058cd1cc`, 3974 files, the same at both), so a green re-run counts for it too.
+
+**What changed for a customer, in short**: a database a failed attempt may
+have left is claimed for the site once Neon's listing shows it under that
+attempt's name, and stays named and set aside while it does not — no second
+one is made for the site while that is unsettled, and none is deleted while
+it might be the site's (the one answer still taken to mean nothing was made
+is Neon's own refusal of the create); a request stopped after part of it
+went in is told so in its
 reply too; a long value changed past its first 200 characters is never told
 as unchanged; starter rows are told one account per table, by their places;
 a table a failed addition left standing is known at once; a column the
@@ -75,10 +105,24 @@ no longer wipes the first tab's request record or revives an old undo offer.
 
 **Yours to decide**
 - **Merging**: the branch is `main` plus your run-105 verifier correction,
-  the batch, this round and its follow-up pass. A merge would roll the
-  container image: `5f946c22d42a1b10` → `23815312e31a801a` (196 inputs, 166
-  paths; predicted at `a921a64d`, not built). It stays unmerged until you
-  say so.
+  the batch, this round, its follow-up pass and the recovery correction. A
+  merge would roll the container image: `5f946c22d42a1b10` →
+  `335396c8c0e0fbcb` (196 inputs, 166 paths; predicted at `570adb45`, not
+  built). It stays unmerged until you say so.
+- **An unsettled database attempt is yours to settle** (new with the
+  recovery correction): a create Neon answered with anything but its own
+  refusal, whose project never shows under its attempt's name, keeps that
+  site from making a database. Look in the Neon console for the name in the
+  note (`source/<slug>/neon-unrecorded/<attempt>.json`): if one carries it,
+  leave the note — the next attempt claims it once Neon's listing shows it.
+  Deleting the note is your judgment that no project carries the name and
+  none will appear (the code no longer draws that from absence or time); a
+  project that appeared afterwards would not be tracked.
+- **Site build's re-run** (free, your press): on `570adb45` (run
+  37674861320) four jobs stopped at their 20-minute limit while apt
+  installed Chromium's packages, before any of their tests ran. *Re-run
+  failed jobs* on that run gives CI's own complete reading; the eight steps
+  that never ran passed locally (above).
 - **Live verification worth a run** (none done, all paid): a two-part request
   whose second part is refused after its table went in; a data removal read
   late after an edit from another device, then "put that back"; several parts
@@ -91,9 +135,13 @@ no longer wipes the first tab's request record or revives an old undo offer.
 
 **Still open** (`docs/backlog.md`; this round's fixes are marked there with
 their commits, not taken out — closing them is yours)
-- Provisioning leans on Neon's search by name and paging as documented, not
-  measured live, and on a 15-minute lease for a lost create; an unresolved
-  attempt stays yours to settle by hand.
+- Provisioning: Neon's own refusal is trusted to mean a create made nothing
+  on HTTP's meaning of those statuses — no Neon document says it; Neon's
+  search, its paging ending on a short page and its error body are from its
+  API reference, not measured live. An attempt whose outcome cannot be
+  established waits for you, with no time limit. The first-build route
+  answers that state with its generic 502 (`stage: reconcile_project` or
+  `create_project`), no sentence of its own — not changed here.
 - A column declaration an earlier apply left behind stays in `_meta`; no
   reader that hands columns to a model sees it (checked in the follow-up
   pass); the Data panel, the runtime hooks, the backups and the reply's read
@@ -110,9 +158,10 @@ their commits, not taken out — closing them is yours)
   request's own reply with no record is asked for whenever read; the
   judgment is only as good as the model.
 - **Shared with First Build**: the provisioner (every create written down
-  first; claims, never drops on "no row"; a site with an unsettled attempt
-  makes no new database) and the schema engine (a refused column never
-  granted or declared). The build route's code is untouched.
+  first; claims, never drops on "no row"; an uncertain create keeps its note
+  and stops a second; a site with an unsettled attempt makes no new
+  database) and the schema engine (a refused column never granted or
+  declared). The build route's code is untouched.
 
 **Links**
 - This round and the batch: `docs/history/2026-10-07-cleanup-batch.md`.
@@ -128,6 +177,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Codex's latest database recovery findings: an uncertain create keeps its note, an unfinished listing is never "none" (on the branch, `570adb45`; nothing merged, deployed, built, paid or provisioned)
+
+Codex reviewed `78a83b39` and found two defects in the provisioning recovery —
+new findings, apart from the earlier fixes (`71e47213`), whose reading of a
+create's error they correct. Both were reproduced exactly before the fix:
+
+- a provider that made the project and then answered **503**: the first
+  attempt left 1 project and no note, the retry 2 projects and no note (4
+  after four tries);
+- a listing whose full pages **repeated their cursor**: answered "no such
+  project" after two page reads, though it never reached its end.
+
+What changed (`570adb45`):
+
+- **Only Neon's own refusal of a create says nothing was made** — a 4xx that
+  refuses the request as asked, with Neon's own error body. Anything else (a
+  503 included) keeps the attempt's note, marked uncertain; the project is
+  looked for by the attempt's own name and claimed for the site when it
+  shows. Until it does, no second project is made for the site, however long
+  it takes: neither the lease running out nor a search that finds nothing
+  counts as "never made" any more.
+- **Neon's listing says whether it reached its end**; a repeated cursor, a
+  full page with no cursor, the page limit, a malformed page or a failed
+  read is never taken for "none".
+- **The trade**: a site whose attempt's outcome can't be established now
+  waits for you rather than risk a second database (how to settle it is in
+  the handoff above). The earlier claim that a database is "never doubled"
+  was not true; it is now conditional, and said so.
+
+Each case asserts project counts and surviving notes; a red check, a mutation
+sweep with a comment-only control, the related suites and the full suite ran
+(numbers in the handoff above).
 
 ## 2026-10-07 — The correction round's follow-up pass: your request again, the open ends closed (on the branch, `dc531bef`, `320d6767`, `a921a64d`; nothing merged, deployed, built, paid or restored)
 
@@ -217,8 +299,9 @@ full record is `docs/history/2026-10-07-cleanup-batch.md`.
   judged on its own.
 - **Late provisioning** (`645f58a5`, `cd8fe7eb`): a database made before a
   failure is never dropped while it might be the site's, is kept or written
-  down for the next attempt, and is never doubled; the customer is told it
-  was started and kept.
+  down for the next attempt, and was said never to be doubled (not so —
+  Codex later reproduced a doubling, a 503 after the create; corrected in
+  `570adb45`); the customer is told it was started and kept.
 - **Completion on the page** (`09b2309b`): your own removal stays undoable
   after a reload; several finished parts reload the preview once; the page
   list follows the server with nothing in flight and when a tab comes back;

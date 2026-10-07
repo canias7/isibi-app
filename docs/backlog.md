@@ -39,11 +39,13 @@ here; take a closed one out of both.**
   (2026-10-07): with no project id back, nothing writes it down; a listing of
   the account's projects by name would reconcile it, and none is built.
   **Addressed on the branch** (2026-10-07, `71e47213`, Codex's review): every create is written down first under an attempt id that the Neon project's own name carries, and a create whose answer was lost is found by exact name and claimed for the site; Neon's search by name and its paging are used as documented, not measured live.
+  **Corrected on the branch** (2026-10-07, `570adb45`, Codex's review of `78a83b39` — new findings): a 503 after Neon made the project cleared the note (one project, no note; the retry two), and full pages repeating their cursor were read as "none". Now only Neon's own refusal clears a create's note; every other answer keeps it and no second project is made until the first is found and claimed — no wait and no empty search proves "never made"; and the search says whether it reached its end, an incomplete one never counting as absence.
 - **A note that cannot be read, or an earlier project that cannot be removed,
   stops every create on that site** (2026-10-07, by design): the attempt
   says it is ours and to try again, and the note names the project; settling
   it is the owner's by hand.
   **Changed on the branch** (2026-10-07, `71e47213`): still by design, an attempt the platform cannot settle stops a new create — but each open attempt is now named, a project is never dropped on "no row" (only when the slug's row names another), every other unrecorded project is claimed rather than dropped, and the customer is told a database may have been started and is set aside to be checked, never that trying again will fix it. Settling an unresolved attempt stays the owner's by hand.
+  **Widened** (2026-10-07, `570adb45`): an attempt whose create's outcome cannot be established — answered with anything but Neon's own refusal, its project never showing under its name — now stops new databases on that site too, with no time limit, until the project shows and is claimed or the owner settles the note by hand. The first-build route answers that state with its generic 502, no sentence of its own.
 - **Two tabs of one browser still save their own copy of a site's thread,
   the last writer winning** (2026-10-07): a tab coming back into view reads
   the server's requests and jobs again, not the other tab's thread.
