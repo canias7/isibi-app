@@ -381,6 +381,12 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'." }),
     ]),
   }),
+  // A MENU LINK'S WORDS (2026-10-07, after run 105): `menu` and `menuFinish`
+  // carry a `label` only when the message itself asks for the link's words,
+  // quoted from it in `asked`; the link must then hold them. Without one, the
+  // words are the builder's, and any label linking the page does
+  // (`labelFits`). None of these messages names the link's words.
+  //
   // R1 — Edit and Add-on, the edit first; several operations; the page the
   // menu link needs is named after it. The new page's address is the add-on's
   // to choose, so it is found by what it says, and the menu link must point
@@ -395,7 +401,7 @@ export const UI_SCENARIOS = Object.freeze({
     expect: Object.freeze({
       description: Object.freeze({ says: Object.freeze(["saturday", "bread", "class"]), absentBefore: "class" }),
       pages: Object.freeze([Object.freeze({ about: Object.freeze(["class"]) })]),
-      menu: Object.freeze({ label: "Classes", page: 0 }),
+      menu: Object.freeze({ page: 0 }),
     }),
     covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite"]),
     steps: Object.freeze([
@@ -419,7 +425,7 @@ export const UI_SCENARIOS = Object.freeze({
     row: WALNUT_ROW,
     expect: Object.freeze({
       pages: Object.freeze([Object.freeze({ about: Object.freeze(["wholesale"]) })]),
-      menu: Object.freeze({ label: "Wholesale", page: 0 }),
+      menu: Object.freeze({ page: 0 }),
     }),
     covers: Object.freeze(["edit-and-addon", "several-parts", "addon-sets-aside"]),
     steps: Object.freeze([
@@ -508,7 +514,7 @@ export const UI_SCENARIOS = Object.freeze({
     addon: true,
     layers: Object.freeze(["nav", "look"]),
     expect: Object.freeze({
-      menuFinish: Object.freeze({ label: "Classes", href: "/classes" }),
+      menuFinish: Object.freeze({ href: "/classes" }),
     }),
     covers: Object.freeze([]),
     steps: Object.freeze([
@@ -543,7 +549,7 @@ export const UI_SCENARIOS = Object.freeze({
         Object.freeze({ route: "/gallery", from: "Photographs from the bakery", to: "Photographs from Fold Lane" }),
       ]),
       pages: Object.freeze([Object.freeze({ about: Object.freeze(["bake", "list"]) })]),
-      menu: Object.freeze({ label: "Bake List", page: 0 }),
+      menu: Object.freeze({ page: 0 }),
       // ONE NEW TABLE, A VISITOR'S TO SEND TO AND NOBODY'S TO READ (`collect`),
       // with a column for the email address; every other table as it was.
       tables: Object.freeze({ added: 1, pair: Object.freeze({ read: "none", write: "anyone" }), column: "email" }),
@@ -569,8 +575,8 @@ export const UI_SCENARIOS = Object.freeze({
   // press on what landed; then, beside those checks, the new page's form is
   // sent ONCE by a visitor (`submitFormInPage`) and the new table must hold
   // exactly that one entry, read by the owner's route (`formVerdict`). The
-  // menu's label is matched by the word the page is about, so the builder may
-  // name it "Tasting Evenings" or "Tasting evening". Look and nav are allowed
+  // message names no words for the menu link, so any label linking the new
+  // page does (`labelFits`, since run 105). Look and nav are allowed
   // beside text because the router may send the heading or the menu link
   // through them; the page rung because it hands a new page to the add-on
   // step. The changes and the one entry stay on the bakery (the demo-site
@@ -591,7 +597,7 @@ export const UI_SCENARIOS = Object.freeze({
         Object.freeze({ route: "/gallery", from: "Photographs from Fold Lane", to: "Photographs from our ovens" }),
       ]),
       pages: Object.freeze([Object.freeze({ about: Object.freeze(["tasting"]) })]),
-      menu: Object.freeze({ label: "Tasting", page: 0 }),
+      menu: Object.freeze({ page: 0 }),
       // ONE NEW TABLE, A VISITOR'S TO SEND TO AND NOBODY'S TO READ (`collect`),
       // with a column for the email address; every other table as it was.
       tables: Object.freeze({ added: 1, pair: Object.freeze({ read: "none", write: "anyone" }), column: "email" }),
@@ -644,10 +650,13 @@ export const UI_SCENARIOS = Object.freeze({
       headings: Object.freeze([
         Object.freeze({ route: "/classes", from: "Spend a Saturday morning with the starter", to: "Spend a Saturday morning at the bench" }),
       ]),
-      // MATCHED ON THE PAGE'S OWN ANSWERS: its menu label would carry "FAQ"
-      // into every new page's header, so the page is found by what it says.
+      // MATCHED ON THE PAGE'S OWN ANSWERS: its menu link would carry the page's
+      // name into every new page's header, so the page is found by what it says.
       pages: Object.freeze([Object.freeze({ about: Object.freeze(["keep", "store"]) })]),
-      menu: Object.freeze({ label: "FAQ", page: 0 }),
+      // NO WORDS FOR THE LINK: the message asks for "a link in the menu" and
+      // names none, so any label linking the page does (run 105 failed only on
+      // a required "FAQ" the message never asked for; `labelFits`).
+      menu: Object.freeze({ page: 0 }),
       // WHAT THE CUSTOMER IS SHOWN WHILE IT RUNS, judged beside the rest.
       progress: true,
     }),

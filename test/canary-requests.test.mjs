@@ -562,8 +562,8 @@ test("the focused check lands when every menu that lacked Classes gains it and e
   assert.equal(frameOf(R1_LEFT).has("starter.tsx"), false, "the fixture's starter page carries a frame");
   const o = judge(spec, leftSite(R1_LEFT), leftSite(finish(R1_LEFT)));
   assert.deepEqual(failed(o.checks), []);
-  assert.ok(o.checks.some((c) => /every menu that lacked "Classes"/.test(c.name) && c.ok));
-  assert.ok(o.checks.some((c) => /every served header links "Classes"/.test(c.name) && c.ok));
+  assert.ok(o.checks.some((c) => /every menu that lacked a link → \/classes gained one, labelled \(no words were asked for\)/.test(c.name) && c.ok));
+  assert.ok(o.checks.some((c) => /every served header links \/classes with a label \(no words were asked for\)/.test(c.name) && c.ok));
 });
 
 test("the focused check does not land when a menu that had Classes changed, a menu was given more than Classes, a menu that lacked it still lacks it, nothing gained it, or the page with no menu was given one", () => {
@@ -577,7 +577,7 @@ test("the focused check does not land when a menu that had Classes changed, a me
   // GALLERY'S MENU LEFT WITHOUT IT.
   one(finish(R1_LEFT, (items, slot) => (items.some((i) => i.href === "/classes") || slot.page === "gallery.tsx" ? items : [...items, { label: "Classes", href: "/classes" }])), /gallery\.tsx's menu gained \[\]/);
   // NOTHING DONE AT ALL.
-  one(R1_LEFT, /every menu that lacked "Classes"/);
+  one(R1_LEFT, /every menu that lacked a link → \/classes/);
   // THE STARTER PAGE GIVEN A MENU OF ITS OWN.
   const starter = finish(R1_LEFT).map((p) => (p.path === "starter.tsx" ? { ...p, source: p.source.replace("<main", '<nav><a href="/classes">Classes</a></nav><main') } : p));
   assert.notEqual(starter.find((p) => p.path === "starter.tsx").source, R1_LEFT.find((p) => p.path === "starter.tsx").source, "the case did not change the starter page");
@@ -585,13 +585,38 @@ test("the focused check does not land when a menu that had Classes changed, a me
   // EVERY MENU ALREADY HAD IT: the press made nothing, so it is not the fix shown.
   const done = finish(R1_LEFT);
   const f = failed(judge(spec, leftSite(done), leftSite(done)).checks);
-  assert.ok(f.some((x) => /every menu that lacked "Classes"/.test(x) && /no menu gained it/.test(x)), JSON.stringify(f));
+  assert.ok(f.some((x) => /every menu that lacked a link → \/classes/.test(x) && /no menu gained it/.test(x)), JSON.stringify(f));
   // THE STORED MENUS RIGHT, ONE SERVED HEADER WITHOUT IT.
   const a = leftSite(finish(R1_LEFT));
   a.served["/order"] = a.served["/order"].replace(/<a href="\/classes">Classes<\/a>/, "");
   assert.ok(!a.served["/order"].includes('href="/classes"'), "the case did not take the link off the served header");
   const g = failed(judge(spec, b, a).checks);
-  assert.ok(g.some((x) => /every served header links "Classes"/.test(x) && /\/order/.test(x)), JSON.stringify(g));
+  assert.ok(g.some((x) => /every served header links \/classes/.test(x) && /\/order/.test(x)), JSON.stringify(g));
+});
+
+// THE LINK'S WORDS (2026-10-07, after run 105): the message names none, so
+// any label finishing the link does; an empty one does not; words a message
+// does ask for are still required.
+test("the focused check takes the builder's own words for the link, refuses an empty label, and holds words a message asks for", () => {
+  const spec = UI_SCENARIOS["rq-menu-link"];
+  const b = leftSite(R1_LEFT);
+  const labelled = (label) => applyNav(R1_LEFT, (items) => (items.some((i) => i.href === "/classes") ? items : [...items, { label, href: "/classes" }])).pages;
+  // OTHER WORDS, NOT ASKED FOR: passes.
+  assert.deepEqual(failed(judge(spec, b, leftSite(labelled("Saturday workshops"))).checks), []);
+  // AN EMPTY LABEL, stored and so served (the fixture draws each header from
+  // its stored menu): fails both.
+  const empty = leftSite(labelled(""));
+  assert.ok(empty.served["/order"].includes('<a href="/classes"></a>'), "the case did not serve an empty label");
+  const f = failed(judge(spec, b, empty).checks);
+  assert.ok(f.some((x) => /every menu that lacked a link → \/classes/.test(x) && /menu gained \[\{"label":"","href":"\/classes"\}\]/.test(x)), JSON.stringify(f));
+  assert.ok(f.some((x) => /every served header links \/classes with a label/.test(x)), JSON.stringify(f));
+  // WORDS A MESSAGE ASKS FOR, quoted from it: words that do not hold them
+  // fail; the link's words must hold the asked words, as before.
+  const asked = "put a link called 'Classes'";
+  const asking = { ...spec, steps: [{ ...spec.steps[0], say: `Put the Classes page in the menu on every page, and ${asked}.` }], expect: { menuFinish: { href: "/classes", label: "Classes", asked } } };
+  const g = failed(judge(asking, b, leftSite(labelled("Saturday workshops"))).checks);
+  assert.ok(g.some((x) => /every menu that lacked "Classes" → \/classes gained it \(the words asked for\)/.test(x)), JSON.stringify(g));
+  assert.deepEqual(failed(judge(asking, b, leftSite(labelled("Classes"))).checks), []);
 });
 
 test("R1 does not land when a menu lacks the link, the link points elsewhere, the page answers 404, the description misses a word, a second page appears, or another page or a table moved", () => {
@@ -599,9 +624,9 @@ test("R1 does not land when a menu lacks the link, the link points elsewhere, th
   const b = site(RUN47);
   const one = (a, re, extra) => { const f = failed(judge(spec, b, a, extra).checks); assert.ok(f.some((x) => re.test(x)), `expected ${re}, got ${JSON.stringify(f)}`); };
   const partial = r1After().inv.source.pages.map((p) => (p.path === "gallery.tsx" ? RUN47.find((q) => q.path === "gallery.tsx") : p));
-  one(r1After({ pages: partial }), /every page's menu gained "Classes"/);
+  one(r1After({ pages: partial }), /every page's menu gained one labelled link/);
   const wrong = applyNav(RUN47, (items) => [...items, { label: "Classes", href: "/visit" }]).pages.concat([{ path: "classes.tsx", source: CLASSES }]);
-  one(r1After({ pages: wrong }), /every page's menu gained "Classes"/);
+  one(r1After({ pages: wrong }), /every page's menu gained one labelled link/);
   one(r1After({ status: { "/classes": 404 } }), /new page about class/);
   one(r1After({ description: "Neighbourhood sourdough in Bristol, and now bread-making classes." }), /stored description now names/);
   const extra = r1After();
@@ -1089,7 +1114,7 @@ test("lv-reopen: on the bakery, in request mode, the plan's two messages word fo
   assert.equal(LV.expect.live, true);
   assert.deepEqual(JSON.parse(JSON.stringify(LV.expect.tables)), { added: 1, pair: { read: "none", write: "anyone" }, column: "email" });
   assert.deepEqual(LV.expect.headings.map((h) => h.route), ["/visit", "/gallery"]);
-  assert.equal(LV.expect.menu.label, "Bake List");
+  assert.deepEqual({ ...LV.expect.menu }, { page: 0 }, "the message names no words for a menu link");
   const total = LV.steps.reduce((t, x) => t + stepBoundMs(x), 0);
   assert.ok(total <= UI_PRESS_MAX_MS, `its messages may run ${total / 60000} minutes`);
   assert.equal(readUiScenario("lv-reopen", SLUG).ok, true);

@@ -340,6 +340,22 @@ export function headerLogos(html, slug) {
   return [...head.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, "&")).filter((u) => u.includes(mark)).map((u) => u.slice(u.indexOf(mark)));
 }
 
+/**
+ * THE WORDS A MENU LINK MUST CARRY (2026-10-07, after run 105): only words the
+ * customer's own message asks for — a spec's `label`, cited from that message
+ * in `asked` — and then the link's words must hold them, as before. Asked for
+ * none, the words are the builder's to choose: any label does, so long as it
+ * says something. No list of words taken to mean the same, and no wording of
+ * the builder's own is required.
+ */
+export const labelWords = (want) => (want && typeof want.label === "string" ? want.label.trim() : "");
+export function labelFits(label, want) {
+  const text = plain(label).trim();
+  if (!text) return false;
+  const asked = plain(labelWords(want)).trim();
+  return asked ? text.includes(asked) : true;
+}
+
 /** The served home page's description, decoded; "" when it carries none. */
 export function servedDescription(html) {
   const m = /<meta\b[^>]*\bname="description"[^>]*\bcontent="([^"]*)"/.exec(String(html || ""));
@@ -416,7 +432,8 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   }
   // THE MENU: every page that had one gained exactly the one item, pointing at
   // the new page, and kept every item it had in its order; every served
-  // header links it.
+  // header links it. Its words are judged only where the request asked for
+  // some (`labelFits`).
   const fb = frameOf(bPages), fa = frameOf(aPages);
   const framed = [...fb.keys()].filter((p) => fb.get(p).menus.length);
   // THE ROUTES THOSE PAGES SERVE: a served page is judged for its frame only
@@ -434,13 +451,14 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
         const got = now[i];
         const extra = got.filter((it) => !items.some((x) => x.label === it.label && x.href === it.href));
         const kept = got.filter((it) => items.some((x) => x.label === it.label && x.href === it.href));
-        if (extra.length !== 1 || extra[0].href !== href || !plain(extra[0].label).includes(plain(want.menu.label))) bad.push(`${p}'s menu gained ${JSON.stringify(extra)}`);
+        if (extra.length !== 1 || extra[0].href !== href || !labelFits(extra[0].label, want.menu)) bad.push(`${p}'s menu gained ${JSON.stringify(extra)}`);
         if (JSON.stringify(kept) !== JSON.stringify(items)) bad.push(`${p}'s menu did not keep its own items in their order`);
       });
     }
-    add(`every page's menu gained "${want.menu.label}" → ${href || "the new page"} and kept every item it had`, complete && framed.length > 0 && !bad.length, bad.join("; ") || "no menu was read");
-    const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && x.text.includes(plain(want.menu.label))));
-    add(`every served header links "${want.menu.label}" to ${href || "the new page"}`, !!href && framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
+    const words = labelWords(want.menu);
+    add(`every page's menu gained ${words ? `"${words}"` : "one labelled link"} → ${href || "the new page"} (${words ? "the words asked for" : "no words were asked for"}) and kept every item it had`, complete && framed.length > 0 && !bad.length, bad.join("; ") || "no menu was read");
+    const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && labelFits(x.text, want.menu)));
+    add(`every served header links ${words ? `"${words}" to ${href || "the new page"} (the words asked for)` : `${href || "the new page"} with a label (no words were asked for)`}`, !!href && framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
   }
   // A LINK SOME MENUS ALREADY CARRY, FINISHED (2026-10-04, the focused check of
   // run 95's fixes): every menu that lacked it gained exactly it, keeping its
@@ -448,7 +466,8 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   // one menu gained it; and every served header links it. A page with no menu
   // is judged by the byte-for-byte check below, so none is given one.
   if (want.menuFinish) {
-    const { label, href } = want.menuFinish;
+    const { href } = want.menuFinish;
+    const words = labelWords(want.menuFinish);
     const bad = [];
     let gained = 0;
     for (const p of framed) {
@@ -462,15 +481,15 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
         }
         const extra = got.filter((it) => !items.some((x) => x.label === it.label && x.href === it.href));
         const kept = got.filter((it) => items.some((x) => x.label === it.label && x.href === it.href));
-        if (extra.length !== 1 || extra[0].href !== href || !plain(extra[0].label).includes(plain(label))) bad.push(`${p}'s menu gained ${JSON.stringify(extra)}`);
+        if (extra.length !== 1 || extra[0].href !== href || !labelFits(extra[0].label, want.menuFinish)) bad.push(`${p}'s menu gained ${JSON.stringify(extra)}`);
         else gained++;
         if (JSON.stringify(kept) !== JSON.stringify(items)) bad.push(`${p}'s menu did not keep its own items in their order`);
       });
     }
-    add(`every menu that lacked "${label}" → ${href} gained it, keeping its own items, and every menu that had it is as it was`, complete && framed.length > 0 && gained > 0 && !bad.length,
+    add(`every menu that lacked ${words ? `"${words}"` : "a link"} → ${href} gained ${words ? "it (the words asked for)" : "one, labelled (no words were asked for)"}, keeping its own items, and every menu that had it is as it was`, complete && framed.length > 0 && gained > 0 && !bad.length,
       bad.join("; ") || (framed.length ? "no menu gained it" : "no menu was read"));
-    const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && x.text.includes(plain(label))));
-    add(`every served header links "${label}" to ${href}`, framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
+    const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && labelFits(x.text, want.menuFinish)));
+    add(`every served header links ${words ? `"${words}" to ${href} (the words asked for)` : `${href} with a label (no words were asked for)`}`, framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
   }
   // THE FOOTER'S SOCIAL LINKS: the one profile, once, beside what was there.
   if (want.social) {

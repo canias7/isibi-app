@@ -52,7 +52,8 @@ test("lv-progress: on the bakery, in request mode, the plan's one message word f
   assert.ok(UI_FIRST_LINE_MS + UI_FRESH_AWAY_MS < stepBoundMs(LP.steps[0]) / 2);
   assert.deepEqual(JSON.parse(JSON.stringify(LP.expect.headings)), [{ route: "/classes", from: "Spend a Saturday morning with the starter", to: "Spend a Saturday morning at the bench" }]);
   assert.deepEqual([...LP.expect.pages[0].about], ["keep", "store"]);
-  assert.equal(LP.expect.menu.label, "FAQ");
+  // NO WORDS FOR THE LINK: the message names none (run 105; `labelFits`).
+  assert.deepEqual({ ...LP.expect.menu }, { page: 0 });
   assert.equal(LP.expect.progress, true);
   assert.equal(LP.expect.tables, undefined, "the FAQ page is expected to add a table");
   assert.equal(readUiScenario("lv-progress", SLUG).ok, true);

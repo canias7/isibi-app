@@ -386,7 +386,7 @@ test("SCENE 1 — the release check is one message on the bakery, an edit and an
   assert.equal(s.steps[0].say, "Add a Tasting Evenings page where people can join the waiting list for our next tasting evening by leaving their name and email address, and change the Gallery page heading 'Photographs from Fold Lane' to 'Photographs from our ovens'.");
   assert.deepEqual(s.expect.headings.map((h) => [h.route, h.from, h.to]), [["/gallery", "Photographs from Fold Lane", "Photographs from our ovens"]]);
   assert.deepEqual([...s.expect.pages[0].about], ["tasting"]);
-  assert.deepEqual({ ...s.expect.menu }, { label: "Tasting", page: 0 });
+  assert.deepEqual({ ...s.expect.menu }, { page: 0 }, "the message names no words for a menu link");
   assert.deepEqual({ added: s.expect.tables.added, pair: { ...s.expect.tables.pair }, column: s.expect.tables.column }, { added: 1, pair: { read: "none", write: "anyone" }, column: "email" });
   assert.deepEqual({ ...s.expect.form }, { page: 0 });
   // THE WORKFLOW'S BOX NAMES IT.

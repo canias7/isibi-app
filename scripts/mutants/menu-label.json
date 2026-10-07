@@ -1,0 +1,105 @@
+[
+  {
+    "label": "CONTROL: a comment only in labelFits — must survive",
+    "control": true,
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "export function labelFits(label, want) {",
+    "to": "export function labelFits(label, want) { // comment-only control"
+  },
+  {
+    "label": "EMPTY — a label that says nothing passes",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "  if (!text) return false;\n  const asked = plain(labelWords(want)).trim();",
+    "to": "  if (!text) return true;\n  const asked = plain(labelWords(want)).trim();"
+  },
+  {
+    "label": "EMPTY — the emptiness rule dropped",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "  if (!text) return false;\n  const asked = plain(labelWords(want)).trim();",
+    "to": "  const asked = plain(labelWords(want)).trim();"
+  },
+  {
+    "label": "ASKED — words a message asks for are no longer required",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "  return asked ? text.includes(asked) : true;",
+    "to": "  return true;"
+  },
+  {
+    "label": "NONE ASKED — a label is refused when no words were asked for",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "  return asked ? text.includes(asked) : true;",
+    "to": "  return asked ? text.includes(asked) : false;"
+  },
+  {
+    "label": "ASKED — the asked words compared without the verifier's own normalising",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "  const asked = plain(labelWords(want)).trim();",
+    "to": "  const asked = labelWords(want);"
+  },
+  {
+    "label": "WORDS — a label that is not words asks for some",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "(want && typeof want.label === \"string\" ? want.label.trim() : \"\")",
+    "to": "(want && want.label ? String(want.label).trim() : \"\")"
+  },
+  {
+    "label": "MENU — the stored menu's new link judged without its words",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "extra[0].href !== href || !labelFits(extra[0].label, want.menu))",
+    "to": "extra[0].href !== href)"
+  },
+  {
+    "label": "MENU — the stored menu's new link judged without its destination",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "extra[0].href !== href || !labelFits(extra[0].label, want.menu))",
+    "to": "!labelFits(extra[0].label, want.menu))"
+  },
+  {
+    "label": "MENU — a second new link allowed",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "        if (extra.length !== 1 || extra[0].href !== href || !labelFits(extra[0].label, want.menu))",
+    "to": "        if (extra.length < 1 || extra[0].href !== href || !labelFits(extra[0].label, want.menu))"
+  },
+  {
+    "label": "MENU — the menu's own items not required to be kept",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "        if (JSON.stringify(kept) !== JSON.stringify(items)) bad.push(`${p}'s menu did not keep its own items in their order`);\n      });\n    }\n    const words = labelWords(want.menu);",
+    "to": "      });\n    }\n    const words = labelWords(want.menu);"
+  },
+  {
+    "label": "MENU — a served header link judged without its words",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "x.href === href && labelFits(x.text, want.menu)",
+    "to": "x.href === href"
+  },
+  {
+    "label": "MENU — a served header link judged without its destination",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "x.href === href && labelFits(x.text, want.menu)",
+    "to": "labelFits(x.text, want.menu)"
+  },
+  {
+    "label": "FINISH — the finished link judged without its words",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "extra[0].href !== href || !labelFits(extra[0].label, want.menuFinish))",
+    "to": "extra[0].href !== href)"
+  },
+  {
+    "label": "FINISH — a served header link judged without its words",
+    "files": ["scripts/canary-requests.mjs"],
+    "from": "x.href === href && labelFits(x.text, want.menuFinish)",
+    "to": "x.href === href"
+  },
+  {
+    "label": "SPEC — lv-progress asks for \"FAQ\" again",
+    "files": ["scripts/canary-ui.mjs"],
+    "from": "never asked for; `labelFits`).\n      menu: Object.freeze({ page: 0 }),",
+    "to": "never asked for; `labelFits`).\n      menu: Object.freeze({ page: 0, label: \"FAQ\" }),"
+  },
+  {
+    "label": "SPEC — rq-menu-link asks for \"Classes\" again",
+    "files": ["scripts/canary-ui.mjs"],
+    "from": "      menuFinish: Object.freeze({ href: \"/classes\" }),",
+    "to": "      menuFinish: Object.freeze({ label: \"Classes\", href: \"/classes\" }),"
+  }
+]
