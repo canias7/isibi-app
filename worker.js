@@ -30709,6 +30709,8 @@ async function handleRequest(request, env, ctx) {
             // only writes a skip for a table the design really asked to seed —
             // so nothing here can imply seeding was required where it was not.
             let aSeedSkips = [];
+            // …AND EACH TABLE'S STARTER ROWS, ROW BY ROW (2026-10-07, the engine's `rows`).
+            let aSeedRows = null;
             // …AND THE TABLES THIS CHANGE GAVE A READER AND NO WAY TO FILL.
             // A REPORT, NEVER A REFUSAL (owner, 2026-09-15: "No client write
             // grant does not mean no writer"). Filled after the apply, when the
@@ -31144,7 +31146,7 @@ async function handleRequest(request, env, ctx) {
                 // own rule about which tables get seeded, and it can never
                 // fire for a table nobody asked to seed, because the engine
                 // only records a skip against the design's own seed keys.
-                seedSkipNote(aSeedSkips),
+                seedSkipNote(aSeedSkips, aSeedRows),
                 // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07): every
                 // column it could not add and every rule it could not put in.
                 refusedNote(aRefused),
@@ -31162,7 +31164,7 @@ async function handleRequest(request, env, ctx) {
               // the reply model was given them as one fact. `warningsTold` is
               // each thing on its own, from the same selections; `coverOther`
               // keeps only the two COUNTED sentences, which name no items.
-              const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill, refused: aRefused });
+              const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, seedRows: aSeedRows, noFill: aNoFill, refused: aRefused });
               const aCounted = [aProps, aPartly].filter(Boolean);
               // ⚠ A FAILURE'S NOTE (2026-10-06): the requirements and the
               // change's own items, and the two counted sentences only beside
@@ -31252,6 +31254,8 @@ async function handleRequest(request, env, ctx) {
                 // WHOLE (2026-10-06): both were cut at twelve, and a thirteenth
                 // was on no list anybody read.
                 seedSkips: aSeedSkips.length ? aSeedSkips : undefined,
+                // AND EVERY STARTER ROW BY ITS PLACE (2026-10-07): what went in, was refused, named no column, or was not tried.
+                seedRows: aSeedRows && Object.keys(aSeedRows).length ? aSeedRows : undefined,
                 noPopulation: aNoFill.length ? aNoFill : undefined,
                 // WHAT THE BACKEND LOOKUP REALLY ANSWERED, so a support read
                 // never has to infer it: `ready`, `none` or `incomplete` (an
@@ -32093,6 +32097,7 @@ async function handleRequest(request, env, ctx) {
                 // EVERY ONE (2026-10-06): this kept the first twelve, so a
                 // thirteenth table reached neither the note nor the reply.
                 aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice() : [];
+                aSeedRows = aSeeded && aSeeded.rows && typeof aSeeded.rows === "object" ? aSeeded.rows : null;
                 // WHICH TABLES THIS CHANGE READS AND NOTHING CAN FILL. Asked of
                 // `merged` — the spec the apply really ran — so a table the
                 // cleaner refused is not reported, and asked AFTER the seed so a

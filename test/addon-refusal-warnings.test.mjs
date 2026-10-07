@@ -498,9 +498,17 @@ test("WARN 5 — seed skips and empty tables through the route, past every old c
     assert.deepEqual(rows.body.seedSkips.filter((x) => x.startsWith(n + " row ")).map((x) => x.split(":")[0]), [1, 2, 3].map((i) => n + " row " + i), n + ": a refused row was not numbered by its place");
     assert.ok(rows.body.seedSkips.includes(n + ": none of its 3 starter rows went in"), n);
   }
-  assert.deepEqual(rows.body.warningsTold, LISTS.map((n) => ({ what: "seed", name: n, why: "none-went-in" })));
-  for (const n of LISTS) assert.ok(facts(rows.body).includes("not-done: None of the starter rows for the table " + n + " went in: the database refused every one."), n);
-  assert.match(screen(rows.body, true), /None of the starter rows I had ready for breads, cakes, pies, tarts, buns, rolls went in\./);
+  // EACH TABLE FROM THE ENGINE'S ROW-BY-ROW RECORD (2026-10-07): one entry, every row by its place.
+  assert.deepEqual(rows.body.warningsTold, LISTS.map((n) => ({ what: "seed", name: n, why: "rows", rows: { designed: 3, cap: 12, inserted: [], refused: [1, 2, 3], unusable: [], unattempted: 0 } })));
+  // THE EVIDENCE, NOT A SENTENCE: each table's one account names its three rows and the places refused, and claims none went in.
+  for (const n of LISTS) {
+    const one = facts(rows.body).filter((t) => t.startsWith("not-done: ") && t.includes(" " + n + ":") && /starter rows/i.test(t));
+    assert.equal(one.length, 1, n + ": " + JSON.stringify(facts(rows.body)));
+    assert.ok(one[0].includes("3") && one[0].includes("1–3") && /\bnone\b/i.test(one[0]) && !/only the first/i.test(one[0]), one[0]);
+    const said = screen(rows.body, true).split(/(?<=\.)\s+/).filter((x) => x.includes(" " + n + " "));
+    assert.equal(said.length, 1, n + ": " + screen(rows.body, true));
+    assert.ok(said[0].includes("3") && said[0].includes("1–3") && /\bnone\b/i.test(said[0]), said[0]);
+  }
   assert.doesNotMatch(screen(rows.body, true), /Not all of the starter rows/);
   // WHO CAN READ IT, BESIDE A TABLE THAT ALREADY HAD ROWS — two reasons, each its own.
   const COLLECT = ["orders", "returns", "reviews", "requests", "waitlist"];
@@ -628,7 +636,10 @@ test("WIRE 1 — the route keeps every seed skip and sends every list whole; bot
   assert.match(W, /noPopulation: aNoFill\.length \? aNoFill : undefined,/);
   assert.match(W, /warningsTold: aWarned\.length \? aWarned : undefined,/);
   // …AND WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07).
-  assert.match(W, /const aWarned = warningReport\(\{ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill, refused: aRefused \}\);/);
+  assert.match(W, /const aWarned = warningReport\(\{ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, seedRows: aSeedRows, noFill: aNoFill, refused: aRefused \}\);/);
+  // AND THE ENGINE'S ROW-BY-ROW RECORD REACHES BOTH (2026-10-07).
+  assert.match(W, /seedSkipNote\(aSeedSkips, aSeedRows\),/);
+  assert.match(W, /aSeedRows = aSeeded && aSeeded\.rows && typeof aSeeded\.rows === "object" \? aSeeded\.rows : null;/);
   assert.match(W, /coverOther: built && aCounted\.length \? aCounted\.join\(" "\) : undefined,/);
   assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/, "the designer's refusal does not compose its note through the failure door");
   assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/, "every designer declining does not compose its note through the failure door");

@@ -161,13 +161,14 @@ import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_
 // THE ONE READER OF A FAILED ADDITION'S OUTCOME AND ITS STORED LISTS (2026-10-06):
 // a stored answer's note is composed from what the reply's facts read, by the same rule.
 import { FAILURE_STATES, outcomeOf, toldAs, toldEntries, warnedEntries } from "./site-reply.mjs";
+import { seedRowsOf, seedMissed, rowPlaces } from "./seed-rows.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
 // function wall was `8000` here against the engine's `4000` — two copies of one
 // number, drifted by a factor of two, so a body in between passed the cleaner
 // whole and was cut on the way into Postgres.
-import { MAX_FN_BODY } from "../site-schema.mjs";
+import { MAX_FN_BODY, MAX_SEED_ROWS } from "../site-schema.mjs";
 // The engine's own language list, so this step can never refuse one the
 // emitter would have written, nor accept one it would not.
 import { FN_LANGUAGES } from "../site-rls.mjs";
@@ -356,8 +357,14 @@ export function onceDay(s) {
 /** A page is at most this many bands, top to bottom. */
 export const MAX_SECTIONS = 12;
 
-/** Seed rows an add may plant in a new table — the engine's own ceiling. */
-export const MAX_ADD_SEED_ROWS = 12;
+/** Seed rows an add may plant in a new table — the engine's own ceiling, read from the engine so the two cannot drift. */
+export const MAX_ADD_SEED_ROWS = MAX_SEED_ROWS;
+/**
+ * The design's rows the engine will try: rows within the ceiling that are
+ * rows at all. The page writer is told this many, never the design's whole
+ * list (the engine says what became of the rest, row by row).
+ */
+const seedTried = (rows) => (Array.isArray(rows) ? rows.slice(0, MAX_ADD_SEED_ROWS).filter((r) => r && typeof r === "object" && !Array.isArray(r)).length : 0);
 
 /** The kinds whose answer is a LIST of additions rather than one. */
 export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "words", "photo"];
@@ -3566,7 +3573,15 @@ export function cleanAdd(kind, value, site) {
         // exactly those on an existing table and the engine refuses the rest.
         const exists = (Array.isArray(s.tables) ? s.tables : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         if (!columns.length && !(exists && (t.payment || t.publicView))) return { ok: false, why: "no-columns" };
-        const seed = (Array.isArray(v.seed) ? v.seed : []).filter((r) => r && typeof r === "object" && !Array.isArray(r)).slice(0, MAX_ADD_SEED_ROWS);
+        // THE DESIGN'S ROWS RIDE THROUGH AS DESIGNED (2026-10-07, Codex's
+        // review). This filtered out rows that were not objects and cut the
+        // list at `MAX_ADD_SEED_ROWS` before the engine saw it, so a fifteenth
+        // dish vanished without a word and a row after a malformed one was
+        // renumbered: the engine's record (`rows`) said "designed 12" and
+        // named row 3 what the design called row 4. The engine applies the
+        // same ceiling and accounts for every row by its place — unusable,
+        // past the limit, refused or in — so nothing is cut here.
+        const seed = Array.isArray(v.seed) ? v.seed : [];
         ctx.tables.push(name);
         return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
       }
@@ -4144,7 +4159,7 @@ export function addDirective(kind, value, site) {
       const t = v.table || {};
       out.push("## The table this change " + (v.exists ? "changes" : "adds"));
       out.push("- `" + t.name + "` is " + (v.exists ? "a table the site already had, now with what this change gave it" : "new") +
-        " and is in the schema below, live in the database" + (Array.isArray(v.seed) && v.seed.length ? " with " + v.seed.length + " starter rows" : "") + ".");
+        " and is in the schema below, live in the database" + (seedTried(v.seed) ? " with " + seedTried(v.seed) + " starter rows" : "") + ".");
       out.push("- " + (v.shows ? "It is shown or collected on " + at(v.shows) + ": " : "Put it on the page it belongs on: ") +
         "list it or submit to it through the hooks the rules describe, and nothing else on that page moves.");
       break;
@@ -5573,17 +5588,31 @@ function fillTables(names) {
  * keeps the rows it has. The sentence says the rule the engine applied, as
  * the reply model's fact does, and claims nothing else.
  */
-export function seedSkipNote(skipped) {
+export function seedSkipNote(skipped, rows = null) {
+  // EACH TABLE'S ROWS FROM ONE RECORD (2026-10-07, `seedRowsOf`): where the
+  // engine said which rows went in, were refused, named no column or were
+  // past the limit, that is what is said, and the row-level sentences it
+  // supersedes are not said beside it — "past the limit" proves nothing went
+  // in, and was read as "only the first ones went in" beside "none went in".
+  //
   // NOTHING SELECTED SAYS NOTHING — never a sentence about no table, which is
   // the "imply seeding was required when it wasn't" the owner ruled out. An
   // empty list and a list whose entries carry no table name (`"  "`,
-  // `": nothing"`) both select nothing (`seedSkipsOf`). The early return in
-  // `seedSkipSentence` is a shortcut, declared rather than deleted: without it
-  // the three groups are empty and so is the sentence. What really stands
-  // between a list of blanks and a sentence about no table is `seedSkipsOf`'s
-  // blank-name check, and that is what the sweep mutates (2026-10-06; it was
-  // two checks here).
-  return seedSkipSentence(seedSkipsOf(skipped));
+  // `": nothing"`) both select nothing (`seedSkipsOf`); a table whose record
+  // shows every row in says nothing either (`seedMissed`).
+  const fates = seedRowsOf(rows);
+  return [seedSkipSentence(seedSkipsOf(skipped).filter((s) => !(fates.has(s.name) && SEED_ROW_WHYS.includes(s.why)))),
+    ...[...fates].filter(([, f]) => seedMissed(f)).map(([name, f]) => seedRowsSentence(name, f))].filter(Boolean).join(" ");
+}
+const rowsWord = (list) => (list.length === 1 ? "row " : "rows ") + rowPlaces(list);
+/** The fallback note's sentence for one table, from its record alone — what went in, and of the rest, why. */
+function seedRowsSentence(name, f) {
+  const went = f.inserted.length;
+  const rest = [];
+  if (f.refused.length) rest.push("the database refused " + rowsWord(f.refused));
+  if (f.unusable.length) rest.push(rowsWord(f.unusable) + " named none of its columns");
+  if (f.unattempted) rest.push(rowsWord(Array.from({ length: f.unattempted }, (_, i) => f.cap + 1 + i)) + (f.unattempted === 1 ? " was" : " were") + " past the first " + f.cap + " a table takes at the start, so " + (f.unattempted === 1 ? "it wasn't" : "they weren't") + " tried");
+  return (went ? went + " of the " + f.designed : "None of the " + f.designed) + " starter row" + (f.designed === 1 ? "" : "s") + " I had ready for " + name + " went in" + (rest.length ? " — " + rest.join("; ") : "") + ".";
 }
 
 /** The seed note from skips already read (`{name, why}`, each once): `seedSkipNote`'s and a stored answer's (`replayedCoverNote`). */
@@ -5606,7 +5635,8 @@ function seedSkipSentence(list) {
   // this says what is known — not all of them went in — and no more.
   if (some.length) out.push("Not all of the starter rows I had ready for " + some.join(", ") + " went in.");
   if (none.length) out.push("None of the starter rows I had ready for " + none.join(", ") + " went in.");
-  if (over.length) out.push("I put in only the first starter rows for " + over.join(", ") + " — the rest were more than one table takes at the start.");
+  // ROWS PAST THE LIMIT WERE NEVER TRIED, which says nothing of the ones before them (2026-10-07).
+  if (over.length) out.push("Some starter rows I had ready for " + over.join(", ") + " weren't tried — they were past what one table takes at the start.");
   if (unusable.length) out.push("Some starter rows I had ready for " + unusable.join(", ") + " named none of its columns, so they weren't put in.");
   if (other.length) out.push("I had starter rows ready for " + other.join(", ") + " and didn't put them in.");
   return out.join(" ");
@@ -5713,14 +5743,25 @@ export function refusedNote(refused) {
     + " — so " + (list.length === 1 ? "that isn't" : "those aren't") + " there yet.";
 }
 
-export function warningReport({ missing = [], deadQr = null, seedSkips = [], noFill = [], refused = [] } = {}) {
+export function warningReport({ missing = [], deadQr = null, seedSkips = [], seedRows = null, noFill = [], refused = [] } = {}) {
   const out = [];
   for (const r of missingRoutes(missing)) out.push({ what: "page", name: r });
   const { drop, held, parts } = qrOutcomes(deadQr || {});
   for (const d of drop) out.push({ what: "qr", name: d.name, ...(typeof d.route === "string" && d.route ? { route: d.route } : {}) });
   for (const d of held) out.push({ what: "held-page", name: routeOf(d.path) || d.path, added: d.added === true });
   for (const d of parts) out.push({ what: "held-section", name: d.name, added: d.added === true });
-  for (const s of seedSkipsOf(seedSkips)) out.push({ what: "seed", name: s.name, ...(s.why ? { why: s.why } : {}) });
+  // A TABLE THE ENGINE RECORDED ROW BY ROW (2026-10-07) is one entry, with
+  // every row's fate by its place in the design; the row-level reasons it
+  // supersedes are not told beside it.
+  const fates = seedRowsOf(seedRows);
+  for (const s of seedSkipsOf(seedSkips)) {
+    if (fates.has(s.name) && SEED_ROW_WHYS.includes(s.why)) continue;
+    out.push({ what: "seed", name: s.name, ...(s.why ? { why: s.why } : {}) });
+  }
+  for (const [name, f] of fates) {
+    if (!seedMissed(f)) continue;
+    out.push({ what: "seed", name, why: "rows", rows: { designed: f.designed, cap: f.cap, inserted: f.inserted, refused: f.refused, unusable: f.unusable, unattempted: f.unattempted } });
+  }
   for (const n of fillTables(noFill)) out.push({ what: "fill", name: n });
   for (const r of refusedPieces(refused)) out.push({ what: "refused", name: r.table, piece: r.piece });
   return out;
@@ -5847,7 +5888,8 @@ export function replayedCoverNote(a) {
       withheld: of("held-page").map((w) => ({ path: w.name, added: w.added === true })),
       withheldParts: of("held-section").map((w) => ({ name: w.name, added: w.added === true })),
     }),
-    seedSkipSentence(of("seed").map((w) => ({ name: w.name, why: w.why || "" }))),
+    seedSkipSentence(of("seed").filter((w) => w.why !== "rows").map((w) => ({ name: w.name, why: w.why || "" }))),
+    ...of("seed").filter((w) => w.why === "rows").map((w) => { const f = seedRowsOf({ [w.name]: w.rows }).get(w.name); return f ? seedRowsSentence(w.name, f) : ""; }),
     populationNote(of("fill").map((w) => w.name)),
   ].filter(Boolean).join(" ");
 }

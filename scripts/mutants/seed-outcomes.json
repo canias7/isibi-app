@@ -1,0 +1,251 @@
+[
+ {
+  "label": "engine: a non-object row not recorded unusable",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "fate.unusable.push(at + 1); continue; }\n      const cols = [], vals = [];",
+  "to": "continue; }\n      const cols = [], vals = [];"
+ },
+ {
+  "label": "engine: a row naming no column not recorded unusable",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "if (!cols.length) { out.skipped.push(place + \": names none of its columns\"); fate.unusable.push(at + 1); continue; }",
+  "to": "if (!cols.length) { out.skipped.push(place + \": names none of its columns\"); continue; }"
+ },
+ {
+  "label": "engine: a row that went in not recorded",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "        n++;\n        fate.inserted.push(at + 1);",
+  "to": "        n++;"
+ },
+ {
+  "label": "engine: a refused row not recorded",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "        fate.refused.push(at + 1);\n",
+  "to": ""
+ },
+ {
+  "label": "engine: overflow counted as none",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "unattempted: Math.max(0, given.length - MAX_SEED_ROWS) };",
+  "to": "unattempted: 0 };"
+ },
+ {
+  "label": "engine: designed counted after the cut",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "const fate = { designed: given.length,",
+  "to": "const fate = { designed: rows.length,"
+ },
+ {
+  "label": "reader: one fate per row not required",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "if (inserted.length + refused.length + unusable.length !== tried || new Set([...inserted, ...refused, ...unusable]).size !== tried) continue;",
+  "to": "if (false) continue;"
+ },
+ {
+  "label": "reader: overflow count not checked",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "    if (unattempted !== Math.max(0, designed - cap)) continue;\n",
+  "to": ""
+ },
+ {
+  "label": "reader: overflow alone not a miss",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "f.unusable.length > 0 || f.unattempted > 0;",
+  "to": "f.unusable.length > 0;"
+ },
+ {
+  "label": "reader: a run of two as a range",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "(b - a >= 2 ? [a + \"–\" + b]",
+  "to": "(b - a >= 1 ? [a + \"–\" + b]"
+ },
+ {
+  "label": "reader: a place past the tried rows accepted",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "n >= 1 && n <= max)",
+  "to": "n >= 1)"
+ },
+ {
+  "label": "facts: the record not told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "rows: (n, r) => seedRowsFact(n, r),",
+  "to": "rows: (n) => \"Starter rows for the table \" + n + \" were not all put in.\","
+ },
+ {
+  "label": "facts: refused rows left out",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (r.refused.length) parts.push(\"the database refused \" + places(r.refused));\n",
+  "to": ""
+ },
+ {
+  "label": "facts: rows past the limit left out",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (r.unattempted) parts.push(",
+  "to": "  if (false) parts.push("
+ },
+ {
+  "label": "facts: none-in told as the first going in",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "const parts = [r.inserted.length ? r.inserted.length + \" went in (\" + places(r.inserted) + \")\" : \"none went in\"];",
+  "to": "const parts = [\"only the first went in\"];"
+ },
+ {
+  "label": "facts: a record that does not read is read",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  && (o.why !== \"rows\" || (o.what === \"seed\" && seedRowsOf({ [o.name]: o.rows }).has(o.name)))\n",
+  "to": ""
+ },
+ {
+  "label": "facts: over-cap back to the first going in",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "\"over-cap\": (n) => \"Some starter rows for the table \" + n + \" were not tried: they were past what one table takes at the start.\",",
+  "to": "\"over-cap\": (n) => \"Only the first starter rows for the table \" + n + \" went in: the rest were more than one table takes at the start.\","
+ },
+ {
+  "label": "cleaner: rows cut and filtered again",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        const seed = Array.isArray(v.seed) ? v.seed : [];\n",
+  "to": "        const seed = (Array.isArray(v.seed) ? v.seed : []).filter((r) => r && typeof r === \"object\" && !Array.isArray(r)).slice(0, MAX_ADD_SEED_ROWS);\n"
+ },
+ {
+  "label": "note: superseded reasons told beside the record",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "return [seedSkipSentence(seedSkipsOf(skipped).filter((s) => !(fates.has(s.name) && SEED_ROW_WHYS.includes(s.why)))),",
+  "to": "return [seedSkipSentence(seedSkipsOf(skipped)),"
+ },
+ {
+  "label": "note: a table with every row in told",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "...[...fates].filter(([, f]) => seedMissed(f)).map(([name, f]) => seedRowsSentence(name, f))",
+  "to": "...[...fates].map(([name, f]) => seedRowsSentence(name, f))"
+ },
+ {
+  "label": "note: rows past the limit left out",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (f.unattempted) rest.push(rowsWord(",
+  "to": "  if (false) rest.push(rowsWord("
+ },
+ {
+  "label": "note: none-in told as the first going in",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "(went ? went + \" of the \" + f.designed : \"None of the \" + f.designed)",
+  "to": "(went ? went + \" of the \" + f.designed : \"Only the first of the \" + f.designed)"
+ },
+ {
+  "label": "warnings: superseded reasons kept beside the record",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (fates.has(s.name) && SEED_ROW_WHYS.includes(s.why)) continue;\n",
+  "to": ""
+ },
+ {
+  "label": "warnings: a table with every row in listed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!seedMissed(f)) continue;\n    out.push({ what: \"seed\", name, why: \"rows\"",
+  "to": "    out.push({ what: \"seed\", name, why: \"rows\""
+ },
+ {
+  "label": "replay: the stored record not told",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "...of(\"seed\").filter((w) => w.why === \"rows\").map(",
+  "to": "...[].filter((w) => w.why === \"rows\").map("
+ },
+ {
+  "label": "brief: the design's whole list counted",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "rows.slice(0, MAX_ADD_SEED_ROWS).filter((r) =>",
+  "to": "rows.filter((r) =>"
+ },
+ {
+  "label": "worker: the note not given the record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "seedSkipNote(aSeedSkips, aSeedRows),",
+  "to": "seedSkipNote(aSeedSkips),"
+ },
+ {
+  "label": "worker: the warnings not given the record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "seedSkips: aSeedSkips, seedRows: aSeedRows, noFill: aNoFill",
+  "to": "seedSkips: aSeedSkips, noFill: aNoFill"
+ },
+ {
+  "label": "worker: the record off the answer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "seedRows: aSeedRows && Object.keys(aSeedRows).length ? aSeedRows : undefined,",
+  "to": "seedRows: undefined,"
+ },
+ {
+  "label": "worker: the engine's record not read",
+  "files": [
+   "worker.js"
+  ],
+  "from": "aSeedRows = aSeeded && aSeeded.rows && typeof aSeeded.rows === \"object\" ? aSeeded.rows : null;",
+  "to": "aSeedRows = null;"
+ },
+ {
+  "label": "CONTROL: a comment",
+  "files": [
+   "builder/seed-rows.mjs"
+  ],
+  "from": "// WHAT HAPPENED TO EACH STARTER ROW (2026-10-07).",
+  "to": "// WHAT HAPPENED TO EACH STARTER ROW (2026-10-07). (sweep control)",
+  "control": true
+ }
+]

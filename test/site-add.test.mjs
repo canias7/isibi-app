@@ -533,7 +533,11 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // reply's facts use, so the screen and the reply cannot tell two stories.
     // It is dependency-light by its own rule and carries the reply model's
     // facts, no path's tool or wording.
-    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-reply.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./seed-rows.mjs` (2026-10-07) is a LEAF with no imports: the one reader
+    // of the engine's row-by-row record of each table's starter rows, shared
+    // with the reply's facts so the note and the reply cannot tell two
+    // stories. Numbers and row places; no path's wording.
+    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-reply.mjs", "./seed-rows.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -1014,7 +1018,12 @@ test("cleanAdd: a table needs a name and columns unless it gives an existing tab
   assert.equal(t.table.name, "bookings");
   assert.equal(t.table.columns.length, 1);
   assert.equal(t.table.access, "collect", "the rest of the item must ride through to the engine");
-  assert.equal(t.seed.length, MAX_ADD_SEED_ROWS);
+  // THE DESIGN'S ROWS RIDE THROUGH WHOLE AND IN PLACE (2026-10-07): the
+  // engine applies the ceiling and accounts for each row by its place, so a
+  // malformed row keeps its number and the rows past the limit are counted.
+  assert.equal(t.seed.length, 22, "the design's rows were cut before the engine could account for them");
+  assert.equal(t.seed[1], "junk", "a malformed row was dropped here, renumbering every row after it");
+  assert.equal(MAX_ADD_SEED_ROWS, 12);
   assert.equal(t.shows, "/");
   assert.equal(t.exists, true);
   assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [] } }, SITE).why, "no-columns");

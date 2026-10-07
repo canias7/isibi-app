@@ -187,13 +187,18 @@ test("SEED 2 — EACH REASON ABOUT A TABLE'S ROWS IS TOLD BESIDE THE OTHERS: pas
   const w = warningReport({ seedSkips: skipped });
   assert.deepEqual(w.map((x) => [x.name, x.why]), [["breads", "over-cap"], ["breads", "row-failed"], ["breads", "row-unusable"], ["pies", "none-went-in"], ["orders", "not-display"]]);
   const note = seedSkipNote(skipped);
-  assert.match(note, /I put in only the first starter rows for breads — the rest were more than one table takes at the start\./);
+  // PAST THE LIMIT PROVES NOTHING WENT IN (2026-10-07, Codex's review): those rows were not tried, and nothing more is claimed.
+  assert.match(note, /breads[^.]*(?:weren't|were not) tried/, note);
+  assert.doesNotMatch(note, /only the first|I put in only/i);
   assert.match(note, /Not all of the starter rows I had ready for breads went in\./);
   assert.match(note, /Some starter rows I had ready for breads named none of its columns, so they weren't put in\./);
   assert.match(note, /None of the starter rows I had ready for pies went in\./);
   assert.doesNotMatch(note, /Not all of the starter rows I had ready for (?:[^.]*\b)?pies\b/, "every row refused was told as some going in");
   const f = facts({ ok: true, changed: ["src/routes/index.tsx"], warningsTold: w, coverNote: note });
-  assert.ok(f.includes("not-done: Only the first starter rows for the table breads went in: the rest were more than one table takes at the start."), JSON.stringify(f));
+  const over = f.filter((t) => t.startsWith("not-done: ") && /\bbreads\b/.test(t) && /not tried/.test(t));
+  assert.equal(over.length, 1, JSON.stringify(f));
+  assert.ok(!/went in/.test(over[0]), "rows past the limit were told as rows going in: " + over[0]);
+  assert.ok(!f.some((t) => /only the first/i.test(t)), JSON.stringify(f));
   assert.ok(f.includes("not-done: Some starter rows for the table breads were not put in: they named none of its columns."), JSON.stringify(f));
   assert.ok(f.includes("not-done: None of the starter rows for the table pies went in: the database refused every one."), JSON.stringify(f));
 });
@@ -211,7 +216,9 @@ test("FILL 1 — A TABLE THIS CHANGE READS WHOSE EVERY STARTER ROW WAS REFUSED I
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 400));
   assert.ok((r.body.seedSkips || []).includes("menu: none of its 2 starter rows went in"), JSON.stringify(r.body.seedSkips));
   assert.deepEqual(r.body.noPopulation, ["menu"], "the table every starter row of which was refused is not told as one nothing fills");
-  assert.deepEqual(r.body.warningsTold, [{ what: "seed", name: "menu", why: "none-went-in" }, { what: "fill", name: "menu" }]);
+  // EVERY ROW BY ITS PLACE, FROM THE ENGINE'S ONE RECORD (2026-10-07): both refused, none in — one entry, never "none" beside "some".
+  assert.deepEqual(r.body.warningsTold, [{ what: "seed", name: "menu", why: "rows", rows: { designed: 2, cap: 12, inserted: [], refused: [1, 2], unusable: [], unattempted: 0 } }, { what: "fill", name: "menu" }]);
+  assert.deepEqual(r.body.seedRows, { menu: { designed: 2, cap: 12, inserted: [], refused: [1, 2], unusable: [], unattempted: 0 } });
   // CONTROL: the rows went in, so nothing is said about filling it.
   const ok = await addon("nsl-fill-ok", "keep a menu of breads and count them", {
     kinds: ["table", "function", "page"], publishes: true, written: [writtenPage("/menu")],

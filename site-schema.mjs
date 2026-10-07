@@ -2032,7 +2032,13 @@ export const MAX_SEED_ROWS = 12;
 
 export async function seedSiteRows(uuid, spec, seed, deps) {
   const sqlQuery = (deps && deps.sqlQuery) || realSqlQuery;
-  const out = { seeded: {}, skipped: [] };
+  // `rows` (2026-10-07): each table's rows by their place in the design —
+  // which went in, which the database refused, which named none of its
+  // columns, and how many past the limit were never tried — so what is said
+  // of a table's starter rows is derived from one record and cannot
+  // contradict itself (Codex's review: "past the limit" was read as "the
+  // first ones went in", beside "none went in").
+  const out = { seeded: {}, skipped: [], rows: {} };
   if (!seed || typeof seed !== "object") return out;
   const byName = new Map();
   for (const t of ((spec && spec.tables) || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
@@ -2122,6 +2128,8 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
       const more = given.length - MAX_SEED_ROWS;
       out.skipped.push(t.name + ": " + more + " starter row" + (more === 1 ? "" : "s") + " past the first " + MAX_SEED_ROWS + " " + (more === 1 ? "was" : "were") + " not put in");
     }
+    const fate = { designed: given.length, cap: MAX_SEED_ROWS, inserted: [], refused: [], unusable: [], unattempted: Math.max(0, given.length - MAX_SEED_ROWS) };
+    out.rows[t.name] = fate;
 
     let n = 0;
     let tried = 0;
@@ -2131,7 +2139,7 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
     for (let at = 0; at < rows.length; at++) {
       const row = rows[at];
       const place = t.name + " row " + (at + 1);
-      if (!row || typeof row !== "object" || Array.isArray(row)) { out.skipped.push(place + ": names none of its columns"); continue; }
+      if (!row || typeof row !== "object" || Array.isArray(row)) { out.skipped.push(place + ": names none of its columns"); fate.unusable.push(at + 1); continue; }
       const cols = [], vals = [];
       const used = new Set();
       for (const [k, v] of Object.entries(row)) {
@@ -2149,16 +2157,18 @@ export async function seedSiteRows(uuid, spec, seed, deps) {
           : v);
       }
       // A ROW NAMING NONE OF THE TABLE'S COLUMNS IS SAID, never passed over.
-      if (!cols.length) { out.skipped.push(place + ": names none of its columns"); continue; }
+      if (!cols.length) { out.skipped.push(place + ": names none of its columns"); fate.unusable.push(at + 1); continue; }
       tried++;
       try {
         await sqlQuery(uuid, "INSERT INTO " + sqlIdent(t.name) + " (" + cols.join(",") + ") VALUES (" +
           cols.map(() => "?").join(",") + ")", vals);
         n++;
+        fate.inserted.push(at + 1);
       } catch (e) {
         // One bad row must not cost the other eleven — a site with 3 of 4 services
         // is alive; a site with none is the failure this whole function exists for.
         out.skipped.push(place + ": " + String((e && (e.detail || e.message)) || e).slice(0, 120));
+        fate.refused.push(at + 1);
       }
     }
     if (n) out.seeded[t.name] = n;

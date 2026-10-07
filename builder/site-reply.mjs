@@ -56,6 +56,7 @@
 
 import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
+import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 export function repliesOn(env) {
@@ -401,9 +402,21 @@ const SEED_FACTS = Object.freeze({
   // AND THREE THE ENGINE NOW SAYS (2026-10-07): every row refused, rows past
   // what one table takes at the start, and rows naming none of its columns.
   "none-went-in": (n) => "None of the starter rows for the table " + n + " went in: the database refused every one.",
-  "over-cap": (n) => "Only the first starter rows for the table " + n + " went in: the rest were more than one table takes at the start.",
+  // ROWS PAST THE LIMIT WERE NEVER TRIED, which says nothing of the rows before them (2026-10-07, Codex's review).
+  "over-cap": (n) => "Some starter rows for the table " + n + " were not tried: they were past what one table takes at the start.",
   "row-unusable": (n) => "Some starter rows for the table " + n + " were not put in: they named none of its columns.",
+  // EVERY ROW BY ITS PLACE, FROM THE ENGINE'S ONE RECORD (2026-10-07, `rows`): what went in, and of the rest, why.
+  rows: (n, r) => seedRowsFact(n, r),
 });
+/** One table's starter rows, every row accounted for by its place in the design (`seedRowsOf` in site-add.mjs). */
+function seedRowsFact(n, r) {
+  const places = (list) => (list.length === 1 ? "row " : "rows ") + rowPlaces(list);
+  const parts = [r.inserted.length ? r.inserted.length + " went in (" + places(r.inserted) + ")" : "none went in"];
+  if (r.refused.length) parts.push("the database refused " + places(r.refused));
+  if (r.unusable.length) parts.push(places(r.unusable) + " named none of its columns, so " + (r.unusable.length === 1 ? "it was" : "they were") + " not put in");
+  if (r.unattempted) parts.push(places(Array.from({ length: r.unattempted }, (_, i) => r.cap + 1 + i)) + " were past the first " + r.cap + " a table takes at the start, so " + (r.unattempted === 1 ? "it was" : "they were") + " not tried");
+  return "Starter rows for the table " + n + ": " + r.designed + " were ready; " + parts.join("; ") + ".";
+}
 const WARNED_FACTS = Object.freeze({
   page: (o) => "A page this change set out to add did not make it through, so it is not on the site: " + o.name + ".",
   qr: (o) => "A QR code was not added, because the page it would open did not make it through: " + o.name + (o.route ? " (it would have opened " + o.route + ")" : "") + ".",
@@ -413,7 +426,7 @@ const WARNED_FACTS = Object.freeze({
   "held-section": (o) => (o.added
     ? "A new section was not written, because it depended on a QR code that was not added: "
     : "A section was left exactly as it was, because its change depended on a QR code that was not added: ") + o.name + ".",
-  seed: (o) => (o.why ? SEED_FACTS[o.why](o.name) : "Starter rows were ready for the table " + o.name + " and were not put in."),
+  seed: (o) => (o.why ? SEED_FACTS[o.why](o.name, o.rows) : "Starter rows were ready for the table " + o.name + " and were not put in."),
   fill: (o) => "Nothing can put rows into the table " + o.name + " yet, so whatever reads it shows nothing until something does (a form, an import, or the owner adding the first rows).",
   // WHAT THE DATABASE REFUSED OF A TABLE (2026-10-07, `refusedPieces`): a
   // column it could not add, or a rule it could not put in place.
@@ -435,6 +448,8 @@ const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name 
   && (o.added === undefined || typeof o.added === "boolean")
   && (o.route === undefined || typeof o.route === "string")
   && (o.why === undefined || (typeof o.why === "string" && Object.hasOwn(SEED_FACTS, o.why)))
+  // A ROW-BY-ROW SEED ENTRY READS ONLY WITH A RECORD THAT READS (`seedRowsOf`): cannot-tell is never a count.
+  && (o.why !== "rows" || (o.what === "seed" && seedRowsOf({ [o.name]: o.rows }).has(o.name)))
   && (o.what !== "refused" || (typeof o.piece === "string" && !!flat(o.piece)));
 /** An answer's requirements as told, read strictly (`entriesOf`): the reply's facts' reading, and a stored answer's (`replayedCoverNote`). */
 export const toldEntries = (a) => entriesOf(a && a.requirementsTold, toldReads);
