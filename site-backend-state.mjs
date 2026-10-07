@@ -57,6 +57,14 @@ export function backendState({ site = null, project = null, failed = null } = {}
   if (!site) return { state: "none", db: null, why: "no-site-row" };
   const db = typeof site.neon_db === "string" ? site.neon_db.trim() : "";
   if (db) return { state: "ready", db, why: "recorded" };
+  // A PROJECT ROW ANOTHER ACCOUNT OWNS IS NOT THIS SITE'S DATABASE (2026-10-07).
+  // `incomplete` derives a connection from it, so a row whose owner is not the
+  // site's would hand one account's database to another — the cross-account
+  // state `assertProjectOurs` refuses to create. Never `none` either: a project
+  // row is there, so this is not a site without one.
+  if (project && site.uid != null && project.uid != null && String(site.uid) !== String(project.uid)) {
+    return { state: "unreadable", db: null, why: "project-owner-mismatch" };
+  }
   if (project) return { state: "incomplete", db: null, why: "project-without-db-name" };
   return { state: "none", db: null, why: "no-database" };
 }

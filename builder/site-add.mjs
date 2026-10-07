@@ -5761,7 +5761,11 @@ export function warningReport({ missing = [], deadQr = null, seedSkips = [], noF
 // and not live), then `none`. The fields keep every part, so a change partly
 // live AND with a design that could not be put back loses neither half.
 // `published` is always false: no failure answer published anything.
-export function failureOutcome({ database = "none", made = null, provisioned = false, saved = false, photos = 0 } = {}) {
+// …AND `projectKept` (2026-10-07): a database project was started for the site
+// and recorded against it before the exit (`true`), or may have been and is
+// written down for reconciliation (`"unknown"`). Nothing of it is live, so it
+// moves no state; it is told, so "nothing changed" is never said over it.
+export function failureOutcome({ database = "none", made = null, provisioned = false, saved = false, photos = 0, projectKept = false } = {}) {
   const db = database === "applied" || database === "unknown" ? database : "none";
   const names = (v) => [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x.trim()))];
   const m = made && typeof made === "object" ? made : {};
@@ -5779,6 +5783,7 @@ export function failureOutcome({ database = "none", made = null, provisioned = f
   return {
     state, published: false, database: db, ...live,
     ...(provisioned === true ? { provisioned: true } : {}),
+    ...(projectKept === true || projectKept === "unknown" ? { projectKept } : {}),
     ...(saved === true ? { saved: true } : {}),
     ...(n ? { photos: n } : {}),
   };
@@ -5805,6 +5810,9 @@ export function failureNote(outcome) {
       ? "I did set up a database for your site along the way — nothing from this is stored in it yet."
       : "I did set up a database for your site along the way, and some of this change may already have gone into it.");
   }
+  // A PROJECT STARTED AND KEPT (2026-10-07), said where no database is told above.
+  if (o.projectKept === true && o.provisioned !== true) out.push("I did start a database for your site along the way and kept it, so the next try uses it rather than making another.");
+  if (o.projectKept === "unknown" && o.provisioned !== true) out.push("A database may have been started for your site along the way; it's set aside to be checked before another is made.");
   const n = Number.isSafeInteger(o.photos) && o.photos > 0 ? o.photos : 0;
   if (n) {
     out.push(n === 1

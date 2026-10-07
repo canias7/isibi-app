@@ -711,8 +711,11 @@ test("the worker's two slug-keyed writes are CLAIMS, not upserts", () => {
   const body = w.slice(at, at + 900);
   assert.match(body, /ignore-duplicates,return=representation/,
     "claim() no longer sends ignore-duplicates + representation — it cannot tell winning from losing");
-  assert.match(body, /claimed: Array\.isArray\(rows\) && rows\.length > 0/,
+  assert.match(body, /claimed: rows\.length > 0/,
     "claim() no longer derives `claimed` from the representation");
+  // …AND AN ANSWER IT CANNOT READ IS `null`, never a lost race (2026-10-07).
+  assert.match(body, /if \(!Array\.isArray\(rows\)\) return \{ ok: true, claimed: null \};/,
+    "claim() reads an unreadable answer as won or lost");
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

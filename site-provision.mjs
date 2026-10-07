@@ -37,13 +37,97 @@
  * is why it names the project and says what state it is in rather than being one
  * more swallowed rejection.
  */
-async function dropOrphan(deps, projectId, why) {
+async function dropOrphan(deps, projectId, why, keep = null) {
   if (!projectId) return false;
   try { await deps.dropProject(projectId); return true; }
   catch (e) {
     deps.warn?.("ORPHANED NEON PROJECT " + projectId + " (" + why + ") — the drop failed and nothing else holds it: " +
       String((e && e.message) || e).slice(0, 200));
+    // …AND WRITTEN DOWN FOR RECONCILIATION (2026-10-07), so the log is no
+    // longer the only record: the next attempt for this site finds it and
+    // settles it before it makes another (`settleUnrecorded`).
+    if (keep) await noteUnrecorded(deps, keep.slug, keep.uid, keep.made, why + "; the drop failed");
     return false;
+  }
+}
+
+/**
+ * ── A PROJECT IS DROPPED ONLY WHEN NO ROW NAMES IT (2026-10-07) ─────────────
+ *
+ * The owner: *"a database/project created before a later failure is durably
+ * associated with the correct site or explicitly recorded for safe
+ * reconciliation … do not delete potentially used resources as cleanup."* A
+ * claim whose answer was lost or unreadable said nothing about whether its row
+ * landed, and both cleanups dropped the project anyway — so a row that DID land
+ * would name a deleted project, and the site would be stuck on it. So before
+ * any drop the slug's row is read back: `ours` (it landed — keep going on
+ * it), `other` (another project holds the slug — ours was never recorded and
+ * nothing uses it), `none`, or `unknown` (the read failed — nothing is dropped).
+ */
+async function recordedAs(deps, slug, projectId) {
+  try {
+    const row = await deps.lookupProject(slug);
+    if (!row) return { state: "none", row: null };
+    return { state: String(row.neon_project) === String(projectId) ? "ours" : "other", row };
+  } catch (e) { return { state: "unknown", row: null, error: e }; }
+}
+
+/**
+ * THE EXPLICIT RECORD OF A PROJECT NO ROW HOLDS (2026-10-07): written where a
+ * project's recording is unknown or its removal failed, so a later attempt for
+ * the same site settles it rather than making a second one. Never the
+ * connection string — it carries a password. Best effort, and said when it
+ * cannot be written.
+ */
+async function noteUnrecorded(deps, slug, uid, made, why) {
+  if (!made || !made.projectId) return false;
+  if (typeof deps.noteUnrecorded !== "function") {
+    deps.warn?.("UNRECORDED NEON PROJECT " + made.projectId + " for " + slug + " (" + why + ") — nothing here can write it down");
+    return false;
+  }
+  try {
+    await deps.noteUnrecorded(slug, { slug, uid, projectId: made.projectId, branchId: made.branchId || null, roleName: made.roleName || null, why, at: new Date().toISOString() });
+    return true;
+  } catch (e) {
+    deps.warn?.("UNRECORDED NEON PROJECT " + made.projectId + " for " + slug + " (" + why + ") — and its record could not be written: " + String((e && e.message) || e).slice(0, 200));
+    return false;
+  }
+}
+
+/**
+ * ── AN EARLIER ATTEMPT'S UNRECORDED PROJECT IS SETTLED FIRST (2026-10-07) ──
+ *
+ * Before this site gets a new project, every project an earlier attempt wrote
+ * down as unrecorded (`noteUnrecorded`) is settled: one the slug's row now
+ * names was recorded after all, and its note goes; one of THIS account's that
+ * no row names was never given a database by us and nothing uses it, so its
+ * removal is retried — and when that fails again, no second project is made:
+ * the attempt stops and says the earlier one needs reconciling. Another
+ * account's note is never touched. A list that cannot be read is cannot-tell,
+ * never "none", and stops the attempt the same way — only before a create.
+ */
+async function settleUnrecorded(deps, { slug, uid, recordedId = "", creating = false }) {
+  if (typeof deps.unrecorded !== "function") return;
+  let marks;
+  try { marks = await deps.unrecorded(slug); }
+  catch (e) {
+    if (!creating) { deps.warn?.("unrecorded-project notes for " + slug + " could not be read: " + String((e && e.message) || e).slice(0, 200)); return; }
+    throw Object.assign(new Error("an earlier attempt's database project could not be checked"), {
+      stage: "reconcile_project", reconcile: true, detail: String((e && e.message) || e).slice(0, 300),
+    });
+  }
+  for (const m of Array.isArray(marks) ? marks : []) {
+    if (!m || typeof m !== "object" || !m.projectId) continue;
+    const clear = async () => { try { await deps.clearUnrecorded?.(slug, m.projectId); } catch (e) { deps.warn?.("could not clear the unrecorded-project note " + m.projectId + ": " + String((e && e.message) || e).slice(0, 200)); } };
+    if (recordedId && String(m.projectId) === String(recordedId)) { await clear(); continue; }
+    if (String(m.uid || "") !== String(uid)) continue;
+    try { await deps.dropProject(m.projectId); await clear(); }
+    catch (e) {
+      if (!creating) { deps.warn?.("an earlier unrecorded project " + m.projectId + " for " + slug + " is still not removed: " + String((e && e.message) || e).slice(0, 200)); continue; }
+      throw Object.assign(new Error("an earlier attempt left a database project that needs reconciling before another is made"), {
+        stage: "reconcile_project", reconcile: true, detail: String((e && e.message) || e).slice(0, 300),
+      });
+    }
   }
 }
 
@@ -107,6 +191,14 @@ function assertProjectOurs(proj, uid, slug) {
  *                                                  the site lacks, asked through the same
  *                                                  reader the proxy uses; drives the reuse-
  *                                                  path heal and nothing else
+ *   noteUnrecorded(slug, rec)   → void             OPTIONAL — write down a project no row may
+ *                                                  hold (`{slug, uid, projectId, branchId,
+ *                                                  roleName, why, at}`, never a connection)
+ *   unrecorded(slug)            → [rec]            OPTIONAL — the projects written down for
+ *                                                  this slug; throws when it cannot tell
+ *   clearUnrecorded(slug, id)   → void             OPTIONAL — a project settled, its note gone
+ *   saveProject's `claimed: null` means its answer could not be read: the row is
+ *   read back before anything is concluded, never read as a lost race.
  *
  * `lookupProject` MUST return the row's `uid`. See `assertProjectOurs`.
  */
@@ -200,6 +292,10 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   // the project; reusing one without reading its owner is how account B's
   // database ends up inside account A's project — see `assertProjectOurs`.
   let proj = assertProjectOurs(await deps.lookupProject(slug), uid, slug);
+  // AN EARLIER ATTEMPT'S UNRECORDED PROJECT, SETTLED BEFORE ANYTHING IS MADE
+  // (2026-10-07, `settleUnrecorded`): with a row here, only notes go; with
+  // none, a second project is never made over one that could not be removed.
+  await settleUnrecorded(deps, { slug, uid, recordedId: proj ? proj.neon_project : "", creating: !proj });
   if (!proj) {
     // THE CREATE ITSELF CAN LEAVE A PROJECT BEHIND, and the cleanup below could
     // not reach it.
@@ -230,12 +326,40 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     // NEXT build of this slug would create yet another one.
     let saved = { ok: false };
     try { saved = await deps.saveProject(slug, uid, proj); } catch (e) { saved = { ok: false, error: e }; }
+    const keep = { slug, uid, made };
     if (!saved || !saved.ok) {
-      await dropOrphan(deps, made.projectId, "the project could not be recorded");
-      throw Object.assign(new Error("could not record the Neon project"), {
-        detail: String((saved && saved.detail) || (saved && saved.error && saved.error.message) || "").slice(0, 300),
-        stage: "save_project",
-      });
+      // READ BACK BEFORE ANY DROP (2026-10-07, `recordedAs`): a write whose
+      // answer was lost may have landed.
+      const rec = await recordedAs(deps, slug, made.projectId);
+      if (rec.state === "ours") {
+        assertProjectOurs(rec.row, uid, slug);
+        saved = { ok: true, claimed: true };
+      } else if (rec.state === "unknown") {
+        await noteUnrecorded(deps, slug, uid, made, "whether its row was saved could not be read back");
+        throw Object.assign(new Error("could not record the Neon project"), {
+          detail: String((saved && saved.detail) || (saved && saved.error && saved.error.message) || "").slice(0, 300),
+          stage: "save_project", recorded: "unknown",
+        });
+      } else {
+        await dropOrphan(deps, made.projectId, "the project could not be recorded", keep);
+        throw Object.assign(new Error("could not record the Neon project"), {
+          detail: String((saved && saved.detail) || (saved && saved.error && saved.error.message) || "").slice(0, 300),
+          stage: "save_project",
+        });
+      }
+    }
+    // A CLAIM WHOSE ANSWER COULD NOT BE READ (2026-10-07, `claimed: null`):
+    // read back, never read as lost — that dropped a project whose row landed.
+    if (saved.claimed === null) {
+      const rec = await recordedAs(deps, slug, made.projectId);
+      if (rec.state === "ours") { assertProjectOurs(rec.row, uid, slug); saved = { ...saved, claimed: true }; }
+      else if (rec.state === "other") saved = { ...saved, claimed: false };
+      else {
+        await noteUnrecorded(deps, slug, uid, made, rec.state === "unknown" ? "the claim's answer and the read-back both could not be read" : "the claim's answer could not be read and no row names it");
+        throw Object.assign(new Error("could not record the Neon project"), {
+          detail: "the claim's answer could not be read", stage: "save_project", recorded: "unknown",
+        });
+      }
     }
     // LOST THE SLUG RACE — CONVERGE, DO NOT ORPHAN. `claimed === false` means
     // the row already existed: another build of this same free name got its
@@ -261,7 +385,7 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     // that into the same 409 the slug race already gives; nothing is orphaned,
     // because B's own project is dropped first.
     if (saved.claimed === false) {
-      await dropOrphan(deps, made.projectId, "lost the slug race");
+      await dropOrphan(deps, made.projectId, "lost the slug race", keep);
       proj = assertProjectOurs(await deps.lookupProject(slug), uid, slug);
       if (!proj) {
         throw Object.assign(new Error("could not record the Neon project"), {
@@ -275,11 +399,24 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
 
   // A retried build can hit an already-created database; that is success, not
   // failure — the schema apply below is additive and idempotent.
+  // ── FROM HERE THE PROJECT IS THE SITE'S, RECORDED (2026-10-07) ──────────
+  //
+  // Every failure below leaves it recorded against the slug, and the next
+  // attempt reuses it (`lookupProject`) rather than making another — so each
+  // carries `recorded: true` and names its own stage, for the caller to say
+  // that a database was started and kept rather than that nothing changed.
+  const kept = (e, stage) => {
+    if (e && typeof e === "object") {
+      if (!e.stage && stage) e.stage = stage;
+      e.recorded = true;
+    }
+    return e;
+  };
   let dbName;
   try {
     dbName = await deps.createDatabase(proj, slug);
   } catch (e) {
-    if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw e;
+    if (!/already exists/i.test(String((e && e.detail) || (e && e.message) || ""))) throw kept(e, "create_database");
     dbName = deps.dbNameFor(slug);
   }
   mark("database");
@@ -314,11 +451,11 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
       // `status`, so a build that died here reported `upstream: null` and the
       // caller could not tell a 404 (wrong path) from a 401 (dead key) from a
       // 5xx. That is the whole reason the status was surfaced one layer up.
-      throw Object.assign(new Error("could not enable Neon Auth for this site"), {
+      throw kept(Object.assign(new Error("could not enable Neon Auth for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 300),
         status: e && e.status,
         stage: "enable_auth",
-      });
+      }));
     }
     // LOGGED, NOT SWALLOWED. Best-effort is right — a site whose auth is ON but
     // whose endpoint was not written is still recoverable — but a `catch {}` with
@@ -341,11 +478,11 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     let dataInfo = null;
     try { dataInfo = (await deps.enableData(proj, dbName)) || null; }
     catch (e) {
-      throw Object.assign(new Error("could not enable the Neon Data API for this site"), {
+      throw kept(Object.assign(new Error("could not enable the Neon Data API for this site"), {
         detail: String((e && (e.detail || e.message)) || "").slice(0, 400),
         status: e && e.status,
         stage: "enable_data_api",
-      });
+      }));
     }
     if (dataInfo && dataInfo.info && deps.saveDataInfo) {
       try { await deps.saveDataInfo(dbName, dataInfo.info); }
@@ -360,10 +497,10 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
   let backend = { ok: false };
   try { backend = await deps.saveBackend(slug, uid, dbName); } catch (e) { backend = { ok: false, error: e }; }
   if (!backend || !backend.ok) {
-    throw Object.assign(new Error("could not record the site's database"), {
+    throw kept(Object.assign(new Error("could not record the site's database"), {
       detail: String((backend && backend.detail) || (backend && backend.error && backend.error.message) || "").slice(0, 300),
       stage: "save_backend",
-    });
+    }));
   }
   // THE SLUG BELONGS TO WHOEVER RECORDED IT FIRST — enforced here, not merely
   // stated. Under the old upsert, two racers both "succeeded" and the LAST

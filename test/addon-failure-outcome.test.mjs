@@ -522,13 +522,15 @@ test("QUEUE 1 — a request whose add-on publish fails after its database change
 test("WIRE 1 — the route's later exits pass what they know: an addition that did not land and a design that could not be saved say what did not happen when a database was made first; every failure after the design answers through the one door", () => {
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // THE DOOR IS ASYNC SINCE 2026-10-07: it re-writes the developer record over the failure before it answers.
-  for (const at of ["const aFail = async (body, status, { database = \"none\", saved = false, photos = 0 } = {}) => {", 'error: "not-landed"', 'error: "config"']) assert.ok(W.includes(at), "landmark gone: " + at);
+  // IT TAKES `projectKept` SINCE 2026-10-07 (late provisioning): a database
+  // started before the failure is told in the outcome, not hidden under "no change".
+  for (const at of ["const aFail = async (body, status, { database = \"none\", saved = false, photos = 0, projectKept = false } = {}) => {", 'error: "not-landed"', 'error: "config"']) assert.ok(W.includes(at), "landmark gone: " + at);
   assert.match(W, /msg: notLandedMsg\(\{ words: aWordsAt\.missing, photos: aPhotosAt\.missing \}, \{ changed: aProvisioned \}\),/, "an addition that did not land is not told a database was made first");
   assert.match(W, /return aFail\(\{ ok: false, error: "config", cost: 0, msg: aProvisioned\s*\? "That addition couldn't be saved, so it wasn't published — try again in a moment\."\s*: "That addition couldn't be saved, so your site is untouched — try again in a moment\." \}, 503\);/, "a design that could not be saved still calls the site untouched after a database was made");
   for (const e of ["no-photo", "generate", "unseen-rewrite", "rewrote", "qr-dependency", "not-landed", "lost-photos", "provision"]) {
     assert.ok(new RegExp('aFail\\(\\{\\s*ok: false, error: "' + e + '"').test(W), e + " does not answer through the failure door");
   }
-  assert.match(W, /return aFail\(\{\s*ok: false, error: "provision", cost: 0, ours: true,[^}]*?detail: scrubSecrets\([^\n]*\n\s*\}, 502\);/, "the provision's refusal lost its status or its detail on the way through the door");
+  assert.match(W, /return aFail\(\{\s*ok: false, error: "provision", cost: 0, ours: true,[^}]*?detail: scrubSecrets\([^\n]*\n\s*\}, 502, \{ projectKept: aProjKept \}\);/, "the provision's refusal lost its status, its detail or the project it kept on the way through the door");
 });
 
 test("WIRE 2 — the model-down stop says nothing changed only where that is true: every caller stands above the backend block, and its answer carries the no-change outcome", () => {

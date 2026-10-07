@@ -5941,7 +5941,11 @@ async function siteBackendDetail(env, slug) {
     const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s)}&select=neon_db,uid&limit=1`,
       { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
     if (!g.ok) throw new Error("site lookup " + g.status);
-    site = ((await g.json().catch(() => [])) || [])[0] || null;
+    // CANNOT-TELL IS NOT "NO SITE ROW" (2026-10-07): an answer that cannot be
+    // read is unreadable, never `none` — which is the state that provisions.
+    const siteRows = await g.json().catch(() => undefined);
+    if (!Array.isArray(siteRows)) throw new Error("site lookup: the answer could not be read");
+    site = siteRows[0] || null;
     // Only asked when the name is missing: a `ready` site needs no project read,
     // and this runs on the addon's own path where a round trip is not free.
     if (site && !String(site.neon_db || "").trim()) project = await siteNeonProject(env, s);
@@ -7806,6 +7810,44 @@ async function siteBackendRowFresh(env, slug) {
 }
 
 /**
+ * THE NOTES OF PROJECTS NO ROW MAY HOLD (2026-10-07, `noteUnrecorded` in
+ * site-provision.mjs): `source/<slug>/neon-unrecorded/<projectId>.json`,
+ * beside the site's own source. Ids, owner, why and when — never a connection
+ * string. `unrecordedList` throws when it cannot tell, so cannot-tell is never
+ * read as "none".
+ */
+const UNRECORDED_PREFIX = (slug) => "source/" + String(slug || "").toLowerCase() + "/neon-unrecorded/";
+async function unrecordedPut(env, slug, rec) {
+  if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
+  const id = String((rec && rec.projectId) || "").replace(/[^A-Za-z0-9_-]/g, "");
+  if (!id) throw new Error("no project id to write down");
+  const { conn, neon_conn, ...safe } = rec || {};
+  await env.SITES_BUCKET.put(UNRECORDED_PREFIX(slug) + id + ".json", JSON.stringify({ ...safe, projectId: id }));
+}
+async function unrecordedList(env, slug) {
+  if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
+  const out = [];
+  let cursor;
+  do {
+    const page = await env.SITES_BUCKET.list({ prefix: UNRECORDED_PREFIX(slug), ...(cursor ? { cursor } : {}) });
+    for (const o of (page && page.objects) || []) {
+      const got = await env.SITES_BUCKET.get(o.key);
+      if (!got) continue;
+      let rec = null;
+      try { rec = JSON.parse(await got.text()); } catch { rec = null; }
+      if (!rec || typeof rec !== "object" || !rec.projectId) throw new Error("an unrecorded-project note could not be read: " + o.key);
+      out.push(rec);
+    }
+    cursor = page && page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return out;
+}
+async function unrecordedClear(env, slug, id) {
+  if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
+  await env.SITES_BUCKET.delete(UNRECORDED_PREFIX(slug) + String(id || "").replace(/[^A-Za-z0-9_-]/g, "") + ".json");
+}
+
+/**
  * A site's Neon project, by slug.
  *
  * `site_project` rather than a column on `site_backends`, and that separation is
@@ -7830,8 +7872,11 @@ async function siteNeonProject(env, slug) {
   // Throws rather than answering null: "Supabase is down" must not read as
   // "this site has no project", which on the write path would create another.
   if (!g.ok) throw Object.assign(new Error("site project lookup failed"), { detail: g.status + " " + (await g.text().catch(() => "")).slice(0, 200) });
-  const rows = await g.json().catch(() => []);
-  return (Array.isArray(rows) && rows[0]) || null;
+  // AN ANSWER THAT CANNOT BE READ THROWS TOO (2026-10-07): read as no rows, it
+  // was "this site has no project", and the write path made another.
+  const rows = await g.json().catch(() => undefined);
+  if (!Array.isArray(rows)) throw Object.assign(new Error("site project lookup failed"), { detail: "the answer could not be read" });
+  return rows[0] || null;
 }
 
 /**
@@ -8098,8 +8143,12 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) return { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
-    const rows = await r.json().catch(() => null);
-    return { ok: true, claimed: Array.isArray(rows) && rows.length > 0 };
+    const rows = await r.json().catch(() => undefined);
+    // AN ANSWER THAT CANNOT BE READ IS NOT A LOST RACE (2026-10-07): `null`
+    // says so, and the module reads the row back before concluding anything —
+    // read as `false`, it dropped a project whose row had landed.
+    if (!Array.isArray(rows)) return { ok: true, claimed: null };
+    return { ok: true, claimed: rows.length > 0 };
   };
   // A REAL BINDING, not just a property on the deps object.
   //
@@ -8178,6 +8227,13 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
     },
+    // A PROJECT NO ROW MAY HOLD, WRITTEN DOWN (2026-10-07): one note per
+    // project beside the site's own source, so the next attempt for this site
+    // settles it before it makes another (`settleUnrecorded`). The note never
+    // carries a connection string — it carries a password.
+    noteUnrecorded: (s2, rec) => unrecordedPut(env, s2, rec),
+    unrecorded: (s2) => unrecordedList(env, s2),
+    clearUnrecorded: (s2, id) => unrecordedClear(env, s2, id),
     // CLAIMS, not upserts. Both tables are keyed by slug, and merge-duplicates
     // is what made the slug race silent (2026-08-13 audit): two overlapping
     // first builds of one free name both passed the pre-check, both created a
@@ -31185,11 +31241,11 @@ async function handleRequest(request, env, ctx) {
             // exit's, untouched: this only says what happened.
             // THE REQUIREMENT RECORD READ UNDER A FAILURE, once it can be (`aRecord`, below).
             let aRecordFor = null;
-            const aFail = async (body, status, { database = "none", saved = false, photos = 0 } = {}) => {
+            const aFail = async (body, status, { database = "none", saved = false, photos = 0, projectKept = false } = {}) => {
               const failed = failureOutcome({
                 database,
                 made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions, apis: aApis, jobs: aJobs.map((j) => j && j.name) },
-                provisioned: aProvisioned, saved, photos,
+                provisioned: aProvisioned, saved, photos, projectKept,
               });
               const told = aCoverage({ failed, said: body.msg });
               // THE DEVELOPER RECORD, RE-WRITTEN OVER THE FAILURE (2026-10-07):
@@ -31734,12 +31790,22 @@ async function handleRequest(request, env, ctx) {
                   // is not linked to the site (that is `save_backend`, the
                   // last stage) and the next ask reuses it, never makes a
                   // second (`lookupProject`) — the site itself is unchanged.
+                  // A PROJECT STARTED BEFORE THE FAILURE (2026-10-07, the
+                  // provisioner's `recorded`): kept against the site and reused
+                  // by the next try — or, where its recording is unknown,
+                  // written down to be settled before another is made. Either
+                  // way "nothing was changed" is not said over it.
+                  const aProjKept = e && e.recorded === true ? true : e && e.recorded === "unknown" ? "unknown" : false;
                   return aFail({
                     ok: false, error: "provision", cost: 0, ours: true,
-                    msg: "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
+                    msg: aProjKept === true
+                      ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; the database that was started is kept, so the next try picks it up. Try again in a few minutes."
+                      : aProjKept === "unknown"
+                        ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; a database may have been started, and it's set aside to be checked before another is made. Try again in a few minutes."
+                        : "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
                     upstream: (e && e.status) || null, stage: (e && e.stage) || null,
                     detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-                  }, 502);
+                  }, 502, { projectKept: aProjKept });
                 }
                 // A DATABASE JUST MADE STORES NOTHING — the honest spec, the
                 // one a site with no database was described by above.

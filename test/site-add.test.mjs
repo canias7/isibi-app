@@ -392,7 +392,10 @@ test("every field the edit path refuses to create has a kind here, and the route
   // coverage and happens before the decline returns.
   assert.match(b.slice(keep, decline), /coverage: aRecord\(\)/,
     "the coverage record is not stored beside the replies");
-  const rec = b.indexOf("const aRecord = () => requirementRecord({");
+  // RE-ANCHORED 2026-10-07: the composer takes the failure it is written for
+  // (`aRecord(failed)`, B2), so its parameter list is not pinned — the
+  // property is that it exists above its use.
+  const rec = b.search(/const aRecord = \([^)]*\) => requirementRecord\(\{/);
   assert.ok(rec > 0 && rec < keep, "the record composer is gone, or is written below its own use");
   assert.match(b.slice(rec, b.indexOf("});", rec)), /list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\]/,
     "the record no longer carries the coverage list, the unreadable entries and the invalid properties");
@@ -1424,7 +1427,11 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   const push = at(b, "aAnswers.push({ kind: k, value: clean.value,", "answer kept");
   assert.match(b.slice(push, push + 200), /aAnswers\.push\(\{ kind: k, value: clean\.value, requirements: ran\.requirements \}\);/,
     "the kept answer drops the coverage list the designer answered");
-  const feed = b.slice(push, at(b, "await saveAddonAnswer(", "kept replies"));
+  // THE SAVE THAT FOLLOWS THE PUSH (re-anchored 2026-10-07): a failure exit
+  // above the loop now saves the developer record too (B2), so the first save
+  // in the route is no longer the one after the designers.
+  const feed = b.slice(push, b.indexOf("await saveAddonAnswer(", push));
+  assert.ok(feed.length > 0, "the save after the designers is gone");
   // RE-ANCHORED 2026-09-14, AND THE PROPERTY WIDENED RATHER THAN MOVED. This
   // pinned two hand-written pushes gated on `k === "function"` — the only two
   // facts that ever crossed between the kinds' separate model calls, so the
@@ -1458,7 +1465,8 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(fail, /detail: scrubSecrets\(/, "the detail is not scrubbed");
   // THROUGH THE FAILURE DOOR since 2026-10-06 (`aFail(body, 502)`), so its
   // requirements are told beside it; the status is the door's second argument.
-  assert.match(fail, /return aFail\(\{\s*ok: false, error: "provision"[\s\S]*?\}, 502\);/, "a failed provision is not answered 502 through the failure door");
+  // Its third argument (since 2026-10-07) carries a project the provisioner kept.
+  assert.match(fail, /return aFail\(\{\s*ok: false, error: "provision"[\s\S]*?\}, 502(?:, \{[^{}]*\})?\);/, "a failed provision is not answered 502 through the failure door");
   assert.match(fail, /aSpec = \{ tables: \[\] \};/, "a database just made is not described as empty");
   // RE-ANCHORED, NOT APPEASED (2026-09-15). This was pinned to
   // `let adb = await siteBackendBySlug(env, ownerSlug);` — the SPELLING of a

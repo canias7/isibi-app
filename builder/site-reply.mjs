@@ -459,6 +459,7 @@ export function outcomeReads(o) {
     if (!(v === undefined || (o.database === "applied" && Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && !!flat(x))))) return false;
   }
   if (!(o.provisioned === undefined || o.provisioned === true) || !(o.saved === undefined || o.saved === true)) return false;
+  if (!(o.projectKept === undefined || o.projectKept === true || o.projectKept === "unknown")) return false;
   if (!(o.photos === undefined || (Number.isSafeInteger(o.photos) && o.photos > 0))) return false;
   if (o.recorded !== undefined) return false;
   const state = o.database === "unknown" ? "unknown"
@@ -559,7 +560,10 @@ function liveOf(out) {
  * and not live, and what cannot be established, are each worth knowing.
  */
 function failureFacts(F, out, why) {
-  if (out.state === "none") { F.add("not-done", "Nothing was added." + why); return; }
+  // A PROJECT STARTED AND KEPT (2026-10-07, `projectKept`): nothing of the
+  // addition went in, and something was started — never "nothing was added".
+  const kept = out.projectKept === true || out.projectKept === "unknown";
+  if (out.state === "none" && !kept) { F.add("not-done", "Nothing was added." + why); return; }
   const live = out.database === "applied" ? liveOf(out) : [];
   if (live.length) F.add("changed", "Part of this addition went in and is live: " + listOf(live) + ".");
   else if (out.database === "applied") F.add("changed", "Changes to their database for this addition went in and are live.");
@@ -578,6 +582,8 @@ function failureFacts(F, out, why) {
       ? "This answer does not record whether any part of the addition went in before it stopped, so that cannot be said either way."
       : "Some of its database change may have gone in before it stopped; which parts did could not be established.");
   }
+  if (out.projectKept === true && out.provisioned !== true) F.add("note", "A database was started for the site and is kept, so the next try uses it rather than making another; nothing on the site uses it yet.");
+  if (out.projectKept === "unknown" && out.provisioned !== true) F.add("note", "A database may have been started for the site; whether it was recorded could not be established, so it is set aside to be checked before another is made.");
   if (out.saved === true) F.add("note", "The change itself is still saved, so it could go out with their next edit.");
   if (out.photos > 0) {
     F.add("note", out.photos === 1
