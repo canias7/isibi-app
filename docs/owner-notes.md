@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07)
+## Current handoff — read this first (2026-10-07, the correction round)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,87 +10,87 @@ is in git; the dated entries further down are the full story.*
 - **Production is as it was**: `main` is `bcc22295`, progress messages live
   (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187). Turning
   progress off is your secret set to `off`, then *Deploy to Cloudflare*.
-- **The balance is 10** (01:43 UTC: the ledger's last row 401, no job open).
-  This batch spent nothing.
-- **The Edit/Add-on cleanup batch you asked for is done, on the branch**
-  `claude/help-needed-ehlwlj`, pushed and unmerged. Nothing deployed, no
-  container built, no model called, no paid run, nothing restored. The
-  branch also still carries your run-105 verifier correction (`bd192acc`).
-  The record: `docs/history/2026-10-07-cleanup-batch.md`.
+- **Nothing was spent in this round** (no model called, no paid run). The
+  balance was 10 at the last reading (01:43 UTC, ledger row 401, no job
+  open); it was not read again.
+- **The correction round you asked for is done, on the branch**
+  `claude/help-needed-ehlwlj`, pushed and unmerged: Codex's four findings on
+  `430a3a64` and the batch's remaining gaps, resolved together. Nothing
+  deployed, no container built, nothing restored. The record:
+  `docs/history/2026-10-07-cleanup-batch.md` §7.
 
-**What the batch did, issue by issue** (every model answer in the tests is
-supplied; nothing here is evidence of what a real model writes)
+**Each finding, its fix, its commit and its tests** (every model answer in
+the tests is supplied; nothing here is evidence of what a real model writes)
 
-| Your item | What changed | Commit | Tests |
+| Finding | What changed | Commit | Tests |
 |---|---|---|---|
-| 1. Progress clarity | the progress writer is told the kind of work, the request's other parts with their states, and the pages by kind (new, changed, only a menu link), recorded after the merge and links settle; nothing says pages come next when none do | `c3655841` | two flows through the real Worker; red check; sweep 23/23 |
-| 2. Failures and partial success | every exit after work begins keeps and tells what already stands: a part whose job left something standing is done in part, never failed; a stop or crash after a change says so; a dead job's database record is settled and printed; the developer record is rewritten by the failure | `af396d14` | red check 23 fail on the old code; sweep 46/54 then 9/9; related 3364/3364 |
-| 3. No silent losses | nothing cut in requirements, warnings, page and problem lists; requirements past the twelve a step keeps track of are kept by name and told as not checked, with why (the twelve stays, a real limit); refused starter rows numbered by their place; what nothing can fill read from what the engine put in | `fe1be3ca` | 15 cases; sweep 52, all killed after one round |
-| 4. Outcome precision | a data change names its entry and each field's before and after values; each column and setting of a table is judged on its own and checked against the table as applied | `9a3e4bce` | 14 cases; red check 14/14; sweep 60, all killable killed |
-| 5. Late provisioning | a database project made before a failure is read back before any drop, kept against the site when its row landed, or written down beside the site's source (never its connection string) for the next attempt to settle before making another; never a second one over one it cannot remove; ownership checked throughout; the add-on says a database was started and kept, never "nothing was changed" | `645f58a5`, `cd8fe7eb` | 10 cases, two through the add-on route; red check 10/10; sweep 52 + 1, all killed after one round |
-| 6. Completion display | the undo offer kept when your own request is read late; one preview move for everything a reading or a look finds finished; the page list taken whole from the server with nothing in flight, and looked at again when the tab comes back; a page that gave up watching no longer marks the job shown | `09b2309b` | 7 cases; red check 7/7; sweep 36, all killed after one round; every page-script test 4627/4627; screenshots |
-| 7. Task-title usage | the usage step says the account is INCOMPLETE, naming the request, when a task-lines call isn't read; the writers log the cached input too. The historical usage stays unverified, never read as zero | `0ee8e782` | reader and writer together; red check; sweep 17/17 |
-| Combinations | an edit that lands beside an addition refused after its table went in, in one request; the same delivered twice; the same read by a fresh session | `cd8fe7eb` | 3 cases; all 3 fail on the batch's start |
+| 1. Provisioning recovery (a recorded project dropped on a stale reading of the slug's row; a failed drop then a failed note leaving an untracked project) | every create is written down first, under an attempt id the Neon project's own name carries, so a lost create is found by exact name; a project is dropped only when the slug's row names another; every other unrecorded project is claimed, never dropped; nothing new is made while an earlier attempt of this account is unsettled; a create's error read by HTTP's meaning; a note cleared only when its project is settled; another account's notes untouched; the add-on no longer promises a retry fixes an unsettled state | `71e47213` | 28 + 60 cases (Codex's ordering, the double failure, lost creates, failed clears, three interleavings, account isolation, route cases); red check 25/25 on `430a3a64`; sweep 47: 41, then 6/6 |
+| 2. Partial evidence end to end (`requestView` dropped `left`; the stop branch ignored `row.migration`) | `left` carried by the serialized view into the request reply and its queued writer; the stop branch reads the answer and the database record; an earlier try's standing work kept across retries, refusals, questions and stops under one rule; the job's outcome partial for a stop or death over a standing table; the card labels it | `b1a2ebb0` | 10 cases through the real Worker, queue, serialized view, card, poll and job list; red check 7/8 on `71e47213`; sweep 20: 18, then 2/2 |
+| 3. Data change equality (values compared after the 200-character cut) | `same` decided on the whole typed values; unknown never null; each value says whether it was read back; shortening only for showing, marked, with a difference past the cut said | `5d09f018` | DATA 7–10, DATA 1 updated; red check 5 fail on `b1a2ebb0`; sweep 13/13 |
+| 4. Seed outcomes (over the limit beside none going in contradicted) | the engine records each starter row by its place (in, refused, named no column, past the limit and never tried); one strict reader; warnings, facts and the fallback note derived from it; the add-on cleaner no longer drops or cuts rows before the engine. The image's worker tree carries the new module (`be72a031`) | `b3ba67f0`, `be72a031` | 8 cases checking evidence, not sentences (two through the route); red check 8/8 on `5d09f018`; sweep 30: 29, then 1/1 |
+| Table inventory after a failed or stopped addition | the page keeps the tables a failure names and reads the site's own inventory again at once (the routing route's reader) | `ed431b50` | 6 cases; red check 6/6; sweep 18/18 |
+| Rejected columns treated as available | the engine never grants, projects or declares a refused column; the designers' reader and the data step offer only columns the table really has | `81f80406` | 6 cases; red check 3/3 behavioural; sweep 15/15 |
+| Late undo against newer work elsewhere; two tabs | a late read keeps the offer only when the server says nothing was filed on the site since, from any tab or device; another tab's save no longer erases request evidence or writes back an older undo offer | `282da3e1` | 6 cases (the real Worker's answer, the page's keep, two tabs over one storage); red check fails before; sweep 22/22 |
+| The preview browser test | the frame's content is checked against what the test's server has published, one publish at a time | `32a2e9ca` | old test passes against a preview stuck after its first move, new one fails it; 4/4 in Chromium |
 
 **Tests actually run**: for each change its own cases, a red check on the
 commit before it, a mutation sweep with a comment-only control, and its
-related suites. **The full suite once at the end** (`cd8fe7eb`, from the repo
-root, Chromium present): **9805 tests, 9804 pass, 1 fail**. The failure was
-a real-browser case that read the preview's address as a count of publishes;
-corrected to your rule in `5680a18b` (at most one load per published change,
-each at a newer address, ending on the newest), its file then 4 of 4. Nothing
-else was run again. Screenshots of the three visible states were sent in the
-chat.
+related suites (largest: 4824/4824 schema, add-on, data and build; 4570/4570
+page, request flow and image). **The full suite once at the end**
+(`32a2e9ca`, repo root, Chromium present): **9863 tests, 9863 pass, 0 fail, 0 skipped**.
 
-**What changed for a customer, in short**: several parts finishing at once
-reload the preview once; your own removal is still undoable after a reload;
-a page deleted in another tab disappears from this one; a request whose
-addition stopped after its table went in reads "Partly done" with what is
-live, not "Not done"; a data change's reply can name the entry and the values;
-a database left over by a failed attempt is reused or settled, never doubled.
+**What changed for a customer, in short**: a database left by a failed
+attempt is reused or set aside, never deleted while it might be the site's,
+never doubled; a request stopped after part of it went in is told so in its
+reply too; a long value changed past its first 200 characters is never told
+as unchanged; starter rows are told one account per table, by their places;
+a table a failed addition left standing is known at once; a column the
+database refused is never offered to the designers; your own removal read
+late after work elsewhere is no longer offered for undo; a second tab no
+longer wipes the first tab's request record or revives an old undo offer.
 
 **Yours to decide**
-- **Merging**: the branch is `main` plus your run-105 verifier correction and
-  this batch (`bd192acc`..`5680a18b` and the records). A merge would roll the
-  container image: `5f946c22d42a1b10` → `2ac6d65ab01e04ad` (195 inputs,
+- **Merging**: the branch is `main` plus your run-105 verifier correction,
+  the batch and this round. A merge would roll the container image:
+  `5f946c22d42a1b10` → `7ca5644aa9ce9726` (196 inputs, 166 paths;
   predicted, not built). It stays unmerged until you say so.
-- **Live verification worth a run** (none done, all paid):
-  - a two-part request whose second part is refused after its table went in,
-    replied to by the real model;
-  - a data removal read late by the tab that sent it, then "put that back";
-  - several parts finishing together, checking the preview loads once.
-  A provision that fails after its project can't be produced safely on a
-  live site.
-- **Run 105's place** and **what stays on the bakery** stand as in the last
-  handoff (in git): run 105's printed verdict is kept as failed on the two
-  label checks; the FAQ page, its links and the Classes heading stay.
+- **Live verification worth a run** (none done, all paid): a two-part request
+  whose second part is refused after its table went in; a data removal read
+  late after an edit from another device, then "put that back"; several parts
+  finishing together on the real site. A provision that fails after its
+  project can't be produced safely on a live site.
+- **Run 105's place** and **what stays on the bakery** stand as before (the
+  handoffs in git): run 105's printed verdict is kept as failed on the two
+  label checks, your verifier correction (`bd192acc`) stays on the branch,
+  and the FAQ page, its links and the Classes heading stay.
 
-**Still open** (`docs/backlog.md`; the batch's fixes are marked there with
+**Still open** (`docs/backlog.md`; this round's fixes are marked there with
 their commits, not taken out — closing them is yours)
-- **New from the batch**:
-  - a table a refused addition left standing joins the page's table list at
-    the next routing answer, not when the failure is read;
-  - a project whose create call's answer was lost entirely is invisible;
-  - an unreadable note, or an earlier project that can't be removed, stops
-    new databases on that site until you settle it by hand;
-  - two tabs still save their own copy of a site's thread, last writer
-    winning;
-  - the late undo check sees only this page's thread;
-  - the engine keeps a column it couldn't add declared in the stored schema.
-- **Carried**: the task titles' usage from run 105 stays unverified; a
-  progress line's words are still the model's (the facts are now right, the
-  words unchecked); the test platform answers every column of a job-table
-  read; an old request's own reply with no record is asked for whenever
-  read; the judgment is only as good as the model.
-- **Shared with First Build**: the provisioner and the schema engine. The
-  build route's code is untouched; a build now lists the site's notes before
-  creating a project (an unreadable listing stops the create), and records
-  a column it couldn't add.
+- Provisioning leans on Neon's search by name and paging as documented, not
+  measured live, and on a 15-minute lease for a lost create; an unresolved
+  attempt stays yours to settle by hand.
+- A column declaration an earlier apply left behind stays in `_meta`; the
+  designers and the data step no longer see it, the Data panel and runtime
+  hooks still do.
+- The late undo check cannot see work that leaves no job row, or a request
+  accepted elsewhere the instant before its first job.
+- Two tabs: request evidence and the undo offer are merged; the threads are
+  not.
+- Carried: the task titles' usage from run 105 stays unverified; a progress
+  line's words are still the model's; the test platform answers every column
+  of a job-table read (it now filters by owner, site and time); an old
+  request's own reply with no record is asked for whenever read; the
+  judgment is only as good as the model.
+- **Shared with First Build**: the provisioner (every create written down
+  first; claims, never drops on "no row"; a site with an unsettled attempt
+  makes no new database) and the schema engine (a refused column never
+  granted or declared). The build route's code is untouched.
 
 **Links**
-- This batch: `docs/history/2026-10-07-cleanup-batch.md`.
+- This round and the batch: `docs/history/2026-10-07-cleanup-batch.md`.
 - The release and run 105: `docs/history/2026-10-07-deploy-2186.md`.
 - The open items: `docs/backlog.md`.
+
 ---
 
 ## How you like things done
@@ -100,6 +100,46 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The cleanup batch's correction round: Codex's four findings and the remaining gaps, together (on the branch, `71e47213`..`32a2e9ca`; nothing merged, deployed, built, paid or restored)
+
+Codex reviewed the batch's handoff (`430a3a64`) and reproduced four groups of
+defects; you asked for them and the batch's remaining gaps to be resolved
+together, without stopping after each fix. All of it is done on the branch;
+the full record is `docs/history/2026-10-07-cleanup-batch.md` §7.
+
+- **Provisioning recovery** (`71e47213`): every database create is written
+  down before it happens, under an id the project's own name carries, so a
+  create whose answer was lost is still found. A project is deleted only when
+  the site's record names another; anything else left over is claimed for
+  the site, never deleted. Nothing new is made while an earlier attempt is
+  unsettled, and the customer is never told a retry will certainly fix that.
+- **What a stopped part left standing** (`b1a2ebb0`): the request's own reply,
+  its background writer, the card and the job's outcome all hear it now —
+  never "stopped before it changed anything" over a table that went in.
+- **Data changes** (`5d09f018`): whether a value changed is decided on the
+  whole value, so two long values differing past the first 200 characters are
+  never told as "no change"; an unread value is "not read", never empty.
+- **Starter rows** (`b3ba67f0`, `be72a031`): one account per table, every row
+  by its place — in, refused, naming no column, or past the limit and never
+  tried — so "past the limit" can no longer read as "the first ones went in".
+  The container image carries the new module the job runner imports.
+- **Tables left by a failed addition** (`ed431b50`): known to the page as soon
+  as the failure is read.
+- **Columns the database refused** (`81f80406`): never granted, declared or
+  offered to the designers as if they existed.
+- **Late undo and two tabs** (`282da3e1`): your own removal read late keeps
+  its undo offer only when the server says nothing was asked of the site
+  since, from any tab or device; a second tab's save no longer wipes the
+  first tab's request record or brings back an undo offer it had replaced.
+- **The preview browser test** (`32a2e9ca`): checks the frame shows what was
+  really published, one publish at a time — the old test passed against a
+  preview stuck after its first change.
+
+Every change shipped with its own cases, a red check on the commit before it,
+a mutation sweep with a comment-only control, and its related suites; the
+full suite ran once at the end (numbers in the handoff above). A merge would
+roll the container image `5f946c22d42a1b10` → `7ca5644aa9ce9726` (predicted).
 
 ## 2026-10-07 — The Edit/Add-on cleanup batch: seven items in one round (on the branch, `0ee8e782`..`5680a18b`; nothing merged, deployed, built, paid or restored)
 

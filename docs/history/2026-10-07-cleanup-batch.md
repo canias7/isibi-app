@@ -133,3 +133,64 @@ word (2026-10-06).
     stored schema;
   - the task titles' historical usage stays unverified; missing telemetry
     is never read as zero.
+
+## 7. The correction round (Codex's review of `430a3a64`, 2026-10-07)
+
+Codex reviewed `430a3a64` and reproduced four groups of defects; the owner
+asked for them, and the batch's remaining gaps, to be finished together:
+*"Continue the existing cleanup batch … resolve these findings together
+before calling it complete … Keep the implementation universal: shared
+structured evidence and state rules, natural model-written narration, no
+site-specific patches, canned customer explanations or exact-prose tests."*
+Still on the branch, unmerged; nothing deployed, no container built, no model
+called, no paid run, nothing restored.
+
+### The commits, in order
+
+| # | Commit | What |
+|---|---|---|
+| C1 | `71e47213` | Provisioning: every create written down first; unrecorded projects claimed, never dropped on "no row" |
+| C2 | `b1a2ebb0` | What a part's tries left standing reaches every reader: view, queued reply, card, job outcome |
+| C3 | `5d09f018` | Data changes: equality decided on the whole typed values, never on what is shown |
+| C4 | `b3ba67f0` | Seed outcomes: every starter row told by its place, from one row-by-row record |
+| C4b | `be72a031` | Image: the worker tree carries the seed-row reader the job runner now imports |
+| C5a | `ed431b50` | Tables an addition left standing without going through are known when its failure is read |
+| C5b | `81f80406` | A column the database refused is never offered as one the site has |
+| C5c | `282da3e1` | Late undo offers check the server for newer work; another tab's save no longer erases or resurrects evidence |
+| C5d | `32a2e9ca` | Preview browser test: the frame's content checked against what the server has published |
+
+### Finding → fix → tests
+
+| Finding | The fix | The tests |
+|---|---|---|
+| **1. Provisioning recovery**: settling read the slug's row before an earlier attempt's claim became visible, dropped the now-recorded project, made another, lost the claim and built inside the deleted project; a failed drop then a failed note left an untracked project and the next attempt made a second | `71e47213` (`site-provision.mjs`, `site-db.mjs`, `worker.js`): a note is written under a fresh attempt id before any create, and the Neon project's own name carries the id, so a create whose answer was lost is found by exact name; a project is dropped only when the slug's row names another project (the one answer an in-flight claim cannot overtake); every other unrecorded project is claimed by the same atomic claim, never dropped, and one queued for teardown is never claimed; nothing new is made while this account's earlier attempt is unsettled, each open note named; another account's note is never touched; a create's error is read by HTTP's meaning (4xx and 503 made nothing, other 5xx searched at once, 504 and no answer wait out the attempt's lease); a note is cleared only when its project is the site's, gone, being torn down or proved never made; the add-on no longer promises that trying again fixes an unsettled state | `test/late-provision.test.mjs` rewritten (28: Codex's ordering, the double failure, lost creates, failed clears, three controlled interleavings, account isolation, route cases) and `test/site-provision.test.mjs` (60); red check 25 of 25 fail on `430a3a64`; sweep 47 + control: 41 killed, 6 survived → cases added → 6 of 6 |
+| **2. Partial evidence end to end**: `requestView` dropped a part's `left`, so the request reply and its queued writer said a part stopped after its table went in "changed nothing"; settle's stop branch ignored the job's database record | `b1a2ebb0` (`builder/request.mjs`, `site-reply.mjs`, `worker.js`, `public/chat.js`): `requestView` carries `left`; the stop branch reads the answer and the database record (`leftOfRow`), and the driver, job poll and job list read the record for any ended job whose answer does not settle it (`wantsEvidence`); an earlier try's standing work stays on the part across a retry, refusal, question and stop under one rule (`endUnfinished`); the job's outcome reads a stop or death over a standing table as partial; the card labels a stopped part that left something | `test/partial-evidence.test.mjs` (10, through the real Worker, queue and request reply writer, the serialized view, the card, the job poll and job list); red check 7 of 8 fail on `71e47213` (the finished-retry control passes on both); sweep 20 + control: 18, then 2 of 2 after two cases |
+| **3. Data change equality**: values compared after cutting to 200 characters, so long different values read as the same | `5d09f018` (`builder/site-apply.mjs`, `site-reply.mjs`): `same` decided on the whole typed values (true only when the before was read and the after came back; absent when either is unknown); `wasUnknown` never null; `readBack: false` per field; shortening only for showing, marked (`wasCut`, `nowCut`, `differsPastCut`); the facts follow | `test/data-change-evidence.test.mjs` DATA 7–10 and DATA 1 updated; red check 5 fail on `b1a2ebb0`; sweep 13 of 13 |
+| **4. Seed outcomes**: over the limit plus none going in gave contradictory claims in the note and the facts | `b3ba67f0` (`site-schema.mjs`, new `builder/seed-rows.mjs`, `site-add.mjs`, `site-reply.mjs`, `worker.js`): the engine records each table's rows by their place (in, refused, named no column, past the limit, never tried); one strict reader; warnings, facts and fallback note derived from it; the add-on cleaner no longer drops malformed rows or cuts at twelve before the engine (that renumbered rows and hid the overflow). `be72a031`: the image's worker tree carries the new module (`test/dockerfile.test.mjs` caught its absence) | `test/seed-outcome.test.mjs` (8, checking the evidence each account carries, not its sentences; two through the add-on route); red check 8 of 8 fail on `5d09f018`; sweep 30 + control: 29, then 1 of 1 |
+| **5a. Table inventory after a failed or stopped addition** | `ed431b50`: `GET /api/site/routes?tables=1` answers the routing route's own inventory (`routeTableNames`; names, empty, or `null` when it cannot tell); the page reads standing tables from the evidence (a failure's outcome, a stopped or dead job's database record), keeps the named ones at once, and reads the site's list again on the routing clock; wired at every place a page learns an addition ended, never inside the shared reader the paid runs' harness executes | `test/standing-tables.test.mjs` (6); red check 6 of 6 fail on `b3ba67f0`; sweep 18 of 18 after one case |
+| **5b. Rejected columns** | `81f80406`: the engine takes a refused column out of what it treats as created (grants, public projection, stored declaration, rules) and the declaration's union never restores it; `liveDeclared` cuts each declared table to the columns its catalog rows name; the designers' reader (`specForAddon`, both branches) and the data step read through it; an unreadable catalog stops the data step at no cost | `test/rejected-columns.test.mjs` (6); red check 3 of 3 behavioural cases fail on `ed431b50`; sweep 15 of 15 after three cases |
+| **5c. Late undo versus newer work; two tabs** | `282da3e1`: `GET /api/site/request/<slug>/<key>?newer=1` (`newerWorkSince` over `edit_jobs`: true, false, or `null`); a late first read keeps the offer only on the server's plain false, and looks at the thread again after the wait; the offer carries `undoAt`; a save after another tab's write (`storage`) takes in its request records, own marks, shown jobs, closes, the later view, found jobs' cards and the newer undo offer — never the thread | `test/undo-newer-work.test.mjs` (6); red check: the server and page cases fail on `81f80406`, the two-tab cases cannot load; sweep 22 of 22 after the two-tab cases were made decisive |
+| **5d. The preview browser test** | `32a2e9ca`: the test's server serves what it has published (its own record), parts publish one at a time, and the frame's content is compared with that record after each | old KEEP 1 passes against a page whose preview never moves past its first published change; the new one fails it; all four cases pass on the current page in Chromium |
+
+### Details worth keeping
+
+- **Attempt notes are the write-ahead record.** A note (`source/<slug>/neon-unrecorded/<attempt>.json`, never a connection string) exists before any create; the Neon project's name carries the attempt id. "No row" is never a reason to drop: only a row naming another project is.
+- **What cannot be established stays unresolved and actionable**: an unreadable note, a project that cannot be read or removed, or a create whose answer neither landed nor was refused within the lease keeps the site from making another database, the note naming what to settle; the customer is told a database may have been started and is set aside to be checked, never that trying again will fix it.
+- **The seed record is strict**: one fate per designed row, every row once, the overflow count checked; a record that does not add up is never read, and a stored entry carrying one is cannot-tell.
+- **The undo contract is unchanged.** "Newer work" means any edit, addition, request part or rewrite filed on the site after the request's acceptance, from any tab or device, less the request's own.
+- **Cross-tab merging is evidence only**: each tab's thread stays its own, as before.
+
+### Tests run in this round
+
+- Each change: its own cases, a red check on the commit before it, a sweep with a comment-only control, and its related suites (the numbers are in the commit messages and the table above; the largest related runs: 2811 of 2811 for the seed change, 4346 of 4346 for the inventory change, 4824 of 4824 for the rejected columns, 4570 of 4570 for the undo and two-tab change).
+- The full unit suite once at the end (`32a2e9ca`, the repo root, Chromium present): **9863 tests, 9863 pass, 0 fail, 0 skipped**.
+
+### What stays open after the round
+
+- Nothing here ran against a real model or the live site.
+- **Provisioning**: Neon's search by name and its paging are used as documented, not measured live; the 15-minute attempt lease is an assumption about how long a lost create can take to land; an unresolved attempt needs the owner to settle it by hand.
+- **Rejected columns**: a declaration an earlier apply left behind stays in `_meta`; the designers' reader and the data step cut it, but readers through `loadSiteSchema` (the Data panel, the runtime hooks) still read it.
+- **Late undo**: work that leaves no `edit_jobs` row (an inline run with the queue off) is not seen, nor a request accepted elsewhere in the instant before its first job is filed. A live (not late) offer on another device is unchanged.
+- **Two tabs**: only tabs of one browser share storage; the thread is not merged; another tab's evidence is taken in at this tab's next save after the write.
+- **The browser preview test** runs where Chromium is installed; unit CI skips it.
+- **The test platform** now filters job-table reads by owner, site and creation time; it still answers every column a read asks for.

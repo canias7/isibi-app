@@ -34,25 +34,32 @@ here; take a closed one out of both.**
   the page keeps table names from a job that went through; the routing route
   reads the site's own inventory and hands it back on the next message, so
   only a routing call whose own read fails would be told the older list.
+  **Addressed on the branch** (2026-10-07, `ed431b50`, Codex's review): when an answer's failure outcome or a stopped or dead job's database record says tables stand, the page keeps the ones named at once and reads the site's own inventory again (`GET /api/site/routes?tables=1`, the routing route's reader), on the routing clock; a read that cannot tell changes nothing.
 - **A project whose create call's answer was lost entirely is invisible**
   (2026-10-07): with no project id back, nothing writes it down; a listing of
   the account's projects by name would reconcile it, and none is built.
+  **Addressed on the branch** (2026-10-07, `71e47213`, Codex's review): every create is written down first under an attempt id that the Neon project's own name carries, and a create whose answer was lost is found by exact name and claimed for the site; Neon's search by name and its paging are used as documented, not measured live.
 - **A note that cannot be read, or an earlier project that cannot be removed,
   stops every create on that site** (2026-10-07, by design): the attempt
   says it is ours and to try again, and the note names the project; settling
   it is the owner's by hand.
+  **Changed on the branch** (2026-10-07, `71e47213`): still by design, an attempt the platform cannot settle stops a new create — but each open attempt is now named, a project is never dropped on "no row" (only when the slug's row names another), every other unrecorded project is claimed rather than dropped, and the customer is told a database may have been started and is set aside to be checked, never that trying again will fix it. Settling an unresolved attempt stays the owner's by hand.
 - **Two tabs of one browser still save their own copy of a site's thread,
   the last writer winning** (2026-10-07): a tab coming back into view reads
   the server's requests and jobs again, not the other tab's thread.
+  **Addressed in part on the branch** (2026-10-07, `282da3e1`, Codex's review): a save after another tab's write (the browser's `storage` event) first takes in that tab's request records, their own marks, the jobs either showed, either's close, the view read last, found jobs' cards and the newer undo offer (`undoAt`), so a stale tab can neither erase the evidence a late read needs nor write back an offer the other replaced. The thread itself is not merged: each tab's messages stay its own.
 - **The late undo read sees only this page's thread** (2026-10-07): work done
   on another device since is not seen by its "asked since" check.
+  **Addressed on the branch** (2026-10-07, `282da3e1`, Codex's review): before a late read keeps the offer it asks the server whether anything was filed on the site since the request, from any tab or device (`?newer=1`, `newerWorkSince` over `edit_jobs`), and keeps it only on a plain "nothing"; cannot tell keeps nothing. Not seen: work that leaves no job row (an inline run with the queue off), and a request accepted elsewhere in the instant before its first job is filed.
 - **The engine keeps a column it could not add declared in the site's stored
   schema** (2026-10-07): the refusal is recorded and told, the declaration
   is not taken back.
+  **Addressed on the branch** (2026-10-07, `81f80406`, Codex's review): the engine takes a refused column out of what it treats as created — the grants (one GRANT naming a missing column failed whole and left the table unwritable), the public projection, the rules and the stored declaration — and the declaration's union never restores it; the designers' reader and the data step cut each declared table to the columns its catalog rows name (`liveDeclared`). Still open: a declaration an earlier apply left behind stays in `_meta`, and readers through `loadSiteSchema` (the Data panel, the runtime hooks) still read it.
 - **The test platform answers every column of a job-table read, whatever
   the read asks for** (found in the progress gaps round, 2026-10-06): a read
   that left a needed column out would still pass its flow cases; in full
   below.
+  **Partly addressed on the branch** (2026-10-07, `282da3e1`): the platform now filters a job-table read by owner, site and creation time, as PostgREST does; it still answers every column.
 - **An ended request's own reply with no record is asked for whenever it is
   read, however old** (found in run 97): R1's, about 20 hours after it
   ended; a job's is not, after two hours. It was the second half of the
