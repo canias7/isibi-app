@@ -284,7 +284,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null, removes = null, neonFail = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null, removes = null, neonFail = null, neonFailStatus = 500 }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -312,8 +312,10 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
       if (neonCalls) neonCalls.push(url.split("/api/v2")[1] || url);
       // `neonFail` (2026-10-07): a pattern over the API path that Neon refuses,
       // so a provision can fail at one stage after the project was recorded.
+      // `neonFailStatus` (2026-10-07): a 4xx is Neon refusing — nothing made —
+      // while a 5xx may have made something (`site-provision.mjs`, rule 1).
       if (neonFail && neonFail.test(url.split("/api/v2")[1] || "")) {
-        return new Response(JSON.stringify({ message: "neon refused this in a test" }), { status: 500, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ message: "neon refused this in a test" }), { status: neonFailStatus, headers: { "content-type": "application/json" } });
       }
       if (/\/projects$/.test(url) && init && String(init.method).toUpperCase() === "POST") {
         provisioned = true;

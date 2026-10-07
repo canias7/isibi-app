@@ -38,6 +38,20 @@ function harness(over = {}) {
     createDatabase: async (_p, slug) => "site_" + slug.replace(/-/g, "_"),
     saveBackend: async () => ({ ok: true }),
   };
+  // THE ATTEMPT NOTES (2026-10-07): without them no project is made, because
+  // nothing could find it again (`site-provision.mjs`, rule 1). An in-memory
+  // store, as the Worker's R2 one behaves; `calls.notes` keeps every write.
+  const store = new Map();
+  calls.notes = [];
+  calls.cleared = [];
+  const noteDeps = {
+    noteUnrecorded: async (_s, rec) => { calls.notes.push(rec); store.set(rec.attempt || rec.projectId, { ...rec }); },
+    unrecorded: async () => [...store.values()],
+    clearUnrecorded: async (_s, key) => { calls.cleared.push(key); store.delete(key); },
+    findProjects: async () => [],
+    adoptProject: async (id) => { throw Object.assign(new Error("not found: " + id), { status: 404, gone: true }); },
+    tearingDown: async () => false,
+  };
   calls.marks = [];
   calls.enableData = [];
   const pick = (k) => over[k] || base[k];
@@ -62,7 +76,9 @@ function harness(over = {}) {
     mark: (n) => calls.marks.push(n),
     connFor: (conn, db) => conn.replace(/\/[^/]*$/, "/" + db),
     dbNameFor: (s) => "site_" + s.replace(/-/g, "_"),
+    ...Object.fromEntries(Object.keys(noteDeps).map((k) => [k, (...a) => pick(k)(...a)])),
   };
+  Object.assign(base, noteDeps);
   return { deps, calls };
 }
 
@@ -239,34 +255,42 @@ test("the project is named per site, so two sites cannot collide", async () => {
 
 // ---------------------------------------------------- the leak this prevents
 
-test("a project that cannot be recorded is DESTROYED, not left behind", async () => {
-  // The whole reason this module exists. An unrecorded project is invisible:
-  // the next build finds no row, creates another, and the orphan bills forever
-  // against a capped quota.
+test("a project that cannot be recorded is KEPT AND WRITTEN DOWN, never dropped while its claim may still land", async () => {
+  // The whole reason this module exists: an unrecorded project must never be
+  // invisible. It used to be DESTROYED here — but a claim that failed or timed
+  // out may still land, and dropping then leaves the site's row naming a
+  // deleted project (2026-10-07, Codex's review). So it is claimed once more,
+  // and otherwise named on its attempt's note for the next attempt to claim.
   const { deps, calls } = harness({
     lookupProject: async () => null,
     saveProject: async () => ({ ok: false, detail: "supabase 503" }),
   });
-  await assert.rejects(run(deps), /could not record the Neon project/);
-  assert.deepEqual(calls.dropProject, ["p1"], "the orphan must be cleaned up");
+  const e = await run(deps).catch((x) => x);
+  assert.match(String(e.message), /could not record the Neon project/);
+  assert.equal(e.recorded, "unknown");
+  assert.deepEqual(calls.dropProject, [], "a project whose claim may still land was dropped");
+  assert.equal(calls.saveProject.length, 2, "the claim was not made once more");
+  assert.ok(calls.notes.some((n) => n.projectId === "p1"), "the project was not written down");
   assert.deepEqual(calls.createDatabase, [], "and nothing built on top of it");
 });
 
 test("a saveProject that THROWS is treated the same as one that fails", async () => {
-  // A network error and a 503 leave exactly the same orphan.
+  // A network error and a 503 leave exactly the same state: written down, not dropped.
   const { deps, calls } = harness({
     lookupProject: async () => null,
     saveProject: async () => { throw new Error("fetch failed"); },
   });
   await assert.rejects(run(deps), /could not record the Neon project/);
-  assert.deepEqual(calls.dropProject, ["p1"]);
+  assert.deepEqual(calls.dropProject, []);
+  assert.ok(calls.notes.some((n) => n.projectId === "p1"));
 });
 
 test("a saveProject returning nothing is not mistaken for success", async () => {
   for (const bad of [undefined, null, {}, { ok: false }, "ok", 1]) {
     const { deps, calls } = harness({ lookupProject: async () => null, saveProject: async () => bad });
     await assert.rejects(run(deps), /could not record the Neon project/, JSON.stringify(bad));
-    assert.deepEqual(calls.dropProject, ["p1"], JSON.stringify(bad));
+    assert.deepEqual(calls.dropProject, [], JSON.stringify(bad));
+    assert.deepEqual(calls.createDatabase, [], JSON.stringify(bad));
   }
 });
 
@@ -428,7 +452,7 @@ test("nothing provisions a project keyed by the owner any more", () => {
   // one's project and quietly undo the isolation.
   const deps = WORKER.slice(WORKER.indexOf("const conn = await ensureSiteBackendPure({"), WORKER.indexOf("}, { slug, uid });"));
   assert.ok(deps.length > 200, "the dep wiring was not found");
-  assert.match(deps, /createProject: \(s2\) => createSiteProject\(env, s2\)/);
+  assert.match(deps, /createProject: \(s2, attempt\) => createSiteProject\(env, s2, attempt\)/);
   assert.ok(!/createUserProject/.test(deps), "the build path must not create a per-user project");
   assert.ok(!/userSiteProject/.test(deps), "the build path must not resolve a project by owner");
 });
@@ -667,14 +691,17 @@ test("losing the PROJECT claim converges on the winner's project, orphaning noth
   assert.match(conn, /@win\//, "the build did not continue on the winner's connection");
 });
 
-test("losing the project claim with no winner readable is a save_project failure", async () => {
-  let lookups = 0;
+test("losing the project claim with no winner readable is a save_project failure, and nothing is dropped", async () => {
+  // `claimed: false` and then no row to read: the row's state cannot be
+  // established, so the loser's project is NOT dropped (its own claim may yet
+  // be the one that landed) — it is written down for the next attempt.
   const { deps, calls } = harness({
-    lookupProject: async () => (++lookups === 1 ? null : null),
+    lookupProject: async () => null,
     saveProject: async () => ({ ok: true, claimed: false }),
   });
-  await assert.rejects(run(deps), (e) => e.stage === "save_project" && /could not be read back/.test(e.detail));
-  assert.deepEqual(calls.dropProject, ["p1"], "the loser's project must still be destroyed on this path");
+  await assert.rejects(run(deps), (e) => e.stage === "save_project" && e.recorded === "unknown");
+  assert.deepEqual(calls.dropProject, [], "a project whose claim may have landed was dropped");
+  assert.ok(calls.notes.some((n) => n.projectId === "p1"));
 });
 
 test("losing the SLUG claim is the same 409 as a name taken before the build", async () => {
@@ -861,21 +888,29 @@ test("A CLEANUP THAT FAILED IS SAID OUT LOUD, at every site that drops one", asy
   // logged it — and the caller logs only the ATTEMPT, before making the call. So
   // a successful cleanup and a failed one emitted byte-identical output, and the
   // failed one is the single event this module exists to make visible: a billed
-  // project we could not record and could not remove. Nothing else holds it —
-  // `neon_teardown` is fired by a trigger on the row that was never written.
+  // project we could not record and could not remove. Since 2026-10-07 a drop
+  // happens only where no row can ever name the project — a create that threw,
+  // by its own attempt, and a race lost to another project — and its note keeps
+  // it when the drop fails.
+  const winner = { ...PROJ, neon_project: "p-winner" };
+  let n = 0;
   const cases = {
     "the create threw": { lookupProject: async () => null, createProject: async () => { throw Object.assign(new Error("boom"), { projectId: "p-leaked" }); } },
-    "the record failed": { lookupProject: async () => null, saveProject: async () => ({ ok: false }) },
-    "the slug race was lost": { lookupProject: async () => null, saveProject: async () => ({ ok: true, claimed: false }) },
+    "the slug race was lost": { lookupProject: async () => (++n === 1 ? null : winner), saveProject: async () => ({ ok: true, claimed: false }) },
   };
   for (const [why, over] of Object.entries(cases)) {
     const warned = [];
-    const { deps } = harness({ ...over, dropProject: async () => { throw new Error("neon 503"); } });
+    const { deps, calls } = harness({ ...over, dropProject: async () => { throw new Error("neon 503"); } });
     deps.warn = (m) => warned.push(m);
     await run(deps).catch(() => {});
     assert.ok(warned.some((m) => /p-leaked|p1/.test(m) && /orphan/i.test(m)),
       why + ": a project we could not drop left no trace — " + JSON.stringify(warned));
+    assert.ok(calls.notes.some((x) => x.projectId === "p-leaked" || x.projectId === "p1"), why + ": its note does not keep it");
   }
+  // A RECORD THAT FAILED is not dropped at all: its claim may still land.
+  const { deps, calls } = harness({ lookupProject: async () => null, saveProject: async () => ({ ok: false }), dropProject: async () => { throw new Error("neon 503"); } });
+  await run(deps).catch(() => {});
+  assert.deepEqual(calls.dropProject, []);
 });
 
 test("a cleanup that WORKED says nothing — the log means what it says", async () => {

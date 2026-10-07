@@ -132,7 +132,7 @@ import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
-import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -7810,19 +7810,24 @@ async function siteBackendRowFresh(env, slug) {
 }
 
 /**
- * THE NOTES OF PROJECTS NO ROW MAY HOLD (2026-10-07, `noteUnrecorded` in
- * site-provision.mjs): `source/<slug>/neon-unrecorded/<projectId>.json`,
- * beside the site's own source. Ids, owner, why and when — never a connection
- * string. `unrecordedList` throws when it cannot tell, so cannot-tell is never
- * read as "none".
+ * THE ATTEMPT NOTES (2026-10-07, `site-provision.mjs`'s rules):
+ * `source/<slug>/neon-unrecorded/<attempt>.json`, beside the site's own
+ * source, one per attempt to make the site's project — written BEFORE the
+ * create, rewritten as its project becomes known, removed once it is settled.
+ * Ids, owner, name, why and when — never a connection string. A note written
+ * before attempts had ids is keyed by its project. `unrecordedList` throws
+ * when it cannot tell, so cannot-tell is never read as "none". The site's
+ * delete leaves `source/<slug>/` standing, so a note outlives its site and the
+ * project it names is never left untracked by a delete.
  */
 const UNRECORDED_PREFIX = (slug) => "source/" + String(slug || "").toLowerCase() + "/neon-unrecorded/";
+const unrecordedKey = (key) => String(key || "").replace(/[^A-Za-z0-9_-]/g, "");
 async function unrecordedPut(env, slug, rec) {
   if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
-  const id = String((rec && rec.projectId) || "").replace(/[^A-Za-z0-9_-]/g, "");
-  if (!id) throw new Error("no project id to write down");
+  const key = unrecordedKey((rec && (rec.attempt || rec.projectId)) || "");
+  if (!key) throw new Error("no attempt or project id to write down");
   const { conn, neon_conn, ...safe } = rec || {};
-  await env.SITES_BUCKET.put(UNRECORDED_PREFIX(slug) + id + ".json", JSON.stringify({ ...safe, projectId: id }));
+  await env.SITES_BUCKET.put(UNRECORDED_PREFIX(slug) + key + ".json", JSON.stringify(safe));
 }
 async function unrecordedList(env, slug) {
   if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
@@ -7835,16 +7840,32 @@ async function unrecordedList(env, slug) {
       if (!got) continue;
       let rec = null;
       try { rec = JSON.parse(await got.text()); } catch { rec = null; }
-      if (!rec || typeof rec !== "object" || !rec.projectId) throw new Error("an unrecorded-project note could not be read: " + o.key);
+      if (!rec || typeof rec !== "object" || !(rec.attempt || rec.projectId)) throw new Error("an attempt note could not be read: " + o.key);
       out.push(rec);
     }
     cursor = page && page.truncated ? page.cursor : undefined;
   } while (cursor);
   return out;
 }
-async function unrecordedClear(env, slug, id) {
+async function unrecordedClear(env, slug, key) {
   if (!env.SITES_BUCKET) throw new Error("no site bucket bound");
-  await env.SITES_BUCKET.delete(UNRECORDED_PREFIX(slug) + String(id || "").replace(/[^A-Za-z0-9_-]/g, "") + ".json");
+  const k = unrecordedKey(key);
+  if (!k) throw new Error("no note to clear");
+  await env.SITES_BUCKET.delete(UNRECORDED_PREFIX(slug) + k + ".json");
+}
+/**
+ * IS THIS PROJECT QUEUED FOR TEARDOWN (2026-10-07)? A deleted site's project
+ * is handed to `neon_teardown`, and one still waiting there must never be
+ * claimed for a site again: the cron would remove it from under the site.
+ * Throws when it cannot tell.
+ */
+async function neonTearingDown(env, projectId) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/neon_teardown?project_id=eq.${encodeURIComponent(String(projectId || ""))}&select=id&limit=1`,
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw Object.assign(new Error("teardown queue lookup failed"), { detail: r.status + " " + (await r.text().catch(() => "")).slice(0, 200) });
+  const rows = await r.json().catch(() => undefined);
+  if (!Array.isArray(rows)) throw new Error("teardown queue lookup: the answer could not be read");
+  return rows.length > 0;
 }
 
 /**
@@ -8170,7 +8191,7 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
     // project, poll, create the database, poll, enable auth, enable the Data
     // API) is distinguishable from a WARM one, which is a single lookup.
     mark,
-    createProject: (s2) => createSiteProject(env, s2),
+    createProject: (s2, attempt) => createSiteProject(env, s2, attempt),
     // Identity is Neon's now. Idempotent, and run on the reuse path too —
     // see site-provision.mjs for why enabling only at creation is a trap.
     enableAuth: (proj, dbName) => enableNeonAuth(env, proj.neon_project, proj.neon_branch, dbName),
@@ -8227,13 +8248,24 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
       console.error("dropping unrecorded neon project:", id);
       return dropUserProject(env, id);
     },
-    // A PROJECT NO ROW MAY HOLD, WRITTEN DOWN (2026-10-07): one note per
-    // project beside the site's own source, so the next attempt for this site
-    // settles it before it makes another (`settleUnrecorded`). The note never
-    // carries a connection string — it carries a password.
+    // EVERY ATTEMPT WRITTEN DOWN BEFORE ITS CREATE (2026-10-07): one note per
+    // attempt beside the site's own source, so a project no row holds is
+    // always findable and the next attempt settles it before it makes another
+    // (`settleAttempts`). The note never carries a connection string — it
+    // carries a password.
     noteUnrecorded: (s2, rec) => unrecordedPut(env, s2, rec),
     unrecorded: (s2) => unrecordedList(env, s2),
-    clearUnrecorded: (s2, id) => unrecordedClear(env, s2, id),
+    clearUnrecorded: (s2, key) => unrecordedClear(env, s2, key),
+    // THE RECOVERY HALF (2026-10-07): the name an attempt's project carries,
+    // the projects found under it after a create whose answer was lost, a
+    // noted project's connection read from Neon to claim it for the site, and
+    // whether a project is already queued for teardown (never claimed then).
+    projectName: (s2, attempt) => projectNameForSite(s2, attempt),
+    attemptId: () => crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+    now: () => Date.now(),
+    findProjects: (s2, note) => findSiteProjects(env, (note && note.name) || projectNameForSite(s2, note && note.attempt)),
+    adoptProject: (id, hint) => siteProjectDetails(env, id, hint),
+    tearingDown: (id) => neonTearingDown(env, id),
     // CLAIMS, not upserts. Both tables are keyed by slug, and merge-duplicates
     // is what made the slug race silent (2026-08-13 audit): two overlapping
     // first builds of one free name both passed the pre-check, both created a
@@ -31795,14 +31827,23 @@ async function handleRequest(request, env, ctx) {
                   // by the next try — or, where its recording is unknown,
                   // written down to be settled before another is made. Either
                   // way "nothing was changed" is not said over it.
+                  // AN EARLIER ATTEMPT THAT IS NOT SETTLED (2026-10-07,
+                  // `reconcile`): nothing was made this time, and whether the
+                  // next try can go ahead depends on that attempt being
+                  // settled — so neither unsettled state promises that trying
+                  // again fixes it. The notes stay for the next try or the
+                  // owner (`source/<slug>/neon-unrecorded/`).
                   const aProjKept = e && e.recorded === true ? true : e && e.recorded === "unknown" ? "unknown" : false;
+                  const aEarlier = !!(e && e.reconcile === true);
                   return aFail({
                     ok: false, error: "provision", cost: 0, ours: true,
                     msg: aProjKept === true
                       ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; the database that was started is kept, so the next try picks it up. Try again in a few minutes."
                       : aProjKept === "unknown"
-                        ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; a database may have been started, and it's set aside to be checked before another is made. Try again in a few minutes."
-                        : "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
+                        ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; a database may have been started, and it's set aside to be checked before another is made, so trying again may not work until that's done."
+                        : aEarlier
+                          ? "That needed a database for your site, and one an earlier try started still has to be checked before another is made — this is on us. None was made this time and your site is unchanged; trying again may not work until that check is done."
+                          : "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
                     upstream: (e && e.status) || null, stage: (e && e.stage) || null,
                     detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
                   }, 502, { projectKept: aProjKept });

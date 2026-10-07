@@ -160,6 +160,90 @@ export async function neonOrgId(env) {
 /** Test seam: forget the resolved org so a case can drive the lookup again. */
 export function _resetNeonOrgCache() { _orgId = undefined; }
 
+/**
+ * THE ORG, OR A THROW — for a question whose "none" must be true (2026-10-07).
+ * `neonOrgId` answers null for THIS call when the lookup blipped, which is
+ * right for a create (it re-asks next time) and wrong for a search: a listing
+ * made in the wrong home finds nothing, and "nothing" there reads as "the
+ * create never made a project".
+ */
+async function neonOrgIdKnown(env) {
+  const org = await neonOrgId(env);
+  if (org === null && _orgId === undefined) throw new Error("the Neon organisation could not be established for this call");
+  return org;
+}
+
+/**
+ * THE PROJECTS CARRYING ONE EXACT NAME (2026-10-07), every page of them.
+ *
+ * The recovery half of a create whose answer was lost: `projectNameForSite`
+ * puts the attempt in the name, so the project that attempt made — if Neon
+ * made one — is found here and nowhere else. Exact match only; Neon's search
+ * also matches parts of names. A listing that cannot be read, or that does
+ * not end within its pages, THROWS: it cannot say "none", and "none" is the
+ * answer that lets the next create go ahead.
+ *
+ * ⚠ Neon's `search`, `cursor` and `limit` parameters are taken from its API
+ * reference; nothing here has listed a live account.
+ */
+export const FIND_LIMIT = 400;
+export const FIND_PAGES = 10;
+export async function findSiteProjects(env, name) {
+  const want = String(name || "");
+  if (!want) throw new Error("no project name to look for");
+  const org = await neonOrgIdKnown(env);
+  const out = [];
+  let cursor = "";
+  for (let page = 0; page < FIND_PAGES; page++) {
+    const q = new URLSearchParams({ search: want, limit: String(FIND_LIMIT) });
+    if (org) q.set("org_id", org);
+    if (cursor) q.set("cursor", cursor);
+    const d = await neonApi(env, "/projects?" + q.toString());
+    const list = d && Array.isArray(d.projects) ? d.projects : null;
+    if (!list) throw Object.assign(new Error("neon project listing: unexpected response"), { detail: scrubSecrets(JSON.stringify(d)).slice(0, 200) });
+    for (const p of list) if (p && p.id && String(p.name) === want) out.push({ id: String(p.id), name: want, created_at: p.created_at || null });
+    const next = d.pagination && d.pagination.cursor ? String(d.pagination.cursor) : "";
+    if (list.length < FIND_LIMIT || !next || next === cursor) return out;
+    cursor = next;
+  }
+  throw new Error("neon project listing did not end within " + FIND_PAGES + " pages");
+}
+
+/**
+ * WHAT A NOTED PROJECT NEEDS TO BE CLAIMED FOR ITS SITE (2026-10-07): its
+ * branch, the role that owns its own database, and the connection string —
+ * which a note never carries, because it holds a password. Read from Neon,
+ * never guessed: a branch or database that cannot be told apart throws. A
+ * project Neon answers 404 for is GONE (`gone: true`), which settles its note
+ * rather than blocking anything.
+ */
+export async function siteProjectDetails(env, projectId, hint = {}) {
+  const id = String(projectId || "");
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("not a Neon project id: " + id.slice(0, 40));
+  const gone = (e) => { if (e && typeof e === "object" && e.status === 404) e.gone = true; throw e; };
+  const odd = (what, d) => Object.assign(new Error("neon " + what + ": unexpected response"), { detail: scrubSecrets(JSON.stringify(d)).slice(0, 200) });
+  let branchId = hint && hint.branchId ? String(hint.branchId) : "";
+  if (!branchId) {
+    const b = await neonApi(env, `/projects/${id}/branches`).catch(gone);
+    const list = b && Array.isArray(b.branches) ? b.branches : null;
+    if (!list) throw odd("branches", b);
+    const pick = list.find((x) => x && (x.default === true || x.primary === true)) || (list.length === 1 ? list[0] : null);
+    if (!pick || !pick.id) throw new Error("the project's default branch could not be told apart");
+    branchId = String(pick.id);
+  }
+  const dbs = await neonApi(env, `/projects/${id}/branches/${encodeURIComponent(branchId)}/databases`).catch(gone);
+  const dlist = dbs && Array.isArray(dbs.databases) ? dbs.databases : null;
+  if (!dlist) throw odd("databases", dbs);
+  const db = dlist.find((x) => x && x.name === "neondb") || (dlist.length === 1 ? dlist[0] : null);
+  if (!db || !db.name) throw new Error("the project's own database could not be told apart");
+  const roleName = hint && hint.roleName ? String(hint.roleName) : String(db.owner_name || "");
+  if (!roleName) throw new Error("the project's database names no owner");
+  const q = new URLSearchParams({ branch_id: branchId, database_name: String(db.name), role_name: roleName });
+  const u = await neonApi(env, `/projects/${id}/connection_uri?` + q.toString()).catch(gone);
+  if (!u || typeof u.uri !== "string" || !u.uri) throw odd("connection uri", u);
+  return { projectId: id, branchId, roleName, conn: u.uri };
+}
+
 // ------------------------------------------------------------- provisioning
 
 // Neon database + role names are Postgres identifiers. Site slugs are already
@@ -186,11 +270,21 @@ export function projectNameForUser(uid) {
  * Normalised the same way `dbNameForSite` normalises, and bounded: Neon
  * project names are not Postgres identifiers, but a name assembled from
  * user input still gets the same treatment as one that is.
+ *
+ * …AND, SINCE 2026-10-07, THE ATTEMPT THAT MADE IT. A create whose answer
+ * never came back left a project nothing could name: the slug alone is shared
+ * by every attempt for the site, and by a deleted site's leftovers under the
+ * same name. The attempt id is unique and is written down before the create
+ * (`site-provision.mjs`), so the one project that attempt made is found by its
+ * exact name (`findSiteProjects`) and by nothing else. The slug part is cut,
+ * never the attempt, so the name stays within the bound.
  */
-export function projectNameForSite(slug) {
+export function projectNameForSite(slug, attempt) {
   const s = String(slug || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   if (!s) throw Object.assign(new Error("bad site slug: " + slug), { bad: true });
-  return ("isibi-" + s).slice(0, 60);
+  const a = String(attempt || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24);
+  if (!a) return ("isibi-" + s).slice(0, 60);
+  return ("isibi-" + s).slice(0, 60 - a.length - 1).replace(/-+$/, "") + "-" + a;
 }
 
 // Swap the database name in a Neon connection URI. Every database inside a
@@ -296,12 +390,13 @@ export async function waitForProject(env, projectId, timeoutMs = 90000) {
  * So the id TRAVELS ON THE ERROR. One copy for both create functions, because a
  * second copy that forgets to attach it is the same silent leak again.
  *
- * The one case that still cannot be cleaned up is a POST whose response never
- * reaches us — the 30s `AbortSignal.timeout` in `neonApiOnce`, or a dropped
- * connection, after Neon has already created the project. There is no id to
- * drop and nothing in this repo reconciles Neon's project list against
- * Supabase, so that orphan is invisible. Left as a stated gap rather than
- * guessed at: a reconciliation sweep is a product decision, not a repair.
+ * A POST whose response never reaches us — the 30s `AbortSignal.timeout` in
+ * `neonApiOnce`, or a dropped connection, after Neon has already created the
+ * project — has no id to carry. It was invisible until 2026-10-07: now the
+ * attempt is written down before the POST and rides in the project's name
+ * (`projectNameForSite`), so `findSiteProjects` finds the one project that
+ * attempt made (`site-provision.mjs`, rule 1). Not a sweep of the account: only
+ * the names an attempt's note carries are ever looked for.
  */
 async function projectFromCreate(env, d, name) {
   const projectId = (d && d.project && d.project.id) || null;
@@ -356,8 +451,10 @@ export async function createUserProject(env, uid) {
  * the caller should have to say which it means. `createUserProject` stays for the
  * legacy rows that predate the change.
  */
-export async function createSiteProject(env, slug) {
-  const name = projectNameForSite(slug);
+export async function createSiteProject(env, slug, attempt) {
+  // THE ATTEMPT IN THE NAME (2026-10-07): what finds this project when the
+  // answer below never arrives — see `projectNameForSite`.
+  const name = projectNameForSite(slug, attempt);
   const project = { name, region_id: NEON_REGION };
   const org = await neonOrgId(env);
   if (org) project.org_id = org;
