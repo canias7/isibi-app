@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, the correction round)
+## Current handoff — read this first (2026-10-07, the correction round and its follow-up pass)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -18,6 +18,10 @@ is in git; the dated entries further down are the full story.*
   `430a3a64` and the batch's remaining gaps, resolved together. Nothing
   deployed, no container built, nothing restored. The record:
   `docs/history/2026-10-07-cleanup-batch.md` §7.
+- **Your request came a second time, word for word.** Nothing was
+  restarted: a follow-up pass closed what this handoff had left open on late
+  undo, and checked every reader of the stored schema for rejected columns
+  (`dc531bef`, `320d6767`, `a921a64d`; §8 of the same record).
 
 **Each finding, its fix, its commit and its tests** (every model answer in
 the tests is supplied; nothing here is evidence of what a real model writes)
@@ -32,13 +36,31 @@ the tests is supplied; nothing here is evidence of what a real model writes)
 | Rejected columns treated as available | the engine never grants, projects or declares a refused column; the designers' reader and the data step offer only columns the table really has | `81f80406` | 6 cases; red check 3/3 behavioural; sweep 15/15 |
 | Late undo against newer work elsewhere; two tabs | a late read keeps the offer only when the server says nothing was filed on the site since, from any tab or device; another tab's save no longer erases request evidence or writes back an older undo offer | `282da3e1` | 6 cases (the real Worker's answer, the page's keep, two tabs over one storage); red check fails before; sweep 22/22 |
 | The preview browser test | the frame's content is checked against what the test's server has published, one publish at a time | `32a2e9ca` | old test passes against a preview stuck after its first move, new one fails it; 4/4 in Chromium |
+| Follow-up: late undo against work that leaves no job row (a request before its first job, the queue off, the Data panel) | where the offer is used, each row offered back is checked against the table as the data step reads it: back under its id, or under a new id with its values in the table's declared columns, it is set aside, and a table too long to read whole sets its rows aside; where the offer is kept, the server also reads the site's request markers by when each was taken on, and a site off the queue answers cannot tell | `dc531bef`, `a921a64d` | 4 put-back cases (two through the real edit route) and NEWER 4 (the real acceptance with its first filing refused); red check: 3 fail on `6945ab3a`, the controls pass; sweep 25: 24, then 1/1 |
+| Follow-up: rejected columns beyond the designers | every reader that hands columns to a model was checked and reads live columns; the add-on's read after its apply feeds only the reply's connections; no code change | `320d6767` | COL 3c, a regression guard (passes before and after) |
 
 **Tests actually run**: for each change its own cases, a red check on the
 commit before it, a mutation sweep with a comment-only control, and its
 related suites (largest: 4824/4824 schema, add-on, data and build; 4570/4570
-page, request flow and image). **The full suite once at the end**
-(`32a2e9ca`, repo root, Chromium present): **9863 tests, 9863 pass, 0 fail, 0 skipped**.
-Unit CI: green on `32a2e9ca` (run 37631248299, `9863 / 9841 / 0 / 22`, the total matching the local run, the 22 real-browser cases skipped as on every CI run); red once on `b3ba67f0` (run 37617079560, `9845 / 9822 / 1 / 22`: the image test's case that the worker tree carries everything the job runner imports, fixed in `be72a031` and reproduced locally on `b3ba67f0`), green on every push since. Site build green on `282da3e1` (run 37630057430, all eight jobs), the last commit touching its paths.
+page, request flow and image). **The full suite**, from the repo root with
+Chromium present, once after the round (`32a2e9ca`: **9863 tests, 9863 pass,
+0 fail, 0 skipped**) and once after the follow-up pass (`320d6767`: **9869
+tests, 9868 pass, 1 fail** — the guard that `worker.js` reads the canary
+configuration at one place, which the follow-up's queue check had broken;
+fixed in `a921a64d`, the failing file and the three beside it then 48 of 48).
+**Unit CI**, the round: red once on `b3ba67f0` (run 37617079560, `9845 /
+9822 / 1 / 22`: the image test's case that the worker tree carries everything
+the job runner imports, fixed in `be72a031` and reproduced locally on
+`b3ba67f0`), then green on every push to `32a2e9ca` (run 37631248299, `9863 /
+9841 / 0 / 22`, the total matching the local run; the 22 real-browser cases are
+skipped on every CI run). The follow-up pass: red on `320d6767` (run
+37641938704, `9869 / 9846 / 1 / 22`: the same canary-reader guard), green on
+`a921a64d` (run 37642914421, `9869 / 9847 / 0 / 22`, the total matching the
+local run). **Site build**: green on `282da3e1` (run 37630057430) and on
+`a921a64d` (run 37642914499), all eight jobs each; its run on `320d6767` was
+marked failed with the seven jobs that ran all green and the eighth, the
+aggregate, never created, during GitHub server errors between 15:10 and 15:19
+UTC.
 
 **What changed for a customer, in short**: a database left by a failed
 attempt is reused or set aside, never deleted while it might be the site's,
@@ -47,14 +69,16 @@ reply too; a long value changed past its first 200 characters is never told
 as unchanged; starter rows are told one account per table, by their places;
 a table a failed addition left standing is known at once; a column the
 database refused is never offered to the designers; your own removal read
-late after work elsewhere is no longer offered for undo; a second tab no
-longer wipes the first tab's request record or revives an old undo offer.
+late after work elsewhere is no longer offered for undo, and a row you took
+away is never offered back once it is back, whoever put it back; a second tab
+no longer wipes the first tab's request record or revives an old undo offer.
 
 **Yours to decide**
 - **Merging**: the branch is `main` plus your run-105 verifier correction,
-  the batch and this round. A merge would roll the container image:
-  `5f946c22d42a1b10` → `7ca5644aa9ce9726` (196 inputs, 166 paths;
-  predicted, not built). It stays unmerged until you say so.
+  the batch, this round and its follow-up pass. A merge would roll the
+  container image: `5f946c22d42a1b10` → `23815312e31a801a` (196 inputs, 166
+  paths; predicted at `a921a64d`, not built). It stays unmerged until you
+  say so.
 - **Live verification worth a run** (none done, all paid): a two-part request
   whose second part is refused after its table went in; a data removal read
   late after an edit from another device, then "put that back"; several parts
@@ -70,11 +94,14 @@ their commits, not taken out — closing them is yours)
 - Provisioning leans on Neon's search by name and paging as documented, not
   measured live, and on a 15-minute lease for a lost create; an unresolved
   attempt stays yours to settle by hand.
-- A column declaration an earlier apply left behind stays in `_meta`; the
-  designers and the data step no longer see it, the Data panel and runtime
-  hooks still do.
-- The late undo check cannot see work that leaves no job row, or a request
-  accepted elsewhere the instant before its first job.
+- A column declaration an earlier apply left behind stays in `_meta`; no
+  reader that hands columns to a model sees it (checked in the follow-up
+  pass); the Data panel, the runtime hooks, the backups and the reply's read
+  after an apply still read it.
+- When an undo offer is kept late, a Data panel write is still not counted
+  (it files nothing); what it changes is checked when the offer is used. The
+  put-back check sets an offer aside when an identical entry remains, and for
+  a table over 1,000 rows.
 - Two tabs: request evidence and the undo offer are merged; the threads are
   not.
 - Carried: the task titles' usage from run 105 stays unverified; a progress
@@ -101,6 +128,30 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The correction round's follow-up pass: your request again, the open ends closed (on the branch, `dc531bef`, `320d6767`, `a921a64d`; nothing merged, deployed, built, paid or restored)
+
+Your request came a second time, word for word, after the round was handed
+over. Nothing was restarted: each limitation the handoff named was checked
+against the guarantee it falls under. The record is
+`docs/history/2026-10-07-cleanup-batch.md` §8.
+
+- **A row you took away is never offered back once it is back** (`dc531bef`):
+  when a message carries the undo offer, the server checks each row against
+  the table as it reads it — back under its own id, or put back under a new
+  one with the same values (another tab, the Data panel, another device), it
+  is set aside. And a late undo offer now also waits for a request taken on
+  elsewhere that has not filed its first job, and keeps nothing on a site
+  whose edits are not queued (read where the platform reads that switch, at
+  one place — `a921a64d`, after the full suite caught a second reader).
+- **Rejected columns** (`320d6767`): every reader that hands columns to a
+  model was checked; all read the columns the tables really have. No code
+  changed; a regression case holds it for an addition that makes a table.
+
+Each change has its own cases, a red check, and a mutation sweep with a
+comment-only control; the full suite ran once at the end (numbers in the
+handoff above). A merge would roll the container image `5f946c22d42a1b10` →
+`23815312e31a801a` (predicted).
 
 ## 2026-10-07 — The cleanup batch's correction round: Codex's four findings and the remaining gaps, together (on the branch, `71e47213`..`32a2e9ca`; nothing merged, deployed, built, paid or restored)
 

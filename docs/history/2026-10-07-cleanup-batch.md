@@ -195,3 +195,39 @@ called, no paid run, nothing restored.
 - **Two tabs**: only tabs of one browser share storage; the thread is not merged; another tab's evidence is taken in at this tab's next save after the write.
 - **The browser preview test** runs where Chromium is installed; unit CI skips it.
 - **The test platform** now filters job-table reads by owner, site and creation time; it still answers every column a read asks for.
+
+## 8. The follow-up pass (the same request, sent again, 2026-10-07)
+
+The owner's request arrived a second time, word for word, after §7 was handed
+over. Nothing was restarted. Each limitation the handoff named was checked
+against the guarantee it falls under; the ones within reach were closed, and
+the rest keep their cause. Still on the branch, unmerged; nothing deployed, no
+container built, no model called, no paid run, nothing restored.
+
+### The commits
+
+| # | Commit | What |
+|---|---|---|
+| D1 | `dc531bef` | Put-back offers checked against the table; late undo sees requests before their first job |
+| D2 | `320d6767` | Rejected columns: an addition that makes a table is covered for the page writer too (a test; no code change) |
+| D1b | `a921a64d` | Late undo: the queue flag is read at the request handler's one fork (the full suite's one failure, below) |
+
+### Finding → fix → tests
+
+| What was still open | The fix | The tests |
+|---|---|---|
+| **Late undo saw only `edit_jobs` rows**: a request taken on elsewhere before its first job was filed, edits run with the queue off, and the Data panel left no row | `dc531bef`. **Where the offer is used**: the data step checks each row the page offers to put back against the table as it reads it (`freshRecent`, `builder/site-apply.mjs`): a row whose id is back, or whose values sit in a live row under the table's own declared columns, is set aside — the platform's own columns (`id`, `created_at`, `owner_id`, `updated_at`) are never compared, since a row put back gets new ones; a table that filled the step's read is read once more to `PUT_BACK_READ_MAX` (1,000) rows, only when an offered row names it, and a table longer than that cannot show a row gone, so its rows are set aside. This covers a late or a live offer, whoever changed the table. **Where the offer is kept**: `newerWorkSince` also reads the site's request markers (written before a request's record and its first job) by the acceptance time in each marker's body, never its upload time (a marker is written again at its end); a marker that cannot be read, a list that does not end, or a site whose edits are no longer queued answers cannot tell | `test/put-back-guard.test.mjs` (4: the rule, a table read in part, two cases through the real edit route); NEWER 4 in `test/undo-newer-work.test.mjs` (the real Worker; the real acceptance with its first filing refused; a marker rewritten after the request with a later upload time; unreadable, failed, swept-away and same-instant markers; a list that does not end; the queue off); red check on `6945ab3a`: PUT 3, PUT 4 and NEWER 4 fail, NEWER 1–3 and TABS 2 pass on both; sweep 25 + control: 24 killed, the platform-column filter survived, killed after a case whose declaration lists those columns; the control survived |
+| **Rejected columns: readers of the stored schema beyond the designers** | `320d6767`, no code change. Every reader that hands columns to a model was checked: the add-on's designers, the data step, the rules step and the page rung read through the live-column cut since `81f80406`. The add-on reads the stored copy back after its apply, and that copy still declares a column an earlier apply left behind — but the page writer and its lint run before the apply, on the designers' cut spec, and the copy read back feeds only the reply's connections (`aSpec.apis`). A cut added there during this pass was taken out again before committing: it would have read the catalog after every apply for no reader | COL 3c in `test/rejected-columns.test.mjs`: an addition that makes a table and a page — the page writer never offered the stale column, the new table offered, the control column offered when the table has it, the stored copy after the apply shown still declaring it. It passes before and after: a regression guard, not a red check |
+
+### Tests run in this pass
+
+- Each change: its own cases, the red check above, the sweep, and the related suites (the rows stand-in's nine users 220 of 220 after it learnt `LIMIT`; the four files touched 106 of 106).
+- The full unit suite once, at `320d6767` (the repo root, Chromium present): **9869 tests, 9868 pass, 1 fail, 0 skipped**. The failure was a real one: `test/edit-job.test.mjs`'s guard that `worker.js` reads the canary configuration at exactly one place, the request handler's fork — the queue check in `newerWorkSince` had become a second reader. Fixed in `a921a64d` (the route reads it and hands the answer down); the failing file and the three beside it (`undo-newer-work`, `request-reconcile`, `put-back-guard`) then 48 of 48, and the sweep's queue mutant, moved to the new line, killed with the control surviving. Nothing else was run again.
+- Unit CI after the follow-up pass: red on `320d6767` (run 37641938704, `9869 / 9846 / 1 / 22`: the same canary-reader guard) and green on `a921a64d` (run 37642914421, `9869 / 9847 / 0 / 22`, the total matching the local run); site build green on `a921a64d` (run 37642914499, all eight jobs), its run on `320d6767` marked failed with the seven jobs that ran all green and the eighth, the aggregate, never created, during GitHub server errors between 15:10 and 15:19 UTC.
+
+### What stays open after the pass
+
+- **Late undo, when the offer is kept**: a Data panel write is still not counted then (it files nothing); what it would change is checked when the offer is used.
+- **The put-back check** sets an offer aside when an identical entry remains (two entries alike, one taken off: "put that back" then has nothing offered, and the model sees the remaining one), and for a table over 1,000 rows.
+- **Rejected columns**: a declaration an earlier apply left behind stays in `_meta`; the Data panel, the runtime hooks, the backups and the reply's read after an apply still read it, and none of them hands columns to a designer.
+- **Provisioning**: unchanged from §7 — Neon's search by name and its paging are used as documented, not measured live (that needs the live provider, which this round may not touch), and an unresolved attempt is the owner's to settle.

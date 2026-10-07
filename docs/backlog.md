@@ -51,10 +51,12 @@ here; take a closed one out of both.**
 - **The late undo read sees only this page's thread** (2026-10-07): work done
   on another device since is not seen by its "asked since" check.
   **Addressed on the branch** (2026-10-07, `282da3e1`, Codex's review): before a late read keeps the offer it asks the server whether anything was filed on the site since the request, from any tab or device (`?newer=1`, `newerWorkSince` over `edit_jobs`), and keeps it only on a plain "nothing"; cannot tell keeps nothing. Not seen: work that leaves no job row (an inline run with the queue off), and a request accepted elsewhere in the instant before its first job is filed.
+  **Closed further on the branch** (2026-10-07, `dc531bef`, the follow-up pass): a request taken on elsewhere is seen by its marker before its first job, and a site off the queue answers cannot tell; every row offered back is checked against the table when it is used (`freshRecent`), whoever changed the table — a Data panel write included, which is still not counted when the offer is kept. The check sets an offer aside when an identical entry remains, and for a table over 1,000 rows.
 - **The engine keeps a column it could not add declared in the site's stored
   schema** (2026-10-07): the refusal is recorded and told, the declaration
   is not taken back.
   **Addressed on the branch** (2026-10-07, `81f80406`, Codex's review): the engine takes a refused column out of what it treats as created — the grants (one GRANT naming a missing column failed whole and left the table unwritable), the public projection, the rules and the stored declaration — and the declaration's union never restores it; the designers' reader and the data step cut each declared table to the columns its catalog rows name (`liveDeclared`). Still open: a declaration an earlier apply left behind stays in `_meta`, and readers through `loadSiteSchema` (the Data panel, the runtime hooks) still read it.
+  **Checked on the branch** (2026-10-07, `320d6767`): no reader that hands columns to a model reads it; the add-on's read of the stored copy after its apply feeds only the reply's connections.
 - **The test platform answers every column of a job-table read, whatever
   the read asks for** (found in the progress gaps round, 2026-10-06): a read
   that left a needed column out would still pass its flow cases; in full
