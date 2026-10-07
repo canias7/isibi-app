@@ -1392,6 +1392,12 @@ verification gaps, with their records), at 00:27:17 UTC. Run 37552048948,
   dispatch answered `403 Resource not accessible by integration` (00:51:01),
   not retried; the switch (the secret, then *Deploy to Cloudflare* on `main`)
   is the owner's too, because the session's proxy refuses `actions/secrets`;
+- **runtime-confirmed by the owner's free press, run 104** (01:13 UTC): both
+  readers answered `bcc22295dbd1`, a cold container `5f946c22d42a1b10`,
+  queued jobs and the runner on, every zero-cost confirmation passed, nothing
+  charged (balance 32, last row 397, no job open); the usage step's free
+  probe answered (the Worker's logs readable, 0 narration lines)
+  (`docs/history/2026-10-07-deploy-2186.md` §5.1);
 - **the funds** raised to exactly 32 at the owner's request at 00:51:37 UTC
   (9 at 00:51:30), read back at 00:51:53: 32, last row 397, no job open
   (`docs/history/2026-10-07-deploy-2186.md`).

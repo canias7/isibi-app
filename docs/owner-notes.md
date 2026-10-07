@@ -7,9 +7,14 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The progress release is merged and deployed on your approval, and not
-  yet runtime-confirmed** (the newest entry;
+- **The progress release is merged, deployed and runtime-confirmed by your
+  free press, run 104** (the newest entries;
   `docs/history/2026-10-07-deploy-2186.md`):
+  - **Run 104** (01:13 UTC): both readers answered `bcc22295dbd1`, a cold
+    container got `5f946c22d42a1b10`, queued jobs and the runner were on,
+    and every free check passed. Nothing was charged: balance 32, last row
+    397, no job open. The usage step's free probe answered too: the logs can
+    be read, with no narration while progress is off.
   - `main` `b2409b3c` → **`bcc22295`**: 24 commits, one fast-forward at
     00:27:17 UTC.
   - **Deploy 2186** (run 37552048948, green) built the image once, as
@@ -21,12 +26,12 @@ is in git; the dated entries further down are the full story.*
     to the merged files. The image window ended at 00:50:51 UTC.
 - **What my access would not let me do**:
   - **The free runtime check.** My one dispatch answered 403 and was not
-    retried.
+    retried, so you pressed it (run 104, above).
   - **The switch.** My proxy answers 403 for the repository's secrets. So I
     can't set `PROGRESS_REPLIES`, and before the merge I couldn't list it
     either. The deploy's own print answered that check instead (above).
 
-  So the runtime check, the switch and the paid press are yours (below).
+  So the switch and the paid press are yours (below).
 - **The balance is exactly 32.** It was raised at your request at 00:51:37
   UTC and read back at 00:51:53: the ledger's last row 397, no job open.
   There will be no further top-up during this test.
@@ -37,14 +42,8 @@ is in git; the dated entries further down are the full story.*
 
 The workflow is *edit canary* unless named otherwise. Each box is named by
 its description. Every box not listed stays blank.
-1. **The free runtime check**:
-   - "Use workflow from": `main`
-   - "Run the ONE paid edit as well (yes/no)": `no`
-   - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-     chars). Blank = read and print only.": `bcc22295`
-   - "Refuse to spend unless a cold container reports this image id (exact).
-     Blank = read and print only.": `5f946c22d42a1b10`
-2. **Only if it passes, the switch.** In *Settings → Secrets and variables →
+1. **The free runtime check**: done, run 104 passed.
+2. **Now the switch.** In *Settings → Secrets and variables →
    Actions*, add a repository secret named `PROGRESS_REPLIES` with the value
    `on`.
 3. **Then the redeploy.** *Actions → Deploy to Cloudflare → Run workflow*,
@@ -195,6 +194,28 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Run 104, your free press: deploy 2186 runtime-confirmed (`bcc22295dbd1`, image `5f946c22d42a1b10`), nothing charged
+
+- **What it read** (01:13 UTC, from `main`, the job 43 seconds):
+  - both readers answered `bcc22295dbd1`;
+  - a cold container got `5f946c22d42a1b10`;
+  - queued jobs and the runner were on, on the canary site and the control
+    site alike.
+- **The free checks all passed**:
+  - both sites got the queued shape;
+  - a forged replay and another account's job each answered 404;
+  - the free job reached its end at no cost.
+- **The money**: 32 before and after. The ledger's last row is still 397,
+  and no job is open.
+- **The usage step ran live for the first time**, in its free mode. The
+  Worker's logs can be queried with the workflow's token, and they held no
+  narration line, as expected with progress off. That proves the logs can
+  be read, not any usage.
+- **Next, yours**: the secret `PROGRESS_REPLIES` = `on`, then *Deploy to
+  Cloudflare* on `main`, then the paid press (the handoff has every box).
+- **Records**: the history file's §5.1, the deploy record, the plan's
+  status.
 
 ## 2026-10-07 — Deploy 2186: the progress release merged and deployed on your approval (`bcc22295`, image `5f946c22d42a1b10`, progress still off); the balance at exactly 32; the runtime check, the switch and the paid press are yours
 

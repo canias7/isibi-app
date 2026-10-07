@@ -16,8 +16,10 @@ the bounded-retry and process-loss limitations honestly. Prepare everything
 now, but keep the branch unmerged and progress off until I approve the
 deployment, single container roll and paid test."*
 
-**Status (2026-10-07, 00:52 UTC): released and deployed, not
-runtime-confirmed; steps 1–5 and 8 done, steps 6, 7 and 9 are the owner's.**
+**Status (2026-10-07, 01:14 UTC): released, deployed and runtime-confirmed
+(the owner's free press, run 104: both readers `bcc22295dbd1`, a cold
+container `5f946c22d42a1b10`, nothing charged); steps 1–6 and 8 done, steps
+7 and 9 are the owner's.**
 The owner approved the stage on 2026-10-07 (*"I approve releasing the
 reviewed branch at bcc22295 and running the prepared lv-progress
 verification"*; the whole request is in
@@ -36,6 +38,9 @@ verification"*; the whole request is in
     step 1's by-name check was read off step 3's print instead.
 
   So the runtime check, the switch and the paid press are the owner's (§3).
+- **The runtime check**: the owner's run 104 passed (01:13 UTC). The usage
+  step's free probe answered too: the Worker's logs can be queried, with 0
+  narration lines while progress is off.
 - **The funds**: raised to exactly 32 at the owner's request (00:51:37 UTC),
   read back at 00:51:53, with no job open.
 
