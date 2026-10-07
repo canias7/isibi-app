@@ -90,6 +90,12 @@ const FNS = [...new Set([
   "progressAt", "progressListHTML", "siteKeepJobProgress", "siteJobOutcome", "siteJobCardHTML", "siteJobDiscovered", "siteJobSay", "siteJobFollow",
   // AND EACH TASK NAMED BY THE MODEL'S OWN LINE FOR ITS STATE (2026-10-06).
   "siteSaidFor",
+  // COMPLETION SHOWN AS THE SERVER HAS IT (2026-10-07): the preview held and
+  // moved once, the undo offer of a late first read, whether anything is still
+  // in flight, and the look again when the tab comes back.
+  "sitePreviewHold", "sitePreviewMove", "siteUndoKeep", "siteReqAskedSince", "siteNothingInFlight", "siteLookAgain", "siteRoutesFetch",
+  // AND THE WATCH OF A JOB THIS PAGE FILED, for one that gives up.
+  "watchEditJob",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -98,6 +104,7 @@ const LINES = [...new Set([
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",
   "const ST_PHASE_ORDER =",
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
+  "const SITE_PREVIEW_HOLD_MS =", "const sitePreviewHolds =", "const SITE_LOOK_AGAIN_MS =", "const siteLookedAt =",
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
   "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =",
   "const SITE_JOB_STATUS =", "const SITE_JOB_RUNNING =", "const siteJobFollowing =", "const editWatched =",

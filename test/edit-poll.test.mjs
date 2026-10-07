@@ -746,8 +746,10 @@ test("the shared applier does everything the site's own state needs", () => {
   // wrong for real.
   assert.match(a, /e\.removed/, "the applier never reads which pages went");
   assert.match(a, /s\.pages = s\.pages\.filter\(/, "a deleted page is left in the picker");
-  // THE PREVIEW, or the change reads as not applied.
-  assert.match(a, /previewV/, "nothing busts the preview, so a published change looks like nothing happened");
+  // THE PREVIEW, or the change reads as not applied — through the site's one
+  // move since 2026-10-07 (`sitePreviewMove`, which `preview-reload` holds to
+  // changing the address).
+  assert.match(a, /sitePreviewMove\(s\)/, "nothing busts the preview, so a published change looks like nothing happened");
   // AND THE BALANCE, since an edit that cost credits must not leave a stale one
   // on screen.
   assert.match(a, /scheduleCreditRefresh\(\)/, "the balance is never refreshed after an edit");

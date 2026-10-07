@@ -335,7 +335,10 @@ test("PAGE 7 — a part's reply still being written in the background: the part'
     const at1 = during.findIndex((t) => /Added \/gallery/.test(t));
     assert.ok(at0 >= 0 && at1 > at0, "part 0's place is not held above part 1's reply: " + JSON.stringify(during));
     assert.ok(!during.some((t) => /Changed the description/.test(t)), "part 0's reply was shown before it was written");
-    assert.equal(p.s.previewV, 2, "a part's outcome waited for its reply");
+    // ONE MOVE FOR BOTH PARTS (2026-10-07, `sitePreviewHold`): both were found
+    // done by one reading, so the preview moved once for them — and not after
+    // part 0's reply, which is still being written.
+    assert.equal(p.s.previewV, 1, "a part's outcome waited for its reply, or the parts moved the preview once each");
     assert.equal(p.s.msgs.find((m) => m && m.held).held.job, job0);
     assert.equal(writes(), calls, "a look of the page called the model");
     // WRITTEN: the next look settles the held line where it stands.
@@ -350,14 +353,14 @@ test("PAGE 7 — a part's reply still being written in the background: the part'
     assert.equal(w0, at0, "the reply did not land in its part's place");
     assert.ok(!said.includes("Done — writing up what changed…"), "the held line is still there");
     assert.equal(p.said().length, n0, "a message was added instead of the held one settled");
-    assert.equal(p.s.previewV, 2, "a part's outcome was applied again");
+    assert.equal(p.s.previewV, 1, "a part's outcome was applied again");
     // ONCE: looking again — the request, the held replies — shows nothing new.
     const n = p.said().length;
     p.ctx.siteRequestFollow("origin-1", KEY);
     p.ctx.siteHeldRepliesCheck(p.s);
     for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
     assert.equal(p.said().length, n, "a reply was shown twice");
-    assert.equal(p.s.previewV, 2);
+    assert.equal(p.s.previewV, 1);
     // ANOTHER DEVICE, OPENED AFTERWARDS: the same replies, from the server's record — and no model call.
     const b = openPage(P, wire(P));
     b.ctx.siteRequestsCheck(b.s);
@@ -382,7 +385,8 @@ test("PAGE 9 — a reload while a part's reply is still being written: the reope
     const job0 = P.jobsOf(KEY)[0].id;
     const running = await pumpBeside(P, (m) => m.body && m.body.kind === "edit-reply" && m.body.id === job0);
     for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
-    assert.equal(p.s.previewV, 2);
+    // ONE MOVE FOR THE PARTS ONE READING FOUND DONE (2026-10-07).
+    assert.equal(p.s.previewV, 1);
     const before = texts(p);
     assert.ok(before.includes("Done — writing up what changed…"), JSON.stringify(before));
     // RELOADED: the site as `sitesSave` kept it, and what a render resumes.
@@ -393,7 +397,7 @@ test("PAGE 9 — a reload while a part's reply is still being written: the reope
     b.ctx.siteHeldRepliesCheck(b.s);
     for (let i = 0; i < 2; i++) { b.flush(); await idle(); }
     assert.deepEqual(texts(b), before, "the reopened page showed something again, or lost the held line");
-    assert.equal(b.s.previewV, 2, "the reopened page applied a part again");
+    assert.equal(b.s.previewV, 1, "the reopened page applied a part again");
     assert.ok(seen.some((c) => c.url === "/api/site/edit/" + job0), "the reopened page does not follow the held reply");
     // WRITTEN: settled where it stands, once.
     release();
@@ -402,7 +406,7 @@ test("PAGE 9 — a reload while a part's reply is still being written: the reope
     const after = texts(b);
     assert.equal(after.length, before.length, "a message was added instead of the held one settled");
     assert.match(after[before.indexOf("Done — writing up what changed…")], /Changed the description/);
-    assert.equal(b.s.previewV, 2);
+    assert.equal(b.s.previewV, 1);
     b.ctx.siteHeldRepliesCheck(b.s);
     b.ctx.siteRequestsCheck(b.s);
     for (let i = 0; i < 2; i++) { b.flush(); await idle(); }

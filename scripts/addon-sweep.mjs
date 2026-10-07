@@ -683,6 +683,9 @@ export const BROWSER_FNS = Object.freeze([
   // `readRouteReply`, the one the edit's reader shares (2026-09-24).
   "readRouteReply", "readAddonReply",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
+  // ONE PREVIEW MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07): the result
+  // moves the preview through the site's hold, which rides in BROWSER_LINES.
+  "sitePreviewMove",
   // A QUESTION BACK (2026-10-02): the add-on's picker may ask one thing instead
   // of acting. `readRouteReply` reads it with `clarifyOf`, and the reader draws
   // it through `askReplyMsg` and keeps it through `askFromReply` — whose keeping
@@ -694,7 +697,7 @@ export const BROWSER_FNS = Object.freeze([
 // its opening. A function reading one of these with the line missing is the
 // same `ReferenceError` as a missing function, and it answers `{ok: false}`.
 // AND THE QUESTION BLOCK'S THREE (2026-10-02): the files kept beside a question.
-export const BROWSER_LINES = Object.freeze(["const ROUTE_EDIT_LAYERS =", "const askFilesMem =", "const ASK_FILES_DB =", "const ASK_FILES_TTL ="]);
+export const BROWSER_LINES = Object.freeze(["const ROUTE_EDIT_LAYERS =", "const askFilesMem =", "const ASK_FILES_DB =", "const ASK_FILES_TTL =", "const sitePreviewHolds ="]);
 
 /**
  * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED.
@@ -832,6 +835,9 @@ export const EDIT_BROWSER_FNS = Object.freeze([
   // a removal or a move (2026-09-23), and `pageOpVerb` the one reading of which.
   "pageOpVerb", "pageOpsSaid",
   "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit",
+  // THE PREVIEW'S ONE MOVE AND THE UNDO OFFER'S ONE KEEPER (2026-10-07), both
+  // reached from `applyEditResult`.
+  "sitePreviewMove", "siteUndoKeep",
   // ⚠ `editAnswer`'s OWN COMPOSER, and the census had to widen for it. The
   // requirement was derived from `editReply`'s body alone, which cannot see a
   // function the REFUSAL branch reaches — so the first reply through it would

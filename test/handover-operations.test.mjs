@@ -81,6 +81,10 @@ const SRC = [
   cut("function wholeRequestNote("),
   cut("function editAnswer("),
   cut("function applyEditResult("),
+  // THE PREVIEW'S ONE MOVE AND THE UNDO OFFER'S ONE KEEPER (2026-10-07).
+  cutLine("const sitePreviewHolds ="),
+  cut("function sitePreviewMove("),
+  cut("function siteUndoKeep("),
   cut("function escalatedEdit("),
   cut("function watchEditJob("),
   cut("function siteAddon("),

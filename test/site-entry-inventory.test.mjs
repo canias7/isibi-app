@@ -134,6 +134,10 @@ const SRC = [
   cut("function siteRoutesRead("),
   cut("function siteRoutesApply("),
   cut("function siteRoutesFetch("),
+  // A FRESH LOOK WITH NOTHING IN FLIGHT TAKES THE SERVER'S LIST WHOLE (2026-10-07).
+  cutLine("const siteRoutesSyncs ="),
+  cut("function siteRoutesSync("),
+  cut("function siteNothingInFlight("),
   cutLine("const SITE_NO_PAGES_MSG ="),
   cut("function siteWithPages("),
   cutStatement("document.addEventListener('keydown', (e) => {"),

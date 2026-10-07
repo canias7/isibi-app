@@ -4869,6 +4869,12 @@ function siteRoutesSync(origin, again) {
 function siteRoutesFetch(site) {
   if (!site || !site.slug || !site.react || !site.id) return;
   if (siteRoutesAsked.has(site.slug)) return;
+  // A FRESH LOOK WITH NOTHING IN FLIGHT (2026-10-07): the server's list is the
+  // site's, so a page taken away elsewhere — another tab, another device —
+  // leaves this one too (`siteRoutesSync`, which reads fresh and stands down
+  // if the list changes while it reads). With anything in flight, the list a
+  // page opens with only gains pages, as before.
+  if (siteNothingInFlight(site)) { siteRoutesAsked.add(site.slug); siteRoutesSync(site.id); return; }
   siteRoutesRead(site.slug).then((got) => {
     if (siteRoutesApply(site.id, got.paths) && siteOpenId === site.id) renderSites();
   });
@@ -5065,6 +5071,50 @@ function frameSandbox(url) {
 function sitePreviewSrc(site, path) {
   const at = path || '/';
   return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
+}
+// ── ONE PREVIEW MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07) ───────────
+//
+// The owner: *"unnecessary repeated preview reloads when several parts
+// finish"*. Every finished job this page applies or reconciles moves the
+// preview, and every move is a new address the frame loads: a reading that
+// found three parts done loaded the site three times, and a page opening on
+// many finished requests loaded it once per job (the limit kept since
+// 2026-10-05). A move asked for while the site's preview is held — one reading
+// of a request (`siteRequestShow`), or everything a page's look at the server
+// finds (`siteRequestsCheck`) — is kept until the last hold lets go, and made
+// then, once. A hold lets go by itself after `SITE_PREVIEW_HOLD_MS`, so a
+// reading that never answers cannot keep a published change off the frame. A
+// move nothing holds is made at once, as before; Refresh and a revise move it
+// themselves.
+const SITE_PREVIEW_HOLD_MS = 20000;
+const sitePreviewHolds = new Map();
+function sitePreviewMove(s) {
+  if (!s) return;
+  const h = sitePreviewHolds.get(s.id);
+  if (h && h.n > 0) { h.moved = true; return; }
+  s.previewV = (s.previewV || 0) + 1;
+}
+/** Hold the site's preview; the function it returns lets go, once, and makes the one move held since when it is the last. */
+function sitePreviewHold(origin) {
+  let h = sitePreviewHolds.get(origin);
+  if (!h) sitePreviewHolds.set(origin, (h = { n: 0, moved: false }));
+  h.n++;
+  let done = false;
+  const release = () => {
+    if (done) return;
+    done = true;
+    h.n--;
+    if (h.n > 0 || sitePreviewHolds.get(origin) !== h) return;
+    sitePreviewHolds.delete(origin);
+    if (!h.moved) return;
+    const s = siteById(origin);
+    if (!s) return;
+    s.previewV = (s.previewV || 0) + 1;
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  setTimeout(release, SITE_PREVIEW_HOLD_MS);
+  return release;
 }
 // AN ADDRESS THE FRAME ALREADY HAS IS NOT LOADED AGAIN (2026-10-05, run 101).
 // A repaint keeps the frame (`paintWorkspace`) and then asks for its address
@@ -9815,7 +9865,8 @@ function siteRequestFollow(origin, key) {
     // through this page, which follows it again from there.
     setTimeout(step, b.request.state === 'waiting' ? EditPoll.POLL_MAX_MS : EditPoll.pollDelayMs(++attempt));
   };
-  step();
+  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).
+  return step();
 }
 /**
  * One reading of a request on the page; true when it has ended and all it said
@@ -9832,15 +9883,19 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   siteReqCard(s, key);
   // THIS PAGE'S FIRST LOOK AT IT: whatever had finished by now is history.
   if (!siteReqSeen.has(origin + '|' + key)) siteReqSeen.set(origin + '|' + key, new Set(view.parts.flatMap((p) => (p && Array.isArray(p.jobs) ? p.jobs : []))));
-  // EACH PART'S OWN REPLY, ONCE, IN ORDER.
+  // EACH PART'S OWN REPLY, ONCE, IN ORDER — and the preview moved once for
+  // all the parts this reading finds done (2026-10-07, `sitePreviewHold`).
   let all = true;
-  for (const p of view.parts) {
-    for (const job of Array.isArray(p.jobs) ? p.jobs : []) {
-      if (st.shown.includes(job)) continue;
-      if (!(await siteRequestJobReply(origin, key, p, job))) { all = false; break; }
+  const letGo = sitePreviewHold(origin);
+  try {
+    for (const p of view.parts) {
+      for (const job of Array.isArray(p.jobs) ? p.jobs : []) {
+        if (st.shown.includes(job)) continue;
+        if (!(await siteRequestJobReply(origin, key, p, job))) { all = false; break; }
+      }
+      if (!all) break;
     }
-    if (!all) break;
-  }
+  } finally { letGo(); }
   // A QUESTION THE SERVER PUT IN THE SITE'S SLOT: its card, when no reply drew
   // it. AND A QUESTION THE REQUEST STILL WAITS ON IS MADE THE LIVE ONE when its
   // part's reply was only said here — history, or another browser's request
@@ -9930,8 +9985,36 @@ async function siteRequestJobReply(origin, key, part, job) {
   const mine = !!seen && !seen.has(job) && st.own !== false;
   const o = { site: mine ? s : null, d, instruction: part.words, origin: mine ? origin : '', finish, fallback: null, imgs: [], handedOff: false, slug: mine ? s.slug : '' };
   try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
-  if (!mine) siteReqRefresh(origin, !!r.ok, body, addon);
+  // THIS PAGE'S OWN REQUEST, READ LATE (2026-10-07, the owner: *"inspect late
+  // first reads of completed jobs that lose the existing undo offer … preserve
+  // the existing undo contract"*). A job of a request this page sent, found
+  // done by a first reading that came late or failed, is reconciled like any
+  // other — and the rows its edit took away are still the ones the next
+  // message may put back, so the offer it leaves is kept, as the reader keeps
+  // it (`siteUndoKeep`, which reads only a data edit's `applied` rows — an
+  // addition's answer carries none). Never another browser's request or one
+  // picked up from the server (`own`), and never over something asked for
+  // since, whose own result decides the offer.
+  if (!mine && siteReqRefresh(origin, !!r.ok, body, addon) && st.own === true && !siteReqAskedSince(s, key)) {
+    siteUndoKeep(s, body);
+    sitesSave();
+  }
   return true;
+}
+/**
+ * Whether the customer has asked for something on this site since a request
+ * began (2026-10-07): a message of theirs after the one that asked for it —
+ * marked when this page sent it (`siteRequestStart`) — that is not one of the
+ * request's own (an answer to its question is). Read from the customer's
+ * message, never the request's card, which a reading puts back where the
+ * request falls. With that message no longer on the thread it reads as asked
+ * since: cannot tell is not "nothing since".
+ */
+function siteReqAskedSince(s, key) {
+  const msgs = s && Array.isArray(s.msgs) ? s.msgs : [];
+  const at = msgs.findIndex((m) => m && m.r === 'u' && siteReqOwnMsg(m, key));
+  if (at < 0) return true;
+  return msgs.slice(at + 1).some((m) => m && m.r === 'u' && !siteReqOwnMsg(m, key));
 }
 /**
  * A FINISHED JOB THIS PAGE'S READER DID NOT APPLY (2026-10-05): another
@@ -9950,15 +10033,16 @@ async function siteRequestJobReply(origin, key, part, job) {
  */
 function siteReqRefresh(origin, httpOk, body, addon) {
   const s = siteById(origin);
-  if (!s || !body || typeof body !== 'object') return;
-  if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return;
+  if (!s || !body || typeof body !== 'object') return false;
+  if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return false;
   const named = (k) => Array.isArray(body[k]) && body[k].length > 0;
   const pages = named('added') || named('removed');
-  s.previewV = (s.previewV || 0) + 1;
+  sitePreviewMove(s);
   siteTablesAdd(s, body.tables);
   sitesSave();
   try { scheduleCreditRefresh(); } catch (err) { /* the balance is read again on the next look */ }
   if (pages) siteRoutesSync(origin);
+  return true;
 }
 /** Stop what is left of a request: the server's stop, through the jobs' own cancel. */
 function siteRequestStop(origin, key) {
@@ -10010,20 +10094,30 @@ function siteRequestApprove(origin, key, n) {
     failed();
   }).catch(failed);
 }
-/** Once per site per page load: the server's requests for this site, followed where this page has not finished with them. */
+/**
+ * Once per site per page load: the server's requests for this site, followed
+ * where this page has not finished with them. AGAIN (2026-10-07) when the tab
+ * comes back into view (`siteLookAgain`): what another tab or device finished
+ * meanwhile is found the same way, and each follow is still one per request.
+ * EVERYTHING ONE LOOK FINDS FINISHED MOVES THE PREVIEW ONCE: the preview is
+ * held until every follow it starts has had its first reading
+ * (`sitePreviewHold`).
+ */
 const siteReqChecked = new Set();
-function siteRequestsCheck(site) {
-  if (!site || !site.slug || siteReqChecked.has(site.id)) return;
+function siteRequestsCheck(site, again) {
+  if (!site || !site.slug || (siteReqChecked.has(site.id) && again !== true)) return;
   siteReqChecked.add(site.id);
   const origin = site.id;
+  const letGo = sitePreviewHold(origin);
+  const firsts = [];
   for (const k of Object.keys(site.requests || {})) {
     const st = site.requests[k];
-    if (st && st.view && !st.closed) siteRequestFollow(origin, k);
+    if (st && st.view && !st.closed) firsts.push(siteRequestFollow(origin, k));
   }
   // A JOB FOUND EARLIER AND NOT YET ENDED ON THIS PAGE (2026-10-06): followed again.
   for (const k of Object.keys(site.jobCards || {})) {
     const c = site.jobCards[k];
-    if (c && c.view && !c.closed) siteJobFollow(origin, k);
+    if (c && c.view && !c.closed) firsts.push(siteJobFollow(origin, k));
   }
   apiFetch('/api/site/requests/' + encodeURIComponent(site.slug), { method: 'GET' }).then(async (r) => {
     const b = await r.json().catch(() => null);
@@ -10037,17 +10131,57 @@ function siteRequestsCheck(site) {
       siteReqState(origin, v.key, v);
       // WHERE IT FALLS IN TIME (2026-10-05), never under a message sent since.
       siteReqCard(s, v.key);
-      siteRequestFollow(origin, v.key);
+      firsts.push(siteRequestFollow(origin, v.key));
     }
     // THE JOBS THE PAGE-DRIVEN PATH FILED (2026-10-06), after the requests so
     // each falls in time among their cards: drawn once where this page does not
     // already show it, and followed to its reply.
-    for (const v of Array.isArray(b.jobs) ? b.jobs : []) siteJobDiscovered(origin, v);
+    for (const v of Array.isArray(b.jobs) ? b.jobs : []) firsts.push(siteJobDiscovered(origin, v));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
-  }).catch(() => { /* not knowing changes nothing */ });
+  }).catch(() => { /* not knowing changes nothing */ })
+    .then(() => Promise.allSettled(firsts))
+    .finally(letGo);
 }
+/**
+ * WHETHER NOTHING THIS PAGE KNOWS OF IS STILL CHANGING THE SITE (2026-10-07):
+ * no message being handled (an edit's ask holds the send box busy until its
+ * answer, `siteBusy`), no build, no queued job this page remembers watching,
+ * no request or found job still running. Only then is the server's page list
+ * the site's whole truth for this page (`siteRoutesFetch`, `siteLookAgain`).
+ */
+function siteNothingInFlight(s) {
+  if (!s || !s.slug || siteBusy || siteBuild) return false;
+  if (EditPoll.resumableRecord(String(s.slug))) return false;
+  const open = (o) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.values(o) : []);
+  if (open(s.requests).some((r) => r && r.view && !r.view.ended)) return false;
+  if (open(s.jobCards).some((c) => c && c.view && !c.view.ended)) return false;
+  return true;
+}
+/**
+ * THE TAB COMES BACK INTO VIEW (2026-10-07, the owner: *"stale page/table
+ * lists across two tabs or a fresh session; make the UI reconcile against the
+ * authoritative server result"*). Another tab, or another device, may have
+ * finished work on the open site meanwhile: its requests and jobs are looked
+ * at again (`siteRequestsCheck`), so each finished job is said here once and
+ * reconciled — its tables kept, its pages read again — and with nothing in
+ * flight the page list is the server's (`siteRoutesSync`). Once in
+ * `SITE_LOOK_AGAIN_MS` per site at most.
+ */
+const SITE_LOOK_AGAIN_MS = 15000;
+const siteLookedAt = new Map();
+function siteLookAgain() {
+  if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return;
+  const s = siteOpenId ? siteById(siteOpenId) : null;
+  if (!s || !s.slug || !s.react) return;
+  const now = Date.now();
+  if (now - (siteLookedAt.get(s.id) || 0) < SITE_LOOK_AGAIN_MS) return;
+  siteLookedAt.set(s.id, now);
+  siteRequestsCheck(s, true);
+  if (siteNothingInFlight(s)) siteRoutesSync(s.id);
+}
+document.addEventListener('visibilitychange', siteLookAgain);
 // WHAT EACH PART'S STATUS IS CALLED ON ITS CARD. Labels, not explanations: what
 // happened and why is said by each part's own reply and the request's.
 const SITE_REQ_STATUS = {
@@ -10225,7 +10359,7 @@ function siteJobDiscovered(origin, v) {
   let at = s.msgs.length;
   for (let i = 0; i < s.msgs.length; i++) { const t = siteReqMsgAt(s, s.msgs[i]); if (t !== null && t > when) { at = i; break; } }
   s.msgs.splice(at, 0, { r: 'a', t: '', jobCard: v.job });
-  siteJobFollow(origin, v.job);
+  return siteJobFollow(origin, v.job);
 }
 /** One reply for a found job, said once, right after its card. */
 function siteJobSay(origin, job, reply) {
@@ -10320,7 +10454,8 @@ function siteJobFollow(origin, job) {
     }
     siteReqRefresh(origin, !!r.ok, e, addon);
   };
-  step();
+  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).
+  return step();
 }
 
 // The cheap rung: change what the site already has, without rewriting a page.
@@ -10810,6 +10945,22 @@ function editAnswer(httpOk, e, o) {
  * Neither fails, neither logs, and both are invisible until a customer deletes
  * something. Two copies of one decision, exactly as this repo's own rule warns.
  */
+/**
+ * THE UNDO OFFER A FINISHED DATA EDIT LEAVES (one copy, 2026-10-07): the rows
+ * it took away, for the next message to put back (`recent`). Replaced by a
+ * later removal and CLEARED by an add, because once a row has been put back,
+ * carrying it forward is a standing offer to put it back again on an
+ * unrelated change. Three rows, as the next message carries them. Asked by
+ * `applyEditResult` for an edit this page applies, and by a late first read of
+ * this page's own request (`siteRequestJobReply`).
+ */
+function siteUndoKeep(s, e) {
+  if (!s || !e || typeof e !== 'object') return;
+  const rows = Array.isArray(e.applied) ? e.applied : [];
+  const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
+  if (gone.length) s.undoRows = gone.slice(0, 3);
+  else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+}
 function applyEditResult(e, o) {
   // ⚠ A SUCCESS THIS PAGE THEN FAILS TO SHOW IS STILL A SUCCESS (2026-09-24) —
   // `applyAddonResult`'s rule, for the edit. Owner, injecting a throw into the
@@ -10834,19 +10985,14 @@ function applyEditResult(e, o) {
     // keeps showing the old bundle and the change reads as not applied.
     const s = siteById(o.origin);
     if (s) {
-      s.previewV = (s.previewV || 0) + 1;
-      // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a later
-      // removal and CLEARED by an add, because once a row has been put back,
-      // carrying it forward is a standing offer to put it back again on an
-      // unrelated change.
+      // ONE MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07, `sitePreviewMove`).
+      sitePreviewMove(s);
+      // REMEMBER WHAT WENT, so the next message can undo it (`siteUndoKeep`).
       // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
       // Told it is gone and still offered it is the same lie either way.
       const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
       if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
-      const rows = Array.isArray(e.applied) ? e.applied : [];
-      const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
-      if (gone.length) s.undoRows = gone.slice(0, 3);
-      else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+      siteUndoKeep(s, e);
       sitesSave();
     }
     scheduleCreditRefresh();
@@ -10995,6 +11141,12 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     let before = -1;
     try { const s0 = siteById(origin); before = s0 && Array.isArray(s0.msgs) ? s0.msgs.length : -1; } catch (err) { before = -1; }
     try { finishOnce(message); } catch (err) { /* outcome stands */ }
+    // A WATCH THAT GAVE UP HAS NOT SHOWN THE JOB (2026-10-07, the owner:
+    // *"never mark work complete merely because the browser stopped
+    // watching"*): its sentence says it lost track, and the job is not named
+    // on it, so a later look — a reload, another tab, another device — still
+    // finds the job and says how it really ended (`siteJobDiscovered`).
+    if (w.stopped === 'gave-up') return;
     try { if (before >= 0) siteKeepJobProgress(origin, job, before, lines); } catch (err) { /* the lines are the server's to give again */ }
   };
   const slug = String(site.slug || '');
@@ -11667,7 +11819,7 @@ function applyAddonResult(a, o) {
   try {
     const s = siteById(o.origin);
     if (s) {
-      s.previewV = (s.previewV || 0) + 1;
+      sitePreviewMove(s);
       // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
       // and cannot open it. Merged rather than replaced: the response names only
       // what this addon touched, and `s.pages` is the whole site.

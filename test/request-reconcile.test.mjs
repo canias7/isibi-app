@@ -36,7 +36,11 @@ const SLUG = "fold-lane-bakery";
 const URL0 = "https://" + SLUG + ".gofarther.app/";
 const KEY = (n) => "reconrequest" + String(n).padStart(10, "0");
 const JOB = (n) => "reconjob" + String(n).padStart(24, "0");
-const T0 = Date.UTC(2026, 9, 5, 7, 0, 0);
+// AN HOUR AGO BY THE REAL CLOCK (2026-10-07): the page keeps a request's
+// record two days (`SITE_REQ_KEEP_MS`) by the real clock, and the fixed date
+// this was expired the records under the cases — a request this browser sent
+// read back as one it picked up from the server.
+const T0 = Date.now() - 60 * 60 * 1000;
 const siteFor = (paths = ["/"], extra = {}) => ({
   id: "origin-1", slug: SLUG, react: true, name: "Fold Lane Bakery", url: URL0,
   pages: paths.map((path) => ({ path })), msgs: [], ...extra,
@@ -334,7 +338,7 @@ test("RECON 2c — reloaded while the request ran: the request's own read finds 
   assert.deepEqual(kept(b), { pages: ["/", "/gallery"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
 });
 
-test("RECON 3 — this browser's own request, the page reloaded while it ran and its first read failing: reconciled — the frame, the pages as the server keeps them — and no undo offered for the row it took, no question", async () => {
+test("RECON 3 — this browser's own request, the page reloaded while it ran and its first read failing: reconciled — the frame, the pages as the server keeps them — and the undo offer for the row it took kept, as the reader keeps it; no question", async () => {
   const S = server();
   S.routes = ["/", "/visit"];
   const words = "Take the Visit page down and the Rye loaf off";
@@ -353,7 +357,10 @@ test("RECON 3 — this browser's own request, the page reloaded while it ran and
   await looks(b);
   assert.deepEqual(said(b, KEY(5)), [JOB(1)]);
   assert.equal(shown(b), URL0 + "?v=5", "this browser's own change, found done by a late first read, left the frame where it was");
-  assert.deepEqual(kept(b), { pages: ["/"], tables: [], undo: null, ask: null, unsent: 0 });
+  // ITS UNDO OFFER, KEPT SINCE 2026-10-07 (`siteUndoKeep`): this asserted
+  // `undo: null`, the limit "your own job found done by a late first read is
+  // reconciled without its undo offer", which the owner asked to resolve.
+  assert.deepEqual(kept(b), { pages: ["/"], tables: [], undo: [{ table: "loaves", was: { name: "Rye" } }], ask: null, unsent: 0 });
 });
 
 test("RECON 4 — history from before the page opened: shown once and reconciled once, never replayed, a reload included", async () => {
@@ -367,7 +374,10 @@ test("RECON 4 — history from before the page opened: shown once and reconciled
   await idle();
   await looks(b);
   assert.deepEqual([said(b, KEY(6)), said(b, KEY(7))], [[JOB(1)], [JOB(2)]]);
-  assert.equal(shown(b), URL0 + "?v=2", "each finished job did not move the frame on once");
+  // ONCE FOR EVERYTHING THE PAGE'S FIRST LOOK FOUND FINISHED (2026-10-07,
+  // `sitePreviewHold`): this was `?v=2`, a move per job — the limit kept since
+  // 2026-10-05, resolved.
+  assert.equal(shown(b), URL0 + "?v=1", "the finished jobs did not move the frame on, or moved it once each");
   assert.deepEqual(kept(b), { pages: ["/", "/gallery"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
   // RELOADED: the site as kept; nothing said or reconciled again.
   const site = copy(b.s);
@@ -375,7 +385,7 @@ test("RECON 4 — history from before the page opened: shown once and reconciled
   const c = opened(openPage(S, site, "pagec"));
   await idle();
   await looks(c);
-  assert.equal(shown(c), URL0 + "?v=2", "the reload reconciled a job again");
+  assert.equal(shown(c), URL0 + "?v=1", "the reload reconciled a job again");
   assert.deepEqual([said(c, KEY(6)), said(c, KEY(7))], [[JOB(1)], [JOB(2)]]);
   assert.deepEqual(kept(c), { pages: ["/", "/gallery"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
 });

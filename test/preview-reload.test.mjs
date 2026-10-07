@@ -128,7 +128,11 @@ test("A SITE NEVER MOVED: the first press asks for an address the frame has not 
 test("EVERY MOVE IN chat.js changes the frame's address, from any version, a site never moved included", () => {
   // Read off the file, so a move written another way tomorrow is held to this.
   const moves = CHAT.split("\n").filter((l) => /\bpreviewV = /.test(l) && !/^\s*\/\//.test(l));
-  assert.ok(moves.length >= 5, "the moves are not where this reads them: " + moves.length);
+  // FOUR SINCE 2026-10-07: the edit's, the addition's and a reconciled job's
+  // moves go through `sitePreviewMove` (one line) and the hold's release (one
+  // more); Refresh and a revise move it themselves.
+  assert.ok(moves.length >= 4, "the moves are not where this reads them: " + moves.length);
+  assert.ok(moves.some((l) => /s\.previewV = \(s\.previewV \|\| 0\) \+ 1;/.test(l)), "the shared move is not among the moves read");
   const src = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")();
   for (const line of moves) {
     const m = /(\w+)\.previewV = (.+?);/.exec(line);

@@ -1,0 +1,299 @@
+[
+ {
+  "label": "CONTROL: a comment only in sitePreviewMove — must survive",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function sitePreviewMove(s) {",
+  "to": "function sitePreviewMove(s) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "HOLD — a held move made at once",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (h && h.n > 0) { h.moved = true; return; }",
+  "to": "  if (false) { h.moved = true; return; }"
+ },
+ {
+  "label": "HOLD — the held move never made",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!h.moved) return;\n    const s = siteById(origin);\n    if (!s) return;\n    s.previewV = (s.previewV || 0) + 1;",
+  "to": "    if (!h.moved) return;\n    const s = siteById(origin);\n    if (!s) return;"
+ },
+ {
+  "label": "HOLD — let go before the last hold",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (h.n > 0 || sitePreviewHolds.get(origin) !== h) return;",
+  "to": "    if (sitePreviewHolds.get(origin) !== h) return;"
+ },
+ {
+  "label": "HOLD — no window, a hanging read keeps the move off the frame",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  setTimeout(release, SITE_PREVIEW_HOLD_MS);\n  return release;",
+  "to": "  return release;"
+ },
+ {
+  "label": "READING — no hold",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  let all = true;\n  const letGo = sitePreviewHold(origin);",
+  "to": "  let all = true;\n  const letGo = () => {};"
+ },
+ {
+  "label": "LOOK — no hold",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const letGo = sitePreviewHold(origin);\n  const firsts = [];",
+  "to": "  const letGo = () => {};\n  const firsts = [];"
+ },
+ {
+  "label": "LOOK — let go without waiting for the first readings",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    .then(() => Promise.allSettled(firsts))",
+  "to": "    .then(() => null)"
+ },
+ {
+  "label": "LOOK — a request's first reading not waited for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    setTimeout(step, b.request.state === 'waiting' ? EditPoll.POLL_MAX_MS : EditPoll.pollDelayMs(++attempt));\n  };\n  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).\n  return step();",
+  "to": "    setTimeout(step, b.request.state === 'waiting' ? EditPoll.POLL_MAX_MS : EditPoll.pollDelayMs(++attempt));\n  };\n  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).\n  step();"
+ },
+ {
+  "label": "LOOK — a found job's first reading not waited for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    siteReqRefresh(origin, !!r.ok, e, addon);\n  };\n  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).\n  return step();",
+  "to": "    siteReqRefresh(origin, !!r.ok, e, addon);\n  };\n  // ITS FIRST READING, for a look that holds the preview until it is in (`siteRequestsCheck`).\n  step();"
+ },
+ {
+  "label": "LOOK — a discovered job's follow not handed back",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return siteJobFollow(origin, v.job);",
+  "to": "  siteJobFollow(origin, v.job);"
+ },
+ {
+  "label": "LOOK — discovered jobs not waited for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "for (const v of Array.isArray(b.jobs) ? b.jobs : []) firsts.push(siteJobDiscovered(origin, v));",
+  "to": "for (const v of Array.isArray(b.jobs) ? b.jobs : []) siteJobDiscovered(origin, v);"
+ },
+ {
+  "label": "LOOK — the again ignored, once a load only",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!site || !site.slug || (siteReqChecked.has(site.id) && again !== true)) return;",
+  "to": "  if (!site || !site.slug || siteReqChecked.has(site.id)) return;"
+ },
+ {
+  "label": "MOVE — the edit result does not move the preview",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      // ONE MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07, `sitePreviewMove`).\n      sitePreviewMove(s);",
+  "to": "      // ONE MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07, `sitePreviewMove`)."
+ },
+ {
+  "label": "MOVE — the addition's result does not move the preview",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (s) {\n      sitePreviewMove(s);\n      // A NEW PAGE HAS TO REACH THE PICKER,",
+  "to": "    if (s) {\n      // A NEW PAGE HAS TO REACH THE PICKER,"
+ },
+ {
+  "label": "MOVE — a reconciled job does not move the preview",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const pages = named('added') || named('removed');\n  sitePreviewMove(s);",
+  "to": "  const pages = named('added') || named('removed');"
+ },
+ {
+  "label": "UNDO — the applier keeps no offer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      siteUndoKeep(s, e);\n      sitesSave();",
+  "to": "      sitesSave();"
+ },
+ {
+  "label": "UNDO — an added row clears nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;\n}",
+  "to": "}"
+ },
+ {
+  "label": "UNDO — a late read of another browser's request offers its undo",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "&& st.own === true && !siteReqAskedSince(s, key)) {",
+  "to": "&& !siteReqAskedSince(s, key)) {"
+ },
+ {
+  "label": "UNDO — a late read overwrites what was asked since",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "&& st.own === true && !siteReqAskedSince(s, key)) {",
+  "to": "&& st.own === true) {"
+ },
+ {
+  "label": "UNDO — a late read keeps no offer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    siteUndoKeep(s, body);\n    sitesSave();\n  }\n  return true;",
+  "to": "    sitesSave();\n  }\n  return true;"
+ },
+ {
+  "label": "UNDO — a failed job read as refreshed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return false;",
+  "to": "  if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return true;"
+ },
+ {
+  "label": "SINCE — cannot tell read as nothing since",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (at < 0) return true;\n  return msgs.slice(at + 1).some((m) => m && m.r === 'u' && !siteReqOwnMsg(m, key));",
+  "to": "  if (at < 0) return false;\n  return msgs.slice(at + 1).some((m) => m && m.r === 'u' && !siteReqOwnMsg(m, key));"
+ },
+ {
+  "label": "SINCE — an answer to the request's question counted as asked since",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return msgs.slice(at + 1).some((m) => m && m.r === 'u' && !siteReqOwnMsg(m, key));",
+  "to": "  return msgs.slice(at + 1).some((m) => m && m.r === 'u');"
+ },
+ {
+  "label": "SINCE — read from the card, not the customer's message",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const at = msgs.findIndex((m) => m && m.r === 'u' && siteReqOwnMsg(m, key));",
+  "to": "  const at = msgs.findIndex((m) => siteReqOwnMsg(m, key));"
+ },
+ {
+  "label": "GAVE UP — the job named as shown",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (w.stopped === 'gave-up') return;\n",
+  "to": ""
+ },
+ {
+  "label": "IN FLIGHT — a message being handled ignored",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!s || !s.slug || siteBusy || siteBuild) return false;",
+  "to": "  if (!s || !s.slug) return false;"
+ },
+ {
+  "label": "IN FLIGHT — a watched job ignored",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (EditPoll.resumableRecord(String(s.slug))) return false;\n",
+  "to": ""
+ },
+ {
+  "label": "IN FLIGHT — a running request ignored",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (open(s.requests).some((r) => r && r.view && !r.view.ended)) return false;\n",
+  "to": ""
+ },
+ {
+  "label": "IN FLIGHT — a running found job ignored",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (open(s.jobCards).some((c) => c && c.view && !c.view.ended)) return false;\n",
+  "to": ""
+ },
+ {
+  "label": "TAB — a hidden tab looks again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return;\n",
+  "to": ""
+ },
+ {
+  "label": "TAB — no window between looks",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (now - (siteLookedAt.get(s.id) || 0) < SITE_LOOK_AGAIN_MS) return;\n",
+  "to": ""
+ },
+ {
+  "label": "TAB — the requests not looked at again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteRequestsCheck(s, true);\n  if (siteNothingInFlight(s)) siteRoutesSync(s.id);",
+  "to": "  siteRequestsCheck(s);\n  if (siteNothingInFlight(s)) siteRoutesSync(s.id);"
+ },
+ {
+  "label": "TAB — the page list not read again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteRequestsCheck(s, true);\n  if (siteNothingInFlight(s)) siteRoutesSync(s.id);\n}",
+  "to": "  siteRequestsCheck(s, true);\n}"
+ },
+ {
+  "label": "TAB — the page list cut with work in flight",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  siteRequestsCheck(s, true);\n  if (siteNothingInFlight(s)) siteRoutesSync(s.id);\n}",
+  "to": "  siteRequestsCheck(s, true);\n  siteRoutesSync(s.id);\n}"
+ },
+ {
+  "label": "TAB — no listener",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "\ndocument.addEventListener('visibilitychange', siteLookAgain);",
+  "to": ""
+ },
+ {
+  "label": "FRESH — the open-time list only gains",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (siteNothingInFlight(site)) { siteRoutesAsked.add(site.slug); siteRoutesSync(site.id); return; }\n",
+  "to": ""
+ }
+]

@@ -186,13 +186,14 @@ test("PLACE 1 — another browser, and a message sent before the earlier request
     for (const [t] of said) assert.ok(P.factsOf(t), "a reply is not the writer's: " + t);
     assert.equal(new Set(said.map(([t]) => t)).size, 1, "the case meant to show replies alike by their words: " + JSON.stringify(said));
     // NOTHING OF THE EARLIER REQUESTS WAS REPLAYED HERE: no question, nothing
-    // back in the box, no step posted. Each of their finished jobs moved the
-    // preview on to what is published now, once (2026-10-05, the owner's
-    // review: the page cannot tell whether its preview was loaded before or
-    // after a job published), and this message's once: three.
-    assert.equal(b.s.previewV, 3, "an earlier request's job was not reconciled once, or this message's once");
+    // back in the box, no step posted. Their finished jobs moved the preview on
+    // to what is published now (2026-10-05, the owner's review: the page cannot
+    // tell whether its preview was loaded before or after a job published) —
+    // ONCE FOR BOTH since 2026-10-07, as the page's first look holds the preview
+    // until it has read them (`sitePreviewHold`) — and this message's once: two.
+    assert.equal(b.s.previewV, 2, "the earlier requests' jobs were not reconciled once together, or this message's once");
     await looks(b);
-    assert.equal(b.s.previewV, 3, "looking again moved the preview again");
+    assert.equal(b.s.previewV, 2, "looking again moved the preview again");
     assert.equal(b.ask(), null);
     assert.ok(!b.s.unsent || b.s.unsent.length === 0, "an earlier request put words back in the box");
     assert.deepEqual(posts(seen, /\/(edit|addon)$/), [], "the page posted a step");
@@ -400,8 +401,11 @@ test("PLACE 5 — reloads: the thread comes back as it was, with nothing said or
     await pump(P);
     await looks(d, 4);
     assert.deepEqual(shape(d), [...before, "u:" + K4, "card:" + K4, "a:" + K4 + "#", "u:" + K5, "card:" + K5, "a:" + K5 + "#"]);
-    // SENT FROM THIS BROWSER, so applied here — once each.
-    assert.equal(d.s.previewV, shown + 2);
+    // SENT FROM THIS BROWSER, so applied here — and, both finishing together
+    // and read together, with one preview move for the two (2026-10-07,
+    // `sitePreviewHold`: a move asked for while the site's preview is held is
+    // made once when the last hold lets go).
+    assert.equal(d.s.previewV, shown + 1);
   });
 });
 

@@ -288,7 +288,7 @@ test("pageFromPath is the ONE namer, and reactRoutePages uses it", () => {
  * so each case gets its own latch — a shared one would make the second case's
  * request vanish and read as the code refusing to fetch.
  */
-function driveFetch({ answer, status = 200, throws = false, record } = {}) {
+function driveFetch({ answer, status = 200, throws = false, record, busy = false } = {}) {
   const calls = [];
   const renders = [];
   const saved = [];
@@ -299,9 +299,16 @@ function driveFetch({ answer, status = 200, throws = false, record } = {}) {
     return { ok: status === 200, status, json: async () => answer };
   };
   const run = new Function("deps", [
-    "const { apiFetch, siteById, sitesSave, renderSites } = deps;",
+    "const { apiFetch, siteById, sitesSave, renderSites, EditPoll } = deps;",
     "let siteOpenId = deps.siteOpenId;",
+    // WHETHER ANYTHING IS IN FLIGHT (2026-10-07): a fresh look with nothing in
+    // flight takes the server's list whole (`siteRoutesSync`); `busy` stands
+    // for a message being handled.
+    "let siteBusy = deps.busy, siteBuild = null;",
     konst("siteRoutesAsked"),
+    konst("siteRoutesSyncs"),
+    fn("function siteNothingInFlight("),
+    fn("function siteRoutesSync("),
     // THE SHARED READ AND ITS APPLY, which the fetch now goes through (2026-09-24:
     // one read per slug in the air, shared with a message sent before the list
     // arrived). Carried, not faked, so every case below still drives the real
@@ -319,6 +326,8 @@ function driveFetch({ answer, status = 200, throws = false, record } = {}) {
     sitesSave: () => saved.push(JSON.parse(JSON.stringify(store.pages || []))),
     renderSites: () => renders.push(1),
     siteOpenId: "s1",
+    busy,
+    EditPoll: { resumableRecord: () => null },
   });
   return { run, calls, renders, saved, store };
 }
@@ -335,22 +344,38 @@ test("DRIVEN: the server's answer becomes the picker's pages, and the workspace 
   assert.equal(d.renders.length, 1, "the workspace was not re-rendered, so the picker stays a label until something else redraws");
 });
 
-test("DRIVEN: it never takes a page out of a list this browser already has — it adds the pages the site publishes that the list lacks", async () => {
-  // The check is at APPLY time rather than at fetch time: a build can land while
-  // the request is in the air, and that list is the better one — it is what was
-  // just written, where this answer is what was last published. So nothing of
-  // it is overwritten or dropped; but a list a reload kept short (six pages of
-  // eight) gains the ones it lacks (2026-10-03), or the router was told six.
+test("DRIVEN: with work in flight it never takes a page out of a list this browser already has — it adds the pages the site publishes that the list lacks; with nothing in flight the server's list is the site's", async () => {
+  // WITH WORK IN FLIGHT the check is at APPLY time rather than at fetch time: a
+  // build can land while the request is in the air, and that list is the better
+  // one — it is what was just written, where this answer is what was last
+  // published. So nothing of it is overwritten or dropped; but a list a reload
+  // kept short (six pages of eight) gains the ones it lacks (2026-10-03), or the
+  // router was told six.
   const mine = [{ path: "/", name: "Home", html: "" }, { path: "/gear", name: "Gear", html: "<p>drafted here</p>" }];
   const d = driveFetch({
     answer: { ok: true, routes: ["/", "/menu", "/book"] },
-    record: { id: "s1", slug: "lido-free-a", react: true, url: "https://x/", pages: mine },
+    record: { id: "s1", slug: "lido-free-a", react: true, url: "https://x/", pages: mine.map((p) => ({ ...p })) },
+    busy: true,
   });
   d.run(d.store);
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(d.store.pages.map((p) => p.path), ["/", "/gear", "/menu", "/book"], "the server's answer clobbered a list this browser built, or added nothing");
   assert.equal(d.store.pages[1].html, "<p>drafted here</p>", "a page this browser held lost what it cached");
   assert.equal(d.saved.length, 1);
+  // WITH NOTHING IN FLIGHT (2026-10-07, the owner: *"stale page/table lists
+  // across two tabs or a fresh session; make the UI reconcile against the
+  // authoritative server result"*): no build can land under the read, so the
+  // published list is the site's — a page taken away elsewhere leaves, and a
+  // page kept keeps its name and what it cached (`siteRoutesSync`).
+  const fresh = driveFetch({
+    answer: { ok: true, routes: ["/", "/menu", "/book"] },
+    record: { id: "s1", slug: "lido-free-c", react: true, url: "https://x/", pages: [{ path: "/", name: "Our home", html: "<p>kept</p>" }, { path: "/gear", name: "Gear", html: "" }] },
+  });
+  fresh.run(fresh.store);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(fresh.store.pages.map((p) => p.path), ["/", "/menu", "/book"], "a page the site no longer publishes stayed in a fresh session's list");
+  assert.deepEqual([fresh.store.pages[0].name, fresh.store.pages[0].html], ["Our home", "<p>kept</p>"], "a page kept lost its name or what it cached");
+  assert.equal(fresh.saved.length, 1);
   // NOTHING MISSING, NOTHING WRITTEN.
   const same = driveFetch({ answer: { ok: true, routes: ["/", "/gear"] }, record: { id: "s1", slug: "lido-free-b", react: true, url: "https://x/", pages: mine } });
   same.run(same.store);

@@ -26,7 +26,11 @@ import { page, settle as drain, copy } from "./fixtures/browser-page.mjs";
 const SLUG = "fold-lane-bakery";
 const KEY = (n) => "liverequest" + String(n).padStart(11, "0");
 const JOB = (n) => "livejob" + String(n).padStart(25, "0");
-const T0 = Date.UTC(2026, 9, 5, 4, 0, 0);
+// AN HOUR AGO BY THE REAL CLOCK (2026-10-07): the page keeps a request's
+// record two days (`SITE_REQ_KEEP_MS`) by the real clock, and the fixed date
+// this was expired the records under the cases — a request this browser sent
+// read back as one it picked up from the server.
+const T0 = Date.now() - 60 * 60 * 1000;
 const siteFor = (paths = ["/"], extra = {}) => ({
   id: "origin-1", slug: SLUG, react: true, name: "Fold Lane Bakery", url: "https://" + SLUG + ".gofarther.app/",
   pages: paths.map((path) => ({ path })), msgs: [], ...extra,
@@ -183,8 +187,11 @@ test("LIVE 3 — history (finished before this page first looked): shown once an
   assert.deepEqual(said(b, KEY(5)), [JOB(2)]);
   // RECONCILED, NOT REPLAYED (2026-10-05, the owner's review): the page cannot
   // tell whether its preview was loaded before or after these jobs published,
-  // so each moved it on, once; their tables are kept; no undo for the row.
-  assert.deepEqual(kept(b), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
+  // so the preview is moved on; their tables are kept; no undo for the row.
+  // ONCE FOR BOTH SINCE 2026-10-07: this was a move per job (the limit kept
+  // since 2026-10-05), and everything the page's first look finds finished now
+  // moves the preview once (`sitePreviewHold`).
+  assert.deepEqual(kept(b), { previewV: 1, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
   assert.equal(b.s.pages[1].name, "Our Gallery", "a page kept lost its own name");
   // AND ONCE: looking again reads nothing more and changes nothing.
   const reads = routesReads(S);
@@ -193,8 +200,13 @@ test("LIVE 3 — history (finished before this page first looked): shown once an
   b.ctx.siteHeldRepliesCheck(b.s);
   await looks(b);
   assert.equal(routesReads(S), reads, "a second look read the pages again");
-  assert.deepEqual(kept(b), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 }, "a second look reconciled again");
-  // THE SAME FOR THIS BROWSER'S OWN REQUEST, FINISHED WHILE IT WAS CLOSED: shown, not replayed.
+  assert.deepEqual(kept(b), { previewV: 1, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 }, "a second look reconciled again");
+  // THE SAME FOR THIS BROWSER'S OWN REQUEST, FINISHED WHILE IT WAS CLOSED: shown, not replayed —
+  // AND, SINCE 2026-10-07, ITS UNDO OFFER KEPT: the rows its edit took away are
+  // the ones the next message may put back, as the reader would have kept them
+  // (the limit "your own job found done by a late first read is reconciled
+  // without its undo offer", resolved). The other browser's history above still
+  // offers none.
   const own = siteFor(["/", "/gallery", "/visit"]);
   own.msgs = [{ r: "u", t: "Take the Visit page down and the Rye loaf off", req: KEY(5) }, { r: "a", t: "", request: KEY(5) }];
   own.requests = { [KEY(5)]: { at: T0 + 60000, view: view(KEY(5), T0 + 60000, [part(0, "Take the Visit page down and the Rye loaf off", "started", [], "page")]), shown: [], replied: false, replies: [], closed: false, approving: [], own: true } };
@@ -202,7 +214,7 @@ test("LIVE 3 — history (finished before this page first looked): shown once an
   await idle();
   await looks(c);
   assert.deepEqual(said(c, KEY(5)), [JOB(2)]);
-  assert.deepEqual(kept(c), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 }, "this browser's own history was replayed, or not reconciled");
+  assert.deepEqual(kept(c), { previewV: 1, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: [{ table: "loaves", was: { name: "Rye" } }], ask: null, unsent: 0 }, "this browser's own history was replayed, not reconciled, or lost its undo offer");
   // AND A HISTORY JOB THAT CHANGED NO PAGE reads no page list; it moves the preview on, once.
   const S2 = server();
   S2.views.set(KEY(21), view(KEY(21), T0, [part(0, "Change the home page heading", "done", [JOB(1)], "text")], true));

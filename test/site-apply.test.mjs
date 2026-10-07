@@ -927,7 +927,13 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   // A published change has to bust the preview, or it reads as not applied.
   const applier = CHAT.slice(CHAT.indexOf("function applyEditResult("), CHAT.indexOf("function escalatedEdit("));
   assert.ok(applier.length > 200, "the shared applier window came out empty");
-  assert.match(applier, /previewV = \(s\.previewV \|\| 0\) \+ 1/);
+  // RE-ANCHORED 2026-10-07: the move goes through the site's preview hold
+  // (`sitePreviewMove`), which makes it at once when nothing holds the preview
+  // and once for everything a reading or a look holds (`sitePreviewHold`).
+  assert.match(applier, /sitePreviewMove\(s\);/, "a published edit does not move the preview");
+  const moveAt = CHAT.indexOf("function sitePreviewMove(");
+  assert.ok(moveAt > 0, "the preview's move is gone");
+  assert.match(CHAT.slice(moveAt, CHAT.indexOf("\n}", moveAt)), /s\.previewV = \(s\.previewV \|\| 0\) \+ 1/, "the move does not change the preview's address");
 });
 
 // ── the page layer: one page's source, one model call ────────────────────────
@@ -1622,8 +1628,14 @@ test("the undo is wired end to end, not just built", () => {
   const aAt = chat.indexOf("function applyEditResult(");
   assert.ok(aAt > 0, "the shared applier is gone");
   const applier = chat.slice(aAt, chat.indexOf("\n}", aAt));
-  assert.match(applier, /s\.undoRows = gone/, "nothing remembers what went");
-  assert.match(applier, /s\.undoRows = null/, "the undo is never cleared, so it can fire twice");
+  // ONE KEEPER SINCE 2026-10-07 (`siteUndoKeep`), asked by the applier and by
+  // a late first read of this page's own request — read where it lives.
+  assert.match(applier, /siteUndoKeep\(s, e\);/, "the applier does not keep the undo offer");
+  const kAt = chat.indexOf("function siteUndoKeep(");
+  assert.ok(kAt > 0, "the undo keeper is gone");
+  const keeper = chat.slice(kAt, chat.indexOf("\n}", kAt));
+  assert.match(keeper, /s\.undoRows = gone/, "nothing remembers what went");
+  assert.match(keeper, /s\.undoRows = null/, "the undo is never cleared, so it can fire twice");
   // AND BOTH PATHS REACH IT. A shared applier that only one caller uses is the
   // same drift wearing a better name.
   const users = (chat.match(/applyEditResult\(/g) || []).length;
