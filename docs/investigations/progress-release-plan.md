@@ -16,10 +16,16 @@ the bounded-retry and process-loss limitations honestly. Prepare everything
 now, but keep the branch unmerged and progress off until I approve the
 deployment, single container roll and paid test."*
 
-**Status (2026-10-07, 01:19 UTC): released, deployed, runtime-confirmed
-(the owner's free press, run 104) and switched (deploy 2187: the image
-reused, nothing rolled, `PROGRESS_REPLIES` printed masked); steps 1–8 done,
-step 9, the paid press, is the owner's.**
+**Status (2026-10-07, 01:45 UTC): the stage ran to its end, and the live
+check failed two of its checks.**
+- **Done**: released, deployed, runtime-confirmed (the owner's free press,
+  run 104) and switched (deploy 2187: the image reused, nothing rolled).
+- **Run 105, the owner's paid press**, failed on the new menu link's words:
+  "Common questions" → `/faq` on every page, where §4.3 requires "FAQ".
+- **Every other check passed**, the eight progress checks among them.
+- **The cost**: 22 credits, balance 32 → 10.
+- Nothing was run again, under the owner's rule. The record is
+  `docs/history/2026-10-07-deploy-2186.md` §8.
 The owner approved the stage on 2026-10-07 (*"I approve releasing the
 reviewed branch at bcc22295 and running the prepared lv-progress
 verification"*; the whole request is in
@@ -45,6 +51,11 @@ verification"*; the whole request is in
   Cloudflare* on `main`. Deploy 2187 reused `5f946c22d42a1b10`, its container
   step answered `no changes`, and `PROGRESS_REPLIES` printed masked. The
   balance after it was 32, with no job open.
+- **The live check** (run 105, 01:22–01:37 UTC): two checks failed, both on
+  the menu link's words. The progress, the replies, the pages other than the
+  link's words, and the money all passed. The narration's five line calls
+  were measured ($0.00848, a floor), and the task titles' calls were not
+  found in the logs (unverified).
 - **The funds**: raised to exactly 32 at the owner's request (00:51:37 UTC),
   read back at 00:51:53, with no job open.
 

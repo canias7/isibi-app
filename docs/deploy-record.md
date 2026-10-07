@@ -1418,7 +1418,21 @@ job **45 s** (01:17:45–01:18:30):
   made`: **nothing rolled**, so no image window is owed and deploy 2186's roll
   stays the release's single one;
 - the money after it (01:19:01 UTC): balance 32, last row 397, no job open
-  (`docs/history/2026-10-07-deploy-2186.md` §6.1).
+  (`docs/history/2026-10-07-deploy-2186.md` §6.1);
+- **the live check, the owner's paid press, run 105** (`lv-progress` on
+  `fold-lane-bakery`, 01:22–01:37 UTC, from `main`, its preflight answering
+  `bcc22295dbd1` and `5f946c22d42a1b10` again) **failed two checks, both on
+  the new menu link's words**: every page's menu gained "Common questions" →
+  `/faq` where the check required "FAQ". Every other check passed: the
+  request (routed `addon`, the heading its own part, both done), the FAQ page
+  with its three answers, the Classes heading, every other page as it was,
+  both replies the model's own, the money, and **all eight progress checks**
+  (the first line live 150 s after the send, the tab closed, a fresh session
+  following the request to its end). **22 credits** (balance 32 → 10, ledger
+  rows 398–401). The narration added no charge. Its five line calls were
+  measured at $0.00848 (a floor); the task titles' calls were not found in
+  the logs, so their usage stays unverified. Not run again, under the owner's
+  rule (`docs/history/2026-10-07-deploy-2186.md` §8).
 
 ## The served-file check, driven end to end on deploy 2139
 

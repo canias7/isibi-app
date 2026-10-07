@@ -7,73 +7,61 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The progress release is merged, deployed, runtime-confirmed by your
-  free press, run 104, and switched on by your redeploy, deploy 2187** (the
-  newest entries; `docs/history/2026-10-07-deploy-2186.md`):
-  - **Deploy 2187** (01:18 UTC, 45 s): it reused the image
-    `5f946c22d42a1b10` and the container answered "no changes", so nothing
-    rolled a second time. `PROGRESS_REPLIES` printed masked, where deploy
-    2186 printed `off`. The balance after it was 32, with no job open.
-  - **Run 104** (01:13 UTC): both readers answered `bcc22295dbd1`, a cold
-    container got `5f946c22d42a1b10`, queued jobs and the runner were on,
-    and every free check passed. Nothing was charged: balance 32, last row
-    397, no job open. The usage step's free probe answered too: the logs can
-    be read, with no narration while progress is off.
-  - `main` `b2409b3c` → **`bcc22295`**: 24 commits, one fast-forward at
-    00:27:17 UTC.
-  - **Deploy 2186** (run 37552048948, green) built the image once, as
-    predicted. The container moved `c7fe818d446dd957` →
-    **`5f946c22d42a1b10`** at 00:30:40 UTC. That is the single roll.
-  - **Progress is still off.** The deploy printed `PROGRESS_REPLIES: off` in
-    plain text, which is its fallback, so the secret is not set.
-  - The served `chat.js`, `edit-poll.js` and `styles.css` are byte-identical
-    to the merged files. The image window ended at 00:50:51 UTC.
-- **What my access would not let me do**:
-  - **The free runtime check.** My one dispatch answered 403 and was not
-    retried, so you pressed it (run 104, above).
-  - **The switch.** My proxy answers 403 for the repository's secrets. So I
-    can't set `PROGRESS_REPLIES`, and before the merge I couldn't list it
-    either. The deploy's own print answered that check instead (above).
+- **Progress messages are live in production.**
+  - `main` is `bcc22295`.
+  - Deploy 2186 rolled the image once, to `5f946c22d42a1b10`; your free run
+    104 confirmed it.
+  - Your switch, deploy 2187, reused the image, so nothing rolled again.
+  - Turning progress off is your secret set to `off`, then *Deploy to
+    Cloudflare*. Nothing rolls.
+- **The live check, your paid run 105, failed two of its checks, both on the
+  new menu link's words** (the newest entry;
+  `docs/history/2026-10-07-deploy-2186.md` §8):
+  - **The failure**: every page's menu gained a link to the new page
+    `/faq`, but it reads **"Common questions"**, and the check required
+    "FAQ". The page itself is titled "Common questions", with a small "FAQ"
+    label. The reply says "a link to it in the menu" without naming the
+    label.
+  - **Everything else passed**:
+    - the request: one message, the page and the heading as two parts, both
+      done;
+    - the FAQ page with its three answers, the opening hours matching the
+      Visit page;
+    - the Classes heading, now "Spend a Saturday morning at the bench";
+    - every other page as it was;
+    - both replies, the model's own;
+    - **all eight progress checks**. The model's own first line showed live
+      150 s after the send, the tab was closed with the work still running,
+      and a fresh browser session found the request and followed it to its
+      end.
+  - **It cost 22 credits** (32 → 10), and the narration added nothing. The
+    narration's own five line calls cost the platform $0.00848 (a floor).
+    The task titles' calls weren't found in the logs, so that usage stays
+    unverified.
+  - **Nothing was run again**, as you said.
+- **The balance is 10** (01:43 UTC: the ledger's last row 401, no job open).
 
-  So the switch and the paid press were yours: the switch is done (deploy
-  2187), and the paid press is next (below).
-- **The balance is exactly 32.** It was raised at your request at 00:51:37
-  UTC and read back at 00:51:53: the ledger's last row 397, no job open.
-  There will be no further top-up during this test.
-- **Nothing has been pressed or spent since**, and there has been no paid
-  attempt.
+**Yours to decide**
+- **The live check's verdict**: whether "Common questions" for an FAQ page is
+  acceptable (the live check then stands as passed in substance), or a
+  defect to fix (backlog). I haven't changed the check or re-run anything.
+- **What stays on the bakery** (the demo-site rule, as you said):
+  - from run 105: the FAQ page, its "Common questions" links and the new
+    Classes heading;
+  - from run 103: the Tasting Evenings page, `tasting_list`, its links, the
+    Gallery heading and the marked entry.
 
-**Yours to do, in order**
-
-The workflow is *edit canary* unless named otherwise. Each box is named by
-its description. Every box not listed stays blank.
-1. **The free runtime check**: done, run 104 passed.
-2. **The switch**: done, your secret `PROGRESS_REPLIES`.
-3. **The redeploy**: done, deploy 2187 (the image reused, no roll, the
-   switch printed masked).
-4. **Now the paid press**:
-   - "Use workflow from": `main`
-   - "Run the ONE paid edit as well (yes/no)": `yes`
-   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-     `lv-progress`
-   - "The site to edit. Defaults to the canary site; name another to run this
-     against it. Not needed with read_job.": `fold-lane-bakery`
-   - the deploy sha box: `bcc22295`
-   - the image box: `5f946c22d42a1b10`
-
-   Before it sends anything, the press checks for free that progress is on,
-   both ids are as above, and the balance is between 28 and 32.
-5. **No top-up.** It is at exactly 32.
-
-I read each run as it ends, and I stop at any failed gate, with no second
-paid attempt and no rebuild.
-
-**Kept on the bakery, as you said** (the demo changes stay in place): run
-103's Tasting Evenings page, the `tasting_list` table, the menu links, the
-Gallery heading and its one marked entry; after the press, the FAQ page, its
-menu links and the new Classes heading.
+  Taking any of it out is yours.
 
 **Still open** (`docs/backlog.md`)
+- **New from run 105**:
+  - an added page and its menu link are named in the designer's own words,
+    not the customer's ("Common questions" for an FAQ page), and the reply
+    doesn't say the label;
+  - the task titles' narration calls weren't found in the logs' read, so
+    their usage is unmeasured;
+  - a progress line can name one changed page of many and read like another
+    part's work ("the FAQ page and the classes page").
 - **Limits of the progress work** (the plan's §7): the model's words are not
   checked, only its account of them (stated and tested, not filtered, as you
   said), and the same holds for the task titles; a true line whose
@@ -125,18 +113,14 @@ menu links and the new Classes heading.
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This release: `docs/history/2026-10-07-deploy-2186.md`, the plan
-  `docs/investigations/progress-release-plan.md` (its status at the top, §3
-  the boxes), and `docs/deploy-record.md` (deploy 2186).
+- This release and its live check: `docs/history/2026-10-07-deploy-2186.md`
+  (§5.1 run 104, §6.1 deploy 2187, §8 run 105), the plan
+  `docs/investigations/progress-release-plan.md`, and `docs/deploy-record.md`
+  (deploys 2186 and 2187).
 - The progress work: `docs/history/2026-10-06-progress-messages.md` and
   `docs/investigations/progress-messages-plan.md`.
-- The previous release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run
-  102, §7 run 103) and its plan, `docs/investigations/release-plan.md`.
-- The reporting work: `docs/history/2026-10-06-failure-outcome.md`,
-  `docs/history/2026-10-06-refusal-warnings.md`,
-  `docs/history/2026-10-06-requirement-reporting.md`,
-  `docs/history/2026-10-06-incomplete-judgment.md` and
-  `docs/history/2026-10-05-judgment.md`.
+- The previous release: `docs/history/2026-10-06-deploy-2185.md` and its
+  plan, `docs/investigations/release-plan.md`.
 - The open items: `docs/backlog.md`.
 ---
 
@@ -196,6 +180,113 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Run 105, your paid press: the live check failed two checks, both on the menu link's words ("Common questions", not "FAQ"); progress passed live; 22 credits
+
+- **What you asked**:
+  - run the combined FAQ-page/menu-link and Classes-heading request once;
+  - check that genuine model-written progress shows while it runs;
+  - close the tab that sent it and follow it from a fresh session;
+  - check the published results, the final replies, the charges and the
+    narration's usage, with missing telemetry left unverified;
+  - stop at any failed gate, with no second paid attempt and no rebuild.
+- **The exact chain**:
+  - **the commits**: `main` went `b2409b3c` → `bcc22295` (24 commits, one
+    fast-forward, 00:27:17 UTC). The records went on the branch:
+    `d09f5d7e`, `43e98267`, `fb47be15` and this entry's commit.
+  - **deploy 2186** (run 37552048948) built `5f946c22d42a1b10`, as
+    predicted, and rolled the container at 00:30:40 UTC;
+  - **run 104** (37555950710, free) runtime-confirmed it at 01:13 UTC;
+  - **deploy 2187** (run 37556365972) was your switch. It reused the image,
+    and nothing rolled;
+  - **run 105** (37556753281, paid) ran 01:22–01:37 UTC, from `main` on
+    `fold-lane-bakery`, with both ids checked again in its preflight.
+- **The verdict**: `UI MODE FAILED`. Two checks failed, both on the new menu
+  link's words. Every other check passed.
+- **The request**:
+  - one routing call (`addon`), with the heading held back as its own part;
+  - both parts done: the add-on (job `559f49d4…`, published 01:31:31 UTC),
+    then the heading through the text step (job `ad27f17e…`, published
+    01:35:42);
+  - two publishes in one verified chain, ending at `01791336778863-6f5bd4`.
+- **The two failures**: every page's menu (and footer) gained **"Common
+  questions" → `/faq`**, with every earlier item kept. The check required
+  the link's words to include "FAQ", because you'd asked for "an FAQ page".
+  The page's own title and heading are "Common questions", with a small
+  "FAQ" label. The reply says "a link to it in the menu" without the label.
+  Whether that's a defect is yours to say. It's in the backlog, and the
+  check is unchanged.
+- **What passed, read by the press and again by me** (screenshots sent):
+  - **`/faq` answers all three questions**: a loaf keeps three to four days;
+    store it cut side down, then in a paper bag or bread bin, not the
+    fridge; the opening hours, Wednesday to Saturday 8–2 and Sunday 9–1,
+    which match the Visit page's own table.
+  - **The Classes heading** reads "Spend a Saturday morning at the bench" in
+    its three places.
+  - **Everything else is as it was**: the other pages, components, tables
+    and description.
+- **The progress, all eight checks passed**:
+  - **the model's own first line**, *"I've worked out that I'll add a new
+    FAQ page. Next I'll design it."*, showed live on the running part 150 s
+    after the send, in the tab that sent it;
+  - that tab was then closed with the work still running;
+  - with no page open, only the requests list was read;
+  - a fresh browser session (signed in afresh) found the request, showed
+    every line the first tab had shown, and followed it to the end;
+  - **the lines, five in all**: three for the page (designed, prepared,
+    publishing) and two for the heading (worked out, made and publishing);
+  - each task's title was the model's own line for its state (*"I'm adding
+    an FAQ page…"*, *"I added…"*, *"I'll change…"*, *"I'm changing…"*, *"I
+    changed…"*);
+  - **seen, not judged**: one line said *"I've prepared the FAQ page and the
+    classes page"*. The classes page there was one of eight pages the menu
+    link changed, while the heading was still to come (backlog).
+- **The replies**, both the model's own and on screen in the fresh session:
+  - the page's: *"⚠️ I've added an FAQ page and a link to it in the menu…"*,
+    with the heading said to come next;
+  - the heading's: *"✅ The heading on the Classes page now reads 'Spend a
+    Saturday morning at the bench'."*
+  - The ⚠️ is as in run 103: the heading hadn't been tried when it was
+    written.
+- **The money: 22 credits**, every charge the press's own (ledger rows
+  398–401):
+
+  | What | Credits |
+  |---|---|
+  | routing | 3 |
+  | the add-on | 14 |
+  | the heading's routing | 3 |
+  | the heading | 2 |
+  | **total** | **22** |
+
+  The balance went 32 → 10. No other ledger row was written while it ran,
+  so the narration added no charge. The estimate was 16–26.
+- **The narration's usage**:
+  - **measured**: five line calls on `grok-4.6`, each at its first attempt.
+    3,345 tokens in and 298 out, 7–23 s each (median 11.6 s). They cost the
+    platform $0.00848, about 1.06 credits, never charged; a floor, since
+    cached input isn't in the log line;
+  - **not measured**: the task titles' calls. Their lines were on screen,
+    but no such call was found in the logs. The cause isn't known from here
+    (backlog), so **that usage stays unverified**.
+- **The limitations that remain**:
+  - one sample, on one site;
+  - the model's words aren't checked, only its account of them;
+  - a true line whose confirmation never lands before its job ends is never
+    shown;
+  - a milestone is given up after about 30 seconds of failed deliveries, or
+    at the job's end, and is lost if the job's process dies;
+  - a hand-over's card reads "still to come" even when the page that filed it
+    is closed;
+  - whether the container's delivery lines reach the logs' read is
+    unverified;
+  - the task titles' usage is unmeasured.
+- **Nothing was run again**, and the demo changes stay.
+- **Records**:
+  - the history file's §8;
+  - the deploy record;
+  - the plan's status;
+  - three backlog items.
 
 ## 2026-10-07 — The switch: your secret and deploy 2187 (the image reused, nothing rolled, `PROGRESS_REPLIES` printed masked)
 

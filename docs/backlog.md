@@ -20,6 +20,16 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **An added page and its menu link are named in the designer's own words,
+  not the customer's** (found in run 105, 2026-10-07): asked for "an FAQ
+  page with a link in the menu", every menu reads "Common questions", and
+  the reply does not say so; in full below.
+- **The task titles' narration calls were not found in the logs' read**
+  (found in run 105): the five line calls were read, but no task-titles call
+  was, although their lines were on screen; their usage is unmeasured; in
+  full below.
+- **A progress line can name one changed page of many, and read like
+  another part's work** (seen in run 105); in full below.
 - **The test platform answers every column of a job-table read, whatever
   the read asks for** (found in the progress gaps round, 2026-10-06): a read
   that left a needed column out would still pass its flow cases; in full
@@ -857,6 +867,54 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **AN ADDED PAGE AND ITS MENU LINK ARE NAMED IN THE DESIGNER'S OWN WORDS,
+  NOT THE CUSTOMER'S (2026-10-07, found in run 105).**
+  - **What happened**: the message asked for "an FAQ page with a link in the
+    menu". The add-on made the page at `/faq`, titled and headed "Common
+    questions" with a small "FAQ" label. Every page's menu (and every footer)
+    gained "Common questions" → `/faq`.
+  - **The reply**: it says "I've added an FAQ page and a link to it in the
+    menu" and names the eight pages, but not the link's words. So a customer
+    looking for "FAQ" in the menu is not told it reads otherwise.
+  - **The press**: `lv-progress`'s two menu checks require the link's words
+    to include "FAQ" (`docs/investigations/progress-release-plan.md` §4.3),
+    and they failed it (`docs/history/2026-10-07-deploy-2186.md` §8.2).
+  - **Open**: whether this is a defect is the owner's call. The direction
+    would be to keep the customer's own name for a page they named, or to say
+    the label in the reply. Nothing is changed or run again.
+- **THE TASK TITLES' NARRATION CALLS WERE NOT FOUND IN THE LOGS' READ
+  (2026-10-07, found in run 105).**
+  - **What was read**: the usage step read the run's five progress-line calls
+    (`progress: <id> written …`) and no task-titles call (`progress: tasks
+    <id> written …`).
+  - **What was on screen**: the cards showed the model's own task lines for
+    both parts in every state they reached, from 89 s after the send. The
+    calls happened.
+  - **What is ruled out**:
+    - the step searched the request's own narration id (`requestTasksId`,
+      the Worker's own derivation, in `scripts/narration-usage.mjs`);
+    - the window held no narration line of any other id;
+    - the Worker logs that call as it logs the line calls
+      (`writeTaskLines`, from the same queue consumer);
+    - log sampling is 1 (`wrangler.jsonc`).
+  - **What stays open**: why the lines are missing is not known from the
+    session, which cannot read Cloudflare's logs. That usage stays
+    unverified, and the narration's whole cost with it.
+  - **A direction**: search the dashboard (*Workers & Pages → isibi-app →
+    Logs*, `progress: tasks`) between 01:24 and 01:37 UTC on 2026-10-07.
+- **A PROGRESS LINE CAN NAME ONE CHANGED PAGE OF MANY, AND READ LIKE ANOTHER
+  PART'S WORK (2026-10-07, seen in run 105).**
+  - **The line**: part 0's third line said *"I've prepared the FAQ page and
+    the classes page. I'm publishing the site with those additions now."*
+  - **What it referred to**: the classes page there was one of eight pages
+    the add-on changed for the menu link, and part 1, the Classes heading,
+    was still to come. A reader could take the line for the heading.
+  - **Why nothing caught it**: the model's words are not checked, only its
+    account of them (`says`), which is the owner's stated rule. So this is
+    recorded as seen, not as a check that failed.
+  - **A direction**: the facts handed to the writer could carry how many
+    pages the step changed, not their names.
 
 - **THE TEST PLATFORM ANSWERS EVERY COLUMN OF A JOB-TABLE READ (2026-10-06,
   found in the progress gaps round).** `test/fixtures/request-flow.mjs`
