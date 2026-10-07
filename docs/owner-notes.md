@@ -7,190 +7,90 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Progress messages are live in production.**
-  - `main` is `bcc22295`.
-  - Deploy 2186 rolled the image once, to `5f946c22d42a1b10`; your free run
-    104 confirmed it.
-  - Your switch, deploy 2187, reused the image, so nothing rolled again.
-  - Turning progress off is your secret set to `off`, then *Deploy to
-    Cloudflare*. Nothing rolls.
-- **Your ruling on run 105 is carried out, on the branch** (the newest
-  entry; `docs/history/2026-10-07-deploy-2186.md` §10; `bd192acc`, pushed,
-  unmerged):
-  - **its printed verdict stands**: 30 checks, 2 failed, both on the menu
-    link's words. The other 28 passed: the request, the completed work, and
-    the 8 progress checks;
-  - **the verifier now judges a link's words only where the request asks for
-    them**. Run 105's own saved evidence passes all 30 checks under it, and
-    every control (missing, wrong page, empty, items changed, asked-for words
-    ignored) still fails;
-  - **the full suite** is `9729 / 9729 / 0 / 0` locally, and unit CI is green
-    on `bd192acc` (`9729 / 9707 / 0 / 22`);
-  - **the task titles' usage was looked into from existing logs only**. It
-    stays unverified: everything but whether the line reached Cloudflare's
-    logs is ruled out.
-- **The live check, your paid run 105, failed two of its checks, both on the
-  new menu link's words** (`docs/history/2026-10-07-deploy-2186.md` §8):
-  - **The failure**: every page's menu gained a link to the new page
-    `/faq`, but it reads **"Common questions"**, and the check required
-    "FAQ". The page itself is titled "Common questions", with a small "FAQ"
-    label. The reply says "a link to it in the menu" without naming the
-    label.
-  - **Everything else passed**:
-    - the request: one message, the page and the heading as two parts, both
-      done;
-    - the FAQ page with its three answers, the opening hours matching the
-      Visit page;
-    - the Classes heading, now "Spend a Saturday morning at the bench";
-    - every other page as it was;
-    - both replies, the model's own;
-    - **all eight progress checks**. The model's own first line showed live
-      150 s after the send, the tab was closed with the work still running,
-      and a fresh browser session found the request and followed it to its
-      end.
-  - **It cost 22 credits** (32 → 10), and the narration added nothing. The
-    narration's own five line calls cost the platform $0.00848 (a floor).
-    The task titles' calls weren't found in the logs, so that usage stays
-    unverified.
-  - **Nothing was run again**, as you said.
+- **Production is as it was**: `main` is `bcc22295`, progress messages live
+  (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187). Turning
+  progress off is your secret set to `off`, then *Deploy to Cloudflare*.
 - **The balance is 10** (01:43 UTC: the ledger's last row 401, no job open).
+  This batch spent nothing.
+- **The Edit/Add-on cleanup batch you asked for is done, on the branch**
+  `claude/help-needed-ehlwlj`, pushed and unmerged. Nothing deployed, no
+  container built, no model called, no paid run, nothing restored. The
+  branch also still carries your run-105 verifier correction (`bd192acc`).
+  The record: `docs/history/2026-10-07-cleanup-batch.md`.
+
+**What the batch did, issue by issue** (every model answer in the tests is
+supplied; nothing here is evidence of what a real model writes)
+
+| Your item | What changed | Commit | Tests |
+|---|---|---|---|
+| 1. Progress clarity | the progress writer is told the kind of work, the request's other parts with their states, and the pages by kind (new, changed, only a menu link), recorded after the merge and links settle; nothing says pages come next when none do | `c3655841` | two flows through the real Worker; red check; sweep 23/23 |
+| 2. Failures and partial success | every exit after work begins keeps and tells what already stands: a part whose job left something standing is done in part, never failed; a stop or crash after a change says so; a dead job's database record is settled and printed; the developer record is rewritten by the failure | `af396d14` | red check 23 fail on the old code; sweep 46/54 then 9/9; related 3364/3364 |
+| 3. No silent losses | nothing cut in requirements, warnings, page and problem lists; requirements past the twelve a step keeps track of are kept by name and told as not checked, with why (the twelve stays, a real limit); refused starter rows numbered by their place; what nothing can fill read from what the engine put in | `fe1be3ca` | 15 cases; sweep 52, all killed after one round |
+| 4. Outcome precision | a data change names its entry and each field's before and after values; each column and setting of a table is judged on its own and checked against the table as applied | `9a3e4bce` | 14 cases; red check 14/14; sweep 60, all killable killed |
+| 5. Late provisioning | a database project made before a failure is read back before any drop, kept against the site when its row landed, or written down beside the site's source (never its connection string) for the next attempt to settle before making another; never a second one over one it cannot remove; ownership checked throughout; the add-on says a database was started and kept, never "nothing was changed" | `645f58a5`, `cd8fe7eb` | 10 cases, two through the add-on route; red check 10/10; sweep 52 + 1, all killed after one round |
+| 6. Completion display | the undo offer kept when your own request is read late; one preview move for everything a reading or a look finds finished; the page list taken whole from the server with nothing in flight, and looked at again when the tab comes back; a page that gave up watching no longer marks the job shown | `09b2309b` | 7 cases; red check 7/7; sweep 36, all killed after one round; every page-script test 4627/4627; screenshots |
+| 7. Task-title usage | the usage step says the account is INCOMPLETE, naming the request, when a task-lines call isn't read; the writers log the cached input too. The historical usage stays unverified, never read as zero | `0ee8e782` | reader and writer together; red check; sweep 17/17 |
+| Combinations | an edit that lands beside an addition refused after its table went in, in one request; the same delivered twice; the same read by a fresh session | `cd8fe7eb` | 3 cases; all 3 fail on the batch's start |
+
+**Tests actually run**: for each change its own cases, a red check on the
+commit before it, a mutation sweep with a comment-only control, and its
+related suites. **The full suite once at the end** (`cd8fe7eb`, from the repo
+root, Chromium present): **9805 tests, 9804 pass, 1 fail**. The failure was
+a real-browser case that read the preview's address as a count of publishes;
+corrected to your rule in `5680a18b` (at most one load per published change,
+each at a newer address, ending on the newest), its file then 4 of 4. Nothing
+else was run again. Screenshots of the three visible states were sent in the
+chat.
+
+**What changed for a customer, in short**: several parts finishing at once
+reload the preview once; your own removal is still undoable after a reload;
+a page deleted in another tab disappears from this one; a request whose
+addition stopped after its table went in reads "Partly done" with what is
+live, not "Not done"; a data change's reply can name the entry and the values;
+a database left over by a failed attempt is reused or settled, never doubled.
 
 **Yours to decide**
-- **Run 105's place**: you ruled that the builder's wording is acceptable
-  when none was asked for, and the verifier now says so. Run 105's printed
-  verdict is kept as `FAILED`, with its two failures told apart in §10.
-  Whether to count the live check as passed in substance, or to re-press it
-  on the corrected verifier (paid), is yours; I've done neither.
-- **Merging the correction** (`bd192acc`, canary and tests only; the image
-  unchanged) is yours too. It stays unmerged until you say so.
-- **What stays on the bakery** (the demo-site rule, as you said):
-  - from run 105: the FAQ page, its "Common questions" links and the new
-    Classes heading;
-  - from run 103: the Tasting Evenings page, `tasting_list`, its links, the
-    Gallery heading and the marked entry.
+- **Merging**: the branch is `main` plus your run-105 verifier correction and
+  this batch (`bd192acc`..`5680a18b` and the records). A merge would roll the
+  container image: `5f946c22d42a1b10` → `2ac6d65ab01e04ad` (195 inputs,
+  predicted, not built). It stays unmerged until you say so.
+- **Live verification worth a run** (none done, all paid):
+  - a two-part request whose second part is refused after its table went in,
+    replied to by the real model;
+  - a data removal read late by the tab that sent it, then "put that back";
+  - several parts finishing together, checking the preview loads once.
+  A provision that fails after its project can't be produced safely on a
+  live site.
+- **Run 105's place** and **what stays on the bakery** stand as in the last
+  handoff (in git): run 105's printed verdict is kept as failed on the two
+  label checks; the FAQ page, its links and the Classes heading stay.
 
-  Taking any of it out is yours.
-
-**Still open** (`docs/backlog.md`)
-- **New from run 105**:
-  - the task titles' narration calls weren't found in the logs' read. From
-    existing logs, everything is ruled out except whether the line reached
-    Cloudflare's logs, so their usage stays unverified. The dashboard search
-    that would settle it is in the backlog;
-  - a progress line can name one changed page of many and read like another
-    part's work ("the FAQ page and the classes page"), kept as its own
-    follow-up;
-  - closed by your ruling: the page and link named in the builder's words
-    when none were asked for.
-- **Limits of the progress work** (the plan's §7): the model's words are not
-  checked, only its account of them (stated and tested, not filtered, as you
-  said), and the same holds for the task titles; a true line whose
-  confirmation never lands before its job ends is never shown; a milestone
-  is given up after about 30 seconds of failed deliveries, or at the job's
-  end, and is lost if the job's process dies; a hand-over's card reads
-  "still to come" even when the page that filed it is closed. New in the
-  backlog: the test platform answers every column of a job-table read.
-- **Found in the reporting work, not fixed**:
-  - a dead job's reconciled reply names no database change;
-  - a request records an add-on part whose database changes went in as
-    failed (the part's own reply says what is live);
-  - the developer record isn't re-written at a failure;
-  - a cancel or budget stop after a database was made says nothing about
-    the database;
-  - judgment is by item, not column;
-  - two more name lists are cut at three (an unseen rewrite's pages, and
-    the pages a merge kept);
-  - a provision that fails late leaves its project unlinked, for the next
-    ask to reuse.
-- **Found earlier, not fixed**:
-  - the lint's "worth knowing" list is cut at four on the wire and three on
-    the screen, and can name pages that were held back;
-  - the seed engine numbers a refused row by the rows that went in;
-  - a table whose starter rows were skipped isn't also reported as one
-    nothing can fill.
-- **Seen during the release, not changed**: `/starter` on the live bakery
-  reads "This page isn't finished yet"; the new page's picture is the kit's
-  placeholder, as the Gallery's already was; the add-on's reply opened with
-  ⚠️ although both parts ended done (the heading had not been tried yet when
-  it was written).
-- **Parked, as you asked**: a designer's requirements past its twelfth are
-  set aside when they come in and never told.
-- **Limits of the judgment** (the judgment history files): the judging is
-  only as good as the model, and a whole but wrong answer passes; it sees the
-  design, not the published result; a part a designer builds for an extra
-  anyway isn't removed; a cut-off answer isn't asked again.
-- The add-on route's test harness shares one cached stored schema between
-  cases (the judgment's test files clear it; the harness-wide fix is listed).
-- An old request's own reply with no record is still asked for whenever it is
-  read.
-- A data edit's reply can't name the change; the new page's own menu label;
-  the free lookup's wording for a job with no reply.
-- Limits kept from the earlier rounds:
-  - your own job found done by a late first read is reconciled without its
-    undo offer;
-  - a page opening many finished requests moves its preview once per job;
-  - two tabs of one browser keep their own table lists.
-- **First Build and RW**: outside this stage.
+**Still open** (`docs/backlog.md`; the batch's fixes are marked there with
+their commits, not taken out — closing them is yours)
+- **New from the batch**:
+  - a table a refused addition left standing joins the page's table list at
+    the next routing answer, not when the failure is read;
+  - a project whose create call's answer was lost entirely is invisible;
+  - an unreadable note, or an earlier project that can't be removed, stops
+    new databases on that site until you settle it by hand;
+  - two tabs still save their own copy of a site's thread, last writer
+    winning;
+  - the late undo check sees only this page's thread;
+  - the engine keeps a column it couldn't add declared in the stored schema.
+- **Carried**: the task titles' usage from run 105 stays unverified; a
+  progress line's words are still the model's (the facts are now right, the
+  words unchecked); the test platform answers every column of a job-table
+  read; an old request's own reply with no record is asked for whenever
+  read; the judgment is only as good as the model.
+- **Shared with First Build**: the provisioner and the schema engine. The
+  build route's code is untouched; a build now lists the site's notes before
+  creating a project (an unreadable listing stops the create), and records
+  a column it couldn't add.
 
 **Links**
-- This release and its live check: `docs/history/2026-10-07-deploy-2186.md`
-  (§5.1 run 104, §6.1 deploy 2187, §8 run 105), the plan
-  `docs/investigations/progress-release-plan.md`, and `docs/deploy-record.md`
-  (deploys 2186 and 2187).
-- The progress work: `docs/history/2026-10-06-progress-messages.md` and
-  `docs/investigations/progress-messages-plan.md`.
-- The previous release: `docs/history/2026-10-06-deploy-2185.md` and its
-  plan, `docs/investigations/release-plan.md`.
+- This batch: `docs/history/2026-10-07-cleanup-batch.md`.
+- The release and run 105: `docs/history/2026-10-07-deploy-2186.md`.
 - The open items: `docs/backlog.md`.
----
-
-2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
-tests and both required CI checks), merged/deployed at `5cb8592`. Non-spending
-canary [36096052737](https://github.com/canias7/isibi-app/actions/runs/36096052737)
-verified Worker `5cb8592661ff` and container `b83b0611aeecce8f` at 04:50:36 UTC;
-all free checks passed, spending disabled, balance 3. No more deployment checks
-or retries needed. [Closure record](investigations/addon-escalation-correction.md)
-and [remaining edit-path checklist](investigations/edit-path-checklist.md).
-Translation and model-written replies remain parked. A missing live test is
-unverified behavior, not a product defect. The fallback-display correction is
-also CLOSED: independently reviewed, 179 focused tests and unit CI green,
-merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
-matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
-container reuse; no repeated runtime container check or canary. This contains
-an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the entry *"You closed the price test (D1)…"* below. The rules test I recommend next is built (the entry *"The rules test is built"*; your two corrections to its plan are the entry after it): it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Its booking is now checked before it leaves the browser, and you closed that correction after your review. Both free checks passed. The permissions read (09:32 UTC) showed exactly the starting permissions the test was written for. The free rehearsal (your run 43, 16:27 UTC) stopped exactly the test booking inside the browser and changed nothing. **Your paid rules test passed as run 44** (17:29–17:31 UTC, 3 credits): the message closed bookings on `lido-axes-b`, and one real test booking made afterwards through the site's own form was refused, with nothing added and nothing published (the newest entry). Its bookings stay closed, as you agreed by pressing it. Your free permissions check afterwards (18:13 UTC) agrees: visitors can no longer do anything with bookings, and the menu is unchanged. **You closed the rules test on 2026-09-27**, for exactly what it showed; no booking was measured going through before the change, so it proves this one closing, not every kind of rules change. Bookings stay closed. The pages still inviting bookings, and the plain "That isn't available." a visitor gets, are kept as a separate item for later. **The next test, taking a page off and putting it back (Test 5), is prepared, and both its free checks passed** (your runs 45 and 46). **Your paid run (run 47) stopped at its first message and changed nothing.** The menu request went to the wrong part of the editor, so the page removal was then correctly refused. You approved the fix and held its first two versions: the first also dropped other changes asked for in the same message, and the second guessed what was asked from how many parts the picker chose. The third version tells the picker which change is already being made and has it list anything else separately; it's built and tested on the branch, not merged, with the small menu fix and the stricter pass rule for the test kept. You approved it, and it's merged and deployed at `e4b15ef6` (deployment 2164, 2026-09-28 16:31 UTC, image `a217f74c81122512`); your free check (run 48, 16:57 UTC) confirmed it from the live server. **Your paid retry (run 49) removed the Gallery menu link and the gallery page exactly as asked**, for 5 credits, and you've closed that result. The one check it failed, `/gallery` answering "Not found" instead of sending visitors to the home page, turned out to be a publishing bug on every site since 2026-08-17. Your free restore (run 50, 18:41 UTC) put the gallery page back, and every check I ran on it passes. **You closed the removal and the restore.** The fix is merged and deployed at `f5e941f4` (deployment 2165, 19:07 UTC, image `8a10715339cdc780`), exactly as predicted; the free check that confirms it from the live server is yours to press (the entry *"The redirect fix is merged and deployed"*). It keeps saved redirects from now on and doesn't bring back the ones lost before. The balance is 45. **Test 6, two changes in one message with one of them on the Visit page, ran as your paid run 52**: the new description shipped exactly and the redirect fix worked live, but the Visit move wasn't made, and your free restore (run 53) put the bakery back exactly. **You ruled that run 52 does not close Test 6**, and asked for the general fix: the builder was putting off a change it could make while still attempting it on the wrong page. That fix is merged and deployed (deploy 2166, confirmed live by your free run 54), and your paid retry (run 57) made both changes exactly, for 5 credits (balance 37), and your free restore (run 58) put the bakery back exactly; you closed Test 6 for exactly what those two runs showed; Test 7 (a photo off one page and a band moved on another, in one message) is proposed, a routing review you asked for narrowed what it claims to test, and it was held on a photo-removal fix, built with your six safeguards; **on your word that fix is merged and deployed** (deployment 2167, 2026-09-29 14:03 UTC, image `65ce683607928f0e`, exactly as predicted), and your free check (run 59, 14:53 UTC) confirmed it from the live server; Test 7, which now expects the photo's element gone, ran as your paid run 60: both changes were made, each on the right page, for 5 credits (balance 32), and the only difference from the exact expectation is that the stored home page lost its last line break; your free restore (run 61) put the bakery back exactly, at no charge, and **you closed Test 7** for that behavior, with the missing line break accepted as a one-off exception. A menu change beside other work now reaches the menu editor: **on your word that fix is merged and deployed** (deployment 2168, 2026-09-29 16:39 UTC, image `dd4f72842234135b`, exactly as predicted), and your free check (run 62, 16:57 UTC) confirmed it from the live server; Test 8 (a menu item taken out and a band moved on another page, in one message, with real models) ran as your paid run 63: Gallery came out of the menu exactly, for 4 credits (balance 28), but the part of the builder that decides where a message goes sent it to the menu editor and put the band move off, asking you to send it next, so the new menu route wasn't reached; your free restore (run 64) put the bakery back exactly, at no charge. You recorded run 63 as a partial outcome, accepted the restore, and asked for the routing fix: the router now chooses one answer for the whole message, and after your correction it asks which route can make every change on every page it's on, not what kind of change it is; on your word it is merged and deployed (deployment 2170, 2026-09-29 20:31 UTC, image `abf47dfeceba3c5c`, exactly as predicted), and your free check (run 65, 21:51 UTC) confirmed it from the live server; your paid run of Test 8 (run 66) then made both changes from one message, exactly as expected, for 6 credits (balance 22), and your free restore (run 67) put the bakery back exactly; you closed Test 8 on those two runs (the newest entries). **CLAUDE.md is cleaned up**: 15,182 lines down to 1,815, with everything that came out moved into docs rather than deleted, and then cut to a short entry point; your preferences now have their own short file, `docs/owner-preferences.md`, and these notes are read on demand (the newest entry).
-
-Kept for the owner: the running log of what was done and decided, newest entry
-first, with what is open further down and the "Names that must not be renamed"
-table (two tests read it, so keep its shape).
-
-**This log is read on demand, not at every session start.** A session starts
-with [`owner-preferences.md`](owner-preferences.md): how you like things done,
-and what needs your approval. Search this log when the history of a decision
-matters. Add a dated, plain-English entry here for each change; add a
-preference to `owner-preferences.md` whenever you state one; and move an item
-out of Open the moment it is resolved.
-
-> **PRUNED 2026-08-28, your call: "they are really big, delete whats old and we
-> dont need anymore."** This file had grown to 19,091 lines — a day-by-day diary
-> going back to 2026-07-20, most of it describing code that no longer exists (the
-> original builder, deleted 2026-07-27; the D1 backend and its 93-item roadmap;
-> the hand-built auth layer, deleted 2026-07-30; our own data API, deleted the
-> same day). What is here now is what is still TRUE and still OPEN.
->
-> **Nothing is lost.** The complete diary is in git: `git show
-> ebfa7192:docs/owner-notes.md`. Same for the engineering log: `git show
-> 6393b134:CLAUDE.md`.
->
-> **PRUNED AGAIN 2026-09-09, your call: "clean up the md files, they are big" →
-> "I mean to delete old stuff".** It had grown back to 5,967 lines. **3,056 were
-> deleted and nothing was rewritten** — the whole day-by-day diary from
-> 2026-09-01 to 2026-09-06 cut out, not condensed: the lane sweeps, the addon
-> runs, the nine job-runner stages, the QR and backend rounds. Every one of them
-> describes work that is finished and live. **It is all in git: `git show
-> 7104c87b:docs/owner-notes.md`.** What is left is how you like things done,
-> what is open, and the last few days.
-
 ---
 
 ## How you like things done
@@ -200,6 +100,50 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The Edit/Add-on cleanup batch: seven items in one round (on the branch, `0ee8e782`..`5680a18b`; nothing merged, deployed, built, paid or restored)
+
+You asked for one substantial, coordinated batch rather than a fix at a time,
+so that a customer can ask for several edits and additions naturally and be
+told accurately what happened. All seven items are done on the branch; the
+full record is `docs/history/2026-10-07-cleanup-batch.md`.
+
+- **Progress lines** (`c3655841`): the writer now knows the kind of work, the
+  request's other parts and their states, and which pages are new, changed,
+  or only got a menu link, so a menu update can no longer read like making a
+  page or doing another part's heading.
+- **Failures and partial success** (`af396d14`): whatever a failed, stopped or
+  crashed step left standing is kept and told. A part whose table went in
+  before its publish failed reads "Partly done" with what is live, not "Not
+  done"; the developer record and the request's facts say the same.
+- **No silent losses** (`fe1be3ca`): nothing is cut from requirement, warning,
+  page or problem lists. The twelve requirements a step keeps track of is
+  kept as a real limit, and anything past it is told as not checked, with
+  why. Refused starter rows are numbered by their real place.
+- **Precise outcomes** (`9a3e4bce`): a data change names the entry and each
+  field's before and after value; each column and setting of a table is
+  judged on its own.
+- **Late provisioning** (`645f58a5`, `cd8fe7eb`): a database made before a
+  failure is never dropped while it might be the site's, is kept or written
+  down for the next attempt, and is never doubled; the customer is told it
+  was started and kept.
+- **Completion on the page** (`09b2309b`): your own removal stays undoable
+  after a reload; several finished parts reload the preview once; the page
+  list follows the server with nothing in flight and when a tab comes back;
+  a page that gave up watching no longer hides how the job ended.
+  Screenshots were sent in the chat.
+- **Task-title usage** (`0ee8e782`): the usage reading now says INCOMPLETE,
+  naming the request, when a task-lines call is missing, and the cached input
+  is logged. Run 105's own usage stays unverified, never read as zero.
+- **Combinations** (`cd8fe7eb`): three cases through the real request flow,
+  all failing on the batch's starting commit.
+
+**Tests**: each change's own cases, a red check, a mutation sweep with a
+control, and its related suites; then the full suite once, `9805 / 9804 / 1 /
+0` at `cd8fe7eb`, the one failure a browser case corrected in `5680a18b` (its
+file 4 of 4). **Not shown**: anything with a real model or on the live site.
+**The image** would roll on a merge: `5f946c22d42a1b10` → `2ac6d65ab01e04ad`.
+**Merging, and any live check, are yours.**
 
 ## 2026-10-07 — Your ruling on run 105: the menu link's words are judged only where a request asks for them (on the branch, `bd192acc`; nothing merged, deployed, built or pressed)
 

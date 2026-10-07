@@ -25,8 +25,30 @@ here; take a closed one out of both.**
   calls happened, inside the window, under the id searched, in a shape the
   parser reads, yet no line came back; the cause is not known, and the usage
   stays unverified; in full below.
+  **Partly addressed on the branch** (2026-10-07, `0ee8e782`): the usage step now says the account is INCOMPLETE, naming the request, when a request's task-lines call is not read, and the writers log the cached input too; why run 105's line was not returned stays open.
 - **A progress line can name one changed page of many, and read like
   another part's work** (seen in run 105); in full below.
+  **Addressed on the branch** (2026-10-07, `c3655841`): the writer is now given the pages by kind (new, changed, link only) after the merge and the links settle, and the request's other parts with their states; the model's words are still not checked, so whether a real model now writes it well is unverified.
+- **A table a refused addition left standing joins the page's table list
+  only at the next routing answer** (found 2026-10-07, the cleanup batch):
+  the page keeps table names from a job that went through; the routing route
+  reads the site's own inventory and hands it back on the next message, so
+  only a routing call whose own read fails would be told the older list.
+- **A project whose create call's answer was lost entirely is invisible**
+  (2026-10-07): with no project id back, nothing writes it down; a listing of
+  the account's projects by name would reconcile it, and none is built.
+- **A note that cannot be read, or an earlier project that cannot be removed,
+  stops every create on that site** (2026-10-07, by design): the attempt
+  says it is ours and to try again, and the note names the project; settling
+  it is the owner's by hand.
+- **Two tabs of one browser still save their own copy of a site's thread,
+  the last writer winning** (2026-10-07): a tab coming back into view reads
+  the server's requests and jobs again, not the other tab's thread.
+- **The late undo read sees only this page's thread** (2026-10-07): work done
+  on another device since is not seen by its "asked since" check.
+- **The engine keeps a column it could not add declared in the site's stored
+  schema** (2026-10-07): the refusal is recorded and told, the declaration
+  is not taken back.
 - **The test platform answers every column of a job-table read, whatever
   the read asks for** (found in the progress gaps round, 2026-10-06): a read
   that left a needed column out would still pass its flow cases; in full
@@ -184,6 +206,7 @@ here; take a closed one out of both.**
   customer that one was set aside. **Parked on the owner's word**
   (2026-10-06: *"Keep the separate twelve-requirement intake limit documented
   and parked."*).
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `fe1be3ca`; `docs/history/2026-10-07-cleanup-batch.md`): un-parked by the batch. The twelve a step keeps track of stays, a real limit (each is judged, and the judgment's answer is bounded); past it each is kept by name with its step, told to the customer as not checked and why, a fact each, and leaves the part done in part. The designer is told the limit and to ask which part comes first.
 - **A refusal after the design stage carries no requirement outcomes, and its
   first fact says "Nothing was added" even where something was** (found
   2026-10-06, mapping the refusals). Only the two designer refusals (`add`,
@@ -211,11 +234,13 @@ here; take a closed one out of both.**
   at four on the wire (`aProblems.slice(0, 4)`) and at three on the screen
   (`problemNote`), and it carries the lint's findings for pages that were then
   withheld with a dead code, which never went out.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `fe1be3ca`; `docs/history/2026-10-07-cleanup-batch.md`): no cut on the wire or the screen; problems are kept for every page that went out and dropped only for a page this change wrote that did not.
 - **The seed engine numbers a refused row by the rows that went in** (found
   2026-10-06; not fixed): `seedSiteRows` writes `"<table> row " + (n + 1)`
   where `n` counts successes, so three refused rows of one table all read
   "row 1". The report now reads such a skip as the table's (`row-failed`)
   and names the table once.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `fe1be3ca`; `docs/history/2026-10-07-cleanup-batch.md`): the engine numbers a refused row by its place in the design, says rows past the limit by count, a row naming none of the table's columns, and a table whose every row was refused as none in.
 - **The seed note's "isn't one visitors can read" is false of a table visitors
   can read but not only read** (found 2026-10-06): the engine seeds only
   `display` tables (anyone reads, nobody writes), and the note said the
@@ -233,35 +258,43 @@ here; take a closed one out of both.**
   reconcile settles the job's migration `applied_without_page`. Its facts no
   longer say "Nothing was added". They say the answer does not record what
   went in, but the tables that did are not named.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `af396d14`; `docs/history/2026-10-07-cleanup-batch.md`): a reconcile settles the job's database record before it writes the reply, and a refunded reply keeps the route's outcome, its requirement and warning outcomes, its landed steps and its reply context.
 - **An add-on part whose database changes went in is recorded by its request
   as failed** (found 2026-10-06; not changed, the request driver's statuses
   kept as asked): the request's own reply says "Not done … its own reply
   above says why", and the part's own reply says what is live.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `af396d14`; `docs/history/2026-10-07-cleanup-batch.md`): a part whose job left something standing is recorded done in part (`partial`, with what was not done), never failed, and the request's facts say so; shown through the real request flow by `test/batch-combinations.test.mjs`.
 - **A failure does not re-write the add-on's developer record**
   (`addon-answer`; found 2026-10-06; not changed): it keeps the reading
   composed before the publish (cannot-tell for the page), while the failure's
   own answer says not done.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `af396d14`; `docs/history/2026-10-07-cleanup-batch.md`): the failure door rewrites the developer record with the outcome and the error.
 - **A provision that fails after its Neon project was recorded leaves the
   project, not linked to the site** (found 2026-10-06; not changed): the
   next ask reuses it (`lookupProject`) rather than making a second, and the
   failure's outcome says the site is unchanged, which it is, without naming
   the project.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `645f58a5`, `cd8fe7eb`; `docs/history/2026-10-07-cleanup-batch.md`): the project is read back before any drop and never dropped on cannot-tell; one whose recording is unknown, or whose drop failed, is written down beside the site's source (never its connection string) and settled by the next attempt before another is made; every failure after the record says so, and the add-on tells a database started and kept (`projectKept`), never "nothing was changed".
 - **A cancel or budget stop after a database was made says nothing about the
   database** (`editStopped`, shared with the edit route, and ours; found
   2026-10-06; not changed): its sentence says nothing was published, which
   is true.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `af396d14`; `docs/history/2026-10-07-cleanup-batch.md`): the add-on's gate stops carry the outcome and coverage from their own evidence, so a stop after a database was made says so.
 - **A requirement carried by an existing table that the change would have
   altered can read "already there" on a failure** (found 2026-10-06; not
   changed): judgment is by item, not column. It is never called set up (now
   guarded), but the column it needs was never on the site.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `9a3e4bce`; `docs/history/2026-10-07-cleanup-batch.md`): each column and each setting of a table is a carrier of its own (`table:name.column`, `table:name:setting`), listed for the judgment and checked against the table as applied; a refused column is taken off what the table holds.
 - **Two name lists are still cut at three** (found 2026-10-06 in passing; not
   changed): the pages an unseen rewrite left (`unseenPagesNote`) and the
   pages a merge kept rather than removed (`keptReply`).
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `fe1be3ca`; `docs/history/2026-10-07-cleanup-batch.md`): both whole.
 - **A table whose starter rows were asked for and skipped is never reported as
   one nothing can fill** (found 2026-10-06; not fixed): `missingPopulation`
   counts any table the design gave seed rows as filled, whether or not the
   engine put them in. Its seed skip is told; that nothing else can fill it is
   not.
+  **Fixed on the branch in the cleanup batch** (2026-10-07, on the owner's word; not merged or deployed; `fe1be3ca`; `docs/history/2026-10-07-cleanup-batch.md`): what nothing can fill is read from what the engine really put in.
 - **The add-on route's test harness shares one stored-schema cache between
   cases** (found 2026-10-05, writing `test/addon-judgment.test.mjs`):
   - **What happens**: every slug's ownership row names the same database
