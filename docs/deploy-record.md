@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2186), and the served-file check driven end to end on deploy
+> (deploys 2137–2187), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -1401,6 +1401,24 @@ verification gaps, with their records), at 00:27:17 UTC. Run 37552048948,
 - **the funds** raised to exactly 32 at the owner's request at 00:51:37 UTC
   (9 at 00:51:30), read back at 00:51:53: 32, last row 397, no job open
   (`docs/history/2026-10-07-deploy-2186.md`).
+
+**Deploy 2187 (2026-10-07) is the owner's switch: the same commit, the image
+reused as predicted, nothing rolled.** The owner set the repository secret
+`PROGRESS_REPLIES` and dispatched *Deploy to Cloudflare* on `main`: run
+37556365972, `workflow_dispatch` on `bcc22295`, `completed` / `success`, the
+job **45 s** (01:17:45–01:18:30):
+- **the image**: `reused isibi-app-sitebuildcontainer:5f946c22d42a1b10
+  (registry answered 200; 195 inputs off ./Dockerfile)` at 01:18:10;
+- **the drain** `no live leases after 0s — deploying`; the gate left to
+  expire;
+- **Wrangler**: 26 secrets, **`PROGRESS_REPLIES` printed masked** where
+  deploy 2186 printed `off` (a secret is set; the press reads the Worker's
+  switch for itself, for free); `No updated asset files to upload`; the
+  container step `no changes isibi-app-sitebuildcontainer`, `No changes to be
+  made`: **nothing rolled**, so no image window is owed and deploy 2186's roll
+  stays the release's single one;
+- the money after it (01:19:01 UTC): balance 32, last row 397, no job open
+  (`docs/history/2026-10-07-deploy-2186.md` §6.1).
 
 ## The served-file check, driven end to end on deploy 2139
 

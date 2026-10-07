@@ -7,9 +7,13 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The progress release is merged, deployed and runtime-confirmed by your
-  free press, run 104** (the newest entries;
-  `docs/history/2026-10-07-deploy-2186.md`):
+- **The progress release is merged, deployed, runtime-confirmed by your
+  free press, run 104, and switched on by your redeploy, deploy 2187** (the
+  newest entries; `docs/history/2026-10-07-deploy-2186.md`):
+  - **Deploy 2187** (01:18 UTC, 45 s): it reused the image
+    `5f946c22d42a1b10` and the container answered "no changes", so nothing
+    rolled a second time. `PROGRESS_REPLIES` printed masked, where deploy
+    2186 printed `off`. The balance after it was 32, with no job open.
   - **Run 104** (01:13 UTC): both readers answered `bcc22295dbd1`, a cold
     container got `5f946c22d42a1b10`, queued jobs and the runner were on,
     and every free check passed. Nothing was charged: balance 32, last row
@@ -31,7 +35,8 @@ is in git; the dated entries further down are the full story.*
     can't set `PROGRESS_REPLIES`, and before the merge I couldn't list it
     either. The deploy's own print answered that check instead (above).
 
-  So the switch and the paid press are yours (below).
+  So the switch and the paid press were yours: the switch is done (deploy
+  2187), and the paid press is next (below).
 - **The balance is exactly 32.** It was raised at your request at 00:51:37
   UTC and read back at 00:51:53: the ledger's last row 397, no job open.
   There will be no further top-up during this test.
@@ -43,13 +48,10 @@ is in git; the dated entries further down are the full story.*
 The workflow is *edit canary* unless named otherwise. Each box is named by
 its description. Every box not listed stays blank.
 1. **The free runtime check**: done, run 104 passed.
-2. **Now the switch.** In *Settings → Secrets and variables →
-   Actions*, add a repository secret named `PROGRESS_REPLIES` with the value
-   `on`.
-3. **Then the redeploy.** *Actions → Deploy to Cloudflare → Run workflow*,
-   "Use workflow from": `main`. It should reuse the image, with no second
-   roll, and print `PROGRESS_REPLIES` masked.
-4. **Once that deploy is green, the paid press**:
+2. **The switch**: done, your secret `PROGRESS_REPLIES`.
+3. **The redeploy**: done, deploy 2187 (the image reused, no roll, the
+   switch printed masked).
+4. **Now the paid press**:
    - "Use workflow from": `main`
    - "Run the ONE paid edit as well (yes/no)": `yes`
    - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
@@ -194,6 +196,25 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The switch: your secret and deploy 2187 (the image reused, nothing rolled, `PROGRESS_REPLIES` printed masked)
+
+- **What you did**: you set the repository secret `PROGRESS_REPLIES` and ran
+  *Deploy to Cloudflare* on `main` (deploy 2187, 01:17:40 UTC, green in 45
+  seconds).
+- **What it shows**:
+  - **The same image**: `reused …:5f946c22d42a1b10`, and the container step
+    said "no changes". So nothing rolled a second time, and no
+    fifteen-minute wait is owed. Deploy 2186's roll stays the release's only
+    one.
+  - **The switch is set**: `PROGRESS_REPLIES` printed masked, where deploy
+    2186 printed `off`. The log can't show the value itself. Before it sends
+    anything, the paid press checks for free that the app really has
+    progress on.
+  - No files uploaded (none changed), and nothing in flight was cut off.
+- **The money**: 32 at 01:19:01 UTC, the last row 397, no job open.
+- **Next, yours**: the paid press, `lv-progress` on `fold-lane-bakery` (the
+  handoff has every box).
 
 ## 2026-10-07 — Run 104, your free press: deploy 2186 runtime-confirmed (`bcc22295dbd1`, image `5f946c22d42a1b10`), nothing charged
 

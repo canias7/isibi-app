@@ -16,10 +16,10 @@ the bounded-retry and process-loss limitations honestly. Prepare everything
 now, but keep the branch unmerged and progress off until I approve the
 deployment, single container roll and paid test."*
 
-**Status (2026-10-07, 01:14 UTC): released, deployed and runtime-confirmed
-(the owner's free press, run 104: both readers `bcc22295dbd1`, a cold
-container `5f946c22d42a1b10`, nothing charged); steps 1–6 and 8 done, steps
-7 and 9 are the owner's.**
+**Status (2026-10-07, 01:19 UTC): released, deployed, runtime-confirmed
+(the owner's free press, run 104) and switched (deploy 2187: the image
+reused, nothing rolled, `PROGRESS_REPLIES` printed masked); steps 1–8 done,
+step 9, the paid press, is the owner's.**
 The owner approved the stage on 2026-10-07 (*"I approve releasing the
 reviewed branch at bcc22295 and running the prepared lv-progress
 verification"*; the whole request is in
@@ -41,6 +41,10 @@ verification"*; the whole request is in
 - **The runtime check**: the owner's run 104 passed (01:13 UTC). The usage
   step's free probe answered too: the Worker's logs can be queried, with 0
   narration lines while progress is off.
+- **The switch**: the owner set the secret and dispatched *Deploy to
+  Cloudflare* on `main`. Deploy 2187 reused `5f946c22d42a1b10`, its container
+  step answered `no changes`, and `PROGRESS_REPLIES` printed masked. The
+  balance after it was 32, with no job open.
 - **The funds**: raised to exactly 32 at the owner's request (00:51:37 UTC),
   read back at 00:51:53, with no job open.
 
