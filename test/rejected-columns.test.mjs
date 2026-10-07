@@ -132,6 +132,34 @@ test("COL 3 — THE ADD-ON'S DESIGNERS: a column the stored schema declares and 
   assert.ok(having.prompts.some((p) => /allergen_notes/.test(p.text)), "control: a column the table has was not offered");
 });
 
+// AN ADDITION THAT MAKES A TABLE AND A PAGE (the follow-up pass, 2026-10-07):
+// the page writer and its lint run before the apply, on the designers' cut
+// spec; the stored copy read back after the apply still carries the earlier
+// declaration (`r.meta()`), and is read only for the reply's connections.
+test("COL 3c — AN ADDITION THAT MAKES A TABLE: the page writer, which writes before the apply, is never offered a column an earlier apply left declared that the table does not have — though the stored copy after the apply still declares it; the table this addition makes is offered; with the column in the table, it is", async () => {
+  const stored = { tables: [{ name: "dishes", access: "display", columns: [{ name: "name", type: "text" }, { name: "allergen_notes", type: "text" }] }] };
+  const run = (slug, has) => addon(slug, "Add a sign-up page where people leave their name and email address", {
+    kinds: ["table", "page"], publishes: true, stored, written: [writtenPage("/sign-up")],
+    catalog: { columns: [{ t: "dishes", c: "id", ty: "integer" }, { t: "dishes", c: "name", ty: "text" }, ...(has ? [{ t: "dishes", c: "allergen_notes", ty: "text" }] : [])] },
+    answers: {
+      table: { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "full_name", type: "text" }, { name: "email", type: "text" }] }, seed: [] }] },
+      page: { page: [{ path: "/sign-up", name: "Sign up", purpose: "leave a name and email", sections: ["a form"], components: ["section-header"] }] },
+    },
+  });
+  const writer = (r) => r.prompts.filter((p) => p.tool === "write_pages");
+  const lacking = await run("col3c-lacking", false);
+  assert.equal(lacking.body.ok, true, JSON.stringify(lacking.body).slice(0, 400));
+  assert.ok(lacking.sql.some((q) => /CREATE TABLE IF NOT EXISTS "signups"/i.test(q)), "the apply never ran — the read after it is not reached");
+  assert.ok(writer(lacking).length >= 1, "the page writer was not asked — the observer is dead");
+  assert.ok(writer(lacking).some((p) => /full_name/.test(p.text)), "the page writer was not told the table this addition made");
+  assert.ok(!writer(lacking).some((p) => /allergen_notes/.test(p.text)), "the page writer was offered a column the table does not have");
+  const after = (lacking.meta() || {}).tables || [];
+  assert.ok(after.some((t) => t.name === "dishes" && (t.columns || []).some((c) => (typeof c === "string" ? c : c && c.name) === "allergen_notes")), "the stored copy no longer declares the earlier column — the case no longer shows what it says");
+  const having = await run("col3c-having", true);
+  assert.equal(having.body.ok, true, JSON.stringify(having.body).slice(0, 400));
+  assert.ok(writer(having).some((p) => /allergen_notes/.test(p.text)), "control: a column the table has was not offered to the page writer");
+});
+
 /** The catalog rows for one `collect` table, from the real emitters — a table the stored schema forgot and the reader recovers. */
 function catalogFor(name, cols) {
   const t = { name, access: "collect", columns: cols.map((c) => ({ name: c, type: "text" })) };
