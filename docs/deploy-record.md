@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2182), and the served-file check driven end to end on deploy
+> (deploys 2137–2186), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -1348,6 +1348,53 @@ to `1f3dc370`, the release check `f448aaba` and the form step's correction
   `name`, "Email *" → `email`). **26 credits** (balance 35 → 9, ledger rows
   393–397, each under the press's own refs)
   (`docs/history/2026-10-06-deploy-2185.md` §7).
+
+**Deploy 2186 (2026-10-07) was predicted on both ends and built as
+predicted**, on the owner's word (*"I approve releasing the reviewed branch at
+bcc22295 and running the prepared lv-progress verification"*, the stage in
+`docs/investigations/progress-release-plan.md`): `main` `b2409b3c` →
+`bcc22295`, a fast-forward of 24 commits (the progress messages, their
+wording and outcome corrections, the prepared `lv-progress` press and its
+verification gaps, with their records), at 00:27:17 UTC. Run 37552048948,
+`push` on `bcc22295`, the only run that push started, `completed` /
+`success`, the job **3m21s** (00:27:27–00:30:48), the image step 2m21s
+(00:27:59–00:30:20; the Docker build 57 s, 0 `CACHED` lines; the push 79 s,
+15 layers pushed and 4 already there), Wrangler about 20 s:
+- **before** (00:25–00:27 UTC): unit CI green on the candidate itself (run
+  37551100422; the total `9716 / 9694 / 0 / 22` from run 37550771397 on
+  `7dc16444`); the site build's last green run 37515372064 on `84d46faf`,
+  none of the 19 files changed since matched by its path filter; nothing in
+  flight (read twice, the second right before the push); no open job; the
+  rollback giving back `main`'s tree (`b035439b…`); no skip-CI marker in the
+  24 messages; the served files `b2409b3c`'s own (`chat.js` 903,533
+  `dd876c6f…`, `edit-poll.js` 50,048 `b2a9aba6…`, `styles.css` 349,252
+  `54f6dd2b…`, read at 00:25:57); balance 9, last row 397 (00:26:14);
+- **the image**: `built isibi-app-sitebuildcontainer:5f946c22d42a1b10
+  (registry answered 404; 195 inputs off ./Dockerfile)` at 00:30:20, as
+  predicted (`c7fe818d446dd957` → `5f946c22d42a1b10`, 194 → 195 inputs);
+  digest `sha256:53be5a4b3…`;
+- **the drain** `no live leases after 1s — deploying` (the 1 printed
+  masked); the gate left to expire for `bcc22295…`;
+- **Wrangler**: 26 secrets, `PROGRESS_REPLIES` newly among them and
+  **printed plain as `off`**, the deploy's fallback: the repository secret is
+  not set, so progress is off. `MODEL_REPLIES` and `REQUEST_FLOW` printed
+  masked as at deploys 2182–2185 (`BAND_SPLIT_EVERYONE: off` prints plain); 3
+  assets uploaded (`+ /edit-poll.js`, `+ /styles.css`, `+ /chat.js`), 83
+  already there; the container's `- …:c7fe818d446dd957` /
+  `+ …:5f946c22d42a1b10`, `SUCCESS Modified application` at **00:30:40Z**;
+  `DEPLOY_ID` `bcc22295dbd1cd5a593af7c95f57ddd90af5495f`, Version ID
+  `7d449665-796a-424f-b666-…`;
+- **the served files** byte-identical to `bcc22295`'s at 00:31:36 (`chat.js`
+  920,280 `0e68e324…`, `edit-poll.js` 52,888 `fa71335f…`, `styles.css`
+  350,604 `d7474cd7…`);
+- **the image window** waited once, to 00:50:51 UTC;
+- **the free runtime check is the owner's press**: the session's one
+  dispatch answered `403 Resource not accessible by integration` (00:51:01),
+  not retried; the switch (the secret, then *Deploy to Cloudflare* on `main`)
+  is the owner's too, because the session's proxy refuses `actions/secrets`;
+- **the funds** raised to exactly 32 at the owner's request at 00:51:37 UTC
+  (9 at 00:51:30), read back at 00:51:53: 32, last row 397, no job open
+  (`docs/history/2026-10-07-deploy-2186.md`).
 
 ## The served-file check, driven end to end on deploy 2139
 

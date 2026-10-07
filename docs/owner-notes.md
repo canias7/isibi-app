@@ -7,59 +7,70 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The progress correction round is closed**: Codex reviewed `7abe6c3d` and
-  confirmed the outcome labels, the late-progress suppression, the delivery
-  retries without duplicates and the separate final-reply reading (the
-  newest entry; the history's §7).
-- **The release check's four verification gaps from Codex's second review
-  are fixed** (the newest entry; the history's §8), in the canary and its
-  workflow only:
-  - the first progress line must be live on its own running part, with
-    Codex's false positive kept as a failing control;
-  - a log read with no call says the usage is not measured, never a
-    zero cost;
-  - the recorder's real delivery line is read, tested against its real
-    output;
-  - the workflow note says 28/32.
-- **The release and its one live check are prepared, for your approval**:
-  `docs/investigations/progress-release-plan.md`.
-  - **One merge and one image roll**: `main` `b2409b3c` → the branch,
-    building `c7fe818d446dd957` → **`5f946c22d42a1b10`** once. Progress stays
-    off until the switch.
-  - **The switch**: your secret `PROGRESS_REPLIES` = `on`, then *Deploy to
-    Cloudflare* on `main`, which reuses the image (no second roll).
-  - **The paid press**: `lv-progress` on `fold-lane-bakery`. One message, an
-    FAQ page with its menu link and the Classes heading. The tab is closed
-    once progress shows, and the request is followed to its end in a fresh
-    browser session. It is judged on the pages, the replies, eight progress
-    checks and a no-charge check, and a free step after it reads the
-    narration's attempts, tokens, time and cost from the logs.
-  - **About 20 credits (16–26); hard cap 32.** Raise the balance from 9 to
-    exactly 32; the press refuses to start above 32 or below 28.
-  - **Ready on the branch at `7dc16444`**, with unit CI green there (run
-    37550771397) and the image still predicted `5f946c22d42a1b10`.
-  - **Not merged, not deployed, no image built, the secret not set, nothing
-    pressed or spent.**
-- **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
-  `c7fe818d446dd957`), runtime-confirmed by run 102; the release closed on
-  run 103.
-- **The balance is 9** (read at 23:01 UTC: the ledger's last row 397, no job
-  open).
+- **The progress release is merged and deployed on your approval, and not
+  yet runtime-confirmed** (the newest entry;
+  `docs/history/2026-10-07-deploy-2186.md`):
+  - `main` `b2409b3c` → **`bcc22295`**: 24 commits, one fast-forward at
+    00:27:17 UTC.
+  - **Deploy 2186** (run 37552048948, green) built the image once, as
+    predicted. The container moved `c7fe818d446dd957` →
+    **`5f946c22d42a1b10`** at 00:30:40 UTC. That is the single roll.
+  - **Progress is still off.** The deploy printed `PROGRESS_REPLIES: off` in
+    plain text, which is its fallback, so the secret is not set.
+  - The served `chat.js`, `edit-poll.js` and `styles.css` are byte-identical
+    to the merged files. The image window ended at 00:50:51 UTC.
+- **What my access would not let me do**:
+  - **The free runtime check.** My one dispatch answered 403 and was not
+    retried.
+  - **The switch.** My proxy answers 403 for the repository's secrets. So I
+    can't set `PROGRESS_REPLIES`, and before the merge I couldn't list it
+    either. The deploy's own print answered that check instead (above).
 
-**Yours to decide**
-- **The stage**, as one approval or step by step:
-  1. the deployment and its single container roll;
-  2. the switch;
-  3. the funds, to exactly 32;
-  4. the paid press.
+  So the runtime check, the switch and the paid press are yours (below).
+- **The balance is exactly 32.** It was raised at your request at 00:51:37
+  UTC and read back at 00:51:53: the ledger's last row 397, no job open.
+  There will be no further top-up during this test.
+- **Nothing has been pressed or spent since**, and there has been no paid
+  attempt.
 
-  The plan's §2 lists each step and §3 each box by its description.
-- **What run 103 left on the bakery** (the demo-site rule): the Tasting
-  Evenings page, the `tasting_list` table, the menu links, the Gallery
-  heading, and the one marked entry (`Canary release 37473592366`,
-  `canary-release-37473592366@example.com`). The live check would add the
-  FAQ page, its menu links and the new Classes heading. Taking any of it out
-  is yours.
+**Yours to do, in order**
+
+The workflow is *edit canary* unless named otherwise. Each box is named by
+its description. Every box not listed stays blank.
+1. **The free runtime check**:
+   - "Use workflow from": `main`
+   - "Run the ONE paid edit as well (yes/no)": `no`
+   - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+     chars). Blank = read and print only.": `bcc22295`
+   - "Refuse to spend unless a cold container reports this image id (exact).
+     Blank = read and print only.": `5f946c22d42a1b10`
+2. **Only if it passes, the switch.** In *Settings → Secrets and variables →
+   Actions*, add a repository secret named `PROGRESS_REPLIES` with the value
+   `on`.
+3. **Then the redeploy.** *Actions → Deploy to Cloudflare → Run workflow*,
+   "Use workflow from": `main`. It should reuse the image, with no second
+   roll, and print `PROGRESS_REPLIES` masked.
+4. **Once that deploy is green, the paid press**:
+   - "Use workflow from": `main`
+   - "Run the ONE paid edit as well (yes/no)": `yes`
+   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+     `lv-progress`
+   - "The site to edit. Defaults to the canary site; name another to run this
+     against it. Not needed with read_job.": `fold-lane-bakery`
+   - the deploy sha box: `bcc22295`
+   - the image box: `5f946c22d42a1b10`
+
+   Before it sends anything, the press checks for free that progress is on,
+   both ids are as above, and the balance is between 28 and 32.
+5. **No top-up.** It is at exactly 32.
+
+I read each run as it ends, and I stop at any failed gate, with no second
+paid attempt and no rebuild.
+
+**Kept on the bakery, as you said** (the demo changes stay in place): run
+103's Tasting Evenings page, the `tasting_list` table, the menu links, the
+Gallery heading and its one marked entry; after the press, the FAQ page, its
+menu links and the new Classes heading.
 
 **Still open** (`docs/backlog.md`)
 - **Limits of the progress work** (the plan's §7): the model's words are not
@@ -113,11 +124,13 @@ is in git; the dated entries further down are the full story.*
 - **First Build and RW**: outside this stage.
 
 **Links**
+- This release: `docs/history/2026-10-07-deploy-2186.md`, the plan
+  `docs/investigations/progress-release-plan.md` (its status at the top, §3
+  the boxes), and `docs/deploy-record.md` (deploy 2186).
 - The progress work: `docs/history/2026-10-06-progress-messages.md` and
-  `docs/investigations/progress-messages-plan.md`; its release and live
-  check, `docs/investigations/progress-release-plan.md`.
-- The release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run 102, §7
-  run 103) and the plan, `docs/investigations/release-plan.md`.
+  `docs/investigations/progress-messages-plan.md`.
+- The previous release: `docs/history/2026-10-06-deploy-2185.md` (§6.1 run
+  102, §7 run 103) and its plan, `docs/investigations/release-plan.md`.
 - The reporting work: `docs/history/2026-10-06-failure-outcome.md`,
   `docs/history/2026-10-06-refusal-warnings.md`,
   `docs/history/2026-10-06-requirement-reporting.md`,
@@ -182,6 +195,67 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Deploy 2186: the progress release merged and deployed on your approval (`bcc22295`, image `5f946c22d42a1b10`, progress still off); the balance at exactly 32; the runtime check, the switch and the paid press are yours
+
+- **What you asked**: release the reviewed branch at `bcc22295` and run the
+  prepared `lv-progress` check. That means:
+  - the preflight;
+  - the merge and deploy, with the one expected roll to `5f946c22d42a1b10`;
+  - the free runtime check;
+  - the switch, on the same image;
+  - the balance raised to exactly 32, with no further top-up;
+  - then the one combined request, read and recorded.
+
+  Do everything my access allows, and stop at any failed gate without a
+  second paid attempt or a rebuild.
+- **The checks before the merge** (00:25–00:27 UTC), all passed:
+  - **CI**: unit CI green on `bcc22295` itself (run 37551100422). The full
+    total, `9716 / 9694 / 0 / 22`, is from run 37550771397 on `7dc16444`,
+    the same code.
+  - **The site build**: none of the 19 files changed since its last green
+    run (37515372064 on `84d46faf`) is one it reads.
+  - **Nothing in flight**: nothing running or queued, read twice (the second
+    right before the push), and no open job.
+  - **The image**, predicted on both ends: `c7fe818d446dd957` →
+    `5f946c22d42a1b10` (194 → 195 inputs).
+  - **The rollback**, checked in a throwaway copy: undoing the 24 commits
+    gives back `main`'s own tree.
+  - No skip-CI marker in the 24 messages.
+  - The served files read first: deploy 2185's own.
+  - **The money**: balance 9, the ledger's last row 397, no job open.
+  - **One check I couldn't make as planned**: listing the repository's
+    secrets to confirm `PROGRESS_REPLIES` wasn't set. My proxy refuses that
+    path (403). The deploy's own print answers the same question, because a
+    set secret prints masked and the fallback prints `off` in plain text. So
+    I read it there: `off`, in plain text.
+- **The merge and the deploy**:
+  - `main` `b2409b3c` → `bcc22295`, one fast-forward at 00:27:17 UTC.
+  - Deploy 2186, run 37552048948, the only run that push started, green in
+    3m21s.
+  - **The image built once, as predicted**: `5f946c22d42a1b10` from 195
+    inputs. The container moved `c7fe818d446dd957` → `5f946c22d42a1b10` at
+    00:30:40 UTC.
+  - 26 secrets sent, with `PROGRESS_REPLIES` among them as `off`. Three
+    files uploaded: `chat.js`, `edit-poll.js` and `styles.css`.
+  - Nothing in flight was cut off ("no live leases").
+- **The served files** at 00:31:36 UTC, each byte-identical to `bcc22295`'s:
+  `chat.js` 920,280 bytes, `edit-poll.js` 52,888, `styles.css` 350,604.
+- **The image window**: waited once, to 00:50:51 UTC.
+- **The runtime check**: I dispatched it once (spend `no`, `bcc22295`,
+  `5f946c22d42a1b10`). It answered 403 at 00:51:01, and I didn't retry. It's
+  your press.
+- **The funds**: 9 at 00:51:30 UTC. Raised to exactly 32 at your request at
+  00:51:37. Read back at 00:51:53: 32, the last row still 397, no job open.
+- **Where it stands**: released and deployed, **not runtime-confirmed**.
+  Progress is off and the balance is 32. Nothing has been pressed or spent,
+  and there has been no paid attempt. The handoff lists your four steps with
+  every box.
+- **Records**:
+  - `docs/history/2026-10-07-deploy-2186.md` and its row in the history
+    index;
+  - `docs/deploy-record.md` (deploy 2186);
+  - the plan's status (`docs/investigations/progress-release-plan.md`).
 
 ## 2026-10-07 — Codex's second review: the release check's four verification gaps fixed (on the branch; no builder or Worker file touched; nothing merged, deployed, switched, funded or pressed)
 

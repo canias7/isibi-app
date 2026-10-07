@@ -16,11 +16,36 @@ the bounded-retry and process-loss limitations honestly. Prepare everything
 now, but keep the branch unmerged and progress off until I approve the
 deployment, single container roll and paid test."*
 
-**Prepared, not executed.** Nothing is merged, deployed, built or pressed,
-`PROGRESS_REPLIES` is not set, and nothing is spent. The press is a new
-canary scenario, `lv-progress` (§4), prepared on the branch for review with
-this plan. **The balance does not cover it** (§5): at 9 the press refuses at
-no cost.
+**Status (2026-10-07, 00:52 UTC): released and deployed, not
+runtime-confirmed; steps 1–5 and 8 done, steps 6, 7 and 9 are the owner's.**
+The owner approved the stage on 2026-10-07 (*"I approve releasing the
+reviewed branch at bcc22295 and running the prepared lv-progress
+verification"*; the whole request is in
+`docs/history/2026-10-07-deploy-2186.md`).
+- **The merge**: `main` `b2409b3c` → **`bcc22295`** (24 commits), at
+  00:27:17 UTC.
+- **The deploy**: deploy 2186 (run 37552048948) built the image once, as
+  predicted. The container moved `c7fe818d446dd957` → `5f946c22d42a1b10` at
+  00:30:40Z.
+- **Released dark**: `PROGRESS_REPLIES` printed plain as `off`, the deploy's
+  fallback.
+- **The served files**: byte-identical. The image window ended at 00:50:51.
+- **The session's reach**:
+  - Its one dispatch of the runtime check answered 403 and was not retried.
+  - Its read of the repository's secrets answered 403 through its proxy, so
+    step 1's by-name check was read off step 3's print instead.
+
+  So the runtime check, the switch and the paid press are the owner's (§3).
+- **The funds**: raised to exactly 32 at the owner's request (00:51:37 UTC),
+  read back at 00:51:53, with no job open.
+
+The rest of this plan is as prepared.
+
+**As prepared (2026-10-06):** nothing was merged, deployed, built or
+pressed, `PROGRESS_REPLIES` was not set, and nothing was spent. The press is
+a new canary scenario, `lv-progress` (§4), prepared on the branch for review
+with this plan. **The balance did not cover it** (§5): at 9 the press
+refuses at no cost.
 
 **In one view:**
 - **The release**: one fast-forward of `main` (`b2409b3c` → the candidate)
