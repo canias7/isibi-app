@@ -4573,7 +4573,70 @@ function sitesLoad() {
   catch { sitesCache = []; }
   return sitesCache;
 }
+// ── ANOTHER TAB OF THIS BROWSER, SAVING THE SAME SITES (2026-10-07) ─────────
+//
+// Codex's review of the cleanup batch: every save wrote this tab's copy of
+// each site whole, the last writer winning. A tab that had not seen another's
+// request erased its record — and the record's `own` mark is what lets a late
+// first read keep the undo offer — and a tab holding an older copy wrote back
+// an undo offer the other had since replaced or cleared. The browser tells
+// each tab when another writes (`storage`), and the next save takes in, first,
+// the evidence the other kept (`sitesMerge`). The thread itself is not merged:
+// each tab's messages are its own, as they always were.
+let sitesStoredStale = false;
+try { window.addEventListener('storage', (e) => { if (e && e.key === SITES_KEY) sitesStoredStale = true; }); } catch (e) { /* no window to listen on */ }
+/**
+ * What another tab saved, taken into this tab's sites (each by its id): a
+ * request's record this tab lacks; for one both hold, either tab's `own`,
+ * every job either showed or reply either said, either's close, and the view
+ * read last; the cards of jobs either found; and the undo offer last set or
+ * cleared by either (`undoAt`). Records past their keep are left out; a site
+ * this tab does not hold is never brought back.
+ */
+function sitesMerge(mine, theirs, now = Date.now()) {
+  if (!Array.isArray(mine) || !Array.isArray(theirs)) return;
+  const plain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const union = (a, b) => [...new Set([...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])])];
+  const byId = new Map(theirs.filter((x) => plain(x) && typeof x.id === 'string').map((x) => [x.id, x]));
+  for (const s of mine) {
+    const o = plain(s) ? byId.get(s.id) : null;
+    if (!o) continue;
+    if (plain(o.requests)) {
+      if (!plain(s.requests)) s.requests = {};
+      for (const [k, r] of Object.entries(o.requests)) {
+        if (!plain(r) || !(now - (Number(r.at) || 0) < SITE_REQ_KEEP_MS)) continue;
+        const m = s.requests[k];
+        if (!plain(m)) { s.requests[k] = r; continue; }
+        if (r.own === true) m.own = true;
+        m.shown = union(m.shown, r.shown);
+        m.replies = union(m.replies, r.replies);
+        m.approving = union(m.approving, r.approving);
+        if (r.replied === true) m.replied = true;
+        if (r.closed === true) m.closed = true;
+        const later = (v) => (plain(v) && Number.isFinite(v.updatedAt) ? v.updatedAt : -1);
+        if (plain(r.view) && later(r.view) > later(m.view)) m.view = r.view;
+      }
+    }
+    if (plain(o.jobCards)) {
+      if (!plain(s.jobCards)) s.jobCards = {};
+      for (const [k, c] of Object.entries(o.jobCards)) {
+        if (!plain(c) || !(now - (Number(c.at) || 0) < SITE_REQ_KEEP_MS)) continue;
+        if (!plain(s.jobCards[k])) s.jobCards[k] = c;
+        else if (c.closed === true) s.jobCards[k].closed = true;
+      }
+    }
+    if (Number.isFinite(o.undoAt) && !(Number.isFinite(s.undoAt) && s.undoAt >= o.undoAt)) {
+      s.undoRows = Array.isArray(o.undoRows) ? o.undoRows : null;
+      s.undoAt = o.undoAt;
+    }
+  }
+}
 function sitesSave() {
+  // WHAT ANOTHER TAB SAVED SINCE THIS ONE LAST LOOKED, taken in before this one writes.
+  if (sitesStoredStale) {
+    sitesStoredStale = false;
+    try { sitesMerge(sitesCache, JSON.parse(localStorage.getItem(SITES_KEY) || '[]')); } catch (e) { /* an unreadable copy is overwritten as before */ }
+  }
   const build = (withHist) => (sitesCache || []).slice(0, 20).map((s) => ({
     ...s,
     html: (s.html || '').slice(0, 400000),
@@ -10070,11 +10133,38 @@ async function siteRequestJobReply(origin, key, part, job) {
   // AN ADDITION THAT LEFT TABLES STANDING WITHOUT GOING THROUGH brings the
   // site's table list up to date here, whoever's reader said it (`siteTablesAfter`).
   siteTablesAfter(origin, body);
-  if (!mine && siteReqRefresh(origin, !!r.ok, body, addon) && st.own === true && !siteReqAskedSince(s, key)) {
-    siteUndoKeep(s, body);
-    sitesSave();
+  if (!mine && siteReqRefresh(origin, !!r.ok, body, addon) && st.own === true && !siteReqAskedSince(s, key) && siteUndoTouches(body)) {
+    // …AND NOTHING ASKED OF THE SITE SINCE FROM ANY TAB OR DEVICE (2026-10-07,
+    // Codex's review of the cleanup batch): this thread cannot see what
+    // another tab or another device asked, so the server is asked — and only
+    // its plain "nothing since" keeps the offer; cannot tell keeps nothing.
+    // Asked again of this thread after the wait, which a message sent
+    // meanwhile would answer.
+    if (await siteReqNothingSince(s.slug, key)) {
+      const t = siteById(origin);
+      if (t && t.slug === s.slug && !siteReqAskedSince(t, key)) { siteUndoKeep(t, body); sitesSave(); }
+    }
   }
   return true;
+}
+/** Whether a data edit's answer would change the undo offer (`siteUndoKeep`): rows it took away, or one it added. */
+function siteUndoTouches(e) {
+  const rows = e && typeof e === 'object' && Array.isArray(e.applied) ? e.applied : [];
+  return rows.some((r) => r && r.removed && r.was) || rows.some((r) => r && r.id === undefined);
+}
+/**
+ * WHETHER THE SERVER SAYS NOTHING WAS ASKED OF THE SITE SINCE A REQUEST
+ * (2026-10-07): every edit, addition and request part filed after it, from
+ * any tab or device, less its own (`newerWorkSince`). True only for the
+ * server's plain "nothing"; an answer that cannot tell, or none, is false.
+ */
+async function siteReqNothingSince(slug, key) {
+  if (!slug || !key) return false;
+  try {
+    const r = await apiFetch('/api/site/request/' + encodeURIComponent(slug) + '/' + encodeURIComponent(key) + '?newer=1');
+    const d = await r.json().catch(() => null);
+    return !!(r.ok && d && d.ok === true && d.newer === false);
+  } catch (err) { return false; }
 }
 /**
  * Whether the customer has asked for something on this site since a request
@@ -11047,8 +11137,10 @@ function siteUndoKeep(s, e) {
   if (!s || !e || typeof e !== 'object') return;
   const rows = Array.isArray(e.applied) ? e.applied : [];
   const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
-  if (gone.length) s.undoRows = gone.slice(0, 3);
-  else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+  // WHEN IT WAS SET OR CLEARED (2026-10-07), so a tab that saves later with an
+  // older copy never writes it back over this one (`sitesMerge`).
+  if (gone.length) { s.undoRows = gone.slice(0, 3); s.undoAt = Date.now(); }
+  else if (rows.some((r) => r && r.id === undefined)) { s.undoRows = null; s.undoAt = Date.now(); }
 }
 function applyEditResult(e, o) {
   // ⚠ A SUCCESS THIS PAGE THEN FAILS TO SHOW IS STILL A SUCCESS (2026-09-24) —

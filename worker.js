@@ -7470,6 +7470,32 @@ async function progressForRequest(env, rec) {
  * to read, which the page reads as nothing to show.
  */
 const STANDALONE_JOBS_MAX = 20;
+/**
+ * WORK ON A SITE FILED AFTER ONE REQUEST WAS ACCEPTED, FROM ANY TAB OR DEVICE
+ * (2026-10-07, Codex's review of the cleanup batch). A page keeps a late-read
+ * request's undo offer only when nothing has been asked of the site since, and
+ * its own thread cannot see what another tab or another device asked. Every
+ * edit, addition, request part and rewrite is a row in `edit_jobs`, so this
+ * reads the owner's rows for the site filed after the request's acceptance,
+ * less the request's own (their keys name it). `true` when there is one,
+ * `false` when the read shows none, `null` when it cannot be told — a read
+ * that failed, or one as long as its limit that names only the request's own.
+ */
+const NEWER_WORK_LIMIT = 50;
+async function newerWorkSince(env, uid, slug, rec) {
+  if (!env || !env.SUPABASE_SERVICE_KEY || !rec || !Number.isFinite(rec.at) || typeof rec.key !== "string") return null;
+  try {
+    const since = new Date(rec.at).toISOString();
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,idem_key&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&created_at=gt.${encodeURIComponent(since)}&order=created_at.asc&limit=${NEWER_WORK_LIMIT}`, { headers: svcHeaders(env) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return null;
+    const theirs = rows.some((j) => { const k = readJobKey(j && j.idem_key); return !(k && k.key === rec.key); });
+    if (theirs) return true;
+    return rows.length < NEWER_WORK_LIMIT ? false : null;
+  } catch (e) { console.error("newer work:", slug, errorClassForLog(e)); return null; }
+}
+
 async function standaloneJobsFor(env, uid, slug) {
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !env.SUPABASE_SERVICE_KEY) return [];
   const since = new Date(Date.now() - PROGRESS_DISCOVERY_MS).toISOString();
@@ -23589,6 +23615,13 @@ async function handleRequest(request, env, ctx) {
         try { found = await loadRequest(env, qSlug, qKey); }
         catch (e) { console.error("request read:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not read the request" }, { status: 503 }); }
         if (!found.rec || found.rec.uid !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
+        // WHETHER ANYTHING WAS ASKED OF THE SITE SINCE THIS REQUEST, FROM
+        // ANYWHERE (2026-10-07, `newerWorkSince`): read before the page keeps
+        // a late-read request's undo offer. A read only: the request is not
+        // moved on.
+        if (request.method === "GET" && url.searchParams.get("newer") === "1") {
+          return Response.json({ ok: true, newer: await newerWorkSince(env, qu.id, qSlug, found.rec) });
+        }
         const moved = request.method === "DELETE"
           ? await stopRequest(env, ctx, qSlug, qKey, qu.id)
           : await advanceRequest(env, ctx, qSlug, qKey, "look");

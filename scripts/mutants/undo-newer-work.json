@@ -1,0 +1,187 @@
+[
+ {
+  "label": "server: the request's own jobs counted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const theirs = rows.some((j) => { const k = readJobKey(j && j.idem_key); return !(k && k.key === rec.key); });",
+  "to": "const theirs = rows.length > 0;"
+ },
+ {
+  "label": "server: work before the request counted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "&created_at=gt.${encodeURIComponent(since)}&order=created_at.asc",
+  "to": "&order=created_at.asc"
+ },
+ {
+  "label": "server: a full read of its own told as none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    return rows.length < NEWER_WORK_LIMIT ? false : null;",
+  "to": "    return false;"
+ },
+ {
+  "label": "server: a failed read told as none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (!r.ok) return null;\n    const rows = await r.json();\n    if (!Array.isArray(rows)) return null;\n    const theirs",
+  "to": "    if (!r.ok) return false;\n    const rows = await r.json();\n    if (!Array.isArray(rows)) return null;\n    const theirs"
+ },
+ {
+  "label": "route: the read never answered",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (request.method === \"GET\" && url.searchParams.get(\"newer\") === \"1\") {",
+  "to": "if (false) {"
+ },
+ {
+  "label": "page: the server not asked",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (await siteReqNothingSince(s.slug, key)) {",
+  "to": "    if (true) {"
+ },
+ {
+  "label": "page: cannot tell read as nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    return !!(r.ok && d && d.ok === true && d.newer === false);",
+  "to": "    return !!(r.ok && d && d.ok === true && d.newer !== true);"
+ },
+ {
+  "label": "page: no second look after the wait",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      if (t && t.slug === s.slug && !siteReqAskedSince(t, key)) { siteUndoKeep(t, body); sitesSave(); }",
+  "to": "      if (t && t.slug === s.slug) { siteUndoKeep(t, body); sitesSave(); }"
+ },
+ {
+  "label": "page: every late read asks",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return rows.some((r) => r && r.removed && r.was) || rows.some((r) => r && r.id === undefined);\n}",
+  "to": "  return true;\n}"
+ },
+ {
+  "label": "keeper: a kept offer carries no time",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (gone.length) { s.undoRows = gone.slice(0, 3); s.undoAt = Date.now(); }",
+  "to": "  if (gone.length) { s.undoRows = gone.slice(0, 3); }"
+ },
+ {
+  "label": "keeper: a cleared offer carries no time",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  else if (rows.some((r) => r && r.id === undefined)) { s.undoRows = null; s.undoAt = Date.now(); }",
+  "to": "  else if (rows.some((r) => r && r.id === undefined)) { s.undoRows = null; }"
+ },
+ {
+  "label": "merge: another tab's request not taken",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (!plain(m)) { s.requests[k] = r; continue; }",
+  "to": "        if (!plain(m)) continue;"
+ },
+ {
+  "label": "merge: the own mark from either lost",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (r.own === true) m.own = true;\n",
+  "to": ""
+ },
+ {
+  "label": "merge: what each showed not joined",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        m.shown = union(m.shown, r.shown);\n",
+  "to": ""
+ },
+ {
+  "label": "merge: either's close lost",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (r.closed === true) m.closed = true;\n",
+  "to": ""
+ },
+ {
+  "label": "merge: an older view written over",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (plain(r.view) && later(r.view) > later(m.view)) m.view = r.view;\n",
+  "to": ""
+ },
+ {
+  "label": "merge: a record past its keep taken",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (!plain(r) || !(now - (Number(r.at) || 0) < SITE_REQ_KEEP_MS)) continue;\n        const m = s.requests[k];",
+  "to": "        if (!plain(r)) continue;\n        const m = s.requests[k];"
+ },
+ {
+  "label": "merge: another tab's job card lost",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        if (!plain(s.jobCards[k])) s.jobCards[k] = c;",
+  "to": "        if (!plain(s.jobCards[k])) continue;"
+ },
+ {
+  "label": "merge: an older undo offer written back",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (Number.isFinite(o.undoAt) && !(Number.isFinite(s.undoAt) && s.undoAt >= o.undoAt)) {",
+  "to": "    if (Number.isFinite(o.undoAt)) {"
+ },
+ {
+  "label": "merge: the newer offer never taken",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      s.undoRows = Array.isArray(o.undoRows) ? o.undoRows : null;\n      s.undoAt = o.undoAt;\n",
+  "to": ""
+ },
+ {
+  "label": "save: another tab's save never taken in",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    try { sitesMerge(sitesCache, JSON.parse(localStorage.getItem(SITES_KEY) || '[]')); } catch (e) { /* an unreadable copy is overwritten as before */ }",
+  "to": "    /* not taken in */"
+ },
+ {
+  "label": "listener: another tab's write not noticed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "try { window.addEventListener('storage', (e) => { if (e && e.key === SITES_KEY) sitesStoredStale = true; }); } catch (e) { /* no window to listen on */ }",
+  "to": "try { window.addEventListener('storage', (e) => {}); } catch (e) { /* no window to listen on */ }"
+ },
+ {
+  "label": "CONTROL: a comment",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "// ── ANOTHER TAB OF THIS BROWSER, SAVING THE SAME SITES (2026-10-07) ─────────",
+  "to": "// ── ANOTHER TAB OF THIS BROWSER, SAVING THE SAME SITES (2026-10-07) ───────── (sweep control)",
+  "control": true
+ }
+]

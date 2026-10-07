@@ -144,6 +144,8 @@ const SRC = [
   cutClick(),
   cut("function esc("),
   cutLine("const SITES_KEY ="),
+  // …AND WHAT ANOTHER TAB SAVED, TAKEN IN BEFORE A SAVE (2026-10-07): noticed by the browser's `storage` event, never here.
+  cutLine("let sitesStoredStale ="),
   cut("function sitesSave("),
   cutLine("const NATIVE_IMAGE ="),
   cutLine("const TEXTISH ="),

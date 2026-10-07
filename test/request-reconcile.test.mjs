@@ -78,6 +78,8 @@ function server() {
   const reply = (url, method, body) => {
     if (url === "/api/site/requests/" + SLUG) return { status: 200, body: { ok: true, requests: [...S.views.values()].sort((a, b) => a.at - b.at).map(copy) } };
     if (url.startsWith("/api/site/request/" + SLUG + "/")) {
+      // WHETHER ANYTHING WAS ASKED OF THE SITE SINCE A REQUEST (2026-10-07): nothing.
+      if (url.endsWith("?newer=1")) return { status: 200, body: { ok: true, newer: false } };
       const v = S.views.get(url.split("/").pop());
       return v ? { status: 200, body: { ok: true, request: copy(v) } } : { status: 404, body: { error: "not found" } };
     }

@@ -98,11 +98,13 @@ const FNS = [...new Set([
   // moved once, the undo offer of a late first read, whether anything is still
   // in flight, and the look again when the tab comes back.
   "sitePreviewHold", "sitePreviewMove", "siteUndoKeep", "siteReqAskedSince", "siteNothingInFlight", "siteLookAgain", "siteRoutesFetch",
+  // …AND WHETHER THE SERVER SAYS NOTHING WAS ASKED OF THE SITE SINCE (2026-10-07).
+  "siteUndoTouches",
   // AND THE WATCH OF A JOB THIS PAGE FILED, for one that gives up.
   "watchEditJob",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
-const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
+const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply", "siteReqNothingSince"];
 const LINES = [...new Set([
   "const ROUTE_EDIT_LAYERS =", "const siteRoutesAsked =", "const SITE_ROUTES_WAIT_MS =", "const siteRoutesPending =",
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",

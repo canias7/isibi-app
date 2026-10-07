@@ -493,6 +493,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       let rows = [...jobs.values()];
       const id = q.get("id"); if (id && id.startsWith("eq.")) rows = rows.filter((j) => j.id === id.slice(3));
       const nr = q.get("needs_review"); if (nr === "eq.true") rows = rows.filter((j) => j.needs_review);
+      // WHOSE, WHICH SITE'S AND FILED AFTER WHEN (2026-10-07), as PostgREST
+      // filters them: a read asking for one owner's rows on one site since a
+      // moment gets exactly those (`newerWorkSince`). Absent, every row, as before.
+      const uid = q.get("uid"); if (uid && uid.startsWith("eq.")) rows = rows.filter((j) => j.uid === uid.slice(3));
+      const sl = q.get("slug"); if (sl && sl.startsWith("eq.")) rows = rows.filter((j) => j.slug === sl.slice(3));
+      const ca = q.get("created_at"); if (ca && ca.startsWith("gt.")) { const t = Date.parse(ca.slice(3)); rows = rows.filter((j) => j.created_at > t); }
       // ITS ORDER AND ITS LIMIT, AS POSTGREST APPLIES THEM (2026-10-06): a
       // read that asks for the newest twenty gets the newest twenty.
       const ord = /^([a-z_]+)\.(asc|desc)$/.exec(q.get("order") || "");

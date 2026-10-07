@@ -46,12 +46,14 @@ const RYE = [{ table: "loaves", was: { name: "Rye" } }];
 
 /** THE SERVER, SCRIPTED: its requests, its jobs' stored answers, the jobs it lists, the pages the site keeps. */
 function server() {
-  const S = { views: new Map(), answers: new Map(), listed: [], routes: ["/"], calls: [], status: new Map(), hang: new Set() };
+  const S = { views: new Map(), answers: new Map(), listed: [], routes: ["/"], calls: [], status: new Map(), hang: new Set(), newer: false };
   S.answer = (url, method) => {
     S.calls.push({ url, method });
     if (url.startsWith("/api/site/routes?")) return { status: 200, body: { ok: true, slug: SLUG, routes: S.routes.slice() } };
     if (url === "/api/site/requests/" + SLUG) return { status: 200, body: { ok: true, requests: [...S.views.values()].sort((a, b) => a.at - b.at).map(copy), jobs: S.listed.map(copy) } };
     if (url.startsWith("/api/site/request/" + SLUG + "/")) {
+      // WHETHER ANYTHING WAS ASKED OF THE SITE SINCE A REQUEST (2026-10-07): nothing, unless a case says.
+      if (url.endsWith("?newer=1")) return { status: 200, body: { ok: true, newer: S.newer } };
       if (S.requestsDown) return { status: 503, body: { ok: false } };
       // A READ THAT NEVER ANSWERS (the page's fetch then waits for ever).
       if (S.hang.has(url.split("/").pop())) return null;

@@ -448,6 +448,8 @@ test("A RELOAD OF A SITE WITH EIGHT PAGES KEEPS ALL EIGHT: the save keeps every 
     localStorage: { setItem: (k, v) => stored.set(k, String(v)), getItem: (k) => (stored.has(k) ? stored.get(k) : null) },
     sitesCache: [{ id: "o", slug: "harbour-loaf", react: true, name: "Harbour Loaf", url: "https://harbour-loaf.gofarther.app/", pages, msgs: [] }],
     sbToast: () => {},
+    // NO OTHER TAB HAS WRITTEN (2026-10-07): the save takes nothing in first.
+    sitesStoredStale: false,
   });
   vm.runInContext(CHAT.slice(open, shut + 3), ctx);
   ctx.sitesSave();
