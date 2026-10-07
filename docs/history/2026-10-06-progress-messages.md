@@ -650,6 +650,12 @@ pressed.
   real-browser cases among them): 694 of 694.
 - **The full suite**: `9716 / 9716 / 0 / 0` locally. The 2 more are the
   control and RECORDER 7.
+- **Unit CI** on `7dc16444` (the records on `0ac2c86e`): run 37550771397,
+  `9716 / 9694 / 0 / 22`, green, the total matching the local run. The
+  site build did not run, since nothing it reads changed.
+- **The image, predicted, not built**: `0ac2c86e` and `7dc16444` →
+  `5f946c22d42a1b10` (195 inputs), as before; `main` `b2409b3c` →
+  `c7fe818d446dd957`. The one release and one roll stand.
 
 **Found while fixing, not changed**: whether the container's delivery lines
 reach the usage step's query is unverified. Workers Logs keep container

@@ -36,8 +36,8 @@ is in git; the dated entries further down are the full story.*
     narration's attempts, tokens, time and cost from the logs.
   - **About 20 credits (16–26); hard cap 32.** Raise the balance from 9 to
     exactly 32; the press refuses to start above 32 or below 28.
-  - **Ready on the branch** with this round's fixes; CI and the image are
-    in the newest entry.
+  - **Ready on the branch at `7dc16444`**, with unit CI green there (run
+    37550771397) and the image still predicted `5f946c22d42a1b10`.
   - **Not merged, not deployed, no image built, the secret not set, nothing
     pressed or spent.**
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
@@ -232,7 +232,10 @@ since. Add new ones there.
     guards the new rule made redundant; each got a case, and both are now
     caught. Every control survived;
   - every canary and progress file: 694 of 694;
-  - the full suite: `9716 / 9716 / 0 / 0`.
+  - the full suite: `9716 / 9716 / 0 / 0`;
+  - **unit CI green on `7dc16444`** (run 37550771397, `9716 / 9694 / 0 /
+    22`);
+  - the image there is still `5f946c22d42a1b10`.
 - **Found, not changed**: whether the container's delivery lines reach the
   usage step's log read is not yet seen live. The writers' call lines come
   from the Worker, so the usage itself is unaffected. The plan says so.
