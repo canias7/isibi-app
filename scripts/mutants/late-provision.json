@@ -1,321 +1,435 @@
 [
  {
   "label": "CONTROL: a comment only in recordedAs — must survive",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "async function recordedAs(deps, slug, projectId) {",
   "to": "async function recordedAs(deps, slug, projectId) { // comment-only control",
   "control": true
  },
  {
   "label": "READ-BACK — a row naming another project read as ours",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "return { state: String(row.neon_project) === String(projectId) ? \"ours\" : \"other\", row };",
   "to": "return { state: \"ours\", row };"
  },
  {
   "label": "READ-BACK — a failed read read as no row",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "  } catch (e) { return { state: \"unknown\", row: null, error: e }; }\n}",
   "to": "  } catch (e) { return { state: \"none\", row: null, error: e }; }\n}"
  },
  {
   "label": "SAVE FAILED — no read-back before the drop",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      const rec = await recordedAs(deps, slug, made.projectId);\n      if (rec.state === \"ours\") {\n        assertProjectOurs(rec.row, uid, slug);\n        saved = { ok: true, claimed: true };",
   "to": "      const rec = { state: \"none\" };\n      if (rec.state === \"ours\") {\n        assertProjectOurs(rec.row, uid, slug);\n        saved = { ok: true, claimed: true };"
  },
  {
   "label": "SAVE FAILED — a landed row's owner not checked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "        assertProjectOurs(rec.row, uid, slug);\n        saved = { ok: true, claimed: true };",
   "to": "        saved = { ok: true, claimed: true };"
  },
  {
   "label": "SAVE FAILED, READ-BACK UNKNOWN — not written down",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "        await noteUnrecorded(deps, slug, uid, made, \"whether its row was saved could not be read back\");\n",
   "to": ""
  },
  {
   "label": "SAVE FAILED, READ-BACK UNKNOWN — recorded not said unknown",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "          stage: \"save_project\", recorded: \"unknown\",\n        });\n      } else {",
   "to": "          stage: \"save_project\",\n        });\n      } else {"
  },
  {
   "label": "SAVE FAILED, READ-BACK UNKNOWN — dropped as before",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      } else if (rec.state === \"unknown\") {\n        await noteUnrecorded(",
   "to": "      } else if (rec.state === \"never\") {\n        await noteUnrecorded("
  },
  {
   "label": "DROP FAILED — not written down",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (keep) await noteUnrecorded(deps, keep.slug, keep.uid, keep.made, why + \"; the drop failed\");\n",
   "to": ""
  },
  {
   "label": "DROP FAILED ON SAVE — nothing kept to write down",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "        await dropOrphan(deps, made.projectId, \"the project could not be recorded\", keep);",
   "to": "        await dropOrphan(deps, made.projectId, \"the project could not be recorded\");"
  },
  {
   "label": "UNREADABLE CLAIM — read as a lost race",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (saved.claimed === null) {\n      const rec = await recordedAs(deps, slug, made.projectId);",
   "to": "    if (saved.claimed === null) saved = { ...saved, claimed: false };\n    if (false) {\n      const rec = await recordedAs(deps, slug, made.projectId);"
  },
  {
   "label": "UNREADABLE CLAIM — a landed row's owner not checked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      if (rec.state === \"ours\") { assertProjectOurs(rec.row, uid, slug); saved = { ...saved, claimed: true }; }",
   "to": "      if (rec.state === \"ours\") { saved = { ...saved, claimed: true }; }"
  },
  {
   "label": "UNREADABLE CLAIM, ANOTHER PROJECT HOLDS THE SLUG — not converged",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      else if (rec.state === \"other\") saved = { ...saved, claimed: false };",
   "to": "      else if (rec.state === \"other\") saved = { ...saved, claimed: true };"
  },
  {
   "label": "UNREADABLE CLAIM, NOTHING ESTABLISHED — not written down",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "        await noteUnrecorded(deps, slug, uid, made, rec.state === \"unknown\" ? \"the claim's answer and the read-back both could not be read\" : \"the claim's answer could not be read and no row names it\");\n",
   "to": ""
  },
  {
   "label": "UNREADABLE CLAIM, NOTHING ESTABLISHED — recorded not said unknown",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "          detail: \"the claim's answer could not be read\", stage: \"save_project\", recorded: \"unknown\",",
   "to": "          detail: \"the claim's answer could not be read\", stage: \"save_project\","
  },
  {
   "label": "NOTE — the connection string written down",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    await deps.noteUnrecorded(slug, { slug, uid, projectId: made.projectId, branchId: made.branchId || null, roleName: made.roleName || null, why, at: new Date().toISOString() });",
   "to": "    await deps.noteUnrecorded(slug, { slug, uid, projectId: made.projectId, branchId: made.branchId || null, roleName: made.roleName || null, conn: made.conn, why, at: new Date().toISOString() });"
  },
  {
   "label": "SETTLE — never asked before a create",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "  await settleUnrecorded(deps, { slug, uid, recordedId: proj ? proj.neon_project : \"\", creating: !proj });",
   "to": ""
  },
  {
   "label": "SETTLE — a note the row names not cleared",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (recordedId && String(m.projectId) === String(recordedId)) { await clear(); continue; }",
   "to": "    if (recordedId && String(m.projectId) === String(recordedId)) { continue; }"
  },
  {
   "label": "SETTLE — the recorded project dropped as unrecorded",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (recordedId && String(m.projectId) === String(recordedId)) { await clear(); continue; }",
   "to": ""
  },
  {
   "label": "SETTLE — another account's note touched",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (String(m.uid || \"\") !== String(uid)) continue;",
   "to": ""
  },
  {
   "label": "SETTLE — a removed project's note kept",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    try { await deps.dropProject(m.projectId); await clear(); }",
   "to": "    try { await deps.dropProject(m.projectId); }"
  },
  {
   "label": "SETTLE — a create goes on over a project that could not be removed",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      if (!creating) { deps.warn?.(\"an earlier unrecorded project \"",
   "to": "      if (true) { deps.warn?.(\"an earlier unrecorded project \""
  },
  {
   "label": "SETTLE — notes that cannot be read read as none",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (!creating) { deps.warn?.(\"unrecorded-project notes for \"",
   "to": "    if (true) { deps.warn?.(\"unrecorded-project notes for \""
  },
  {
   "label": "SETTLE — a reuse stopped by notes that cannot be read",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    if (!creating) { deps.warn?.(\"unrecorded-project notes for \"",
   "to": "    if (false) { deps.warn?.(\"unrecorded-project notes for \""
  },
  {
   "label": "KEPT — a failure after the record not marked recorded",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      e.recorded = true;\n",
   "to": ""
  },
  {
   "label": "KEPT — create_database failure not marked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "throw kept(e, \"create_database\");",
   "to": "throw e;"
  },
  {
   "label": "KEPT — save_backend failure not marked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "    throw kept(Object.assign(new Error(\"could not record the site's database\"), {",
   "to": "    throw (Object.assign(new Error(\"could not record the site's database\"), {"
  },
  {
   "label": "KEPT — enable_auth failure not marked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      throw kept(Object.assign(new Error(\"could not enable Neon Auth for this site\"), {",
   "to": "      throw (Object.assign(new Error(\"could not enable Neon Auth for this site\"), {"
  },
  {
   "label": "KEPT — enable_data_api failure not marked",
-  "files": ["site-provision.mjs"],
+  "files": [
+   "site-provision.mjs"
+  ],
   "from": "      throw kept(Object.assign(new Error(\"could not enable the Neon Data API for this site\"), {",
   "to": "      throw (Object.assign(new Error(\"could not enable the Neon Data API for this site\"), {"
  },
  {
   "label": "OWNER — another account's project row read as this site's database",
-  "files": ["site-backend-state.mjs"],
+  "files": [
+   "site-backend-state.mjs"
+  ],
   "from": "  if (project && site.uid != null && project.uid != null && String(site.uid) !== String(project.uid)) {",
   "to": "  if (false) {"
  },
  {
   "label": "OWNER — a mismatch read as no database",
-  "files": ["site-backend-state.mjs"],
+  "files": [
+   "site-backend-state.mjs"
+  ],
   "from": "    return { state: \"unreadable\", db: null, why: \"project-owner-mismatch\" };",
   "to": "    return { state: \"none\", db: null, why: \"project-owner-mismatch\" };"
  },
  {
   "label": "WORKER CLAIM — an unreadable answer read as a lost race",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "    if (!Array.isArray(rows)) return { ok: true, claimed: null };",
   "to": "    if (!Array.isArray(rows)) return { ok: true, claimed: false };"
  },
  {
   "label": "WORKER PROJECT LOOKUP — an unreadable answer read as no project",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "  if (!Array.isArray(rows)) throw Object.assign(new Error(\"site project lookup failed\"), { detail: \"the answer could not be read\" });",
   "to": "  if (!Array.isArray(rows)) return null;"
  },
  {
   "label": "WORKER SITE LOOKUP — an unreadable answer read as no site row",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "    if (!Array.isArray(siteRows)) throw new Error(\"site lookup: the answer could not be read\");",
   "to": "    if (!Array.isArray(siteRows)) return { state: \"none\", db: null, why: \"no-site-row\" };"
  },
  {
   "label": "WORKER NOTE — the connection kept in the note",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "  const { conn, neon_conn, ...safe } = rec || {};\n  await env.SITES_BUCKET.put(UNRECORDED_PREFIX(slug) + id + \".json\", JSON.stringify({ ...safe, projectId: id }));",
   "to": "  const safe = rec || {};\n  await env.SITES_BUCKET.put(UNRECORDED_PREFIX(slug) + id + \".json\", JSON.stringify({ ...safe, projectId: id }));"
  },
  {
   "label": "WORKER NOTES — an unreadable note skipped",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "      if (!rec || typeof rec !== \"object\" || !rec.projectId) throw new Error(\"an unrecorded-project note could not be read: \" + o.key);",
   "to": "      if (!rec || typeof rec !== \"object\" || !rec.projectId) continue;"
  },
  {
   "label": "WORKER NOTES — only the first page read",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "    cursor = page && page.truncated ? page.cursor : undefined;\n  } while (cursor);",
   "to": "    cursor = undefined;\n  } while (cursor);"
  },
  {
   "label": "WORKER DEPS — no note writer",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "    noteUnrecorded: (s2, rec) => unrecordedPut(env, s2, rec),\n",
   "to": ""
  },
  {
   "label": "WORKER DEPS — no note reader",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "    unrecorded: (s2) => unrecordedList(env, s2),\n",
   "to": ""
  },
  {
   "label": "ADD-ON EXIT — the kept project not derived",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "const aProjKept = e && e.recorded === true ? true : e && e.recorded === \"unknown\" ? \"unknown\" : false;",
   "to": "const aProjKept = false;"
  },
  {
   "label": "ADD-ON EXIT — an unknown recording read as kept",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "const aProjKept = e && e.recorded === true ? true : e && e.recorded === \"unknown\" ? \"unknown\" : false;",
   "to": "const aProjKept = e && e.recorded === true ? true : e && e.recorded === \"unknown\" ? true : false;"
  },
  {
   "label": "ADD-ON EXIT — the kept project not passed to the door",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "                  }, 502, { projectKept: aProjKept });",
   "to": "                  }, 502);"
  },
  {
   "label": "ADD-ON DOOR — projectKept not handed to the outcome",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "                provisioned: aProvisioned, saved, photos, projectKept,",
   "to": "                provisioned: aProvisioned, saved, photos,"
  },
  {
   "label": "ADD-ON EXIT — the kept message says nothing was changed",
-  "files": ["worker.js"],
+  "files": [
+   "worker.js"
+  ],
   "from": "                    msg: aProjKept === true\n",
   "to": "                    msg: aProjKept === \"never\"\n"
  },
  {
   "label": "OUTCOME — projectKept dropped",
-  "files": ["builder/site-add.mjs"],
+  "files": [
+   "builder/site-add.mjs"
+  ],
   "from": "    ...(projectKept === true || projectKept === \"unknown\" ? { projectKept } : {}),\n",
   "to": ""
  },
  {
   "label": "OUTCOME — an unknown recording dropped",
-  "files": ["builder/site-add.mjs"],
+  "files": [
+   "builder/site-add.mjs"
+  ],
   "from": "    ...(projectKept === true || projectKept === \"unknown\" ? { projectKept } : {}),\n",
   "to": "    ...(projectKept === true ? { projectKept } : {}),\n"
  },
  {
   "label": "NOTE — a kept project not told",
-  "files": ["builder/site-add.mjs"],
+  "files": [
+   "builder/site-add.mjs"
+  ],
   "from": "  if (o.projectKept === true && o.provisioned !== true) out.push(",
   "to": "  if (false) out.push("
  },
  {
   "label": "NOTE — an unknown recording not told",
-  "files": ["builder/site-add.mjs"],
+  "files": [
+   "builder/site-add.mjs"
+  ],
   "from": "  if (o.projectKept === \"unknown\" && o.provisioned !== true) out.push(",
   "to": "  if (false) out.push("
  },
  {
   "label": "READS — an outcome with projectKept refused",
-  "files": ["builder/site-reply.mjs"],
+  "files": [
+   "builder/site-reply.mjs"
+  ],
   "from": "  if (!(o.projectKept === undefined || o.projectKept === true || o.projectKept === \"unknown\")) return false;",
   "to": "  if (o.projectKept !== undefined) return false;"
  },
  {
   "label": "READS — any projectKept value accepted",
-  "files": ["builder/site-reply.mjs"],
+  "files": [
+   "builder/site-reply.mjs"
+  ],
   "from": "  if (!(o.projectKept === undefined || o.projectKept === true || o.projectKept === \"unknown\")) return false;",
   "to": ""
  },
  {
   "label": "FACTS — nothing was added said over a kept project",
-  "files": ["builder/site-reply.mjs"],
+  "files": [
+   "builder/site-reply.mjs"
+  ],
   "from": "  if (out.state === \"none\" && !kept) { F.add(\"not-done\", \"Nothing was added.\" + why); return; }",
   "to": "  if (out.state === \"none\") { F.add(\"not-done\", \"Nothing was added.\" + why); return; }"
  },
  {
   "label": "FACTS — a kept project not told",
-  "files": ["builder/site-reply.mjs"],
+  "files": [
+   "builder/site-reply.mjs"
+  ],
   "from": "  if (out.projectKept === true && out.provisioned !== true) F.add(",
   "to": "  if (false) F.add("
  },
  {
   "label": "FACTS — an unknown recording not told",
-  "files": ["builder/site-reply.mjs"],
+  "files": [
+   "builder/site-reply.mjs"
+  ],
   "from": "  if (out.projectKept === \"unknown\" && out.provisioned !== true) F.add(",
   "to": "  if (false) F.add("
+ },
+ {
+  "label": "CREATE THREW — a failed drop not written down",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      await dropOrphan(deps, e && e.projectId, \"the create call threw after Neon had made it\",\n        e && e.projectId ? { slug, uid, made: { projectId: e.projectId } } : null);",
+  "to": "      await dropOrphan(deps, e && e.projectId, \"the create call threw after Neon had made it\");"
  }
 ]

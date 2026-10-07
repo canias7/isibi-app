@@ -312,7 +312,10 @@ export async function ensureSiteBackend(deps, { slug, uid }) {
     try {
       made = await deps.createProject(slug);
     } catch (e) {
-      await dropOrphan(deps, e && e.projectId, "the create call threw after Neon had made it");
+      // NO ROW NAMES IT (none was written), so it is dropped — and when the
+      // drop fails, written down for the next attempt to settle (2026-10-07).
+      await dropOrphan(deps, e && e.projectId, "the create call threw after Neon had made it",
+        e && e.projectId ? { slug, uid, made: { projectId: e.projectId } } : null);
       // NAMED, so a failure here is not reported as whatever ran before it. The
       // original error is rethrown rather than wrapped: its status and detail
       // are the diagnosis, and `waitForProject`'s message is the useful part.

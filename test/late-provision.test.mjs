@@ -112,6 +112,15 @@ test("PROV 3 — A CLAIM THAT FAILED AND NO ROW NAMES THE PROJECT: dropped as be
   const stuck = harness({ saveProject: () => ({ ok: false, detail: "refused" }), dropFails: true });
   await fails(stuck);
   assert.deepEqual(stuck.state.notes.map((n) => n.projectId), ["pr-1"], "a project nothing holds was left to a log line");
+  // A CREATE THAT THREW AFTER NEON MADE THE PROJECT: dropped, and when the drop fails, written down too.
+  const thrown = harness({ createFails: Object.assign(new Error("waitForProject timed out"), { projectId: "pr-made" }) });
+  await fails(thrown);
+  assert.ok(thrown.calls.includes("dropProject:pr-made"));
+  assert.equal(thrown.state.notes.length, 0, "a project that was dropped was written down");
+  const leftover = harness({ createFails: Object.assign(new Error("waitForProject timed out"), { projectId: "pr-made" }), dropFails: true });
+  const le = await fails(leftover);
+  assert.equal(le.stage, "create_project");
+  assert.deepEqual(leftover.state.notes.map((n) => [n.projectId, n.uid]), [["pr-made", UID]], "a project the create left behind was left to a log line");
 });
 
 test("PROV 4 — A CLAIM WHOSE ANSWER COULD NOT BE READ (`claimed: null`): ours when the row names it; a lost race when another project holds the slug, converged with ownership checked; written down when nothing can be established", async () => {
