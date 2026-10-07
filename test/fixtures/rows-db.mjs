@@ -37,6 +37,12 @@ function wire(fields, rows, command = "SELECT") {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
+/** A write with no RETURNING: how many rows it touched, and no rows back. */
+function affected(n, command) {
+  return new Response(JSON.stringify({ command, rowCount: n, rows: [], fields: [] }),
+    { status: 200, headers: { "content-type": "application/json" } });
+}
+
 function pgError(code, message, detail) {
   return new Response(JSON.stringify({ message, code, detail: detail || undefined, severity: "ERROR" }),
     { status: 400, headers: { "content-type": "application/json" } });
@@ -87,10 +93,13 @@ function cast(type, v) {
  * `failKeyReads`: once a `row` statement has been sent, the next N reads of a
  * request's key throw the same way, so a key that is there cannot be seen —
  * the check before the picker reads as it always did.
+ * `vanish`: `[{ table, id }]`, rows taken off by someone else after the list
+ * was read — gone the moment the first UPDATE or DELETE arrives (2026-10-07).
  */
 export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 0, noMeta = false, now = NOW,
-  loseAnswer = 0, inFlight = 0, landOnClose = false, garbleAnswer = 0, failKeyReads = 0 } = {}) {
+  loseAnswer = 0, inFlight = 0, landOnClose = false, garbleAnswer = 0, failKeyReads = 0, vanish = [] } = {}) {
   const state = { tables: new Map(), meta: new Map(Object.entries(meta)), log: [], pending: [], sent: false };
+  const vanishing = (Array.isArray(vanish) ? vanish : []).slice();
   let lose = Number(loseAnswer) || 0, flying = Number(inFlight) || 0, garble = Number(garbleAnswer) || 0, keyFails = Number(failKeyReads) || 0;
   /** The driver's own report of a request whose answer never came back. */
   const lost = () => { throw new TypeError("fetch failed"); };
@@ -280,6 +289,41 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
       // COMMITTED, AND ANSWERED WITH ROWS NOBODY CAN READ.
       if (garble > 0) { garble--; return wire([{ name: "n", type: 23 }, { name: "t" }, { name: "row" }], done.saved.map((s) => ({ ...s, row: "{not json" }))); }
       return wire([{ name: "n", type: 23 }, { name: "t" }, { name: "row" }], done.saved);
+    }
+
+    // A ROW CHANGED OR TAKEN OFF BY THE DATA STEP (2026-10-07), with or without
+    // RETURNING: `UPDATE "t" SET "a" = $1, "b" = $2 WHERE id = $3` and
+    // `DELETE FROM "t" WHERE id = $1`. A row `vanish` names is gone by the
+    // time the first of them runs — taken off since the step read the list.
+    const upd = /^UPDATE "([^"]+)" SET (.+) WHERE id = \$(\d+)( RETURNING \*)?$/.exec(q.trim());
+    const del = /^DELETE FROM "([^"]+)" WHERE id = \$(\d+)( RETURNING id)?$/.exec(q.trim());
+    if (upd || del) {
+      if (failWrite) return pgError(failWrite.code || "XX000", failWrite.message || "the write failed");
+      for (const v of vanishing.splice(0)) {
+        const vt = state.tables.get(v.table);
+        if (vt) vt.rows = vt.rows.filter((r) => Number(r.id) !== Number(v.id));
+      }
+      const t = state.tables.get((upd || del)[1]);
+      if (!t) return pgError("42P01", "relation \"" + (upd || del)[1] + "\" does not exist");
+      const fields = t.columns.map((c) => ({ name: c.name, type: c.name === "id" ? 23 : 25 }));
+      if (del) {
+        const id = Number(p[Number(del[2]) - 1]);
+        const gone = t.rows.filter((r) => Number(r.id) === id);
+        t.rows = t.rows.filter((r) => Number(r.id) !== id);
+        return del[3] ? wire([{ name: "id", type: 23 }], gone.map((r) => ({ id: r.id })), "DELETE") : affected(gone.length, "DELETE");
+      }
+      const next = {};
+      for (const m of upd[2].matchAll(/"([^"]+)" = \$(\d+)/g)) {
+        const col = t.columns.find((c) => c.name === m[1]);
+        if (!col) return pgError("42703", "column \"" + m[1] + "\" of relation \"" + upd[1] + "\" does not exist");
+        const r = cast(col.type, p[Number(m[2]) - 1]);
+        if (r.error) return pgError(...r.error);
+        next[col.name] = r.value;
+      }
+      const id = Number(p[Number(upd[3]) - 1]);
+      const hit = t.rows.filter((r) => Number(r.id) === id);
+      for (const r of hit) Object.assign(r, next);
+      return upd[4] ? wire(fields, hit.map((r) => ({ ...r })), "UPDATE") : affected(hit.length, "UPDATE");
     }
 
     // A PLAIN ROW INSERT — the data step's, with or without RETURNING.

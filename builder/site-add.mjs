@@ -157,7 +157,7 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, i
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts, toldNote } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, TABLE_SETTINGS, SETTING_SAYS, tableSettings, pieceSaid, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts, toldNote } from "./site-requirements.mjs";
 // THE ONE READER OF A FAILED ADDITION'S OUTCOME AND ITS STORED LISTS (2026-10-06):
 // a stored answer's note is composed from what the reply's facts read, by the same rule.
 import { FAILURE_STATES, outcomeOf, toldAs, toldEntries, warnedEntries } from "./site-reply.mjs";
@@ -2408,7 +2408,8 @@ const JUDGE_SYSTEM =
   "has\" does it:\n" +
   "- \"yes\": put in `by` the id of each listed thing that does the work, copied exactly as it is listed. When " +
   "the work is what a part of a table does, name that part (an id like `table:bookings:confirm`), not only the " +
-  "table.\n" +
+  "table. When it rests on one setting or one column of a table, name that setting or column (ids like " +
+  "`table:bookings:nooverlap` or `table:dishes.allergens`), not only the table.\n" +
   "- \"no\": nothing listed does it.\n" +
   "- \"unsure\": you cannot tell from what you were shown.\n" +
   "Something that only keeps or shows information does not do anything else with it: a table that stores email " +
@@ -2469,24 +2470,38 @@ export const JUDGE_TOOL = withQuestion({
  * `existingFacts`'s answer and `spec` the stored schema the existing tables'
  * details are read from. Bounded, and every line is the thing's own settings.
  */
-export function judgeItems({ answers = [], existing = null, spec = null, refs = [] } = {}) {
+export function judgeItems({ answers = [], existing = null, spec = null, refs = [], report = null } = {}) {
   const out = [];
   const seen = new Set();
   const flat = (t) => String(t == null ? "" : t).replace(/\s+/g, " ").trim();
+  // PAST THE LIST'S LIMIT, COUNTED (2026-10-07): the judgment is shown at most
+  // `MAX_JUDGE_ITEMS`, a bound on its input; what did not fit is counted on
+  // `report.over` for the record rather than dropped without a number.
   const push = (id, text) => {
     const key = String(id || "").trim().toLowerCase();
-    if (!carrierOf(key) || seen.has(key) || out.length >= MAX_JUDGE_ITEMS) return;
+    if (!carrierOf(key) || seen.has(key)) return;
     seen.add(key);
+    if (out.length >= MAX_JUDGE_ITEMS) {
+      if (report && typeof report === "object") report.over = (Number(report.over) || 0) + 1;
+      return;
+    }
     out.push({ id: key, text: flat(text).slice(0, MAX_ITEM_TEXT) });
   };
   const nameOf = (v) => flat(v && v.name).toLowerCase();
-  const table = (t, origin) => {
+  const table = (t, origin, designed = false) => {
     const n = nameOf(t);
     if (!n) return;
-    const keeps = (Array.isArray(t.columns) ? t.columns : [])
-      .map((c) => flat(typeof c === "string" ? c : c && c.name)).filter(Boolean).slice(0, 12);
-    push("table:" + n, "a table, " + origin + (keeps.length ? "; it keeps " + keeps.join(", ") : "") + "; who may add and read its rows: " + accessLabel(t));
+    const cols = (Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => flat(typeof c === "string" ? c : c && c.name)).filter(Boolean);
+    const keeps = cols.length > 12 ? cols.slice(0, 12).join(", ") + " and " + (cols.length - 12) + " more" : cols.join(", ");
+    push("table:" + n, "a table, " + origin + (keeps ? "; it keeps " + keeps : "") + "; who may add and read its rows: " + accessLabel(t));
     for (const part of tableParts(t)) push("table:" + n + ":" + part, "part of the table " + n + ": " + PART_SAYS[part]);
+    // EACH SETTING AND EACH COLUMN THIS REQUEST DESIGNED (2026-10-07), so a
+    // requirement resting on one of them names it, and is checked against it,
+    // apart from the rest of the table (`carriersReading`).
+    if (!designed) return;
+    for (const st of tableSettings(t)) push("table:" + n + ":" + st, "a setting of the table " + n + ": " + SETTING_SAYS[st]);
+    for (const c of cols) push("table:" + n + "." + c.toLowerCase(), "a column of the table " + n + ": " + c);
   };
   const ADDED = "added by this request";
   for (const a of Array.isArray(answers) ? answers : []) {
@@ -2494,7 +2509,7 @@ export function judgeItems({ answers = [], existing = null, spec = null, refs = 
     for (const v of Array.isArray(a.value) ? a.value : [a.value]) {
       if (!v || typeof v !== "object") continue;
       if (a.kind === "table") {
-        if (v.table && typeof v.table === "object") table(v.table, v.exists ? "already on the site and changed by this request" : ADDED);
+        if (v.table && typeof v.table === "object") table(v.table, v.exists ? "already on the site and changed by this request" : ADDED, true);
       } else if (a.kind === "function") {
         const args = (Array.isArray(v.args) ? v.args : []).map((x) => flat(x && x.name)).filter(Boolean).join(", ");
         push("function:" + nameOf(v), "a database function, " + (v.exists ? "replaced" : "added") + " by this request — " +
@@ -5669,7 +5684,36 @@ function seedSkipsOf(skipped) {
  * and nothing more — a page that is both missing and withheld is two entries,
  * because those are two different things to know about it.
  */
-export function warningReport({ missing = [], deadQr = null, seedSkips = [], noFill = [] } = {}) {
+/**
+ * WHAT THE DATABASE REFUSED OF THE TABLES, EACH ONCE (2026-10-07): the
+ * engine's `refusedRules` — a column it could not add (`feature: "column"`,
+ * the column as `rule`) or a rule it could not put in place — as `{ table,
+ * piece }`, the piece `column <name>` or the rule's own name. The reason the
+ * database gave stays on the developer's record: it can carry a row's values.
+ */
+export function refusedPieces(refused) {
+  const out = [];
+  for (const r of Array.isArray(refused) ? refused : []) {
+    if (!r || typeof r !== "object") continue;
+    const table = typeof r.table === "string" ? r.table.trim() : "";
+    const feature = typeof r.feature === "string" ? r.feature.trim().toLowerCase() : "";
+    if (!table || !feature) continue;
+    const piece = feature === "column" ? (typeof r.rule === "string" && r.rule.trim() ? "column " + r.rule.trim().toLowerCase() : "") : feature;
+    if (!piece || out.some((o) => o.table === table && o.piece === piece)) continue;
+    out.push({ table, piece });
+  }
+  return out;
+}
+
+/** The note's sentence about them, every one (`""` when there is none). */
+export function refusedNote(refused) {
+  const list = refusedPieces(refused);
+  if (!list.length) return "";
+  return "The database couldn't put everything in place: " + list.map((o) => pieceSaid(o.piece) + " on " + o.table).join("; ")
+    + " — so " + (list.length === 1 ? "that isn't" : "those aren't") + " there yet.";
+}
+
+export function warningReport({ missing = [], deadQr = null, seedSkips = [], noFill = [], refused = [] } = {}) {
   const out = [];
   for (const r of missingRoutes(missing)) out.push({ what: "page", name: r });
   const { drop, held, parts } = qrOutcomes(deadQr || {});
@@ -5678,6 +5722,7 @@ export function warningReport({ missing = [], deadQr = null, seedSkips = [], noF
   for (const d of parts) out.push({ what: "held-section", name: d.name, added: d.added === true });
   for (const s of seedSkipsOf(seedSkips)) out.push({ what: "seed", name: s.name, ...(s.why ? { why: s.why } : {}) });
   for (const n of fillTables(noFill)) out.push({ what: "fill", name: n });
+  for (const r of refusedPieces(refused)) out.push({ what: "refused", name: r.table, piece: r.piece });
   return out;
 }
 
@@ -5898,7 +5943,10 @@ export function existingFacts({ spec = null, pages = null, look = null, sources 
       for (const n of names(spec[key])) {
         // A TABLE WITH WHAT IT DOES (2026-10-05), read off the stored spec it came from.
         const t = kind === "table" ? (spec.tables || []).find((x) => x && String(x.name || "").trim() === n) : null;
-        items.push(kind === "table" ? { kind, name: n, parts: tableParts(t) } : { kind, name: n });
+        // …ITS SETTINGS AMONG ITS PARTS, AND ITS COLUMNS (2026-10-07): each a
+        // carrier of its own, read off the same stored spec.
+        const cols = t && Array.isArray(t.columns) ? t.columns.map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter(Boolean) : [];
+        items.push(kind === "table" ? { kind, name: n, parts: [...new Set([...tableParts(t), ...tableSettings(t)])], columns: cols } : { kind, name: n });
       }
     }
   }
@@ -6158,23 +6206,37 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], threeUnsure = false, photos = [], shots = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], threeUnsure = false, photos = [], shots = [], refused = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
+  // WHAT THE DATABASE REFUSED OF EACH TABLE (2026-10-07, the engine's
+  // `refusedRules`): a rule it could not put in place, or a column it could
+  // not add. The stored design still declares them, so they are taken off
+  // what the table holds, does and keeps, and named as refused.
+  const refusedOf = (name) => (Array.isArray(refused) ? refused : [])
+    .filter((r) => r && typeof r === "object" && String(r.table || "").toLowerCase() === name);
   const factsFor = (name) => {
     const t = list.find((x) => x && String(x.name || "").toLowerCase() === name);
     if (!t) return { holds: [], fails: [], checked: [] };
+    const no = refusedOf(name);
+    const noCols = new Set(no.filter((r) => r.feature === "column").map((r) => String(r.rule || "").toLowerCase()).filter(Boolean));
+    const noSet = new Set(no.map((r) => String(r.feature || "").toLowerCase()).filter((f) => TABLE_SETTINGS.includes(f)));
     // WHAT THE TABLE DOES, AS APPLIED (2026-10-05) — its own list, never in
     // `holds`: a part is not a word a claim can name its way into, it is what
     // a judged requirement's evidence is checked against (`carriersReading`).
-    const parts = tableParts(t);
+    // …WITH ITS SETTINGS AMONG THEM (2026-10-07), each its own carrier.
+    const parts = [...new Set([...tableParts(t), ...tableSettings(t)])].filter((p) => !noSet.has(p));
     const acc = resolveAccess(t);
     const mine = new Set([String(t.access || ""), acc.read, acc.write].filter(Boolean));
     const cols = (Array.isArray(t.columns) ? t.columns : [])
-      .map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter(Boolean);
+      .map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter((c) => c && !noCols.has(c));
     const holds = [...mine, ...cols];
-    if (Array.isArray(t.unique) && t.unique.length) holds.push("unique");
-    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: [], parts };
+    if (Array.isArray(t.unique) && t.unique.length && !noSet.has("unique")) holds.push("unique");
+    const gone = [...[...noCols].map((c) => "column " + c), ...noSet];
+    return {
+      holds, fails: [...levels.filter((l) => !mine.has(l)), ...noCols, ...noSet], checked: [], parts, columns: cols,
+      ...(gone.length ? { refused: gone } : {}),
+    };
   };
   const out = [];
   const named = [...(Array.isArray(tables) ? tables : []),

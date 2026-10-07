@@ -1019,6 +1019,7 @@ export async function applySiteSchema(uuid, spec) {
     const cols = []; let hasPk = false;
     const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
     const appAdds = []; // [name-type] for each declared app column, ALTER-added on re-apply so a REVISE that adds a field actually gets the column (CREATE IF NOT EXISTS won't)
+    const appAddNames = []; // each declared app column's own name, beside `appAdds`, so a column that did not go in is named (2026-10-07)
     // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
     // adds+fills a unique url-safe `slug` column derived from that source column on insert.
     let slugFrom = null;
@@ -1076,6 +1077,7 @@ export async function applySiteSchema(uuid, spec) {
       }
       cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
       appAdds.push(cn + " " + ty); // bare type only — ALTER ADD COLUMN can't carry NOT NULL/UNIQUE/PK on a populated table; required-ness is enforced at the API layer anyway
+      appAddNames.push(String(c.name));
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
@@ -1192,7 +1194,14 @@ export async function applySiteSchema(uuid, spec) {
     // column and every write to it fails ("data error"). ADD COLUMN is idempotent here (the
     // "duplicate column" error on a fresh table is swallowed), so this backfills any newly
     // declared column onto a pre-existing table without disturbing existing data.
-    for (const add of appAdds) { try { await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + add); } catch {} }
+    // A COLUMN THAT DID NOT GO IN IS SAID (2026-10-07). `IF NOT EXISTS` already
+    // answers a column that is there, so what still throws here is a column the
+    // table does not have and was asked for; it joins the refused guarantees
+    // below — not a failure of the apply, never silent.
+    for (let ai = 0; ai < appAdds.length; ai++) {
+      try { await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD COLUMN IF NOT EXISTS " + appAdds[ai]); }
+      catch (e) { refused.push({ table: t.name, feature: "column", rule: appAddNames[ai], why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) }); }
+    }
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
     // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
     // trash would otherwise leave the newly-required platform columns missing — and its
@@ -1915,9 +1924,11 @@ export async function applySiteSchema(uuid, spec) {
   // `uuid` is the site's Neon CONNECTION STRING, which carries a password, so it
   // must never reach a log line; the table, the feature and the rule are what
   // identify the failure anyway.
+  // WHOLE (2026-10-07): bounded by the tables one apply takes and what each
+  // declares, and every one is something the site was asked for and lacks.
   if (refused.length) {
-    made.refusedRules = refused.slice(0, 20);
-    console.warn("refused rules:", refused.slice(0, 20).map((r) => r.table + "." + r.feature + ":" + r.rule).join(","));
+    made.refusedRules = refused.slice();
+    console.warn("refused rules:", refused.map((r) => r.table + "." + r.feature + ":" + r.rule).join(","));
   }
   return made;
 }

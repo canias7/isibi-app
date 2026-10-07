@@ -588,13 +588,71 @@ export const CARRIED = Object.freeze(["yes", "no", "unsure"]);
  * not the behaviour.
  */
 export const TABLE_PARTS = Object.freeze(["notify", "confirm", "sms", "webhooks", "payment"]);
+/**
+ * ── EACH SETTING AND EACH COLUMN OF A TABLE IS ITS OWN CARRIER (2026-10-07) ──
+ *
+ * The owner: *"where an item contains independently supported and unsupported
+ * properties or columns, account for each material requirement instead of
+ * letting one item-level judgment hide partial support."* A requirement can
+ * rest on one setting of a table — no two bookings overlapping — or on one
+ * column — each dish's allergens — while the rest of the table stands; named
+ * only as the table, it read as set up whatever became of that piece.
+ *
+ * THE SETTINGS are the tool's own table fields (`TOOL_TABLE_FIELDS` in
+ * site-schema.mjs) less the table's identity, its access and its columns —
+ * each checkable on the table as it was applied, and named in lower case as
+ * every carrier is (`table:bookings:nooverlap`). A census test holds this list
+ * to the tool's. THE COLUMNS are `table:<name>.<column>`.
+ */
+export const TABLE_SETTING_KEYS = Object.freeze([
+  "oncePerUser", "enforceRefs", "expires", "scheduled", "timestamps", "fts", "unique", "uniqueCI", "maxRows",
+  "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment", "webhooks", "searchWeights", "defaultSort",
+  "checks", "computed", "transitions",
+]);
+export const TABLE_SETTINGS = Object.freeze(TABLE_SETTING_KEYS.map((k) => k.toLowerCase()));
+/** What each setting does, as the platform does it — for the judgment's list and the reply's facts. */
+export const SETTING_SAYS = Object.freeze({
+  onceperuser: "one entry per person", enforcerefs: "links to entries in other lists kept valid",
+  expires: "entries that expire", scheduled: "entries that appear at a set time", timestamps: "when each entry was last changed",
+  fts: "searching its entries by their words", unique: "no two entries the same", uniqueci: "no two entries the same, whatever the capitals",
+  maxrows: "a limit on how many entries it keeps", teamscope: "entries shared within a team", publicview: "a public view of some of its entries",
+  nooverlap: "no two entries overlapping in time", confirm: "emailing the person who adds an entry", sms: "texting the person who adds an entry",
+  payment: "a card payment with each entry", webhooks: "telling another system about its entries", searchweights: "how its search results are ranked",
+  defaultsort: "the order its entries come out in", checks: "checks on what an entry may hold", computed: "values worked out from its other columns",
+  transitions: "the order an entry's status may move in",
+});
+/**
+ * The settings a table declares, in lower case — a value that is there and not
+ * empty, the same test `tableFacts` makes for a guarantee: a falsy or empty
+ * declaration is the same as none.
+ */
+export function tableSettings(t) {
+  if (!t || typeof t !== "object" || Array.isArray(t)) return [];
+  const out = [];
+  for (const k of TABLE_SETTING_KEYS) {
+    const v = t[k];
+    if (!v) continue;
+    if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
+    out.push(k.toLowerCase());
+  }
+  return out;
+}
+/** A piece of a table as the reply names it: `column allergens` or a setting's own name. */
+export function pieceSaid(p) {
+  const s = typeof p === "string" ? p.trim().toLowerCase() : "";
+  if (s.startsWith("column ")) return "the " + s.slice(7) + " column";
+  // `write` IS THE ENGINE'S OWN REFUSAL of a table nothing can be written to.
+  if (s === "write") return "adding entries through the site";
+  return Object.hasOwn(SETTING_SAYS, s) ? SETTING_SAYS[s] : s;
+}
 const MAX_REASON = 200;
 
 /**
- * AN ITEM AS THE JUDGMENT IS SHOWN IT: `kind:name`, or `table:name:part` for a
- * part of a table that does something. `{kind, name, part?}`, or `null` for
- * anything else — a kind this layer does not know, a part a table does not
- * have, an empty name.
+ * AN ITEM AS THE JUDGMENT IS SHOWN IT: `kind:name`; `table:name:part` for a
+ * part or a setting of a table that does something; `table:name.column` for
+ * one of its columns (2026-10-07). `{kind, name, part?, column?}`, or `null`
+ * for anything else — a kind this layer does not know, a part or setting a
+ * table does not have, a column that is not a column's name, an empty name.
  */
 export function carrierOf(id) {
   if (typeof id !== "string") return null;
@@ -603,18 +661,22 @@ export function carrierOf(id) {
   if (at <= 0) return null;
   const kind = s.slice(0, at);
   let name = s.slice(at + 1).trim();
-  let part = "";
+  let part = "", column = "";
   if (kind === "table" && name.includes(":")) {
     part = name.slice(name.lastIndexOf(":") + 1);
     name = name.slice(0, name.lastIndexOf(":")).trim();
-    if (!TABLE_PARTS.includes(part)) return null;
+    if (!TABLE_PARTS.includes(part) && !TABLE_SETTINGS.includes(part)) return null;
+  } else if (kind === "table" && name.includes(".")) {
+    column = name.slice(name.indexOf(".") + 1).trim();
+    name = name.slice(0, name.indexOf(".")).trim();
+    if (!/^[a-z0-9_]+$/.test(column)) return null;
   }
-  if (!ITEM_KINDS.includes(kind) || !name || name.includes(":")) return null;
-  return part ? { kind, name, part } : { kind, name };
+  if (!ITEM_KINDS.includes(kind) || !name || name.includes(":") || (kind === "table" && name.includes("."))) return null;
+  return part ? { kind, name, part } : column ? { kind, name, column } : { kind, name };
 }
 
 /** The id `carrierOf` reads, written back. */
-export const carrierId = (c) => c.kind + ":" + c.name + (c.part ? ":" + c.part : "");
+export const carrierId = (c) => c.kind + ":" + c.name + (c.part ? ":" + c.part : "") + (c.column ? "." + c.column : "");
 
 /**
  * THE JUDGMENT'S ANSWER, CLEANED, AND WHETHER IT IS WHOLE. `{ verdicts:
@@ -1224,6 +1286,14 @@ function seeableKind(k, reportable, ex) {
  * asked of the item's own `parts`, and an item with no `parts` reading at all
  * answers `unknown` for a part — never `partless`, which would be silence read
  * as absence.
+ *
+ * A COLUMN OR A SETTING NAMED ON ITS OWN (2026-10-07) is asked of the table's
+ * own `columns` and `parts` as applied — a setting is one of its `parts` — so
+ * a column that did not go in, or a setting the database refused or the merge
+ * could not carry, reads `partless` while the table stands. A table named
+ * whole carries what this change asked of it and did not get (`partly`, off
+ * the item's `refused`), so a requirement it carries is never told as set up
+ * without the piece that is missing.
  */
 function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set() } = {}) {
   const ex = existing && typeof existing === "object" ? existing : null;
@@ -1231,6 +1301,7 @@ function carriersReading(by, { made = [], existing = null, reportable = [], brok
   const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === k);
   const rank = { unknown: 1, absent: 2, partless: 2, broken: 3 };
   const found = [];
+  const partly = [];
   let worst = null;
   let present = "found";
   for (const c of Array.isArray(by) ? by : []) {
@@ -1244,10 +1315,15 @@ function carriersReading(by, { made = [], existing = null, reportable = [], brok
     else if (!hit) st = seen;
     else if (c.part && !Array.isArray(hit.parts)) st = "unknown";
     else if (c.part && !hit.parts.includes(c.part)) st = "partless";
+    else if (c.column && !Array.isArray(hit.columns)) st = "unknown";
+    else if (c.column && !hit.columns.includes(c.column)) st = "partless";
     if (hit && st !== "broken") found.push({ item: hit, where: mine ? "applied" : "existing" });
+    if (hit && !st && !c.part && !c.column) {
+      for (const p of Array.isArray(hit.refused) ? hit.refused : []) if (typeof p === "string" && p && !partly.includes(p)) partly.push(p);
+    }
     if (st && (!worst || rank[st] > rank[worst.state])) worst = { state: st, ref: c };
   }
-  return worst ? { ...worst, present, found } : { state: "found", present, found };
+  return worst ? { ...worst, present, found, partly } : { state: "found", present, found, partly };
 }
 
 export function implementationOf(r, made = [], reportable = [], existing = null) {
@@ -1472,6 +1548,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     if (verdict && r.status !== "unsupported" && verdict.carried !== "unsure") {
       const ids = verdict.by.map(carrierId);
       let st = "", whyJ = r.why || "", cfg = "", contra = "", impl = "", byName = "", where = "";
+      let partly = [];
       if (verdict.carried === "no") {
         // NOTHING DESIGNED OR ALREADY THERE DOES IT. A step that failed still
         // outranks that — its failure is the more specific thing to say — and
@@ -1490,10 +1567,16 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
         // what is missing, then what nobody could see.
         const rd = carriersReading(verdict.by, { made, existing, reportable, broken });
         impl = rd.present;
+        partly = rd.partly;
         if (rd.state === "broken") { st = "blocked"; whyJ = whyJ || brokeWhy(rd.ref); }
         else if (owner && bad.has(owner) && rd.present !== "found") { st = r.status === "covered" ? "failed" : "blocked"; whyJ = whyJ || "the " + owner + " step could not do its part"; }
         else if (rd.state === "absent") { st = "missing"; whyJ = whyJ || "the " + rd.ref.name + " it needs was not added"; }
-        else if (rd.state === "partless") { st = "missing"; whyJ = whyJ || "the " + rd.ref.name + " " + rd.ref.kind + " does not do this"; }
+        else if (rd.state === "partless") {
+          st = "missing";
+          whyJ = whyJ || (rd.ref.column ? "the " + rd.ref.name + " table has no " + rd.ref.column + " column"
+            : rd.ref.part && TABLE_SETTINGS.includes(rd.ref.part) && !TABLE_PARTS.includes(rd.ref.part) ? "the " + rd.ref.name + " table does not have this setting: " + pieceSaid(rd.ref.part)
+              : "the " + rd.ref.name + " " + rd.ref.kind + " does not do this");
+        }
         else if (rd.state === "unknown") st = "unknown";
         else {
           // EVERY ITEM IS THERE, WITH ITS PART: established, and still not
@@ -1524,6 +1607,9 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
         ...(cfg ? { configuredBy: cfg } : {}),
         ...(contra ? { contradictedBy: contra } : {}),
         ...(whyJ ? { why: whyJ } : {}),
+        // WHAT THIS CHANGE ASKED OF A TABLE NAMED WHOLE AND DID NOT GET
+        // (2026-10-07): kept beside a found reading, never instead of it.
+        ...(partly.length && (st === "unverified" || st === "configured" || st === "delivered") ? { partly: partly.slice() } : {}),
       });
       continue;
     }
@@ -2018,7 +2104,10 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
     const key = as + "|" + need.toLowerCase().replace(/\s+/g, " ");
     if (said.has(key)) return;
     said.add(key);
-    out.push({ need, told: as, state: r.state, ...(withWhy && typeof r.why === "string" && r.why ? { why: r.why } : {}) });
+    out.push({ need, told: as, state: r.state, ...(withWhy && typeof r.why === "string" && r.why ? { why: r.why } : {}),
+      // WHAT IT RESTS ON AND DID NOT GET (2026-10-07, `carriersReading`'s
+      // `partly`): told beside it, so "set up" never hides the missing piece.
+      ...(Array.isArray(r.partly) && r.partly.length ? { partly: r.partly.filter((x) => typeof x === "string" && x) } : {}) });
   };
   for (const r of unsupported) tell(r, "unsupported", true);
   for (const r of [...gone, ...broke]) tell(r, "still-to-do", false);
@@ -2165,7 +2254,7 @@ export function requirementNote(list, opts = {}) {
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [], refusedRules = [], judgeItemsOver = 0 } = {}) {
   // WHOLE (2026-10-07): every list here was cut at twelve, so a change with
   // more requirements, properties or pages than that kept a record that
   // stopped part-way and said nothing of it. Each is bounded where it is
@@ -2229,6 +2318,11 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // (2026-10-06), and whether the second answer finished it: an entry still
     // `finished: false` is why the addition stopped.
     ...(all(verdictsMissing).length ? { verdictsMissing: all(verdictsMissing) } : {}),
+    // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07), with the reason it
+    // gave — the reason is the record's alone, since it can carry a row's own
+    // values — and how many items the judgment's list could not show.
+    ...(all(refusedRules).length ? { refusedRules: all(refusedRules) } : {}),
+    ...(Number(judgeItemsOver) > 0 ? { judgeItemsOver: Number(judgeItemsOver) } : {}),
     unreadable: all(skipped),
     invalidProps: all(invalid),
     // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as

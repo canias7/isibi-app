@@ -150,11 +150,11 @@ function withWire(wire, run) {
     if (url.includes("/rest/v1/site_project")) return json(wire.project || []);
     if (url.includes("/rest/v1/site_aliases")) return json([]);
     if (/neon\.tech|\/sql$/.test(url)) {
-      let asked = "";
-      try { asked = String(JSON.parse(String((init && init.body) || "{}")).query || ""); }
+      let asked = "", params = [];
+      try { const b = JSON.parse(String((init && init.body) || "{}")); asked = String(b.query || ""); params = Array.isArray(b.params) ? b.params : []; }
       catch { asked = String((init && init.body) || ""); }
       seen.sql.push(asked);
-      const a = wire.sql ? wire.sql(asked) : { rows: [], fields: ["x"] };
+      const a = wire.sql ? wire.sql(asked, params) : { rows: [], fields: ["x"] };
       if (a.fail) return new Response("could not connect", { status: 500 });
       const fields = a.fields.map((n) => ({ name: n, dataTypeID: 25, tableID: 0, columnID: 0, dataTypeSize: -1, dataTypeModifier: -1, format: "text" }));
       return json({ command: "SELECT", rowCount: a.rows.length, rows: a.rows, fields });
@@ -517,8 +517,12 @@ test("a failure of ours is said as ours, never climbed: a missing model key and 
 // A `display` table with one row and a stored schema declaring it, answered in
 // the serverless driver's shape (`rows` are arrays of VALUES).
 const MENU_SPEC = { tables: [{ name: "menu", columns: [{ name: "item", type: "text" }, { name: "price", type: "text" }], read: "public", write: "none" }] };
-const menuDb = ({ probeFails = false } = {}) => (q) => {
+const menuDb = ({ probeFails = false } = {}) => (q, params = []) => {
   if (probeFails) return { fail: true };
+  // A CHANGED ROW HANDS ITSELF BACK, as Postgres answers `RETURNING` (2026-10-07).
+  if (/^UPDATE "menu" SET "price" = \$1 WHERE id = \$2 RETURNING \*$/.test(q)) {
+    return { rows: String(params[1]) === "1" ? [[1, "Sourdough", String(params[0])]] : [], fields: ["id", "item", "price"] };
+  }
   if (/information_schema\.columns/i.test(q)) return { rows: [["menu", "id", "int"], ["menu", "item", "text"], ["menu", "price", "text"]], fields: ["t", "c", "ty"] };
   if (/_meta/i.test(q) && /schema/i.test(q)) return { rows: [[JSON.stringify(MENU_SPEC)]], fields: ["v"] };
   if (/FROM "menu"/i.test(q)) return { rows: [[1, "Sourdough", "£4.50"]], fields: ["id", "item", "price"] };

@@ -627,7 +627,8 @@ test("WIRE 1 — the route keeps every seed skip and sends every list whole; bot
   assert.match(W, /seedSkips: aSeedSkips\.length \? aSeedSkips : undefined,/);
   assert.match(W, /noPopulation: aNoFill\.length \? aNoFill : undefined,/);
   assert.match(W, /warningsTold: aWarned\.length \? aWarned : undefined,/);
-  assert.match(W, /const aWarned = warningReport\(\{ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill \}\);/);
+  // …AND WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07).
+  assert.match(W, /const aWarned = warningReport\(\{ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill, refused: aRefused \}\);/);
   assert.match(W, /coverOther: built && aCounted\.length \? aCounted\.join\(" "\) : undefined,/);
   assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/, "the designer's refusal does not compose its note through the failure door");
   assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/, "every designer declining does not compose its note through the failure door");

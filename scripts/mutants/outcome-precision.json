@@ -1,0 +1,483 @@
+[
+ {
+  "label": "CONTROL: a comment only in dataChanges — must survive",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "export function dataChanges(applied, tables) {",
+  "to": "export function dataChanges(applied, tables) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "DATA — the row the database kept not carried",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      applied.push(typeof ok === \"object\" && !Array.isArray(ok) ? { ...c, stored: ok } : c);",
+  "to": "      applied.push(c);"
+ },
+ {
+  "label": "DATA — the after side read from the model's values",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const now = cut(stored && Object.hasOwn(stored, k) ? stored[k] : c.values[k]);",
+  "to": "      const now = cut(c.values[k]);"
+ },
+ {
+  "label": "DATA — the before side not read",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const was = cut(before && Object.hasOwn(before, k) ? before[k] : null);",
+  "to": "      const was = null;"
+ },
+ {
+  "label": "DATA — a field already right not marked",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "...(String(was) === String(now) ? { same: true } : {}), ",
+  "to": ""
+ },
+ {
+  "label": "DATA — a value nothing confirmed not marked",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "...(stored ? {} : { readBack: false }) };\n    });",
+  "to": "};\n    });"
+ },
+ {
+  "label": "DATA — no cut for the reply",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    return s.length > MAX_CHANGE_VALUE ? s.slice(0, MAX_CHANGE_VALUE) + \"…\" : s;",
+  "to": "    return s;"
+ },
+ {
+  "label": "DATA — the entry named by the words this change wrote",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    const name = cols.find((k) => !wrote.includes(k) && words(k)) || cols.find((k) => words(k)) || \"\";",
+  "to": "    const name = cols.find((k) => words(k)) || \"\";"
+ },
+ {
+  "label": "DATA — an addition's id not read back",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "      const id = stored && Number.isSafeInteger(Number(stored.id)) ? Number(stored.id) : undefined;",
+  "to": "      const id = undefined;"
+ },
+ {
+  "label": "WRITE — an UPDATE matching no row counted as made",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return row(await sqlQuery(ddb, \"UPDATE \\\"\" + name + \"\\\" SET \" + sets + \" WHERE id = ? RETURNING *\", [...cols.map((k) => c.values[k]), c.id])) || false;",
+  "to": "return row(await sqlQuery(ddb, \"UPDATE \\\"\" + name + \"\\\" SET \" + sets + \" WHERE id = ? RETURNING *\", [...cols.map((k) => c.values[k]), c.id])) || true;"
+ },
+ {
+  "label": "WRITE — the UPDATE hands nothing back",
+  "files": [
+   "worker.js"
+  ],
+  "from": " WHERE id = ? RETURNING *\", [...cols.map((k) => c.values[k]), c.id])) || false;",
+  "to": " WHERE id = ?\", [...cols.map((k) => c.values[k]), c.id])) || true;"
+ },
+ {
+  "label": "WRITE — the INSERT hands nothing back",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return row(await sqlQuery(ddb, ins.sql + \" RETURNING *\", ins.params)) || true;",
+  "to": "return row(await sqlQuery(ddb, ins.sql, ins.params)) || true;"
+ },
+ {
+  "label": "WRITE — the wire carries no changes",
+  "files": [
+   "worker.js"
+  ],
+  "from": "changes: (() => { const ch = dataChanges(dOut.applied, dTables); return ch.length ? ch : undefined; })(),",
+  "to": "changes: undefined,"
+ },
+ {
+  "label": "FACTS — the changes not read",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "      if (each.length) dataChangeFacts(F, each);",
+  "to": "      if (false) dataChangeFacts(F, each);"
+ },
+ {
+  "label": "FACTS — a field already right said as changed",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const moved = fields.filter((f) => f.same !== true).map(",
+  "to": "    const moved = fields.map("
+ },
+ {
+  "label": "FACTS — the entry's words not named",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const entry = c.label !== undefined && c.label !== null && flat(c.label) ? \"the entry \" + quote(c.label) : \"an entry\";",
+  "to": "    const entry = \"an entry\";"
+ },
+ {
+  "label": "FACTS — an unconfirmed value said as read",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const asWritten = unread ? \" The database did not hand the entry back, so these are the values written, not values read back.\" : \"\";",
+  "to": "    const asWritten = \"\";"
+ },
+ {
+  "label": "CARRIER — a column read as the whole table",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "  } else if (kind === \"table\" && name.includes(\".\")) {",
+  "to": "  } else if (false) {"
+ },
+ {
+  "label": "CARRIER — a setting not a carrier",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    if (!TABLE_PARTS.includes(part) && !TABLE_SETTINGS.includes(part)) return null;",
+  "to": "    if (!TABLE_PARTS.includes(part)) return null;"
+ },
+ {
+  "label": "CARRIER — a column with any name",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    if (!/^[a-z0-9_]+$/.test(column)) return null;",
+  "to": ""
+ },
+ {
+  "label": "CARRIER — a column written back without its name",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": " + (c.column ? \".\" + c.column : \"\");",
+  "to": ";"
+ },
+ {
+  "label": "READ — a missing column read as found",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    else if (c.column && !hit.columns.includes(c.column)) st = \"partless\";",
+  "to": ""
+ },
+ {
+  "label": "READ — a column nobody listed read as found",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    else if (c.column && !Array.isArray(hit.columns)) st = \"unknown\";",
+  "to": ""
+ },
+ {
+  "label": "READ — the missing pieces of a table named whole not carried",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "      for (const p of Array.isArray(hit.refused) ? hit.refused : []) if (typeof p === \"string\" && p && !partly.includes(p)) partly.push(p);",
+  "to": ""
+ },
+ {
+  "label": "READ — the pieces carried beside a piece named on its own",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    if (hit && !st && !c.part && !c.column) {",
+  "to": "    if (hit && !st) {"
+ },
+ {
+  "label": "OUTCOME — a missing column's reason as the table's",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "          whyJ = whyJ || (rd.ref.column ? \"the \" + rd.ref.name + \" table has no \" + rd.ref.column + \" column\"",
+  "to": "          whyJ = whyJ || (false ? \"\""
+ },
+ {
+  "label": "OUTCOME — the missing pieces dropped from the record",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "        ...(partly.length && (st === \"unverified\" || st === \"configured\" || st === \"delivered\") ? { partly: partly.slice() } : {}),",
+  "to": ""
+ },
+ {
+  "label": "TOLD — the missing pieces dropped from what is told",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "      ...(Array.isArray(r.partly) && r.partly.length ? { partly: r.partly.filter((x) => typeof x === \"string\" && x) } : {}) });",
+  "to": "});"
+ },
+ {
+  "label": "TOLD — the fact never says the missing piece",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  \"set-up\": [\"note\", (o) => \"Set up, but nothing here can check that it works: \" + o.need + \".\" + partlySaid(o)],",
+  "to": "  \"set-up\": [\"note\", (o) => \"Set up, but nothing here can check that it works: \" + o.need + \".\"],"
+ },
+ {
+  "label": "TOLD — the facts loop drops the missing pieces",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": ", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}) }));",
+  "to": " }));"
+ },
+ {
+  "label": "TOLD — an unreadable missing piece read",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === \"string\" && !!flat(x))));",
+  "to": ";"
+ },
+ {
+  "label": "APPLIED — a refused column still held",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": ".filter((c) => c && !noCols.has(c));",
+  "to": ".filter((c) => c);"
+ },
+ {
+  "label": "APPLIED — a refused setting still a part",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const parts = [...new Set([...tableParts(t), ...tableSettings(t)])].filter((p) => !noSet.has(p));",
+  "to": "    const parts = [...new Set([...tableParts(t), ...tableSettings(t)])];"
+ },
+ {
+  "label": "APPLIED — settings not among the parts",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const parts = [...new Set([...tableParts(t), ...tableSettings(t)])].filter((p) => !noSet.has(p));",
+  "to": "    const parts = tableParts(t);"
+ },
+ {
+  "label": "APPLIED — what was refused not named",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      ...(gone.length ? { refused: gone } : {}),",
+  "to": ""
+ },
+ {
+  "label": "APPLIED — a refused piece not a contradiction",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "holds, fails: [...levels.filter((l) => !mine.has(l)), ...noCols, ...noSet], checked: []",
+  "to": "holds, fails: levels.filter((l) => !mine.has(l)), checked: []"
+ },
+ {
+  "label": "APPLIED — the columns not carried",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "checked: [], parts, columns: cols,",
+  "to": "checked: [], parts,"
+ },
+ {
+  "label": "EXISTING — an existing table's columns not carried",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "parts: [...new Set([...tableParts(t), ...tableSettings(t)])], columns: cols } : { kind, name: n });",
+  "to": "parts: [...new Set([...tableParts(t), ...tableSettings(t)])] } : { kind, name: n });"
+ },
+ {
+  "label": "ITEMS — a designed setting not listed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    for (const st of tableSettings(t)) push(\"table:\" + n + \":\" + st, \"a setting of the table \" + n + \": \" + SETTING_SAYS[st]);",
+  "to": ""
+ },
+ {
+  "label": "ITEMS — a designed column not listed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    for (const c of cols) push(\"table:\" + n + \".\" + c.toLowerCase(), \"a column of the table \" + n + \": \" + c);",
+  "to": ""
+ },
+ {
+  "label": "ITEMS — the site's own tables listed piece by piece",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!designed) return;",
+  "to": ""
+ },
+ {
+  "label": "ITEMS — what did not fit not counted",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      if (report && typeof report === \"object\") report.over = (Number(report.over) || 0) + 1;",
+  "to": ""
+ },
+ {
+  "label": "ITEMS — a wide table's line cut without a word",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const keeps = cols.length > 12 ? cols.slice(0, 12).join(\", \") + \" and \" + (cols.length - 12) + \" more\" : cols.join(\", \");",
+  "to": "    const keeps = cols.slice(0, 12).join(\", \");"
+ },
+ {
+  "label": "ITEMS — the judgment not told to name a piece",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "table. When it rests on one setting or one column of a table, name that setting or column (ids like \" +\n  \"`table:bookings:nooverlap` or `table:dishes.allergens`), not only the table.\\n\" +",
+  "to": "table.\\n\" +"
+ },
+ {
+  "label": "REFUSED — a column refusal without its column",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const piece = feature === \"column\" ? (typeof r.rule === \"string\" && r.rule.trim() ? \"column \" + r.rule.trim().toLowerCase() : \"\") : feature;",
+  "to": "    const piece = feature;"
+ },
+ {
+  "label": "REFUSED — said twice",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!piece || out.some((o) => o.table === table && o.piece === piece)) continue;",
+  "to": "    if (!piece) continue;"
+ },
+ {
+  "label": "REFUSED — no warning",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  for (const r of refusedPieces(refused)) out.push({ what: \"refused\", name: r.table, piece: r.piece });",
+  "to": ""
+ },
+ {
+  "label": "REFUSED — no fact",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  && (o.what !== \"refused\" || (typeof o.piece === \"string\" && !!flat(o.piece)));",
+  "to": "  && o.what !== \"refused\";"
+ },
+ {
+  "label": "REFUSED — the part not done in part",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "const WARNED_UNDONE = Object.freeze([\"qr\", \"held-page\", \"held-section\", \"refused\"]);",
+  "to": "const WARNED_UNDONE = Object.freeze([\"qr\", \"held-page\", \"held-section\"]);"
+ },
+ {
+  "label": "ENGINE — a column the engine could not add swallowed",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "      catch (e) { refused.push({ table: t.name, feature: \"column\", rule: appAddNames[ai], why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) }); }",
+  "to": "      catch (e) { }"
+ },
+ {
+  "label": "ENGINE — the refusals cut at twenty again",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "    made.refusedRules = refused.slice();",
+  "to": "    made.refusedRules = refused.slice(0, 1);"
+ },
+ {
+  "label": "ROUTE — the refusals not read off the apply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                aRefused = Array.isArray(aMade && aMade.refusedRules) ? aMade.refusedRules.slice() : [];",
+  "to": ""
+ },
+ {
+  "label": "ROUTE — the applied facts not told what was refused",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                refused: db ? aRefused : [],",
+  "to": ""
+ },
+ {
+  "label": "ROUTE — no warning for what was refused",
+  "files": [
+   "worker.js"
+  ],
+  "from": "noFill: aNoFill, refused: aRefused });",
+  "to": "noFill: aNoFill });"
+ },
+ {
+  "label": "ROUTE — no sentence in the note",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                refusedNote(aRefused),\n",
+  "to": ""
+ },
+ {
+  "label": "ROUTE — the record keeps no refusals",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              refusedRules: aRefused, judgeItemsOver: aJudgeOver,",
+  "to": "              judgeItemsOver: aJudgeOver,"
+ },
+ {
+  "label": "ROUTE — the pageless answer names no refusal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "its reason stays on the record.\n                refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,",
+  "to": "its reason stays on the record.\n                refusedRules: undefined,"
+ },
+ {
+  "label": "ROUTE — the published answer names no refusal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              functionErrors: aFnErrors.length ? aFnErrors : undefined,\n              refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,",
+  "to": "              functionErrors: aFnErrors.length ? aFnErrors : undefined,\n              refusedRules: undefined,"
+ },
+ {
+  "label": "RECORD — the refusals not kept",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    ...(all(refusedRules).length ? { refusedRules: all(refusedRules) } : {}),",
+  "to": ""
+ },
+ {
+  "label": "RECORD — the count of items not shown not kept",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    ...(Number(judgeItemsOver) > 0 ? { judgeItemsOver: Number(judgeItemsOver) } : {}),",
+  "to": ""
+ }
+]

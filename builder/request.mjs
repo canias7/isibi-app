@@ -495,7 +495,7 @@ export function readRun(ans) {
  */
 /** The requirement outcomes that are not done (`requirementReport`'s `told`), and the warnings that are work kept out (`warningReport`'s `what`). */
 const TOLD_UNDONE = Object.freeze(["unsupported", "still-to-do", "blocked", "not-tracked"]);
-const WARNED_UNDONE = Object.freeze(["qr", "held-page", "held-section"]);
+const WARNED_UNDONE = Object.freeze(["qr", "held-page", "held-section", "refused"]);
 export function notDoneOf(body, op = "edit") {
   const b = plain(body) ? body : {};
   const out = [];

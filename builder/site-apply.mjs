@@ -730,6 +730,78 @@ export function readDataChanges(reply, tables) {
   return out;
 }
 
+/**
+ * HOW LONG ONE VALUE MAY BE WHEN A REPLY NAMES IT (2026-10-07): a presentation
+ * bound, never a write bound — the row keeps every character, and a value cut
+ * here ends in "…" so the reply cannot pass it off as whole.
+ */
+export const MAX_CHANGE_VALUE = 200;
+
+/**
+ * WHAT EACH ROW CHANGE REALLY DID, FOR THE REPLY (2026-10-07).
+ *
+ * The owner: *"give the reply writer enough evidence to identify the actual
+ * data changes, including the relevant item, field and permitted before/after
+ * values … use existing validation and execution evidence."* The reply knew a
+ * table and a count ("Updated one entry in loaves"), because the answer
+ * carried only the table, the row id and the column names.
+ *
+ * FROM EVIDENCE ONLY. The before side is the row as the route read it a moment
+ * before the write (`tables`, the rows the picker was shown); the after side is
+ * the row the write handed back (`stored`, from `RETURNING`). Where no row came
+ * back, the value written is named with `readBack: false`, never as read. The
+ * model's answer names nothing here but which row and which column.
+ *
+ * PERMITTED VALUES ONLY: the route offers display tables alone — what every
+ * visitor already reads on the site — and these are their rows.
+ *
+ * Removals are not here: their whole row already rides back as `was` on
+ * `applied`, the undo a deleted row has. One entry per update or addition:
+ *   { table, id, label?, fields: [{ column, was, now, same?, readBack? }] }
+ *   { table, id?, added: { column: value }, readBack? }
+ * `label` names the entry: the first declared column, other than one this
+ * change wrote, whose value before it was words — what the list shows it as.
+ */
+export function dataChanges(applied, tables) {
+  const byName = new Map();
+  for (const t of Array.isArray(tables) ? tables : []) {
+    if (t && typeof t.name === "string") byName.set(t.name, t);
+  }
+  const cut = (v) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number" || typeof v === "boolean") return v;
+    const s = String(v);
+    return s.length > MAX_CHANGE_VALUE ? s.slice(0, MAX_CHANGE_VALUE) + "…" : s;
+  };
+  const plainRow = (r) => (r && typeof r === "object" && !Array.isArray(r) ? r : null);
+  const out = [];
+  for (const c of Array.isArray(applied) ? applied : []) {
+    // A REMOVAL CARRIES NO VALUES (`readDataChanges`), so it never reaches here.
+    if (!c || typeof c !== "object" || !c.values || typeof c.values !== "object") continue;
+    const t = byName.get(c.table);
+    const cols = t && Array.isArray(t.columns) ? t.columns.filter((x) => typeof x === "string" && x !== "id") : [];
+    const stored = plainRow(c.stored);
+    const wrote = Object.keys(c.values);
+    if (c.id === undefined) {
+      const id = stored && Number.isSafeInteger(Number(stored.id)) ? Number(stored.id) : undefined;
+      const added = {};
+      for (const k of wrote) added[k] = cut(stored && Object.hasOwn(stored, k) ? stored[k] : c.values[k]);
+      out.push({ table: c.table, ...(id !== undefined ? { id } : {}), added, ...(stored ? {} : { readBack: false }) });
+      continue;
+    }
+    const before = plainRow(t && Array.isArray(t.rows) ? t.rows.find((r) => r && Number(r.id) === c.id) : null);
+    const words = (k) => before && typeof before[k] === "string" && before[k].trim();
+    const name = cols.find((k) => !wrote.includes(k) && words(k)) || cols.find((k) => words(k)) || "";
+    const fields = wrote.map((k) => {
+      const was = cut(before && Object.hasOwn(before, k) ? before[k] : null);
+      const now = cut(stored && Object.hasOwn(stored, k) ? stored[k] : c.values[k]);
+      return { column: k, was, now, ...(String(was) === String(now) ? { same: true } : {}), ...(stored ? {} : { readBack: false }) };
+    });
+    out.push({ table: c.table, id: c.id, ...(name ? { label: cut(before[name]) } : {}), fields });
+  }
+  return out;
+}
+
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
 export function dataUsage(reply, model = DATA_MODEL) {
   const u = (reply && reply.usage) || {};
@@ -863,7 +935,11 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
   for (const c of changes) {
     try {
       const ok = await deps.apply(c);
-      (ok ? applied : failed).push(c);
+      if (!ok) { failed.push(c); continue; }
+      // WHAT THE DATABASE KEPT (2026-10-07), when the write handed its row
+      // back: the after side of the change, read from the database rather than
+      // from what the model asked for (`dataChanges`).
+      applied.push(typeof ok === "object" && !Array.isArray(ok) ? { ...c, stored: ok } : c);
     } catch { failed.push(c); }
   }
   // A PARTIAL APPLY IS REPORTED, NOT HIDDEN. Rows are independent — unlike a

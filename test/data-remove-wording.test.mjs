@@ -98,6 +98,27 @@ async function dataEdit(slug, instruction, answer) {
       });
       if (/_meta/i.test(q) && /schema/i.test(q)) return answerSql([[JSON.stringify(SPEC)]], ["v"]);
       if (/FROM "lessons"/i.test(q) && /^\s*select/i.test(q)) return answerSql(LESSONS, ["id", "name", "price"]);
+      // A WRITE HANDS ITS ROW BACK, as Postgres answers `RETURNING` (2026-10-07):
+      // the row taken off by its id, the row changed as it now stands, the new
+      // row with the id the database gave it.
+      const params = Array.isArray(body.params) ? body.params.map(String) : [];
+      if (/^DELETE FROM "lessons" WHERE id = \$1 RETURNING id$/.test(q)) {
+        return answerSql(LESSONS.filter((r) => String(r[0]) === params[0]).map((r) => [r[0]]), ["id"]);
+      }
+      const upd = /^UPDATE "lessons" SET (.+) WHERE id = \$(\d+) RETURNING \*$/.exec(q);
+      if (upd) {
+        const row = LESSONS.find((r) => String(r[0]) === params[Number(upd[2]) - 1]);
+        if (!row) return answerSql([], ["id", "name", "price"]);
+        const cols = ["id", "name", "price"];
+        const now = row.slice();
+        for (const m of upd[1].matchAll(/"([^"]+)" = \$(\d+)/g)) now[cols.indexOf(m[1])] = params[Number(m[2]) - 1];
+        return answerSql([now], cols);
+      }
+      const ins = /^INSERT INTO "lessons" \(([^)]*)\) VALUES \([^)]*\) RETURNING \*$/.exec(q);
+      if (ins) {
+        const named = ins[1].split(",").map((x) => x.trim().replace(/^"|"$/g, ""));
+        return answerSql([[5, params[named.indexOf("name")] ?? null, params[named.indexOf("price")] ?? null]], ["id", "name", "price"]);
+      }
       return answerSql([], ["x"]);
     }
     if (url.includes("/v1/messages")) {
@@ -179,7 +200,7 @@ test("the picker's request tells it one thing about deleting a row: use `remove`
   // DELETE of the row it named, nothing else written, and the row handed back.
   const w = writes(r.seen);
   assert.equal(w.length, 1, "not exactly one write: " + JSON.stringify(w));
-  assert.match(w[0].q, /^DELETE FROM "lessons" WHERE id = \$1$/);
+  assert.match(w[0].q, /^DELETE FROM "lessons" WHERE id = \$1 RETURNING id$/);
   assert.deepEqual(w[0].params, ["4"]);
   assert.equal(r.reply.ok, true);
   assert.equal(r.reply.layer, "data");
@@ -215,7 +236,7 @@ test("changing and adding a row are unchanged beside it", async () => {
   assert.equal(changed.status, 200, changed.text.slice(0, 200));
   const cw = writes(changed.seen);
   assert.equal(cw.length, 1);
-  assert.match(cw[0].q, /^UPDATE "lessons" SET "price" = \$1 WHERE id = \$2$/);
+  assert.match(cw[0].q, /^UPDATE "lessons" SET "price" = \$1 WHERE id = \$2 RETURNING \*$/);
   assert.deepEqual(cw[0].params, ["42", "4"]);
   assert.deepEqual(changed.reply.applied, [{ table: "lessons", id: 4, columns: ["price"] }]);
 
@@ -223,6 +244,6 @@ test("changing and adding a row are unchanged beside it", async () => {
   assert.equal(added.status, 200, added.text.slice(0, 200));
   const aw = writes(added.seen);
   assert.equal(aw.length, 1);
-  assert.match(aw[0].q, /^INSERT INTO "lessons" \("name", "price"\) VALUES \(\$1, \$2\)$/);
+  assert.match(aw[0].q, /^INSERT INTO "lessons" \("name", "price"\) VALUES \(\$1, \$2\) RETURNING \*$/);
   assert.deepEqual(aw[0].params, ["Duet", "30"]);
 });

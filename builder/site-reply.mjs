@@ -55,6 +55,7 @@
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
 import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
+import { pieceSaid } from "./site-requirements.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 export function repliesOn(env) {
@@ -353,15 +354,23 @@ function factList() {
 // could see is never called done (owner, 2026-09-15: *"'I've set that up' is
 // inappropriate when implementation is unknown"*), so it rides as not done,
 // saying exactly that.
+/**
+ * WHAT A REQUIREMENT'S TABLE WAS ASKED FOR AND DID NOT GET (2026-10-07): the
+ * pieces this change asked of the table it rests on that did not go in, so a
+ * requirement told as set up never hides them (`partly`, `pieceSaid`).
+ */
+const partlySaid = (o) => (Array.isArray(o.partly) && o.partly.length
+  ? " Part of what this change asked of the table it rests on did not go in: " + listOf(o.partly.map(pieceSaid)) + "."
+  : "");
 const TOLD_FACTS = Object.freeze({
   unsupported: ["not-done", (o) => "Their site cannot do this yet: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
   "still-to-do": ["not-done", (o) => "Not done: " + o.need + "."],
   blocked: ["not-done", (o) => "Not done, because another part of this change it depends on did not work: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
-  "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "."],
-  scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "."],
+  "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "." + partlySaid(o)],
+  scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
   // up", and never said to be this request's work.
-  "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "."],
+  "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "." + partlySaid(o)],
   unseen: ["not-done", (o) => "Nothing here can see whether this is in place: " + o.need + "."],
   // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07, `overCapNeeds`): written
   // down by the designer and never judged or checked — not done, saying why.
@@ -400,6 +409,11 @@ const WARNED_FACTS = Object.freeze({
     : "A section was left exactly as it was, because its change depended on a QR code that was not added: ") + o.name + ".",
   seed: (o) => (o.why ? SEED_FACTS[o.why](o.name) : "Starter rows were ready for the table " + o.name + " and were not put in."),
   fill: (o) => "Nothing can put rows into the table " + o.name + " yet, so whatever reads it shows nothing until something does (a form, an import, or the owner adding the first rows).",
+  // WHAT THE DATABASE REFUSED OF A TABLE (2026-10-07, `refusedPieces`): a
+  // column it could not add, or a rule it could not put in place.
+  refused: (o) => (o.piece.startsWith("column ")
+    ? "The " + o.piece.slice(7) + " column could not be added to the table " + o.name + ", so nothing can be kept in it yet."
+    : "The table " + o.name + " could not be given " + pieceSaid(o.piece) + ": the database refused it, so the table does not do that yet."),
 });
 
 /**
@@ -409,11 +423,13 @@ const WARNED_FACTS = Object.freeze({
  */
 const entriesOf = (v, reads) => (v === undefined ? []
   : Array.isArray(v) && v.length > 0 && v.every((o) => o && typeof o === "object" && !Array.isArray(o) && reads(o)) ? v : null);
-const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string");
+const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string")
+  && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === "string" && !!flat(x))));
 const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name === "string" && !!flat(o.name)
   && (o.added === undefined || typeof o.added === "boolean")
   && (o.route === undefined || typeof o.route === "string")
-  && (o.why === undefined || (typeof o.why === "string" && Object.hasOwn(SEED_FACTS, o.why)));
+  && (o.why === undefined || (typeof o.why === "string" && Object.hasOwn(SEED_FACTS, o.why)))
+  && (o.what !== "refused" || (typeof o.piece === "string" && !!flat(o.piece)));
 /** An answer's requirements as told, read strictly (`entriesOf`): the reply's facts' reading, and a stored answer's (`replayedCoverNote`). */
 export const toldEntries = (a) => entriesOf(a && a.requirementsTold, toldReads);
 /** …and what the change could not do, read the same way. */
@@ -517,7 +533,7 @@ function coverFacts(F, a, { out = null } = {}) {
   }
   for (const o of told) {
     const [kind, text] = TOLD_FACTS[toldAs(o, out)];
-    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "" }));
+    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}) }));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));
   const rest = out && out.database !== "applied" ? "" : said(a.coverOther);
@@ -746,6 +762,34 @@ function outcomeFacts(F, e) {
 }
 
 /**
+ * ONE FACT PER ROW CHANGE (2026-10-07), from `changes` (`dataChanges` in
+ * site-apply.mjs): which entry, each field, from what to what — the before
+ * side as the route read it, the after side as the database handed it back.
+ * A field the change left as it already was is said so; values the database
+ * did not hand back are said as written, never as read.
+ */
+function dataChangeFacts(F, list) {
+  const val = (v) => (v === null || v === undefined || v === "" ? "empty" : quote(v));
+  list.forEach((c, i) => {
+    const table = flat(c.table);
+    const unread = c.readBack === false || (Array.isArray(c.fields) && c.fields.some((f) => f && f.readBack === false));
+    const asWritten = unread ? " The database did not hand the entry back, so these are the values written, not values read back." : "";
+    if (c.added && typeof c.added === "object" && !Array.isArray(c.added)) {
+      const bits = Object.entries(c.added).map(([k, v]) => flat(k) + " " + val(v));
+      F.add("changed", "Added an entry to " + table + (bits.length ? ": " + bits.join(", ") : "") + "." + asWritten, "change:" + i);
+      return;
+    }
+    const fields = (Array.isArray(c.fields) ? c.fields : []).filter((f) => f && typeof f.column === "string");
+    const entry = c.label !== undefined && c.label !== null && flat(c.label) ? "the entry " + quote(c.label) : "an entry";
+    const moved = fields.filter((f) => f.same !== true).map((f) => flat(f.column) + " from " + val(f.was) + " to " + val(f.now));
+    const same = fields.filter((f) => f.same === true).map((f) => flat(f.column) + " was already " + val(f.now));
+    if (moved.length) F.add("changed", "Changed " + entry + " in " + table + ": " + moved.join("; ") + "." + asWritten, "change:" + i);
+    if (same.length) F.add("nothing", "Nothing to change for " + entry + " in " + table + ": " + same.join("; ") + ".", "change-same:" + i);
+    if (!moved.length && !same.length) F.add("changed", "Updated " + entry + " in " + table + "." + asWritten, "change:" + i);
+  });
+}
+
+/**
  * THE FACTS OF AN EDIT'S FINAL ANSWER — the edit route's, synchronous or a
  * queued job's stored one. `skip` says why no reply is written: an answer that
  * is not an ending, or a failure of ours that keeps its fixed sentence.
@@ -777,8 +821,15 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       const added = rest.filter((r) => r.id === undefined);
       const changed = rest.filter((r) => r.id !== undefined);
       const tables = (list) => [...new Set(list.map((r) => (typeof r.table === "string" ? r.table : "")).filter(Boolean))];
-      if (changed.length) F.add("changed", "Updated " + count(changed.length, "entry", "entries") + (tables(changed).length ? " in " + listOf(tables(changed)) : "") + ".");
-      if (added.length) F.add("changed", "Added " + count(added.length, "entry", "entries") + (tables(added).length ? " to " + listOf(tables(added)) : "") + ".");
+      // EACH CHANGE, FROM AND TO (2026-10-07): `changes` names the entry, each
+      // field, its value before (as read) and after (as the database kept it).
+      // An answer stored before it existed is told by count, as it always was.
+      const each = Array.isArray(e.changes) ? e.changes.filter((c) => c && typeof c === "object" && typeof c.table === "string") : [];
+      if (each.length) dataChangeFacts(F, each);
+      else {
+        if (changed.length) F.add("changed", "Updated " + count(changed.length, "entry", "entries") + (tables(changed).length ? " in " + listOf(tables(changed)) : "") + ".");
+        if (added.length) F.add("changed", "Added " + count(added.length, "entry", "entries") + (tables(added).length ? " to " + listOf(tables(added)) : "") + ".");
+      }
       gone.forEach((g, i) => {
         const w = g.was && typeof g.was === "object" ? g.was : null;
         const cols = w ? Object.keys(w).filter((k) => k !== "id" && w[k] != null && String(w[k]).trim()) : [];

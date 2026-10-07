@@ -137,7 +137,8 @@ test("JUDGE 2 — what a table does is read off the table as stored, one reader 
   const a = appliedFacts({ spec, tables: ["signups"] })[0];
   assert.deepEqual(a.parts, ["notify"]);
   assert.ok(!a.holds.includes("notify"), "a part reached the claim vocabulary");
-  assert.deepEqual(existingFacts({ spec }).items, [{ kind: "table", name: "signups", parts: ["notify"] }]);
+  // …AND ITS COLUMNS, each a carrier of its own (2026-10-07).
+  assert.deepEqual(existingFacts({ spec }).items, [{ kind: "table", name: "signups", parts: ["notify"], columns: ["email"] }]);
 });
 
 test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was shown, only things it was shown, every verdict from its own constants, nothing repaired — and every requirement it was shown is accounted for, with a verdict anybody can use or named as missing, and why", () => {
@@ -218,7 +219,9 @@ test("JUDGE 5 — the judgment's call: one tool, a question beside it, the rules
   assert.equal(item.properties.carried.enum, CARRIED);
   const entry = { id: "table#0", need: "Every signup is kept", basis: "needed", words: "leave their name", status: "covered", from: "table", kind: "table", item: "signups", junk: { x: 1 } };
   const items = judgeItems({ answers: [{ kind: "table", value: [table("signups", ["name", "email"], { confirm: { to: "email", subject: "s", body: "b" } })] }] });
-  assert.deepEqual(items.map((i) => i.id), ["table:signups", "table:signups:notify", "table:signups:confirm"]);
+  // …AND EACH COLUMN THIS REQUEST DESIGNED, its own item (2026-10-07); the
+  // `confirm` setting is the part already listed, never twice.
+  assert.deepEqual(items.map((i) => i.id), ["table:signups", "table:signups:notify", "table:signups:confirm", "table:signups.name", "table:signups.email"]);
   // EVERY KIND UNDER THE IDENTITY ITS APPLIED FACTS USE: a page by its route and
   // the photographs on it by placement; a photograph by its own name and its
   // page; what the site already has; and what a requirement names that is in

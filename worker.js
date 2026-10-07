@@ -191,7 +191,7 @@ import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 // why that is the whole point and what it reports instead.
 import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
-import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { runTextEdit, runDataEdit, dataChanges, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from "./builder/site-picture.mjs";
@@ -281,7 +281,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -25980,26 +25980,29 @@ async function handleRequest(request, env, ctx) {
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
+                // EACH WRITE HANDS ITS ROW BACK (2026-10-07, `RETURNING`): what
+                // the database kept is the after side the reply names
+                // (`dataChanges`), and a write that matched no row — the row
+                // gone since it was read — is not counted as a change made.
                 apply: async (c) => {
                   const name = String(c.table).replace(/"/g, "");
+                  const row = (rows) => (Array.isArray(rows) && rows[0] && typeof rows[0] === "object" && !Array.isArray(rows[0]) ? rows[0] : null);
                   // A REMOVAL. The id has already been checked against the rows
                   // the model was shown, so it cannot name one it never saw.
                   if (c.remove) {
-                    await sqlQuery(ddb, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
-                    return true;
+                    return !!row(await sqlQuery(ddb, "DELETE FROM \"" + name + "\" WHERE id = ? RETURNING id", [c.id]));
                   }
                   const cols = Object.keys(c.values);
                   // A NEW ROW: the one parameterised INSERT, shared with the
                   // add-on's `row` kind (2026-10-01) — the same statement,
-                  // spelled in one place.
+                  // spelled in one place. A statement that did not throw put
+                  // its row in, whatever came back.
                   if (c.id === undefined) {
                     const ins = insertStatement(name, c.values);
-                    await sqlQuery(ddb, ins.sql, ins.params);
-                    return true;
+                    return row(await sqlQuery(ddb, ins.sql + " RETURNING *", ins.params)) || true;
                   }
                   const sets = cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ");
-                  await sqlQuery(ddb, "UPDATE \"" + name + "\" SET " + sets + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
-                  return true;
+                  return row(await sqlQuery(ddb, "UPDATE \"" + name + "\" SET " + sets + " WHERE id = ? RETURNING *", [...cols.map((k) => c.values[k]), c.id])) || false;
                 },
                 // WHAT THE LAST EDIT DELETED, carried by the client because it
                 // is the only party that still has it — the row is gone from the
@@ -26089,6 +26092,11 @@ async function handleRequest(request, env, ctx) {
                 applied: dOut.applied.map((c) => (c.remove
                   ? { table: c.table, id: c.id, removed: true, was: c.was || null }
                   : { table: c.table, id: c.id, columns: Object.keys(c.values) })),
+                // WHAT EACH CHANGE WAS, FROM AND TO (2026-10-07): the entry,
+                // each field, its value before (as read) and after (as the
+                // database handed it back) — for the reply to name the change
+                // and not only the table. Beside `applied`, which stays as it was.
+                changes: (() => { const ch = dataChanges(dOut.applied, dTables); return ch.length ? ch : undefined; })(),
                 failed: dOut.failed,
                 cost: dBilled ? dCost : await eCharge(dOut.usage, dPub), usage: dOut.usage,
               });
@@ -30674,6 +30682,10 @@ async function handleRequest(request, env, ctx) {
             // loop ABOVE that line. The same trap, in the same route, found by
             // reading rather than by a throw this time.
             let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
+            // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07, the engine's
+            // `refusedRules`): a rule it could not put in place, a column it
+            // could not add. Read off the apply, so empty until it ran.
+            let aRefused = [];
             // …AND `aProvisioned` (2026-10-06): a failure's outcome says whether
             // a database was made for the site (`aFail`), and the first failure
             // that composes one is a refusal in the kinds loop — four hundred
@@ -30756,6 +30768,7 @@ async function handleRequest(request, env, ctx) {
               return appliedFacts({
                 spec: aSpec, tables: db ? aTables : [], altered: db ? aAltered : [],
                 functions: db ? aFunctions : [], apis: db ? aApis : [], jobs: db ? aJobs : [], fnErrors: db ? aFnErrors : [],
+                refused: db ? aRefused : [],
                 pages: failed ? [] : aShipped || [],
                 qrs: failed ? [] : (aLookMade && aLookMade.qrs) || [],
                 three: failed ? false : !!(aLookMade && aLookMade.three),
@@ -30924,6 +30937,9 @@ async function handleRequest(request, env, ctx) {
             // and whether the second answer gave one — on the record, so a
             // judgment that did not finish says what it left out.
             const aVerdictsMissing = [];
+            // HOW MANY ITEMS THE JUDGMENT'S LIST COULD NOT SHOW (2026-10-07):
+            // a bound on its input, counted for the record.
+            let aJudgeOver = 0;
             // ── A JUDGMENT THAT DID NOT FINISH STOPS THE ADDITION (2026-10-06) ──
             //
             // The owner: *"Require a valid verdict for every submitted
@@ -30938,7 +30954,9 @@ async function handleRequest(request, env, ctx) {
             const aUnfinished = "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.";
             const aJudge = async (entries, step = "") => {
               const final = !step;
-              const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries }) : [];
+              const aItemsShown = {};
+              const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries, report: aItemsShown }) : [];
+              aJudgeOver += Number(aItemsShown.over) || 0;
               const j = await runJudge({ send: aQuick("judge:" + (step || "final")) }, { message: aInstruction, entries, items, step, model: aModels.quick });
               // ONE CALL BILLED: the first. A second call finishing the model's
               // own answer is ours, and is counted on a mark of its own: a mark
@@ -30947,7 +30965,7 @@ async function handleRequest(request, env, ctx) {
               if (j.usage) aDesignUsage.push(j.usage);
               aMark("judge:" + (step || "final"), j.failed ? "fail" : "ok", {
                 entries: entries.length, items: items.length, verdicts: j.verdicts.size, invalid: j.invalid.length, asked: j.ask ? 1 : 0,
-                attempts: j.attempts || 0, missing: (j.missing || []).length,
+                attempts: j.attempts || 0, missing: (j.missing || []).length, over: Number(aItemsShown.over) || 0,
               });
               if (j.extraUsage) aMark("judge:" + (step || "final") + ":again", "ok", { in: j.extraUsage.in, out: j.extraUsage.out });
               for (const x of j.invalid) aVerdictsBad.push({ at: step || "final", ...x });
@@ -31031,6 +31049,9 @@ async function handleRequest(request, env, ctx) {
                 // fire for a table nobody asked to seed, because the engine
                 // only records a skip against the design's own seed keys.
                 seedSkipNote(aSeedSkips),
+                // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07): every
+                // column it could not add and every rule it could not put in.
+                refusedNote(aRefused),
                 // AND THE TABLE NOTHING CAN FILL. A report, never a refusal:
                 // a read-only table filled by a function, a job, an import or
                 // the owner is legitimate and stays silent. This fires only
@@ -31045,7 +31066,7 @@ async function handleRequest(request, env, ctx) {
               // the reply model was given them as one fact. `warningsTold` is
               // each thing on its own, from the same selections; `coverOther`
               // keeps only the two COUNTED sentences, which name no items.
-              const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill });
+              const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill, refused: aRefused });
               const aCounted = [aProps, aPartly].filter(Boolean);
               // ⚠ A FAILURE'S NOTE (2026-10-06): the requirements and the
               // change's own items, and the two counted sentences only beside
@@ -31525,6 +31546,7 @@ async function handleRequest(request, env, ctx) {
             const aRecord = (failed = null) => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ungrounded: aUngrounded, suggestions: aSuggested, suggestionsOver: aSuggestOver,
+              refusedRules: aRefused, judgeItemsOver: aJudgeOver,
               judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad, verdictsMissing: aVerdictsMissing,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
@@ -31866,6 +31888,7 @@ async function handleRequest(request, env, ctx) {
                 aApplied = true;
                 aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
                 aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice() : [];
+                aRefused = Array.isArray(aMade && aMade.refusedRules) ? aMade.refusedRules.slice() : [];
                 aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
                 // AND WHAT IT ASKED FOR, WHEN THE PLATFORM RUNS SOMETHING ELSE
                 // (2026-10-03, MW7): the applied interval is the engine's own,
@@ -32077,6 +32100,9 @@ async function handleRequest(request, env, ctx) {
                 added: [], changed: [], removed: [], moved: [],
                 functions: aFunctions, jobs: aJobs,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
+                // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07), by
+                // table, rule and column; its reason stays on the record.
+                refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,
                 jobErrors: aJobErrors.length ? aJobErrors : undefined,
                 provisioned: aProvisioned || undefined,
                 migration: migrationSummary(aMigration),
@@ -34120,6 +34146,7 @@ async function handleRequest(request, env, ctx) {
               apis: aApis.length ? aApis : undefined,
               jobs: aJobs.length ? aJobs : undefined,
               functionErrors: aFnErrors.length ? aFnErrors : undefined,
+              refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,
               // A JOB THAT WOULD NOT REGISTER, said as plainly as a function
               // that would not CREATE. Before this the reply said the job was
               // scheduled and nothing anywhere would ever run it.
