@@ -45,9 +45,16 @@ const SKIP = !HAVE && "no browser here (playwright-core and Chromium are not ins
 
 const ORIGIN = "https://gofarther.test";
 
-/** A preview long enough to scroll, with a form to type into; `v` marks which version is served. */
-const previewPage = (title, v) => "<!doctype html><html><head><title>" + title + "</title></head><body style='margin:0'>" +
+/**
+ * A preview long enough to scroll, with a form to type into. `v` is the
+ * address the page asked for; `published` is what the SERVER has published at
+ * the moment it serves — tracked by the server alone (2026-10-07, Codex's
+ * review: the content was checked against the count of reloads, so a frame
+ * reloaded at the wrong moment, or not at all, could still pass).
+ */
+const previewPage = (title, v, published) => "<!doctype html><html><head><title>" + title + "</title></head><body style='margin:0'>" +
   "<h1 id='v'>" + title + " — version " + v + "</h1>" +
+  "<p id='pub'>published " + published + "</p>" +
   "<div style='height:1600px;background:linear-gradient(#fff,#eee)'>a long page</div>" +
   "<form><label>Your name <input id='name' name='name'></label><label>A note <textarea id='note' name='note'></textarea></label></form>" +
   "<div style='height:1600px'>more page</div></body></html>";
@@ -61,16 +68,20 @@ const previewPage = (title, v) => "<!doctype html><html><head><title>" + title +
 async function openApp({ site, request = null, extraSites = [] }) {
   const frameLoads = [];
   let requestReads = 0;
-  let finished = false;
+  // HOW MANY PARTS HAVE PUBLISHED, IN ORDER — the server's own record of the
+  // site's latest published version, which the preview serves (`published`).
+  let done = 0;
   const view = () => {
+    const all = request ? request.parts.length : 0;
     const parts = request.parts.map((p, i) => ({
       n: i, words: p.words, charged: 0, route: p.route || "text",
-      ...(finished
+      ...(i < done
         ? { status: "done", ids: [p.job], jobs: [p.job] }
-        // PROGRESS WITHOUT A PUBLISH: the first part queued, then in progress; the second waits for it.
-        : { status: i === 0 ? (requestReads < 3 ? "queued" : "started") : "blocked", ids: [], jobs: [] }),
+        // PROGRESS WITHOUT A PUBLISH: the next part queued, then in progress; the ones after it wait for it.
+        : { status: i === done ? (requestReads < 3 && done === 0 ? "queued" : "started") : "blocked", ids: [], jobs: [] }),
     }));
-    return { key: request.key, state: finished ? "done" : "running", ended: finished, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0, parts };
+    const ended = done >= all;
+    return { key: request.key, state: ended ? "done" : "running", ended, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0, parts };
   };
   const browser = await chromium.launch({ executablePath: EXE });
   const ctx = await browser.newContext({ viewport: { width: 1320, height: 860 } });
@@ -89,7 +100,7 @@ async function openApp({ site, request = null, extraSites = [] }) {
       // EVERY LOAD OF A PREVIEW ADDRESS, as the browser asked for it.
       frameLoads.push({ host: url.hostname, path: url.pathname + url.search, at: Date.now() });
       const v = url.searchParams.get("v") || "?";
-      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: previewPage(hosts.get(url.hostname).name, v) });
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: previewPage(hosts.get(url.hostname).name, v, done) });
     }
     if (url.origin !== ORIGIN) return json(route, {});
     const p = url.pathname;
@@ -98,8 +109,8 @@ async function openApp({ site, request = null, extraSites = [] }) {
       if (request && p === "/api/site/requests/" + slug) return json(route, { ok: true, requests: [view()] });
       if (p.startsWith("/api/site/requests/")) return json(route, { ok: true, requests: [] });
       if (request && p === "/api/site/request/" + slug + "/" + request.key) { requestReads++; return json(route, { ok: true, request: view() }); }
-      const job = request && request.parts.find((x) => p === "/api/site/edit/" + x.job);
-      if (job) return finished ? json(route, job.answer, 200, { "x-gf-edit": "final" }) : json(route, { ok: true, status: "building" });
+      const at = request ? request.parts.findIndex((x) => p === "/api/site/edit/" + x.job) : -1;
+      if (at >= 0) return at < done ? json(route, request.parts[at].answer, 200, { "x-gf-edit": "final" }) : json(route, { ok: true, status: "building" });
       if (p === "/api/site/routes") {
         const s = [site, ...extraSites].find((x) => x.slug === url.searchParams.get("slug"));
         return json(route, { ok: true, slug: url.searchParams.get("slug"), routes: s ? s.pages.map((x) => x.path) : ["/"] });
@@ -136,7 +147,9 @@ async function openApp({ site, request = null, extraSites = [] }) {
   return {
     page, ctx, browser, errors, frameLoads, frame,
     reads: () => requestReads,
-    finish: () => { finished = true; },
+    // THE NEXT PART PUBLISHES (or the first `n`): the server's latest published version moves on.
+    publish: (n = done + 1) => { done = Math.min(n, request.parts.length); },
+    published: () => done,
     close: () => browser.close(),
     // THE FRAME ELEMENT'S IDENTITY: a mark set on the element itself, which a new element would not carry.
     markFrame: (m) => page.evaluate((mm) => { document.getElementById("stFrame").__keep = mm; }, m),
@@ -165,6 +178,7 @@ async function frameState(app) {
     name: document.getElementById("name").value,
     note: document.getElementById("note").value,
     version: document.getElementById("v").textContent,
+    published: Number((document.getElementById("pub").textContent.match(/published (\d+)/) || [])[1]),
   }));
 }
 const waitFor = async (app, cond, ms, what) => {
@@ -224,22 +238,31 @@ async function watchAndPublish({ site, request, path: at = "/" }) {
       state: await frameState(app),
       card: (await app.thread()).match(/In progress|Waiting for another part/g) || [],
     };
-    // THE PUBLISHES: each job's answer moves the preview on. Two applied before
-    // the page draws again are one load of the newer address — never a repeat.
-    app.finish();
-    // EVERY PART'S REPLY ON THE THREAD, and the frame's address loaded.
-    const replies = request.parts.map((p) => String(p.answer.reply).replace(/^✅ /, ""));
-    await waitFor(app, async () => {
-      const t = await app.thread();
-      const src = await app.src();
-      return replies.every((x) => t.includes(x)) && src !== start && loadsOf().includes(new URL(src).pathname + new URL(src).search);
-    }, 40000, "the last published change to load");
+    // THE PUBLISHES, ONE PART AT A TIME: the server's published version moves
+    // on, the page reads it and moves the preview — and the frame's CONTENT is
+    // checked against the server's own record of what is published, never
+    // against how many times the frame loaded or what address it was given.
+    const stages = [];
+    let last = start;
+    for (let k = 1; k <= request.parts.length; k++) {
+      app.publish(k);
+      const reply = String(request.parts[k - 1].answer.reply).replace(/^✅ /, "");
+      await waitFor(app, async () => {
+        const src = await app.src();
+        return (await app.thread()).includes(reply) && src !== last && loadsOf().includes(new URL(src).pathname + new URL(src).search);
+      }, 40000, "published change " + k + " to load");
+      last = await app.src();
+      await app.page.waitForTimeout(800);
+      stages.push({ published: app.published(), src: await app.src(), state: await frameState(app), mark: await app.frameMark() });
+    }
     await app.page.waitForTimeout(2500);
     const after = {
       mark: await app.frameMark(),
       loads: loadsOf().slice(loadsBefore),
       src: await app.src(),
       state: await frameState(app),
+      published: app.published(),
+      stages,
     };
     return { during, after, errors: app.errors, readsDuring: app.reads() - readsBefore };
   } finally {
@@ -269,11 +292,20 @@ test("KEEP 1 — a bakery's home page: the page reads its running request again 
   assert.equal(r.during.state.scroll, 900, "the preview's scroll was lost to a reading");
   assert.equal(r.during.state.name, "Ada Lovelace", "what was typed into the preview's form was lost to a reading");
   assert.equal(r.during.state.note, "Two loaves on Saturday, please.");
-  // EACH PUBLISHED CHANGE: one load, at a new address, in the same element, showing the new page.
+  assert.equal(r.during.state.published, 0, "the frame showed a version the server had not published");
+  // EACH PUBLISHED CHANGE, ONE AT A TIME: one load, at a new address, in the
+  // same element, SHOWING WHAT THE SERVER HAS PUBLISHED — its own record,
+  // never the count of loads.
+  assert.equal(r.after.stages.length, 2);
+  r.after.stages.forEach((st, i) => {
+    assert.equal(st.published, i + 1, "the server's record did not move on");
+    assert.equal(st.state.published, st.published, "after published change " + (i + 1) + " the frame shows version " + st.state.published + " while the server has published " + st.published);
+    assert.equal(st.mark, "kept-1", "a published change replaced the frame element rather than moving it");
+  });
   assert.equal(r.after.mark, "kept-1", "a published change replaced the frame element rather than moving it");
   assertNewerEachTime(r.after.loads, "/", 2, r.after.src);
-  assert.equal(r.after.src, site.url + "?v=" + r.after.loads.length, "a move did not load the frame once");
-  assert.match(r.after.state.version, new RegExp("version " + r.after.loads.length + "$"), "the frame does not show the newest address");
+  assert.equal(r.after.loads.length, 2, "a published change loaded the frame more or less than once: " + JSON.stringify(r.after.loads));
+  assert.equal(r.after.state.published, r.after.published, "the frame does not show the latest published version");
   assert.equal(r.after.state.name, "", "the frame did not load the new page");
 });
 
@@ -293,9 +325,13 @@ test("KEEP 2 — a teacher's site open on a page other than home: the frame stay
   assert.equal(r.during.mark, "kept-1");
   assert.deepEqual(r.during.loads, []);
   assert.deepEqual([r.during.state.scroll, r.during.state.name], [900, "Ada Lovelace"]);
+  assert.equal(r.during.state.published, 0);
   assertNewerEachTime(r.after.loads, "/lessons", 1, r.after.src);
-  assert.equal(r.after.src, site.url + "lessons?v=1");
+  assert.equal(new URL(r.after.src).pathname, "/lessons", "the published change moved the frame off the picked page");
   assert.equal(r.after.mark, "kept-1");
+  // THE CONTENT IS WHAT THE SERVER HAS PUBLISHED, on the page picked.
+  assert.equal(r.after.stages[0].state.published, 1, "the frame does not show the published change");
+  assert.equal(r.after.state.published, r.after.published);
 });
 
 test("KEEP 3 — a draft never published, drawn from stored HTML: repaints keep the frame and the page in it; Refresh still loads it afresh", { skip: SKIP, timeout: 90000 }, async () => {
