@@ -385,6 +385,27 @@ test("A QUEUED SUCCESS KEPT: the redraw throws after a stored success is said �
   assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], DONE);
 });
 
+// A JOB THAT ENDED WITH NO ANSWER OF ITS OWN, AFTER ITS TABLES WENT IN
+// (2026-10-07): the poll hands back the database record the server settled and
+// the note that says what stands (`endedEvidence` in worker.js, read through
+// the real poll route in failure-evidence-flow's DEAD cases). The watch prints
+// that note verbatim after its own sentence; with no note it says what it said.
+const ENDED_NOTE = "The database changes for this were made — now storing gallery_items — but the page didn't publish, so your site's pages are as they were.";
+test("AN ADDITION THAT DIED AFTER ITS TABLES WENT IN: the watch's ended sentence carries the server's own note of what stands, verbatim; with no note, the outcome's sentence alone", async () => {
+  const ended = (extra) => ({ status: 202, body: json({ ok: false, job: "job-a", status: "lost", ...extra }) });
+  const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [ended({ migration: { status: "applied_without_page" }, note: ENDED_NOTE })] } });
+  assert.deepEqual(o.trail, ["POST " + ADD, "GET /api/site/edit/job-a"]);
+  assert.equal(o.said.length, 1, JSON.stringify(o.said));
+  assert.ok(o.said[0].startsWith("⚠️ "), o.said[0]);
+  assert.ok(o.said[0].includes(" " + ENDED_NOTE), "the server's note of what stands was not said: " + o.said[0]);
+  assert.equal(o.busy, false);
+  // NO NOTE: the outcome's own sentence, and nothing about a database.
+  const plain = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [ended({})] } });
+  assert.equal(plain.said.length, 1);
+  assert.equal(plain.said[0], o.said[0].replace(" " + ENDED_NOTE, ""), "the sentence beside the note is not the one said without it");
+  assert.doesNotMatch(plain.said[0], /database/);
+});
+
 // THE WATCHER IS SHARED, so the latch's fix reaches the edit's own jobs too: a
 // stored edit reply that cannot be read is said in the edit's own sentence,
 // where the watch ended in silence and left the box busy for good.

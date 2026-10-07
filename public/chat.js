@@ -10292,7 +10292,9 @@ function siteJobFollow(origin, job) {
       c.view.ended = true;
       c.closed = true;
       draw();
-      siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));
+      // AND WHAT STANDS, IN THE SERVER'S OWN NOTE (2026-10-07): a job that
+      // died after an addition's database change went in says so.
+      siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : ''));
       stop();
       return;
     }
@@ -11140,7 +11142,10 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // reply this page holds (2026-09-25) — the sentence says neither.
     // AND WHAT WAS PUT OFF (2026-10-02, W7), from what the post carried: a job
     // that ended with no stored reply wrote nothing about it.
-    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
+    // AND WHAT STANDS, IN THE SERVER'S OWN NOTE (2026-10-07): a job that died
+    // after an addition's database change went in says so — printed
+    // verbatim, as a failure's `coverNote` is, never composed here.
+    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : '') + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
 }

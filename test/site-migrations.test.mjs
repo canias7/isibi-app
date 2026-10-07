@@ -23,7 +23,7 @@ import fs from "node:fs";
 import { hit, loadWorkerModule } from "./fixtures/worker-harness.mjs";
 import {
   MIGRATIONS_KEY, MAX_MIGRATIONS, MIGRATION_STATES, readMigrations, newMigration, withApplied,
-  upsertMigration, markMigration, pendingMigration, migrationNote, migrationSummary,
+  upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary,
 } from "../builder/site-migrations.mjs";
 import { unionSpec } from "../builder/site-add.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
@@ -394,18 +394,39 @@ test("the store: read and write are best-effort under the answer store's key, a 
   assert.match(settle, /await writeSiteMigrations\(env, slug, moved\.list\);/);
   const record = between(W, "async function recordSiteMigration(", "\n}\n", "recordSiteMigration");
   assert.match(record, /upsertMigration\(await readSiteMigrations\(env, slug\), entry\)/);
-  assert.match(W, /import \{ MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, migrationNote, migrationSummary \} from "\.\/builder\/site-migrations\.mjs";/);
-  // THE RECONCILE (stage 3b) settles a pending record by the verdict, after
-  // the money moved and the reply was stored, never throwing out of it.
+  assert.match(W, /import \{ MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary \} from "\.\/builder\/site-migrations\.mjs";/);
+  // THE RECONCILE (stage 3b) settles the job's record by the verdict, after
+  // the money moved — and, since 2026-10-07, BEFORE the reply is stored, so
+  // the reply carries what stands — never throwing out of it.
   const rec = between(W, "async function applyReconcile(", "\n}\n", "applyReconcile");
+  const money = at(rec, 'await editRpc(env, "edit_reconcile"', "the verdict's money");
   const finalize = at(rec, 'await editRpc(env, "edit_finalize"', "the finalize");
-  const mig = at(rec, "const mig = pendingMigration(await readSiteMigrations(env, row.slug), id);", "the record read");
-  assert.ok(finalize < mig, "the record is settled before the reply is stored");
-  assert.match(rec, /await settleSiteMigration\(env, row\.slug, id, out\.verdict === "kept" \? "applied" : "applied_without_page",\s*\{ version: \(out\.mine && out\.mine\.version\) \|\| mig\.version \|\| null, publish: \{ ok: out\.verdict === "kept", reconciled: out\.kind \} \}\);/,
-    "the verdict does not decide the record's state, or the version is not the job's own");
+  const mig = at(rec, "const entry = jobMigration(await readSiteMigrations(env, row.slug), id);", "the record read");
+  assert.ok(money < mig && mig < finalize, "the record is not settled between the money and the reply");
+  assert.match(rec, /const to = reconciledMigration\(entry, out\.verdict === "kept"\);/, "the verdict and the record's own evidence do not decide the record's state");
+  assert.match(rec, /await settleSiteMigration\(env, row\.slug, id, to,\s*\{ version: \(out\.mine && out\.mine\.version\) \|\| entry\.version \|\| null, publish: \{ ok: out\.verdict === "kept", reconciled: out\.kind \} \}\)/,
+    "the version is not the job's own");
+  assert.match(rec, /reconcileReply\(out, row, refunded, \{ prior, migration: migrationSummary\(mig\) \}\)/, "the reply is not given the settled record");
   assert.match(rec.slice(mig - 40, mig), /try \{\s*$/, "the record's settle is not inside its own try");
   assert.ok(rec.indexOf("catch (e) { console.error(\"reconcile: migration record\"", mig) > mig, "a record that cannot be written throws out of the verdict");
-  assert.ok(mig < at(rec, 'console.log("reconcile:", id, out.verdict', "the verdict log"), "the record is settled after the verdict is logged");
+});
+
+test("THE RECORD A VERDICT SETTLES (2026-10-07): live — applied, correcting a record the route's failure answer had marked without its page; not live — without its page only where the engine reported what it applied, failed where the apply never reported; another state is left as it was", () => {
+  const pending = newMigration({ job: ID, slug: SLUG, added: ["gear"] });
+  const reported = withApplied(pending, ["gear"]);
+  assert.equal(reconciledMigration(reported, true), "applied");
+  assert.equal(reconciledMigration(pending, true), "applied");
+  assert.equal(reconciledMigration({ ...reported, status: "applied_without_page" }, true), "applied", "a live page's record stayed without its page");
+  assert.equal(reconciledMigration(reported, false), "applied_without_page");
+  assert.equal(reconciledMigration(pending, false), "failed", "a table was claimed with no report of it from the engine");
+  for (const status of ["applied", "failed"]) {
+    assert.equal(reconciledMigration({ ...reported, status }, true), null);
+    assert.equal(reconciledMigration({ ...reported, status }, false), null);
+  }
+  assert.equal(reconciledMigration({ ...reported, status: "applied_without_page" }, false), null);
+  assert.equal(reconciledMigration(null, true), null);
+  assert.deepEqual(jobMigration([reported, { ...pending, job: ID0, status: "applied" }], ID0).status, "applied");
+  assert.equal(jobMigration([reported], "nope"), null);
 });
 
 test("the owner's route is read-only and gated as the answer route is; the image carries the module", () => {
@@ -523,6 +544,18 @@ test("DRIVEN — the reconcile settles a pending record by its verdict: kept mar
       assert.deepEqual(rpc.map((x) => x.fn), ["edit_reconcile", "edit_finalize"], "the record moved the money");
     } finally { restore(); }
   }
+  // REFUNDED, WITH NO REPORT FROM THE ENGINE ON THE RECORD: the apply is not
+  // known to have run, so the record fails rather than claim a table.
+  {
+    const unreported = [newMigration({ job: ID, slug: SLUG, added: ["gear"] })];
+    const b = site({ pointer: null, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify(unreported) } });
+    const restore = stubFetch({ rpcAnswers: RPC_OK });
+    try {
+      await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b1", version: V1 }) }, ID, row());
+      const mine = readMigrations(b.store.get(MIGRATIONS_KEY(SLUG))).find((m) => m.job === ID);
+      assert.equal(mine.status, "failed", "a table was claimed with no report of it from the engine");
+    } finally { restore(); }
+  }
   // REFUNDED: the site has no pointer, so this version was never activated.
   {
     const b = site({ pointer: null, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify(stored) } });
@@ -534,7 +567,9 @@ test("DRIVEN — the reconcile settles a pending record by its verdict: kept mar
       assert.deepEqual([mine.status, mine.version, mine.publish], ["applied_without_page", V2, { ok: false, reconciled: "never-activated" }]);
     } finally { restore(); }
   }
-  // A SETTLED RECORD IS LEFT ALONE, and a site with no record writes none.
+  // A RECORD THE ROUTE'S FAILURE MARKED WITHOUT ITS PAGE IS CORRECTED WHEN
+  // THE VERDICT FINDS THE PAGE LIVE (2026-10-07); one already applied is left
+  // alone, and a site with no record writes none.
   {
     const settled = [{ ...pendingFor(ID, V2), status: "applied_without_page", settledAt: "earlier" }];
     const b = site({ pointer: { version: V2, build: "b2", parent: V1, job: ID }, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify(settled) } });
@@ -542,10 +577,102 @@ test("DRIVEN — the reconcile settles a pending record by its verdict: kept mar
     try {
       const out = await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b2", version: V2 }) }, ID, row());
       assert.equal(out.verdict, "kept");
-      assert.equal(b.puts.filter((k) => k === MIGRATIONS_KEY(SLUG)).length, 0, "a settled record was written again");
+      const fixed = readMigrations(b.store.get(MIGRATIONS_KEY(SLUG))).find((m) => m.job === ID);
+      assert.deepEqual([fixed.status, fixed.version], ["applied", V2], "a live page's record stayed without its page");
+      const done = [{ ...pendingFor(ID, V2), status: "applied", settledAt: "earlier" }];
+      const b3 = site({ pointer: { version: V2, build: "b2", parent: V1, job: ID }, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify(done) } });
+      await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b3, SITE_WORKERS: namespace({ build: "b2", version: V2 }) }, ID, row());
+      assert.equal(b3.puts.filter((k) => k === MIGRATIONS_KEY(SLUG)).length, 0, "an applied record was written again");
       const b2 = site({ pointer: { version: V2, build: "b2", parent: V1, job: ID }, builds });
       await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b2, SITE_WORKERS: namespace({ build: "b2", version: V2 }) }, ID, row());
       assert.equal(b2.store.has(MIGRATIONS_KEY(SLUG)), false, "a site with no record got one");
+    } finally { restore(); }
+  }
+});
+
+// ── WHAT A VERDICT STORES FOR THE CUSTOMER (2026-10-07) ────────────────────
+//
+// After the publish gate, a route that failed is refunded or kept by the
+// reconcile, and the reply it stores replaced the route's own answer whole:
+// a refunded one dropped the outcome (tables made, live), the requirement
+// outcomes and the context its reply is written from, so the customer read
+// a fixed "never went live" sentence beside tables that had gone in; a kept
+// one left the route's ok:false answer on a row it had made published.
+
+const FAILED_AFTER_TABLES = {
+  ok: false, error: "compile", msg: "The page didn't publish.",
+  outcome: { state: "partial", published: false, database: "applied", tables: ["gear"] },
+  requirementsTold: [{ text: "keep a list of gear", told: "set-up" }], warningsTold: [],
+  replyFor: { kind: "addon", request: "Add a gear list", answers: [], slug: SLUG, pages: ["/"] },
+};
+const storedOf = (body) => ({ status: 409, type: "application/json", body: JSON.stringify(body) });
+const finalOf = (rpc) => { const f = rpc.filter((x) => x.fn === "edit_finalize"); return f.length ? JSON.parse(f[f.length - 1].args.p_result.body) : null; };
+
+test("VERDICT 1 — REFUNDED AFTER THE TABLES WENT IN: the stored reply keeps the route's outcome, its requirement outcomes and its reply context, and carries the record the verdict settled — the customer is told what stands, by the model, never only that nothing went live", async () => {
+  const mod = await loadWorkerModule();
+  const builds = [{ id: V2, parent: V1, job: ID, build: "b2" }];
+  const b = site({ pointer: null, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify([pendingFor(ID)]) } });
+  const rpc = [];
+  const restore = stubFetch({ rpcAnswers: RPC_OK }, rpc);
+  try {
+    const out = await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b1", version: V1 }) }, ID, row({ result: storedOf(FAILED_AFTER_TABLES) }));
+    assert.equal(out.verdict, "refunded");
+    const body = finalOf(rpc);
+    assert.deepEqual([body.ok, body.error, body.kind], [false, "reconciled", "never-activated"]);
+    assert.deepEqual(body.outcome, FAILED_AFTER_TABLES.outcome, "the route's outcome was dropped");
+    assert.deepEqual(body.requirementsTold, FAILED_AFTER_TABLES.requirementsTold);
+    assert.deepEqual(body.replyFor, FAILED_AFTER_TABLES.replyFor, "the context the reply is written from was dropped");
+    assert.deepEqual([body.migration.status, body.migration.tables], ["applied_without_page", ["gear"]]);
+    assert.doesNotMatch(body.msg, /still serving what it served before/, "the fixed sentence still says the whole site is as it was");
+    // THE REPLY'S OWN READER SEES WHAT STANDS.
+    const { outcomeOf } = await import("../builder/site-reply.mjs");
+    assert.equal(outcomeOf(body).database, "applied");
+  } finally { restore(); }
+});
+
+test("VERDICT 2 — KEPT OVER A FAILURE ANSWER: the change is live, so the route's ok:false answer is replaced by the recovered reply, and the record its failure marked without the page is corrected to applied", async () => {
+  const mod = await loadWorkerModule();
+  const builds = [{ id: V1, parent: "", job: ID0, build: "b1" }, { id: V2, parent: V1, job: ID, build: "b2" }];
+  const b = site({ pointer: { version: V2, build: "b2", parent: V1, job: ID }, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify([{ ...pendingFor(ID, V2), status: "applied_without_page" }]) } });
+  const rpc = [];
+  const restore = stubFetch({ rpcAnswers: RPC_OK }, rpc);
+  try {
+    const out = await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b2", version: V2 }) }, ID, row({ result: storedOf(FAILED_AFTER_TABLES) }));
+    assert.equal(out.verdict, "kept");
+    const body = finalOf(rpc);
+    assert.ok(body, "the failure answer was left on a row the verdict made published");
+    assert.deepEqual([body.ok, body.recovered, body.reconciled], [true, true, "landed"]);
+    assert.equal(body.migration.status, "applied");
+    assert.equal(readMigrations(b.store.get(MIGRATIONS_KEY(SLUG))).find((m) => m.job === ID).status, "applied");
+  } finally { restore(); }
+});
+
+test("VERDICT 3 — KEPT OVER A SUCCESS ANSWER keeps it, byte for byte; REFUNDED OVER A SUCCESS ANSWER keeps none of its claims, only its reply context and the settled record", async () => {
+  const mod = await loadWorkerModule();
+  const SUCCESS = { ok: true, kinds: ["table"], tables: ["gear"], requirementsTold: [{ text: "keep a list of gear", told: "set-up" }], replyFor: FAILED_AFTER_TABLES.replyFor };
+  const builds = [{ id: V1, parent: "", job: ID0, build: "b1" }, { id: V2, parent: V1, job: ID, build: "b2" }];
+  {
+    const b = site({ pointer: { version: V2, build: "b2", parent: V1, job: ID }, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify([pendingFor(ID, V2)]) } });
+    const rpc = [];
+    const restore = stubFetch({ rpcAnswers: RPC_OK }, rpc);
+    try {
+      await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b2", version: V2 }) }, ID, row({ result: storedOf(SUCCESS) }));
+      assert.equal(finalOf(rpc), null, "a kept success answer was replaced");
+      assert.equal(readMigrations(b.store.get(MIGRATIONS_KEY(SLUG))).find((m) => m.job === ID).status, "applied");
+    } finally { restore(); }
+  }
+  {
+    const b = site({ pointer: null, builds, extra: { [MIGRATIONS_KEY(SLUG)]: JSON.stringify([pendingFor(ID)]) } });
+    const rpc = [];
+    const restore = stubFetch({ rpcAnswers: RPC_OK }, rpc);
+    try {
+      await mod.reconcileEditJob({ ...ENV_KEYS, SITES_BUCKET: b, SITE_WORKERS: namespace({ build: "b1", version: V1 }) }, ID, row({ result: storedOf(SUCCESS) }));
+      const body = finalOf(rpc);
+      assert.deepEqual([body.ok, body.error], [false, "reconciled"]);
+      assert.equal(Object.hasOwn(body, "requirementsTold"), false, "a success answer's requirement outcomes were kept on a refund");
+      assert.equal(Object.hasOwn(body, "outcome"), false);
+      assert.deepEqual(body.replyFor, SUCCESS.replyFor);
+      assert.equal(body.migration.status, "applied_without_page");
     } finally { restore(); }
   }
 });

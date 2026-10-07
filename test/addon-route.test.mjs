@@ -1628,22 +1628,26 @@ test("a coverage composed before anything published cannot answer `absent` for a
     },
   });
   assert.equal(r.body.error, "compile", JSON.stringify(r.body));
-  const cov = storedAnswer(r, "fw-page-early").coverage;
+  // THE STORED RECORD IS RE-WRITTEN OVER THE FAILURE (2026-10-07): it used to
+  // keep the reading composed before the publish (`unknown`, cannot-tell)
+  // while the failure's own answer, composed once the publish had said no,
+  // told the page as still to do. The two now agree — the record reads the
+  // failure as the answer does, and carries its outcome and error — and a
+  // reading composed before the publish still never says `absent` (the
+  // re-anchored half of this case is the failure's own, below).
+  const stored = storedAnswer(r, "fw-page-early");
+  const cov = stored.coverage;
   const want = cov.requirements.find((q) => q.need === WANT.need);
-  assert.equal(want.implementation, "unknown", "a page step whose publish never ran answered about its own absence");
-  // RE-ANCHORED 2026-09-15: `unknown` is its own state now rather than a quiet
-  // `unverified`, and this case is exactly why — nothing was published, so
-  // nothing was set up, and the clause that says so must not be the one that
-  // opens *"I've set that up"*.
-  assert.equal(want.state, "unknown");
-  assert.equal(cov.counts.missing, 0, "work that was never attempted was reported as work that is not there");
+  assert.deepEqual([want.implementation, want.state], ["absent", "missing"], "the record and the failure's answer disagree about the page");
+  assert.deepEqual(stored.outcome, r.body.outcome);
+  assert.equal(stored.error, "compile");
+  assert.deepEqual(stored.requirementsTold, r.body.requirementsTold);
   // ⚠ AND THE FAILURE'S OWN ANSWER IS COMPOSED AFTER THE PUBLISH HAS SAID NO
   // (2026-10-06). This asserted the answer's note never said "Still to do",
   // when the compile exit carried no coverage at all. Every failure after the
   // design carries it now (`aFail`), composed once the failure is known: no
   // page went out, so the page the requirement asks for is not there — known,
-  // not unknown — and the note says it is still to do. The record above is
-  // composed before the publish and keeps the cannot-tell answer.
+  // not unknown — and the note says it is still to do; the record above says the same.
   assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" }, JSON.stringify(r.body.outcome));
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", WANT.need]]);
   assert.match(r.body.coverNote || "", /Still to do: A page lists the waiting list\./, r.body.coverNote);
@@ -6930,13 +6934,15 @@ test("a photograph cannot be reported absent before the publish has said anythin
   });
   assert.equal(r.body.ok, false, "the change was published — this case tests nothing: " + JSON.stringify(r.body));
   assert.equal(r.body.cost, 0, "a refused change was charged: " + JSON.stringify(r.body));
-  const q = storedAnswer(r, "fw-photo-early").coverage.requirements.find((x) => x.status === "elsewhere");
-  assert.equal(q.implementation, "unknown",
-    "a picture was reported absent before the publish could say anything: " + JSON.stringify(q));
-  assert.equal(q.state, "unknown");
+  // THE STORED RECORD IS RE-WRITTEN OVER THE REFUSAL (2026-10-07), so it
+  // reads what the refusal's own answer reads — nothing was placed — rather
+  // than the cannot-tell reading composed before the refusal was known.
+  const stored = storedAnswer(r, "fw-photo-early");
+  const q = stored.coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.deepEqual([q.implementation, q.state], ["absent", "missing"], "the record and the refusal's answer disagree about the picture: " + JSON.stringify(q));
+  assert.deepEqual(stored.outcome, r.body.outcome);
   // ⚠ AND THE REFUSAL'S OWN ANSWER SAYS IT IS NOT DONE (2026-10-06): composed
-  // once the refusal is known (`aFail`), it knows nothing was placed — the
-  // record above is composed before the refusal and keeps cannot-tell.
+  // once the refusal is known (`aFail`), it knows nothing was placed.
   assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" });
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", HANDOFF.need]]);
   assert.doesNotMatch(r.body.coverNote || "", /I've set that up/, r.body.coverNote);

@@ -233,10 +233,12 @@ test("cancel and budget are re-asked before the page call and before the publish
   const g2 = at(b, 'aJob.gate("build")', "build gate");
   assert.ok(g1 < gen, "the editing gate does not precede the page call");
   assert.ok(gen < g2 && g2 < pub, "the build gate is not between the page call and the publish");
-  // EACH ANSWERS THE CUSTOMER THROUGH THE ONE FUNCTION THAT REFUNDS.
+  // EACH ANSWERS THE CUSTOMER THROUGH THE ONE FUNCTION THAT REFUNDS — WITH
+  // WHAT STANDS (2026-10-07): the outcome its own evidence reads, so a stop
+  // after a database was made is never told as one that recorded nothing.
   for (const [i, name] of [[g1, "editing"], [g2, "build"]]) {
     const after = b.slice(i, i + 400);
-    assert.match(after, /return await editStopped\(env, \{ job: aJob, why: [^,]+, phase: "[a-z]+", trace: editTrace, ctx \}\)/, `the ${name} gate does not stop through editStopped`);
+    assert.match(after, /return await editStopped\(env, \{ job: aJob, why: [^,]+, phase: "[a-z]+", trace: editTrace, ctx, extra: aStopEvidence\(\) \}\)/, `the ${name} gate does not stop through editStopped with its evidence`);
   }
 });
 

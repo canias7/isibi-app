@@ -1,0 +1,451 @@
+[
+ {
+  "label": "CONTROL: a comment only in reconciledMigration — must survive",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "export function reconciledMigration(entry, live) {",
+  "to": "export function reconciledMigration(entry, live) { // comment-only control",
+  "control": true
+ },
+ {
+  "label": "VERDICT — kept never corrects a record the route marked without its page",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "if (live) return entry.status === \"pending\" || entry.status === \"applied_without_page\" ? \"applied\" : null;",
+  "to": "if (live) return entry.status === \"pending\" ? \"applied\" : null;"
+ },
+ {
+  "label": "VERDICT — tables the engine reported read as failed",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "return applied.length ? \"applied_without_page\" : \"failed\";",
+  "to": "return \"failed\";"
+ },
+ {
+  "label": "VERDICT — a table claimed with no engine report",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "return applied.length ? \"applied_without_page\" : \"failed\";",
+  "to": "return \"applied_without_page\";"
+ },
+ {
+  "label": "VERDICT — a settled record moved again",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "  if (entry.status !== \"pending\") return null;\n  const applied",
+  "to": "  const applied"
+ },
+ {
+  "label": "RECONCILE — the failure's evidence dropped",
+  "files": [
+   "builder/site-reconcile.mjs"
+  ],
+  "from": "export const FAILURE_EVIDENCE = Object.freeze([\"outcome\", \"requirementsTold\", \"warningsTold\", \"landed\"]);",
+  "to": "export const FAILURE_EVIDENCE = Object.freeze([]);"
+ },
+ {
+  "label": "RECONCILE — evidence kept from an answer that claimed success",
+  "files": [
+   "builder/site-reconcile.mjs"
+  ],
+  "from": "if (p && p.ok === false) for (const k of FAILURE_EVIDENCE)",
+  "to": "if (p) for (const k of FAILURE_EVIDENCE)"
+ },
+ {
+  "label": "RECONCILE — the reply context lost",
+  "files": [
+   "builder/site-reconcile.mjs"
+  ],
+  "from": "    if (p && p.replyFor && typeof p.replyFor === \"object\" && !Array.isArray(p.replyFor)) kept.replyFor = p.replyFor;\n",
+  "to": ""
+ },
+ {
+  "label": "RECONCILE — the settled record left off the kept reply",
+  "files": [
+   "builder/site-reconcile.mjs"
+  ],
+  "from": "build: (row && row.artifact_build) || null, ...mig })",
+  "to": "build: (row && row.artifact_build) || null })"
+ },
+ {
+  "label": "RECONCILE — the settled record left off the refunded reply",
+  "files": [
+   "builder/site-reconcile.mjs"
+  ],
+  "from": "body: JSON.stringify({ ...kept, ...mig, ok: false,",
+  "to": "body: JSON.stringify({ ...kept, ok: false,"
+ },
+ {
+  "label": "RECONCILE — a kept row keeps a failure answer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "} else if (!(out.verdict === \"kept\" && prior && prior.ok === true)) {",
+  "to": "} else if (!(out.verdict === \"kept\" && prior)) {"
+ },
+ {
+  "label": "RECONCILE — the record settled as if every verdict were kept",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const to = reconciledMigration(entry, out.verdict === \"kept\");",
+  "to": "const to = reconciledMigration(entry, true);"
+ },
+ {
+  "label": "RECONCILE — the reply written without the record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "reconcileReply(out, row, refunded, { prior, migration: migrationSummary(mig) })",
+  "to": "reconcileReply(out, row, refunded, { prior })"
+ },
+ {
+  "label": "RECONCILE — the prior answer not handed to the reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "reconcileReply(out, row, refunded, { prior, migration: migrationSummary(mig) })",
+  "to": "reconcileReply(out, row, refunded, { migration: migrationSummary(mig) })"
+ },
+ {
+  "label": "LEFT — landed steps not read",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (Array.isArray(body.landed) && body.landed.some((l) => typeof l === \"string\" && l.trim())) return \"partial\";\n",
+  "to": ""
+ },
+ {
+  "label": "LEFT — an empty landed note counted",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "body.landed.some((l) => typeof l === \"string\" && l.trim())",
+  "to": "body.landed.length"
+ },
+ {
+  "label": "LEFT — an unrecorded outcome read as standing",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "return o && o.recorded !== false && [\"partial\", \"unpublished\", \"unknown\"].includes(o.state) ? o.state : \"\";",
+  "to": "return o && [\"partial\", \"unpublished\", \"unknown\"].includes(o.state) ? o.state : \"\";"
+ },
+ {
+  "label": "LEFT — a success read as leaving something",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "if (!plain(body) || body.ok !== false) return \"\";",
+  "to": "if (!plain(body)) return \"\";"
+ },
+ {
+  "label": "RECORD — tables applied without the page read as nothing",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (m.status === \"applied_without_page\") return \"partial\";\n",
+  "to": ""
+ },
+ {
+  "label": "RECORD — an apply never heard from read as nothing",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (m.status === \"failed\") return \"unknown\";\n",
+  "to": ""
+ },
+ {
+  "label": "RECORD — the weaker reading wins",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "const strongerLeft = (a, b) => (LEFT_ORDER.indexOf(b) > LEFT_ORDER.indexOf(a || \"\") ? b : a || \"\");",
+  "to": "const strongerLeft = (a, b) => b || a || \"\";"
+ },
+ {
+  "label": "SETTLE — a stop after something went in told as before anything",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    const left = ans ? leftOf(ans.body) : \"\";\n    if (left) p.left = left;\n    return;\n",
+  "to": "    return;\n"
+ },
+ {
+  "label": "SETTLE — a dead job's record not kept across its retry",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    if (left) p.left = strongerLeft(p.left, left);\n",
+  "to": ""
+ },
+ {
+  "label": "SETTLE — a failure after part went live recorded as wholly failed",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    if (left === \"partial\") {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "SETTLE — the part done in part loses what it did not do",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "      p.notDone = [{ what: p.words, why: read.error || \"refused\" }];\n",
+  "to": ""
+ },
+ {
+  "label": "SETTLE — a failure that left something saved or unknown loses it",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    if (left) p.left = left;\n    return;\n  }\n  p.status = \"failed\"; p.why = \"unreadable\";",
+  "to": "    return;\n  }\n  p.status = \"failed\"; p.why = \"unreadable\";"
+ },
+ {
+  "label": "SETTLE — a finished retry keeps the first try's mark",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "    delete p.left;\n",
+  "to": ""
+ },
+ {
+  "label": "OUTCOME — a failure after part went live shown as not done",
+  "files": [
+   "builder/request.mjs"
+  ],
+  "from": "  if (ans && leftOf(ans.body) === \"partial\") return \"partial\";\n",
+  "to": ""
+ },
+ {
+  "label": "FACTS — a stopped part that left something told as before anything",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "} else if (p.status === \"cancelled\" && Object.hasOwn(LEFT_SAID, p.left)) {",
+  "to": "} else if (false) {"
+ },
+ {
+  "label": "FACTS — a failed part that left something told as plainly not done",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "} else if (p.status === \"failed\" && Object.hasOwn(LEFT_SAID, p.left)) {",
+  "to": "} else if (false) {"
+ },
+ {
+  "label": "FACTS — what is live said as saved",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  partial: \"after part of it had gone in and is live\",",
+  "to": "  partial: \"with part of it saved but not live\","
+ },
+ {
+  "label": "REPLY — the reader drops the answer's tag",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    ...(typeof raw.tag === \"string\" && /^[0-9a-f]{16}$/.test(raw.tag) ? { tag: raw.tag } : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "REPLY — a changed answer served the earlier reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (tag && at.rec && typeof at.rec.tag === \"string\" && at.rec.tag && at.rec.tag !== tag) {",
+  "to": "if (false) {"
+ },
+ {
+  "label": "REPLY — the background writer stores no tag",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }), { tag });",
+  "to": "return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }));"
+ },
+ {
+  "label": "REPLY — the settled record drops its tag",
+  "files": [
+   "worker.js"
+  ],
+  "from": "lease: undefined, retryAt: undefined, why: undefined, at: now, ...(tag ? { tag } : {}) };",
+  "to": "lease: undefined, retryAt: undefined, why: undefined, at: now };"
+ },
+ {
+  "label": "REPLY — the poll compares no stored answer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id, raw: res.body })",
+  "to": "await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id })"
+ },
+ {
+  "label": "REPLY — a reset reply never asked for",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (put) await sendReplyTask(env, { id: job, uid: String(uid || \"\") });\n    return pending;\n",
+  "to": "    return pending;\n"
+ },
+ {
+  "label": "STOP — the caller's evidence dropped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    ...(extra && typeof extra === \"object\" && !Array.isArray(extra) ? extra : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "STOP — the landed list dropped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    ...(landedList.length ? { landed: landedList } : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "STOP — the gates' evidence forgets a database made for the site",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const failed = failureOutcome({ database: \"none\", provisioned: aProvisioned });\n              return { ...aCoverage({ failed }), outcome: failed };",
+  "to": "const failed = failureOutcome({ database: \"none\", provisioned: false });\n              return { ...aCoverage({ failed }), outcome: failed };"
+ },
+ {
+  "label": "STOP — the publish gate's stop carries no evidence",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: \"build\", trace: editTrace, ctx, extra: aStopEvidence() });",
+  "to": "if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: \"build\", trace: editTrace, ctx });"
+ },
+ {
+  "label": "EDIT — the compile failure's landed list dropped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  ...(landed.length ? { landed } : {}),\n",
+  "to": ""
+ },
+ {
+  "label": "DOOR — the developer record keeps the pre-publish reading",
+  "files": [
+   "worker.js"
+  ],
+  "from": "try { coverage = aRecordFor ? aRecordFor(failed) : null; } catch (e) { coverage = null; }",
+  "to": "coverage = null;"
+ },
+ {
+  "label": "DOOR — the developer record loses the outcome",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                outcome: failed, error: typeof body.error === \"string\" ? body.error : \"\",\n",
+  "to": "                error: typeof body.error === \"string\" ? body.error : \"\",\n"
+ },
+ {
+  "label": "DOOR — the developer record is not written by the failure",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              await saveAddonAnswer(env, ownerSlug, {\n                message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage,\n                outcome: failed, error: typeof body.error === \"string\" ? body.error : \"\",\n                requirementsTold: told.requirementsTold, warningsTold: told.warningsTold,\n              });\n",
+  "to": ""
+ },
+ {
+  "label": "DOOR — the record composed against no failure",
+  "files": [
+   "worker.js"
+  ],
+  "from": "aRecordFor = (failed) => aRecord(failed);",
+  "to": "aRecordFor = () => aRecord();"
+ },
+ {
+  "label": "DOOR — the previous addition's record stands while this one is designed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: [], coverage: null, state: \"designing\" });\n",
+  "to": ""
+ },
+ {
+  "label": "ENDED — the record never settled",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    const to = reconciledMigration(entry, false);\n",
+  "to": "    const to = null;\n"
+ },
+ {
+  "label": "ENDED — no note",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const note = settled.status === \"applied_without_page\" ? migrationNote(settled) : settled.status === \"failed\" ? MIGRATION_UNKNOWN_NOTE : \"\";",
+  "to": "const note = \"\";"
+ },
+ {
+  "label": "ENDED — the poll reads no evidence",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const eLeft = (row.state === \"failed\" || row.state === \"lost\") && !row.needs_review ? await endedEvidence(env, row.slug, ejid) : null;",
+  "to": "const eLeft = null;"
+ },
+ {
+  "label": "ENDED — the driver hands the request no record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        if (answerless(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }\n",
+  "to": ""
+ },
+ {
+  "label": "PAGE — another device's ended sentence drops the note",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : ''));",
+  "to": "siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));"
+ },
+ {
+  "label": "PAGE — the own watch's ended sentence drops the note",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : '') + wholeRequestNote(",
+  "to": "finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote("
+ },
+ {
+  "label": "DOOR — a designer call that did not go through leaves the record designing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (ran.failed) { await aEnded(\"failed\"); return aDown(ran.error, \"The builder is busy — try again in a moment.\"); }",
+  "to": "              if (ran.failed) return aDown(ran.error, \"The builder is busy — try again in a moment.\");"
+ },
+ {
+  "label": "DOOR — a designer's question leaves the record designing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              await aEnded(\"asked\", aRecord());\n",
+  "to": ""
+ },
+ {
+  "label": "DOOR — the record's ending says no failure",
+  "files": [
+   "worker.js"
+  ],
+  "from": "coverage, state, ...(state === \"failed\" ? { error: \"send\" } : {}),",
+  "to": "coverage, state,"
+ }
+]

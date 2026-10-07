@@ -48,7 +48,12 @@ export const RECONCILE_KINDS = Object.freeze([
  * from the job's own row (`servedEditReply` in worker.js), which is the record
  * of whether the refund landed.
  */
-export const NEVER_LIVE_MSG = "That change stopped while it was being published and never went live — your site is still serving what it served before. Ask again.";
+//
+// ITS PAGES, NOT THE WHOLE SITE (2026-10-07): an addition's database changes
+// go in before its publish, and stand when the publish never goes live — so
+// "your site is still serving what it served before" said nothing changed
+// beside tables that had. What else stands is the reply's own facts' to say.
+export const NEVER_LIVE_MSG = "That change stopped while it was being published and never went live — your site's pages are as they were. Ask again.";
 /** …and the one for a change a later publish overtook before it could go live. */
 export const OVERTAKEN_MSG = "That change was overtaken: another change to this site was published before it could go live, so it was set aside. Ask again if you still want it.";
 
@@ -173,20 +178,51 @@ export function reconcileVerdict(facts = {}) {
 }
 
 /**
+ * WHAT A REFUNDED VERDICT'S REPLY KEEPS OF THE ROUTE'S OWN FAILURE ANSWER
+ * (2026-10-07): the evidence of what stands — the outcome its exit read off
+ * its own evidence, the requirement and warning outcomes told under it, and
+ * an edit's steps that went through outside the publish — which the verdict
+ * does not change: it says only that the publish never went live, and that
+ * failure answer said so too. Its claims about the publish are the verdict's
+ * now. Never kept from an answer that claimed success: those were told as if
+ * the page went out.
+ */
+export const FAILURE_EVIDENCE = Object.freeze(["outcome", "requirementsTold", "warningsTold", "landed"]);
+
+/** The answer a row stored before its verdict, read, or null. */
+export function storedAnswer(row) {
+  const r = row && row.result;
+  if (!r || typeof r !== "object" || typeof r.body !== "string") return null;
+  try { const b = JSON.parse(r.body); return b && typeof b === "object" && !Array.isArray(b) ? b : null; } catch { return null; }
+}
+
+/**
  * The reply stored for the customer, in the consumer's own stored shape.
  * A kept job gets the sweep's recovered reply (stage 2a) — the browser already
  * renders it as "published, the details were lost" — carrying which kind
  * decided it; a refunded one gets its sentence and the amount that came back.
  * Null for a verdict that stores nothing.
+ *
+ * AND WHAT STANDS (2026-10-07): the job's database record as the verdict
+ * settled it (`migration`, read by the reply's own `outcomeOf`), and on a
+ * refunded verdict the route's own evidence (`FAILURE_EVIDENCE`) and the
+ * context its reply is written from (`replyFor`) — so a refund after the
+ * tables went in is never told as a change that left the site as it was,
+ * and the customer's reply is the model's, from those facts.
  */
-export function reconcileReply(out, row, refunded = 0) {
+export function reconcileReply(out, row, refunded = 0, { prior = null, migration = null } = {}) {
   const job = String((row && row.id) || "");
+  const mig = migration && typeof migration === "object" && !Array.isArray(migration) ? { migration } : {};
   if (out && out.verdict === "kept") {
-    return { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, reconciled: out.kind, job, cost: Number(row && row.cost) || 0, build: (row && row.artifact_build) || null }) };
+    return { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, reconciled: out.kind, job, cost: Number(row && row.cost) || 0, build: (row && row.artifact_build) || null, ...mig }) };
   }
   if (out && out.verdict === "refunded") {
     const msg = out.kind === "superseded-not-built-on" ? OVERTAKEN_MSG : NEVER_LIVE_MSG;
-    return { status: 409, type: "application/json", body: JSON.stringify({ ok: false, error: "reconciled", kind: out.kind, job, refunded: Number(refunded) || 0, msg }) };
+    const p = prior && typeof prior === "object" && !Array.isArray(prior) ? prior : null;
+    const kept = {};
+    if (p && p.ok === false) for (const k of FAILURE_EVIDENCE) if (Object.hasOwn(p, k)) kept[k] = p[k];
+    if (p && p.replyFor && typeof p.replyFor === "object" && !Array.isArray(p.replyFor)) kept.replyFor = p.replyFor;
+    return { status: 409, type: "application/json", body: JSON.stringify({ ...kept, ...mig, ok: false, error: "reconciled", kind: out.kind, job, refunded: Number(refunded) || 0, msg }) };
   }
   return null;
 }

@@ -170,8 +170,8 @@ import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, image
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
-import { reconcileVerdict, reconcileReply, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
-import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
+import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
+import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
 //
 // Twenty-one names were imported here from `site-tokens.mjs` and
@@ -258,7 +258,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
   nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
-  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome,
+  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
@@ -6583,9 +6583,10 @@ async function claimReply(env, key, now) {
  * failed for good (`final`), or once the tries are spent; otherwise waiting
  * for its next try, whose message is sent now with its wait.
  */
-async function settleReply(env, key, claim, task, out) {
+async function settleReply(env, key, claim, task, out, { tag = "" } = {}) {
   const now = Date.now();
-  const base = { ...claim.rec, attempts: claim.attempt, lease: undefined, retryAt: undefined, why: undefined, at: now };
+  // WHICH STORED ANSWER THIS REPLY WAS WRITTEN FROM (`replyTag`, 2026-10-07).
+  const base = { ...claim.rec, attempts: claim.attempt, lease: undefined, retryAt: undefined, why: undefined, at: now, ...(tag ? { tag } : {}) };
   if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text }, claim.etag);
   if (out.skip) return putReplyRecord(env, key, { ...base, state: "none", why: String(out.skip).slice(0, 40) }, claim.etag);
   const why = String(out.why || "send").slice(0, 40);
@@ -6635,10 +6636,22 @@ async function writeJobReply(env, task) {
   if (row.needs_review) return settleReply(env, key, claim, task, { ok: false, why: "under-review", final: true });
   let body = null;
   try { body = JSON.parse(servedEditReply(row, res.body)); } catch { body = null; }
+  const tag = await replyTag(res.body);
   const replyFor = body && typeof body === "object" && !Array.isArray(body) ? body.replyFor : null;
-  if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" });
+  if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" }, { tag });
   const { replyFor: _context, ...rest } = body;
-  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }));
+  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }), { tag });
+}
+
+/**
+ * WHICH STORED ANSWER A REPLY WAS WRITTEN FROM (2026-10-07): a short hash of
+ * the row's stored body, kept on the reply record. A job's stored answer can
+ * be replaced after its reply was written — the reconcile settles a publish
+ * that stopped part-way and stores its own reply over the route's — and a
+ * reply written from the earlier answer is never served as the later one's.
+ */
+async function replyTag(raw) {
+  return typeof raw === "string" && raw ? (await sha256hex("reply-body:" + raw)).slice(0, 16) : "";
 }
 
 /**
@@ -6660,7 +6673,7 @@ async function writeJobReply(env, task) {
  * not asked for one now — one from before replies were written this way,
  * read again long after; one whose end cannot be told is asked for, once.
  */
-async function servedModelReply(env, job, text, { uid = "" } = {}) {
+async function servedModelReply(env, job, text, { uid = "", raw = "" } = {}) {
   let body;
   try { body = JSON.parse(text); } catch { return text; }
   if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "replyFor")) return text;
@@ -6679,6 +6692,20 @@ async function servedModelReply(env, job, text, { uid = "" } = {}) {
   const now = Date.now();
   const at = await replyRecordAt(env, key);
   if (!at.read) return pending;
+  // A REPLY WRITTEN FROM ANOTHER STORED ANSWER OF THIS JOB (2026-10-07): the
+  // answer was replaced since — a reconcile's over the route's — so the reply
+  // is asked for again from the one stored now, never served for it.
+  // Made afresh and asked for at once, as `askReply` makes and asks for a new one.
+  const tag = await replyTag(raw);
+  if (tag && at.rec && typeof at.rec.tag === "string" && at.rec.tag && at.rec.tag !== tag) {
+    if (read.skip || !read.facts.length) {
+      await putReplyRecord(env, key, { state: "none", attempts: 0, asked: now, at: now, tag, why: String(read.skip || "no-facts").slice(0, 40) }, at.etag);
+      return plain;
+    }
+    const put = await putReplyRecord(env, key, { state: "pending", attempts: 0, asked: now, at: now, tag }, at.etag);
+    if (put) await sendReplyTask(env, { id: job, uid: String(uid || "") });
+    return pending;
+  }
   const next = replyNext(at.rec, now);
   if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text));
   if (next === "failed") return failed;
@@ -10274,6 +10301,30 @@ const writeSiteMigrations = async (env, slug, list) => {
  * statement the engine emits is additive or `IF NOT EXISTS`.
  */
 const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us. Your live pages weren't changed, but some of the database change may already have gone in before it stopped; asking again won't make anything twice. Try again in a few minutes.";
+/** A job that died with no answer of its own after its database record was filed, and before the engine reported what it applied (2026-10-07). */
+const MIGRATION_UNKNOWN_NOTE = "It had begun changing the site's database, and some of that change may already have gone in before it stopped; asking again won't make anything twice.";
+
+/**
+ * WHAT STANDS AFTER A JOB THAT ENDED WITH NO ANSWER OF ITS OWN (2026-10-07):
+ * its consumer threw, or its lease ran out, after an addition had filed its
+ * database record. The record is settled from its own evidence
+ * (`reconciledMigration`: without its page where the engine reported what it
+ * applied, failed where it never did) and handed back with the note that
+ * says it — so neither the page nor the request tells such a job as one that
+ * changed nothing. Null for a job with no record (an edit, or an addition
+ * that never reached its database), or one that cannot be read.
+ */
+async function endedEvidence(env, slug, id) {
+  if (!env || !env.SITES_BUCKET || typeof slug !== "string" || !slug) return null;
+  try {
+    const entry = jobMigration(await readSiteMigrations(env, slug), id);
+    if (!entry) return null;
+    const to = reconciledMigration(entry, false);
+    const settled = to ? ((await settleSiteMigration(env, slug, id, to, { publish: { ok: false, ended: "no-answer" } })) || { ...entry, status: to }) : entry;
+    const note = settled.status === "applied_without_page" ? migrationNote(settled) : settled.status === "failed" ? MIGRATION_UNKNOWN_NOTE : "";
+    return { migration: migrationSummary(settled), note };
+  } catch (e) { console.error("ended job: migration record", id, errorClassForLog(e)); return null; }
+}
 /** File a fresh `pending` record for this job — replacing an earlier record of the same job — and answer it. */
 async function recordSiteMigration(env, slug, entry) {
   const list = upsertMigration(await readSiteMigrations(env, slug), entry);
@@ -14683,7 +14734,7 @@ const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
  * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
  * lost across four separate failure branches.
  */
-async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false, landed = [] }) {
+async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false, landed = [], extra = null }) {
   const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
   try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
   const review = !!(r && r.error === "needs-review");
@@ -14692,7 +14743,15 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
   // when that restore failed the change is still saved, unpublished, and the
   // next edit would ship it — which the customer is owed before that happens.
   const keptNote = kept && !review ? KEPT_CHANGE_NOTE : "";
+  // WHAT ALREADY WENT THROUGH, AS A LIST AS WELL AS IN WORDS (2026-10-07), so
+  // the request and the reply read it (`leftOf`) rather than parse a sentence.
+  const landedList = (Array.isArray(landed) ? landed : []).filter((n) => typeof n === "string" && n);
   return Response.json({
+    // AND THE CALLER'S OWN EVIDENCE OF WHAT STANDS (2026-10-07, `extra`): an
+    // addition's outcome and requirement outcomes at its gates, read off the
+    // same evidence its failures carry; never the fields below.
+    ...(extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {}),
+    ...(landedList.length ? { landed: landedList } : {}),
     ok: false,
     error: why,
     phase,
@@ -14921,29 +14980,38 @@ async function applyReconcile(env, row, outIn, refundedHint = 0) {
       console.error("reconcile:", id, out.verdict, "(" + out.kind + ") could not be applied —", String((r && r.error) || "rpc"));
       return { ...out, applied: false, error: String((r && r.error) || "rpc") };
     }
-    const hasReply = !!(row.result && typeof row.result === "object" && typeof row.result.body === "string");
+    const prior = storedAnswer(row);
     const refunded = Number(r.refunded) || refundedHint || 0;
+    // THE MIGRATION RECORD FOLLOWS THE VERDICT (stage 8) — AND NOW FIRST
+    // (2026-10-07), so the reply below carries what stands. An addon that
+    // applied its schema and then died between the seam and its own mark
+    // left the record `pending`; the verdict is the same fact the route would
+    // have marked with — the page is live (`applied`) or it is not — and the
+    // tables are claimed only from the engine's own report on the record
+    // (`reconciledMigration`). A kept verdict also corrects a record the
+    // route's own failure answer marked `applied_without_page`. Best-effort,
+    // after the money: a record that cannot be written never undoes a verdict.
+    let mig = null;
+    try {
+      const entry = jobMigration(await readSiteMigrations(env, row.slug), id);
+      const to = reconciledMigration(entry, out.verdict === "kept");
+      mig = entry;
+      if (to) {
+        mig = (await settleSiteMigration(env, row.slug, id, to,
+          { version: (out.mine && out.mine.version) || entry.version || null, publish: { ok: out.verdict === "kept", reconciled: out.kind } })) || entry;
+      }
+    } catch (e) { console.error("reconcile: migration record", id, String((e && e.message) || e)); }
     if (typeof compose === "function") {
       const own = compose(refunded);
       if (own) await editRpc(env, "edit_finalize", { p_id: id, p_result: own, p_ok: out.verdict === "kept" });
     } else if (out.verdict === "refunded" && keepsRowReply(row)) {
       // THE ROW STEP SAID NOTHING WAS ADDED, AND WHY: its reply stands.
-    } else if (!(out.verdict === "kept" && hasReply)) {
-      await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, refunded), p_ok: out.verdict === "kept" });
+    } else if (!(out.verdict === "kept" && prior && prior.ok === true)) {
+      // A KEPT VERDICT KEEPS ONLY A SUCCESS ANSWER (2026-10-07): a failure the
+      // route answered after the publish gate is overturned — the change is
+      // live — and is never left standing on a row the verdict made published.
+      await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, refunded, { prior, migration: migrationSummary(mig) }), p_ok: out.verdict === "kept" });
     }
-    // THE MIGRATION RECORD FOLLOWS THE VERDICT (stage 8). An addon that
-    // applied its schema and then died between the seam and its own mark
-    // left the record `pending`; the verdict is the same fact the route would
-    // have marked with — the page is live (`applied`) or it is not
-    // (`applied_without_page`, the tables standing either way). Best-effort,
-    // after the money: a record that cannot be written never undoes a verdict.
-    try {
-      const mig = pendingMigration(await readSiteMigrations(env, row.slug), id);
-      if (mig) {
-        await settleSiteMigration(env, row.slug, id, out.verdict === "kept" ? "applied" : "applied_without_page",
-          { version: (out.mine && out.mine.version) || mig.version || null, publish: { ok: out.verdict === "kept", reconciled: out.kind } });
-      }
-    } catch (e) { console.error("reconcile: migration record", id, String((e && e.message) || e)); }
     console.log("reconcile:", id, out.verdict, "(" + out.kind + ") —", out.why, out.verdict === "refunded" ? "refunded " + String(Number(r.refunded) || 0) : "");
     return { ...out, applied: true, refunded: Number(r.refunded) || 0 };
   }
@@ -15388,6 +15456,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
           try { const obj = await env.SITES_BUCKET.get(resultKey(id)); if (obj) row.build = readResult(JSON.parse(await obj.text())); }
           catch { /* read again on the next step */ }
         }
+        // A JOB THAT ENDED WITH NO ANSWER, WITH WHAT ITS DATABASE RECORD SAYS
+        // STANDS (2026-10-07), so its part is never told as one that changed nothing.
+        if (answerless(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
         rows[id] = row;
       }
       const { record, file } = nextStep(base, rows, Date.now());
@@ -23280,7 +23351,7 @@ async function handleRequest(request, env, ctx) {
         // them above the reply (`withProgressLines`).
         // AND ITS OWN OUTCOME (2026-10-06, `editJobOutcome`), so a card on another
         // device says what really happened rather than reading `ok` alone.
-        return new Response(await withProgressLines(env, ejid, eu.id, await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id }), row), {
+        return new Response(await withProgressLines(env, ejid, eu.id, await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id, raw: res.body }), row), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),
@@ -23295,10 +23366,16 @@ async function handleRequest(request, env, ctx) {
       // record, never written by this read; none with progress off.
       const eProg = await progressViewFor(env, ejid, eu.id);
       const eLines = eProg.lines;
+      // A JOB THAT ENDED WITH NO ANSWER, AND WHAT ITS DATABASE RECORD SAYS
+      // STANDS (2026-10-07, `endedEvidence`): handed back with its note, which
+      // the page prints after its own sentence.
+      const eLeft = (row.state === "failed" || row.state === "lost") && !row.needs_review ? await endedEvidence(env, row.slug, ejid) : null;
       return Response.json({
         ok: row.state !== "failed" && row.state !== "lost",
         job: ejid,
         status: row.state,
+        migration: eLeft ? eLeft.migration : undefined,
+        note: eLeft && eLeft.note ? eLeft.note : undefined,
         phase: row.phase || undefined,
         progress: eLines.length ? eLines : undefined,
         said: eProg.said || undefined,
@@ -29064,7 +29141,9 @@ async function handleRequest(request, env, ctx) {
                   // below and for its reason: a name is a class and cannot be a
                   // secret, a message can quote the request. `phase` is one of OUR
                   // own step names, so it is safe to send and it is the whole point.
+                  const vLanded = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);
                   return Response.json({
+                    ...(vLanded.length ? { landed: vLanded } : {}),
                     // WHAT THIS REQUEST'S LEDGER HOLDS: the synchronous path
                     // collected at each rung and nothing gives it back here; a
                     // job's reserves are the consumer's to refund, and the poll
@@ -29073,7 +29152,7 @@ async function handleRequest(request, env, ctx) {
                     msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
                       "it right, so nothing was published." +
                       (kept ? KEPT_CHANGE_NOTE : "") +
-                      landedSaid(done.filter((d) => !d.failed).map((d) => landedNote(d.body))),
+                      landedSaid(vLanded),
                     kind: String((e && e.name) || "Error").slice(0, 40),
                     phase: cssFixed ? "republish" : "correct",
                     dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.slice(0, 4) : undefined,
@@ -29125,6 +29204,7 @@ async function handleRequest(request, env, ctx) {
                 // (2026-09-25; see `landedNote`).
                 const landed = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);
                 return Response.json({
+                  ...(landed.length ? { landed } : {}),
                   ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: eJob ? 0 : syncKept,
                   msg: compileMsg(finalPub, landed.length
                     ? "That didn't compile, so the rest of it wasn't published."
@@ -31073,13 +31153,37 @@ async function handleRequest(request, env, ctx) {
             // The exit's own fields win over the coverage's (a QR refusal's
             // `missingPages`), and execution, charging and retries are the
             // exit's, untouched: this only says what happened.
-            const aFail = (body, status, { database = "none", saved = false, photos = 0 } = {}) => {
+            // THE REQUIREMENT RECORD READ UNDER A FAILURE, once it can be (`aRecord`, below).
+            let aRecordFor = null;
+            const aFail = async (body, status, { database = "none", saved = false, photos = 0 } = {}) => {
               const failed = failureOutcome({
                 database,
                 made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions, apis: aApis, jobs: aJobs.map((j) => j && j.name) },
                 provisioned: aProvisioned, saved, photos,
               });
-              return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body, outcome: failed }, { status });
+              const told = aCoverage({ failed, said: body.msg });
+              // THE DEVELOPER RECORD, RE-WRITTEN OVER THE FAILURE (2026-10-07):
+              // it kept the reading composed before the publish (cannot-tell for
+              // the page) while this answer said not done, and a failure before
+              // the first save left the previous addition's record standing. It
+              // now holds what this answer holds — the outcome, the error, the
+              // requirement outcomes told under it. Never fatal.
+              let coverage = null;
+              try { coverage = aRecordFor ? aRecordFor(failed) : null; } catch (e) { coverage = null; }
+              await saveAddonAnswer(env, ownerSlug, {
+                message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage,
+                outcome: failed, error: typeof body.error === "string" ? body.error : "",
+                requirementsTold: told.requirementsTold, warningsTold: told.warningsTold,
+              });
+              return Response.json({ ...told, ...body, outcome: failed }, { status });
+            };
+            // A STOP AT ONE OF THE JOB'S GATES (2026-10-07): before the publish
+            // seam, so nothing of the apply ran — but a database may have been
+            // made for the site — read off the same evidence `aFail` reads, so
+            // the stop is never told as one that recorded nothing.
+            const aStopEvidence = () => {
+              const failed = failureOutcome({ database: "none", provisioned: aProvisioned });
+              return { ...aCoverage({ failed }), outcome: failed };
             };
             // A DESIGNER THAT ASKED (2026-10-02): its kind and its question.
             let aStepAsk = null;
@@ -31088,6 +31192,20 @@ async function handleRequest(request, env, ctx) {
             // take, read off that list itself — in order.
             const aDesigning = aKinds.filter((k) => !aSkipped.includes(k));
             if (aJob && aJob.progress) aJob.progress.mark("picked", addonPickedFacts(aDesigning));
+            // THIS ADDITION'S RECORD FROM ITS FIRST DESIGN ON (2026-10-07): the
+            // one-per-site developer record said the previous addition's story
+            // whenever this one ended before its first save (a designer's call
+            // that failed, a designer that refused). It now says this one is
+            // being designed, until a save or a failure says more.
+            await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: [], coverage: null, state: "designing" });
+            // …AND HOW IT ENDED, WHERE IT ENDS WITHOUT A LATER SAVE (2026-10-07):
+            // a design or judgment call that did not go through, and a question
+            // back, are written onto this addition's record with what it holds
+            // so far — so the record never says "designing" of an addition that
+            // has ended, and the job's answer and the record tell one story.
+            const aEnded = (state, coverage = null) => saveAddonAnswer(env, ownerSlug, {
+              message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage, state, ...(state === "failed" ? { error: "send" } : {}),
+            });
             for (const k of aKinds) {
               // THE SAME READER THE SET-ASIDE LIST USED, so a kind cannot be
               // skipped there and designed here (or the reverse).
@@ -31109,7 +31227,7 @@ async function handleRequest(request, env, ctx) {
               const aHanding = (handoffsByStep(aReq)[k] || []).filter((r) => !r.judged);
               if (aHanding.length) {
                 const jh = await aJudge(aHanding, k);
-                if (jh.failed) return aDown(jh.error, jh.incomplete ? aUnfinished : "The builder is busy — try again in a moment.");
+                if (jh.failed) { await aEnded("failed"); return aDown(jh.error, jh.incomplete ? aUnfinished : "The builder is busy — try again in a moment."); }
                 if (jh.ask) { aStepAsk = { kind: k, ask: jh.ask }; break; }
               }
               const aBrief = requirementBrief(aReq.filter((r) => r.judged), k);
@@ -31146,7 +31264,7 @@ async function handleRequest(request, env, ctx) {
               for (const r of Array.isArray(ran.reqSkipped) ? ran.reqSkipped : []) aReqSkipped.push(r);
               aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined, needs: aGround.list.length, ungrounded: aGround.ungrounded.length, suggested: (ran.suggestions || []).length, asked: ran.ask ? 1 : 0 });
               if (ran.usage) aDesignUsage.push(ran.usage);
-              if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
+              if (ran.failed) { await aEnded("failed"); return aDown(ran.error, "The builder is busy — try again in a moment."); }
               aKept.push({ kind: k, answered: ran.value !== undefined, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
               // ── A DESIGNER ASKED (2026-10-02) ────────────────────────────
               //
@@ -31394,13 +31512,13 @@ async function handleRequest(request, env, ctx) {
             // the apply has landed, so the stored record says what really
             // became of each requirement rather than what it looked like
             // before a single statement reached Postgres.
-            const aRecord = () => requirementRecord({
+            const aRecord = (failed = null) => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ungrounded: aUngrounded, suggestions: aSuggested,
               judged: true, setAside: aSetAside, verdictsInvalid: aVerdictsBad, verdictsMissing: aVerdictsMissing,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
-              made: aMade(), reportable: aReportable(), existing: aExisting(),
+              made: aMade(failed), reportable: aReportable(failed), existing: aExisting(),
               unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
               // AND THE FIELDS BINNED INSIDE AN ITEM THAT WAS BUILT, by name.
@@ -31420,6 +31538,7 @@ async function handleRequest(request, env, ctx) {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
               catch (e) { console.error("addon answer save failed:", ownerSlug, e && e.message); }
             };
+            aRecordFor = (failed) => aRecord(failed);
             // ── THE LAST JUDGMENT, WITH EVERYTHING DESIGNED IN VIEW (2026-10-05) ──
             //
             // Before anything is applied or charged, so a judgment that fails
@@ -31429,13 +31548,14 @@ async function handleRequest(request, env, ctx) {
             const aFinalJudge = !aStepAsk && aReq.length ? await aJudge(aReq.slice()) : null;
             if (aFinalJudge && aFinalJudge.ask) aStepAsk = { kind: "requirements", ask: aFinalJudge.ask };
             await aSaveAnswer();
-            if (aFinalJudge && aFinalJudge.failed) return aDown(aFinalJudge.error, aFinalJudge.incomplete ? aUnfinished : "The builder is busy — try again in a moment.");
+            if (aFinalJudge && aFinalJudge.failed) { await aEnded("failed", aRecord()); return aDown(aFinalJudge.error, aFinalJudge.incomplete ? aUnfinished : "The builder is busy — try again in a moment."); }
             // THE QUESTION IS THE ADDITION'S ANSWER: kept by the route's ending
             // (`askReport`), with this whole request as what its answer resumes.
             // Nothing was designed into the site, applied or charged for it —
             // and the designers' calls are ours, as on every way a step asks.
             if (aStepAsk) {
               aAskOut.request = aInstruction;
+              await aEnded("asked", aRecord());
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: aStepAsk.kind, cost: 0, unchanged: true, ask: aStepAsk.ask, msg: aStepAsk.ask.text });
             }
             if (!aAnswers.length) {
@@ -31553,7 +31673,7 @@ async function handleRequest(request, env, ctx) {
                 // tens of seconds of Neon calls; the cancel and the budget are
                 // re-asked before it, as they are before the page call.
                 const aGateProv = aJob ? aJob.gate("editing") : null;
-                if (aGateProv && !aGateProv.go) return await editStopped(env, { job: aJob, why: aGateProv.why, phase: "editing", trace: editTrace, ctx });
+                if (aGateProv && !aGateProv.go) return await editStopped(env, { job: aJob, why: aGateProv.why, phase: "editing", trace: editTrace, ctx, extra: aStopEvidence() });
                 aMark("provision", "start", { tiers: aBackend });
                 try {
                   adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok"));
@@ -31984,7 +32104,7 @@ async function handleRequest(request, env, ctx) {
             // spent only the small calls, refunds through the database and
             // answers the customer honestly, with the site untouched.
             const aGateGen = aJob ? aJob.gate("editing") : null;
-            if (aGateGen && !aGateGen.go) return await editStopped(env, { job: aJob, why: aGateGen.why, phase: "editing", trace: editTrace, ctx });
+            if (aGateGen && !aGateGen.go) return await editStopped(env, { job: aJob, why: aGateGen.why, phase: "editing", trace: editTrace, ctx, extra: aStopEvidence() });
             let aGen = null;
             // TIMED, because the repair round below reads it: what the page
             // call took on this model, per page it wrote, is the measure of
@@ -32486,7 +32606,7 @@ async function handleRequest(request, env, ctx) {
             // told no here refunds through the database and the site is left
             // exactly as it was.
             const aGatePub = aJob ? aJob.gate("build") : null;
-            if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx });
+            if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx, extra: aStopEvidence() });
 
             // ── WHICH REQUESTED PAGES ARE REALLY GOING OUT ────────────────
             //

@@ -575,7 +575,10 @@ test("the hops: every refund site in the consumer is followed by the reconcile, 
   assert.match(retry, /putSiteWorker\(env, slug, \{ ok: true, code: staged\.worker/, "the retry does not upload the staged script as the publish would");
   assert.ok(retry.indexOf("probeSiteWorker(") > retry.indexOf("putSiteWorker("), "the live script is not asked again after the upload");
   const apply = fnW("applyReconcile");
-  assert.match(apply, /if \(!\(out\.verdict === "kept" && hasReply\)\) \{\s+await editRpc\(env, "edit_finalize"/, "a kept row's own reply is overwritten, or a refunded row's sentence is not stored");
+  // A KEPT ROW KEEPS ITS HANDLER'S REPLY ONLY WHEN THAT REPLY IS A SUCCESS
+  // (2026-10-07): a failure answered after the publish gate is overturned by
+  // a verdict that finds the change live, and is never left on the row.
+  assert.match(apply, /\} else if \(!\(out\.verdict === "kept" && prior && prior\.ok === true\)\) \{[\s\S]*?await editRpc\(env, "edit_finalize"/, "a kept row's own success reply is overwritten, a failure answer is left on a kept row, or a refunded row's sentence is not stored");
   assert.match(apply, /p_committed: out\.verdict === "kept"/);
   const facts = fnW("reconcileFacts");
   assert.match(facts, /readPointer\(deps, slug\)/, "the facts read the pointer through the serve path's cache");

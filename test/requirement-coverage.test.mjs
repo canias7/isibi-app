@@ -475,7 +475,15 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // the count is the successes' spreads plus the door's own, and the door must
   // really be the way every one of those failures answers.
   assert.equal(W.split("...aCoverage()").length - 1, 2, "a success no longer carries the coverage");
-  assert.match(W, /return Response\.json\(\{ \.\.\.aCoverage\(\{ failed, said: body\.msg \}\), \.\.\.body, outcome: failed \}, \{ status \}\);/, "the failure door does not carry the coverage and the outcome");
+  // RE-ANCHORED 2026-10-07: the door composes the coverage once (`told`),
+  // writes the developer record from that same reading, and answers with it —
+  // read from the door's opening to its last line.
+  const doorAt = W.indexOf("const aFail = async (body, status");
+  const doorEnd = doorAt < 0 ? -1 : W.indexOf("return Response.json({ ...told, ...body, outcome: failed }, { status });", doorAt);
+  assert.ok(doorAt >= 0 && doorEnd > doorAt, "the failure door's landmarks are gone");
+  const door = W.slice(doorAt, doorEnd);
+  assert.match(door, /const told = aCoverage\(\{ failed, said: body\.msg \}\);/, "the failure door does not compose the coverage against its own outcome");
+  assert.match(door, /requirementsTold: told\.requirementsTold, warningsTold: told\.warningsTold/, "the developer record does not hold what the answer tells");
   const doors = W.split("return aFail(").length - 1;
   assert.ok(doors >= 14, "not every failure after the design answers through the door: " + doors);
   assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/,
@@ -524,7 +532,10 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // RE-ANCHORED 2026-09-14: the literal moved into `aRecord`, because the record
   // is written TWICE now — once here and once after the apply — and two copies
   // of an argument list is the drift this file is full of warnings about.
-  const recAt = W.indexOf("const aRecord = () => requirementRecord({");
+  // RE-ANCHORED 2026-10-07: the record is told what a failure settled
+  // (`failed`, null on a success), as the customer's sentence is, so a record
+  // re-written by the failure door says what that answer says.
+  const recAt = W.indexOf("const aRecord = (failed = null) => requirementRecord({");
   assert.ok(recAt > 0, "the developer record is not stored with the answer");
   assert.ok(W.indexOf("coverage: aRecord()") > recAt, "the saved answer does not carry the record");
   const recCall = W.slice(recAt, W.indexOf("})", recAt) + 2);
@@ -547,7 +558,7 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // …AND THE THREE THAT MAKE COMPLETION HONEST (owner, 2026-09-14). Without
   // them every `covered` claim and every hand-off to a step that ran reads as
   // delivered, which is the reading the correction overturned.
-  for (const field of ["failed: [...aFailedKinds]", "made: aMade()", "told: [...aTold]", "altered: [...aChanged]", "unbuilt: aUnbuilt"]) {
+  for (const field of ["failed: [...aFailedKinds]", "made: aMade(failed)", "told: [...aTold]", "altered: [...aChanged]", "unbuilt: aUnbuilt"]) {
     assert.ok(recCall.includes(field), "the developer record cannot tell delivered from unverified: no `" + field + "`");
   }
   // …AND THE CUSTOMER'S OWN SENTENCE GETS THEM TOO. A SWEEP SURVIVOR: the

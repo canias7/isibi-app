@@ -57,7 +57,7 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // answer, as `progressWith` is the progress writer's.
 // `progress` (2026-10-06): `PROGRESS_REPLIES` on, and `progressWith` the
 // progress writer's own pace, faults or answer, as `replyWith` is the reply's.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -167,8 +167,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // job it held renews nothing more, so its lease runs out as an evicted
   // isolate's does and the sweeps meet what it left.
   const timers = new Set();
+  // EACH LIVE INTERVAL'S OWN CALL (`beatNow`): a job's heartbeat, run when a case says.
+  const beatsOf = new Map();
   const dead = new Set();
-  const die = (jobId) => { for (const t of timers) clearInterval(t); timers.clear(); if (jobId) dead.add(jobId); };
+  const die = (jobId) => { for (const t of timers) clearInterval(t); timers.clear(); beatsOf.clear(); if (jobId) dead.add(jobId); };
   const live = (j) => !TERMINAL.includes(j.state);
   const leased = (j) => j.lease_owner && j.lease_expires_at > now();
   const view = (j) => ({
@@ -428,6 +430,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
     return say(tool, await answerFor(tool, args));
   }
+  // NEON, FOR A SITE THAT PROVISIONS (`provisions`): every control-plane call,
+  // the projects made, the two rows as claimed; `neonFaults` fail or hang the
+  // next call a case names.
+  const neon = { calls: [], projects: [], project: null, db: "" };
+  const neonFaults = [];
   // ── THE WIRE ──────────────────────────────────────────────────────────────
   const real = globalThis.fetch;
   const fetchStub = async (input, init) => {
@@ -495,6 +502,39 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       return resp(rows.map(({ seqs, ...r }) => ({ ...r, publish_started_at: r.publish_started_at ? new Date(r.publish_started_at).toISOString() : null, published_at: r.published_at ? new Date(r.published_at).toISOString() : null })));
     }
     if (url.includes("/rest/v1/edit_traces")) return new Response(null, { status: 201 });
+    // ── A SITE WITH NO DATABASE YET (`provisions`, 2026-10-07) ───────────────
+    // Neon's control plane in its own response shapes (the add-on fixture's
+    // stand-in), each create a project of its own, so a case counts the
+    // projects made; and the two slug-keyed rows claimed as PostgREST claims
+    // them — the first claim records, a later one is ignored (`[]`).
+    if (provisions && url.includes("console.neon.tech/api/v2")) {
+      neon.calls.push(method + " " + (url.split("/api/v2")[1] || url));
+      const nf = neonFaults.findIndex((x) => x.match(method, url));
+      if (nf >= 0) { const x = neonFaults.splice(nf, 1)[0]; if (x.hang) { hung.what = "neon"; die(null); hung.resolve("neon"); return new Promise(() => {}); } return new Response("neon unavailable", { status: 503 }); }
+      if (/\/projects$/.test(url) && method === "POST") {
+        const id = "pr-" + (neon.projects.length + 1);
+        neon.projects.push(id);
+        return resp({ project: { id }, branch: { id: "br-" + id }, roles: [{ name: "owner" }], connection_uris: [{ connection_uri: DB_CONN }] }, 201);
+      }
+      if (/\/operations$/.test(url)) return resp({ operations: [] });
+      if (/organizations$/.test(url)) return resp({ organizations: [] });
+      return resp({ auth: { jwks_url: "https://x/jwks" }, data_api: { url: "https://x/data" } });
+    }
+    if (provisions && url.includes("/rest/v1/site_project")) {
+      if (method === "POST") {
+        const pf = neonFaults.findIndex((x) => x.match(method, url));
+        if (pf >= 0) { neonFaults.splice(pf, 1); return new Response("unavailable", { status: 503 }); }
+        if (neon.project) return resp([], 201);
+        neon.project = { uid: args.uid, neon_project: args.neon_project, neon_branch: args.neon_branch, neon_role: args.neon_role, neon_conn: args.neon_conn };
+        return resp([{ slug: args.slug }], 201);
+      }
+      return resp(neon.project ? [neon.project] : []);
+    }
+    if (provisions && url.includes("/rest/v1/site_backends")) {
+      if (method === "POST") return resp([], 201);
+      if (method === "PATCH") { if (typeof args.neon_db === "string") neon.db = args.neon_db; return resp([]); }
+      return resp([{ uid: owner, brief: "", neon_db: neon.db }]);
+    }
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
     if (url.includes("/rest/v1/site_aliases")) return resp([]);
@@ -533,16 +573,23 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (installed) return;
     installed = true;
     globalThis.fetch = fetchStub; Date.now = () => realNow() + clock;
-    globalThis.setInterval = (fn, ms, ...rest) => { const t = realSetInterval(fn, ms, ...rest); timers.add(t); return t; };
-    globalThis.clearInterval = (t) => { timers.delete(t); return realClearInterval(t); };
+    globalThis.setInterval = (fn, ms, ...rest) => { const t = realSetInterval(fn, ms, ...rest); timers.add(t); if (typeof fn === "function") beatsOf.set(t, () => fn(...rest)); return t; };
+    globalThis.clearInterval = (t) => { timers.delete(t); beatsOf.delete(t); return realClearInterval(t); };
   };
   const uninstall = () => {
     if (!installed) return;
     installed = false;
     globalThis.fetch = real; Date.now = realNow; globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
   };
+  // A CLOSED PLATFORM NEVER TAKES THE WIRE BACK (2026-10-07): a page a
+  // finished case left following its last read called through `run` after
+  // `close()`, put this platform's stand-ins back over the next case's, and
+  // that case read the finished one's job table (progress-gaps' RACE 2, after
+  // RACE 1). A call after `close()` is refused instead.
+  let closed = false;
   /** Run `fn` with the wire and the clock in place. */
   async function run(fn) {
+    if (closed) throw new Error("platform closed: a call made after its case ended");
     install();
     return fn();
   }
@@ -551,6 +598,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     now, run,
     /** Move the clock: leases, the question's day, the sweeps' windows. */
     advance(ms) { clock += ms; },
+    /** Neon as a provisioning site saw it: its calls, the projects made, the rows claimed (`provisions`). */
+    neon,
+    /** The next Neon call (or `site_project` claim) `match(method, url)` accepts answers 503 — or, with `hang`, lands and is never answered. */
+    failNeon(match, { hang = false } = {}) { neonFaults.push({ match, hang }); if (hang) resetHung(); },
     /** The next call to `fn` (or the first whose `when(args, out)` holds) lands and never answers. */
     hang(fn, when) { hangs.push({ fn, when }); resetHung(); },
     /** Run `then(args, out)` right after the next call to `fn` lands, before its caller hears. */
@@ -582,7 +633,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** Clear a crash: the next deliveries run normally. */
     recover() { resetHung(); },
     /** The end of a case: no timer of a crashed or finished invocation outlives it, and the real wire is back. */
-    close() { for (const t of timers) realClearInterval(t); timers.clear(); uninstall(); },
+    close() { closed = true; for (const t of timers) realClearInterval(t); timers.clear(); beatsOf.clear(); uninstall(); },
+    /** Run every live interval once, now — a running job's heartbeat, which picks up a stop, as a long step would have had it. */
+    async beatNow() { for (const f of [...beatsOf.values()]) { try { await f(); } catch { /* a heartbeat's own failure is the job's to read */ } } },
     /** Every job of a request, by its key, oldest first. */
     jobsOf(key) { return [...jobs.values()].filter((j) => typeof j.idem_key === "string" && j.idem_key.startsWith(key + "-p")).sort((a, b) => a.created_at - b.created_at); },
     /** What a job's stored answer said. */

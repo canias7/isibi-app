@@ -108,6 +108,29 @@ export function pendingMigration(list, job) {
   return readMigrations(list).find((m) => m.job === String(job || "") && m.status === "pending") || null;
 }
 
+/** This job's record in whatever state it stands, if any. */
+export function jobMigration(list, job) {
+  return readMigrations(list).find((m) => m.job === String(job || "")) || null;
+}
+
+/**
+ * WHAT A VERDICT ON THE JOB'S PUBLISH MOVES ITS RECORD TO (2026-10-07), or
+ * null to leave it: live — the page went out, so whatever the apply made
+ * stands with it (`applied`), correcting a record the route had already
+ * marked `applied_without_page` when its own answer was a failure the
+ * verdict then overturned; not live — `applied_without_page` only where the
+ * engine reported what it applied, and `failed` where the record never heard
+ * back from the apply, which is not known to have run: no table is claimed
+ * without the engine's own report of it.
+ */
+export function reconciledMigration(entry, live) {
+  if (!entry || typeof entry !== "object") return null;
+  if (live) return entry.status === "pending" || entry.status === "applied_without_page" ? "applied" : null;
+  if (entry.status !== "pending") return null;
+  const applied = entry.tables && Array.isArray(entry.tables.applied) ? entry.tables.applied : [];
+  return applied.length ? "applied_without_page" : "failed";
+}
+
 /**
  * What the customer is told when the database changed and the page did not
  * publish. Said in the reply's own words, before the compile sentence — the

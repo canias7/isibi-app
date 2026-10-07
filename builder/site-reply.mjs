@@ -144,6 +144,8 @@ export function readReplyRecord(raw) {
     ...(lease ? { lease } : {}),
     ...(Number.isFinite(raw.retryAt) ? { retryAt: raw.retryAt } : {}),
     ...(typeof raw.why === "string" && raw.why ? { why: raw.why.slice(0, 40) } : {}),
+    // WHICH STORED ANSWER IT WAS WRITTEN FROM (2026-10-07, `replyTag` in worker.js).
+    ...(typeof raw.tag === "string" && /^[0-9a-f]{16}$/.test(raw.tag) ? { tag: raw.tag } : {}),
   };
 }
 
@@ -278,6 +280,12 @@ const flat = (v) => String(v == null ? "" : v).replace(/[\u0000-\u0008\u000b\u00
 const said = (v) => (typeof v === "string" && v.trim() ? flat(v) : "");
 const quote = (v) => "“" + flat(v) + "”";
 const listOf = (items) => (items.length <= 1 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1]);
+/** What a stopped or failed part's job left standing, as its request's facts say it (`leftOf` in request.mjs). */
+const LEFT_SAID = Object.freeze({
+  partial: "after part of it had gone in and is live",
+  unpublished: "with part of it saved but not live",
+  unknown: "part-way through, so whether any of it went in is not known",
+});
 const count = (n, one, many) => (n === 1 ? "one " + one : n + " " + (many || one + "s"));
 
 /** A page file as the address people see: `src/routes/gallery.tsx` → `/gallery` (the browser's `sitePathOf`). */
@@ -1181,6 +1189,9 @@ export function requestReplyFacts(v) {
       const before = parts.find((x) => x.n === neededOf(p));
       F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and " +
         (before && before.status === "partial" ? "that was only partly done." : "that did not finish.") + paid(p), item);
+    } else if (p.status === "cancelled" && Object.hasOwn(LEFT_SAID, p.left)) {
+      // STOPPED AFTER SOMETHING OF IT WENT IN (2026-10-07, `leftOf`): never "before it changed anything".
+      F.add("not-done", "Stopped at their request, " + LEFT_SAID[p.left] + ": " + w + (own(p) ? " — its own reply above says what stands." : ".") + paid(p), item);
     } else if (p.status === "cancelled") {
       F.add("not-done", (p.why === "question-cancelled" ? "Cancelled with the question it asked, before it changed anything: " : "Stopped at their request before it changed anything: ") + w + "." + paid(p), item);
     } else if (p.status === "needs-rewrite") {
@@ -1193,6 +1204,9 @@ export function requestReplyFacts(v) {
         : ", because the question it asked went unanswered for a day. They can ask for it again.") + paid(p), item);
     } else if (p.status === "refused") {
       F.add("not-done", "Not done: " + w + ", because it and the parts it depends on could not be put in an order that works. They can send it on its own." + paid(p), item);
+    } else if (p.status === "failed" && Object.hasOwn(LEFT_SAID, p.left)) {
+      // FAILED AFTER SOMETHING OF IT WAS SAVED, OR PART-WAY THROUGH AN APPLY (2026-10-07, `leftOf`).
+      F.add("not-done", "Not done, " + LEFT_SAID[p.left] + ": " + w + (own(p) ? " — its own reply above says why and what stands." : ".") + paid(p), item);
     } else if (p.status === "failed") {
       F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)

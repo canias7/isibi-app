@@ -35,6 +35,7 @@ import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import fs from "node:fs";
 import { readCss, selectorsToJudge, plainSelectors } from "../builder/site-freecss.mjs";
 import { roomSentence } from "../builder/container-room.mjs";
+import { leftOf } from "../builder/request.mjs";
 // WHICH SPELLING OF A RULE REACHES THE FIXTURE'S PARAGRAPH, as a real Chromium
 // answers it (test/integration/site-build.mjs establishes the table).
 import { SPELLINGS, PARAGRAPH_JSX, RULE, STORED_SEL, WRITTEN_SEL } from "./fixtures/comment-boundary.mjs";
@@ -1271,6 +1272,10 @@ for (const mode of ["sync", "job"]) {
       + HOST + ", and the old address sends people there."
       + (mode === "job" ? " This edit cost you nothing." : " This edit cost 3 credits.") + " Reading your message cost 2 credits.");
     assert.doesNotMatch(r.said.text, /untouched|nothing was changed/, "a change that went through is called untouched");
+    // AND AS A LIST, BESIDE THE WORDS (2026-10-07): what went through, which a
+    // request reads (`leftOf`) as done in part rather than parse the sentence.
+    assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], mode + ": " + JSON.stringify(r.reply));
+    assert.equal(leftOf(r.reply), "partial", mode + ": the address that moved was not read as standing");
   });
 }
 
@@ -1279,6 +1284,8 @@ test("a failure of ours beside an address that went through says the rest was no
   assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
   assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so the rest of it wasn't published. "
     + "Part of it did go through, though: your site is now at " + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], JSON.stringify(r.reply));
+  assert.equal(leftOf(r.reply), "partial");
 });
 
 test("a stopped job names the address it had already moved (job)", async () => {
@@ -1288,6 +1295,10 @@ test("a stopped job names the address it had already moved (job)", async () => {
   assert.deepEqual(r.aliases.map((a) => a.alias), [r.site.slug, "harbour-bread"], "the address was not written before the cancel");
   assert.equal(r.said.text, "⚠️ I stopped that edit before anything was published. Part of it did go through, though: your site is now at "
     + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
+  // THE STOP CARRIES IT TOO (`editStopped`'s `landed`), so a request's part
+  // stopped here is never told as stopped before anything changed.
+  assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], JSON.stringify(r.reply));
+  assert.equal(leftOf(r.reply), "partial");
 });
 
 test("control: a failed publish with nothing gone through beside it still says the site is untouched", async () => {
@@ -1297,5 +1308,7 @@ test("control: a failed publish with nothing gone through beside it still says t
     assert.deepEqual(r.aliases, [], mode + ": an address was written");
     assert.match(r.said.text, /^⚠️ That didn't compile, so your site is untouched\. /, mode + ": " + r.said.text);
     assert.doesNotMatch(r.said.text, /Part of it did go through/, mode + ": a change is said to have gone through");
+    assert.equal(Object.hasOwn(r.reply, "landed"), false, mode + ": a list of what went through, with nothing gone through");
+    assert.equal(leftOf(r.reply), "", mode + ": nothing standing was read as standing");
   }
 });

@@ -51,6 +51,7 @@
 import { heldList, heldParts, wordsIn, readContext, EDIT_LAYERS } from "./site-ask.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
+import { outcomeOf } from "./site-reply.mjs";
 
 export const REQUEST_V = 1;
 
@@ -718,6 +719,42 @@ function settleRewrite(rec, p, job, row, now) {
 }
 
 /**
+ * WHAT A FAILED OR STOPPED JOB'S OWN ANSWER SAYS IT LEFT STANDING (2026-10-07):
+ * `partial` (something of it is live — an addition's tables, an edit's steps
+ * that went through outside the publish, `landed`), `unpublished` (saved, not
+ * live), `unknown` (it stopped part-way through an apply), or "" — nothing of
+ * it went in, or the answer records nothing either way. Only what the answer
+ * RECORDS is read: its outcome, its database record, its landed steps — never
+ * the reply's own guess for an answer that records nothing, so an ordinary
+ * refusal is never told as one that may have changed the site.
+ */
+export function leftOf(body) {
+  if (!plain(body) || body.ok !== false) return "";
+  if (Array.isArray(body.landed) && body.landed.some((l) => typeof l === "string" && l.trim())) return "partial";
+  // `outcomeOf` reads the outcome, then the database record, and answers
+  // `recorded: false` for an answer that records neither — which is read here
+  // as nothing standing, never as the unknown it says for the reply.
+  const o = outcomeOf(body);
+  return o && o.recorded !== false && ["partial", "unpublished", "unknown"].includes(o.state) ? o.state : "";
+}
+
+/**
+ * WHAT A JOB THAT ENDED WITH NO ANSWER LEFT STANDING, from its database record
+ * as the driver settled it (`row.migration`, 2026-10-07): `partial` where the
+ * engine reported tables applied without the page, `unknown` where the record
+ * never heard back from the apply, else "".
+ */
+export function leftOfRecord(m) {
+  if (!plain(m)) return "";
+  if (m.status === "applied_without_page") return "partial";
+  if (m.status === "failed") return "unknown";
+  return "";
+}
+/** The stronger of two readings of what a part's jobs left standing: something live, then something unknown, then something saved. */
+const LEFT_ORDER = ["", "unpublished", "unknown", "partial"];
+const strongerLeft = (a, b) => (LEFT_ORDER.indexOf(b) > LEFT_ORDER.indexOf(a || "") ? b : a || "");
+
+/**
  * SETTLE ONE JOB THAT ENDED: what its answer means for its part.
  */
 function settle(rec, p, job, row, now) {
@@ -732,10 +769,20 @@ function settle(rec, p, job, row, now) {
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
   if (stopped && !(ans && ans.body.ok === true)) {
     job.end.act = "cancelled";
-    p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return;
+    p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled";
+    // A STOP AFTER SOMETHING WENT IN (2026-10-07): the part is still stopped,
+    // and what its job left standing is kept on it, so it is never told as
+    // stopped "before it changed anything".
+    const left = ans ? leftOf(ans.body) : "";
+    if (left) p.left = left;
+    return;
   }
   if (answerless(row)) {
     job.end.act = "answerless";
+    // WHAT IT LEFT STANDING IS KEPT ACROSS ITS RETRY (2026-10-07): a first try
+    // whose tables went in before it died is still told so if the last fails.
+    const left = leftOfRecord(row.migration);
+    if (left) p.left = strongerLeft(p.left, left);
     if (p.retries < RETRIES) { p.retries++; p.status = "ready"; return; }
     p.status = "failed"; p.why = "no-answer"; return;
   }
@@ -795,6 +842,8 @@ function settle(rec, p, job, row, now) {
   }
   if (read.act === "recovered") { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "recovered" }; p.done = "made the change (what it changed was not recorded)"; return; }
   if (read.act === "success") {
+    // A RETRY THAT FINISHED speaks for the whole part: what an earlier try left is in what it did.
+    delete p.left;
     p.outcome = { job: job.id, kind: "done" };
     p.done = doneSummary(ans.body);
     if (read.ask) { p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer"; return; }
@@ -809,7 +858,21 @@ function settle(rec, p, job, row, now) {
     p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer";
     p.outcome = { job: job.id, kind: "asked" }; return;
   }
-  if (read.act === "refusal") { p.status = "failed"; p.why = read.error || "refused"; p.outcome = { job: job.id, kind: "refused" }; return; }
+  if (read.act === "refusal") {
+    // A FAILURE AFTER PART OF IT WENT LIVE (2026-10-07) is done in part — what
+    // went in stands, and nothing that needs the part runs, as for any part
+    // done in part — never recorded as wholly failed; one that left something
+    // saved but not live, or whose apply stopped part-way, fails, and says so.
+    const left = leftOf(ans.body);
+    if (left === "partial") {
+      p.status = "partial"; p.why = "partly-done"; p.left = left;
+      p.notDone = [{ what: p.words, why: read.error || "refused" }];
+      p.outcome = { job: job.id, kind: "refused" }; return;
+    }
+    p.status = "failed"; p.why = read.error || "refused"; p.outcome = { job: job.id, kind: "refused" };
+    if (left) p.left = left;
+    return;
+  }
   p.status = "failed"; p.why = "unreadable"; p.outcome = { job: job.id, kind: "unreadable" };
 }
 
@@ -845,6 +908,8 @@ export function editJobOutcome(row, op = "edit") {
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
   if (stopped && !(ans && ans.body.ok === true)) return "cancelled";
   if (answerless(row)) return "failed";
+  // A FAILURE AFTER PART OF IT WENT LIVE IS DONE IN PART (2026-10-07), as `settle` reads it.
+  if (ans && leftOf(ans.body) === "partial") return "partial";
   if (row.state === "done" && !ans) return "done";
   const read = readRun(ans);
   if (read.act === "hop" || read.act === "climb") return "handoff";
