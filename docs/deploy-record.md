@@ -1473,7 +1473,11 @@ only run that push started, `completed` / `success`, the job **3m11s**
 - **the image window** waited once, to 23:25:05 UTC;
 - **the free runtime check is the owner's press**: the session's one
   dispatch answered `403 Resource not accessible by integration` (23:25:15),
-  not retried (`docs/history/2026-10-07-combined-release.md`).
+  not retried (`docs/history/2026-10-07-combined-release.md`);
+- **runtime-confirmed by the owner's free press, run 106** (23:35 UTC): both
+  readers answered `9d6bda8afc4e`, a cold container `335396c8c0e0fbcb`,
+  queued jobs and the runner on, every zero-cost confirmation passed, nothing
+  charged (balance 40, last row 401, no job open).
 
 ## The served-file check, driven end to end on deploy 2139
 

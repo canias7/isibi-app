@@ -49,3 +49,12 @@ retried, through this client or any other. **The free runtime check, and so the
 paid press after it, are the owner's presses** (boxes in the handoff and the
 plan's §3). Until the free check reads the merged commit and the image, deploy
 2188 is deployed, not runtime-confirmed, and nothing is spent.
+
+**Runtime-confirmed by the owner's free press, run 106** (37703142711, from
+`main` at `9d6bda8a`, 23:35:35–23:36:14 UTC): `build-health` and `runtime` both
+answered `9d6bda8afc4e`, a cold container `335396c8c0e0fbcb`, async and the
+runner on; every zero-cost confirmation passed (the async shape on
+`fretwork-1` and `washhouse-3`, a forged replay marker 404, another's job 404,
+the free job terminal); `CANARY_SPEND is not 1 — stopping before the paid
+edit. Nothing was charged.` Read after it (23:36:32): balance 40, last row
+401, no open job. The paid `lv-combined` press is next, the owner's.

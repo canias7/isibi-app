@@ -9,7 +9,8 @@ is in git; the dated entries further down are the full story.*
 **Your two presses now** (the session's dispatch answered `403 Resource not
 accessible by integration` at 23:25:15 UTC and was not retried). *Actions →
 edit canary → Run workflow*, boxes by description, every other box as it is:
-1. **The free runtime check, first.** "Use workflow from": `main`; "Run the ONE
+1. **Done — run 106, green** (23:35 UTC: both readers `9d6bda8afc4e`, a cold
+   container `335396c8c0e0fbcb`, nothing charged). Was: **the free runtime check, first.** "Use workflow from": `main`; "Run the ONE
    paid edit as well (yes/no)": `no`; "Refuse to spend unless the Worker
    reports this deploy sha …": `9d6bda8a`; "Refuse to spend unless a cold
    container reports this image id (exact) …": `335396c8c0e0fbcb`. It passes
@@ -24,7 +25,7 @@ edit canary → Run workflow*, boxes by description, every other box as it is:
    to be pressed again if it fails.
 
 **State now**
-- **Released on your word, deployed, not yet runtime-confirmed**: `main`
+- **Released on your word, deployed and runtime-confirmed (run 106)**: `main`
   `bcc22295` → **`9d6bda8a`** (36 commits, one fast-forward, 23:04:49 UTC);
   **deploy 2188** (run 37700151308) green, the image **built
   `335396c8c0e0fbcb`** as predicted and rolled from `5f946c22d42a1b10` at
