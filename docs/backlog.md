@@ -20,14 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **An added page and its menu link are named in the designer's own words,
-  not the customer's** (found in run 105, 2026-10-07): asked for "an FAQ
-  page with a link in the menu", every menu reads "Common questions", and
-  the reply does not say so; in full below.
 - **The task titles' narration calls were not found in the logs' read**
-  (found in run 105): the five line calls were read, but no task-titles call
-  was, although their lines were on screen; their usage is unmeasured; in
-  full below.
+  (found in run 105; investigated from existing logs on 2026-10-07): the
+  calls happened, inside the window, under the id searched, in a shape the
+  parser reads, yet no line came back; the cause is not known, and the usage
+  stays unverified; in full below.
 - **A progress line can name one changed page of many, and read like
   another part's work** (seen in run 105); in full below.
 - **The test platform answers every column of a job-table read, whatever
@@ -868,21 +865,6 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **AN ADDED PAGE AND ITS MENU LINK ARE NAMED IN THE DESIGNER'S OWN WORDS,
-  NOT THE CUSTOMER'S (2026-10-07, found in run 105).**
-  - **What happened**: the message asked for "an FAQ page with a link in the
-    menu". The add-on made the page at `/faq`, titled and headed "Common
-    questions" with a small "FAQ" label. Every page's menu (and every footer)
-    gained "Common questions" → `/faq`.
-  - **The reply**: it says "I've added an FAQ page and a link to it in the
-    menu" and names the eight pages, but not the link's words. So a customer
-    looking for "FAQ" in the menu is not told it reads otherwise.
-  - **The press**: `lv-progress`'s two menu checks require the link's words
-    to include "FAQ" (`docs/investigations/progress-release-plan.md` §4.3),
-    and they failed it (`docs/history/2026-10-07-deploy-2186.md` §8.2).
-  - **Open**: whether this is a defect is the owner's call. The direction
-    would be to keep the customer's own name for a page they named, or to say
-    the label in the reply. Nothing is changed or run again.
 - **THE TASK TITLES' NARRATION CALLS WERE NOT FOUND IN THE LOGS' READ
   (2026-10-07, found in run 105).**
   - **What was read**: the usage step read the run's five progress-line calls
@@ -898,11 +880,23 @@ here; take a closed one out of both.**
     - the Worker logs that call as it logs the line calls
       (`writeTaskLines`, from the same queue consumer);
     - log sampling is 1 (`wrangler.jsonc`).
-  - **What stays open**: why the lines are missing is not known from the
-    session, which cannot read Cloudflare's logs. That usage stays
-    unverified, and the narration's whole cost with it.
+  - **Investigated from existing logs only** (2026-10-07, the owner's word;
+    `docs/history/2026-10-07-deploy-2186.md` §10.4):
+    - **the calls happened**: the request's saved record holds the model's
+      lines for both parts in all seven states, written between 01:24:22 and
+      01:25:12 UTC (bracketed by the saved snapshots);
+    - **the window covered them**: 01:21:41–01:37:01 UTC;
+    - **the id was right**: `76c1ddfb…`, recomputed, is among the four read;
+    - **two reads agreed**, and no other id's line was in the window;
+    - **the parser reads that line's shape**, as a string or as an argument
+      list;
+    - **each writer task runs in its own invocation**, and the line's usage
+      sum cannot throw before it.
+  - **What stays open**: whether the line reached Cloudflare's logs, or
+    reached them and was not returned. The session cannot read those logs.
+    That usage stays unverified, and the narration's whole cost with it.
   - **A direction**: search the dashboard (*Workers & Pages → isibi-app →
-    Logs*, `progress: tasks`) between 01:24 and 01:37 UTC on 2026-10-07.
+    Logs*, `progress: tasks`) between 01:24 and 01:26 UTC on 2026-10-07.
 - **A PROGRESS LINE CAN NAME ONE CHANGED PAGE OF MANY, AND READ LIKE ANOTHER
   PART'S WORK (2026-10-07, seen in run 105).**
   - **The line**: part 0's third line said *"I've prepared the FAQ page and

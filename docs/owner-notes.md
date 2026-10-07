@@ -14,9 +14,23 @@ is in git; the dated entries further down are the full story.*
   - Your switch, deploy 2187, reused the image, so nothing rolled again.
   - Turning progress off is your secret set to `off`, then *Deploy to
     Cloudflare*. Nothing rolls.
+- **Your ruling on run 105 is carried out, on the branch** (the newest
+  entry; `docs/history/2026-10-07-deploy-2186.md` §10; `bd192acc`, pushed,
+  unmerged):
+  - **its printed verdict stands**: 30 checks, 2 failed, both on the menu
+    link's words. The other 28 passed: the request, the completed work, and
+    the 8 progress checks;
+  - **the verifier now judges a link's words only where the request asks for
+    them**. Run 105's own saved evidence passes all 30 checks under it, and
+    every control (missing, wrong page, empty, items changed, asked-for words
+    ignored) still fails;
+  - **the full suite** is `9729 / 9729 / 0 / 0` locally, and unit CI is green
+    on `bd192acc` (`9729 / 9707 / 0 / 22`);
+  - **the task titles' usage was looked into from existing logs only**. It
+    stays unverified: everything but whether the line reached Cloudflare's
+    logs is ruled out.
 - **The live check, your paid run 105, failed two of its checks, both on the
-  new menu link's words** (the newest entry;
-  `docs/history/2026-10-07-deploy-2186.md` §8):
+  new menu link's words** (`docs/history/2026-10-07-deploy-2186.md` §8):
   - **The failure**: every page's menu gained a link to the new page
     `/faq`, but it reads **"Common questions"**, and the check required
     "FAQ". The page itself is titled "Common questions", with a small "FAQ"
@@ -42,9 +56,13 @@ is in git; the dated entries further down are the full story.*
 - **The balance is 10** (01:43 UTC: the ledger's last row 401, no job open).
 
 **Yours to decide**
-- **The live check's verdict**: whether "Common questions" for an FAQ page is
-  acceptable (the live check then stands as passed in substance), or a
-  defect to fix (backlog). I haven't changed the check or re-run anything.
+- **Run 105's place**: you ruled that the builder's wording is acceptable
+  when none was asked for, and the verifier now says so. Run 105's printed
+  verdict is kept as `FAILED`, with its two failures told apart in §10.
+  Whether to count the live check as passed in substance, or to re-press it
+  on the corrected verifier (paid), is yours; I've done neither.
+- **Merging the correction** (`bd192acc`, canary and tests only; the image
+  unchanged) is yours too. It stays unmerged until you say so.
 - **What stays on the bakery** (the demo-site rule, as you said):
   - from run 105: the FAQ page, its "Common questions" links and the new
     Classes heading;
@@ -55,13 +73,15 @@ is in git; the dated entries further down are the full story.*
 
 **Still open** (`docs/backlog.md`)
 - **New from run 105**:
-  - an added page and its menu link are named in the designer's own words,
-    not the customer's ("Common questions" for an FAQ page), and the reply
-    doesn't say the label;
-  - the task titles' narration calls weren't found in the logs' read, so
-    their usage is unmeasured;
+  - the task titles' narration calls weren't found in the logs' read. From
+    existing logs, everything is ruled out except whether the line reached
+    Cloudflare's logs, so their usage stays unverified. The dashboard search
+    that would settle it is in the backlog;
   - a progress line can name one changed page of many and read like another
-    part's work ("the FAQ page and the classes page").
+    part's work ("the FAQ page and the classes page"), kept as its own
+    follow-up;
+  - closed by your ruling: the page and link named in the builder's words
+    when none were asked for.
 - **Limits of the progress work** (the plan's §7): the model's words are not
   checked, only its account of them (stated and tested, not filtered, as you
   said), and the same holds for the task titles; a true line whose
@@ -180,6 +200,100 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — Your ruling on run 105: the menu link's words are judged only where a request asks for them (on the branch, `bd192acc`; nothing merged, deployed, built or pressed)
+
+- **What you asked**:
+  - keep run 105's failed verdict and its evidence as they are, but tell its
+    two menu-word failures apart from the eight progress checks that passed
+    and from the Edit/Add-on work that was completed;
+  - correct the verifier generically: with no wording asked for, a labelled
+    link to the verified new page in the stored and served menus, with every
+    existing item kept; wording checked only where a request asks for it. No
+    FAQ/Common questions exception, and no forcing the builder's wording;
+  - verify it offline from the saved evidence, with controls for a missing
+    link, a wrong destination, an empty label, changed existing items, and
+    asked-for words being ignored;
+  - look into the missing task-title usage from existing logs only, leaving
+    it unverified if it can't be found;
+  - keep the ambiguous progress sentence as its own follow-up;
+  - push, with no merge, deploy, build, paid rerun or broader audit.
+- **Run 105 is kept as it was**: `UI MODE FAILED`, 30 checks, 2 failed. The
+  history's §8 is unchanged, and the run's saved evidence is the artifact
+  itself, whose digest I matched against the run's own.
+- **Its 30 checks, told apart**:
+  - **2 failed, both on the menu link's words**: "FAQ" was required, and your
+    message named no words for the link;
+  - **7 passed on the request itself**: routing, taken on, ended, both parts
+    done, nothing stopped, nothing out of order;
+  - **13 passed on the completed work**: the new FAQ page, the Classes
+    heading, and everything else exactly as it was;
+  - **8 passed on the progress**: lines shown live, kept across the closed
+    tab, and followed in a fresh session.
+
+  Both replies were the model's own.
+- **The correction** (in the canary only; no product file touched):
+  - a menu check judges the link's words only when the request asks for some,
+    quoted from the request in the scenario's spec;
+  - with none asked for, any label that says something does, so long as it
+    links the verified new page, in every stored menu and every served header,
+    with every existing item kept in its order and exactly one new link;
+  - with words asked for, the link must hold them, as before;
+  - no synonym list.
+- **The scenarios**: none of the six request scenarios with a menu check has
+  a message naming the link's words, so each drops the words it required:
+  "Classes" twice, "Wholesale", "Bake List", "Tasting" and "FAQ". The one
+  message that names its item ("Add Order to the menu.") is judged by the
+  additions verifier and keeps "Order". A guard now fails any future spec
+  whose words aren't quoted from its own message.
+- **Verified offline, from run 105's own saved evidence** (now a 51,577-byte
+  test fixture; no token, no credential, and no real email address in it):
+  - **the old verifier**, replayed, equals the printed verdict name for name;
+  - **the corrected one**: 30 checks, 0 failed. Only the two menu checks
+    changed, now passing on "a labelled link to `/faq`"; the other 28 are
+    identical;
+  - **every control fails as it should**:
+    - a missing link;
+    - a link to the wrong page;
+    - an empty label, and one of only spaces;
+    - an existing item changed, dropped or moved;
+    - a second new link;
+    - one served header without the link;
+    - asked-for words ignored (the same press asking for a link "that says
+      'FAQ'" fails "Common questions", and passes once the links read "FAQ");
+  - **any words of the builder's pass**, for example "Ask us";
+  - **the red check**: 9 of the 12 new cases fail on the old verifier;
+  - **the sweep**: 16 of 16 mutants killed, the comment-only control surviving;
+  - **the full suite** on `bd192acc`: `9729 / 9729 / 0 / 0` locally, 13 more
+    than before; unit CI green on it (run 37561091729, `9729 / 9707 / 0 / 22`).
+- **The missing task-title usage, from existing logs only**:
+  - **ruled out**: the calls happened (the saved request record holds all 14
+    of the model's title lines, written between 01:24:22 and 01:25:12 UTC);
+    the usage step's window covered them; it searched the right id; its two
+    reads agreed; no other id's line was there; and the parser reads that
+    line's shape;
+  - **not established**: whether the line ever reached Cloudflare's logs,
+    which I can't read;
+  - **so that usage stays unverified**, and the narration's whole cost with
+    it. The dashboard search that would settle it is in the backlog.
+- **Kept separate**: the progress line *"I've prepared the FAQ page and the
+  classes page"* stays its own follow-up in the backlog.
+- **Closed**: the backlog item on the page and link being named in the
+  builder's words, by your ruling that no wording was asked for.
+- **Not done**: nothing merged, deployed or built, and no paid rerun. The
+  image is unchanged: `5f946c22d42a1b10` predicted on both `bcc22295` and
+  `bd192acc`.
+- **Remaining gaps**:
+  - the task titles' usage, unverified;
+  - the container's delivery lines reaching the logs, unverified;
+  - the progress sentence, a separate follow-up;
+  - asked-for words are matched as before, by containment, so asking for
+    "Classes" accepts "Bread classes";
+  - the correction is shown offline only. No press has run on it, which
+    would be paid and is yours to decide.
+- **Commits**: `bd192acc` (the correction, its tests and fixture, and the
+  sweep's spec) and this entry's records commit, both pushed to
+  `claude/help-needed-ehlwlj`. `main` stays `bcc22295`.
 
 ## 2026-10-07 — Run 105, your paid press: the live check failed two checks, both on the menu link's words ("Common questions", not "FAQ"); progress passed live; 22 credits
 

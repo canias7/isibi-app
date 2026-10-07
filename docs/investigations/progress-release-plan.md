@@ -51,6 +51,12 @@ verification"*; the whole request is in
   Cloudflare* on `main`. Deploy 2187 reused `5f946c22d42a1b10`, its container
   step answered `no changes`, and `PROGRESS_REPLIES` printed masked. The
   balance after it was 32, with no job open.
+- **The verifier corrected, on the owner's ruling** (2026-10-07, `bd192acc`,
+  on the branch, unmerged): a menu link's words are judged only where the
+  request asks for them. This message names none, so any label linking the
+  verified new page does. Run 105's saved evidence passes all 30 checks under
+  it; its printed verdict stands (`docs/history/2026-10-07-deploy-2186.md`
+  §10).
 - **The live check** (run 105, 01:22–01:37 UTC): two checks failed, both on
   the menu link's words. The progress, the replies, the pages other than the
   link's words, and the money all passed. The narration's five line calls
@@ -327,7 +333,10 @@ Chromium, signed in as the building account, on `fold-lane-bakery`
   - one new page whose served words include "keep" and "store", stored and
     served 200;
   - every page's menu gained a link whose words include "FAQ", pointing at
-    it, each keeping its own items, and every served header links it;
+    it, each keeping its own items, and every served header links it
+    (**corrected on 2026-10-07 after run 105**: the message names no words
+    for the link, so any label that says something, linking the verified new
+    page, now passes; `labelFits`);
   - `/classes` reads "Spend a Saturday morning at the bench", the page's
     source changed in that one place only;
   - every other stored page, component, logo and the description as they
