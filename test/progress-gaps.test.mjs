@@ -38,6 +38,8 @@ import assert from "node:assert/strict";
 import { platform, sendMessage, pump, tick, call, settle, deliver, browserBody, T, USER } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
+import util from "node:util";
+import * as NU from "../scripts/narration-usage.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { page as openPage } from "./fixtures/browser-page.mjs";
 import { gatewayKey, signJobToken } from "../builder/job-gateway.mjs";
@@ -721,6 +723,49 @@ test("RECORDER 4 — ORDER IS KEPT, AND THE JOB'S END IS THE LAST TRY: a job tha
   assert.deepEqual(always.stages, ["designed", "pages", "publish"], "a milestone undeliverable to the job's end was not given up, or the rest lost their order: " + JSON.stringify(always));
   assert.equal(always.sent.filter((x) => x === "mark:0").length, 2, "the job's end allowed other than one last try: " + JSON.stringify(always.sent));
   assert.ok(always.closed, "the job's end did not close its record");
+});
+
+test("RECORDER 7 — WHAT THE RECORDER PRINTS WHEN IT GIVES A DELIVERY UP IS WHAT THE USAGE STEP READS (2026-10-06, Codex's review: its reader expected one token where the recorder writes \"milestone 0\"): a milestone and an opening that never land, each read back by parseEvent from the recorder's own output, as console.log formats it, and kept by usageOf under the job's id", async () => {
+  // THE RECORDER'S OWN OUTPUT: every console.log line it prints in the run,
+  // formatted exactly as console.log formats its arguments.
+  const printed = async (fault) => {
+    const lines = [];
+    const was = console.log;
+    console.log = (...args) => { const t = util.format(...args); if (t.startsWith("progress:")) lines.push(t); else was(...args); };
+    let id = "";
+    try {
+      await withPlatform({
+        slug: slugOf("rec7"), replies: true, progress: true,
+        answers: { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } },
+      }, async (P) => {
+        id = await filePage(P, { intent: "addon" }, "add a gallery page", "7".repeat(32));
+        await viaContainer(P, id, fault);
+        await deliver(P, jobMsg(P));
+        delete P.env.JOB_PROGRESS;
+      });
+    } finally { console.log = was; }
+    return { id, lines };
+  };
+  // A MILESTONE THAT NEVER LANDS: tried, then tried once more at the job's end.
+  const mark = await printed((b) => (b.op === "mark" && b.seq === 0 ? "throw" : null));
+  const undelivered = mark.lines.filter((l) => l.includes(" not delivered after "));
+  assert.ok(undelivered.length >= 1, "the recorder printed no give-up line: " + JSON.stringify(mark.lines));
+  assert.deepEqual(undelivered.map((l) => NU.parseEvent(l)), [{ what: "not delivered", id: mark.id, step: "milestone 0", tries: 2 }], "the usage step does not read the recorder's line: " + JSON.stringify(undelivered));
+  assert.equal(undelivered[0], `progress: ${mark.id} milestone 0 not delivered after 2 tries`);
+  // AN OPENING THAT NEVER LANDS: every milestone after it tries the opening again.
+  const open = await printed((b) => (b.op === "begin" ? "throw" : null));
+  const openings = open.lines.filter((l) => l.includes(" not delivered after "));
+  assert.ok(openings.length >= 1, "the recorder printed no give-up line for its opening: " + JSON.stringify(open.lines));
+  for (const l of openings) {
+    const e = NU.parseEvent(l);
+    assert.ok(e && e.what === "not delivered" && e.id === open.id && e.step === "opening" && Number.isInteger(e.tries) && e.tries >= 1, "the usage step does not read the recorder's line: " + l);
+  }
+  // EVERY "progress:" LINE THE RECORDER PRINTED IS READ, NONE DROPPED; and the
+  // usage step keeps them under the job's id, with no call — so it measures
+  // nothing, and says so (narration-usage's own case).
+  for (const l of [...mark.lines, ...open.lines]) assert.ok(NU.parseEvent(l) || NU.parseCall(l), "a line the recorder printed is read by neither parser: " + l);
+  const u = NU.usageOf(mark.lines.map((l, i) => ({ timestamp: i + 1, $metadata: { message: l } })), new Set([mark.id]));
+  assert.deepEqual([u.calls.length, u.events.map((e) => e.step)], [0, ["milestone 0"]]);
 });
 
 test("RECORDER 6 — AN OPENING THAT DID NOT LAND IS MADE AGAIN BEFORE THE NEXT MILESTONE: the first opening refused outright, never resent on its own; the job's first milestone opens the record again, and is recorded", async () => {

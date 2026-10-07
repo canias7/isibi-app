@@ -989,6 +989,15 @@ export function progressSnapshot(s, key) {
   };
 }
 
+/**
+ * A PART SHOWING A PROGRESS LINE LIVE, AS IT RUNS: running (`started`), with
+ * a live line that is one of its own lines. A done part's lines are kept on
+ * its card and never live; they are history, not progress.
+ */
+export function liveOnItsPart(p) {
+  return !!p && p.status === "started" && typeof p.live === "string" && p.live !== "" && Array.isArray(p.lines) && p.lines.includes(p.live);
+}
+
 /** The card's readings, kept where they changed (`progressSnapshot`), each with its time. */
 export function keepSnapshot(list, snap, ms) {
   if (!snap) return false;
@@ -2527,14 +2536,19 @@ export async function runUi(opts) {
     if (typeof requestsNow !== "function" || typeof stopNow !== "function" || typeof freshSession !== "function") {
       return { ok: false, s, page, why: "this run was not handed the requests list, the Stop and a second sign-in, so the tab is not closed" };
     }
-    // THE CARD IN THE TAB THAT SENT IT, until a line shows while the request runs.
+    // THE CARD IN THE TAB THAT SENT IT, until a line shows LIVE ON ITS OWN
+    // RUNNING PART while the request runs (2026-10-06, Codex's reproduction: a
+    // done part's lines, kept on its card while another part waited, were
+    // taken as the first line, and every check passed with no live line ever
+    // seen). The page marks the newest line live only on a part that is
+    // running (`progressListHTML`), so a kept line is never one.
     const lineEnd = Math.min(end, Date.now() + firstLineMs);
     let snap = null;
     for (;;) {
       snap = progressSnapshot(s, key);
       keepSnapshot(f.before, snap, at());
-      const lit = snap && !snap.ended ? snap.parts.find((p) => p.lines.length > 0) : null;
-      if (lit) { f.first = { ms: at(), part: lit.n, status: lit.status, line: lit.lines[lit.lines.length - 1] }; break; }
+      const lit = snap && !snap.ended ? snap.parts.find(liveOnItsPart) : null;
+      if (lit) { f.first = { ms: at(), part: lit.n, status: lit.status, line: lit.live }; break; }
       if ((snap && snap.ended) || Date.now() >= lineEnd) break;
       await sleep(pollMs);
       try { s = await page.evaluate(readComposerInPage); } catch { s = null; }

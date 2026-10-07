@@ -128,8 +128,8 @@
     "files": [
       "scripts/canary-ui.mjs"
     ],
-    "from": "const lit = snap && !snap.ended ? snap.parts.find((p) => p.lines.length > 0) : null;",
-    "to": "const lit = snap ? snap.parts.find((p) => p.lines.length > 0) : null;"
+    "from": "const lit = snap && !snap.ended ? snap.parts.find(liveOnItsPart) : null;",
+    "to": "const lit = snap ? snap.parts.find(liveOnItsPart) : null;"
   },
   {
     "label": "FRESH — the tab always said closed while running",
@@ -248,8 +248,8 @@
     "files": [
       "scripts/canary-requests.mjs"
     ],
-    "from": "\"a progress line was on screen in the tab that sent the message while the request still ran\", !!f.first,",
-    "to": "\"a progress line was on screen in the tab that sent the message while the request still ran\", true,"
+    "from": "while the request still ran\", firstLive,",
+    "to": "while the request still ran\", true,"
   },
   {
     "label": "CHECKS — a read of the route while away passes",
@@ -442,5 +442,117 @@
     ],
     "from": "      - name: narration usage (free, read-only)\n        if: always()\n",
     "to": "      - name: narration usage (free, read-only)\n"
+  },
+  {
+    "label": "FRESH — a kept line taken as the first (Codex's false positive)",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "const lit = snap && !snap.ended ? snap.parts.find(liveOnItsPart) : null;",
+    "to": "const lit = snap && !snap.ended ? snap.parts.find((p) => p.lines.length > 0) : null;"
+  },
+  {
+    "label": "FRESH — the first line is the part's oldest, not its live one",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "{ f.first = { ms: at(), part: lit.n, status: lit.status, line: lit.live }; break; }",
+    "to": "{ f.first = { ms: at(), part: lit.n, status: lit.status, line: lit.lines[0] }; break; }"
+  },
+  {
+    "label": "LIVE — a done part's line counts",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "return !!p && p.status === \"started\" && typeof p.live",
+    "to": "return !!p && typeof p.live"
+  },
+  {
+    "label": "LIVE — a running part with no live line counts",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "typeof p.live === \"string\" && p.live !== \"\" && Array.isArray(p.lines)",
+    "to": "typeof p.live === \"string\" && Array.isArray(p.lines)"
+  },
+  {
+    "label": "LIVE — a live line none of the part's own counts",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "Array.isArray(p.lines) && p.lines.includes(p.live);",
+    "to": "Array.isArray(p.lines);"
+  },
+  {
+    "label": "CHECKS — the first line taken on the driver's word",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "  const firstLive = !!first && arrOf(f.before).some(",
+    "to": "  const firstLive = !!first || arrOf(f.before).some("
+  },
+  {
+    "label": "CHECKS — a live reading of the ended request counts",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "arrOf(f.before).some((snap) => snap && snap.ended !== true && arrOf(snap.parts).some((p) => p.n === first.part",
+    "to": "arrOf(f.before).some((snap) => snap && arrOf(snap.parts).some((p) => p.n === first.part"
+  },
+  {
+    "label": "CHECKS — a line live on another part counts",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "arrOf(snap.parts).some((p) => p.n === first.part && liveOnItsPart(p) && p.live === first.line)",
+    "to": "arrOf(snap.parts).some((p) => liveOnItsPart(p) && p.live === first.line)"
+  },
+  {
+    "label": "USAGE — a query that answered is a measurement",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "const measured = queried && usage.calls.length > 0;",
+    "to": "const measured = queried;"
+  },
+  {
+    "label": "USAGE — no call described as a zero cost",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "  if (!u || !Array.isArray(u.calls) || !u.calls.length || !u.totals) return `NARRATION USAGE UNAVAILABLE: ${UNMEASURED}`;\n",
+    "to": ""
+  },
+  {
+    "label": "USAGE — the unmeasured press's delivery lines dropped",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "        ...(queried ? { events: usage.events, otherIds: usage.otherIds } : {}),\n",
+    "to": ""
+  },
+  {
+    "label": "USAGE — an answered query with no call said as not read",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "  else if (queried) log(`NARRATION USAGE UNAVAILABLE:",
+    "to": "  else if (false) log(`NARRATION USAGE UNAVAILABLE:"
+  },
+  {
+    "label": "EVENT — the recorder's delivery line read as one token",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "m = /^progress: (\\S+) (.+?) not delivered after (\\d+) tries$/.exec(t);",
+    "to": "m = /^progress: (\\S+) (\\S+) not delivered after (\\d+) tries$/.exec(t);"
+  },
+  {
+    "label": "PROBE — the logs always said readable",
+    "files": [
+      "scripts/narration-usage.mjs"
+    ],
+    "from": "    return { probe: true, readable: q.ok, why: q.why };",
+    "to": "    return { probe: true, readable: true, why: q.why };"
   }
 ]

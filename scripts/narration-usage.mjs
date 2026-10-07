@@ -22,6 +22,18 @@
 // A FLOOR, AND SAID SO: a line names fresh input and output tokens; cached
 // input — priced at a quarter of the fresh rate on grok — is not in it.
 //
+// NO CALL READ IS NO MEASUREMENT (2026-10-06, Codex's review): a query that
+// answered, with no call under the press's ids, says the usage is not
+// measured — never a verified zero cost. Whether the logs were read and
+// whether they held the press's usage are kept apart (`query.ok`,
+// `measured`), and a cost is printed only from calls read.
+//
+// WHERE EACH LINE IS WRITTEN: the writers' call lines by the Worker's queue
+// consumer; the recorder's delivery lines ("not delivered after") wherever
+// the job runs, usually the site's container, whose output Workers Logs keep
+// with observability on (wrangler.jsonc). That the container's lines reach
+// this query in this shape is not yet seen in a live read.
+//
 // WITH NO PRESS TO READ (no ids file in the evidence), it only asks whether the
 // logs can be read at all: the free runtime check's way to know before a paid
 // press. It never fails the workflow; a log it could not read is said loudly.
@@ -48,12 +60,17 @@ export function parseCall(message) {
   };
 }
 
-/** A line that says a narration did not go (no call priced in it), or null. */
+/**
+ * A line that says a narration did not go (no call priced in it), or null.
+ * The recorder's line names what it could not deliver in words, more than
+ * one token (`worker.js`, `makeProgress`'s `deliver`): "progress: <id>
+ * milestone 0 not delivered after 8 tries", or "… opening not delivered …".
+ */
 export function parseEvent(message) {
   const t = String(message || "").trim();
-  let m = /^progress: (\S+) given up after (\d+) tries/.exec(t);
+  let m = /^progress: (\S+) given up after (\d+) tries$/.exec(t);
   if (m) return { what: "given up", id: m[1], tries: Number(m[2]) };
-  m = /^progress: (\S+) (\S+) not delivered after (\d+) tries/.exec(t);
+  m = /^progress: (\S+) (.+?) not delivered after (\d+) tries$/.exec(t);
   if (m) return { what: "not delivered", id: m[1], step: m[2], tries: Number(m[3]) };
   m = /^progress: (\S+) milestone refused — (.+)$/.exec(t);
   if (m) return { what: "refused", id: m[1], why: m[2] };
@@ -136,8 +153,12 @@ export function usageOf(events, ids) {
   };
 }
 
-/** The account, written out for the log. */
+/** The words for usage that was not measured: never a zero cost. */
+export const UNMEASURED = "no narration call was read for this press, so its usage and cost are not measured — this is not a verified zero";
+
+/** The account, written out for the log; with no call read, it says the measurement is unavailable and prints no cost. */
 export function describeUsage(u) {
+  if (!u || !Array.isArray(u.calls) || !u.calls.length || !u.totals) return `NARRATION USAGE UNAVAILABLE: ${UNMEASURED}`;
   const out = [];
   const t = u.totals;
   out.push(`NARRATION USAGE: ${t.calls} call(s), ${t.written} written (${t.lines} line call(s), ${t.tasks} task-lines call(s)); attempts ${t.attempts}; tokens ${t.in} in / ${t.out} out (fresh; cached input is not in the log line); time ${t.ms} ms in all, median ${t.msMedian} ms, most ${t.msMost} ms`);
@@ -192,7 +213,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * first balance read to ten after its last (bounded by now), read again a
  * few times while the newest lines are still arriving — until two reads
  * agree, or the reads run out; without them, a probe of the last fifteen
- * minutes. Writes `narration.json` beside the evidence and prints the account.
+ * minutes. Writes `narration.json` beside the evidence and prints the account:
+ * `measured` with the calls and their cost; or not measured, with whether the
+ * query answered (`query.ok`) and why — and then no cost at all.
  */
 export async function main({ env = process.env, now = () => Date.now(), fetchImpl = fetch, wait = sleep, log = console.log, reads = 4, everyMs = 45_000 } = {}) {
   const dir = env.CANARY_EVIDENCE_DIR || "canary-evidence";
@@ -204,16 +227,16 @@ export async function main({ env = process.env, now = () => Date.now(), fetchImp
     const to = now();
     const q = await queryLogs({ token, account, from: to - 15 * 60_000, to, fetchImpl });
     log(q.ok
-      ? `NARRATION LOGS READABLE: the free query answered (${q.events.length} narration line(s) in the last 15 minutes); a paid press's usage will be read the same way`
+      ? `NARRATION LOGS READABLE: the free query answered (${q.events.length} narration line(s) in the last 15 minutes). That the logs can be read measures no usage: a press's usage is measured only from its own calls`
       : `NARRATION LOGS NOT READABLE: ${q.why} — a paid press's usage would have to be read from the dashboard instead (Workers & Pages › isibi-app › Logs, searching "${NEEDLE}")`);
-    return { probe: true, ok: q.ok, why: q.why };
+    return { probe: true, readable: q.ok, why: q.why };
   }
   const ids = pressIds(ask);
   const from = Date.parse(String(ask.from || "")) - 2 * 60_000;
   const end = Date.parse(String(ask.to || "")) + 10 * 60_000;
   if (!Number.isFinite(from) || !Number.isFinite(end) || !ids.size) {
     log("NARRATION USAGE NOT READ: the press left no window or no ids to read it by");
-    return { probe: false, ok: false, why: "no window or ids" };
+    return { probe: false, queried: false, measured: false, why: "no window or ids" };
   }
   let usage = null, last = -1, q = null, tries = 0;
   for (let i = 0; i < reads; i++) {
@@ -226,14 +249,26 @@ export async function main({ env = process.env, now = () => Date.now(), fetchImp
     last = count;
     if (i + 1 < reads) await wait(everyMs);
   }
-  const out = q && q.ok && usage
-    ? { ok: true, window: { from: new Date(from).toISOString(), to: new Date(Math.min(end, now())).toISOString() }, ids: [...ids], reads: tries, ...usage }
-    : { ok: false, why: q ? q.why : "not read", ids: [...ids], reads: tries };
+  // WHETHER THE LOGS WERE READ, AND WHETHER THEY HOLD THE PRESS'S USAGE, ARE
+  // TWO FACTS (2026-10-06, Codex's review): a query that answered and found no
+  // call under the press's ids measures nothing — never a verified zero cost.
+  const queried = !!(q && q.ok && usage);
+  const measured = queried && usage.calls.length > 0;
+  const query = { ok: queried, reads: tries, window: { from: new Date(from).toISOString(), to: new Date(Math.min(end, now())).toISOString() }, ...(queried ? {} : { why: q ? q.why : "not read" }) };
+  const out = measured
+    ? { measured: true, query, ids: [...ids], ...usage }
+    : {
+        measured: false, query, ids: [...ids],
+        why: queried ? `the logs were read and hold no narration call under the press's ids: ${UNMEASURED}` : query.why,
+        ...(queried ? { events: usage.events, otherIds: usage.otherIds } : {}),
+      };
   mkdirSync(dir, { recursive: true });
   writeFileSync(`${dir}/narration.json`, JSON.stringify(out, null, 2));
-  if (out.ok) log(describeUsage(out));
-  else log(`NARRATION USAGE NOT READ: ${out.why} — read it from the dashboard instead (Workers & Pages › isibi-app › Logs, searching "${NEEDLE}" between ${new Date(from).toISOString()} and ${new Date(end).toISOString()})`);
-  return { probe: false, ok: out.ok, why: out.why || "" };
+  const dashboard = `read it from the dashboard instead (Workers & Pages › isibi-app › Logs, searching "${NEEDLE}" between ${new Date(from).toISOString()} and ${new Date(end).toISOString()})`;
+  if (measured) log(describeUsage(out));
+  else if (queried) log(`NARRATION USAGE UNAVAILABLE: ${out.why}${out.events.length ? `; ${out.events.length} delivery line(s) of its ids were read` : ""} — ${dashboard}`);
+  else log(`NARRATION USAGE NOT READ: ${out.why} — ${dashboard}`);
+  return { probe: false, queried, measured, why: out.why || "" };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

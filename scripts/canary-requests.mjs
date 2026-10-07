@@ -26,7 +26,7 @@
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
 import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
-import { requestKeyOf, routeCallOf } from "./canary-ui.mjs";
+import { requestKeyOf, routeCallOf, liveOnItsPart } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
@@ -706,8 +706,15 @@ export function progressChecks({ steps }) {
     for (const snap of arrOf(list)) for (const p of arrOf(snap && snap.parts)) for (const l of listOf(p.lines)) got.add(`${p.n}\u0000${l}`);
     return got;
   };
-  add("a progress line was on screen in the tab that sent the message while the request still ran", !!f.first,
-    f.closedRunning === false ? "the request had ended before any line was shown" : "no line was shown before the tab was closed");
+  // THE FIRST LINE, READ OFF THE SENDING TAB'S OWN SNAPSHOTS, never taken on
+  // the driver's word (2026-10-06, Codex's reproduction): it must have been
+  // live on its own running part in a reading made while the request ran. A
+  // done part's kept line, shown while another part waited, is not progress.
+  const first = f.first && typeof f.first === "object" && typeof f.first.line === "string" && f.first.line ? f.first : null;
+  const firstLive = !!first && arrOf(f.before).some((snap) => snap && snap.ended !== true && arrOf(snap.parts).some((p) => p.n === first.part && liveOnItsPart(p) && p.live === first.line));
+  add("a progress line was on screen in the tab that sent the message, live on its own running part, while the request still ran", firstLive,
+    first ? `the line taken (part ${first.part}, ${first.status || "?"}) was never live on its own running part in the sending tab's readings`
+      : f.closedRunning === false ? "the request had ended before any line was shown live" : "no line was shown live on a running part before the tab was closed");
   add("the tab that sent it was then closed, the request still running", f.closed === true && f.closedRunning === true,
     f.closed !== true ? "the tab was not closed" : "the request had already ended when the tab was closed");
   const away = f.away || {};

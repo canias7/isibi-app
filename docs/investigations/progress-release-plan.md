@@ -246,10 +246,13 @@ Chromium, signed in as the building account, on `fold-lane-bakery`
 2. **The sending tab**: the message is sent, and the request's card is read
    about every second. Each change to what it draws is kept (the parts'
    words, labels, progress lines and status). This continues until a
-   progress line is on screen while the request still runs, or the request
-   ends, or 6 minutes pass. The add-on's first milestone ("picked") comes
-   before any design work, so a first line is expected within a few
-   minutes.
+   progress line is **live on its own running part** while the request
+   still runs, or the request ends, or 6 minutes pass. The page marks a
+   part's newest line live only while that part runs (`progressListHTML`),
+   so a done part's kept lines, shown while another part waits, never count
+   (Codex's second review: they did, and every check passed with no live
+   line seen). The add-on's first milestone ("picked") comes before any
+   design work, so a first line is expected within a few minutes.
 3. **The tab is closed**, as a customer closes it.
 4. **No page open, 30 seconds**: the request is read through the requests
    list alone, and any read of its own route then is recorded (there must
@@ -290,8 +293,9 @@ Chromium, signed in as the building account, on `fold-lane-bakery`
 - **the money**: the press's own charges (routing by its keys, jobs by
   theirs) add up to the balance's move;
 - **the progress** (`progressChecks`, eight checks):
-  1. a progress line was on screen in the tab that sent the message while
-     the request still ran;
+  1. a progress line was on screen in the tab that sent the message, live
+     on its own running part, while the request still ran: read off that
+     tab's own readings, never taken on the driver's word;
   2. that tab was then closed, the request still running;
   3. with no page open, the request was read through the requests list
      alone, and nothing read its own route;
@@ -344,6 +348,19 @@ cost in dollars and credits**, at the platform's own rates.
 from the send to each line's first appearance on screen, from the press's
 snapshots.
 
+**No call read is no measurement** (Codex's second review): a read that
+answers but holds no call under the press's ids says the usage is **not
+measured** and prints no cost, never a verified zero. Whether the logs were
+read (`query.ok`) and whether they held the press's usage (`measured`) are
+kept apart in `narration.json`, and a cost is written only from calls read.
+
+The recorder's delivery lines are read in its own words: *"progress: <id>
+milestone 0 not delivered after 8 tries"* and *"… opening not delivered …"*.
+They come from wherever the job runs, usually the site's container. Workers
+Logs keep a container's output with observability on, but no live read has
+yet shown those lines in this query; the writers' call lines come from the
+Worker itself.
+
 If the logs cannot be read, it says so and names where to read them instead
 (the dashboard: *Workers & Pages → isibi-app → Logs*, searching `progress:`
 between the press's times). It never fails the run.
@@ -369,12 +386,16 @@ free later (the restore box), if the owner wants.
   coverage `progress-each-part`.
 - **The usage reader** `scripts/narration-usage.mjs` and its workflow step.
 - **The tests**:
-  - `test/canary-progress.test.mjs`, 21 cases: the press end to end through
+  - `test/canary-progress.test.mjs`, 22 cases (Codex's false positive among
+    them, a failing control): the press end to end through
     the stand-in app (its harness moved to `test/fixtures/canary-rq-app.mjs`
     and shared with `test/canary-requests.test.mjs`); each refusal; each
     check failing alone on its own defect; the usage reader; the wiring;
   - case 7 of `test/progress-browser.test.mjs`: the card reader in real
-    Chromium against the real page code.
+    Chromium against the real page code, Codex's state among its three
+    moments (a done part's kept lines, none live, while the next waits);
+  - RECORDER 7 in `test/progress-gaps.test.mjs`: the real recorder's give-up
+    lines, read back by the usage step's parser.
 - **The sweeps**:
   - `scripts/mutants/progress-release.json`: 51 mutants, 4 controls. The
     first run killed 48. The 3 survivors each got a case and were killed on
@@ -385,7 +406,10 @@ free later (the restore box), if the owner wants.
       the next step's comment.
 
     Run again on the finished tree, after the budget and the cap were set:
-    51 of 51 killed, the 4 controls surviving;
+    51 of 51 killed, the 4 controls surviving. After Codex's second review
+    it holds 65 (14 new, for the live-line rule, the unmeasured usage and
+    the recorder's line): 63 killed first, the 2 redundant guards given
+    cases and killed on a rerun;
   - `scripts/mutants/progress-release-cards.json`: the card reader, in real
     Chromium: 7 of 7 killed, the control surviving.
 
@@ -513,7 +537,11 @@ plan's §7.
   holds for the task lines.
 - **The cost is a floor**: it is priced from the log line's tokens at the
   platform's rates, without cached input. The provider's bill is the ground
-  truth.
+  truth. **With no call read, nothing is measured**, and the step says so
+  rather than printing a zero.
+- **The container's delivery lines**: whether they reach the usage step's
+  query is not yet seen live. If they don't, a delivery that gave up is
+  missing from the account, though never from the job's outcome.
 - **The tokens are the writer calls'**: the queue, the store writes and the
   page's polls cost no model call and are not counted.
 - **The press's own bounds**:

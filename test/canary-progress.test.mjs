@@ -14,11 +14,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import util from "node:util";
 import os from "node:os";
 import path from "node:path";
 import {
   UI_SCENARIOS, readUiScenario, stepBoundMs, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_FIRST_LINE_MS, UI_FRESH_AWAY_MS,
-  blocksPost, capRefusal, progressOnRefusal, progressSnapshot, keepSnapshot, narrationChargeVerdict, ownMoneyVerdict, describeUi,
+  blocksPost, capRefusal, progressOnRefusal, progressSnapshot, keepSnapshot, liveOnItsPart, narrationChargeVerdict, ownMoneyVerdict, describeUi,
 } from "../scripts/canary-ui.mjs";
 import { progressChecks, requestBatchVerdict, replyChecks, coverageOf, COVERAGE } from "../scripts/canary-requests.mjs";
 import { rqApp, part, view, drive, SLUG } from "./fixtures/canary-rq-app.mjs";
@@ -193,7 +194,7 @@ test("NO LINE BEFORE THE END: a request that ends before any line is shown fails
   const h = lpApp({ send: () => ({ request: { key: KEY, views: [quiet[quiet.length - 1]] }, route: { intent: "addon" } }) });
   const rec = await lpDrive(h);
   const bad = failed(progressChecks({ steps: rec.steps }));
-  assert.ok(bad.some((b) => /^a progress line was on screen in the tab that sent the message while the request still ran — the request had ended/.test(b)), JSON.stringify(bad));
+  assert.ok(bad.some((b) => /^a progress line was on screen in the tab that sent the message, live on its own running part, while the request still ran — the request had ended/.test(b)), JSON.stringify(bad));
   assert.ok(bad.some((b) => /^the tab that sent it was then closed, the request still running/.test(b)), JSON.stringify(bad));
   assert.ok(bad.some((b) => /^the fresh session showed every progress line the sending tab had shown — the sending tab showed no line/.test(b)));
   assert.ok(!bad.some((b) => /signed in afresh/.test(b)), "recovery was not still read");
@@ -202,7 +203,49 @@ test("NO LINE BEFORE THE END: a request that ends before any line is shown fails
   const rec2 = await lpDrive(h2);
   assert.equal(rec2.steps[0].fresh.first, null, "a line read off the ended card counted as shown before the end");
   assert.equal(rec2.steps[0].fresh.away.ended, true, "the list showed the request ended with no page open, and that was not recorded");
-  assert.ok(failed(progressChecks({ steps: rec2.steps })).some((b) => /while the request still ran — the request had ended before any line was shown/.test(b)));
+  // …AND A READING OF THE ENDED REQUEST IS NEVER "BEFORE THE END", even one
+  // whose part still reads as running with a line live (a page out of step).
+  const lagging = view(KEY, [part(0, "Add an FAQ page …", "started", { route: "addon", ids: ["f1"], said: SAID0, progress: [L(0, L1, 4000)] })], { ended: true });
+  const h3 = lpApp({ send: () => ({ request: { key: KEY, views: [lagging] }, route: { intent: "addon" } }) });
+  const rec3 = await lpDrive(h3);
+  assert.ok(rec3.steps[0].fresh.before.some((x) => x.ended && x.parts.some((p) => p.live === L1)), "the ended reading with a live line was never on screen, so this case shows nothing");
+  assert.equal(rec3.steps[0].fresh.first, null, "a line read off the ended request was taken as shown before the end");
+  assert.ok(failed(progressChecks({ steps: rec2.steps })).some((b) => /while the request still ran — the request had ended before any line was shown live/.test(b)));
+});
+
+// CODEX'S REPRODUCTION (2026-10-06): the add-on part is already done when the
+// sending tab first looks, its lines kept on its card, and the heading part
+// is still queued; that part then runs with no line of its own. No progress
+// line is ever live on a running part in the sending tab. The old driver took
+// the done part's kept line as the first line, and all eight checks passed.
+const DONE0 = part(0, "Add an FAQ page …", "done", { route: "addon", ids: ["f1"], jobs: ["f1"], said: SAID0, progress: [L(0, L1, 4000), L(1, L2, 90000)] });
+const P1 = (status, over = {}) => part(1, "change the Classes page heading …", status, { said: SAID1, ...over });
+const RETAINED = [
+  view(KEY, [DONE0, P1("ready")]), view(KEY, [DONE0, P1("ready")]), view(KEY, [DONE0, P1("ready")]),
+  // THE HEADING PART RUNS LONG ENOUGH for the fresh session to see it running
+  // and named by its doing line: on the old driver, every check then passed.
+  ...Array(10).fill(view(KEY, [DONE0, P1("started", { route: "text", ids: ["c1"] })])),
+  view(KEY, [DONE0, P1("done", { route: "text", ids: ["c1"], jobs: ["c1"] })], { ended: true }),
+];
+
+test("A KEPT LINE IS NOT PROGRESS (Codex's false positive, a failing control): a done part's lines while another part is queued are never taken as the first line — only a line live on its own running part is — and the press fails its first check by name", async () => {
+  const h = lpApp({ send: () => ({ request: { key: KEY, views: RETAINED }, route: { intent: "addon" } }) });
+  const rec = await lpDrive(h);
+  const f = rec.steps[0].fresh;
+  assert.equal(f.first, null, `a kept line was taken as the first progress line: ${JSON.stringify(f.first)}`);
+  // THE SENDING TAB SAW THE KEPT LINES, AND NO LIVE ONE: the control is real.
+  assert.ok(f.before.some((x) => x.parts.some((p) => p.n === 0 && p.status === "done" && p.lines.length === 2)), "the kept lines were never on screen, so this case shows nothing");
+  assert.ok(!f.before.some((x) => x.parts.some((p) => p.live)), "a line was live after all");
+  const bad = failed(progressChecks({ steps: rec.steps }));
+  assert.ok(bad.some((b) => /^a progress line was on screen in the tab that sent the message, live on its own running part, while the request still ran — /.test(b)), JSON.stringify(bad));
+  // AND A LINE THAT IS LIVE ON ITS RUNNING PART, LATER, IS THE FIRST ONE.
+  // ITS PART HAS TWO LINES BY THEN: the first line is the live one, not the oldest.
+  const LIT = P1("started", { route: "text", ids: ["c1"], progress: [L(0, "I've found the heading on the Classes page.", 2000), L(1, L3, 3000)] });
+  const later = [...RETAINED.slice(0, 3), ...Array(10).fill(view(KEY, [DONE0, LIT])), RETAINED[RETAINED.length - 1]];
+  const h2 = lpApp({ send: () => ({ request: { key: KEY, views: later }, route: { intent: "addon" } }) });
+  const rec2 = await lpDrive(h2);
+  assert.deepEqual({ part: rec2.steps[0].fresh.first.part, status: rec2.steps[0].fresh.first.status, line: rec2.steps[0].fresh.first.line }, { part: 1, status: "started", line: L3 });
+  assert.ok(!failed(progressChecks({ steps: rec2.steps })).some((b) => /^a progress line was on screen/.test(b)));
 });
 
 test("WITH NO PAGE OPEN, A READ OF THE REQUEST'S OWN ROUTE is caught and fails its check by name", async () => {
@@ -272,7 +315,8 @@ test("THE FRESH SESSION THAT FINDS NOTHING: a page that never draws the request 
 // ── THE CHECKS, ONE AT A TIME ────────────────────────────────────────────────
 
 const snap = (ms, ended, parts, closed = false) => ({ ms, ended, closed, parts });
-const P = (n, status, words, lines = [], said = null) => ({ n, status, words, label: status, lines, live: "", said });
+// AS THE PAGE DRAWS IT: the newest line live only on a running part.
+const P = (n, status, words, lines = [], said = null) => ({ n, status, words, label: status, lines, live: status === "started" && lines.length ? lines[lines.length - 1] : "", said });
 const goodFresh = () => ({
   first: { ms: 5000, part: 0, status: "started", line: L1 }, closed: true, closedRunning: true, closedMs: 6000,
   before: [snap(1000, false, [P(0, "started", SAID0.doing, [], SAID0)]), snap(5000, false, [P(0, "started", SAID0.doing, [L1], SAID0)])],
@@ -292,6 +336,18 @@ test("progressChecks, case by case: the good record passes all eight; each fault
     assert.match(bad[0], re);
   };
   only((f) => { f.first = null; }, /^a progress line was on screen/);
+  // CODEX'S FALSE POSITIVE, AS THE OLD DRIVER RECORDED IT: the line taken was a
+  // done part's kept line while the other part was queued — never live on a
+  // running part. Only the first check fails, by name.
+  only((f) => {
+    f.first = { ms: 5000, part: 0, status: "done", line: L1 };
+    f.before = [1000, 5000].map((ms) => snap(ms, false, [P(0, "done", SAID0.done, [L1], SAID0), P(1, "ready", SAID1.planned, [], SAID1)]));
+  }, /^a progress line was on screen in the tab that sent the message, live on its own running part, while the request still ran — the line taken \(part 0, done\) was never live on its own running part/);
+  // A FIRST LINE THE SNAPSHOTS NEVER SHOW LIVE is not taken on its word.
+  only((f) => { f.first = { ...f.first, line: "A line no snapshot shows." }; }, /never live on its own running part/);
+  // …nor one shown live only in a reading of the ended request, or live on another part.
+  only((f) => { f.before = f.before.map((x) => ({ ...x, ended: true })); }, /never live on its own running part/);
+  only((f) => { f.first = { ...f.first, part: 1 }; }, /the line taken \(part 1, started\) was never live on its own running part/);
   only((f) => { f.closedRunning = false; }, /^the tab that sent it was then closed, the request still running — the request had already ended/);
   only((f) => { f.away.calls = [{ ms: 1, method: "GET", path: "/api/site/request/x/y" }]; }, /its own route was read 1 time/);
   only((f) => { f.away.list = [{ ms: 1, status: 200, found: false }]; }, /the list never named the request/);
@@ -300,8 +356,16 @@ test("progressChecks, case by case: the good record passes all eight; each fault
   only((f) => { f.after = f.after.map((x) => ({ ...x, parts: x.parts.map((p) => ({ ...p, lines: p.lines.filter((l) => l !== L1) })) })); }, /not shown again: "I've worked out/);
   only((f) => { f.reopened.closed = false; f.reopened.why = "the fresh session never showed the request closed"; }, /followed the request to its end.*never showed the request closed/);
   only((f) => { for (const x of [...f.before, ...f.after]) for (const p of x.parts) if (p.status === "started") p.words = "Add an FAQ page …"; }, /no running part was shown with the model's doing line/);
-  // THE DOING LINE ON A PART THAT IS NOT RUNNING is not a running part named by it.
-  only((f) => { for (const x of [...f.before, ...f.after]) for (const p of x.parts) if (p.status === "started") p.status = "ready"; }, /no running part was shown with the model's doing line/);
+  // THE DOING LINE ON A PART THAT IS NOT RUNNING is not a running part named by
+  // it — and with no part shown running, no line was live on one either.
+  {
+    const f = goodFresh();
+    for (const x of [...f.before, ...f.after]) for (const p of x.parts) if (p.status === "started") p.status = "ready";
+    const bad = failed(progressChecks({ steps: stepOf(f) }));
+    assert.equal(bad.length, 2, JSON.stringify(bad));
+    assert.match(bad[0], /^a progress line was on screen.*never live on its own running part/);
+    assert.match(bad[1], /no running part was shown with the model's doing line/);
+  }
   only((f) => { const last = f.after[f.after.length - 1]; last.parts[0].words = "Add an FAQ page …"; }, /at its end every part was done.*part 0 done shown as "Add an FAQ page …"/);
   only((f) => { const last = f.after[f.after.length - 1]; last.parts[0].status = "partial"; last.parts[0].words = SAID0.partial; }, /part 0 partial shown as/);
   // NOT READ IN A FRESH SESSION AT ALL: one failure that says so.
@@ -327,6 +391,17 @@ test("progressSnapshot reads a card as drawn — words, label, lines, live, the 
   assert.equal(keepSnapshot(list, { ...got, ended: false }, 30), true);
   assert.equal(keepSnapshot(list, null, 40), false);
   assert.deepEqual(list.map((x) => x.ms), [10, 30]);
+  // LIVE ON ITS OWN RUNNING PART, and nothing else counts: not a done part's
+  // line, even one a page marked live; not a running part with none live; not
+  // a live line that is none of the part's own.
+  assert.equal(liveOnItsPart({ status: "started", live: L2, lines: [L1, L2] }), true);
+  assert.equal(liveOnItsPart({ status: "done", live: L2, lines: [L1, L2] }), false, "a done part's line was taken as live");
+  assert.equal(liveOnItsPart({ status: "ready", live: L2, lines: [L2] }), false);
+  assert.equal(liveOnItsPart({ status: "started", live: "", lines: [L1] }), false);
+  assert.equal(liveOnItsPart({ status: "started", live: L3, lines: [L1, L2] }), false, "a live line none of the part's own was taken");
+  assert.equal(liveOnItsPart(null), false);
+  // AN EMPTY LINE IS NOT VISIBLE, so never live — even in a record that kept one.
+  assert.equal(liveOnItsPart({ status: "started", live: "", lines: [""] }), false, "an empty line was taken as live");
 });
 
 // ── NARRATION ADDS NO CHARGE ─────────────────────────────────────────────────
@@ -375,7 +450,16 @@ test("THE LOG LINES ARE THE WORKER'S OWN: the line writer's and the task writer'
   // AND THE LINES THAT SAY A DELIVERY OR A WRITER GAVE UP.
   assert.ok(src.includes(`console.log("progress:", id, what, "not delivered after", i + 1, "tries");`));
   assert.ok(src.includes(`console.log("progress:", job, "given up after", PROGRESS_TRIES, "tries");`));
-  assert.deepEqual(NU.parseEvent("progress: f1 mark:3 not delivered after 8 tries"), { what: "not delivered", id: "f1", step: "mark:3", tries: 8 });
+  // WHAT THE RECORDER NAMES, as its own calls pass it: "opening", and
+  // "milestone " and the milestone's number — words, more than one token.
+  assert.ok(src.includes(`opened = await deliver({ op: "begin", run, ...opening }, "opening");`), "the recorder's opening is not named \"opening\"");
+  assert.ok(src.includes(`deliver({ op: "mark", run, stage, facts, seq: n }, "milestone " + n)`), "the recorder's milestone is not named \"milestone <n>\"");
+  // FORMATTED AS console.log FORMATS THOSE ARGUMENTS (the real recorder's own
+  // output is read in progress-gaps' RECORDER 7).
+  const said = (...args) => util.format(...args);
+  assert.equal(said("progress:", "f1", "milestone " + 0, "not delivered after", 7 + 1, "tries"), "progress: f1 milestone 0 not delivered after 8 tries");
+  assert.deepEqual(NU.parseEvent(said("progress:", "f1", "milestone " + 0, "not delivered after", 7 + 1, "tries")), { what: "not delivered", id: "f1", step: "milestone 0", tries: 8 });
+  assert.deepEqual(NU.parseEvent(said("progress:", "f1", "opening", "not delivered after", 2, "tries")), { what: "not delivered", id: "f1", step: "opening", tries: 2 });
   assert.deepEqual(NU.parseEvent("progress: f1 given up after 3 tries"), { what: "given up", id: "f1", tries: 3 });
   assert.deepEqual(NU.parseEvent("progress: f1 milestone refused — not-open"), { what: "refused", id: "f1", why: "not-open" });
 });
@@ -397,7 +481,7 @@ test("USAGE: the press's own calls only, priced at the platform's own rates as a
     { timestamp: 3, $metadata: { message: W("f1", "milestones 1 facts 2 attempts 2 tokens 1000/100 ms 4000") } },
     { timestamp: 1, $metadata: { message: `progress: tasks ${rid} written model grok-4.6 tasks 2 attempts 1 tokens 500/250 ms 3000` } },
     { timestamp: 2, $metadata: { message: W("zz") } },
-    { timestamp: 4, $metadata: { message: "progress: f1 mark:2 not delivered after 8 tries" } },
+    { timestamp: 4, $metadata: { message: "progress: f1 milestone 2 not delivered after 8 tries" } },
     { timestamp: 5, $metadata: { message: "progress: zz given up after 3 tries" } },
     { timestamp: 6, $metadata: { message: "request sweep: nothing" } },
   ];
@@ -449,38 +533,65 @@ test("THE QUERY is the free one container-logs makes — dry, the needle, the wi
   assert.equal(ok.events.length, 1);
 });
 
-test("THE STEP: with no press to read it probes and says whether the logs are readable; with the press's ids it reads until two reads agree, writes narration.json, and never fails the run", async () => {
+test("THE STEP: with no press to read it says only whether the logs are readable; with the press's ids it reads until two reads agree and writes narration.json — usage measured only from calls read, never a verified zero, and the query's success kept apart from it; it never fails the run", async () => {
   // THE SYSTEM'S OWN TEMPORARY DIRECTORY, as every other test makes one: a
   // path that exists in one machine only fails on every other (CI, first).
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "narration-"));
   try {
     const logs = [];
+    const env = { CANARY_EVIDENCE_DIR: dir, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" };
     const fake = (events) => async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ result: { events: { events } } }) });
-    const probe = await NU.main({ env: { CANARY_EVIDENCE_DIR: dir, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" }, fetchImpl: fake([]), log: (l) => logs.push(l), wait: async () => {} });
-    assert.equal(probe.probe, true);
-    assert.match(logs.pop(), /^NARRATION LOGS READABLE/);
+    const saved = () => JSON.parse(fs.readFileSync(`${dir}/narration.json`, "utf8"));
+    const probe = await NU.main({ env, fetchImpl: fake([]), log: (l) => logs.push(l), wait: async () => {} });
+    assert.deepEqual([probe.probe, probe.readable], [true, true]);
+    assert.match(logs.pop(), /^NARRATION LOGS READABLE: .*measures no usage/);
     const noToken = await NU.main({ env: { CANARY_EVIDENCE_DIR: dir }, log: (l) => logs.push(l), wait: async () => {} });
-    assert.equal(noToken.ok, false);
+    assert.equal(noToken.readable, false);
     assert.match(logs.pop(), /^NARRATION LOGS NOT READABLE: no Cloudflare token/);
     // WITH THE PRESS'S IDS: the lines arrive over two reads, then hold.
     fs.writeFileSync(`${dir}/narration-ids.json`, JSON.stringify({ slug: "fold-lane-bakery", from: "2026-10-06T20:00:00.000Z", to: "2026-10-06T20:20:00.000Z", requests: [KEY], jobs: ["f1"] }));
+    const at = { now: () => Date.parse("2026-10-06T21:00:00Z"), log: (l) => logs.push(l), wait: async () => {} };
     const batches = [[{ timestamp: 1, $metadata: { message: W("f1") } }], [{ timestamp: 1, $metadata: { message: W("f1") } }, { timestamp: 2, $metadata: { message: W("f1") } }]];
     let n = 0;
     const growing = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ result: { events: { events: batches[Math.min(n++, 1)] } } }) });
-    const read = await NU.main({ env: { CANARY_EVIDENCE_DIR: dir, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" }, fetchImpl: growing, now: () => Date.parse("2026-10-06T21:00:00Z"), log: (l) => logs.push(l), wait: async () => {}, reads: 5 });
-    assert.equal(read.ok, true);
-    const saved = JSON.parse(fs.readFileSync(`${dir}/narration.json`, "utf8"));
-    assert.equal(saved.ok, true);
-    assert.equal(saved.reads, 3, "it did not read until two reads agreed");
-    assert.equal(saved.totals.calls, 2);
-    assert.equal(saved.window.from, "2026-10-06T19:58:00.000Z");
-    assert.equal(saved.window.to, "2026-10-06T20:30:00.000Z");
+    const read = await NU.main({ env, fetchImpl: growing, reads: 5, ...at });
+    assert.deepEqual([read.queried, read.measured], [true, true]);
+    const got = saved();
+    assert.deepEqual([got.measured, got.query.ok], [true, true]);
+    assert.equal(got.query.reads, 3, "it did not read until two reads agreed");
+    assert.equal(got.totals.calls, 2);
+    assert.ok(got.totals.usd > 0);
+    assert.deepEqual(got.query.window, { from: "2026-10-06T19:58:00.000Z", to: "2026-10-06T20:30:00.000Z" });
     assert.match(logs.pop(), /^NARRATION USAGE: 2 call\(s\)/);
-    // A REFUSED READ IS SAID, WITH WHERE ELSE TO READ IT.
-    const refused = await NU.main({ env: { CANARY_EVIDENCE_DIR: dir, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" }, fetchImpl: async () => ({ ok: false, status: 403, text: async () => "Authentication error" }), log: (l) => logs.push(l), wait: async () => {} });
-    assert.equal(refused.ok, false);
+    // THE QUERY ANSWERED, AND NO CALL OF THE PRESS'S IDS WAS IN IT — nothing at
+    // all, another id's calls, or the press's delivery lines alone: the usage
+    // is NOT MEASURED. No cost is written, zero or otherwise, and the query's
+    // success is said apart from it.
+    const quiet = [
+      [],
+      [{ timestamp: 1, $metadata: { message: W("zz") } }],
+      [{ timestamp: 1, $metadata: { message: "progress: f1 milestone 0 not delivered after 8 tries" } }],
+    ];
+    for (const events of quiet) {
+      const r = await NU.main({ env, fetchImpl: fake(events), reads: 3, ...at });
+      assert.deepEqual([r.queried, r.measured], [true, false], JSON.stringify(events));
+      const out = saved();
+      assert.deepEqual([out.measured, out.query.ok], [false, true]);
+      assert.equal(out.totals, undefined, "a cost was written for usage that was not measured");
+      assert.ok(!Object.hasOwn(out, "usd") && !JSON.stringify(out).includes('"usd"'), "a dollar figure was written for usage that was not measured");
+      assert.match(out.why, /no narration call under the press's ids: .*not a verified zero/);
+      const line = logs.pop();
+      assert.match(line, /^NARRATION USAGE UNAVAILABLE: .*not a verified zero/);
+      assert.doesNotMatch(line, /\$/, "the log printed a cost for usage that was not measured");
+    }
+    assert.deepEqual(saved().events.map((e) => [e.what, e.step]), [["not delivered", "milestone 0"]], "the press's delivery lines were not kept beside the unmeasured usage");
+    // DESCRIBED WITH NO CALL, THE ACCOUNT SAYS SO: no total, no cost.
+    assert.match(NU.describeUsage({ calls: [], events: [], totals: { calls: 0, usd: 0 } }), /^NARRATION USAGE UNAVAILABLE: .*not a verified zero$/);
+    // A REFUSED READ IS SAID, WITH WHERE ELSE TO READ IT; nothing was measured.
+    const refused = await NU.main({ env, fetchImpl: async () => ({ ok: false, status: 403, text: async () => "Authentication error" }), ...at });
+    assert.deepEqual([refused.queried, refused.measured], [false, false]);
     assert.match(logs.pop(), /^NARRATION USAGE NOT READ: .*dashboard/);
-    assert.equal(JSON.parse(fs.readFileSync(`${dir}/narration.json`, "utf8")).ok, false);
+    assert.deepEqual([saved().measured, saved().query.ok, saved().totals], [false, false, undefined]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -506,6 +617,9 @@ test("THE WORKFLOW: the usage step runs after the press and before the evidence 
   assert.doesNotMatch(steps[press].body, /CLOUDFLARE/, "the press is handed the Cloudflare token");
   assert.match(FLOW, /lv-progress \(the progress live check on fold-lane-bakery/, "the form does not name the scenario");
   assert.ok(FLOW.includes(`sends nothing unless the balance is between ${LP.budget} and ${LP.cap}`), "the form's budget and cap are not the scenario's");
+  // AND THE NOTE ABOVE THE BOX SAYS THE SAME FIGURES (it said 25 and 30 after they were set to 28 and 32).
+  assert.ok(FLOW.includes(`# (${LP.budget}) and its hard cap (${LP.cap}). The changes stay.`), "the workflow's note on the press names another budget or cap");
+  assert.doesNotMatch(FLOW, /lv-progress[\s\S]{0,1200}\(25\) and its hard cap \(30\)/, "the stale figures are still there");
 });
 
 test("THE CANARY: one sign-in, used for the run and handed to the driver for the fresh session; the narration check and the ids file only for a press that judges progress, after the money", () => {

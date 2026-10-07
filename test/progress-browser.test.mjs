@@ -410,15 +410,21 @@ test("OUTCOMES — ANOTHER DEVICE'S CARDS SAY WHAT REALLY HAPPENED: a job done o
 });
 
 test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06, the progress live check): a fresh device's page draws the request the list names, and the canary's own reader, on the real page, reads each part's own words (the model's line for its state), its label, its lines without their times, the newest live while it runs, and the lines for every state as the page keeps them; ended, each part shows its done line and no live line", { skip: SKIP, timeout: 120000 }, async () => {
-  const { progressSnapshot } = await import("../scripts/canary-ui.mjs");
-  let ended = false;
-  const view = () => ({
-    key: KEY, state: ended ? "done" : "running", ended, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0,
-    parts: [
-      { n: 0, words: WORDS, status: ended ? "done" : "started", ids: [JOB], jobs: ended ? [JOB] : [], charged: 0, route: "addon", progress: LINES.slice(0, ended ? 3 : 2), said: SAID_A },
-      { n: 1, words: SOLO_WORDS, status: ended ? "done" : "ready", ids: ended ? [SOLO] : [], jobs: ended ? [SOLO] : [], charged: 0, route: "text", said: SAID_SOLO },
-    ],
-  });
+  const { progressSnapshot, liveOnItsPart } = await import("../scripts/canary-ui.mjs");
+  // THREE MOMENTS: the first part running; the first part DONE, its lines kept
+  // on its card, while the second still waits (Codex's reproduction, on the
+  // real page); and the end.
+  let phase = "running";
+  const view = () => {
+    const ended = phase === "ended", first = phase !== "running";
+    return {
+      key: KEY, state: ended ? "done" : "running", ended, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0,
+      parts: [
+        { n: 0, words: WORDS, status: first ? "done" : "started", ids: [JOB], jobs: first ? [JOB] : [], charged: 0, route: "addon", progress: LINES.slice(0, first ? 3 : 2), said: SAID_A },
+        { n: 1, words: SOLO_WORDS, status: ended ? "done" : "ready", ids: ended ? [SOLO] : [], jobs: ended ? [SOLO] : [], charged: 0, route: "text", said: SAID_SOLO },
+      ],
+    };
+  };
   const S = {
     requests: () => [view()], view, jobs: () => [],
     polls: { [JOB]: () => ({ final: true, body: { ...ADDON_ANSWER, progress: LINES } }), [SOLO]: () => ({ final: true, body: { ...EDIT_ANSWER } }) },
@@ -436,8 +442,23 @@ test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06,
     assert.equal(running.parts[0].live, LINES[1].text, "the newest line was not read as live");
     assert.deepEqual(running.parts[1].lines, []);
     assert.deepEqual(running.parts[0].said, SAID_A, "the lines for every state were not read as the page keeps them");
-    ended = true;
+    assert.equal(liveOnItsPart(running.parts[0]), true, "the running part's live line is not read as live on its part");
+    // THE FIRST PART DONE, THE SECOND WAITING: its lines kept, none live — so
+    // the canary takes no first line here.
+    phase = "kept";
     await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 3 && !document.querySelector(".st-req-prog li.live"), null, { timeout: 30000 });
+    const kept = progressSnapshot(await page.evaluate("(" + READER + ")()"), KEY);
+    assert.equal(kept.ended, false, "the request read as ended while its second part waited");
+    assert.deepEqual(kept.parts.map((p) => [p.n, p.status, p.lines.length, p.live]), [[0, "done", 3, ""], [1, "ready", 0, ""]]);
+    assert.equal(kept.parts.some(liveOnItsPart), false, "a kept line was read as live on its part");
+    phase = "ended";
+    // THE END, TOLD APART FROM THE KEPT MOMENT BY THE SECOND PART'S DONE LINE
+    // (three lines and none live is already true before it).
+    await page.waitForFunction((doneLine) => {
+      const parts = document.querySelectorAll(".st-req-part");
+      const w = parts[1] && parts[1].querySelector(".st-req-words");
+      return parts.length === 2 && !!w && w.textContent.trim() === doneLine && !document.querySelector(".st-req-prog li.live");
+    }, SAID_SOLO.done, { timeout: 30000 });
     const s2 = await page.evaluate("(" + READER + ")()");
     const done = progressSnapshot(s2, KEY);
     assert.equal(done.ended, true);
