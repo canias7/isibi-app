@@ -68,6 +68,70 @@ test("NEWER 1 — THE SERVER SAYS WHETHER ANYTHING WAS ASKED OF THE SITE SINCE A
   } finally { P.close(); compiler.uninstall(); }
 });
 
+test("NEWER 4 — WHAT LEAVES NO JOB ROW YET, OR NONE: a request taken on elsewhere whose first job is not filed is seen by its marker; an earlier request's marker written again after it is not, whatever its upload time; a marker that cannot be read, a list that does not end, or a site whose edits are no longer queued cannot be told", async () => {
+  const compiler = installCompiler();
+  const P = platform({ slug: "nw4-" + Math.random().toString(16).slice(2, 8), answers: DESCRIBE });
+  const live = (key) => "requests-live/" + P.slug + "/" + key;
+  try {
+    const accepted = async (message) => { const r = await sendMessage(P, { message }); const key = r.body && r.body.request && r.body.request.key; assert.ok(key, "no request was accepted: " + JSON.stringify(r.body).slice(0, 300)); await settle(P, key); return { key }; };
+    const newer = async (key) => (await call(P, "GET", REQ(P, key) + "?newer=1")).body;
+    const before = await accepted(DESC);
+    P.advance(5000);
+    const mine = await accepted(DESC + ", please");
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: false }, "the control: nothing was filed since");
+    // AN EARLIER REQUEST'S MARKER WRITTEN AGAIN AFTER THIS ONE WAS TAKEN ON, as
+    // its end writes it: its upload time is later, its acceptance is not.
+    P.advance(5000);
+    const was = JSON.parse(P.objects.get(live(before.key)).body);
+    assert.ok(Number.isFinite(was.at), "the earlier request left no marker to write again");
+    await P.bucket.put(live(before.key), JSON.stringify({ at: was.at, endedAt: P.now() }));
+    const listed = await P.bucket.list({ prefix: "requests-live/" + P.slug + "/" });
+    const lateMark = listed.objects.find((o) => o.key === live(before.key));
+    assert.ok(lateMark && lateMark.uploaded.getTime() > P.record(mine.key).at, "the rewritten marker's upload time is not after the request — the case proves nothing");
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: false }, "an earlier request was read as newer by when its marker was written");
+    // A MARKER THAT CANNOT BE READ: cannot tell.
+    const odd = "zzzzunreadable000000";
+    await P.bucket.put(live(odd), "{not json");
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: null }, "a marker nobody could read was told as older");
+    await P.bucket.delete(live(odd));
+    P.failGet((k) => k.startsWith("requests-live/"));
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: null }, "a marker read that failed was told as older");
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: false }, "the control after the fault");
+    // A LIST THAT DOES NOT END: cannot tell.
+    const filler = [];
+    for (let n = 0; n < 100; n++) { const k = "aaaafiller" + String(n).padStart(10, "0"); filler.push(k); await P.bucket.put(live(k), JSON.stringify({ at: was.at - 1000, endedAt: was.at })); }
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: null }, "a list that did not end was told as nothing since");
+    for (const k of filler) await P.bucket.delete(live(k));
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: false }, "the control after the filler");
+    // ANOTHER REQUEST TAKEN ON IN THE SAME INSTANT is not shown to be older: it counts.
+    const twin = "zzzzsameinstant00000";
+    await P.bucket.put(live(twin), JSON.stringify({ at: P.record(mine.key).at, endedAt: null }));
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: true }, "a request taken on in the same instant was told as older");
+    await P.bucket.delete(live(twin));
+    // A MARKER GONE BETWEEN THE LIST AND ITS READ (the sweep took it) is skipped, not "cannot tell".
+    const list0 = P.bucket.list;
+    P.bucket.list = async (o) => { const got = await list0.call(P.bucket, o); return { ...got, objects: [...got.objects, { key: live("zzzzsweptaway0000000"), etag: "e0", uploaded: new Date(P.now()) }] }; };
+    try { assert.deepEqual(await newer(mine.key), { ok: true, newer: false }, "a marker the sweep took was told as cannot tell"); }
+    finally { P.bucket.list = list0; }
+    // A SITE WHOSE EDITS ARE NO LONGER QUEUED runs them with no row: cannot tell.
+    const flag = P.env.EDIT_ASYNC;
+    P.env.EDIT_ASYNC = "off";
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: null }, "with the queue off, work that leaves no row was told as none");
+    P.env.EDIT_ASYNC = flag;
+    // A REQUEST TAKEN ON ELSEWHERE, ITS FIRST JOB NOT YET FILED.
+    P.advance(5000);
+    P.failRpc("edit_create");
+    const r = await sendMessage(P, { message: DESC + " for the weekend" });
+    const other = r.body && r.body.request && r.body.request.key;
+    assert.ok(other, "the other request was not taken on: " + JSON.stringify(r.body).slice(0, 300));
+    assert.equal(P.jobsOf(other).length, 0, "its first job was filed — the case is not the one it names");
+    assert.ok(P.objects.has(live(other)), "it left no marker");
+    assert.deepEqual(await newer(mine.key), { ok: true, newer: true }, "a request taken on since, with no job yet, was not seen");
+    // ITS OWN MARKER, AND THE NEWEST REQUEST, ARE NOT WORK SINCE ITSELF.
+    assert.deepEqual(await newer(other), { ok: true, newer: false }, "a request was read as newer than itself");
+  } finally { P.close(); compiler.uninstall(); }
+});
+
 // ── THE PAGE: A LATE FIRST READ OF ITS OWN REQUEST ──────────────────────────
 const SLUG = "fold-lane-bakery";
 const URL0 = "https://" + SLUG + ".gofarther.app/";

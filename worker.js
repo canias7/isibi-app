@@ -191,7 +191,7 @@ import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 // why that is the whole point and what it reports instead.
 import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
-import { runTextEdit, runDataEdit, dataChanges, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { runTextEdit, runDataEdit, dataChanges, renamePages, renameRoute, MAX_DATA_ROWS, freshRecent, PUT_BACK_READ_MAX } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from "./builder/site-picture.mjs";
@@ -7480,10 +7480,18 @@ const STANDALONE_JOBS_MAX = 20;
  * less the request's own (their keys name it). `true` when there is one,
  * `false` when the read shows none, `null` when it cannot be told — a read
  * that failed, or one as long as its limit that names only the request's own.
+ *
+ * AND WHAT LEAVES NO ROW YET, OR NONE AT ALL (2026-10-07, the follow-up pass):
+ * a request taken on elsewhere whose first job is not filed yet is seen by its
+ * marker (`newerRequestSince`); a site whose edits are no longer queued runs
+ * them with no row, so there it cannot be told. What is put back is checked
+ * against the table itself when it is used (`freshRecent`), whoever changed
+ * the table — the Data panel included, which files no job.
  */
 const NEWER_WORK_LIMIT = 50;
 async function newerWorkSince(env, uid, slug, rec) {
   if (!env || !env.SUPABASE_SERVICE_KEY || !rec || !Number.isFinite(rec.at) || typeof rec.key !== "string") return null;
+  if (!editAsyncFor(env, { uid, slug })) return null;
   try {
     const since = new Date(rec.at).toISOString();
     const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,idem_key&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&created_at=gt.${encodeURIComponent(since)}&order=created_at.asc&limit=${NEWER_WORK_LIMIT}`, { headers: svcHeaders(env) });
@@ -7492,8 +7500,37 @@ async function newerWorkSince(env, uid, slug, rec) {
     if (!Array.isArray(rows)) return null;
     const theirs = rows.some((j) => { const k = readJobKey(j && j.idem_key); return !(k && k.key === rec.key); });
     if (theirs) return true;
-    return rows.length < NEWER_WORK_LIMIT ? false : null;
+    if (rows.length >= NEWER_WORK_LIMIT) return null;
+    return await newerRequestSince(env, slug, rec);
   } catch (e) { console.error("newer work:", slug, errorClassForLog(e)); return null; }
+}
+/**
+ * WHETHER ANOTHER REQUEST WAS TAKEN ON FOR THE SITE SINCE `rec` (2026-10-07):
+ * a request's marker (`requests-live/<slug>/<key>`) is written before its
+ * record and before its first job, and says when it was taken on (`at`), so a
+ * request that has filed nothing yet is still seen. Read from the marker's
+ * body, never its upload time: a marker is written again when its request
+ * ends. One gone since the list is skipped — the sweep takes only a marker a
+ * day past its request's end, or one whose acceptance died — and one that
+ * cannot be read, or a list that does not end, cannot be told.
+ */
+const NEWER_REQUESTS_LIMIT = 100;
+async function newerRequestSince(env, slug, rec) {
+  if (!env.SITES_BUCKET) return null;
+  const listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + slug + "/", limit: NEWER_REQUESTS_LIMIT });
+  let unknown = !!(listed && listed.truncated);
+  for (const o of (listed && listed.objects) || []) {
+    const at = parseLiveKey(o && o.key);
+    if (!at || at.slug !== slug || at.key === rec.key) continue;
+    let got = null;
+    try { got = await env.SITES_BUCKET.get(o.key); } catch { unknown = true; continue; }
+    if (!got) continue;
+    let mark = null;
+    try { mark = JSON.parse(await got.text()); } catch { mark = null; }
+    if (!mark || !Number.isFinite(mark.at)) { unknown = true; continue; }
+    if (mark.at >= rec.at) return true;
+  }
+  return unknown ? null : false;
 }
 
 async function standaloneJobsFor(env, uid, slug) {
@@ -26124,6 +26161,23 @@ async function handleRequest(request, env, ctx) {
                 } catch (e) { console.error("data edit row read failed:", ownerSlug, t.name, e && e.message); }
               }
 
+              // WHAT THE PAGE OFFERS TO PUT BACK, CHECKED AGAINST THE ROWS AS
+              // THEY ARE NOW (2026-10-07, Codex's review, `freshRecent`): the
+              // offer can be older than the table — another tab's "put that
+              // back", the Data panel, another device — and a row already back
+              // would be put back twice. A table that filled the read above is
+              // read once more, longer, only when an offered row names it; one
+              // longer still cannot show a row gone, and its rows are set aside.
+              const dRecentIn = Array.isArray(eb && eb.recent) ? eb.recent : null;
+              const dWider = {};
+              for (const t of dTables) {
+                if (!dRecentIn || t.rows.length < MAX_DATA_ROWS || !dRecentIn.some((r) => r && r.table === t.name)) continue;
+                try { dWider[t.name] = (await sqlQuery(ddb, "SELECT * FROM \"" + String(t.name).replace(/"/g, "") + "\" ORDER BY id LIMIT " + PUT_BACK_READ_MAX)) || []; }
+                catch (e) { console.error("data edit put-back read failed:", ownerSlug, t.name, errorClassForLog(e)); }
+              }
+              const dRecent = freshRecent(dRecentIn, dTables, dWider);
+              if (dRecent.dropped.length) console.log("data edit: put-back rows set aside:", ownerSlug, dRecent.dropped.map((d) => d.table + ":" + d.why).join(", "));
+
               // BILLED BEFORE THE FIRST ROW IS WRITTEN (2026-09-05, 1a-ii).
               // The module calls `before` with the usage in hand and nothing
               // applied; the funnel reserves here, and a refusal answers
@@ -26172,7 +26226,7 @@ async function handleRequest(request, env, ctx) {
                 // answer is the `{ order, dir }` argument to `useRows`. Read on
                 // the request the lane already pays for, so asking costs
                 // nothing on a build that never mentions the order.
-              }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc, model: eQuickModel });
+              }, { instruction: eInstruction, tables: dTables, recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc, model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (dOut.ask) return stepAsk("data", dOut.ask);
 

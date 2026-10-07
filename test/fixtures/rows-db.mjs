@@ -273,7 +273,11 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     if (all) {
       const t = state.tables.get(all[1]);
       if (!t) return pgError("42P01", "relation \"" + all[1] + "\" does not exist");
-      return wire(t.columns.map((c) => ({ name: c.name, type: c.name === "id" ? 23 : 25 })), [...t.rows].sort((a, b) => a.id - b.id));
+      // ITS `LIMIT`, as Postgres keeps it (2026-10-07): a read the size of its
+      // limit is one that may have left rows out.
+      const limit = /\bLIMIT (\d+)\s*$/i.exec(q.trim());
+      const sorted = [...t.rows].sort((a, b) => a.id - b.id);
+      return wire(t.columns.map((c) => ({ name: c.name, type: c.name === "id" ? 23 : 25 })), limit ? sorted.slice(0, Number(limit[1])) : sorted);
     }
 
     // THE `row` STEP'S ONE STATEMENT: entries and the request's key together.

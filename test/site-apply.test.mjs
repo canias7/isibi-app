@@ -1609,7 +1609,11 @@ test("the undo is wired end to end, not just built", () => {
   // Three layers, none importable, and this repo has recorded a feature dead at
   // exactly one of these seams nine times over.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /recent: \(eb && eb\.recent\) \|\| null/, "the route never reads it off the body");
+  // READ OFF THE BODY, CHECKED AGAINST THE ROWS AS THEY ARE NOW, AND ONLY WHAT
+  // IS STILL GONE HANDED ON (2026-10-07, `freshRecent`).
+  assert.match(w, /const dRecentIn = Array\.isArray\(eb && eb\.recent\) \? eb\.recent : null;/, "the route never reads it off the body");
+  assert.match(w, /const dRecent = freshRecent\(dRecentIn, dTables, dWider\);/, "what the page offers is handed on unchecked");
+  assert.match(w, /recent: dRecent\.kept\.length \? dRecent\.kept : null/, "the model is not handed the rows that are still gone");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   const at = chat.indexOf("function siteEdit(");
   assert.ok(at > 0, "siteEdit is gone — the assertions below would pass vacuously");

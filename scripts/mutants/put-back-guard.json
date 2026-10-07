@@ -1,0 +1,211 @@
+[
+ {
+  "label": "rule: an id back never seen",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "if ((typeof id === \"number\" || (typeof id === \"string\" && id.trim() !== \"\")) && live.some(",
+  "to": "if (false && live.some("
+ },
+ {
+  "label": "rule: values never compared",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    if (live.some((x) => cols.every((c) => alike(Object.hasOwn(x, c) ? x[c] : null, r.was[c])))) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "rule: the database's own columns compared",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": ".filter((c) => typeof c === \"string\" && !FILLED_BY_DATABASE.has(c) && Object.hasOwn(r.was, c));",
+  "to": ".filter((c) => typeof c === \"string\" && Object.hasOwn(r.was, c));"
+ },
+ {
+  "label": "rule: a read in part taken as whole",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "const rows = t.rows.length < MAX_DATA_ROWS ? t.rows : Array.isArray(more)",
+  "to": "const rows = true ? t.rows : Array.isArray(more)"
+ },
+ {
+  "label": "rule: a longer read its limit long taken as whole",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "more.length < PUT_BACK_READ_MAX ? more : null;",
+  "to": "more.length <= PUT_BACK_READ_MAX ? more : null;"
+ },
+ {
+  "label": "rule: another table's longer read used",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "const more = wider && Object.hasOwn(wider, r.table) ? wider[r.table] : null;",
+  "to": "const more = wider ? Object.values(wider)[0] || null : null;"
+ },
+ {
+  "label": "alike: a number written either way told apart",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "  if (a.trim() !== \"\" && b.trim() !== \"\" && Number.isFinite(Number(a)) && Number(a) === Number(b)) return true;\n",
+  "to": ""
+ },
+ {
+  "label": "alike: a value cut where shown told apart",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "  return (a.length > RECENT_VALUE_MAX || b.length > RECENT_VALUE_MAX) && a.slice(0, RECENT_VALUE_MAX) === b.slice(0, RECENT_VALUE_MAX);",
+  "to": "  return false;"
+ },
+ {
+  "label": "alike: one value matching is enough",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "cols.every((c) => alike(",
+  "to": "cols.some((c) => alike("
+ },
+ {
+  "label": "alike: an empty value matches any",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "  if (none(now) || none(was)) return none(now) && none(was);",
+  "to": "  if (none(now) || none(was)) return true;"
+ },
+ {
+  "label": "rule: a table not shown kept",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    if (!t) { dropped.push({ table: r.table, why: \"unread\" }); continue; }",
+  "to": "    if (!t) { kept.push(r); continue; }"
+ },
+ {
+  "label": "rule: nothing to compare kept",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": "    if (!cols.length) { dropped.push({ table: r.table, why: \"unread\" }); continue; }",
+  "to": "    if (!cols.length) { kept.push(r); continue; }"
+ },
+ {
+  "label": "route: the offer handed on unchecked",
+  "files": [
+   "worker.js"
+  ],
+  "from": "recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc",
+  "to": "recent: dRecentIn, pages: eSrc"
+ },
+ {
+  "label": "route: no longer read",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!dRecentIn || t.rows.length < MAX_DATA_ROWS || !dRecentIn.some((r) => r && r.table === t.name)) continue;",
+  "to": "                if (true) continue;"
+ },
+ {
+  "label": "route: longer read for a table no row names",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!dRecentIn || t.rows.length < MAX_DATA_ROWS || !dRecentIn.some((r) => r && r.table === t.name)) continue;",
+  "to": "                if (!dRecentIn || t.rows.length < MAX_DATA_ROWS) continue;"
+ },
+ {
+  "label": "route: the longer read no longer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "\"\\\" ORDER BY id LIMIT \" + PUT_BACK_READ_MAX)) || [];",
+  "to": "\"\\\" ORDER BY id LIMIT \" + MAX_DATA_ROWS)) || [];"
+ },
+ {
+  "label": "server: markers never read",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    return await newerRequestSince(env, slug, rec);",
+  "to": "    return false;"
+ },
+ {
+  "label": "server: a site off the queue told",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  if (!editAsyncFor(env, { uid, slug })) return null;\n  try {\n    const since",
+  "to": "  try {\n    const since"
+ },
+ {
+  "label": "markers: its own counted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (!at || at.slug !== slug || at.key === rec.key) continue;\n    let got",
+  "to": "    if (!at || at.slug !== slug) continue;\n    let got"
+ },
+ {
+  "label": "markers: judged by upload time",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (mark.at >= rec.at) return true;",
+  "to": "    if ((o.uploaded instanceof Date ? o.uploaded.getTime() : 0) >= rec.at) return true;"
+ },
+ {
+  "label": "markers: an unreadable one skipped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (!mark || !Number.isFinite(mark.at)) { unknown = true; continue; }",
+  "to": "    if (!mark || !Number.isFinite(mark.at)) { continue; }"
+ },
+ {
+  "label": "markers: a failed read skipped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    try { got = await env.SITES_BUCKET.get(o.key); } catch { unknown = true; continue; }",
+  "to": "    try { got = await env.SITES_BUCKET.get(o.key); } catch { continue; }"
+ },
+ {
+  "label": "markers: a list that does not end taken whole",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  let unknown = !!(listed && listed.truncated);",
+  "to": "  let unknown = false;"
+ },
+ {
+  "label": "markers: the same instant not counted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (mark.at >= rec.at) return true;",
+  "to": "    if (mark.at > rec.at) return true;"
+ },
+ {
+  "label": "markers: one swept away told as cannot tell",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (!got) continue;\n    let mark",
+  "to": "    if (!got) { unknown = true; continue; }\n    let mark"
+ },
+ {
+  "label": "control: a comment",
+  "files": [
+   "builder/site-apply.mjs"
+  ],
+  "from": " * WHAT THE PAGE OFFERS TO PUT BACK, CHECKED AGAINST THE ROWS AS THEY ARE NOW\n * (2026-10-07, Codex's review of the cleanup batch: *\"make late undo",
+  "to": " * WHAT THE PAGE OFFERS TO PUT BACK, HELD UP TO THE ROWS AS THEY ARE NOW\n * (2026-10-07, Codex's review of the cleanup batch: *\"make late undo",
+  "control": true
+ }
+]

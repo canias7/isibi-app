@@ -570,6 +570,8 @@ export function dataDigest(tables) {
 
 /** At most this many removed rows are carried forward as undo context. */
 export const MAX_RECENT = 3;
+/** How much of each removed value the model is shown (`recentBlock`), and so how much a row put back from it can carry. */
+export const RECENT_VALUE_MAX = 200;
 
 /**
  * What was just deleted, so "put it back" has something to refer to.
@@ -601,7 +603,7 @@ export function recentBlock(recent) {
     const bits = Object.keys(r.was)
       .filter((k) => k !== "id" && (typeof r.was[k] === "string" || typeof r.was[k] === "number" || typeof r.was[k] === "boolean"))
       .slice(0, 12)
-      .map((k) => k + "=" + JSON.stringify(String(r.was[k]).slice(0, 200)));
+      .map((k) => k + "=" + JSON.stringify(String(r.was[k]).slice(0, RECENT_VALUE_MAX)));
     return "  " + r.table + ": " + bits.join(", ");
   }).filter((l) => l.trim().length > 3);
   if (!lines.length) return "";
@@ -610,6 +612,71 @@ export function recentBlock(recent) {
     "\nONLY USE THIS IF THEY ARE ASKING FOR SOMETHING TO BE PUT BACK — \"undo that\", \"put it back\", \"I didn't " +
     "mean to delete that\". Then add the row again with these values. For any other instruction, ignore this " +
     "entirely: it is a record of what went, not a list of things to restore.";
+}
+
+/** How many rows a table is read to, at most, to settle whether a row offered back is already there (`freshRecent`). */
+export const PUT_BACK_READ_MAX = 1000;
+/** Columns the platform fills itself (`applySiteSchema`'s managed three, and `updated_at` on a table that keeps it): a row put back gets new ones, so they never say whether it is the same row — even where a declaration lists them. */
+const FILLED_BY_DATABASE = new Set(["id", "created_at", "owner_id", "updated_at"]);
+
+/** Whether a value read now and a removed value are the same entry's: a number written either way, or a value cut where the model was shown it. Loose on purpose: a wrong "alike" sets an offer aside, a wrong "different" puts a row back twice. */
+function alike(now, was) {
+  const none = (v) => v === null || v === undefined;
+  if (none(now) || none(was)) return none(now) && none(was);
+  if (typeof now === "object" || typeof was === "object") return JSON.stringify(now) === JSON.stringify(was);
+  const a = String(now), b = String(was);
+  if (a === b) return true;
+  if (a.trim() !== "" && b.trim() !== "" && Number.isFinite(Number(a)) && Number(a) === Number(b)) return true;
+  return (a.length > RECENT_VALUE_MAX || b.length > RECENT_VALUE_MAX) && a.slice(0, RECENT_VALUE_MAX) === b.slice(0, RECENT_VALUE_MAX);
+}
+
+/**
+ * WHAT THE PAGE OFFERS TO PUT BACK, CHECKED AGAINST THE ROWS AS THEY ARE NOW
+ * (2026-10-07, Codex's review of the cleanup batch: *"make late undo
+ * eligibility respect newer server-side work from another tab or device"*).
+ *
+ * The offer is the page's own (`siteUndoKeep`), and it can be older than the
+ * table: another tab's "put that back", the Data panel, another device, a
+ * restored copy. `recentBlock` tells the model the rows "are no longer in the
+ * tables above", so a row already back would be put back twice. Each offered
+ * row is kept only when the table, read whole, shows it still gone: no row with
+ * its id, and no row holding its values in the table's own declared columns
+ * (the platform's own — `id`, `created_at`, `owner_id`, `updated_at` — are new
+ * on a row put back, and never compared). A table
+ * not shown, or one too long to read whole (`wider`, read to
+ * `PUT_BACK_READ_MAX`), cannot show a row gone, so its rows are set aside.
+ *
+ * `tables`: the step's own read (`{ name, columns, rows }`, each read to
+ * `MAX_DATA_ROWS`). `wider`: a longer read of a table that filled that, by
+ * name. `{ kept, dropped }`, each dropped row with why: `back` (its id is
+ * there), `alike` (a row holds its values), `unread` (the table was not shown,
+ * or names no column to compare), `unseen` (read in part).
+ */
+export function freshRecent(recent, tables, wider = {}) {
+  const offered = (Array.isArray(recent) ? recent : [])
+    .filter((r) => r && typeof r.table === "string" && r.was && typeof r.was === "object" && !Array.isArray(r.was))
+    .slice(0, MAX_RECENT);
+  const kept = [], dropped = [];
+  const list = Array.isArray(tables) ? tables : [];
+  for (const r of offered) {
+    const t = list.find((x) => x && x.name === r.table && Array.isArray(x.rows));
+    if (!t) { dropped.push({ table: r.table, why: "unread" }); continue; }
+    const more = wider && Object.hasOwn(wider, r.table) ? wider[r.table] : null;
+    const rows = t.rows.length < MAX_DATA_ROWS ? t.rows : Array.isArray(more) && more.length < PUT_BACK_READ_MAX ? more : null;
+    if (!rows) { dropped.push({ table: r.table, why: "unseen" }); continue; }
+    const live = rows.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+    const id = r.was.id;
+    if ((typeof id === "number" || (typeof id === "string" && id.trim() !== "")) && live.some((x) => x.id !== undefined && x.id !== null && String(x.id) === String(id))) {
+      dropped.push({ table: r.table, why: "back" }); continue;
+    }
+    const cols = (Array.isArray(t.columns) ? t.columns : []).filter((c) => typeof c === "string" && !FILLED_BY_DATABASE.has(c) && Object.hasOwn(r.was, c));
+    if (!cols.length) { dropped.push({ table: r.table, why: "unread" }); continue; }
+    if (live.some((x) => cols.every((c) => alike(Object.hasOwn(x, c) ? x[c] : null, r.was[c])))) {
+      dropped.push({ table: r.table, why: "alike" }); continue;
+    }
+    kept.push(r);
+  }
+  return { kept, dropped };
 }
 
 /**

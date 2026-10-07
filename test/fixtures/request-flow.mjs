@@ -132,7 +132,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const all = [...objects.keys()].filter((k) => k.startsWith(prefix) && (!cursor || k > cursor)).sort();
       const keys = all.slice(0, limit);
       const truncated = all.length > keys.length;
-      return { objects: keys.map((k) => ({ key: k, etag: objects.get(k).etag })), truncated, ...(truncated ? { cursor: keys[keys.length - 1] } : {}) };
+      // EACH WITH WHEN IT WAS LAST WRITTEN, as R2's own list hands it (2026-10-07).
+      return { objects: keys.map((k) => ({ key: k, etag: objects.get(k).etag, uploaded: new Date(objects.get(k).at) })), truncated, ...(truncated ? { cursor: keys[keys.length - 1] } : {}) };
     },
   };
   // ── edit_jobs AND THE LEDGER ──────────────────────────────────────────────
