@@ -224,13 +224,49 @@ test("FACTS 2 — an add-on's: picked is decided, each design designed and not b
   assert.match(pages[0].text, /\/gallery/);
   assert.match(pages[0].text, /\/menu/, "a list kind's second item was not designed in the facts");
   assert.match(pages[1].text, /Build the additions next/);
-  const schema = addonSchemaFacts({ tables: ["tasting_list"], altered: [{ table: "loaves", fields: ["note"] }], functions: [{ name: "cancel_booking" }], jobs: [{ name: "remind" }] });
-  assert.deepEqual(states(schema), ["applied", "applied", "applied", "applied", "next"]);
+  // THE DATABASE'S CHANGE NAMES NOTHING TO COME (2026-10-07): it is applied at
+  // the publish's seam, after the pages were written, or with no page at all —
+  // so never "write the pages next"; at the seam the publish is still doing.
+  const made = { tables: ["tasting_list"], altered: [{ table: "loaves", fields: ["note"] }], functions: [{ name: "cancel_booking" }], jobs: [{ name: "remind" }] };
+  const schema = addonSchemaFacts(made);
+  assert.deepEqual(states(schema), ["applied", "applied", "applied", "applied"]);
+  assert.ok(schema.every((f) => !/pages/i.test(f.text)), "the database's change still speaks of pages to come");
+  assert.deepEqual(states(addonSchemaFacts(made, { publishing: true })), ["applied", "applied", "applied", "applied", "doing"]);
+  assert.match(addonSchemaFacts(made, { publishing: true })[4].text, /Publishing/);
   assert.deepEqual(addonSchemaFacts({}), []);
-  const written = addonPagesFacts([{ path: "src/routes/gallery.tsx" }, "src/routes/index.tsx"]);
-  assert.deepEqual(states(written), ["prepared", "next"]);
-  assert.match(written[0].text, /\/gallery and \/, not published yet/);
+  assert.deepEqual(addonSchemaFacts({}, { publishing: true }), [], "a publish with no database change grew a schema milestone");
+  // THE PAGES IN THEIR THREE KINDS, every address named, and the publish next.
+  const written = addonPagesFacts({ added: ["src/routes/gallery.tsx"], changed: [{ path: "src/routes/index.tsx" }], linked: [{ path: "/about", to: ["/gallery"] }, { path: "/visit", to: ["/gallery"] }] });
+  assert.deepEqual(states(written), ["prepared", "prepared", "prepared", "next"]);
+  assert.match(written[0].text, /^New page written, not published yet: \/gallery\.$/);
+  assert.match(written[1].text, /^Existing page changed for this addition, not published yet: \/\.$/);
+  assert.match(written[2].text, /^A menu link to \/gallery added, and nothing else changed, not published yet, on the existing pages \/about and \/visit\.$/);
   assert.deepEqual(states(addonPublishFacts()), ["doing"]);
+});
+
+test("FACTS 2b — THE PAGES MILESTONE TELLS A PAGE WHOSE ONE CHANGE IS A MENU LINK FROM A PAGE THIS ADDITION CHANGED (2026-10-07, after run 105): no page in two kinds, links grouped by the page they point to, no address left out for a count, and nothing at all when no page changed", () => {
+  // RUN 105'S SHAPE: one new page, eight existing pages given its menu link,
+  // and the page the writer had returned changed (/classes) put back — so it
+  // is among the linked pages, never among the changed.
+  const eight = ["/", "/about", "/classes", "/order", "/visit", "/wholesale", "/menu", "/story"];
+  const r105 = addonPagesFacts({ added: ["/faq"], changed: [], linked: eight.map((path) => ({ path, to: ["/faq"] })) });
+  assert.deepEqual(states(r105), ["prepared", "prepared", "next"]);
+  assert.doesNotMatch(r105[0].text, /classes/, "the new pages' fact names a page the merge put back");
+  const token = (text, p) => new RegExp("(^|\\s)" + p.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + "(,|\\.|\\s|$)").test(text);
+  for (const p of eight) assert.ok(token(r105[1].text, p), "a linked page was left out: " + p + " — " + r105[1].text);
+  assert.doesNotMatch(r105.map((f) => f.text).join(" "), /\b8\b|eight/, "a count stood in for the names");
+  // A PAGE IN TWO KINDS IS TOLD ONCE, in the stronger: new over changed over linked.
+  const twice = addonPagesFacts({ added: ["/faq"], changed: ["/faq", "/"], linked: [{ path: "/", to: ["/faq"] }, { path: "/faq", to: ["/faq"] }] });
+  assert.deepEqual(states(twice), ["prepared", "prepared", "next"]);
+  assert.doesNotMatch(twice[1].text, /faq/);
+  // TWO NEW PAGES LINKED FROM DIFFERENT PAGES: one fact for each set of pages linked to.
+  const two = addonPagesFacts({ added: ["/faq", "/shop"], linked: [{ path: "/", to: ["/faq", "/shop"] }, { path: "/about", to: ["/faq"] }] });
+  assert.deepEqual(states(two), ["prepared", "prepared", "prepared", "next"]);
+  assert.match(two[1].text, /\/faq and \/shop added, and nothing else changed, not published yet, on the existing page \/\./);
+  assert.match(two[2].text, /A menu link to \/faq added, and nothing else changed, not published yet, on the existing page \/about\./);
+  // NOTHING CHANGED: no milestone — never "wrote the pages" of none.
+  assert.deepEqual(addonPagesFacts({}), []);
+  assert.deepEqual(addonPagesFacts({ linked: [{ path: "/about", to: [] }] }), [], "a link to nothing was told");
 });
 
 test("FACTS 3 — no fact in any milestone is published, live or finished: the state does not exist, and no fact's words claim it", () => {

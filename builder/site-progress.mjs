@@ -76,6 +76,7 @@
 
 import { TERMINAL_STATES } from "./edit-job.mjs";
 import { pathOf } from "./site-reply.mjs";
+import { REQUEST_KEY_RE } from "./clarify.mjs";
 
 /** The switch: `PROGRESS_REPLIES` = "on". Anything else records nothing, writes nothing and changes no answer. */
 export function progressOn(env) {
@@ -259,6 +260,13 @@ function readTaskLines(v, words) {
  * it is no record at all. Every list is all-or-nothing — one entry that does
  * not read makes the record unreadable, never a shorter list read as whole.
  */
+/** A job's place in a request — `{ key, part }` — or null: none, or one that does not read (2026-10-07). */
+export function readRequestRef(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  if (typeof v.key !== "string" || !REQUEST_KEY_RE.test(v.key) || !Number.isInteger(v.part) || v.part < 0) return null;
+  return { key: v.key, part: v.part };
+}
+
 export function readProgressRecord(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== 1) return null;
   if (typeof raw.job !== "string" || !JOB_RE.test(raw.job)) return null;
@@ -292,6 +300,9 @@ export function readProgressRecord(raw) {
     taskWords, tasks,
     taskTries: Number.isInteger(raw.taskTries) && raw.taskTries >= 0 ? raw.taskTries : 0,
     tasksWhy: typeof raw.tasksWhy === "string" && raw.tasksWhy ? raw.tasksWhy.slice(0, 40) : null,
+    // A JOB'S PLACE IN ITS REQUEST (2026-10-07), so its writer can be told the
+    // request's other parts as they stand; a record from before then has none.
+    ...(readRequestRef(raw.request) ? { request: readRequestRef(raw.request) } : {}),
   };
 }
 
@@ -302,14 +313,16 @@ export function readProgressRecord(raw) {
  * the writer to give each its line in every state; none, and there is
  * nothing for a writer until a milestone comes.
  */
-export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at }) {
+export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at, request = null }) {
   if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
   if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request")) return null;
+  const ref = op === "request" ? null : readRequestRef(request);
   return readProgressRecord({
     v: 1, job, uid, slug, op, run, at, words: typeof words === "string" ? words : "",
     picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
     nf: 0, marks: [], lines: [], writer: null, closed: null, asked: 0, tries: 0,
     taskWords: Array.isArray(tasks) ? tasks : [], tasks: null, taskTries: 0, tasksWhy: null,
+    ...(ref ? { request: ref } : {}),
   });
 }
 
@@ -726,8 +739,14 @@ export function addonDesignedFacts(kind, value, rest = []) {
   ];
 }
 
-/** What the add-on's database change made, as its own result names it. */
-export function addonSchemaFacts({ tables = [], altered = [], functions = [], jobs = [] } = {}) {
+/**
+ * WHAT THE ADD-ON'S DATABASE CHANGE MADE, as its own result names it — and
+ * nothing said to come next (2026-10-07): the apply runs at the publish's own
+ * seam, after the pages were written, or on an addition with no page at all,
+ * so "write the pages next" was never true of it. At the seam the publish is
+ * still what is happening (`publishing`), and is said so.
+ */
+export function addonSchemaFacts({ tables = [], altered = [], functions = [], jobs = [] } = {}, { publishing = false } = {}) {
   const t = namesOf(tables), a = namesOf(altered), f = namesOf(functions), j = namesOf(jobs);
   const out = [];
   if (t.length) out.push(fact("applied", "Created in the site's database: " + (t.length === 1 ? "the table " : "the tables ") + listOf(t.map(quote)) + "."));
@@ -735,17 +754,45 @@ export function addonSchemaFacts({ tables = [], altered = [], functions = [], jo
   if (f.length) out.push(fact("applied", "Set up in the site's database: " + listOf(f.map(quote)) + "."));
   if (j.length) out.push(fact("applied", "Set to run on a timer: " + listOf(j.map(quote)) + "."));
   if (!out.length) return [];
-  out.push(fact("next", "Write the pages next."));
+  if (publishing) out.push(fact("doing", "Publishing the site with the additions now."));
   return out;
 }
 
-/** The add-on's pages written, not published, and the publish next. */
-export function addonPagesFacts(paths) {
-  const p = [...new Set((Array.isArray(paths) ? paths : []).map((x) => (typeof x === "string" ? pathOf(x) : x && typeof x === "object" ? pathOf(x.path) : "")).filter(Boolean))];
-  return [
-    fact("prepared", "Wrote " + (p.length ? (p.length === 1 ? "the page " : "the pages ") + listOf(p) : "the pages") + ", not published yet."),
-    fact("next", "Publish the site next."),
-  ];
+/** Each address once, in order, from strings or `{ path }`. */
+const pathsOf = (v) => [...new Set((Array.isArray(v) ? v : []).map((x) => (typeof x === "string" ? pathOf(x) : x && typeof x === "object" ? pathOf(x.path) : "")).filter(Boolean))];
+
+/**
+ * THE ADD-ON'S PAGES, AS THEY WILL BE PUBLISHED (2026-10-07, after run 105):
+ * recorded once the merge and the code's own menu links have settled them, in
+ * three kinds a reader must not mix up — the new pages, the existing pages
+ * this addition changed, and the existing pages whose one change is a menu
+ * link to a new page (by the page each links to). Every address is named; a
+ * page the merge put back as it was is in none of them. Run 105's line named
+ * "the classes page" for a page whose writer's change was put back and whose
+ * one change was that link, beside another part that was about that page.
+ */
+export function addonPagesFacts({ added = [], changed = [], linked = [] } = {}) {
+  const out = [];
+  const a = pathsOf(added);
+  const c = pathsOf(changed).filter((x) => !a.includes(x));
+  if (a.length) out.push(fact("prepared", (a.length === 1 ? "New page written, not published yet: " : "New pages written, not published yet: ") + listOf(a) + "."));
+  if (c.length) out.push(fact("prepared", (c.length === 1 ? "Existing page changed for this addition, not published yet: " : "Existing pages changed for this addition, not published yet: ") + listOf(c) + "."));
+  // ONE FACT FOR EACH SET OF NEW PAGES LINKED TO, naming every page that got it.
+  const groups = new Map();
+  for (const l of Array.isArray(linked) ? linked : []) {
+    const at = l && typeof l === "object" ? pathOf(l.path) : "";
+    const to = pathsOf(l && l.to);
+    if (!at || !to.length || a.includes(at) || c.includes(at)) continue;
+    const key = to.join("\n");
+    if (!groups.has(key)) groups.set(key, { to, at: [] });
+    if (!groups.get(key).at.includes(at)) groups.get(key).at.push(at);
+  }
+  for (const g of groups.values()) {
+    out.push(fact("prepared", "A menu link to " + listOf(g.to) + " added, and nothing else changed, not published yet, on " + (g.at.length === 1 ? "the existing page " : "the existing pages ") + listOf(g.at) + "."));
+  }
+  if (!out.length) return [];
+  out.push(fact("next", "Publish the site next."));
+  return out;
 }
 
 /** The add-on's publish starting. */
@@ -796,6 +843,7 @@ export const PROGRESS_SYSTEM =
   "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
   "- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\n" +
   "- Do not repeat what your earlier updates said.\n" +
+  "- The request's other parts are separate work: never describe them as this update's, or as done unless their state says finished.\n" +
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
   "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting or sign-off.\n" +
   "- In says, list every fact's id with the state you described it as.";
@@ -929,14 +977,59 @@ export async function writeTasks(deps, { tasks, context = "", model, deadlineMs 
 }
 
 /** What the model is shown besides the facts: their site, its pages, their words, and the updates already written. */
-export function progressContext(rec) {
+export function progressContext(rec, { others = [] } = {}) {
   const lines = [];
   if (rec && rec.slug) lines.push("THEIR SITE: " + rec.slug);
   if (rec && rec.pages && rec.pages.length) lines.push("ITS PAGES: " + rec.pages.join(", "));
+  // WHAT KIND OF WORK THIS IS (2026-10-07): a change to what is there, or an
+  // addition — the record has always known, and the writer was never told.
+  if (rec && Object.hasOwn(WORK_SAID, rec.op)) lines.push("THIS WORK: " + WORK_SAID[rec.op]);
   const words = rec && typeof rec.words === "string" ? rec.words.trim() : "";
   if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
+  // THE REQUEST'S OTHER PARTS AS THEY STAND (2026-10-07, after run 105): work
+  // of its own, finished or still to come, that this update must not take for
+  // its own — read off the request when the line is written (`otherParts`).
+  const rest = (Array.isArray(others) ? others : []).filter((o) => o && typeof o.words === "string" && o.words.trim() && Object.hasOwn(STATE_SAID, o.state));
+  if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + STATE_SAID[o.state] + ")").join("\n"));
   if (rec && rec.lines.length) lines.push("WHAT YOUR EARLIER UPDATES SAID, IN ORDER:\n" + rec.lines.map((l) => "- " + flat(l.text)).join("\n"));
   return lines.join("\n\n");
+}
+
+/** What each kind of job's work is, as the writer is told it. */
+const WORK_SAID = Object.freeze({ edit: "a change to what the site already has", addon: "an addition to the site" });
+
+/**
+ * A REQUEST PART'S STATUS AS A TASK'S STATE — the very map the page uses to
+ * pick a task's line (`SITE_SAID_FOR` in public/chat.js, which this module
+ * cannot import; `test/progress-context.test.mjs` holds the two equal).
+ */
+export const PART_STATE = Object.freeze({
+  blocked: "planned", ready: "planned", queued: "planned", waiting: "waiting", approval: "waiting",
+  started: "doing", unverified: "unconfirmed", done: "done", partial: "partial",
+  failed: "notdone", "not-run": "notdone", cancelled: "notdone", expired: "notdone", refused: "notdone", "needs-rewrite": "notdone",
+});
+/** Each state as the writer reads it beside another part. */
+const STATE_SAID = Object.freeze({
+  planned: "not started yet", waiting: "waiting on the customer", doing: "in progress", unconfirmed: "finished, its publish not confirmed",
+  done: "finished", partial: "partly finished", notdone: "not done",
+});
+
+/**
+ * THE OTHER PARTS OF A JOB'S REQUEST, from the request record as it stands:
+ * each part but the job's own, in the customer's words as its card shows them
+ * (`shown`, then `words`), with its state (`PART_STATE`). [] when the job is
+ * no request's, the record is another owner's, or a part does not read.
+ */
+export function otherParts(rec, request) {
+  if (!rec || !rec.request || !request || typeof request !== "object" || request.uid !== rec.uid || !Array.isArray(request.parts)) return [];
+  const out = [];
+  for (const p of request.parts) {
+    if (!p || typeof p !== "object" || !Number.isInteger(p.n) || p.n === rec.request.part) continue;
+    const words = (typeof p.shown === "string" && p.shown.trim()) ? p.shown : typeof p.words === "string" ? p.words : "";
+    if (!words.trim() || !Object.hasOwn(PART_STATE, p.status)) continue;
+    out.push({ n: p.n, words, state: PART_STATE[p.status] });
+  }
+  return out;
 }
 
 /** The request one progress call sends: every fact of the batch, whole. `fix` names what a first answer got wrong. */

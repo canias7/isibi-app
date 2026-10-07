@@ -248,7 +248,7 @@ import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelRepl
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
-  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine,
+  tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
@@ -6905,7 +6905,7 @@ async function progressFromJob(env, ids, body) {
     const words = typeof b.words === "string" ? b.words.trim() : "";
     const r = await progressUpdate(env, id, (rec) => {
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
-      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now });
+      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request });
       return opened ? { rec: opened } : null;
     }, seen);
     if (r) await askProgress(env, id, uid, now);
@@ -7023,8 +7023,14 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
     return opened;
   };
   return {
-    begin({ op, words = "", picker = "", pages = [] } = {}) {
-      opening = { kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [], ...(standalone ? { task: true } : {}) };
+    begin({ op, words = "", picker = "", pages = [], request = null } = {}) {
+      opening = {
+        kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
+        ...(standalone ? { task: true } : {}),
+        // THE JOB'S PLACE IN ITS REQUEST (2026-10-07): its writer reads the
+        // request's other parts by it, as they stand when each line is written.
+        ...(request && typeof request === "object" ? { request: { key: request.key, part: request.part } } : {}),
+      };
       step(open);
     },
     mark(stage, facts) {
@@ -7133,10 +7139,14 @@ async function writeProgressLine(env, task, owner) {
   if (unconfirmedLines(rec) > 0) await confirmProgressLines(env, job, rec.lines.length);
   if (!batch.facts.length) { await progressUpdate(env, job, (r) => { const out = releaseWriter(r, owner); return out ? { rec: out } : null; }); return false; }
   const model = modelsFor(rec.picker || undefined).quick;
+  // THE REQUEST'S OTHER PARTS AS THEY STAND NOW (2026-10-07): read off its
+  // record for this line, so the writer is told what is finished and what is
+  // still to come, and takes none of it for this job's own work.
+  const others = await requestOthersFor(env, rec);
   const t0 = Date.now();
   let out;
   try {
-    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec), model });
+    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others }), model });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   // WHAT IT COST US, IN THE LOG: a line is not charged to the customer, so the
   // ledger never shows it, and this is where attempts, tokens — fresh and
@@ -7168,6 +7178,18 @@ async function writeProgressLine(env, task, owner) {
   if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);
   else if (post.why !== "unread") { await progressStops(env, job, owner, batch, post.why); return false; }
   return pendingMarks(done.rec).length > 0;
+}
+
+/** A job's request's other parts for its writer (`otherParts`): [] for a job no request's, or a request that will not read — a line is never held for them. */
+async function requestOthersFor(env, rec) {
+  if (!rec || !rec.request) return [];
+  try {
+    const found = await loadRequest(env, rec.slug, rec.request.key);
+    return otherParts(rec, found && found.rec);
+  } catch (e) {
+    console.error("progress: could not read the request of", rec.job, errorClassForLog(e));
+    return [];
+  }
 }
 
 /**
@@ -24394,7 +24416,7 @@ async function handleRequest(request, env, ctx) {
             // THE JOB'S PROGRESS OPENS (2026-10-06): this run's record, with the
             // words this turn runs on, the picked model and the site's pages.
             // Nothing is recorded on the synchronous path, which has no job.
-            if (eJob && eJob.progress) eJob.progress.begin({ op: "edit", words: eRun, picker: eb && eb.picker, pages: eRoutes() });
+            if (eJob && eJob.progress) eJob.progress.begin({ op: "edit", words: eRun, picker: eb && eb.picker, pages: eRoutes(), request: ePart });
             if (!eSrc.length) {
               // Missing pages permit reconstruction only when the remaining
               // inputs can be read. Otherwise the rewrite meets the same fault.
@@ -29644,7 +29666,7 @@ async function handleRequest(request, env, ctx) {
             // THE JOB'S PROGRESS OPENS (2026-10-06), the edit route's rule: this
             // run's record, with the words this turn runs on, the picked model
             // and the site's pages.
-            if (aJob && aJob.progress) aJob.progress.begin({ op: "addon", words: aInstruction, picker: ab && ab.picker, pages: aReplyOut.pages() });
+            if (aJob && aJob.progress) aJob.progress.begin({ op: "addon", words: aInstruction, picker: ab && ab.picker, pages: aReplyOut.pages(), request: aPart });
             // Absence is not permission yet: backend, config and schema must
             // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
@@ -31814,8 +31836,10 @@ async function handleRequest(request, env, ctx) {
                 catch (e) { aNoFill = []; }
                 aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length, jobs: aJobs.length });
                 // WHAT THE DATABASE NOW HOLDS, AS A MILESTONE: the created
-                // tables, the changed ones, the functions and the timers.
-                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs }));
+                // tables, the changed ones, the functions and the timers — and,
+                // at the publish's seam (a version in hand), the publish still
+                // under way; nothing is said to come next (2026-10-07).
+                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs }, { publishing: version != null }));
                 // THE ENGINE'S OWN REPORT ON THE RECORD, still `pending`: what
                 // stands in the database is known now; whether the page comes
                 // is not, and the mark after the publish says which.
@@ -32249,7 +32273,6 @@ async function handleRequest(request, env, ctx) {
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
               // THE PAGES WRITTEN, NOT PUBLISHED, AS A MILESTONE.
-              if (aJob && aJob.progress) aJob.progress.mark("pages", addonPagesFacts(aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages : []));
             } catch (e) {
               // WHAT THE WIRE DID, NOT JUST THAT IT FAILED (2026-09-14). Run 45
               // recorded `"fetch failed"` and nothing else — undici's message
@@ -32681,6 +32704,12 @@ async function handleRequest(request, env, ctx) {
 
             // EACH PAGE THE MENU-LINK STEP BELOW CHANGES, with its source after it (`settleReverted`).
             const aLinked = new Map();
+            // WHAT THIS ADDITION'S OWN WORK LEFT ON THE PAGES before the code's
+            // menu links (2026-10-07): the new pages and the existing ones the
+            // merge kept changed — so a page whose one change is a link is told
+            // apart from them in the pages milestone below.
+            const aWorkAdded = [...(aMerge.added || [])], aWorkChanged = [...(aMerge.changed || [])];
+            let aLinkOnly = [];
             // ── A NEW PAGE GOES INTO EVERY MENU, BY CODE (2026-10-04, run 95's F1) ──
             //
             // A page whose design puts it in the menu (`link.in`, the default)
@@ -32699,7 +32728,8 @@ async function handleRequest(request, env, ctx) {
                 const aIn = applyAdditions(aMerge.pages, aLinks);
                 if (aIn.changed.length) {
                   const aKnown = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]);
-                  aMerge = { ...aMerge, pages: aIn.pages, changed: [...(aMerge.changed || []), ...aIn.changed.filter((pg) => !aKnown.has(pg))] };
+                  aLinkOnly = aIn.changed.filter((pg) => !aKnown.has(pg));
+                  aMerge = { ...aMerge, pages: aIn.pages, changed: [...(aMerge.changed || []), ...aLinkOnly] };
                   // WHAT THIS STEP DID TO EACH PAGE, KEPT FOR THE SETTLING BELOW
                   // (2026-10-05, run 101): its source right after the link went
                   // in, and the addresses it gained — so a page the merge put
@@ -32711,6 +32741,17 @@ async function handleRequest(request, env, ctx) {
                 }
                 aMark("menu-links", "ok", { pages: aLinks.length, menus: aIn.changed.length });
               }
+            }
+            // ── THE PAGES, AS A MILESTONE, ONCE THEY ARE SETTLED (2026-10-07) ──
+            //
+            // Recorded here, after the merge, the withheld pages and the code's
+            // own menu links — not when the page writer returned, which named
+            // every page it sent back, a page the merge then put back among
+            // them, and none of the pages whose menus the code changed after.
+            // Run 105's line said "the classes page" of exactly such a page.
+            if (aJob && aJob.progress) {
+              const aPagesSaid = addonPagesFacts({ added: aWorkAdded, changed: aWorkChanged, linked: aLinkOnly.map((path) => ({ path, to: (aLinked.get(path) || {}).to || [] })) });
+              if (aPagesSaid.length) aJob.progress.mark("pages", aPagesSaid);
             }
 
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
