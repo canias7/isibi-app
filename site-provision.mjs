@@ -55,14 +55,31 @@
  *      or the row says who holds the slug (rule 2), or nothing can be
  *      established and the note stays.
  *   4. NOTHING NEW IS MADE WHILE THIS ACCOUNT'S EARLIER ATTEMPT IS UNSETTLED:
- *      an attempt still running, a create whose answer never came back, a
+ *      an attempt still running, a create whose outcome is not known, a
  *      project that could not be claimed, a listing or a row that could not
  *      be read. The attempt stops with every open note named
  *      (`reconcile_project`), and the note stays for the next attempt or the
  *      owner. Another account's note is never touched and never read as ours.
  *   5. A NOTE IS CLEARED ONLY WHEN ITS PROJECT IS THE SITE'S, GONE, BEING TORN
- *      DOWN, OR PROVED NEVER MADE. A clear that fails leaves a note the next
- *      attempt settles the same way, at no cost but a read.
+ *      DOWN OR DROPPED UNDER RULE 2 — OR WHEN NEON ITSELF REFUSED ITS CREATE.
+ *      A clear that fails leaves a note the next attempt settles the same way,
+ *      at no cost but a read.
+ *   6. AN UNCERTAIN CREATE STAYS UNCERTAIN (corrected the same day, Codex's
+ *      review). Only a refusal Neon itself answered (`refused`, judged in
+ *      `site-db.mjs` where the status and the body are both known) says
+ *      nothing was made. A 503 or any other 5xx, a 408, 409 or 429, a timeout,
+ *      a dropped connection or an answer that cannot be read may each come
+ *      back after the project was made — reproduced: a provider that made the
+ *      project and answered 503 left one project and no note, and the retry a
+ *      second. So the note is kept, the project is looked for by its attempt's
+ *      name and claimed when it is found, and when it is not, nothing is
+ *      concluded: no Neon document bounds how soon a new project appears in
+ *      its listing, so neither time passing nor a search that finds nothing
+ *      makes it "never made". A search that did not reach its end — a repeated
+ *      cursor, a full page with no cursor, the page limit, a malformed answer,
+ *      a read that failed — says less still. The note stays, nothing new is
+ *      made for the site, and the owner settles it by hand if no project ever
+ *      carries its name.
  *
  * Notes never carry a connection string — it holds a password; a project
  * claimed from a note has its connection read from Neon (`adoptProject`).
@@ -74,12 +91,15 @@
  * The create is bounded: Neon's POST is cut at 30 s and retried only on a
  * 423, which means "not done", six times 1.5 s apart (`neonApi`), and
  * `waitForProject` gives up after 90 s — under five minutes in all, before
- * the claim's 15 s. Within the lease nobody else searches for the attempt's
- * project by its name, so an answer that never came back is never read as
- * "nothing was made" while the POST could still land; and the attempt alone
- * may drop a project its create threw over, because nothing else can know
- * of it yet. It checks its own clock against half the lease before it does.
- * A note older than the lease is anybody's to settle under rules 2–5.
+ * the claim's 15 s. Within the lease another attempt leaves a note whose
+ * create has not come back alone (`in-progress`), and the attempt alone may
+ * drop a project its create threw over, because nothing else can know of it
+ * yet; it checks its own clock against half the lease before it does. A note
+ * older than the lease is anybody's to settle under rules 2–6.
+ *
+ * WHAT THE LEASE DOES NOT DO (corrected the same day): it never proves a
+ * create made nothing. A note past its lease whose project no search finds
+ * stays exactly as open as it was (rule 6).
  */
 export const ATTEMPT_LEASE_MS = 15 * 60 * 1000;
 
@@ -87,6 +107,8 @@ const said = (e) => String((e && e.message) || e).slice(0, 200);
 const isGone = (e) => !!e && typeof e === "object" && (e.gone === true || e.status === 404);
 const nowOf = (deps) => (typeof deps.now === "function" ? Number(deps.now()) : Date.now());
 const noteKey = (n) => String((n && (n.attempt || n.projectId)) || "");
+/** Why a search for an attempt's project did not reach its end (`findSiteProjects`), as an open note names it. */
+const SEARCH_SHORT = { "repeated-cursor": "search-repeated-cursor", "no-cursor": "search-no-cursor", "page-limit": "search-page-limit", malformed: "search-malformed" };
 
 /** A fresh attempt id, 12 hex characters; a dep can supply its own (tests). */
 function newAttempt(deps) {
@@ -168,25 +190,36 @@ const claimDetail = (c) => String((c && c.saved && (c.saved.detail || (c.saved.e
 async function settleNote(deps, { slug, uid, note, own = false }) {
   const open = (reason, extra = {}) => ({ open: { attempt: note.attempt || null, projectId: note.projectId || null, reason, ...extra } });
   let n = note;
+  // A NOTE ITS OWN ATTEMPT SETTLED, WHOSE CLEAR FAILED (rule 5): Neon refused
+  // the create, or the attempt that made the project removed it. Nothing stands.
+  if (!n.projectId && (n.refused === true || n.removed === true)) {
+    await clearNote(deps, slug, n);
+    return { settled: n.refused === true ? "refused" : "removed" };
+  }
   if (!n.projectId) {
-    // NO ID YET: a create that is running, or one whose answer never came —
-    // unless its answer came back as a finished error (`answered`), when
-    // nothing is still landing and a search says what was made.
+    // NO ID YET: a create still running, or one whose outcome is not known
+    // (rule 6, `uncertain`). Another attempt's create that has not come back
+    // is left to it while its lease runs; anything else is looked for by the
+    // attempt's own name — found, it is claimed below; not found, nothing is
+    // concluded and the note stays, whatever its age.
+    // (An attempt's own call passes its note already marked uncertain.)
     const age = nowOf(deps) - Date.parse(String(n.at || ""));
-    const young = !(age >= ATTEMPT_LEASE_MS) && n.answered !== true;
-    if (young && !own) return open("in-progress");
+    if (n.uncertain !== true && !(age >= ATTEMPT_LEASE_MS)) return open("in-progress");
     if (typeof deps.findProjects !== "function") return open("cannot-search");
     let found;
     try { found = await deps.findProjects(slug, n); } catch (e) { return open("search-failed", { detail: said(e) }); }
-    if (!Array.isArray(found)) return open("search-unreadable");
-    const ids = [...new Set(found.map((p) => p && p.id).filter(Boolean).map(String))];
-    if (!ids.length) {
-      // Young: the create may still land, so "none" proves nothing yet.
-      if (young) return open("create-outcome-unknown");
-      await clearNote(deps, slug, n);
-      return { settled: "never-made" };
-    }
+    if (!found || typeof found !== "object" || !Array.isArray(found.projects)) return open("search-unreadable");
+    const ids = [...new Set(found.projects.map((p) => p && p.id).filter(Boolean).map(String))];
     if (ids.length > 1) return open("several-projects", { found: ids.slice(0, 5) });
+    if (!ids.length) {
+      // A SEARCH THAT DID NOT REACH ITS END says nothing; one that did, and
+      // found nothing, proves nothing either (rule 6). Each says which.
+      if (found.complete !== true) return open(SEARCH_SHORT[found.reason] || "search-incomplete");
+      if (own) return open("create-outcome-unknown");
+      // A CREATE NOBODY HEARD BACK FROM may still be landing while its lease
+      // runs; past it, or once an answer came, it is only not seen (yet).
+      return open(n.answered === undefined && !(age >= ATTEMPT_LEASE_MS) ? "in-progress" : "not-visible");
+    }
     n = { ...n, projectId: ids[0], why: String(n.why || "") + "; found by its attempt's name" };
     await keepNote(deps, slug, n);
   }
@@ -305,26 +338,40 @@ async function makeProject(deps, { slug, uid }) {
       // that cannot be done, named on the note for the next attempt to claim.
       const ownWindow = nowOf(deps) - startedAt < ATTEMPT_LEASE_MS / 2;
       const d = ownWindow ? await dropUnnamed(deps, e.projectId, "the create call threw after Neon had made it") : "outside-lease";
-      if (d === "dropped" || d === "gone") { await clearNote(deps, slug, note); throw e; }
+      if (d === "dropped" || d === "gone") {
+        // MARKED REMOVED BEFORE IT GOES — only once the project is gone, so no
+        // other attempt can claim one being dropped — and a clear that fails
+        // is settled next time (rule 5).
+        await keepNote(deps, slug, { ...note, removed: true, why: "the create call threw after Neon had made it; this attempt removed the project" });
+        await clearNote(deps, slug, note);
+        throw e;
+      }
       await keepNote(deps, slug, { ...note, projectId: String(e.projectId), why: "the create call threw after Neon had made it" + (d === "failed" ? "; its removal failed" : "") });
       e.recorded = "unknown";
       throw e;
     }
-    // NO ID. What the answer establishes, by HTTP's own meanings:
-    //   * a 4xx (but a 408) or a 503 is Neon refusing or unable to handle the
-    //     request — nothing was made;
-    //   * any other 5xx but a 504 is a request Neon finished with an error, so
-    //     a search NOW is conclusive (`answered`): nothing carrying the
-    //     attempt's name means nothing was made;
-    //   * a 504, a 408, a timeout or a dropped connection may still be landing:
-    //     looked for now, and otherwise left noted until its lease runs out.
+    // NO ID. A REFUSAL NEON ITSELF ANSWERED made nothing (rule 5): the note
+    // goes and the next attempt is free. ANYTHING ELSE MAY HAVE MADE A
+    // PROJECT (rule 6) — a 503 among them, which used to clear the note: kept,
+    // marked uncertain, looked for now by the attempt's name and claimed when
+    // found; when not, the note stays open, nothing new is made for the site,
+    // and the failure says a database may have been started.
     const st = e && typeof e === "object" ? Number(e.status) : NaN;
-    if ((st >= 400 && st < 500 && st !== 408) || st === 503) { await clearNote(deps, slug, note); throw e; }
-    if (st >= 500 && st !== 504) { note = { ...note, answered: true, why: "the create was answered " + st + "; whether it made a project is read from Neon" }; await keepNote(deps, slug, note); }
+    if (e && typeof e === "object" && e.refused === true) {
+      // MARKED REFUSED BEFORE IT GOES, so a clear that fails is settled by the
+      // next attempt (rule 5) rather than left as a create nobody can finish.
+      await keepNote(deps, slug, { ...note, refused: true, answered: st, why: "Neon refused the create (" + st + "); nothing was made" });
+      await clearNote(deps, slug, note);
+      throw e;
+    }
+    note = { ...note, uncertain: true, ...(Number.isFinite(st) && st > 0 ? { answered: st } : {}), why: (Number.isFinite(st) && st > 0 ? "the create was answered " + st : "the create's answer never came back or could not be read") + "; whether it made a project is not known" };
+    await keepNote(deps, slug, note);
     const r = await settleNote(deps, { slug, uid, note, own: true });
     if (r.row) return assertProjectOurs(r.row, uid, slug);
-    if (r.settled === "never-made") throw e;
-    if (e && typeof e === "object") e.recorded = "unknown";
+    if (e && typeof e === "object" && !r.settled) {
+      e.recorded = "unknown";
+      if (r.open) e.open = [r.open];
+    }
     throw e;
   }
   const proj = { neon_project: made.projectId, neon_branch: made.branchId, neon_role: made.roleName, neon_conn: made.conn };
@@ -429,8 +476,11 @@ function assertProjectOurs(proj, uid, slug) {
  *   clearUnrecorded(slug, key)  → void             an attempt settled, its note gone
  *   projectName(slug, attempt)  → name             OPTIONAL — the name `createProject` gives
  *                                                  that attempt's project, for the note
- *   findProjects(slug, note)    → [{id}]           the projects carrying the note's attempt
- *                                                  name; throws when it cannot tell
+ *   findProjects(slug, note)    → {complete, projects:[{id}], reason?}
+ *                                                  the projects carrying the note's attempt
+ *                                                  name, and whether the listing was seen to
+ *                                                  its end (`reason` says why not); throws
+ *                                                  when the listing cannot be read
  *   adoptProject(id, hint)      → {branchId, roleName, conn}   a noted project's connection,
  *                                                  read from Neon; throws `gone` on a 404
  *   tearingDown(id)             → bool             is the project queued for teardown; throws

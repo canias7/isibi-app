@@ -48,7 +48,8 @@ function harness(over = {}) {
     noteUnrecorded: async (_s, rec) => { calls.notes.push(rec); store.set(rec.attempt || rec.projectId, { ...rec }); },
     unrecorded: async () => [...store.values()],
     clearUnrecorded: async (_s, key) => { calls.cleared.push(key); store.delete(key); },
-    findProjects: async () => [],
+    // `findSiteProjects`'s answer: the listing seen to its end, nothing under the name.
+    findProjects: async () => ({ complete: true, projects: [] }),
     adoptProject: async (id) => { throw Object.assign(new Error("not found: " + id), { status: 404, gone: true }); },
     tearingDown: async () => false,
   };
@@ -773,10 +774,12 @@ test("a create that failed with nothing to drop makes no cleanup call", async ()
   // `undefined` would be a second failure reported over the first.
   const { deps, calls } = harness({
     lookupProject: async () => null,
-    createProject: async () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422 }); },
+    // NEON'S OWN REFUSAL, as `site-db.mjs` marks it (`refused`).
+    createProject: async () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422, refused: true }); },
   });
   await assert.rejects(run(deps), /422/);
   assert.deepEqual(calls.dropProject, []);
+  assert.deepEqual(calls.cleared.length, 1, "the refused attempt's note was not cleared");
 });
 
 test("ANOTHER ACCOUNT'S PROJECT IS NEVER BUILT INTO", async () => {

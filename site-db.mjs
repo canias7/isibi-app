@@ -110,9 +110,33 @@ async function neonApiOnce(env, path, init) {
     // Marked here rather than decided by the caller, so the one place that
     // knows both the status and the body is the one place that judges it.
     if (neonLocked(r.status, body, text)) e.locked = true;
+    if (neonRefused(r.status, body)) e.refused = true;
     throw e;
   }
   return body === null ? {} : body;
+}
+
+/**
+ * A REFUSAL NEON ITSELF ANSWERED (2026-10-07, Codex's review of the recovery
+ * rules): the one failure of a create that establishes nothing was made.
+ *
+ * The statuses are the ones by which HTTP says the request itself was refused
+ * as asked — bad, unauthorised, payment, forbidden, not found, not allowed,
+ * unacceptable, gone, length, precondition, too large, too long, the wrong
+ * type, unprocessable, locked (Neon's "scheduling of new ones is prohibited",
+ * already retried as `locked`), and the two header refusals — and the body is
+ * Neon's own error (`{ message }`), so a page some proxy put in front of it is
+ * not taken for Neon's word.
+ *
+ * NOT A REFUSAL, deliberately: 408, 425 and 429 name timing and rate, not the
+ * request; 409 is a conflict, which may be with the very project asked for;
+ * and no 5xx — a 503 or a 502 is as readily a gateway's answer after the work
+ * was done as before it, and no Neon document says a project is not made when
+ * one of them comes back. Those stay uncertain (`site-provision.mjs`).
+ */
+export const NEON_REFUSED = new Set([400, 401, 402, 403, 404, 405, 406, 410, 411, 412, 413, 414, 415, 422, 423, 428, 431]);
+function neonRefused(status, body) {
+  return NEON_REFUSED.has(status) && !!body && typeof body === "object" && !Array.isArray(body) && typeof body.message === "string";
 }
 
 /** Never let a Postgres URI reach a response or a log — it carries a password. */
@@ -174,17 +198,37 @@ async function neonOrgIdKnown(env) {
 }
 
 /**
- * THE PROJECTS CARRYING ONE EXACT NAME (2026-10-07), every page of them.
+ * THE PROJECTS CARRYING ONE EXACT NAME (2026-10-07), every page of them — and
+ * WHETHER THE LISTING WAS SEEN TO ITS END (corrected the same day, Codex's
+ * review).
  *
- * The recovery half of a create whose answer was lost: `projectNameForSite`
- * puts the attempt in the name, so the project that attempt made — if Neon
- * made one — is found here and nowhere else. Exact match only; Neon's search
- * also matches parts of names. A listing that cannot be read, or that does
- * not end within its pages, THROWS: it cannot say "none", and "none" is the
- * answer that lets the next create go ahead.
+ * The recovery half of a create whose outcome is not known:
+ * `projectNameForSite` puts the attempt in the name, so the project that
+ * attempt made — if Neon made one — is found here and nowhere else. Exact
+ * match only; Neon's search also matches parts of names.
  *
- * ⚠ Neon's `search`, `cursor` and `limit` parameters are taken from its API
- * reference; nothing here has listed a live account.
+ * AN ANSWER, NEVER A BARE LIST: `{ complete, projects, reason? }`. A full page
+ * whose cursor was the one just sent used to end the loop as though the
+ * listing were done, so a listing that never moved on answered "none" — the
+ * one answer that lets a note go or a create run. Now only a listing seen to
+ * its end is `complete: true`: a page shorter than the limit asked for, which
+ * is how Neon's documented paging ends. Every other ending says why, and
+ * carries whatever was found on the way:
+ *
+ *   * `repeated-cursor` — a full page whose cursor is one already sent: the
+ *     next page would be one already read;
+ *   * `no-cursor` — a full page with no cursor to go on with;
+ *   * `page-limit` — still full after `FIND_PAGES` pages;
+ *   * `malformed` — an answer with no project list, or an entry that is not
+ *     a project.
+ *
+ * A read that fails — Neon refusing the listing, a timeout, the organisation
+ * not established for this call — THROWS, as before. None of these is a
+ * statement that the project does not exist, and the caller treats them so.
+ *
+ * ⚠ Neon's `search`, `cursor` and `limit` parameters, and its paging ending on
+ * a short page, are taken from its API reference; nothing here has listed a
+ * live account.
  */
 export const FIND_LIMIT = 400;
 export const FIND_PAGES = 10;
@@ -192,7 +236,10 @@ export async function findSiteProjects(env, name) {
   const want = String(name || "");
   if (!want) throw new Error("no project name to look for");
   const org = await neonOrgIdKnown(env);
-  const out = [];
+  const projects = [];
+  const ids = new Set();
+  const sent = new Set();
+  const ended = (complete, reason) => ({ complete, ...(reason ? { reason } : {}), projects: projects.slice() });
   let cursor = "";
   for (let page = 0; page < FIND_PAGES; page++) {
     const q = new URLSearchParams({ search: want, limit: String(FIND_LIMIT) });
@@ -200,13 +247,23 @@ export async function findSiteProjects(env, name) {
     if (cursor) q.set("cursor", cursor);
     const d = await neonApi(env, "/projects?" + q.toString());
     const list = d && Array.isArray(d.projects) ? d.projects : null;
-    if (!list) throw Object.assign(new Error("neon project listing: unexpected response"), { detail: scrubSecrets(JSON.stringify(d)).slice(0, 200) });
-    for (const p of list) if (p && p.id && String(p.name) === want) out.push({ id: String(p.id), name: want, created_at: p.created_at || null });
-    const next = d.pagination && d.pagination.cursor ? String(d.pagination.cursor) : "";
-    if (list.length < FIND_LIMIT || !next || next === cursor) return out;
+    if (!list) return ended(false, "malformed");
+    for (const p of list) {
+      if (!p || typeof p !== "object" || Array.isArray(p)) return ended(false, "malformed");
+      if (p.id && String(p.name) === want && !ids.has(String(p.id))) {
+        ids.add(String(p.id));
+        projects.push({ id: String(p.id), name: want, created_at: p.created_at || null });
+      }
+    }
+    if (list.length < FIND_LIMIT) return ended(true);
+    const next = d.pagination && typeof d.pagination.cursor === "string" ? d.pagination.cursor : "";
+    if (!next) return ended(false, "no-cursor");
+    // EVERY CURSOR IS KEPT AS IT IS SENT, so the last one and any before it are one test.
+    if (sent.has(next)) return ended(false, "repeated-cursor");
+    sent.add(next);
     cursor = next;
   }
-  throw new Error("neon project listing did not end within " + FIND_PAGES + " pages");
+  return ended(false, "page-limit");
 }
 
 /**

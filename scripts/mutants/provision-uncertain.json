@@ -1,0 +1,211 @@
+[
+ {
+  "label": "search: a full page taken as the end",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    if (list.length < FIND_LIMIT) return ended(true);",
+  "to": "    if (list.length <= FIND_LIMIT) return ended(true);"
+ },
+ {
+  "label": "search: a repeated cursor taken as the end",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    if (sent.has(next)) return ended(false, \"repeated-cursor\");",
+  "to": "    if (sent.has(next)) return ended(true);"
+ },
+ {
+  "label": "search: cursors not kept",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    sent.add(next);\n    cursor = next;",
+  "to": "    cursor = next;"
+ },
+ {
+  "label": "search: a full page with no cursor taken as the end",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    if (!next) return ended(false, \"no-cursor\");",
+  "to": "    if (!next) return ended(true);"
+ },
+ {
+  "label": "search: the page limit taken as the end",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "  return ended(false, \"page-limit\");\n}",
+  "to": "  return ended(true);\n}"
+ },
+ {
+  "label": "search: a missing list taken as empty",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    if (!list) return ended(false, \"malformed\");",
+  "to": "    if (!list) return ended(true);"
+ },
+ {
+  "label": "search: an unreadable entry skipped",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "      if (!p || typeof p !== \"object\" || Array.isArray(p)) return ended(false, \"malformed\");",
+  "to": "      if (!p || typeof p !== \"object\" || Array.isArray(p)) continue;"
+ },
+ {
+  "label": "refusal: any 4xx or 5xx",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "  return NEON_REFUSED.has(status) && !!body",
+  "to": "  return status >= 400 && !!body"
+ },
+ {
+  "label": "refusal: any body",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": " && !!body && typeof body === \"object\" && !Array.isArray(body) && typeof body.message === \"string\";",
+  "to": ";"
+ },
+ {
+  "label": "refusal: never marked",
+  "files": [
+   "site-db.mjs"
+  ],
+  "from": "    if (neonRefused(r.status, body)) e.refused = true;\n",
+  "to": ""
+ },
+ {
+  "label": "create: a 503 clears the note again",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "    if (e && typeof e === \"object\" && e.refused === true) {",
+  "to": "    if (e && typeof e === \"object\" && (e.refused === true || Number(e.status) === 503)) {"
+ },
+ {
+  "label": "create: a refusal kept as uncertain",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "    if (e && typeof e === \"object\" && e.refused === true) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "create: a refusal not marked before its clear",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      await keepNote(deps, slug, { ...note, refused: true, answered: st, why: \"Neon refused the create (\" + st + \"); nothing was made\" });\n",
+  "to": ""
+ },
+ {
+  "label": "create: a removed project not marked before its clear",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "        await keepNote(deps, slug, { ...note, removed: true, why: \"the create call threw after Neon had made it; this attempt removed the project\" });\n",
+  "to": ""
+ },
+ {
+  "label": "create: the open reason not carried",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      if (r.open) e.open = [r.open];\n",
+  "to": ""
+ },
+ {
+  "label": "settle: a refused note's failed clear never settled",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "  if (!n.projectId && (n.refused === true || n.removed === true)) {",
+  "to": "  if (!n.projectId && n.removed === true) {"
+ },
+ {
+  "label": "settle: a removed note's failed clear never settled",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "  if (!n.projectId && (n.refused === true || n.removed === true)) {",
+  "to": "  if (!n.projectId && n.refused === true) {"
+ },
+ {
+  "label": "settle: an uncertain note left as in progress",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "    if (n.uncertain !== true && !(age >= ATTEMPT_LEASE_MS)) return open(\"in-progress\");",
+  "to": "    if (!(age >= ATTEMPT_LEASE_MS)) return open(\"in-progress\");"
+ },
+ {
+  "label": "settle: a completed empty search clears the note",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      return open(n.answered === undefined && !(age >= ATTEMPT_LEASE_MS) ? \"in-progress\" : \"not-visible\");",
+  "to": "      { await clearNote(deps, slug, n); return { settled: \"never-made\" }; }"
+ },
+ {
+  "label": "settle: an incomplete search taken as complete",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      if (found.complete !== true) return open(SEARCH_SHORT[found.reason] || \"search-incomplete\");\n",
+  "to": ""
+ },
+ {
+  "label": "settle: why the search fell short not named",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "return open(SEARCH_SHORT[found.reason] || \"search-incomplete\");",
+  "to": "return open(\"search-incomplete\");"
+ },
+ {
+  "label": "settle: in progress past the lease",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      return open(n.answered === undefined && !(age >= ATTEMPT_LEASE_MS) ? \"in-progress\" : \"not-visible\");",
+  "to": "      return open(n.answered === undefined ? \"in-progress\" : \"not-visible\");"
+ },
+ {
+  "label": "settle: an answered create read as in progress",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      return open(n.answered === undefined && !(age >= ATTEMPT_LEASE_MS) ? \"in-progress\" : \"not-visible\");",
+  "to": "      return open(!(age >= ATTEMPT_LEASE_MS) ? \"in-progress\" : \"not-visible\");"
+ },
+ {
+  "label": "settle: a search answer that is not one read as one",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "    if (!found || typeof found !== \"object\" || !Array.isArray(found.projects)) return open(\"search-unreadable\");",
+  "to": "    if (!found) return open(\"search-unreadable\");"
+ },
+ {
+  "label": "settle: its own fresh create called not visible",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": "      if (own) return open(\"create-outcome-unknown\");\n",
+  "to": ""
+ },
+ {
+  "label": "control: a comment",
+  "files": [
+   "site-provision.mjs"
+  ],
+  "from": " *   6. AN UNCERTAIN CREATE STAYS UNCERTAIN (corrected the same day, Codex's",
+  "to": " *   6. AN UNCERTAIN CREATE IS NEVER SETTLED BY GUESSING (corrected the same day, Codex's",
+  "control": true
+ }
+]

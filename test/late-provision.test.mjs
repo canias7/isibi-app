@@ -59,7 +59,7 @@ const noted = (o = {}) => ({ slug: SLUG, uid: UID, attempt: "a-old", name: nameO
  */
 function harness(o = {}) {
   const calls = [];
-  const state = { row: o.row === undefined ? null : o.row, notes: new Map(), projects: new Map(), dropped: [], clock: T0, teardown: new Set(o.teardown || []) };
+  const state = { row: o.row === undefined ? null : o.row, notes: new Map(), projects: new Map(), dropped: [], clock: T0, teardown: new Set(o.teardown || []), hidden: new Set(o.hidden || []) };
   for (const n of o.notes || []) state.notes.set(n.attempt || n.projectId, { ...n });
   for (const [id, name] of Object.entries(o.projects || {})) state.projects.set(id, name);
   let lookups = 0, attempts = 0, made = 0;
@@ -96,11 +96,17 @@ function harness(o = {}) {
       state.row = { uid, ...proj };
       return { ok: true, claimed: true };
     },
+    // NEON'S LISTING AS `findSiteProjects` ANSWERS IT (2026-10-07): the
+    // projects carrying the note's name and whether the listing was seen to
+    // its end. `hidden` holds projects that exist and do not show yet
+    // (delayed visibility); `search(state, note)` answers instead, for the
+    // endings that are not a completed search.
     findProjects: async (slug, note) => {
       calls.push("find:" + note.attempt);
       if (o.findFails) throw new Error("the listing was refused");
+      if (typeof o.search === "function") { const out = o.search(state, note); if (out !== undefined) return out; }
       const name = note.name || nameOf(slug, note.attempt);
-      return [...state.projects].filter(([, n]) => n === name).map(([id]) => ({ id }));
+      return { complete: true, projects: [...state.projects].filter(([id, n]) => n === name && !state.hidden.has(id)).map(([id]) => ({ id })) };
     },
     adoptProject: async (id, hint) => {
       calls.push("adopt:" + id);
@@ -246,7 +252,7 @@ test("LOST 1 — NEON MADE THE PROJECT AND THE ANSWER NEVER CAME: it is found at
   neverDroppedUsed(h);
 });
 
-test("LOST 2 — THE ANSWER NEVER CAME AND NOTHING CARRIES THE NAME YET: the outcome is unknown and said so, the note stays, the next attempt waits out the lease, then claims the project that landed — or, when none ever did, makes the one project", async () => {
+test("LOST 2 — THE ANSWER NEVER CAME AND NOTHING CARRIES THE NAME YET: the outcome is unknown and said so, the note stays, the next attempt waits out the lease, then claims the project that landed — and when none ever shows, nothing is concluded: the note stays and no second project is made, however long", async () => {
   const h = harness({ create: ({ state, id, name }) => { state.late = [id, name]; throw timeout(); } });
   const e = await fails(h);
   assert.deepEqual([e.stage, e.recorded], ["create_project", "unknown"]);
@@ -261,15 +267,21 @@ test("LOST 2 — THE ANSWER NEVER CAME AND NOTHING CARRIES THE NAME YET: the out
   assert.match(await run(h), /ep-1/);
   assert.equal(made(h), 1, "a second project was made over one that landed late");
   neverDroppedUsed(h);
-  // AND WHEN NONE EVER LANDED: proved never made, the note cleared, one project made.
-  const never = harness({ create: ({ id }) => { throw timeout(); } });
+  // AND WHEN NONE EVER SHOWS (corrected 2026-10-07, Codex's review): the
+  // lease running out and a search finding nothing used to prove "never
+  // made", the note was cleared and a second project made. Neither proves
+  // anything: the note stays open, and nothing new is made, attempt after
+  // attempt.
+  const never = harness({ create: () => { throw timeout(); } });
   await fails(never);
   never.o.create = undefined;
-  never.state.clock = T0 + ATTEMPT_LEASE_MS + 1000;
-  assert.match(await run(never), /ep-2/);
-  assert.equal(made(never), 2);
-  assert.equal(never.state.projects.size, 1, "more than one project stands");
-  assert.deepEqual(notes(never), []);
+  for (const later of [ATTEMPT_LEASE_MS + 1000, ATTEMPT_LEASE_MS * 10, ATTEMPT_LEASE_MS * 1000]) {
+    never.state.clock = T0 + later;
+    const held = await fails(never);
+    assert.deepEqual([held.stage, held.open.map((x) => [x.attempt, x.reason])], ["reconcile_project", [["a1", "not-visible"]]]);
+  }
+  assert.equal(made(never), 1, "a second project was made once the lease ran out");
+  assert.deepEqual(notes(never).map((n) => [n.attempt, n.uncertain]), [["a1", true]], "the note of a create whose outcome is unknown was cleared");
 });
 
 test("LOST 3 — WHEN NEON'S LISTING CANNOT BE READ, NOTHING IS CONCLUDED: the note stays and no project is made over it, however old it is; a 4xx refusal made nothing and is not looked for", async () => {
@@ -282,37 +294,249 @@ test("LOST 3 — WHEN NEON'S LISTING CANNOT BE READ, NOTHING IS CONCLUDED: the n
   assert.deepEqual(stuck.open.map((x) => x.reason), ["search-failed"]);
   assert.equal(made(h), 1);
   assert.equal(notes(h).length, 1);
-  const refused = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422 }); } });
+  // NEON'S OWN REFUSAL — `site-db.mjs` marks it (`refused`) where the status and its body are both known.
+  const refused = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422, refused: true }); } });
   const r = await fails(refused);
   assert.deepEqual([r.stage, r.recorded], ["create_project", undefined]);
   assert.ok(!refused.calls.some((c) => c.startsWith("find:")), "a refusal was looked for as if it might have made something");
   assert.deepEqual(notes(refused), []);
 });
 
-test("LOST 4 — WHAT A CREATE'S ERROR ANSWER ESTABLISHES, BY HTTP'S OWN MEANINGS: a 503 made nothing; a 500 finished, so a search now settles it at once — nothing made and the next attempt free, or the project it made claimed; a 504 may still be landing, so its note waits out the lease", async () => {
-  const fail = (status, lands) => ({ state, id, name }) => { if (lands) state.projects.set(id, name); throw Object.assign(new Error("neon api POST /projects failed: " + status), { status }); };
-  const busy = harness({ create: fail(503) });
-  const b = await fails(busy);
-  assert.deepEqual([b.stage, b.recorded], ["create_project", undefined]);
-  assert.ok(!busy.calls.some((c) => c.startsWith("find:")));
-  assert.deepEqual(notes(busy), []);
-  const finished = harness({ create: fail(500) });
-  const f = await fails(finished);
-  assert.deepEqual([f.stage, f.recorded], ["create_project", undefined], "a finished error with nothing made was said as unknown");
-  assert.ok(finished.calls.includes("find:a1"), "the finished create was not looked for");
-  assert.deepEqual(notes(finished), []);
-  finished.o.create = undefined;
-  assert.match(await run(finished), /ep-2/, "the next attempt was held after a finished error that made nothing");
-  const madeAnyway = harness({ create: fail(500, true) });
-  assert.match(await run(madeAnyway), /ep-1/, "the project a 500 made was not claimed");
-  assert.equal(made(madeAnyway), 1);
-  const gateway = harness({ create: fail(504) });
-  const g = await fails(gateway);
-  assert.equal(g.recorded, "unknown");
-  gateway.o.create = undefined;
-  const held = await fails(gateway);
-  assert.deepEqual(held.open.map((x) => x.reason), ["in-progress"], "a create that may still be landing was not waited for");
-  neverDroppedUsed(madeAnyway);
+test("LOST 4 — WHAT A CREATE'S ERROR ANSWER ESTABLISHES (corrected 2026-10-07, Codex's review): only a refusal Neon itself answered made nothing; a 503, a 500, a 502, a 504, a 408, a 409 or a 429 may each have made the project — kept, looked for at once by its attempt's name, claimed when found, and when not, held open with nothing new made", async () => {
+  const fail = (status, lands, refused) => ({ state, id, name }) => { if (lands) state.projects.set(id, name); throw Object.assign(new Error("neon api POST /projects failed: " + status), { status, ...(refused ? { refused: true } : {}) }); };
+  for (const status of [503, 500, 502, 504, 408, 409, 429]) {
+    // MADE, AND THE ANSWER AN ERROR: found at once, claimed, one project, no note.
+    const madeAnyway = harness({ create: fail(status, true) });
+    assert.match(await run(madeAnyway), /ep-1/, status + ": the project it made was not claimed");
+    assert.deepEqual([made(madeAnyway), madeAnyway.state.projects.size, notes(madeAnyway).length, madeAnyway.state.row && madeAnyway.state.row.neon_project], [1, 1, 0, "pr-1"], String(status));
+    neverDroppedUsed(madeAnyway);
+    // NOTHING SHOWS: unknown, the note kept, and the next attempt makes nothing.
+    const none = harness({ create: fail(status, false) });
+    const e = await fails(none);
+    assert.deepEqual([e.stage, e.recorded, e.open && e.open.map((x) => x.reason)], ["create_project", "unknown", ["create-outcome-unknown"]], String(status));
+    assert.deepEqual(notes(none).map((n) => [n.attempt, n.uncertain, n.answered]), [["a1", true, status]], status + ": the note was not kept as uncertain");
+    none.o.create = undefined;
+    const held = await fails(none);
+    assert.deepEqual([held.stage, held.open.map((x) => x.reason)], ["reconcile_project", ["not-visible"]], String(status));
+    assert.equal(made(none), 1, status + ": a second project was made over an uncertain create");
+  }
+  // A REFUSAL NEON ITSELF ANSWERED made nothing: the note goes, nothing is looked for, the next attempt makes the one project.
+  const refused = harness({ create: fail(422, false, true) });
+  const r = await fails(refused);
+  assert.deepEqual([r.stage, r.recorded], ["create_project", undefined]);
+  assert.ok(!refused.calls.some((c) => c.startsWith("find:")), "a refusal was looked for as if it might have made something");
+  assert.deepEqual(notes(refused), []);
+  refused.o.create = undefined;
+  assert.match(await run(refused), /ep-2/);
+  assert.deepEqual([made(refused), refused.state.projects.size, notes(refused).length], [2, 1, 0]);
+});
+
+// ── CODEX'S LATEST TWO, AND THE RULE BEHIND THEM (2026-10-07) ─────────────
+//
+// Codex's review of 78a83b39: "makeProject clears the attempt note on status
+// 503, so a simulated provider that creates a project before returning that
+// error leaves one project and zero notes; repeating the attempt leaves two
+// projects and zero notes. findSiteProjects returns successful absence when
+// full result pages repeat their cursor, even though discovery never
+// completed." The rule now (`site-provision.mjs`, rule 6): only a refusal
+// Neon itself answered says nothing was made; everything else keeps its note,
+// is looked for by its attempt's name and claimed when found, and is never
+// concluded "never made" by time passing or a search that finds nothing.
+
+const answered = (status, lands) => ({ state, id, name }) => { if (lands) state.projects.set(id, name); throw Object.assign(new Error("neon api POST /projects failed: " + status), { status }); };
+const counts = (h) => ({ projects: h.state.projects.size, notes: notes(h).length, made: made(h) });
+
+test("CODEX 3 — THE PROVIDER MAKES THE PROJECT AND ANSWERS 503: seen at once, it is claimed and used — one project, no note, and the next attempt reuses it; seen only later, the note stays through every retry and no second project is ever made, until it shows and is claimed", async () => {
+  // SEEN AT ONCE.
+  const seen = harness({ create: answered(503, true) });
+  assert.match(await run(seen), /ep-1\.neon\.tech\/site_x$/);
+  assert.deepEqual(counts(seen), { projects: 1, notes: 0, made: 1 });
+  assert.equal(seen.state.row && seen.state.row.neon_project, "pr-1", "the project the 503 made is not the site's");
+  seen.o.create = undefined;
+  assert.match(await run(seen), /ep-1/);
+  assert.deepEqual(counts(seen), { projects: 1, notes: 0, made: 1 }, "the next attempt made another project");
+  // SEEN ONLY LATER (delayed visibility): the first attempt fails, saying a
+  // database may have been started; every retry is held, at once, after the
+  // lease, and long after; nothing is made twice.
+  const late = harness({ create: answered(503, true), hidden: ["pr-1"] });
+  const first = await fails(late);
+  assert.deepEqual([first.stage, first.status, first.recorded, first.open.map((x) => x.reason)], ["create_project", 503, "unknown", ["create-outcome-unknown"]]);
+  assert.deepEqual(counts(late), { projects: 1, notes: 1, made: 1 });
+  assert.deepEqual(notes(late).map((n) => [n.attempt, n.name, n.uncertain, n.answered, n.projectId]), [["a1", nameOf(SLUG, "a1"), true, 503, undefined]]);
+  late.o.create = undefined;
+  for (const after of [0, ATTEMPT_LEASE_MS + 1000, ATTEMPT_LEASE_MS * 100]) {
+    late.state.clock = T0 + after;
+    const held = await fails(late);
+    assert.deepEqual([held.stage, held.open.map((x) => [x.attempt, x.reason])], ["reconcile_project", [["a1", "not-visible"]]]);
+    assert.deepEqual(counts(late), { projects: 1, notes: 1, made: 1 }, "a retry made a second project while the first was not yet seen");
+  }
+  // IT SHOWS: claimed through the attempt's own name, used, the note gone.
+  late.state.hidden.clear();
+  assert.match(await run(late), /ep-1/);
+  assert.deepEqual(counts(late), { projects: 1, notes: 0, made: 1 });
+  assert.equal(late.state.row.neon_project, "pr-1");
+  assert.deepEqual(drops(late), []);
+  neverDroppedUsed(late);
+  // AND WHEN THE 503 MADE NOTHING AT ALL: still held — no answer but Neon's own refusal says so.
+  const none = harness({ create: answered(503, false) });
+  await fails(none);
+  none.o.create = undefined;
+  none.state.clock = T0 + ATTEMPT_LEASE_MS * 100;
+  await fails(none);
+  assert.deepEqual(counts(none), { projects: 0, notes: 1, made: 1 });
+});
+
+test("CODEX 4 — A LISTING THAT DID NOT REACH ITS END IS NEVER ABSENCE: Neon's own search answers which ending it was, and the provisioner keeps the note and makes nothing for each — a repeated cursor, a full page with no cursor, the page limit, a malformed answer, a read that failed — until a completed listing finds the project and it is claimed", async () => {
+  const { findSiteProjects, FIND_LIMIT, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  const env = { NEON_API_KEY: "k" };
+  try {
+    _resetNeonOrgCache();
+    let reads = 0;
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.endsWith("/users/me/organizations")) return new Response(JSON.stringify({ organizations: [{ id: "org-1" }] }), { status: 200 });
+      reads++;
+      return new Response(JSON.stringify({ projects: Array.from({ length: FIND_LIMIT }, (_, i) => ({ id: "p" + i, name: "isibi-other-" + i })), pagination: { cursor: "c-same" } }), { status: 200 });
+    };
+    // CODEX'S EXACT CASE: full pages, the same cursor each time.
+    assert.deepEqual(await findSiteProjects(env, "isibi-fold-lane-a1"), { complete: false, reason: "repeated-cursor", projects: [] });
+    assert.equal(reads, 2, "the listing was not read to the repeat");
+  } finally { globalThis.fetch = real; _resetNeonOrgCache(); }
+  // THROUGH THE PROVISIONER, every ending that is not a completed search.
+  for (const [reason, open] of [["repeated-cursor", "search-repeated-cursor"], ["no-cursor", "search-no-cursor"], ["page-limit", "search-page-limit"], ["malformed", "search-malformed"]]) {
+    const h = harness({ create: answered(503, true), search: () => ({ complete: false, reason, projects: [] }) });
+    const e = await fails(h);
+    assert.deepEqual([e.recorded, e.open.map((x) => x.reason)], ["unknown", [open]], reason);
+    h.o.create = undefined;
+    h.state.clock = T0 + ATTEMPT_LEASE_MS * 10;
+    const held = await fails(h);
+    assert.deepEqual(held.open.map((x) => x.reason), [open], reason);
+    assert.deepEqual(counts(h), { projects: 1, notes: 1, made: 1 }, reason + ": an incomplete listing let a second project be made");
+    // A COMPLETED LISTING FINDS IT: claimed, the note gone.
+    h.o.search = undefined;
+    assert.match(await run(h), /ep-1/, reason);
+    assert.deepEqual(counts(h), { projects: 1, notes: 0, made: 1 }, reason);
+  }
+  const failed = harness({ create: answered(503, true), findFails: true });
+  const f = await fails(failed);
+  assert.deepEqual([f.recorded, f.open.map((x) => x.reason)], ["unknown", ["search-failed"]]);
+  failed.o.create = undefined;
+  await fails(failed);
+  assert.deepEqual(counts(failed), { projects: 1, notes: 1, made: 1 });
+  // AN ANSWER THAT IS NOT A SEARCH'S AT ALL is no better.
+  const odd = harness({ create: answered(503, true), search: () => [{ id: "pr-1" }] });
+  const o = await fails(odd);
+  assert.deepEqual(o.open.map((x) => x.reason), ["search-unreadable"]);
+  assert.deepEqual(counts(odd), { projects: 1, notes: 1, made: 1 });
+});
+
+test("SEARCH 1 — NEON'S LISTING, EVERY ENDING: complete only on a short page (an empty one included); a cursor already sent, a cycle back to one, a full page with no cursor, the page limit and a malformed page each say so, with what was found on the way; a refused read and an unknown organisation throw", async () => {
+  const { findSiteProjects, FIND_LIMIT, FIND_PAGES, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  const env = { NEON_API_KEY: "k" };
+  const full = (tag, hit) => Array.from({ length: FIND_LIMIT }, (_, i) => ({ id: tag + i, name: hit && i === 0 ? "isibi-x-a1" : "isibi-y-" + i }));
+  const serve = (pageFor) => {
+    const sent = [];
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.endsWith("/users/me/organizations")) return new Response(JSON.stringify({ organizations: [{ id: "org-1" }] }), { status: 200 });
+      const cursor = new URL(url).searchParams.get("cursor") || "";
+      sent.push(cursor);
+      const out = pageFor(cursor, sent.length);
+      return out instanceof Response ? out : new Response(JSON.stringify(out), { status: 200 });
+    };
+    return sent;
+  };
+  try {
+    _resetNeonOrgCache();
+    let sent = serve(() => ({ projects: [] }));
+    assert.deepEqual(await findSiteProjects(env, "isibi-x-a1"), { complete: true, projects: [] }, "an empty first page is the end");
+    sent = serve((c) => (c ? { projects: [{ id: "q1", name: "isibi-x-a1" }], pagination: { cursor: "c-end" } } : { projects: full("a", false), pagination: { cursor: "c1" } }));
+    const found = await findSiteProjects(env, "isibi-x-a1");
+    assert.deepEqual([found.complete, found.projects.map((p) => p.id)], [true, ["q1"]], "a short page with a cursor is still the end");
+    sent = serve((c) => ({ projects: full("b" + c, c === ""), pagination: { cursor: c === "" ? "c1" : c === "c1" ? "c2" : "c1" } }));
+    const cycle = await findSiteProjects(env, "isibi-x-a1");
+    assert.deepEqual([cycle.complete, cycle.reason, cycle.projects.map((p) => p.id), sent], [false, "repeated-cursor", ["b0"], ["", "c1", "c2"]], "a cycle back to a cursor already sent was read as an end");
+    sent = serve(() => ({ projects: full("n", false) }));
+    assert.deepEqual(await findSiteProjects(env, "isibi-x-a1"), { complete: false, reason: "no-cursor", projects: [] });
+    sent = serve((c, n) => ({ projects: full("l" + n, false), pagination: { cursor: "c" + n } }));
+    const limit = await findSiteProjects(env, "isibi-x-a1");
+    assert.deepEqual([limit.complete, limit.reason, sent.length], [false, "page-limit", FIND_PAGES]);
+    sent = serve(() => ({ projects: [{ id: "m1", name: "isibi-x-a1" }, "not a project"] }));
+    assert.deepEqual(await findSiteProjects(env, "isibi-x-a1"), { complete: false, reason: "malformed", projects: [{ id: "m1", name: "isibi-x-a1", created_at: null }] });
+    sent = serve(() => new Response("upstream down", { status: 500 }));
+    await assert.rejects(findSiteProjects(env, "isibi-x-a1"), /failed: 500/);
+    _resetNeonOrgCache();
+    globalThis.fetch = async () => new Response("down", { status: 503 });
+    await assert.rejects(findSiteProjects(env, "isibi-x-a1"), /organisation could not be established/);
+  } finally { globalThis.fetch = real; _resetNeonOrgCache(); }
+});
+
+test("REFUSE 1 — WHAT COUNTS AS NEON'S OWN REFUSAL, judged where the status and the body are both known: a 400, 403 or 422 with Neon's error body is; a 503, 502, 409, 429 or 408 with the same body is not, and neither is a 403 whose body is somebody's page", async () => {
+  const { createSiteProject, NEON_REFUSED, _resetNeonOrgCache } = await import("../site-db.mjs");
+  const real = globalThis.fetch;
+  const env = { NEON_API_KEY: "k" };
+  const answer = async (status, body) => {
+    _resetNeonOrgCache();
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.endsWith("/users/me/organizations")) return new Response(JSON.stringify({ organizations: [{ id: "org-1" }] }), { status: 200 });
+      return new Response(typeof body === "string" ? body : JSON.stringify(body), { status });
+    };
+    try { await createSiteProject(env, "fold-lane", "a1"); } catch (e) { return e; }
+    assert.fail("the create did not fail");
+  };
+  try {
+    for (const status of [400, 403, 422]) {
+      const e = await answer(status, { code: "", message: "refused" });
+      assert.deepEqual([e.status, e.refused], [status, true], String(status));
+    }
+    for (const status of [503, 502, 409, 429, 408]) {
+      const e = await answer(status, { code: "", message: "try later" });
+      assert.deepEqual([e.status, e.refused], [status, undefined], String(status));
+    }
+    const proxied = await answer(403, "<html>forbidden</html>");
+    assert.deepEqual([proxied.status, proxied.refused], [403, undefined]);
+    for (const status of [408, 409, 425, 429, 500, 502, 503, 504]) assert.equal(NEON_REFUSED.has(status), false, String(status));
+  } finally { globalThis.fetch = real; _resetNeonOrgCache(); }
+});
+
+test("CLEAN 1 — SAFE CLEANUP: an uncertain attempt's project that shows after the site has another is dropped only because the slug's row names the other; the site's own is never touched; a drop that fails keeps both, and the note, for the next time", async () => {
+  const site = { conn: connOf("pr-9") + "", uid: UID };
+  const uncertain = noted({ uncertain: true, answered: 503 });
+  const h = harness({ site, row: rowOf("pr-9"), notes: [uncertain], projects: { "pr-9": "isibi-fold-lane-a0", "pr-1": nameOf(SLUG, "a-old") } });
+  await run(h);
+  assert.deepEqual(h.state.dropped, ["pr-1"]);
+  assert.deepEqual([[...h.state.projects.keys()], notes(h).length, made(h)], [["pr-9"], 0, 0]);
+  neverDroppedUsed(h);
+  const stuck = harness({ site, row: rowOf("pr-9"), notes: [uncertain], projects: { "pr-9": "isibi-fold-lane-a0", "pr-1": nameOf(SLUG, "a-old") }, dropFails: true });
+  await run(stuck);
+  assert.deepEqual([[...stuck.state.projects.keys()].sort(), stuck.state.dropped, made(stuck)], [["pr-1", "pr-9"], [], 0]);
+  assert.deepEqual(notes(stuck).map((n) => [n.attempt, n.projectId]), [["a-old", "pr-1"]], "a leftover whose drop failed lost its note");
+  neverDroppedUsed(stuck);
+  // NOT YET SEEN, ON A SITE THAT HAS ITS DATABASE: the note stays, nothing is dropped, the site carries on.
+  const quiet = harness({ site, row: rowOf("pr-9"), notes: [uncertain], projects: { "pr-9": "isibi-fold-lane-a0" } });
+  await run(quiet);
+  assert.deepEqual([quiet.state.dropped, notes(quiet).length, made(quiet)], [[], 1, 0]);
+});
+
+test("CLEAR 2 — A NOTE ITS OWN ATTEMPT SETTLED IS SETTLED AGAIN WHEN ITS CLEAR FAILED: Neon's own refusal, and a project the attempt removed after its create threw, are marked before the note goes — the next attempt clears it and makes the one project", async () => {
+  const refused = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 422"), { status: 422, refused: true }); }, clearFails: true });
+  await fails(refused);
+  assert.deepEqual(notes(refused).map((n) => [n.attempt, n.refused]), [["a1", true]]);
+  refused.o.create = undefined;
+  refused.o.clearFails = false;
+  assert.match(await run(refused), /ep-2/);
+  assert.deepEqual(counts(refused), { projects: 1, notes: 0, made: 2 });
+  const removed = harness({ create: ({ state, id, name }) => { state.projects.set(id, name); throw Object.assign(new Error("neon operation create_branch failed"), { projectId: id }); }, clearFails: true });
+  await fails(removed);
+  assert.deepEqual([removed.state.dropped, notes(removed).map((n) => [n.attempt, n.removed, n.projectId])], [["pr-1"], [["a1", true, undefined]]]);
+  removed.o.create = undefined;
+  removed.o.clearFails = false;
+  assert.match(await run(removed), /ep-2/);
+  assert.deepEqual(counts(removed), { projects: 1, notes: 0, made: 2 });
+  neverDroppedUsed(removed);
 });
 
 // ── A CLEAR THAT FAILED ────────────────────────────────────────────────────
@@ -623,11 +847,15 @@ test("PROV 6 — EVERY FAILURE AFTER THE PROJECT IS RECORDED SAYS SO, WITH ITS O
     assert.deepEqual(drops(h), [], opt + ": a recorded project was dropped");
     assert.deepEqual(notes(h), [], opt + ": a recorded project's note was left");
   }
-  // A CREATE NEON REFUSED (a 4xx) made nothing and says nothing was kept; one
-  // whose answer never came may have made one, and says so (LOST 1–3).
-  const early = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 403"), { status: 403, projectId: null }); } });
+  // A CREATE NEON ITSELF REFUSED made nothing and says nothing was kept; the
+  // same status from something that is not Neon's own refusal (no `refused`
+  // mark: a proxy's page) may have made one, and says so (LOST 1–4).
+  const early = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 403"), { status: 403, projectId: null, refused: true }); } });
   const e = await fails(early);
   assert.deepEqual([e.stage, e.recorded], ["create_project", undefined]);
+  const proxied = harness({ create: () => { throw Object.assign(new Error("neon api POST /projects failed: 403"), { status: 403, projectId: null }); } });
+  const p = await fails(proxied);
+  assert.deepEqual([p.stage, p.recorded, notes(proxied).length], ["create_project", "unknown", 1]);
 });
 
 test("PROV 7 — OWNERSHIP AND CANNOT-TELL: a project row another account owns is never this site's database; the Worker's lookups throw on an answer they cannot read, and its claim says it cannot tell", () => {
@@ -883,7 +1111,7 @@ test("PROV 12 — THROUGH THE ROUTE, A CREATE NEON ANSWERED 504 AFTER MAKING THE
 
 // ── THE NEON HELPERS, ON NEON'S OWN SHAPES ─────────────────────────────────
 
-test("NAME 1 — THE PROJECT'S NAME CARRIES ITS ATTEMPT AND STAYS IN BOUNDS; the search matches the exact name only, follows pages, and throws rather than answer \"none\" when it cannot tell; a project Neon answers 404 for is gone", async () => {
+test("NAME 1 — THE PROJECT'S NAME CARRIES ITS ATTEMPT AND STAYS IN BOUNDS; the search matches the exact name only, follows pages to a short one, says when it did not reach the end, and throws on a read that failed; a project Neon answers 404 for is gone", async () => {
   const { findSiteProjects, siteProjectDetails, _resetNeonOrgCache } = await import("../site-db.mjs");
   assert.equal(projectNameForSite("fold-lane"), "isibi-fold-lane");
   assert.equal(projectNameForSite("fold-lane", "a1b2c3"), "isibi-fold-lane-a1b2c3");
@@ -902,12 +1130,13 @@ test("NAME 1 — THE PROJECT'S NAME CARRIES ITS ATTEMPT AND STAYS IN BOUNDS; the
       if (!q.get("cursor")) return new Response(JSON.stringify({ projects: Array.from({ length: 400 }, (_, i) => ({ id: "p" + i, name: i === 3 ? "isibi-a-1" : "isibi-a-1-other" })), pagination: { cursor: "c1" } }), { status: 200 });
       return new Response(JSON.stringify({ projects: [{ id: "late", name: "isibi-a-1" }], pagination: { cursor: "c2" } }), { status: 200 });
     };
-    assert.deepEqual((await findSiteProjects(env, "isibi-a-1")).map((p) => p.id), ["p3", "late"]);
+    const both = await findSiteProjects(env, "isibi-a-1");
+    assert.deepEqual([both.complete, both.reason, both.projects.map((p) => p.id)], [true, undefined, ["p3", "late"]]);
     assert.deepEqual(pages, [["", "org-1"], ["c1", "org-1"]]);
     globalThis.fetch = async () => new Response("bad gateway", { status: 502 });
     await assert.rejects(findSiteProjects(env, "isibi-a-1"), /failed: 502/);
     globalThis.fetch = async () => new Response(JSON.stringify({ nope: true }), { status: 200 });
-    await assert.rejects(findSiteProjects(env, "isibi-a-1"), /unexpected response/);
+    assert.deepEqual(await findSiteProjects(env, "isibi-a-1"), { complete: false, reason: "malformed", projects: [] });
     // THE ORG COULD NOT BE ESTABLISHED THIS CALL: no listing in the wrong home.
     _resetNeonOrgCache();
     globalThis.fetch = async () => new Response("down", { status: 503 });

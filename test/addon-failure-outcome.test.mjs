@@ -339,9 +339,11 @@ test("ROUTE 6 — a judgment that did not finish stops before anything is applie
 });
 
 test("ROUTE 7 — the site's database cannot be made: nothing changed, by where it stopped; the requirements the judgment settled are told beside it, none set up; ours, so no model reply", async () => {
-  // A SITE WITH NO DATABASE has one made for it — and the harness has no Neon
-  // to make it in, so the provision itself fails (\`create_project\`).
-  const r = await signupAsk("fo-noprov", { backend: "none" });
+  // A SITE WITH NO DATABASE has one made for it — and Neon itself refuses the
+  // create (a 422 with its own error body), so the provision fails at
+  // \`create_project\` having made nothing (2026-10-07: only Neon's own refusal
+  // says so; a bare 503 may have made one — below).
+  const r = await signupAsk("fo-noprov", { backend: "none", provisions: true, neonFail: /^\/projects$/, neonFailStatus: 422 });
   assert.deepEqual([r.status, r.body.error, r.body.ours, r.body.cost, r.body.stage], [502, "provision", true, 0, "create_project"], JSON.stringify(r.body).slice(0, 400));
   assert.deepEqual(r.charges, []);
   assert.ok(!r.sql.some((q) => /CREATE TABLE/i.test(q)), "a table was made with no database to hold it");
@@ -353,6 +355,16 @@ test("ROUTE 7 — the site's database cannot be made: nothing changed, by where 
   assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
   assert.ok(said.includes(STORE.need) && said.includes(FORM.need), said);
   assert.doesNotMatch(said, /I've set that up|already had/);
+  // A 503 TO THE CREATE — the harness's own "unavailable", which is not Neon's
+  // refusal — may have made a project: never "nothing was changed"; the
+  // database is said to be set aside to be checked, and trying again is not
+  // promised to work (the corrected recovery rule, \`site-provision.mjs\` rule 6).
+  const u = await signupAsk("fo-noprov-503", { backend: "none" });
+  assert.deepEqual([u.status, u.body.error, u.body.stage, u.body.cost], [502, "provision", "create_project", 0], JSON.stringify(u.body).slice(0, 400));
+  assert.equal(u.body.outcome && u.body.outcome.projectKept, "unknown");
+  assert.match(u.body.msg, /a database may have been started, and it's set aside to be checked before another is made/);
+  assert.doesNotMatch(u.body.msg, /nothing was changed|Try again in a few minutes/);
+  assert.deepEqual(u.charges, []);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
