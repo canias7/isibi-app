@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, the correction round, its follow-up pass, and the recovery correction)
+## Current handoff — read this first (2026-10-07, the verification gate and the release plan)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,164 +8,149 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - **Production is as it was**: `main` is `bcc22295`, progress messages live
-  (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187). Turning
-  progress off is your secret set to `off`, then *Deploy to Cloudflare*.
-- **Nothing was spent in this round** (no model called, no paid run). The
-  balance was 10 at the last reading (01:43 UTC, ledger row 401, no job
-  open); it was not read again.
-- **The correction round you asked for is done, on the branch**
-  `claude/help-needed-ehlwlj`, pushed and unmerged: Codex's four findings on
-  `430a3a64` and the batch's remaining gaps, resolved together. Nothing
-  deployed, no container built, nothing restored. The record:
-  `docs/history/2026-10-07-cleanup-batch.md` §7.
-- **Your request came a second time, word for word.** Nothing was
-  restarted: a follow-up pass closed what this handoff had left open on late
-  undo, and checked every reader of the stored schema for rejected columns
-  (`dc531bef`, `320d6767`, `a921a64d`; §8 of the same record).
-- **Codex's latest database recovery findings are fixed, on the branch**
-  (`570adb45`). These are NEW findings, reported on `78a83b39`, separate from
-  the earlier provisioning fixes (`71e47213`, row 1 below), two of whose
-  readings they correct: a provider that made the project and then answered
-  503 left one project and no note, and the retry a second; and a listing
-  whose full pages repeated their cursor was read as "no such project". Both
-  were reproduced before the fix and fixed together — the section after the
-  table, and §9 of the same record.
+  (deploy 2186, image `5f946c22d42a1b10`; your switch, deploy 2187).
+- **Nothing was spent** (no model called, no paid run). The balance is 10
+  (read 20:42 UTC, ledger row 401, no job open).
+- **The reviewed commit is `092ff48a`.** Codex passed 90 assertions of its
+  own against the provisioner and the project search there: uncertain
+  creation, delayed visibility, repeated retries, eventual adoption, reuse
+  and incomplete pagination. The fixes stand as reviewed: neither
+  `site-provision.mjs` nor `site-db.mjs` has changed since.
+- **The verification gate is not green yet, and the re-run is yours** (the
+  next section).
+- **The release plan is ready for your approval**:
+  `docs/investigations/combined-release-plan.md` (summary below). Nothing is
+  merged, deployed, built, provisioned or paid until you approve it.
+- **This round's commits**: `b791dec0` (the canary's combined release check and
+  the order check reading a fresh-session message's card, with the plan and
+  its tests) and these records. The record:
+  `docs/history/2026-10-07-combined-release-prep.md`.
 
-**Each finding, its fix, its commit and its tests** (every model answer in
-the tests is supplied; nothing here is evidence of what a real model writes)
+**The gate, exactly**
+- **Run 37674861320 on `570adb45`** is not a complete reading: the
+  published-site checks, shards 3 and 4 (158 and 62 checks) and the kit
+  job's first steps are green; the theme checks, shards 1 and 2 and the rest
+  of the kit job stopped at their 20-minute limit inside `npx playwright
+  install --with-deps chromium` (apt waiting on Ubuntu's `noble-security`
+  index from 19:30 UTC), before any of their tests ran; so `all checks`
+  failed on the cancellations and on shards 1 and 2's missing reports.
+- **The re-run attempt**: I sent the one request you asked for — re-run the
+  failed jobs — between 20:16 and 20:41 UTC. It answered **403**
+  (*"Resource not accessible by integration"*): this session's GitHub access
+  cannot re-run a job, as it cannot dispatch one. Under your rule it was not
+  tried again, through any client.
+- **The re-run is your press, and free**: *Actions → site build → run
+  37674861320 → Re-run jobs → Re-run failed jobs*.
+- **Meanwhile, locally** on `570adb45`, the eight steps that never ran all
+  pass: contrast-cases 16 of 16; kit-a11y, kit-effects and kit-paint all
+  passed; theme-seam 11 of 11; theme-render 29 of 29; `site-build.mjs` shard
+  1 109 of 109 and shard 2 76 of 76, both complete. A local run is not the
+  gate.
+- **The inputs match**: the gate's fingerprint is `de6345b9058cd1cc` at
+  `570adb45`, at `092ff48a` and at `b791dec0` (3,974 files, read at each), so a green re-run is
+  evidence for the candidate.
+- **When the re-run ends**, the session reads it — every job `success`, the
+  gate with four shard reports and every section run once, the inputs — and
+  records the attempt and its results here. If the Chromium install stalls
+  again, the session diagnoses that step and makes a focused correction,
+  keeping every test and its assertions (it has stalled once; the 2026-10-05
+  cancellations were GitHub giving no runner; the backlog has it).
 
-| Finding | What changed | Commit | Tests |
-|---|---|---|---|
-| 1. Provisioning recovery — the earlier fix (a recorded project dropped on a stale reading of the slug's row; a failed drop then a failed note leaving an untracked project) | every create is written down first, under an attempt id the Neon project's own name carries, so a lost create is found by exact name; a project is dropped only when the slug's row names another; every other unrecorded project is claimed, never dropped; nothing new is made while an earlier attempt of this account is unsettled; a create's error read by HTTP's meaning — two of those readings were wrong (a 503 taken as nothing made; an empty search past the lease taken as never made) and are corrected by Codex's latest findings, below; a note cleared only when its project is settled; another account's notes untouched; the add-on no longer promises a retry fixes an unsettled state | `71e47213` | 28 + 60 cases (Codex's ordering, the double failure, lost creates, failed clears, three interleavings, account isolation, route cases); red check 25/25 on `430a3a64`; sweep 47: 41, then 6/6 |
-| 2. Partial evidence end to end (`requestView` dropped `left`; the stop branch ignored `row.migration`) | `left` carried by the serialized view into the request reply and its queued writer; the stop branch reads the answer and the database record; an earlier try's standing work kept across retries, refusals, questions and stops under one rule; the job's outcome partial for a stop or death over a standing table; the card labels it | `b1a2ebb0` | 10 cases through the real Worker, queue, serialized view, card, poll and job list; red check 7/8 on `71e47213`; sweep 20: 18, then 2/2 |
-| 3. Data change equality (values compared after the 200-character cut) | `same` decided on the whole typed values; unknown never null; each value says whether it was read back; shortening only for showing, marked, with a difference past the cut said | `5d09f018` | DATA 7–10, DATA 1 updated; red check 5 fail on `b1a2ebb0`; sweep 13/13 |
-| 4. Seed outcomes (over the limit beside none going in contradicted) | the engine records each starter row by its place (in, refused, named no column, past the limit and never tried); one strict reader; warnings, facts and the fallback note derived from it; the add-on cleaner no longer drops or cuts rows before the engine. The image's worker tree carries the new module (`be72a031`) | `b3ba67f0`, `be72a031` | 8 cases checking evidence, not sentences (two through the route); red check 8/8 on `5d09f018`; sweep 30: 29, then 1/1 |
-| Table inventory after a failed or stopped addition | the page keeps the tables a failure names and reads the site's own inventory again at once (the routing route's reader) | `ed431b50` | 6 cases; red check 6/6; sweep 18/18 |
-| Rejected columns treated as available | the engine never grants, projects or declares a refused column; the designers' reader and the data step offer only columns the table really has | `81f80406` | 6 cases; red check 3/3 behavioural; sweep 15/15 |
-| Late undo against newer work elsewhere; two tabs | a late read keeps the offer only when the server says nothing was filed on the site since, from any tab or device; another tab's save no longer erases request evidence or writes back an older undo offer | `282da3e1` | 6 cases (the real Worker's answer, the page's keep, two tabs over one storage); red check fails before; sweep 22/22 |
-| The preview browser test | the frame's content is checked against what the test's server has published, one publish at a time | `32a2e9ca` | old test passes against a preview stuck after its first move, new one fails it; 4/4 in Chromium |
-| Follow-up: late undo against work that leaves no job row (a request before its first job, the queue off, the Data panel) | where the offer is used, each row offered back is checked against the table as the data step reads it: back under its id, or under a new id with its values in the table's declared columns, it is set aside, and a table too long to read whole sets its rows aside; where the offer is kept, the server also reads the site's request markers by when each was taken on, and a site off the queue answers cannot tell | `dc531bef`, `a921a64d` | 4 put-back cases (two through the real edit route) and NEWER 4 (the real acceptance with its first filing refused); red check: 3 fail on `6945ab3a`, the controls pass; sweep 25: 24, then 1/1 |
-| Follow-up: rejected columns beyond the designers | every reader that hands columns to a model was checked and reads live columns; the add-on's read after its apply feeds only the reply's connections; no code change | `320d6767` | COL 3c, a regression guard (passes before and after) |
+**The release plan, in short** (each step and every box in the plan)
+1. Your re-run, green (above).
+2. Before the merge, the session: nothing in flight; unit CI green on the
+   candidate; the gate's inputs read again; the image predicted on both
+   ends; the rollback verified in a throwaway worktree; `chat.js` read as
+   served; the balance read.
+3. **The merge, on your word**: `main` `bcc22295` → the candidate (the
+   branch's tip), one fast-forward. Its deploy builds the container image
+   once: **`5f946c22d42a1b10` → `335396c8c0e0fbcb`** (196 inputs; seventeen
+   differ, the new `builder/seed-rows.mjs` among them). Progress stays on.
+4. The deploy read, `chat.js` served byte for byte as merged (939,255 bytes,
+   `dfa075929c9889e0…`), the image window waited once.
+5. **Your free runtime check** (the plan's §3.1).
+6. **The funds**: raise the balance from 10 to **exactly 40**.
+7. **Your paid press**, `lv-combined` (the plan's §3.2), three messages on
+   the bakery:
+   - *"Put a link to the new Allergens page in the menu, and add an
+     Allergens page saying all our loaves are baked in one kitchen that also
+     handles nuts, seeds and dairy, so we can't promise any loaf is free of
+     them, and that anyone with an allergy should ask us at the counter."* —
+     its tab closed once a progress line shows, followed to its end in a
+     fresh browser session;
+   - *"Change the Order page heading 'Pick a loaf and a collection slot' to
+     'Choose your loaf and a collection time', and add a link to our TikTok
+     in the footer."* — ending on the link step's question;
+   - *"It's tiktok.com/@harbourloaf"* — the answer.
+8. The session reads and records it.
 
-**Codex's latest findings — new, reported on `78a83b39`, fixed in `570adb45`**
+**What the press covers**: mixed requests (messages 1 and 2); dependency
+order (message 1's link waits for its page, judged on every reading,
+the card's included); clarification (message 2's question, message 3's
+answer); model-written progress and closed-tab completion (message 1, in a
+fresh browser session); final results (the page, its links, the heading, the
+footer link, everything else as it was) and charges (the press's own charges
+equal its balance's move). No form and no table: nothing is provisioned, and
+deliberate provisioning failures stay in the offline tests.
 
-| Finding | Reproduced before the fix (`78a83b39`) | What changed | Tests |
-|---|---|---|---|
-| A create answered 503 after Neon made the project cleared its note | first attempt: 1 project, 0 notes; the retry: 2 projects, 0 notes — and 4 after four tries | only Neon's own refusal of a create (a 4xx refusing the request as asked, with Neon's error body) clears its note; a 503, any other 5xx, a 408, 409 or 429, a timeout or an unreadable answer keeps it, marked uncertain; the project is looked for by the attempt's own name and claimed when found, ownership checked; when it is not found the note stays open and no second project is made — neither the lease running out nor a search finding nothing settles it | CODEX 3 (seen at once: claimed, 1 project, 0 notes, then reused; seen only later: 1 project and 1 note through every retry, then claimed, 1 project, 0 notes; made nothing: 0 projects, 1 note, held), LOST 2, LOST 4 (each of 503, 500, 502, 504, 408, 409, 429), REFUSE 1, CLEAR 2 |
-| A listing whose full pages repeated their cursor answered "none" | `[]` after two page reads | the search answers whether it reached its end: complete only on a short page; a repeated cursor or a cycle, a full page with no cursor, the page limit and a malformed page each say so; a failed read throws; none of them clears a note or lets a create run | CODEX 4 (the exact case, then every ending through the provisioner), SEARCH 1, NAME 1 |
-| Reviewed with them: the 5xx / answered reading, delayed visibility, the lease | — | an answered 5xx no longer makes an empty search conclusive; a project that shows late is claimed by a later attempt; the lease only says another attempt's unanswered create may still be running; a refused or removed note whose clear failed is settled next time | CODEX 3, LOST 2, CLEAN 1 (safe cleanup: dropped only when the site's row names another project; a failed drop keeps both and the note), CLEAR 2 |
+**The money**: about 28 credits (22–38). Budget 38, hard cap 40.
 
-Red check on `78a83b39`: 14 of 121 fail — 11 for the behaviour, 3 only
-because the search's answer changed shape. Sweep: 25 of 25 killed, the
-comment-only control survived.
+**It stops by itself** when: the Worker or a cold container is not on the
+merged commit and the image; progress is off; the balance is below 38 or
+above 40; the press has spent 38 before message 2 or 3; a part goes where it
+may not (it is stopped); message 2 ends without its question (message 3 is
+not sent); a message passes its bound (nothing more is sent). Any failed
+step stops the stage; nothing is pressed again without your word.
 
-**Tests actually run**: for each change its own cases, a red check on the
-commit before it, a mutation sweep with a comment-only control, and its
-related suites (largest: 4824/4824 schema, add-on, data and build; 4570/4570
-page, request flow and image). **The full suite**, from the repo root with
-Chromium present, once after the round (`32a2e9ca`: **9863 tests, 9863 pass,
-0 fail, 0 skipped**) and once after the follow-up pass (`320d6767`: **9869
-tests, 9868 pass, 1 fail** — the guard that `worker.js` reads the canary
-configuration at one place, which the follow-up's queue check had broken;
-fixed in `a921a64d`, the failing file and the three beside it then 48 of 48).
-**Unit CI**, the round: red once on `b3ba67f0` (run 37617079560, `9845 /
-9822 / 1 / 22`: the image test's case that the worker tree carries everything
-the job runner imports, fixed in `be72a031` and reproduced locally on
-`b3ba67f0`), then green on every push to `32a2e9ca` (run 37631248299, `9863 /
-9841 / 0 / 22`, the total matching the local run; the 22 real-browser cases are
-skipped on every CI run). The follow-up pass: red on `320d6767` (run
-37641938704, `9869 / 9846 / 1 / 22`: the same canary-reader guard), green on
-`a921a64d` (run 37642914421, `9869 / 9847 / 0 / 22`, the total matching the
-local run). **Site build**: green on `282da3e1` (run 37630057430) and on
-`a921a64d` (run 37642914499), all eight jobs each; its run on `320d6767` was
-marked failed with the seven jobs that ran all green and the eighth, the
-aggregate, never created, during GitHub server errors between 15:10 and 15:19
-UTC.
+**The remaining operational limitation: an uncertain database creation can
+require manual settlement.** A create Neon answered with anything but its own
+refusal, whose project never shows under its attempt's name, keeps that site
+from making a database until you settle it. Look in the Neon console for the
+name in the note (`source/<slug>/neon-unrecorded/<attempt>.json`): if a
+project carries it, leave the note — the next attempt claims it once Neon's
+listing shows it. Deleting the note is your judgment that no project carries
+the name and none will appear (the code no longer draws that from absence or
+time); a project that appeared afterwards would not be tracked.
 
-**The recovery correction** (`570adb45`): its own cases, the red check and
-the sweep (in the section above); every test file reaching provisioning or
-the Neon module, 56 files, 2007 of 2007; then the regression gate, the full
-suite at `570adb45` from the repo root with Chromium present: **9875 tests, 9875 pass, 0 fail, 0 skipped**.
-Unit CI on `570adb45`: run 37674861322, `9875 / 9853 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run). **Site build on `570adb45` (run 37674861320) is not a complete reading**: the published-site checks, shards 3 and 4 (158 and 62 checks) and the kit job's first steps (`page-gen` and `publish-pages` 398 of 398, `kit-typecheck` 4 passed, `kit-render` all passed) are green; the other four jobs (the theme checks, shards 1 and 2, the rest of the kit job) stopped at their 20-minute limit inside `npx playwright install --with-deps chromium`, apt waiting on Ubuntu's `noble-security` index from 19:30 UTC, before any of their tests started, so `all checks` failed on those three cancelled jobs and the two missing shard reports. The eight steps that never ran, run locally on `570adb45` with Chromium as the workflow runs them, all pass: contrast-cases 16 of 16; kit-a11y, kit-effects and kit-paint all passed; theme-seam 11 of 11; theme-render 29 of 29; `site-build.mjs` shard 1 109 of 109 (`style-overrides`) and shard 2 76 of 76 (`logo-and-serving`, `dead-link`), both complete. A local run is not the gate: CI's own reading needs the failed jobs re-run, which is your press; I did not try it. The records commit changes no input of these checks (the gate's fingerprint `de6345b9058cd1cc`, 3974 files, the same at both), so a green re-run counts for it too.
-
-**What changed for a customer, in short**: a database a failed attempt may
-have left is claimed for the site once Neon's listing shows it under that
-attempt's name, and stays named and set aside while it does not — no second
-one is made for the site while that is unsettled, and none is deleted while
-it might be the site's (the one answer still taken to mean nothing was made
-is Neon's own refusal of the create); a request stopped after part of it
-went in is told so in its
-reply too; a long value changed past its first 200 characters is never told
-as unchanged; starter rows are told one account per table, by their places;
-a table a failed addition left standing is known at once; a column the
-database refused is never offered to the designers; your own removal read
-late after work elsewhere is no longer offered for undo, and a row you took
-away is never offered back once it is back, whoever put it back; a second tab
-no longer wipes the first tab's request record or revives an old undo offer.
+**Tests actually run this round**: the new press's own cases, 9, and the
+order check's card cases; every canary test file, 21 files, 496 of 496; a red
+check on `092ff48a`'s canary scripts, 11 of 86 failing (8 of the new file's
+9, the two scenario lists, the card case on the old order check); the sweep:
+18 of 18 killed, the comment-only control survived; the full suite: **9885 tests, 9885 pass, 0 fail, 0 skipped**. Unit CI on `b791dec0`: run 37686599138, `9885 / 9863 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run); no site build ran, since none of its inputs changed.
 
 **Yours to decide**
-- **Merging**: the branch is `main` plus your run-105 verifier correction,
-  the batch, this round, its follow-up pass and the recovery correction. A
-  merge would roll the container image: `5f946c22d42a1b10` →
-  `335396c8c0e0fbcb` (196 inputs, 166 paths; predicted at `570adb45`, not
-  built). It stays unmerged until you say so.
-- **An unsettled database attempt is yours to settle** (new with the
-  recovery correction): a create Neon answered with anything but its own
-  refusal, whose project never shows under its attempt's name, keeps that
-  site from making a database. Look in the Neon console for the name in the
-  note (`source/<slug>/neon-unrecorded/<attempt>.json`): if one carries it,
-  leave the note — the next attempt claims it once Neon's listing shows it.
-  Deleting the note is your judgment that no project carries the name and
-  none will appear (the code no longer draws that from absence or time); a
-  project that appeared afterwards would not be tracked.
-- **Site build's re-run** (free, your press): on `570adb45` (run
-  37674861320) four jobs stopped at their 20-minute limit while apt
-  installed Chromium's packages, before any of their tests ran. *Re-run
-  failed jobs* on that run gives CI's own complete reading; the eight steps
-  that never ran passed locally (above).
-- **Live verification worth a run** (none done, all paid): a two-part request
-  whose second part is refused after its table went in; a data removal read
-  late after an edit from another device, then "put that back"; several parts
-  finishing together on the real site. A provision that fails after its
-  project can't be produced safely on a live site.
-- **Run 105's place** and **what stays on the bakery** stand as before (the
-  handoffs in git): run 105's printed verdict is kept as failed on the two
-  label checks, your verifier correction (`bd192acc`) stays on the branch,
-  and the FAQ page, its links and the Classes heading stay.
+- **The site build's re-run** (free).
+- **The release plan**: the merge, its deploy and one image build, your free
+  check, the funds, your paid press.
+- **An unsettled database attempt**, if one ever appears: yours to settle
+  (above).
+- **Live verification not in this plan** (each paid, none prepared): a
+  two-part request whose second part is refused after its table went in; a
+  data removal read late after an edit from another device, then "put that
+  back"; several parts finishing together. A provision that fails after its
+  project cannot be produced safely on a live site.
 
-**Still open** (`docs/backlog.md`; this round's fixes are marked there with
-their commits, not taken out — closing them is yours)
+**Still open** (`docs/backlog.md`)
+- The site build's Chromium install can stall in apt (new; seen once).
 - Provisioning: Neon's own refusal is trusted to mean a create made nothing
   on HTTP's meaning of those statuses — no Neon document says it; Neon's
-  search, its paging ending on a short page and its error body are from its
-  API reference, not measured live. An attempt whose outcome cannot be
-  established waits for you, with no time limit. The first-build route
-  answers that state with its generic 502 (`stage: reconcile_project` or
-  `create_project`), no sentence of its own — not changed here.
+  search, paging and error body are from its API reference, not measured
+  live; the first-build route answers an unsettled attempt with its generic
+  502.
 - A column declaration an earlier apply left behind stays in `_meta`; no
-  reader that hands columns to a model sees it (checked in the follow-up
-  pass); the Data panel, the runtime hooks, the backups and the reply's read
-  after an apply still read it.
-- When an undo offer is kept late, a Data panel write is still not counted
-  (it files nothing); what it changes is checked when the offer is used. The
-  put-back check sets an offer aside when an identical entry remains, and for
-  a table over 1,000 rows.
-- Two tabs: request evidence and the undo offer are merged; the threads are
-  not.
+  reader that hands columns to a model sees it.
+- A late-kept undo offer does not count a Data panel write; two tabs merge
+  request evidence and the undo offer, not their threads.
 - Carried: the task titles' usage from run 105 stays unverified; a progress
-  line's words are still the model's; the test platform answers every column
-  of a job-table read (it now filters by owner, site and time); an old
-  request's own reply with no record is asked for whenever read; the
-  judgment is only as good as the model.
-- **Shared with First Build**: the provisioner (every create written down
-  first; claims, never drops on "no row"; an uncertain create keeps its note
-  and stops a second; a site with an unsettled attempt makes no new
-  database) and the schema engine (a refused column never granted or
-  declared). The build route's code is untouched.
+  line's words are the model's; the test platform answers every column of a
+  job-table read; an old request's own reply with no record is asked for
+  whenever read.
 
 **Links**
-- This round and the batch: `docs/history/2026-10-07-cleanup-batch.md`.
-- The release and run 105: `docs/history/2026-10-07-deploy-2186.md`.
+- This round: `docs/history/2026-10-07-combined-release-prep.md`, and the
+  plan, `docs/investigations/combined-release-plan.md`.
+- The batch, the correction round and the recovery correction:
+  `docs/history/2026-10-07-cleanup-batch.md`.
 - The open items: `docs/backlog.md`.
 
 ---
@@ -177,6 +162,29 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-07 — The verification gate and the release plan (on the branch, `b791dec0`; nothing merged, deployed, built, paid or provisioned)
+
+Codex reviewed `092ff48a` and passed 90 assertions of its own against the
+provisioner and the project search; those fixes stand unchanged.
+
+- **The gate**: the site build on `570adb45` lost four jobs to a stalled
+  Chromium install, before any of their tests ran. You asked me to re-run
+  them; my one request answered 403 (this session's GitHub access cannot
+  re-run a job), so the re-run is your press. The eight steps that never ran
+  pass locally, and the inputs at `570adb45`, `092ff48a` and this round's
+  commit are the same, so a green re-run counts for the candidate.
+- **The release plan** (`docs/investigations/combined-release-plan.md`): one
+  fast-forward of `main`, one image build (`5f946c22d42a1b10` →
+  `335396c8c0e0fbcb`), your free check, the balance raised from 10 to 40,
+  and one paid press, `lv-combined` — three messages on the bakery covering
+  mixed requests, dependency order, clarification, progress, the closed tab,
+  the results and the charges; about 28 credits, at most 40.
+- **A gap closed in the canary on the way**: the check that a part waits for
+  the part it needs read almost nothing of a message followed in a fresh
+  browser session; it now reads every reading of the request's card too.
+- **Still yours**: an uncertain database creation can require manual
+  settlement (how, in the handoff).
 
 ## 2026-10-07 — Codex's latest database recovery findings: an uncertain create keeps its note, an unfinished listing is never "none" (on the branch, `570adb45`; nothing merged, deployed, built, paid or provisioned)
 
