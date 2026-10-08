@@ -1700,16 +1700,17 @@ export function ownMoneySaid(m) {
  * open, so the total is called final only when nothing more can be charged.
  * Recorded, never a check: accounting, not a verdict.
  */
-export function laterChargesVerdict({ snapshot, slug, keys, rows, list, calls, prior } = {}) {
+export function laterChargesVerdict({ snapshot, slug, keys, rows, list, calls, prior, counted, fresh } = {}) {
   const ks = (Array.isArray(keys) ? keys : []).filter((k) => typeof k === "string" && k);
   // THE SNAPSHOT IS ONE INPUT, NOT A GATE (2026-10-08, Codex's review of
   // 64148e83): a press whose own-charges check failed still had its later rows
   // fetched, and they are kept and told; only the total is withheld.
   const snap = Number.isFinite(snapshot) ? snapshot : null;
   const noSnap = snap === null ? "the snapshot of this press's own charges was not read" : "";
-  if (!ks.length) return snap === null ? { ok: false, why: noSnap, snapshot: null, later: [], laterTotal: 0, total: null, open: [], unknown: [], duplicates: [], settled: false }
-    : { ok: true, snapshot: snap, later: [], laterTotal: 0, total: snap, open: [], unknown: [], duplicates: [], settled: true };
-  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: noSnap || "the ledger after the press could not be read", snapshot: snap, settled: false };
+  const empty = { later: [], laterTotal: 0, refunds: [], priorAdjustments: [], duplicates: [], unexpected: [], unverified: [], repeated: 0, open: [], unknown: [] };
+  if (!ks.length) return snap === null ? { ok: false, why: noSnap, snapshot: null, ...empty, total: null, ended: true, reconciled: false, settled: false }
+    : { ok: true, snapshot: snap, ...empty, total: snap, ended: true, reconciled: true, settled: true };
+  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: noSnap || "the ledger after the press could not be read", snapshot: snap, ended: false, reconciled: false, settled: false };
   const views = list && list.ok === true && Array.isArray(list.requests) ? list.requests : null;
   // EVERY JOB EACH REQUEST FILED, by the canonical reader (`requestJobsOf`,
   // `parts[].ids`): `parts[].jobs` names only the jobs with a reply shown, and
@@ -1725,41 +1726,100 @@ export function laterChargesVerdict({ snapshot, slug, keys, rows, list, calls, p
     for (const j of Array.isArray(v.jobs) ? v.jobs : []) if (typeof j === "string" && j) jobIds.add(j);
   }
   const priorIds = new Set((Array.isArray(prior) ? prior : []).filter((id) => typeof id === "string" && id));
-  const refs = new Set(ks.map((k) => "route:" + slug + ":" + k));
+  const current = [...jobIds].filter((id) => !priorIds.has(id));
+  // THE ROWS THE SNAPSHOT ALREADY COUNTED (2026-10-08, Codex's review of
+  // c856f1f4): this press's job rows and routing rows as the own-charges check
+  // read them. A later read that sees one again counts it once, and each job's
+  // change is its fresh settled charge less what the snapshot took under it.
+  const countedRows = (Array.isArray(counted) ? counted : []).filter((r) => r && r.id !== undefined);
+  const countedIds = new Set(countedRows.map((r) => r.id));
+  const countedRefs = new Set(countedRows.map((r) => (typeof r.ref === "string" ? r.ref : "")).filter(Boolean));
+  const keyRefs = new Set(ks.map((k) => "route:" + slug + ":" + k));
   // THIS PRESS'S OWN ROUTING CALLS, by the refs they were charged under: a
   // continuation's answer is routed under its own message key, not the request's.
-  for (const c of Array.isArray(calls) ? calls : []) if (c && typeof c.ref === "string" && c.ref) refs.add(c.ref);
-  const later = [], duplicates = [];
-  let laterTotal = 0;
+  const callRefs = new Set((Array.isArray(calls) ? calls : []).map((c) => (c && typeof c.ref === "string" ? c.ref : "")).filter(Boolean));
+  const later = [], refunds = [], priorAdjustments = [], duplicates = [], unexpected = [];
+  const byJob = new Map();
+  let laterTotal = 0, repeated = 0;
+  const jobOf = (ref, ids) => ids.find((id) => ref.startsWith(id)) || "";
   for (const r of rows.rows) {
     const ref = r && typeof r.ref === "string" ? r.ref : "";
-    const priorHit = [...priorIds].some((id) => ref.startsWith(id));
-    if (!refs.has(ref) && !priorHit && ![...jobIds].some((id) => ref.startsWith(id))) continue;
+    const priorJob = jobOf(ref, [...priorIds]);
+    const curJob = priorJob ? "" : jobOf(ref, current);
+    const isRoute = keyRefs.has(ref) || callRefs.has(ref);
+    if (!priorJob && !curJob && !isRoute) continue;
     const d = Number(r.delta);
-    if (!Number.isFinite(d)) return { ok: false, why: `a later ledger row under ${ref} has no amount`, snapshot: snap, settled: false };
+    if (!Number.isFinite(d)) return { ok: false, why: `a later ledger row under ${ref} has no amount`, snapshot: snap, ended: false, reconciled: false, settled: false };
+    if (countedIds.has(r.id)) { repeated++; continue; }
     const row = { id: r.id, ref, delta: d, at: r.at };
-    // A LATER ROW UNDER AN EARLIER PRESS'S JOB is finished work charged again:
-    // told apart, never added to this press's total.
-    if (priorHit) { duplicates.push(row); continue; }
+    if (priorJob) {
+      // AN EARLIER REQUEST'S JOB, BY THE SIGN OF ITS ROW: money given back is
+      // an adjustment to that earlier work, never a charge; money taken again
+      // for finished work is a duplicate. Neither is this press's spending.
+      if (d > 0) priorAdjustments.push({ ...row, job: priorJob });
+      else if (d < 0) duplicates.push({ ...row, job: priorJob });
+      continue;
+    }
+    if (curJob) { if (!byJob.has(curJob)) byJob.set(curJob, []); byJob.get(curJob).push(row); continue; }
+    // A ROUTING ROW: a second row under a call the snapshot already counted is
+    // an unexpected charge; a later part's routing under the request's key is
+    // delayed spending.
+    if (callRefs.has(ref) && countedRefs.has(ref)) { unexpected.push({ ...row, why: "a second row under a routing call the snapshot already counted" }); continue; }
     later.push(row);
     laterTotal -= d;
   }
-  const settled = snap !== null && open.length === 0 && unknown.length === 0;
-  return { ok: snap !== null, ...(noSnap ? { why: noSnap } : {}), snapshot: snap, later, laterTotal, total: snap === null ? null : snap + laterTotal, open, unknown, duplicates, settled };
+  // EACH OF THIS PRESS'S JOBS, RECONCILED AGAINST ITS FRESH RECORD by the same
+  // reader the own-charges check uses (`jobCharges`): the row's settled cost
+  // must be what the ledger took, net of what it gave back. A job whose record
+  // cannot be read, or is not settled, is unverified, never a zero.
+  const freshBy = new Map((Array.isArray(fresh) ? fresh : []).filter((j) => j && typeof j.job === "string").map((j) => [j.job, j]));
+  const unverified = [];
+  for (const id of current) {
+    const jr = freshBy.get(id);
+    const jc = jr ? jobCharges([jr]) : { ok: false, why: `job ${id}'s record was not read again` };
+    const newRows = byJob.get(id) || [];
+    if (!jc.ok) {
+      if (!jr || !jr.row || !jr.ledgerRead || jr.ledgerRead.ok !== true || /not settled/.test(jc.why)) unverified.push({ job: id, why: jc.why });
+      else for (const row of newRows.length ? newRows : [{ id: null, ref: id, delta: 0 }]) unexpected.push({ ...row, job: id, why: jc.why });
+      continue;
+    }
+    const before = countedRows.filter((r) => typeof r.ref === "string" && r.ref.startsWith(id)).reduce((a, r) => a - Number(r.delta), 0);
+    const change = jc.edits - before;
+    const moved = newRows.reduce((a, r) => a - r.delta, 0);
+    if (change !== moved) {
+      for (const row of newRows.length ? newRows : [{ id: null, ref: id, delta: 0 }]) unexpected.push({ ...row, job: id, why: `job ${id}'s settled charge moved ${change}, its new ledger rows ${moved}` });
+      continue;
+    }
+    for (const row of newRows) (row.delta > 0 ? refunds : later).push({ ...row, job: id });
+    laterTotal += change;
+  }
+  const ended = open.length === 0 && unknown.length === 0;
+  const reconciled = snap !== null && duplicates.length === 0 && unexpected.length === 0 && unverified.length === 0;
+  return {
+    ok: snap !== null, ...(noSnap ? { why: noSnap } : {}), snapshot: snap,
+    later, laterTotal, refunds, priorAdjustments, duplicates, unexpected, unverified, repeated,
+    total: snap === null ? null : snap + laterTotal, open, unknown, ended, reconciled, settled: ended && reconciled,
+  };
 }
 
 /** The later account, in one line for the log. */
 export function laterChargesSaid(v) {
-  const dup = v && Array.isArray(v.duplicates) && v.duplicates.length ? `; DUPLICATE: ${v.duplicates.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ")} under an earlier press's job` : "";
-  if (v && v.ok !== true && Array.isArray(v.later)) {
-    const rows = v.later.length ? v.later.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ") : "none";
-    return `UNSETTLED: ${v.why || "not read"}; later rows read: ${rows} (${v.laterTotal})${dup}`;
-  }
+  const list = (xs) => xs.map((r) => `row ${r.id} ${String(r.ref).slice(0, 48)} ${r.delta}`).join(", ");
+  const extra = (x) => [
+    x && Array.isArray(x.refunds) && x.refunds.length ? `refunded on this press's jobs: ${list(x.refunds)}` : "",
+    x && Array.isArray(x.priorAdjustments) && x.priorAdjustments.length ? `ADJUSTED on an earlier request's jobs (not this press's spending): ${list(x.priorAdjustments)}` : "",
+    x && Array.isArray(x.duplicates) && x.duplicates.length ? `DUPLICATE: ${list(x.duplicates)} under an earlier press's job` : "",
+    x && Array.isArray(x.unexpected) && x.unexpected.length ? `UNEXPECTED: ${x.unexpected.map((r) => `${r.id === null ? "job " + r.job : "row " + r.id + " " + String(r.ref).slice(0, 48) + " " + r.delta} (${r.why})`).join(", ")}` : "",
+    x && Array.isArray(x.unverified) && x.unverified.length ? `UNVERIFIED: ${x.unverified.map((u) => `${u.job} (${u.why})`).join(", ")}` : "",
+    x && x.repeated ? `${x.repeated} row(s) the snapshot already counted` : "",
+  ].filter(Boolean).map((t) => "; " + t).join("");
+  if (v && v.ok !== true && Array.isArray(v.later)) return `UNSETTLED: ${v.why || "not read"}; later rows read: ${v.later.length ? list(v.later) : "none"} (${v.laterTotal})${extra(v)}`;
   if (!v || v.ok !== true) return "UNSETTLED: " + ((v && v.why) || "not read");
-  const rows = v.later.length ? v.later.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ") : "none";
-  const state = v.settled ? "settled: every request this press made has ended"
-    : `NOT FINAL: ${v.open.length ? v.open.length + " request(s) still open (" + v.open.join(", ") + "), so more can be charged" : ""}${v.unknown.length ? (v.open.length ? "; " : "") + v.unknown.length + " request(s) not found in the list" : ""}`;
-  return `snapshot ${v.snapshot}; later ${v.laterTotal} (${rows}); total so far ${v.total}; ${state}${dup}`;
+  const rows = v.later.length ? list(v.later) : "none";
+  const ended = v.ended ? "every request this press made has ended"
+    : `NOT ENDED: ${v.open.length ? v.open.length + " request(s) still open (" + v.open.join(", ") + "), so more can be charged" : ""}${v.unknown.length ? (v.open.length ? "; " : "") + v.unknown.length + " request(s) not found in the list" : ""}`;
+  const state = v.settled ? `settled: ${ended}, and every charge reconciled` : `${ended}; charges ${v.reconciled ? "reconciled" : "NOT reconciled"}`;
+  return `snapshot ${v.snapshot}; later ${v.laterTotal} (${rows}); total so far ${v.total}; ${state}${extra(v)}`;
 }
 
 /**

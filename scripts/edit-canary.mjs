@@ -60,7 +60,7 @@ import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
 // coverage it records and never fails on; its publishes put in the order the
 // request made them.
-import { chainOrdered, chainTarget } from "./canary-ui.mjs";
+import { chainOrdered, chainTarget, requestJobsOf } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
 import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
@@ -1357,7 +1357,25 @@ if (UI_ASK) {
           const laterRows = await ledgerRows(`uid=eq.${encodeURIComponent(UID)}&at=gt.${encodeURIComponent(bal.endAt)}`);
           const listed = await requestsIo.list().catch(() => null);
           const list = listed && listed.status === 200 && listed.json && Array.isArray(listed.json.requests) ? { ok: true, requests: listed.json.requests } : { ok: false };
-          const later = laterChargesVerdict({ snapshot: money.ok ? money.own : NaN, slug: CANARY, keys, rows: laterRows, list, calls, prior });
+          // RECONCILED, NOT ONLY LISTED (2026-10-08, Codex's review of c856f1f4):
+          // the rows the snapshot already counted, and every one of this press's
+          // jobs read again by the same reader, so a refund, a delayed charge and
+          // an extra debit on a settled job are each told for what they are.
+          const counted = [...jobRecords.flatMap((j) => (j && Array.isArray(j.ledger) ? j.ledger : [])), ...(routeRows.ok ? routeRows.rows : [])];
+          const currentJobs = list.ok ? [...new Set(list.requests.filter((q) => q && keys.includes(q.key)).flatMap((q) => requestJobsOf(q)))].filter((id) => !prior.includes(id)) : [];
+          const fresh = [];
+          for (const job of currentJobs) {
+            fresh.push(await readJobRecords({
+              job,
+              sb: async (path) => {
+                const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: svc });
+                const rows = await r.json().catch(() => null);
+                return { status: r.status, rows };
+              },
+              poll: () => call("GET", `/api/site/edit/${encodeURIComponent(job)}`),
+            }).catch(() => ({ job, row: null, ledger: [], ledgerRead: { ok: false, why: "the read threw" } })));
+          }
+          const later = laterChargesVerdict({ snapshot: money.ok ? money.own : NaN, slug: CANARY, keys, rows: laterRows, list, calls, prior, counted, fresh });
           requests.moneyLater = { ...later, readAt: new Date().toISOString(), waitedMs: UI_LATER_READ_MS };
           console.log(`\n  THE MONEY AFTER OBSERVATION STOPPED (read ${UI_LATER_READ_MS / 1000} s after): ${laterChargesSaid(later)}`);
         }

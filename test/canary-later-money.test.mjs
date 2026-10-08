@@ -27,26 +27,47 @@ const ROWS = { ok: true, rows: [
   { id: 408, ref: "ffff0000#1", delta: "-5", at: "2026-10-07T23:59:00Z" },
 ] };
 
+// THE EVIDENCE THE LATER READ RECONCILES AGAINST (2026-10-08, Codex's review
+// of c856f1f4): each job of this press read again, and the rows the snapshot
+// already counted. Run 107's charged jobs as their rows stood; the rest charged
+// nothing. Without these a job is unverified, never assumed settled.
+const rec = (job, cost, ledger = []) => ({ job, row: { billing: cost ? "finalized" : "none", cost }, ledgerRead: { ok: true }, ledger });
+const CHARGED = {
+  e46a3ccaa8026516da807acd8989f806: [{ id: 401, ref: "e46a3ccaa8026516da807acd8989f806#1", delta: "-8" }],
+  "5a93543ae7aec8a2c067750cf9f225f4": [{ id: 404, ref: "5a93543ae7aec8a2c067750cf9f225f4#1", delta: "-3" }],
+  "65767a3635b8dcc7379456c88a413f0c": [{ id: 403, ref: "65767a3635b8dcc7379456c88a413f0c#1", delta: "-5" }],
+  "08b84314ea7533abf49c68976ffb2444": [{ id: 406, ref: "08b84314ea7533abf49c68976ffb2444#1", delta: "-2" }],
+};
+const ALL = LIST.requests.filter((q) => q.key !== "someone-elses").flatMap((q) => q.parts.flatMap((p) => p.jobs));
+const COUNTED = Object.values(CHARGED).flat();
+const FRESH = (extra = {}) => ALL.map((j) => (extra[j] ? extra[j] : CHARGED[j] ? rec(j, -CHARGED[j].reduce((a, r) => a + Number(r.delta), 0), CHARGED[j]) : rec(j, 0)));
+
 test("LATER 1 — run 107: the 22-credit snapshot stays, the later routing row is this press's, 25 so far, and NOT final while a request waits", () => {
-  const v = laterChargesVerdict({ snapshot: 22, slug: SLUG, keys: [K1, K2], rows: ROWS, list: LIST });
+  const fresh = FRESH({ bd79395e015814699b6efc8d78256f51: rec("bd79395e015814699b6efc8d78256f51", 3, [ROWS.rows[0]]) });
+  const v = laterChargesVerdict({ snapshot: 22, slug: SLUG, keys: [K1, K2], rows: ROWS, list: LIST, counted: COUNTED, fresh });
   assert.equal(v.ok, true, v.why);
   assert.equal(v.snapshot, 22);
   assert.deepEqual(v.later.map((r) => [r.id, r.delta]), [[407, -3]]);
   assert.equal(v.laterTotal, 3);
   assert.equal(v.total, 25);
   assert.deepEqual(v.open, [K2]);
-  assert.equal(v.settled, false);
+  // ENDED AND RECONCILED ARE TOLD APART: every charge is reconciled, and the request is still open.
+  assert.deepEqual([v.reconciled, v.ended, v.settled], [true, false, false]);
   const said = laterChargesSaid(v);
-  assert.match(said, /snapshot 22; later 3 \(row 407 bd79395e[^)]*-3\); total so far 25; NOT FINAL: 1 request\(s\) still open/);
+  assert.match(said, /snapshot 22; later 3 \(row 407 bd79395e[^)]*-3\); total so far 25; NOT ENDED: 1 request\(s\) still open[^;]*; charges reconciled/);
 });
 
 test("LATER 2 — a request's own routing ref counts, another request's never; every request ended reads settled", () => {
   const list = { ok: true, requests: LIST.requests.map((q) => ({ ...q, ended: true })) };
   const rows = { ok: true, rows: [{ id: 410, ref: "route:" + SLUG + ":" + K2, delta: "-1" }, { id: 411, ref: "route:" + SLUG + ":someone-elses", delta: "-2" }] };
-  const v = laterChargesVerdict({ snapshot: 25, slug: SLUG, keys: [K1, K2], rows, list });
+  const fresh = FRESH({ bd79395e015814699b6efc8d78256f51: rec("bd79395e015814699b6efc8d78256f51", 3, [ROWS.rows[0]]) });
+  const v = laterChargesVerdict({ snapshot: 25, slug: SLUG, keys: [K1, K2], rows, list, counted: [...COUNTED, ROWS.rows[0]], fresh });
   assert.equal(v.total, 26);
   assert.equal(v.settled, true);
-  assert.match(laterChargesSaid(v), /settled: every request this press made has ended/);
+  assert.match(laterChargesSaid(v), /settled: every request this press made has ended, and every charge reconciled/);
+  // THE SAME EVIDENCE WITHOUT THE JOBS READ AGAIN: ended, but never called reconciled.
+  const blind = laterChargesVerdict({ snapshot: 25, slug: SLUG, keys: [K1, K2], rows, list, counted: [...COUNTED, ROWS.rows[0]] });
+  assert.deepEqual([blind.ended, blind.reconciled, blind.settled, blind.unverified.length], [true, false, false, ALL.length]);
 });
 
 test("LATER 3 — cannot-tell is never final: an unread ledger, an unread list, a request missing from it, a row with no amount", () => {
@@ -69,7 +90,7 @@ test("LATER 4 — the canary reads it after the snapshot check, after one explic
   const snap = src.indexOf("this press's own charges add up");
   const later = src.indexOf("THE MONEY AFTER OBSERVATION STOPPED (read");
   assert.ok(snap > 0 && later > snap, "the later read is not after the snapshot check");
-  const block = src.slice(later - 1500, later);
+  const block = src.slice(later - 4000, later);
   assert.ok(block.includes("setTimeout(res, UI_LATER_READ_MS)"), "no explicit wait before the later read");
   assert.ok(block.includes("at=gt.${encodeURIComponent(bal.endAt)}"), "the later rows are not read from after the press's last balance read");
   assert.ok(block.includes("requestsIo.list()"), "the requests' states are not read");

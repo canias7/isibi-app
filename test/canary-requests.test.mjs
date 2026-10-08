@@ -1011,7 +1011,7 @@ test("the canary hands the closed-tab readers to the driver, reads the table lis
   assert.match(block, /const money = ownMoneyVerdict\(\{ start: bal\.start, end: bal\.end, calls, routeRows, jobs: jobRecords, window, prior \}\);/, "the money is not judged by the press's own charges");
   // A CONTINUATION'S EARLIER JOBS ARE ITS BASELINE, handed to both money readers (2026-10-08, run 109).
   assert.match(block, /const prior = \[\.\.\.new Set\(ui\.steps\.flatMap\(\(x\) => \(x && Array\.isArray\(x\.priorJobs\) \? x\.priorJobs : \[\]\)\)\)\];/, "the continuation's baseline is not read off the steps");
-  assert.match(block, /laterChargesVerdict\(\{ snapshot: money\.ok \? money\.own : NaN, slug: CANARY, keys, rows: laterRows, list, calls, prior \}\)/, "the later read does not know this press's routing refs and its baseline");
+  assert.match(block, /laterChargesVerdict\(\{ snapshot: money\.ok \? money\.own : NaN, slug: CANARY, keys, rows: laterRows, list, calls, prior, counted, fresh \}\)/, "the later read does not know this press's routing refs and its baseline");
   assert.match(block, /const calls = routeCallsOf\(ui\.steps\);/);
   assert.match(block, /ledgerRows\(`ref=eq\.\$\{encodeURIComponent\(ref\)\}`\)/, "a routing call's row is not read by its own ref");
   assert.match(block, /ledgerRows\(`uid=eq\.\$\{encodeURIComponent\(UID\)\}&at=gte\.\$\{encodeURIComponent\(bal\.startAt\)\}&at=lte\.\$\{encodeURIComponent\(bal\.endAt\)\}`\)/, "the ledger between the balance reads is not this account's");

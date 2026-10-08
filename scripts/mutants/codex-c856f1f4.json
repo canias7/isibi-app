@@ -1,0 +1,15 @@
+[
+ {"label":"prior: a refund called a duplicate","files":["scripts/canary-ui.mjs"],"from":"      if (d > 0) priorAdjustments.push({ ...row, job: priorJob });\n      else if (d < 0) duplicates.push({ ...row, job: priorJob });","to":"      if (d !== 0) duplicates.push({ ...row, job: priorJob });"},
+ {"label":"prior: a refund added to this press's total","files":["scripts/canary-ui.mjs"],"from":"      if (d > 0) priorAdjustments.push({ ...row, job: priorJob });","to":"      if (d > 0) { priorAdjustments.push({ ...row, job: priorJob }); laterTotal -= d; }"},
+ {"label":"repeat: a counted row counted again","files":["scripts/canary-ui.mjs"],"from":"    if (countedIds.has(r.id)) { repeated++; continue; }","to":"    if (false) { repeated++; continue; }"},
+ {"label":"routing: a second row under a counted call taken as late","files":["scripts/canary-ui.mjs"],"from":"    if (callRefs.has(ref) && countedRefs.has(ref)) {","to":"    if (false) {"},
+ {"label":"job: an unsettled record reconciled anyway","files":["scripts/canary-ui.mjs"],"from":"    if (!jc.ok) {","to":"    if (!jc.ok && false) {"},
+ {"label":"job: a failed record read as unexpected, not unverified","files":["scripts/canary-ui.mjs"],"from":"      if (!jr || !jr.row || !jr.ledgerRead || jr.ledgerRead.ok !== true || /not settled/.test(jc.why)) unverified.push({ job: id, why: jc.why });","to":"      if (!jr) unverified.push({ job: id, why: jc.why });"},
+ {"label":"job: the change not compared with the new rows","files":["scripts/canary-ui.mjs"],"from":"    if (change !== moved) {","to":"    if (false) {"},
+ {"label":"job: the snapshot's counted rows ignored","files":["scripts/canary-ui.mjs"],"from":"    const change = jc.edits - before;","to":"    const change = jc.edits;"},
+ {"label":"job: a refund told as a late charge","files":["scripts/canary-ui.mjs"],"from":"    for (const row of newRows) (row.delta > 0 ? refunds : later).push({ ...row, job: id });","to":"    for (const row of newRows) later.push({ ...row, job: id });"},
+ {"label":"state: reconciled with an unexpected row","files":["scripts/canary-ui.mjs"],"from":"  const reconciled = snap !== null && duplicates.length === 0 && unexpected.length === 0 && unverified.length === 0;","to":"  const reconciled = snap !== null && duplicates.length === 0 && unverified.length === 0;"},
+ {"label":"state: reconciled with an unverified job","files":["scripts/canary-ui.mjs"],"from":"  const reconciled = snap !== null && duplicates.length === 0 && unexpected.length === 0 && unverified.length === 0;","to":"  const reconciled = snap !== null && duplicates.length === 0 && unexpected.length === 0;"},
+ {"label":"state: settled while a request is open","files":["scripts/canary-ui.mjs"],"from":"settled: ended && reconciled,","to":"settled: reconciled,"},
+ {"label":"control: a comment","files":["scripts/canary-ui.mjs"],"from":"// AN EARLIER REQUEST'S JOB, BY THE SIGN OF ITS ROW: money given back is","to":"// AN EARLIER REQUEST'S JOB, BY THE SIGN OF ITS ROW: the money given back is","control":true}
+]
