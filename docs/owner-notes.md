@@ -32,7 +32,9 @@ is in git; the dated entries further down are the full story.*
 - Every other box blank. It must print *"waiting, and answerable: part 1 of
   request 475d4ff7… asks …"*, or the exact reason not to send.
 
-**Press 2, the one paid answer**: only after press 1 reads answerable. The
+**Press 1 done: run 108** (run id 37721002723, 03:04–03:08 UTC, green). It read *"waiting, and answerable: part 1 of request 475d4ff79c7887bb18d546fcecf15edf asks “What’s the full address of your TikTok profile?”"*, on deploy `9d6bda8afc4e` and image `335396c8c0e0fbcb`. Nothing was sent, and the balance stayed 15 → 15.
+
+**Press 2, the one paid answer**: only after press 1 reads answerable (it did). The
 same boxes, with the paid box `yes`. The guard checks the request, the part,
 the question words, its id and the expiry window on the server and in the
 browser again immediately before Send. If it refuses, nothing is sent and
