@@ -1,44 +1,66 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the menu-clearing round closed; the TikTok continuation approved, waiting for your two presses)
+## Current handoff — read this first (2026-10-08, the TikTok continuation ran: run 109 resumed the right part and published the link; 4 credits; one red check is the canary's own accounting)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
-  **Run 107's verdict stands: failed.** Balance **15** (read at 03:00 UTC;
-  last ledger row 407; no job open).
+- **Production is deploy 2188** (`main` `9d6bda8a`, image
+  `335396c8c0e0fbcb`), unchanged. **Balance 11** (read at 03:21:27 UTC; last
+  ledger row 409; no job open).
 - **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`,
   `2506e43b`, `eaa516e7`, and records. Nothing merged, deployed or built.
-- **The correction round is closed.** Codex's focused review of `50f4ef44`
-  passed all 16 checks, and you closed the round. Its limits stay
-  documented below.
-- **The continuation is approved** (one free preflight, then exactly one
-  paid answer). The session's dispatch answered **403** once and was not
-  retried, so both presses are yours (the boxes are below). This is
-  recorded apart from run 107. It verifies nothing about run 107's unsent
-  third message or the unreleased reply correction.
+- **The menu-clearing correction round is closed** (Codex passed `50f4ef44`
+  on all 16 checks). Its limits stay documented below.
 
-**Press 1, the free preflight** (*Actions → edit canary → Run workflow*):
-- "Use workflow from": `claude/help-needed-ehlwlj`
-- "Run the ONE paid edit as well (yes/no)": `no`
-- "RUN A NAMED SCENARIO IN A REAL BROWSER …": `lv-tiktok-answer`
-- "The site to edit …": `fold-lane-bakery`
-- "Refuse to spend unless the Worker reports this deploy sha …": `9d6bda8a`
-- "Refuse to spend unless a cold container reports this image id …":
-  `335396c8c0e0fbcb`
-- Every other box blank. It must print *"waiting, and answerable: part 1 of
-  request 475d4ff7… asks …"*, or the exact reason not to send.
+**The continuation, recorded apart from run 107** (which stays failed).
+- **Run 108, the free preflight** (run id 37721002723, 03:04–03:08 UTC, from
+  `ea431f1c`): green. It read the question waiting and answerable on deploy
+  `9d6bda8afc4e` and image `335396c8c0e0fbcb`. Nothing was sent; the balance
+  stayed 15.
+- **Run 109, the one paid answer** (run id 37721625850, 03:12–03:20 UTC,
+  from `0c8a2f42`):
+  - the guard re-read the named question immediately before Send, then sent
+    *"It's tiktok.com/@harbourloaf"* once;
+  - **the right part resumed**: request `475d4ff7…` part 1. The add-on step
+    handed it to the menu step, and the request ended with both parts done;
+  - **the link published** (`09n7s1`, 03:17:45 UTC) on all 10 pages with a
+    footer, read by the canary and again by me on the public site.
+    `/starter`, the unfinished placeholder, has no footer;
+  - **earlier work kept**: every stored page is byte for byte as before
+    apart from the new link, and run 107's Order heading is still served.
+    No page was added or removed, the tables are unchanged and every page
+    answers 200;
+  - **replies match**: the model's own, on screen, *"✅ I’ve added a TikTok
+    link to the footer’s social links on 10 pages."*. 0 console or page
+    errors;
+  - **money, 4 credits** (estimate 2–5): routing −3 (row 408) and the
+    footer job −1 (row 409). That is 15 → 11, no later row after 7 minutes,
+    no duplicate, no open job.
+- **Why run 109 shows red**: one check, "this press's own charges add up",
+  summed 3 + 6 = 9. It counted run 107's two charged jobs on the same
+  request as this press's, and having failed it skipped its late-money
+  read. The ledger above settles both. This is a canary defect, now in
+  `docs/backlog.md`; no rerun.
+- **Not verified by this**:
+  - run 107's unsent third message as its own press (run 107 stays failed);
+  - the unreleased reply corrections (`2506e43b`, `eaa516e7`, not deployed);
+  - progress lines during the answer's job (the press read the replies).
 
-**Press 1 done: run 108** (run id 37721002723, 03:04–03:08 UTC, green). It read *"waiting, and answerable: part 1 of request 475d4ff79c7887bb18d546fcecf15edf asks “What’s the full address of your TikTok profile?”"*, on deploy `9d6bda8afc4e` and image `335396c8c0e0fbcb`. Nothing was sent, and the balance stayed 15 → 15.
+**Remaining release gaps**:
+- The branch's reply-evidence corrections are unreleased, so the next image
+  `59059c19e7c883fd` is predicted, not built. A release needs your word, one
+  merge, one image build and its own runtime check.
+- The canary's continuation accounting (backlog) should be fixed before its
+  next continuation press.
+- Run 107's open findings (routing every part in one call, prompt caching)
+  stay in the backlog.
 
-**Press 2, the one paid answer**: only after press 1 reads answerable (it did). The
-same boxes, with the paid box `yes`. The guard checks the request, the part,
-the question words, its id and the expiry window on the server and in the
-browser again immediately before Send. If it refuses, nothing is sent and
-nothing else is tried.
+**Next, in order**: finish this Edit/Add-on verification (your review of run
+109), then the first-Build audit, then dependency-based parallel-execution
+planning.
 
 **The closed correction round, for reference.** What Codex confirmed on `c288078d`: the false-conditional and
 unused-local-component reproductions pass, genuine links are still
@@ -106,19 +128,18 @@ written as null or undefined", so the clearing spread was skipped.
 **`59059c19e7c883fd`** (197 inputs).
 
 **Yours to decide**
-- The two presses above, before about 23:59 UTC today (about 21 hours left
-  at 03:00 UTC).
+- Your review of runs 108 and 109 (the presses are done; no rerun).
 - Releasing the branch (one merge, one image build) when you choose.
 - **The order stays**: finish the current Edit/Add-on verification, then
   audit the first Build, then plan dependency-based parallel execution.
 
-**Still open** (`docs/backlog.md`): run 107's findings; the BG11 load flake;
+**Still open** (`docs/backlog.md`): run 107's findings; the canary's continuation accounting (run 109); the BG11 load flake;
 the site build's Chromium install stall (seen once); the provisioning and undo
 items carried from earlier rounds. An uncertain database creation can still
 need your manual settlement (the note under
 `source/<slug>/neon-unrecorded/`).
 
-**Links**: `docs/history/2026-10-08-run107-followup.md` (§11 is this round),
+**Links**: `docs/history/2026-10-08-run107-followup.md` (§12 is the continuation, §11 the closed round),
 `docs/history/2026-10-07-combined-release.md`, `docs/backlog.md`.
 
 ---
@@ -130,6 +151,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The TikTok continuation: run 108 (free) answerable, run 109 resumed the right part and published the link; 4 credits (nothing merged, deployed or built)
+
+- Run 108 (37721002723) read the question waiting and answerable, and sent
+  nothing.
+- Run 109 (37721625850) sent *"It's tiktok.com/@harbourloaf"* once. Part 1 of
+  request `475d4ff7…` resumed and ended done. The TikTok link published on
+  all 10 footers (`09n7s1`), earlier work was kept, and the reply matched.
+- Charged 4 (routing 3, footer job 1): balance 15 → 11, no late or duplicate
+  rows.
+- Its one red check is the canary's own accounting: it counted run 107's
+  jobs on the same request. Now in the backlog.
+- Recorded apart from run 107, which stays failed.
 
 ## 2026-10-08 — The menu-clearing round closed; the TikTok continuation approved (nothing pressed yet; nothing merged, deployed or built)
 

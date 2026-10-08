@@ -20,6 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **The canary's money check counts a continued request's earlier jobs as
+  this press's** (2026-10-08, run 109): it summed routing 3 + jobs 6 = 9
+  against a balance move of 4, because jobs 6 included run 107's two charged
+  jobs on the same request. The ledger shows 4 (rows 408 and 409). The
+  late-money snapshot then went unread. In full below.
 - **Run 107's three findings** (2026-10-07, `lv-combined` on deploy 2188):
   the bound and the reply are **fixed on the branch** (2026-10-08, not
   deployed); the 3-credit routing of every later part is **investigated, still
@@ -923,6 +928,28 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **THE CANARY'S MONEY CHECK ON A CONTINUED REQUEST (2026-10-08, run 109,
+  `lv-tiktok-answer`; `docs/history/2026-10-08-run107-followup.md` §12).**
+  - **What happened**: the check "this press's own charges add up" took every
+    job the request lists as the press's own. A continuation's request also
+    lists the jobs of the press that began it, so run 107's two charged jobs
+    on request `475d4ff7…` (`08b84314…` −2 and the routing job `bd79395e…`
+    −3) were counted again. It printed routing 3 + jobs 6 = 9 against a
+    balance move of 4, failed, and so never read the snapshot that settles
+    the late money ("UNSETTLED").
+  - **What the ledger shows**: this press made exactly two rows. Row 408 is
+    the answer's routing (−3) and row 409 is the footer job `90bc2b2d…`
+    (−1). That is 15 → 11, one row per charged job, nothing after 03:14:40,
+    read again at 03:21:27, and no duplicate.
+  - **The fix, when the owner wants it**: count only jobs created after this
+    press's first send (or not in the request's job list before it), and
+    read the late-money snapshot even after a failed check. It is a canary
+    change, not a product one.
+  - **Also seen in the same run, an instrument note**: the publish chain
+    read "UNVERIFIED (parent-mismatch)". The after-read named the before
+    version, while the served pages were already at `09n7s1` (published
+    from `f821gr`). The served-page checks passed.
 
 - **RUN 107'S THREE FINDINGS (2026-10-07, `lv-combined`, deploy 2188;
   `docs/history/2026-10-07-combined-release.md` §4.4).**
