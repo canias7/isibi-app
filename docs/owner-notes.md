@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, Codex's review of dd4b96d8: menu links from the menus the page renders; the guarded continuation kept)
+## Current handoff — read this first (2026-10-08, Codex's review of 7fc7056d: menu links only from what the page renders, read by a real parser; the continuation kept separate)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,75 +9,86 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
   **Run 107's verdict stands: failed.** The demo changes stay. Balance **15**.
-- **On the branch, unmerged**: `2f2b9ace` (the follow-up batch), `1537c518`
-  (Codex's review of `b3d2a409`), **`d24ab456` (this round)**, and records.
-  Nothing merged, deployed or built, no model called, nothing paid, nothing
-  sent. Run 107 is not repeated.
+- **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`, then
+  **`2506e43b` (this round)**, and records. Nothing merged, deployed or
+  built, no model called, nothing paid, nothing sent. Run 107 is not
+  repeated.
 - **The TikTok request is untouched**: still waiting until about 23:59 UTC
   today (2026-10-08), when it expires.
 
-**Kept as you asked: the continuation guard.** Codex's independent checks
-accepted the right question and rejected the wrong request, a replacement
-question, a stopped request and an expired question. Nothing in it changed.
+**What Codex confirmed on `7fc7056d`**: the commented-out array and the
+unused object now pass, genuine links are kept, and an unresolved import
+stays not known.
 
-**The menu evidence, corrected at the evidence boundary (`d24ab456`)**
-- **Reproduced on `dd4b96d8`**:
-  - a commented-out `/* old menu: links: [{label:"Allergens",href:"/allergens"}] */`
-    beside a rendered Home-only menu was told as a kept menu link;
-  - so was an unused `OLD` object holding the link while the page renders a
-    different `CHROME`;
-  - two more of the same kind: a menu in a component nothing renders, and a
-    spread overridden by a later `links` attribute;
-  - and a `CHROME` whose links were pushed to after their declaration was
-    read as certainly without the link.
-- **Now** `menuLinksKept` keeps an address only where a menu **the page
-  renders** links it (`renderedMenus`, in `builder/site-nav.mjs`):
-  - comments, strings and the text between JSX tags are never read as code;
-  - only elements inside declarations the page's exports reach count, so an
-    unused object or component counts for nothing;
-  - each `links` attribute and spread is followed through the supported
-    bindings: an inline array, a `const` array or object, `NAME.links`,
-    `{...NAME}`, an object's own spread. The last one written wins;
-  - **uncertainty is kept**: anything else that could set the menu (an
-    import, a parameter, a call, a name declared twice, a binding written to
-    later, a page the scanner cannot read) makes the page "not known either
-    way", never a link and never not one.
-- **Unchanged**: `navSlots` and every navigation edit; the Worker's hand-off;
-  the reply's facts and rules; the wording, which stays the model's. Nothing
-  names a page, label or address, and nothing is written for the two
-  examples.
-- **On the 324 hand-written corpus pages and the 5 bakery pages**:
-  - every page reads;
-  - wherever the editor finds a menu, the rendered menus are the same set;
-  - 15 pages are "not known", each because a spread comes from an import, a
-    callback parameter or form helpers. A link found in a certain menu is
-    still reported there.
+**The gap, reproduced**: the reader took "reachable by name" for "rendered".
+Both of Codex's reproductions were told as kept menu links:
+- `false && <SiteChrome links={[…Allergens…]}/>` beside a Home-only menu;
+- a local `OldMenu` holding the link, declared in the page but never
+  rendered.
+
+**The correction (`2506e43b`, `builder/rendered-menus.mjs`)**
+- **A real parser, not a handwritten one.** The page is read by the
+  TypeScript parser the compile step and the photo and layout rungs already
+  use (`tweakParser()`), handed in by the Worker. The old scanner is
+  deleted. With no parser (a job run inline in the Worker) or a page with a
+  syntax error, every link is told as **not known**.
+- **What it can establish, precisely.** A menu is certain only when it is
+  reached from the route's component (or the default export) along these
+  paths:
+  - the component's one `return`;
+  - the children of an HTML tag or of an imported component (the one
+    assumption: that the kit's shells render their children);
+  - a `const` holding JSX;
+  - a component of the same file rendered as a tag, into its one `return`;
+  - `true &&` and literal `true`/`false` conditions.
+- **Certainly not rendered**: anything inside a declaration nothing
+  references, and an arm a literal condition never takes.
+- **Everything else is not known, never a link and never not one**: a real
+  condition (`open && …`), a second `return`, `.map` callbacks, JSX in a
+  prop, a component called as a function, the children of a component
+  declared in the page, and a menu that is a component's own prop.
+- **The bindings followed for `links`** are as before, now read off the
+  tree: inline, a `const`, `NAME.links`, `{...NAME}` and object spreads.
+  The last one written wins. Imports, parameters, calls, names declared
+  twice and mutated bindings are not known.
+- **Unchanged**: `navSlots` and every navigation edit; the reply's facts and
+  rules; the wording, which stays the model's. Nothing is written for the
+  two examples.
+- **The image's Worker tree now carries the new module** (one Dockerfile
+  line). Without it every container launch would have been refused, and the
+  existing Worker-tree guard fails when the line is missing.
 
 **Tests actually run this round**
-- **The controls, each through the helper and the real reply facts**:
-  - HELD 9: a genuine rendered menu (told); a commented-out menu, an unused
-    menu object, a body-only link and a removed link (not told); an
-    unresolved binding (told as not known);
-  - HELD 10: 17 more shapes, among them a call beside a certain menu, an
-    item commented out inside the menu, and a name declared twice;
-  - HELD 11: the corpus agreement.
-- HELD 1–8 unchanged and passing; HELD 2 runs through the real add-on route.
-- **Red check against `dd4b96d8`**: HELD 9 and 10 fail; the rest pass.
-- **Sweep** (`scripts/mutants/codex-dd4b96d8.json`): 16 of 16 killed, and the
-  comment-only control survived. The one first-pass survivor was closed with
-  the "call beside a certain menu" case.
-- **Full suite**: **9908 tests, 9908 pass, 0 fail, 0 skipped**.
-- **Required CI green on `638f7d6a`** (code `d24ab456` plus records): unit
-  tests run 37714983739, **9908 tests, 9886 pass, 0 fail, 22 skipped** (CI
-  skips the 22 browser cases; the total matches the local run); site build
-  run 37714983775, all eight jobs green.
+- **HELD 12, 17 cases, each through the helper and the real reply facts**:
+  - both reproductions (not told);
+  - conditions: `true &&` (told); a literal false (the other arm told); a
+    state condition beside a menu, a state condition choosing between two,
+    and an early return (not known);
+  - nested declarations and invocation: a nested component rendered as a
+    tag, and a top-level one (told); one called as a function, one handed
+    in a prop, and one whose menu is its prop (not known);
+  - a JSX `const` rendered (told) and one never rendered (not told);
+  - a callback, and a local component's children (not known);
+  - an imported component's children (told);
+  - no parser (not known).
+- **Kept**: HELD 9's six controls, HELD 10's 17 shapes, HELD 11's corpus
+  check. On the corpus, 300 menu pages read as sure and match the editor
+  exactly; 16 are not known (2 more than before: two salon pages that
+  render their menu from two `return`s).
+- **Red check against `7fc7056d`**: HELD 12 fails at the first reproduction
+  and HELD 8 on the hand-off line; the rest pass.
+- **Sweep** (`scripts/mutants/codex-7fc7056d.json`): 21 of 21 killed, and the
+  comment-only control survived.
+- **The 74 related test files**: 2576 of 2576. **Full suite**: **9909
+  tests, 9909 pass, 0 fail, 0 skipped**.
+- Unit CI on the push: below once read.
 
 **The next image, predicted** (not built): `335396c8c0e0fbcb` →
-**`558037dd99f47d81`** (196 inputs; `worker.js`, `builder/site-nav.mjs` and
-`builder/site-reply.mjs` differ from production).
+**`5a2203f8e324f2ac`** (197 inputs; the new module is the extra one).
 
-**The continuation, ready against deploy 2188** (`lv-tiktok-answer`; it does
-not need the reply fix released; nothing pressed):
+**The continuation, kept separate and ready against deploy 2188**
+(`lv-tiktok-answer`). It checks the clarification on the existing deployment
+and does not need these reply changes released. Nothing is pressed or sent.
 - **About 2–5 credits**: budget 6, hard cap 15. It must be answered before
   about 23:59 UTC today; the guard refuses within 10 minutes of that.
 - **Free check, once you approve** (*Actions → edit canary*, "Use workflow
@@ -102,7 +113,7 @@ items carried from earlier rounds. An uncertain database creation can still
 need your manual settlement (the note under
 `source/<slug>/neon-unrecorded/`).
 
-**Links**: `docs/history/2026-10-08-run107-followup.md` (§9 is this round),
+**Links**: `docs/history/2026-10-08-run107-followup.md` (§10 is this round),
 `docs/history/2026-10-07-combined-release.md`, `docs/backlog.md`.
 
 ---
@@ -114,6 +125,20 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Codex's review of 7fc7056d: menu links only from what the page renders, read by a real parser (on the branch, `2506e43b`; nothing merged, deployed, built, paid or sent)
+
+- Reproduced: `false && <SiteChrome …/>` holding the link, and a local
+  `OldMenu` declared and never rendered, were both told as kept menu links.
+- Corrected: the page is read by the TypeScript parser the app already uses,
+  and a menu counts only along named render paths from the route's
+  component. An unreferenced declaration or an untaken literal arm counts
+  for nothing. Everything else that could carry a menu is told as not known.
+  The navigation editor is unchanged. The image's Worker tree carries the new
+  module.
+- Checks: 17 new cases through the reply facts, plus the earlier controls
+  and corpus check; red check on `7fc7056d`; sweep 21 of 21; full suite 9909
+  of 9909.
 
 ## 2026-10-08 — Codex's review of dd4b96d8: menu links from the menus the page renders (on the branch, `d24ab456`; nothing merged, deployed, built, paid or sent)
 
