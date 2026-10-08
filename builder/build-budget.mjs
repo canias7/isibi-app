@@ -275,6 +275,9 @@ export function raceDeadline(work, { ms, onExpire }) {
 export function budgetStage(steps) {
   const STAGE = {
     auth: "design", body: "design", links: "design", gate: "design",
+    // A first build's design recovered (2026-10-08, the ninth batch): still
+    // the design, nothing set up yet.
+    "design-recovery": "design",
     design: "provision", seedrows: "provision", owner: "provision",
     normalize: "provision", provision: "provision",
     schema: "generate", jobs: "generate", seed: "generate", look: "generate",

@@ -383,7 +383,10 @@ test("only the build route asks for the frontend tool, and it does so on a first
   // A COUNT IS THE WEAK HALF OF THIS TEST and is here only to make a new call
   // site a decision somebody makes on purpose; the two assertions below are the
   // property, and they hold however many callers there are.
-  assert.equal(calls.length, 2, `designSiteSchema is named ${calls.length} times; the declaration plus the build route — a third is a path that reached for the build's designer again`);
+  // THREE SINCE 2026-10-08 (the ninth batch): `recoverDesign` asks the same
+  // designer again for the same first build — a corrective attempt or one
+  // more try — passing the route's own `firstBuild` through, never a literal.
+  assert.equal(calls.length, 3, `designSiteSchema is named ${calls.length} times; the declaration, the build route and the build's own recovery — a fourth is a path that reached for the build's designer again`);
 
   // The default is FALSE, which is what keeps the two edit lanes whole by
   // saying nothing — and what a fourth lane would inherit.
@@ -392,7 +395,10 @@ test("only the build route asks for the frontend tool, and it does so on a first
   // signature four parameters short — the fifth recorded instance in this repo
   // of a flat scan where a depth-aware or line-anchored one was needed.
   const decl = (src.match(/^async function designSiteSchema\(.*$/m) || [""])[0];
-  assert.match(decl, /frontendOnly = false\) \{$/,
+  // `repair` MAY FOLLOW IT (2026-10-08, the ninth batch: the corrective
+  // design attempt), defaulted to null, so a lane that says nothing still
+  // keeps its backend AND asks for no repair.
+  assert.match(decl, /frontendOnly = false(?:, repair = null)?\) \{$/,
     "the frontend flag is no longer the last parameter, defaulted off — a lane that says nothing would lose its backend");
 
   // Exactly one call passes it, and it passes the computed fact rather than a

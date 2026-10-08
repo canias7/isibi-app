@@ -13611,25 +13611,6 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       // against a name it already owns and gets a 409 it cannot explain.
       else firedJob = d.job;
     }
-    // ── THE DESIGNER ASKED THEM SOMETHING (the ninth batch) ────────────────
-    // The same round a router's first-build question opens: the brief, the
-    // answers so far and the files kept on the site, the question on the
-    // thread, and their answer runs this build again with it. Nothing was
-    // built, and the deposit went back.
-    const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;
-    if (dq) {
-      siteBusy = false;
-      siteBuildStop();
-      const s0 = siteById(origin);
-      if (!s0) return;
-      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
-      s0.msgs.push({ r: 'a', t: dq.text, q: dq.text, opts: dq.options });
-      s0.updatedAt = Date.now();
-      sitesSave();
-      scheduleCreditRefresh();
-      if (siteOpenId === origin) renderSites();
-      return;
-    }
     // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
     // From the final reply's own `deferred`, which the route adds to every
     // answer once it has taken the parts out; from what this post carried when
@@ -13671,6 +13652,24 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     // read the balance before anything was taken and paint a number that is
     // wrong in the reassuring direction.
     scheduleCreditRefresh();
+    // ── THE DESIGNER ASKED THEM SOMETHING (the ninth batch) ────────────────
+    // The same round a router's first-build question opens: the brief, the
+    // answers so far and the files kept on the site, the question on the
+    // thread, and their answer runs this build again with it. Nothing was
+    // built, and the deposit went back.
+    const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;
+    if (dq) {
+      siteBusy = false;
+      siteBuildStop();
+      const s0 = siteById(origin);
+      if (!s0) return;
+      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
+      s0.msgs.push({ r: 'a', t: dq.text, q: dq.text, opts: dq.options });
+      s0.updatedAt = Date.now();
+      sitesSave();
+      if (siteOpenId === origin) renderSites();
+      return;
+    }
     // A PLACEHOLDER BUILD IS A SUCCESS THAT CARRIES A REASON, and `!d.error` was
     // refusing exactly those. The route returns `error` alongside `ok:true`
     // whenever it fell back — validate, home, typecheck, build, generate — so the

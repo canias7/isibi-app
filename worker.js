@@ -4538,7 +4538,7 @@ const designAttemptsKey = (id) => "jobs/" + id + ".design.json";
  * `{ ok: false, failure, why, err }` — and always `attempts` and `usage`, the
  * usage of every call made (the first included), summed for the ledger.
  */
-export async function recoverDesign(env, { dz = null, err = null, jobId = null, budget = null, brief = "", model, files = [] } = {}) {
+export async function recoverDesign(env, { dz = null, err = null, jobId = null, budget = null, brief = "", model, files = [], frontendOnly = false } = {}) {
   let list = [];
   let recorded = true;
   if (jobId && env.SITES_BUCKET) {
@@ -4554,7 +4554,7 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
     const e = cur.err;
     const f = designFailure({
       answer: cur.dz, error: e,
-      upstream: e ? upstreamKind(e.detail, e.status) : null,
+      upstream: e ? upstreamKind(e && e.detail, e && e.status) : null,
       status: e && e.status, timeout: e ? isCallTimeout(e) : false,
     });
     if (f.kind === "ok") return { ok: true, dz: cur.dz, attempts: list, usage };
@@ -4573,9 +4573,9 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
     const partial = (cur.dz && (cur.dz.input || cur.dz.partial)) || (e && e.partial) || null;
     console.log("design: recovering a", f.kind, "design (" + f.why + ") with", f.retry === "repair" ? "a corrective attempt" : "one more try");
     try {
-      const next = f.retry === "repair"
-        ? await designSiteSchema(env, brief, model, null, files, budget, true, { note: repairNote(f, partial), ask: true })
-        : await designSiteSchema(env, brief, model, null, files, budget, true);
+      // ONE CALL SITE: the same designer, told what to correct only when
+      // there is something of its own to correct.
+      const next = await designSiteSchema(env, brief, model, null, files, budget, frontendOnly, f.retry === "repair" ? { note: repairNote(f, partial), ask: true } : null);
       usage = addUsage(usage, next && next.usage);
       if (f.retry === "repair") {
         const o = repairOutcome(next);
@@ -19390,7 +19390,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
               : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
           } catch (e) { if (!firstBuild) throw e; dzErr = e; }
           if (firstBuild) {
-            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks });
+            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks, frontendOnly: firstBuild });
             designRecovery = rec.attempts.length ? { attempts: rec.attempts.map((a) => a.kind + ":" + a.retry), outcome: rec.ok ? "repaired" : rec.question ? "question" : "exhausted", ...(rec.why ? { why: rec.why } : {}) } : null;
             designRepairUsage = rec.usage;
             try { tr.at("design-recovery", designRecovery || { attempts: 0 }); } catch { /* a trace never costs a build */ }
@@ -20590,9 +20590,6 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // consumer that finishes the build can hand the spine's translation
             // the same picker's models (run 38, 2026-09-04).
             picker: models.picker,
-            // WHAT THE DESIGN'S RECOVERY DID (the ninth batch), so the answer
-            // the queued build finishes with tells a corrected design too.
-            designRecovery: designRecovery || undefined,
             // THE THEME OFF THE MERGED LOOK (2026-08-27) — required of a first
             // build's designer, stored-unless-named on a revise, and validated
             // by `FIELD_KEEPS.theme` before it could land in `merged`. The
@@ -20782,6 +20779,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // resume passes its own explicitly, so a copy inside the design would
         // be a second answer to a question the record already answers.
         const { attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, jobId: _j, ...design } = buildArgs || {};
+        // …AND WHAT THE DESIGN'S RECOVERY DID (the ninth batch), so the answer
+        // the queued build finishes with tells a corrected design too.
+        if (designRecovery) design.designRecovery = designRecovery;
         let stored = false;
         // …BUT A REFIRE WRITES THE PAGES AGAIN (2026-10-08, the first-Build
         // audit's M7), and it did so with none of the files the customer

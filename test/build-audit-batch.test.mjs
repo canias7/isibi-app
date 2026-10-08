@@ -42,6 +42,10 @@ const refs = (seen, fn) => seen.rpc.filter((x) => x.fn === fn).map((x) => String
 
 // ── H4: missing or unusable design output ───────────────────────────────────
 
+// SINCE 2026-10-08 (the ninth batch) an unusable design gets ONE corrective
+// call first (`recoverDesign`); these cases' designer answers the same unusable
+// way both times, so the build still stops at the design, refunded, with no
+// other model call. The repair itself is `build-batch-9.test.mjs`.
 test("H4: a design call that made no tool call refuses before anything else runs, and the deposit comes back", async () => {
   const r = await driveBuild({ design: { stop: "end_turn", text: "Here is a design for your bakery..." }, body: body() });
   assert.equal(r.status, 503, JSON.stringify(r.reply).slice(0, 300));
@@ -50,7 +54,7 @@ test("H4: a design call that made no tool call refuses before anything else runs
   assert.match(r.reply.msg, /didn't send back a usable plan/);
   assert.deepEqual(refs(r.seen, "credit_debit"), ["deposit/debit"], "something other than the deposit was charged");
   assert.deepEqual(refs(r.seen, "credit_reverse"), ["deposit/design"], "the deposit was not given back");
-  assert.deepEqual(r.seen.tools, ["design_schema"], "a model call ran after an unusable design");
+  assert.deepEqual(r.seen.tools, ["design_schema", "design_schema"], "a model call other than the one corrective design call ran after an unusable design");
   assert.equal(r.config, null, "a look was stored from an unusable design");
   assert.equal(r.seen.neon, 0, "a database was provisioned for an unusable design");
 });

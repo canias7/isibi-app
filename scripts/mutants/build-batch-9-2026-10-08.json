@@ -1,0 +1,242 @@
+[
+{
+"label": "control: comment only",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "/** Two usages summed, field by field, so every call made is the one the ledger settles. */",
+"to": "/** Two usages summed field by field, so every call made is the one the ledger settles. */"
+},
+{
+"label": "route: no recovery on a first build",
+"files": [
+"worker.js"
+],
+"from": "            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks });",
+"to": "            const rec = dzErr ? { ok: false, err: dzErr, attempts: [], usage: null } : { ok: true, dz, attempts: [], usage: dz && dz.usage };"
+},
+{
+"label": "route: repaired usage not summed",
+"files": [
+"worker.js"
+],
+"from": "          schemaUsage = (firstBuild && designRepairUsage) ? designRepairUsage : ((dz && dz.usage) || null);",
+"to": "          schemaUsage = (dz && dz.usage) || null;"
+},
+{
+"label": "route: question not returned",
+"files": [
+"worker.js"
+],
+"from": "            if (rec.question) {\n",
+"to": "            if (false) {\n"
+},
+{
+"label": "route: question keeps the deposit",
+"files": [
+"worker.js"
+],
+"from": "              await giveBack(debitRef(\"deposit\"), \"design\", SITE_BUILD_FEE);\n              return Response.json({\n                ok: false, stage: \"design\", intent: \"clarify\"",
+"to": "              return Response.json({\n                ok: false, stage: \"design\", intent: \"clarify\""
+},
+{
+"label": "recover: no durable read",
+"files": [
+"worker.js"
+],
+"from": "      const o = await env.SITES_BUCKET.get(designAttemptsKey(jobId));",
+"to": "      const o = null;"
+},
+{
+"label": "recover: unreadable record still retries",
+"files": [
+"worker.js"
+],
+"from": "    const may = !recorded ? { ok: false, why: \"attempts-unreadable\" }",
+"to": "    const may = false ? { ok: false, why: \"attempts-unreadable\" }"
+},
+{
+"label": "recover: write failure still calls",
+"files": [
+"worker.js"
+],
+"from": "        return { ok: false, failure: f, why: \"attempt-unrecorded\", err: e, attempts: list, usage };\n      }\n    }\n    list = [...list, entry];",
+"to": "      }\n    }\n    list = [...list, entry];"
+},
+{
+"label": "recover: write after the call",
+"files": [
+"worker.js"
+],
+"from": "      try { await env.SITES_BUCKET.put(designAttemptsKey(jobId), JSON.stringify({ v: 1, attempts: [...list, entry] })); }",
+"to": "      try { void 0; }"
+},
+{
+"label": "recover: no time check",
+"files": [
+"worker.js"
+],
+"from": "      : mayRetry(f, list, { remainingMs: budget && typeof budget.remainingMs === \"function\" ? budget.remainingMs() : null });",
+"to": "      : mayRetry(f, list, { remainingMs: null });"
+},
+{
+"label": "recover: repair not told",
+"files": [
+"worker.js"
+],
+"from": "        ? await designSiteSchema(env, brief, model, null, files, budget, true, { note: repairNote(f, partial), ask: true })",
+"to": "        ? await designSiteSchema(env, brief, model, null, files, budget, true)"
+},
+{
+"label": "recover: no partial shown",
+"files": [
+"worker.js"
+],
+"from": "    const partial = (cur.dz && (cur.dz.input || cur.dz.partial)) || (e && e.partial) || null;",
+"to": "    const partial = null;"
+},
+{
+"label": "recover: question not read",
+"files": [
+"worker.js"
+],
+"from": "        if (o.kind === \"question\") return { ok: false, question: o.question, attempts: list, usage };",
+"to": "        void o;"
+},
+{
+"label": "recover: thrown usage lost",
+"files": [
+"worker.js"
+],
+"from": "      usage = addUsage(usage, ne && ne.usage);",
+"to": "      void ne;"
+},
+{
+"label": "schema: no question field",
+"files": [
+"worker.js"
+],
+"from": "  if (repair && repair.ask) {\n    const t = withQuestion(req.tools[0]);",
+"to": "  if (false) {\n    const t = withQuestion(req.tools[0]);"
+},
+{
+"label": "schema: truncated partial dropped",
+"files": [
+"worker.js"
+],
+"from": "    if (cut && cut.input && typeof cut.input === \"object\") e.partial = cut.input;",
+"to": "    void cut;"
+},
+{
+"label": "waves: partial dropped",
+"files": [
+"builder/design-waves.mjs"
+],
+"from": "return { input: null, shape, usage, partial: known };",
+"to": "return { input: null, shape, usage };"
+},
+{
+"label": "classify: transient never retried",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  if (TRANSIENT_STATUS.has(code) || (up.type && TRANSIENT_TYPE.has(up.type))) return { kind: \"transient\", retry: \"again\", why: \"provider-\" + (code || up.type) };",
+"to": "  if (TRANSIENT_STATUS.has(code) || (up.type && TRANSIENT_TYPE.has(up.type))) return { kind: \"transient\", retry: null, why: \"provider-\" + (code || up.type) };"
+},
+{
+"label": "classify: billing retried",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  if (up.billing) return { kind: \"account\", retry: null, why: \"billing\" };",
+"to": "  if (up.billing) return { kind: \"transient\", retry: \"again\", why: \"billing\" };"
+},
+{
+"label": "classify: rejected retried",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  if (code >= 400) return { kind: \"rejected\", retry: null, why: \"status-\" + code };",
+"to": "  if (code >= 400) return { kind: \"transient\", retry: \"again\", why: \"status-\" + code };"
+},
+{
+"label": "bounds: unbounded repairs",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  if (used >= max) return { ok: false, why: \"attempts-used\" };",
+"to": "  if (used >= max + 5) return { ok: false, why: \"attempts-used\" };"
+},
+{
+"label": "bounds: kinds share no count",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  const used = list.filter((a) => a && a.retry === failure.retry).length;",
+"to": "  const used = 0;"
+},
+{
+"label": "note: earlier answer not marked cut",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "      lines.push(cut ? shown.slice(0, REPAIR_SHOWN_CHARS) + \" \u2026 [cut here: the rest of your earlier answer is not shown]\" : shown);",
+"to": "      lines.push(shown.slice(0, REPAIR_SHOWN_CHARS));"
+},
+{
+"label": "outcome: question wins over design",
+"files": [
+"builder/design-repair.mjs"
+],
+"from": "  if (usable.ok) return { kind: \"repaired\" };\n  const ask",
+"to": "  const ask"
+},
+{
+"label": "facts: design fact dropped",
+"files": [
+"builder/build-answer.mjs"
+],
+"from": "    if (tried.length) out.design = { outcome: design.outcome, attempts: tried };",
+"to": "    void tried;"
+},
+{
+"label": "reply: repaired not told",
+"files": [
+"builder/site-reply.mjs"
+],
+"from": "      if (dg.outcome === \"repaired\") F.add(",
+"to": "      if (false) F.add("
+},
+{
+"label": "failure: recovery not in facts",
+"files": [
+"worker.js"
+],
+"from": "dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort }, design: designRecovery });",
+"to": "dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort } });"
+},
+{
+"label": "chat: design question ignored",
+"files": [
+"public/chat.js"
+],
+"from": "    const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;",
+"to": "    const dq = null;"
+},
+{
+"label": "chat: answer loses the brief",
+"files": [
+"public/chat.js"
+],
+"from": "      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };",
+"to": "      s0.clarify = { brief: dq.text, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };"
+},
+{
+"label": "chat: no-option question refused",
+"files": [
+"public/chat.js"
+],
+"from": "  const opts = Array.isArray(q.options) ? q.options : [];\n  if (!opts.every(words)) return null;",
+"to": "  const opts = Array.isArray(q.options) ? q.options : [];\n  if (opts.length < 2 || !opts.every(words)) return null;"
+}
+]
