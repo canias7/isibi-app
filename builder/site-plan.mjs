@@ -57,6 +57,7 @@ import { UI_COMPONENTS } from "./ui-components.mjs";
 // buying path silently truncates — the customer's picture described one way and
 // bought another. `site-images.mjs` imports NOTHING, so this adds no cycle.
 import { MAX_PROMPT_CHARS as MAX_IMAGE_PROMPT } from "./site-images.mjs";
+import { UPLOAD_URL_PATH } from "../site-uploads.mjs";
 
 
 /**
@@ -494,7 +495,14 @@ function pageImages(v, pages) {
     if (!known.has(page)) continue;
     const describe = str(s.describe, MAX_IMAGE_PROMPT);
     if (!describe) continue;
-    out.push({ page, describe });
+    // THE CUSTOMER'S OWN PICTURE (2026-10-08, H6). `attached` is the designer
+    // naming a file the customer attached and asked to have shown; `src` is
+    // where the build stored it, set by code (`placeAttachedPhotos`), never by
+    // a model — so only the upload store's own url shape survives here. An
+    // entry with a `src` is placed as it is and buys nothing.
+    const attached = str(s.attached, 80);
+    const src = typeof s.src === "string" && UPLOAD_URL_PATH.test(s.src) ? s.src : "";
+    out.push({ page, describe, ...(attached ? { attached } : {}), ...(src ? { src } : {}) });
     if (out.length >= MAX_PAGES * 2) break;
   }
   return out;
@@ -1069,6 +1077,15 @@ export const IMAGES_FIELD = {
     type: "object",
     properties: {
       page: { type: "string", description: "One of the paths you listed in `pages`. Anything else is dropped." },
+      attached: {
+        type: "string",
+        description:
+          "ONLY when the customer asked for a picture THEY ATTACHED to be shown here: that file's name, exactly as " +
+          "the list of attached files gives it. Their own photograph is then published as it is and nothing is " +
+          "drawn or bought — `describe` becomes its alt text, so say what it shows. Leave it out for anything " +
+          "attached only as reference (a sketch, a screenshot of a site they like, a menu to read) and for every " +
+          "picture you want drawn.",
+      },
       describe: {
         type: "string",
         description:
@@ -1301,3 +1318,31 @@ export function planFieldFor(key) {
 
 /** All five are required — every one is a line of the directive. */
 export const PLAN_REQUIRED = PLAN_KEYS.slice();
+
+/**
+ * WHETHER A FIRST BUILD'S DESIGN ANSWER CAN BUILD A SITE (2026-10-08, the
+ * first-Build audit's H4).
+ *
+ * A first build designs with the frontend tool, which has no backend, so "no
+ * tables" is a valid frontend-only design and says nothing about whether the
+ * designer answered. What a site cannot be built without is the design
+ * itself: an answer at all (no tool call, unparseable arguments and an
+ * incomplete split design all arrive as `null`), a name to publish it under
+ * (`brand` or `slug`), what it is for (`purpose`) and at least one page.
+ * Without those the build went on with an all-null look — a random
+ * `site-xxxxxx` as the brand, no theme, no layout — and was charged.
+ *
+ * `{ ok, missing }`: `missing` names what was absent, for the reply and the
+ * log, never for the customer's sentence alone. Everything else the tool asks
+ * for has its own reader with a default, and is not a reason to refuse.
+ */
+export function designUsable(designed) {
+  if (!designed || typeof designed !== "object" || Array.isArray(designed)) return { ok: false, missing: ["design"] };
+  const text = (v) => typeof v === "string" && v.trim() !== "";
+  const missing = [];
+  if (!text(designed.brand) && !text(designed.slug)) missing.push("brand");
+  if (!text(designed.purpose)) missing.push("purpose");
+  const pages = Array.isArray(designed.pages) ? designed.pages.filter((p) => p && typeof p === "object" && text(p.path)) : [];
+  if (!pages.length) missing.push("pages");
+  return { ok: missing.length === 0, missing };
+}

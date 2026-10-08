@@ -613,7 +613,7 @@ test("the build route decides, and the decision reaches the call", () => {
   // THE HOPS THAT SHIP DEAD IF THEY ARE CUT: a decision made and never used.
   assert.ok(/useGraph\s*\n?\s*\? await designSiteGraph\(/.test(block), "the graph answer must choose the graph designer");
   assert.ok(/useWaves\s*\n?\s*\? await designSiteWaves\(/.test(block), "the split answer must choose the wave designer");
-  assert.ok(/: await designSiteSchema\(env, briefWithLinks, models\.design, editState, attached\.blocks, budget, firstBuild\)/.test(block),
+  assert.ok(/: await designSiteSchema\(env, designBrief, models\.design, editState, attached\.blocks, budget, firstBuild\)/.test(block),
     "the single call must remain untouched as the last arm of the ternary");
 });
 

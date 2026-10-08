@@ -305,6 +305,19 @@ export function resumeKey(id) {
 }
 
 /**
+ * WHERE A BUILD'S ATTACHED FILES WAIT FOR A REFIRE (2026-10-08, the
+ * first-Build audit's M7). A resume returns a stored answer and never reads
+ * them, but a REFIRE writes the pages again from the model, and without this it
+ * did so with none of the files the customer attached. Beside the record, not
+ * in it: they are up to megabytes of base64, and the record is read on every
+ * look.
+ */
+export function attachmentsKey(id) {
+  if (!isResumeId(id)) throw new Error("build-resume: refusing to build a key from an id we did not mint");
+  return `${RESUME_PREFIX}${id}.attachments.json`;
+}
+
+/**
  * WHERE THE ANSWER LIVES ONCE IT IS OUT OF THE CONTAINER'S MEMORY.
  *
  * THE PROBLEM THIS SOLVES. `MODEL_JOBS` is a `Map` in ONE container instance's

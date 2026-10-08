@@ -216,7 +216,11 @@ test("the poll route's verdict off a row: lost with a claimed slug is shaped as 
   for (const junk of [null, undefined, "lost", [], 3]) assert.equal(rowVerdict(junk), null);
   // THE SENTENCES SAY WHAT IS TRUE OF THE MONEY AND THE SITE.
   assert.match(LOST_SITE_MSG, /stand-in page at your address/);
-  assert.match(LOST_SITE_MSG, /weren't charged for the pages/);
+  // AND NO CLAIM ABOUT MONEY THE ROW CANNOT BACK (2026-10-08, H1): it said
+  // "You weren't charged for the pages", silent about the deposit and the
+  // design call; what the attempt cost is settled by the lost-build reconcile.
+  assert.doesNotMatch(LOST_SITE_MSG, /weren't charged|nothing was charged/);
+  assert.match(LOST_SITE_MSG, /returned automatically/);
   assert.doesNotMatch(LOST_MSG, /address/, "a build that claimed nothing must not promise a page at an address");
 });
 
@@ -433,7 +437,7 @@ test("the consumer claims after the object, beats while it works, hands its name
   assert.ok(del > 0 && claim > del && rec > claim, "the claim is not between the object's delete and the recorder");
   assert.match(fn, /const lease = row\.held \? rowOwner : null;/);
   assert.match(fn, /const rowBeat = lease \? buildRowBeat\(env, id, lease\) : null;/, "the beat is not gated on holding the lease");
-  assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease \}\)/, "the consumer's lease name does not reach the build");
+  assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\) \}\)/, "the consumer's lease name does not reach the build");
   assert.match(fn, /\} finally \{\s+if \(rowBeat\) clearInterval\(rowBeat\);\s+\}/, "the beat is not cleared in a finally");
   // THE CLOSE COMES AFTER THE RESULT IS WRITTEN, and reads the outcome off it.
   const put = fn.indexOf("SITES_BUCKET.put(resultKey(id)");
@@ -453,7 +457,7 @@ test("the fire hands the lease to the container after the record and before the 
   assert.match(W, /const \{ attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, jobId: _j, \.\.\.design \} = buildArgs \|\| \{\};/,
     "the stored design carries the job id — a second copy of the record's own key");
   // THE SIGNATURE TAKES THE LEASE, defaulted so the inline path hands none.
-  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null \}\)/);
+  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null \}\)/);
 });
 
 test("the job id rides to the fire: buildArgs → buildAndPublishPages → containerPagesFire → the container's report object", () => {
@@ -485,7 +489,7 @@ test("the job id rides to the fire: buildArgs → buildAndPublishPages → conta
   assert.match(rowHalf[1], /beatMs: GEN_BEAT_MS\b/, "the container is not told the cadence");
   // AND THE RESUME PASSES ITS OWN ID EXPLICITLY, since the design has none.
   const resume = fnW("runResumedSiteBuild");
-  assert.match(resume, /buildAndPublishPages\(env, \{\s+\.\.\.design,\s+jobId: id,/, "the resumed build is not handed the record's id");
+  assert.match(resume, /buildAndPublishPages\(env, \{\s+\.\.\.design,\s+attachments: refireFiles,\s+[\s\S]{0,400}?jobId: id,/, "the resumed build is not handed the record's id");
 });
 
 test("the collector claims or takes the lease over by name after the wait branch, beats, hands off on a refire, and closes the row after the answer", () => {

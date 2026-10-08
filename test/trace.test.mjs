@@ -263,7 +263,8 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // the build's own ref — `credit_debit`, whole (`partial: false`), which
   // answers what it did — and the refusal reads that answer. The property is
   // unchanged: taken atomically before any paid call, refused when not taken.
-  assert.match(w, /debitCredits\(auth, SITE_BUILD_FEE, debitRef\("deposit"\), "debit", false\)/,
+  // THROUGH THE BUILD'S LEDGER (2026-10-08, H2): the bearer first, as before.
+  assert.match(w, /ledger\.debit\(SITE_BUILD_FEE, debitRef\("deposit"\), "debit", false\)/,
     "the affordability gate is gone — an empty account can start a paid model call");
   assert.match(w, /if \(!dep\.exempt && !dep\.repeat && !\(dep\.ok && dep\.taken > 0\)\) \{/,
     "a deposit the ledger refused no longer refuses the build");
@@ -298,7 +299,8 @@ test("the schema call is captured, reported, AND billed on measured usage", () =
   // own ref with `partial: true` (the ledger takes what is there and says what
   // it took), and the cheaper one is a REVERSAL of the deposit's own row —
   // both skipped for an exempt account, which paid nothing to settle.
-  assert.match(sBlock, /if \(settle > 0 && !exempt\)[\s\S]*?debitCredits\(auth, settle, debitRef\("settle"\), "debit", true\)/,
+  // THROUGH THE BUILD'S LEDGER (2026-10-08, H2): the bearer first, as before.
+  assert.match(sBlock, /if \(settle > 0 && !exempt\)[\s\S]*?ledger\.debit\(settle, debitRef\("settle"\), "debit", true\)/,
     "a costlier call than the deposit is never charged for");
   assert.match(sBlock, /settle < 0 && !exempt[\s\S]*?giveBack\(debitRef\("deposit"\), "settle", Math\.min\(SITE_BUILD_FEE, -settle\)\)/,
     "a cheaper call than the deposit is never refunded");

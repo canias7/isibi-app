@@ -367,7 +367,10 @@ test("the route reads the links BEFORE the schema designer", () => {
   // about what a site stores, and reading it afterwards leaves the designer
   // guessing from the domain name.
   const read = worker.indexOf("readLinkedPages(brief");
-  const design = worker.indexOf("designSiteSchema(env, briefWithLinks");
+  // THE DESIGNER'S BRIEF IS THE LINKED BRIEF PLUS THE ATTACHED FILES BY NAME
+  // (2026-10-08, H6), built from it after the links are read.
+  assert.ok(worker.indexOf("const designBrief = briefWithLinks + attachedFilesNote(") > worker.indexOf("readLinkedPages(brief"), "the designer's brief is not built from the linked brief");
+  const design = worker.indexOf("designSiteSchema(env, designBrief");
   assert.ok(read > 0, "the route never calls readLinkedPages");
   assert.ok(design > 0, "the designer is not given the linked brief");
   assert.ok(read < design, "links must be read before the designer runs");
@@ -415,7 +418,8 @@ test("both the structured context and its sentence reach the caller", () => {
   // The failure has to travel as far as the success, or the silent-invention
   // bug this feature exists to fix comes straight back wearing a fix.
   assert.match(worker, /context:\s*\(context\.read\.length/, "the response does not carry the context");
-  assert.match(worker, /contextNote:\s*contextSentence\(context\)/, "the response does not carry the sentence");
+  // AND THE CUSTOMER'S OWN PHOTOGRAPHS' OUTCOME BESIDE IT (2026-10-08, H6).
+  assert.match(worker, /contextNote:\s*\[contextSentence\(context\), ownPhotoSentence\(/, "the response does not carry the sentence");
 });
 
 test("the client renders the sentence rather than composing its own", () => {

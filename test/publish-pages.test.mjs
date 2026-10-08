@@ -1823,9 +1823,11 @@ test("every after-the-fact settle goes through collectCredits, not useCredits", 
   // says what it took — under the build's own ref; a stored job from before
   // the ref existed still collects. The router is unchanged. The property is
   // the same: a settle after the work COLLECTS, it never merely asks.
-  assert.match(src, /useCredits: \(n\) => billRef \? debitCredits\(auth, n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
+  // THROUGH THE BUILD'S LEDGER (2026-10-08, H2), still partial and still under
+  // the build's ref: the bearer first, the job's identity when it is refused.
+  assert.match(src, /useCredits: \(n\) => billRef \? buildLedger\(env, \{ auth, uid, jobId \}\)\.debit\(n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
     "publishPages' dep still only asks");
-  assert.match(src, /noteDebit\(debitRef\("settle"\), await debitCredits\(auth, settle, debitRef\("settle"\), "debit", true\)\)/,
+  assert.match(src, /noteDebit\(debitRef\("settle"\), await ledger\.debit\(settle, debitRef\("settle"\), "debit", true\)\)/,
     "the schema settlement still only asks");
   assert.match(src, /rCost = await collectCredits\(auth, rCost\)/, "the router still only asks");
 });
@@ -2000,18 +2002,46 @@ test("the home page failing is still a placeholder, not a stubbed front door", a
   assert.equal(calls.publish.length, 0);
 });
 
-test("a bundler failure is never salvaged — it is not a page problem", async () => {
-  // `build` is the our-fault stage. Stubbing a page cannot fix a drained
-  // container, and doing it would charge a customer for our own rollout.
+test("an infrastructure failure at the bundler is never salvaged — it is not a page problem", async () => {
+  // `build` is also how the container reports a step it was KILLED in, a
+  // missing bundle and an unexpected throw. Stubbing a page cannot fix a
+  // drained container, and doing it would charge a customer for our own
+  // rollout. (2026-10-08, M1: this read `src/routes/menu.tsx(4,1): killed`, a
+  // tsc-shaped page citation no infrastructure failure carries; the real
+  // forms below cite no page, and that is what keeps them out.)
+  for (const error of ["vite build was killed by SIGKILL — killed outright, so either the instance was stopped mid-build or it hit a resource limit (no output)", "build produced no client bundle"]) {
+    const { deps, calls } = harness({
+      generate: async () => gen([good(), good("menu.tsx")]),
+      compile: async () => ({ ok: false, stage: "build", error }),
+    });
+    const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
+    assert.equal(out.page, "placeholder");
+    assert.equal(out.salvage, undefined, "the salvage must not even be planned: " + error);
+    assert.equal(calls.compile.length, 2, "the existing build-stage retry, and nothing more");
+    assert.equal(out.charged, false, "our fault stays our cost");
+  }
+});
+
+test("A PAGE THAT DOES NOT BUNDLE COSTS ONE PAGE — the container's real failure (`stage: \"build\"`, vite's own form) is salvaged", async () => {
+  // THE CONTAINER STOPPED SENDING `typecheck` ON 2026-08-30 (the typecheck
+  // reports; only vite refuses), and salvage waited for it — so this was the
+  // whole site on a placeholder, for one page (2026-10-08, the first-Build
+  // audit's M1).
   const { deps, calls } = harness({
     generate: async () => gen([good(), good("menu.tsx")]),
-    compile: async () => ({ ok: false, stage: "build", error: "src/routes/menu.tsx(4,1): killed" }),
+    compile: async (pages) =>
+      pages.some((p) => p.path === "menu.tsx" && p.source.includes("useRows"))
+        ? { ok: false, stage: "build", error: "vite build\n[vite:esbuild] Transform failed with 1 error:\n/app/src/routes/menu.tsx:4:1: ERROR: Unexpected \"}\"" }
+        : { ok: true, files: { "index.html": { t: "<ok>" } } },
   });
-  const out = await publishPages(deps, { spec: SPEC, slug: "x" });
-  assert.equal(out.page, "placeholder");
-  assert.equal(out.salvage, undefined, "the salvage must not even be planned");
-  assert.equal(calls.compile.length, 2, "the existing build-stage retry, and nothing more");
-  assert.equal(out.charged, false, "our fault stays our cost");
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
+  assert.equal(out.page, "app", "one page that did not bundle still took the whole site");
+  assert.deepEqual(out.salvaged, ["menu.tsx"]);
+  assert.equal(calls.compile.length, 3, "the failure, its one retry, and the compile with the stub");
+  assert.match(calls.stored[0].find((p) => p.path === "menu.tsx").source, /isn't finished yet/);
+  assert.match(out.salvageNote, /menu/, "the missing section is not told");
+  // AND THE FAILING LINE IS CITED FROM VITE'S FORM, as it was from tsc's.
+  assert.deepEqual(out.cited, ["menu.tsx:4: " + good("menu.tsx").source.split("\n")[3].trim()].filter((l) => !l.endsWith(": ")), "the bundler's citation did not reach the response");
 });
 
 test("a salvaged build charges once, after the publish", async () => {

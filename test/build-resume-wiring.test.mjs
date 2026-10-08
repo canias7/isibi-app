@@ -193,7 +193,9 @@ test("THE PAID HALF IS MARKED IN THE CLAIM, and a marked record is refused", () 
     "the already-charged check is not the whole condition it gates on — something else can switch it off");
   // AND IT MUST RETURN, or a check that runs and falls through is decoration.
   const gate = resume.indexOf('if (alreadyCharged(stored, "pages")) {');
-  assert.match(resume.slice(gate, gate + 400), /\n\s*return;/,
+  // 600: the record's delete is followed by the delete of the files kept
+  // beside it for a refire (2026-10-08, M7), before the return.
+  assert.match(resume.slice(gate, gate + 600), /\n\s*return;/,
     "the already-charged check does not stop the resume, so a marked record is run anyway");
 
   // ON THE TERMINAL PATH ONLY. Marking a non-terminal look would refuse the very

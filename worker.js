@@ -35,6 +35,7 @@ import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
+import { placeAttachedPhotos, attachedFilesNote, attachedNames, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
@@ -84,7 +85,7 @@ import {
   designGraphFor, designGraphEveryone,
 } from "./builder/edit-job.mjs";
 import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
-import { RESUME_FIRST_SECONDS, genMarks, resumeKey, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
+import { RESUME_FIRST_SECONDS, genMarks, resumeKey, attachmentsKey, isResumeId, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
@@ -94,7 +95,7 @@ import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -291,7 +292,7 @@ import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, 
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan, designUsable } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
@@ -535,6 +536,78 @@ async function debitCredits(authHeader, amount, ref, reason = "debit", partial =
     taken: Math.max(0, Number(a.taken) || 0), prior: Math.max(0, Number(a.prior) || 0),
     balance: Number.isFinite(Number(a.balance)) && a.balance !== null ? Number(a.balance) : null,
     error: typeof a.error === "string" ? a.error : null,
+  };
+}
+
+/**
+ * A BUILD'S LEDGER, BILLED BY WHO THE BUILD IS FOR — NOT BY A TOKEN THAT AGES
+ * (2026-10-08, the first-Build audit's H2).
+ *
+ * The build route stored the customer's access token in its job and presented
+ * it for every ledger call: the settle debit minutes after the request, the
+ * pages debit after generation, the collector's balance read in a later
+ * invocation. A token lasts an hour and can arrive with a minute left, so a
+ * long build met an expired one: the settle debit failed silently, the balance
+ * read threw and read as 0 (a funded build refused "not enough credits" after
+ * its paid generation), and the pages debit failed and the site published free.
+ *
+ * `who` is the build's trusted identity: `uid`, read by `authUser` when the
+ * build began, and `jobId`, the build's own row, filed by `edit_create` with
+ * that uid. THE TOKEN IS STILL ASKED FIRST, so every build whose bearer is
+ * alive bills exactly as it did. When the ledger REFUSES the bearer (401 or
+ * 403 — expired, or revoked), and only then, a build with both ids, the
+ * service key and the mint key debits through `build_debit`
+ * (supabase/proposed/build_debit.sql), which bills the ROW'S account under the
+ * ROW'S own ref and nothing else — the edit queue's trust boundary, never a
+ * customer credential — and a balance is read by uid (`readCreditsFor`), as
+ * the queued edit's picture lane already does. Both paths write under the same
+ * ref, so the ledger's repeat check stops one charge landing twice.
+ *
+ * UNTIL THE SQL IS APPLIED the function is absent, PostgREST answers 404, and
+ * the bearer's own refusal is what the caller sees, as before. Any other
+ * failure throws, exactly as `debitCredits` does, so a caller that must not
+ * fail the work still catches it. A build with no row (the inline route, a row
+ * that could not be filed) has no job identity and keeps the token, presented
+ * inside the customer's own request.
+ */
+export function buildLedger(env, { auth = "", uid = "", jobId = "" } = {}) {
+  const trusted = !!(uid && jobId && env.SUPABASE_SERVICE_KEY && env.CREDITS_MINT_SECRET);
+  return {
+    trusted,
+    // THE CUSTOMER'S OWN READ FIRST, as before; the account's read only when
+    // that one cannot answer (an expired bearer on a queued build). Never the
+    // other way round: `readCreditsFor` answers 0 for an account with no row,
+    // which must not stand in for a balance that could be read.
+    readCredits: async () => {
+      try { return await readCredits(auth); }
+      catch (e) { if (trusted) return readCreditsFor(env, uid); throw e; }
+    },
+    debit: async (amount, ref, reason = "debit", partial = false) => {
+      let refused = null;
+      try { return await debitCredits(auth, amount, ref, reason, partial); }
+      catch (e) {
+        // ONLY A REFUSED BEARER IS HANDED ON. A timeout or a 5xx may have
+        // landed, and is the caller's to treat as unanswered (L10).
+        if (!trusted || !/^credit_debit rpc 40[13]$/.test(String((e && e.message) || ""))) throw e;
+        refused = e;
+      }
+      {
+        const a = await editRpc(env, "build_debit", { p_id: jobId, p_uid: uid, p_ref: ref, p_amount: amount, p_reason: reason, p_partial: !!partial });
+        const absent = a && a.error === "rpc" && a.status === 404;
+        if (absent) throw refused;
+        {
+          if (!a || typeof a !== "object" || a.error === "rpc" || a.error === "rpc-shape" || a.error === "no-service-key") {
+            throw new Error("build_debit " + String((a && (a.status || a.error)) || "answered nothing"));
+          }
+          return {
+            ok: a.ok === true, exempt: a.exempt === true, repeat: a.repeat === true, short: a.short === true,
+            taken: Math.max(0, Number(a.taken) || 0), prior: Math.max(0, Number(a.prior) || 0),
+            balance: Number.isFinite(Number(a.balance)) && a.balance !== null && a.balance !== undefined ? Number(a.balance) : null,
+            error: typeof a.error === "string" ? a.error : null,
+          };
+        }
+      }
+    },
   };
 }
 
@@ -9021,6 +9094,35 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
 // R2 returns only key and size, and every visitor upload would look like one of
 // the owner's, which is exactly the distinction the visitor allowance is
 // counted on.
+/**
+ * ONE ATTACHED PHOTOGRAPH STORED AS AN OWNER UPLOAD, by the build that was
+ * asked to show it (2026-10-08, H6). The same `handleUpload` the owner's own
+ * upload route runs — content-hashed name, the bytes sniffed, the per-site
+ * count and size caps — with the ownership gate already passed: the build
+ * route has claimed this slug for this account before it gets here. Answers
+ * `{ url }` or `{ error }`; never throws.
+ */
+export async function storeOwnPhoto(env, slug, name, bytes) {
+  if (!env.SITES_BUCKET) return { error: "storage not configured" };
+  try {
+    const r = await handleUpload({
+      gate: async () => ({}),
+      hash: async (b) => {
+        const d = await crypto.subtle.digest("SHA-256", b);
+        return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, "0")).join("");
+      },
+      list: async (s2) => siteUploadList(env, s2),
+      put: (key, b, ct, meta) => env.SITES_BUCKET.put(key, b, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
+      remove: () => {},
+    }, { slug, uid: "", bytes, filename: name });
+    const j = r && r.body && typeof r.body === "object" ? r.body : null;
+    if (r && r.status < 300 && j && typeof j.url === "string" && j.kind !== "doc") return { url: j.url };
+    return { error: String((j && j.error) || "it could not be stored").slice(0, 120) };
+  } catch (e) {
+    return { error: String((e && e.message) || e).slice(0, 120) };
+  }
+}
+
 async function siteUploadList(env, slug) {
   const out = [];
   let cursor;
@@ -10225,6 +10327,14 @@ async function loadSiteSource(env, slug) {
  * from that version's own state before it is read (`ensureEditableState`),
  * so an edit can never quietly republish the site as it was before the edit
  * that preceded it. A check that cannot be made never costs the read.
+ *
+ * …EXCEPT THAT IT DID, for every caller that did not ask for `checked`
+ * (2026-10-08, the first-Build audit's H5): an unconfirmed copy fell back to
+ * the plain read, so a revise or a platform rebuild edited a copy one version
+ * behind and published it over the live site. Every reader that goes on to
+ * publish — the edit and addon routes, a revise's anchor, the platform
+ * rebuild, the owner's text editor and "Back online" — now asks `checked` and
+ * stops when the answer is not the live version's.
  */
 async function loadSiteSourceForEdit(env, slug, { checked = false } = {}) {
   let recovery;
@@ -10661,10 +10771,10 @@ function foundationPaths() {
   return FOUNDATION_PATH_SET;
 }
 
-async function saveSiteKit(env, slug, kit) {
-  if (!env.SITES_BUCKET) return false;
+/** The kit files a project stores, as the editable copy and a version's state both hold them. */
+function kitList(kit) {
   const have = foundationPaths();
-  const list = (Array.isArray(kit) ? kit : [])
+  return (Array.isArray(kit) ? kit : [])
     .filter((f) => f && typeof f.path === "string" && typeof f.source === "string" && f.path && f.source)
     // NOTHING ABOVE THE PROJECT, whatever the container sent. Its own reader is
     // fenced to the app directory, and this is the second wall on the same
@@ -10672,6 +10782,11 @@ async function saveSiteKit(env, slug, kit) {
     // wrote, and a customer's zip is somewhere a `..` must never reach.
     .filter((f) => !f.path.startsWith("/") && !f.path.split("/").includes("..") && !have.has(f.path))
     .map((f) => ({ path: f.path, source: f.source }));
+}
+
+async function saveSiteKit(env, slug, kit) {
+  if (!env.SITES_BUCKET) return false;
+  const list = kitList(kit);
   // AN EMPTY LIST IS WRITTEN, `saveSiteParts`' rule for its own reason: a revise
   // that drops the last component the kit was pulled in for must be able to
   // shrink the project, and skipping the write would keep re-sending files the
@@ -10839,6 +10954,7 @@ async function restoreVersion(env, slug, id) {
         const json = { httpMetadata: { contentType: "application/json" } };
         if (typeof b.pages === "string") await env.SITES_BUCKET.put(SOURCE_KEY(slug), b.pages, json);
         if (typeof b.parts === "string") await env.SITES_BUCKET.put(PARTS_KEY(slug), b.parts, json);
+        if (typeof b.kit === "string") await env.SITES_BUCKET.put(KIT_KEY(slug), b.kit, json);
         if (typeof b.config === "string") {
           const cur = await readSiteConfig(env, slug, null);
           if (cur && cur.ok) {
@@ -10910,7 +11026,7 @@ async function ensureEditableState(env, slug) {
   };
   try {
     if (need.repair) {
-      const r = await repairEditable(deps, { slug, version: pointer.version, keys: { source: SOURCE_KEY(slug), parts: PARTS_KEY(slug) }, mergeConfig });
+      const r = await repairEditable(deps, { slug, version: pointer.version, keys: { source: SOURCE_KEY(slug), parts: PARTS_KEY(slug), kit: KIT_KEY(slug) }, mergeConfig });
       console.log("editable state:", slug, need.why, "→ repaired from", pointer.version, JSON.stringify(r.wrote || []), r.ok ? "" : "(" + r.why + ")");
       return { ok: r.ok, why: need.why, wrote: r.wrote || [], version: pointer.version };
     }
@@ -12701,6 +12817,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       state: {
         pages: pagesJson(pages), parts: partsJson(siteParts || []),
         config: await stateConfigText(env, slug), sidecar: JSON.stringify(composed.sidecar),
+        // THE KIT ONLY WHEN THE CONTAINER RESOLVED ONE — the same condition
+        // the editable copy is written on, so the two never disagree.
+        ...(Array.isArray(built.kit) ? { kit: JSON.stringify(kitList(built.kit)) } : {}),
       },
       manifest: {
         parent: parentVersion, job: job ? String(job.id) : null, label: label || "Rebuilt",
@@ -12841,16 +12960,23 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // THE STORED SOURCE IS WHAT THE NEXT EDIT READS — the same bytes the
       // version's state holds, written once the site is live and never before.
       tm("r2:source", "start");
-      await saveSiteSource(env, slug, pages);
+      // EACH SAVE'S ANSWER IS KEPT (2026-10-08, the first-Build audit's H5).
+      // They answer false rather than throw, and the marker below was written
+      // whatever they answered — so a source that failed to store was marked
+      // as the live version's, and the next edit read the OLD pages as current
+      // and published them over the change. Now a failed save leaves the
+      // marker behind, and the next job repairs from this version's own state.
+      const saved = { source: await saveSiteSource(env, slug, pages) };
       // AND THE PARTS BESIDE THEM, on the same terms.
-      if (Array.isArray(parts)) await saveSiteParts(env, slug, parts);
+      if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts);
       // AND THE KIT CLOSURE THE CONTAINER JUST RESOLVED. Every cheap edit
       // republishes through here, so a site whose edit added a component that
       // pulls in a new kit file gets that file stored with the same publish —
       // the spine's own "anything a build bakes must be sent by the spine too",
       // pointed at what the project DEPENDS on rather than what it renders.
-      if (Array.isArray(built.kit)) await saveSiteKit(env, slug, built.kit);
-      tm("r2:source", "ok");
+      if (Array.isArray(built.kit)) saved.kit = await saveSiteKit(env, slug, built.kit);
+      const unsaved = Object.keys(saved).filter((k) => saved[k] !== true);
+      tm("r2:source", unsaved.length ? "fail" : "ok", unsaved.length ? { why: unsaved.join(",") } : undefined);
       // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to
       // aim by. After the source, deliberately: the source is what the next
       // edit EDITS and the map is only what helps it aim, so a map that fails
@@ -12861,6 +12987,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // AND THE MARKER LAST (stage 6): the editable copy names the version it
       // came from, so the next job can tell a finished copy from one that
       // died between the pointer and here, and repair it before it reads.
+      if (unsaved.length) { tm("r2:head", "fail", { why: "unsaved:" + unsaved.join(",") }); return; }
       await writeHead(buildDeps(env), slug, version);
       tm("r2:head", "ok");
     },
@@ -13107,6 +13234,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // WHETHER THE SOURCE STORE LANDED — see the call. `true` on every ordinary
   // build, so the response's field is omitted and nothing changes shape.
   let sourceStored = true;
+  // AND WHETHER THE WHOLE EDITABLE COPY DID — source, parts and kit — which
+  // is what decides the version marker (H5, 2026-10-08).
+  let editableStored = true;
   // HOW MANY PHOTOGRAPHS THIS SITE MAY HAVE, derived once from the family's own
   // page set. It is stated to the model BEFORE generation and cut down to what
   // the balance carries AFTER it, and those cannot be the same number: what a
@@ -13815,6 +13945,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         state: {
           pages: pagesJson(pages), parts: partsJson(partsBuilt),
           config: await stateConfigText(env, slug), sidecar: JSON.stringify(composed.sidecar),
+          kit: JSON.stringify(kitList(kitBuilt)),
         },
         manifest: {
           parent: bParent, job: null,
@@ -13853,11 +13984,20 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           // list included, so a revise that removed the last one is recorded
           // as having removed it rather than resurrecting it forever.
           sourceStored = await saveSiteSource(env, slug, pages);
-          await saveSiteParts(env, slug, partsBuilt);
+          const partsStored = await saveSiteParts(env, slug, partsBuilt);
           // AND THE PROJECT'S OWN DEPENDENCIES, so the Download builds.
-          await saveSiteKit(env, slug, kitBuilt);
+          const kitStored = await saveSiteKit(env, slug, kitBuilt);
           // THE MARKER LAST (stage 6): which version this copy is, for the
-          // next job's repair to read against the pointer.
+          // next job's repair to read against the pointer — AND ONLY WHEN ALL
+          // THREE LANDED (2026-10-08, the first-Build audit's H5). A copy
+          // marked current with a stale file in it is read by the next edit as
+          // the live site and published over it; left unmarked, the next job
+          // sees `behind` and repairs from this version's own state.
+          editableStored = sourceStored === true && partsStored === true && kitStored === true;
+          if (!editableStored) {
+            console.error("build: the editable copy did not fully store for", slug, JSON.stringify({ source: sourceStored, parts: partsStored, kit: kitStored }), "— the marker stays behind");
+            return;
+          }
           await writeHead(buildDeps(env), slug, bVersion);
         },
       });
@@ -13872,13 +14012,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // never the revise anchor: a broken answer stored there would be handed to
     // the next edit as the site's source.
     keep: (answer) => saveGenAnswer(env, slug, answer),
-    readCredits: () => readCredits(auth),
+    // BY WHO THE BUILD IS FOR, NEVER BY A TOKEN THAT AGES (H2, `buildLedger`).
+    readCredits: () => buildLedger(env, { auth, uid, jobId }).readCredits(),
     // THE PAGES DEBIT IS EXPLICIT (stage 1c): under the build's own ref,
     // partial when the balance is short, `exempt` for a founder, `repeat` on a
     // duplicate delivery — the ledger's answer rides to `publishPages`, which
     // reads `taken` for `cost` and carries `exempt` on the reply. A job stored
     // before the ref existed falls back to the collect it always made.
-    useCredits: (n) => billRef ? debitCredits(auth, n, billRef + ":pages", "debit", true) : collectCredits(auth, n),
+    useCredits: (n) => billRef ? buildLedger(env, { auth, uid, jobId }).debit(n, billRef + ":pages", "debit", true) : collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
@@ -13909,6 +14050,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // caught by `confirm smoke` and `member smoke` going red in CI, not by
   // anything in the suite.
   if (sourceStored === false) out.sourceStored = false;
+  if (editableStored === false) out.editableStored = false;
   // WHICH SIDE HELD THE TEN-MINUTE CALL, on the response.
   //
   // The whole point of moving generation into the container is that a build
@@ -14725,7 +14867,7 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // NULL ON THE INLINE FALL-THROUGH, which is the honest answer there: a
     // build the producer ran itself has no queue job, so it cannot be resumed
     // and correctly keeps waiting for its generation the old way.
-    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease });
+    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid) });
     out = packResult({
       status: res.status,
       type: res.headers.get("content-type") || "application/json",
@@ -14959,6 +15101,12 @@ export async function runLostEditJobs(env) {
   if (r && r.ok === true && Object.values(counts).some((n) => (Number(n) || 0) > 0)) {
     console.log("edit sweep:", JSON.stringify({ ...counts, refunded: r.refunded }));
   }
+  // AND WHAT EACH LOST BUILD LEFT BEHIND (2026-10-08, the first-Build audit's
+  // H1): the SQL sweep marks a build `lost` and moves no money, by design —
+  // whether it published is not a fact the table holds. Settled here, from the
+  // pointer and the ledger, before any refund or sentence.
+  try { await reconcileLostBuilds(env); }
+  catch (e) { console.error("lost builds: reconcile threw", String((e && e.message) || e)); }
   // ── A QUEUED ROW NOBODY PICKED UP (stage 3a, 2026-09-05) ───────────────────
   //
   // No lease and nothing touching it for STALE_QUEUED_S: its message was never
@@ -15041,6 +15189,94 @@ async function closeStaleJob(env, x) {
 // customer's sentence stored where the poll route reads it. It runs at three
 // doors: the consumer, the moment its refund answers `needs-review`; the sweep
 // tick, over every row under review; and the owner's route, dry or applied.
+
+/**
+ * WHOSE QUEUED BUILD THIS IS, FROM ITS ROW (2026-10-08, the first-Build
+ * audit's H2): the row's uid, read with the service key, when it is a build
+ * row and names the same account the job was filed with — the account that
+ * was authenticated when both were written. Anything else answers "".
+ */
+async function buildJobOwner(env, id, uid) {
+  if (!uid || !isResumeId(id)) return "";
+  const rows = await readEditRows(env, "id=eq." + id, 1);
+  const row = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+  return row && row.op === BUILD_OP && typeof row.uid === "string" && row.uid === uid ? uid : "";
+}
+
+/**
+ * LOST BUILDS, RECONCILED (2026-10-08, the first-Build audit's H1).
+ *
+ * For each build row the sweep marked `lost` in the last day: read whether the
+ * site published (`lostBuildVerdict`, off the uncached pointer), then
+ *
+ *   published      keep what the build charged, and answer that the site is
+ *                  live and its report was lost
+ *   not-published  reverse every step of the build's own ledger refs
+ *                  (`refundBuildByRef`), and answer with what came back
+ *   unknown        move nothing and answer nothing; the next tick asks again
+ *
+ * IDEMPOTENT, BY TWO THINGS. `credit_reverse` is bounded by what each ref
+ * debited and answers a repeat of the same (ref, reason) with nothing more, so
+ * a second pass cannot return a credit twice; and this never debits, so it
+ * cannot charge. A marker beside the job (`jobs/<id>.lost.json`) records what
+ * was settled, so the answer the customer reads is not rewritten by a later
+ * pass to "nothing returned"; a short reversal leaves the marker open and is
+ * retried, adding what each pass returned.
+ *
+ * The answer goes where the build's own would (`resultKey`), so it wins over
+ * the row's neutral sentence at both readers.
+ */
+const LOST_BUILD_WINDOW_MS = 24 * 3600 * 1000;
+export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return { checked: 0 };
+  const since = new Date(now - LOST_BUILD_WINDOW_MS).toISOString();
+  let rows = null;
+  try {
+    const q = `op=eq.${BUILD_OP}&state=eq.lost&updated_at=gt.${encodeURIComponent(since)}&select=id,uid,slug,op,state,created_at,updated_at&order=updated_at.asc&limit=20`;
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${q}`, { headers: svcHeaders(env) });
+    rows = r.ok ? await r.json() : null;
+  } catch (e) { console.error("lost builds: could not read edit_jobs", String((e && e.message) || e)); }
+  if (!Array.isArray(rows)) return { checked: 0, unread: true };
+  const seen = { checked: 0, published: 0, refunded: 0, unknown: 0, settled: 0 };
+  for (const row of rows) {
+    const id = String((row && row.id) || "");
+    const uid = String((row && row.uid) || "");
+    if (!isResumeId(id) || !uid) continue;
+    seen.checked++;
+    const markKey = "jobs/" + id + ".lost.json";
+    let mark = null;
+    try { const o = await env.SITES_BUCKET.get(markKey); mark = o ? JSON.parse(await o.text()) : null; } catch { mark = null; }
+    if (mark && mark.settled === true) { seen.settled++; continue; }
+    const slug = isRowSlug(row.slug) ? row.slug : "";
+    let pointer;
+    if (slug) {
+      try { pointer = await readPointer(buildDeps(env), slug); } catch { pointer = undefined; }
+    }
+    const v = lostBuildVerdict({ row, pointer });
+    if (v.outcome === "unknown") { seen.unknown++; console.log("lost builds:", id, "unknown —", v.why); continue; }
+    let returned = Number((mark && mark.returned) || 0) || 0;
+    let short = false;
+    if (v.outcome === "not-published") {
+      const back = await refundBuildByRef(env, uid, "build:" + id, "lost");
+      returned += Number(back.returned) || 0;
+      short = !!back.short;
+      seen.refunded += Number(back.returned) || 0;
+    } else seen.published++;
+    const msg = lostBuildMessage({ outcome: v.outcome, slug, returned, short });
+    const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
+    const body = v.outcome === "published"
+      ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", notes: msg, msg }
+      : slug
+        ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
+        : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
+    try {
+      await env.SITES_BUCKET.put(markKey, JSON.stringify({ outcome: v.outcome, why: v.why, returned, settled: !short, at: new Date(now).toISOString() }));
+      await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({ status: slug || v.outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) })));
+    } catch (e) { console.error("lost builds: could not write the answer for", id, String((e && e.message) || e)); }
+    console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
+  }
+  return seen;
+}
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
 const EDIT_ROW_COLS = "id,uid,slug,op,state,phase,cost,billing,needs_review,review_note,artifact_build,worker_status,publish_started_at,published_at,result,updated_at";
@@ -16869,6 +17105,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   if (alreadyCharged(stored, "pages")) {
     console.error("build resume:", id, "already ran its paid half — refusing to charge twice");
     try { await env.SITES_BUCKET.delete(resumeKey(id)); } catch { /* a stranded record is a few kilobytes; NOTHING sweeps `jobs/` */ }
+    try { await env.SITES_BUCKET.delete(attachmentsKey(id)); } catch { /* the files kept for a refire go with their record */ }
     return;
   }
 
@@ -17121,9 +17358,23 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // was declared inside the try, which is what forced the bare `rec.finish()`
   // underneath — see the comment there for what that cost.
   let pages = null;
+  // THE ATTACHED FILES, READ BACK FOR A REFIRE ONLY (2026-10-08, M7). A
+  // resume returns the stored answer and never reads them; a refire writes the
+  // pages again and must see what the customer sent. One that cannot be read
+  // back is marked on the trace rather than run as though nothing was sent.
+  let refireFiles = [];
+  if (decision.act === "refire" && Number(design.attachmentsSent) > 0) {
+    try {
+      const o = Number(design.attachmentsHeld) > 0 ? await env.SITES_BUCKET.get(attachmentsKey(id)) : null;
+      const v = o ? JSON.parse(await o.text()) : null;
+      if (Array.isArray(v)) refireFiles = v;
+    } catch (e) { console.error("build resume: could not read back the attachments for", id, String((e && e.message) || e)); }
+    try { tr.at("attachments", { sent: Number(design.attachmentsSent), back: refireFiles.length }); } catch { /* a trace must never break a build */ }
+  }
   try {
     pages = await buildAndPublishPages(env, {
       ...design,
+      attachments: refireFiles,
       // THE RECORD'S OWN ID, explicitly (stage 2c): the fire needs it to tell
       // the container which row's lease it holds, and the stored design
       // deliberately does not carry a copy.
@@ -17378,6 +17629,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // work, a redelivery would find nothing, read it as a finished resume, and
   // the build would be lost with its generation still running.
   try { await env.SITES_BUCKET.delete(resumeKey(id)); } catch { /* a stranded record is a few kilobytes; NOTHING sweeps `jobs/` */ }
+  try { await env.SITES_BUCKET.delete(attachmentsKey(id)); } catch { /* the files kept for a refire go with their record */ }
   try {
     await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
   } catch (e) {
@@ -17449,7 +17701,7 @@ function buildHeld(body) {
   return heldParts(asked ? String(asked).trim().slice(0, REWRITE_MAX_CHARS) : "", body && body.alsoAsked);
 }
 
-async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null }) {
+async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null }) {
       // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
       // The edit and add-on routes' wrapper, for the climb that reaches here:
       // the parts taken out of the instruction below are added to whatever
@@ -17461,7 +17713,19 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // `lease` (stage 2c): the queue consumer's own name on the build's row,
       // handed to the container at fire time. Null on the inline path and on
       // a build whose row could not be claimed, where nothing is handed off.
-      const bu = await authUser(request);
+      let bu = await authUser(request);
+      // A QUEUED BUILD WHOSE BEARER HAS EXPIRED (2026-10-08, the first-Build
+      // audit's H2). The customer was authenticated when the job was filed —
+      // the row was created for that account then — and a job that waits in
+      // the queue, or resumes, past the token's hour used to fail here and
+      // charge nothing it owed or refund nothing it took. The consumer that
+      // holds the row's lease vouches instead: `jobOwner` reads the row with
+      // the service key and answers its uid only when it is the job's own and
+      // the row is a build. Nothing a request carries can reach this.
+      if (!bu && jobId && lease && typeof jobOwner === "function") {
+        const uid = await jobOwner().catch(() => "");
+        if (typeof uid === "string" && uid) bu = { id: uid, viaJob: true };
+      }
       if (!bu) return UNAUTHED();
       if (!siteDbConfigured(env)) return Response.json({ ok: false, error: "site database not configured", need: "NEON_API_KEY" }, { status: 501 });
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
@@ -17794,6 +18058,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
         ? contextBrief(brief, { pages: linked, files: attached.texts })
         : brief;
+      // AND THE ATTACHED FILES BY NAME, for the designer alone (2026-10-08,
+      // H6): the blocks carry no names, and a designer asked to tie a picture
+      // to a file has to be able to say which. Only files that really reached
+      // the model are listed.
+      const designBrief = briefWithLinks + attachedFilesNote(attachedNames(body.images)
+        .filter((f) => !attached.skipped.some((k) => k && k.name === f.name)));
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null, seedUsage = null, seedTopUp = null;
@@ -17856,7 +18126,14 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // takes nothing twice; an inline build mints one.
       const billRef = "build:" + (jobId || crypto.randomUUID());
       const debitRef = (step) => billRef + ":" + step;
+      // THE BUILD'S LEDGER, by who it is for (H2): the verified uid and the
+      // build's own row, never the stored token once the build has a row.
+      const ledger = buildLedger(env, { auth, uid: bu.id, jobId });
       const bill = new Map(); // ref → { taken, back }
+      // REFS WHOSE DEBIT THREW, so whether it landed is unknown (L10). Not in
+      // `bill`, which records only answered debits — and so, before this,
+      // never given back by `refundFields`.
+      const unanswered = new Set();
       const owed = () => { let n = 0; for (const e of bill.values()) n += Math.max(0, e.taken - e.back); return n; };
       // RECORD what a debit answered. A repeat is the earlier attempt's debit,
       // remembered at what the ledger says it took (`prior`), so the refund
@@ -17910,10 +18187,21 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         for (const [ref, e] of bill) {
           if (e.taken - e.back > 0) await giveBack(ref, "refund", e.taken - e.back);
         }
+        // AND EVERY DEBIT WHOSE ANSWER WAS LOST, by ref (L10). A reversal is
+        // bounded by what the ref really debited and is idempotent per reason,
+        // so one that never landed returns nothing and a second call returns
+        // nothing more. One that cannot be made leaves the charge unknown,
+        // which is reported as short rather than as nothing owed.
+        let unknown = false;
+        for (const ref of unanswered) {
+          if (bill.has(ref)) continue;
+          const r = await reverseCredits(env, bu.id, ref, "refund", REVERSE_WHOLE);
+          if (!r.ok) { unknown = true; console.error("reversal short:", ref, "refund", "(no answer, the debit's own answer was lost)"); }
+        }
         const left = owed();
         schemaCost = left;
-        refundShort = left > 0;
-        return left > 0 ? { cost: left, refundShort: true } : { cost: 0 };
+        refundShort = left > 0 || unknown;
+        return left > 0 || unknown ? { cost: left, refundShort: true } : { cost: 0 };
       };
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
@@ -17935,9 +18223,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // twice (`repeat`, at what the first delivery took).
         let dep;
         try {
-          dep = await debitCredits(auth, SITE_BUILD_FEE, debitRef("deposit"), "debit", false);
+          dep = await ledger.debit(SITE_BUILD_FEE, debitRef("deposit"), "debit", false);
         } catch {
-          return Response.json({ ok: false, msg: "Credits check failed — try again in a moment." }, { status: 503 });
+          // A DEBIT WHOSE ANSWER WAS LOST MAY STILL HAVE LANDED (2026-10-08,
+          // the first-Build audit's L10): the call times out after ten
+          // seconds, and the ledger may have committed before it did. So the
+          // ref is reversed whatever happened — a debit that never landed
+          // reverses nothing — and the reply says when that could not be done.
+          const back = await refundBuildByRef(env, bu.id, billRef, "unanswered");
+          return Response.json({ ok: false, msg: "Credits check failed — try again in a moment.", refundShort: back.short || undefined }, { status: 503 });
         }
         noteDebit(debitRef("deposit"), dep);
         // `cost` IS WHAT A BUILD NEEDS, on this branch as on the one below. It
@@ -18111,10 +18405,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // EVER PASSES IT — see `designSiteSchema`, where the default is false
           // so the two edit lanes keep the whole tool by saying nothing.
           const dz = useGraph
-            ? await designSiteGraph(env, briefWithLinks, models.design, attached.blocks, budget, designGraph, firstBuild)
+            ? await designSiteGraph(env, designBrief, models.design, attached.blocks, budget, designGraph, firstBuild)
             : useWaves
-            ? await designSiteWaves(env, briefWithLinks, models.design, attached.blocks, budget, designWaves, firstBuild)
-            : await designSiteSchema(env, briefWithLinks, models.design, editState, attached.blocks, budget, firstBuild);
+            ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild)
+            : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
           // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
           // five backend fields nested under `backend`; every reader below —
           // `designed.tables`, `designed.seed`, the addon lane's filter, the
@@ -18123,6 +18417,23 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // independently; this hop is for the RAW reads that never go through it.
           designed = liftBackend(dz && dz.input);
           schemaUsage = (dz && dz.usage) || null;
+          // A FIRST BUILD WITH NO USABLE DESIGN STOPS HERE (2026-10-08, the
+          // first-Build audit's H4), before the seed top-up, the settlement,
+          // provisioning and the page writer. No tool call, unparseable
+          // arguments and an incomplete split design all arrive as `null`, and
+          // "no tables" could not tell that from a valid frontend-only design,
+          // so the build went on with an all-null look and was charged. A
+          // design with no tables is still a site; one with no name, purpose or
+          // page is not. The catch below gives the deposit back, as for any
+          // design that failed.
+          if (firstBuild) {
+            const usable = designUsable(designed);
+            if (!usable.ok) {
+              const err = new Error("the design answer is unusable: " + usable.missing.join(", "));
+              err.unusable = usable.missing;
+              throw err;
+            }
+          }
           designedShape = (dz && dz.shape) || null;
           // WHICH DESIGNER RAN, ON THE ROW THAT SURVIVES. A split design and a
           // single-call design produce the same site at the same address, so
@@ -18253,8 +18564,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // COLLECT, not just ask: `partial` takes what is there when the
             // balance cannot cover the difference, and the ledger says what it
             // took — `schemaCost` is read off the ledger below, never assumed.
-            try { noteDebit(debitRef("settle"), await debitCredits(auth, settle, debitRef("settle"), "debit", true)); }
-            catch { /* keep the build */ }
+            try { noteDebit(debitRef("settle"), await ledger.debit(settle, debitRef("settle"), "debit", true)); }
+            catch { unanswered.add(debitRef("settle")); /* keep the build; a refusal below gives it back by ref */ }
           } else if (settle < 0 && !exempt) {
             // A cheaper call than the deposit gives the difference back — a
             // reversal of the deposit's OWN row, bounded by it. A reversal that
@@ -18279,7 +18590,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           const kind = upstreamKind(e && e.detail, e && e.status);
           return Response.json({
             ok: false,
-            msg: e && e.truncated
+            msg: e && e.unusable
+              ? "The designer didn't send back a usable plan for this site, so nothing was built and the deposit was returned. Try again in a moment."
+              : e && e.truncated
               ? "That brief needs more room than the designer had — try describing fewer things to store."
               // OUR CEILING, NOT THEIR OUTAGE, and it must not read as one. A
               // timeout has no HTTP response, so without asking it fell through
@@ -18327,6 +18640,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             why: (e && e.name) === "ReferenceError" ? String((e && e.message) || "").slice(0, 120) : undefined,
             billing: kind.billing || undefined,
             truncated: !!(e && e.truncated),
+            unusable: (e && e.unusable) || undefined,
           }, { status: 503 });
         }
         // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
@@ -18358,7 +18672,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // `confirm smoke` and `member smoke` build this way on a fresh account
         // and must keep passing).
         const floor = MIN_CREDITS;
-        const bal = await readCredits(auth).catch(() => null);
+        const bal = await ledger.readCredits().catch(() => null);
         // FAILS CLOSED. An unreadable ledger is the shape that made this free in
         // the first place — "cannot tell" must not mean "go ahead" on the one
         // path that provisions a capped resource.
@@ -18943,6 +19257,18 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // on the literal's fields (fonts required since the registry went;
       // brand/description anchored so an edit cannot rename the site) are
       // `mergeLook`'s own and are told in builder/site-edit.mjs.
+      // THE CUSTOMER'S OWN PHOTOGRAPHS (2026-10-08, the first-Build audit's
+      // H6), stored before the look is: an `images` entry the designer tied to
+      // an attached file (`attached`) is stored as an owner upload and given
+      // its url (`src`), so the page writer has a real picture to place and a
+      // later revise still has it. A name that matches nothing attached, or a
+      // file the store refused, is told in the reply rather than bought.
+      let ownPhotos = { placed: [], missing: [] };
+      if (Array.isArray(merged.images) && merged.images.some((e) => e && typeof e.attached === "string" && !e.src)) {
+        ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes));
+        merged.images = ownPhotos.images;
+        if (ownPhotos.placed.length || ownPhotos.missing.length) tr.at("ownphotos", { placed: ownPhotos.placed.length, missing: ownPhotos.missing.length });
+      }
       const look = merged;
       // WRITTEN ON EVERY BUILD, not only the first.
       //
@@ -19149,6 +19475,18 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // different consumer invocation, and everything the designer bought
           // lives nowhere else between the two. Built once and used twice, so
           // what is replayed cannot drift from what was run.
+          // A REVISE EDITS THE PUBLISHED VERSION OR DOES NOT START (2026-10-08,
+          // the first-Build audit's H5). The editable copy is checked against
+          // the live pointer and repaired from that version's own state when it
+          // is behind; when that cannot be done the revise stops here, before
+          // any page is written, rather than editing an older copy and
+          // publishing it over the live site.
+          const priorRead = existing ? await loadSiteSourceForEdit(env, slug, { checked: true }) : null;
+          if (priorRead && priorRead.ok !== true) {
+            const err = new Error("the published version's editable copy could not be confirmed (" + String(priorRead.why || "read") + ")");
+            err.sourceUnknown = String(priorRead.why || "read");
+            throw err;
+          }
           buildArgs = {
             // The linked pages and the researched facts ride on the brief, which
             // both model calls already take — so neither had to learn a new
@@ -19197,7 +19535,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // not fail the build — `livePages` turns an unreadable read into
             // `undefined` rather than `[]`, so salvage refuses instead of
             // destroying.
-            priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,
+            priorPages: priorRead ? priorRead.pages : null,
             // AND ITS COMPONENTS (2026-10-02, the whole-router audit's W3). A
             // page the rewrite does not return is kept, and the container
             // writes only the components it is handed — so a kept page's own
@@ -19369,7 +19707,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // needed a Cloudflare log. Measured: both CI suites red on an upstream
           // 400 for forty minutes with nothing in any response to say why.
           const kind = upstreamKind(e && e.detail, e && e.status);
-          pages.stage = "generate";
+          pages.stage = e && e.sourceUnknown ? "source" : "generate";
           pages.upstream = (e && e.status) || null;
           pages.upstreamType = kind.type;
           if (kind.billing) pages.billing = true;
@@ -19379,6 +19717,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           pages.notes = kind.billing
             ? "Your database is live. Writing the pages is temporarily unavailable — this is on us, not your brief."
             : "Your database is live, but writing the pages didn't work this time — send it again to retry.";
+          if (e && e.sourceUnknown) {
+            pages.sourceUnknown = e.sourceUnknown;
+            pages.notes = "I couldn't confirm your site's current pages, so I stopped before writing anything over them. Your live site is unchanged — send the change again in a moment.";
+          }
         }
       }
 
@@ -19405,6 +19747,16 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // be a second answer to a question the record already answers.
         const { attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, jobId: _j, ...design } = buildArgs || {};
         let stored = false;
+        // …BUT A REFIRE WRITES THE PAGES AGAIN (2026-10-08, the first-Build
+        // audit's M7), and it did so with none of the files the customer
+        // attached. They are kept beside the record, not in it, and the record
+        // says how many, so a refire that cannot read them back knows it.
+        const held = Array.isArray(_drop) ? _drop : [];
+        let attachmentsHeld = 0;
+        if (held.length) {
+          try { await env.SITES_BUCKET.put(attachmentsKey(jobId), JSON.stringify(held)); attachmentsHeld = held.length; }
+          catch (e) { console.error("build: could not keep the attachments for a refire of", slug, String((e && e.message) || e)); }
+        }
         try {
           await env.SITES_BUCKET.put(resumeKey(jobId), JSON.stringify(packResume({
             id: jobId, auth, uid: (bu && bu.id) || "", slug,
@@ -19419,7 +19771,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // mark below, which is honest: that mark is about the handoff, and
             // this snapshot is what the build had done when it decided to fire.
             steps: (() => { try { return tr.done().steps; } catch { return []; } })(),
-            design: { ...design, attachments: [] },
+            design: { ...design, attachments: [], ...(held.length ? { attachmentsHeld, attachmentsSent: held.length } : {}) },
             // WHAT THIS REWRITE TOOK OUT OF THE MESSAGE (2026-10-02, the review
             // of batch 2). The answer the customer finally reads is written by
             // a later invocation, which has only this record to say it from.
@@ -19488,6 +19840,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // makes it sweepable, and the fall-through below publishes the
             // stand-in exactly as any other generation failure would.
             try { await env.SITES_BUCKET.delete(resumeKey(jobId)); } catch { /* a stranded record is a few kilobytes; NOTHING sweeps `jobs/` */ }
+            try { await env.SITES_BUCKET.delete(attachmentsKey(jobId)); } catch { /* the files kept for a refire go with their record */ }
           }
         }
         // COULD NOT HAND IT OFF. The generation is running in a container
@@ -19563,7 +19916,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // a build with nothing to show is reversed. `refundFields` reverses every
       // ref by the ledger's own row and re-reads what stays, so `schemaCost` —
       // and therefore the `cost` on the reply — is corrected by the same call.
-      if (pages.page !== "app" && ourFault(pages.stage)) await refundFields();
+      // THE PAGES REF TOO, by ref (L10): its debit runs inside the publish,
+      // which reads a lost answer as nothing taken. A ref that never debited
+      // reverses nothing.
+      if (pages.page !== "app" && ourFault(pages.stage)) { unanswered.add(debitRef("pages")); await refundFields(); }
       // SPLIT, not one number. `pages` was the model call, the container compile
       // and ~20 R2 puts together — the majority of a build's wall clock with no
       // way to attribute it.
@@ -19729,7 +20085,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // sentence built there would be a second copy of this logic that drifts
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: contextSentence(context) || undefined,
+        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" })].filter(Boolean).join(" ") || undefined,
+        ownPhotos: ownPhotoFacts(ownPhotos),
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
@@ -19814,6 +20171,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // the exact bug the source store exists to prevent — with nothing
         // anywhere saying it had happened.
         sourceStored: pages.sourceStored === false ? false : undefined,
+        editableStored: pages.editableStored === false ? false : undefined,
+        sourceUnknown: pages.sourceUnknown || undefined,
         prerenderSkipped: pages.prerenderSkipped || undefined,
         // AND WHETHER MODEL-WRITTEN CODE RAN SANDBOXED. Only ever present as
         // `false` — the ordinary answer is silence and the field's PRESENCE is
@@ -24258,8 +24617,13 @@ async function handleRequest(request, env, ctx) {
             // the reader collapses an R2 blip and a genuinely sourceless site
             // into one null: retrying heals the blip, and a site that really
             // has none parks at the backoff cap with this sentence on its row.
-            const rbPages = await loadSiteSourceForEdit(env, ownerSlug);
-            if (!rbPages) return Response.json({ ok: false, error: "read", ours: true, detail: "no stored page source for " + ownerSlug }, { status: 200 });
+            // CHECKED (2026-10-08, the first-Build audit's H5): an editable copy
+            // that is behind the live version and cannot be repaired would be
+            // recompiled and published over it. `!rbPages` never fired — the
+            // unchecked reader answers a list, an empty one included.
+            const rbRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            const rbPages = rbRead && rbRead.ok === true ? rbRead.pages : null;
+            if (!rbPages || !rbPages.length) return Response.json({ ok: false, error: "read", ours: true, detail: (rbRead && rbRead.ok !== true ? "the editable copy could not be confirmed against the live version for " : "no stored page source for ") + ownerSlug }, { status: 200 });
             // 200 WHATEVER HAPPENED, and the body is the verdict. The
             // consumer reads `ok: false` as "did not ship" and refunds a job
             // that was never charged; the drain reads this object out of the
@@ -34512,8 +34876,13 @@ async function handleRequest(request, env, ctx) {
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
 
-            const src = await loadSiteSource(env, ownerSlug);
-            if (!src) {
+            // CHECKED (2026-10-08, H5): the words shown for editing are the
+            // live version's, or none — a copy behind the live version would be
+            // edited and saved over it.
+            const srcRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            if (srcRead.ok !== true) return Response.json({ ok: false, error: "source-unconfirmed", msg: "I couldn't confirm this site's current pages just now, so there's nothing safe to edit yet — try again in a moment." }, { status: 503 });
+            const src = srcRead.pages;
+            if (!src || !src.length) {
               // A site built before the source was stored has nothing to edit.
               // Said plainly rather than answered with an empty list, which
               // reads as "this page has no words on it".
@@ -35087,7 +35456,11 @@ async function handleRequest(request, env, ctx) {
               putWorker: ({ slug, code, build }) => putSiteWorker(env, slug, { ok: true, code, build }),
               dropWorker: ({ slug }) => dropSiteWorker(env, slug),
               recompile: async ({ slug }) => {
-                const src = await loadSiteSource(env, slug).catch(() => null);
+                // CHECKED (2026-10-08, H5): bringing a site back recompiles its
+                // editable copy, so a copy behind the live version that cannot
+                // be repaired must not be the one published.
+                const read = await loadSiteSourceForEdit(env, slug, { checked: true }).catch(() => null);
+                const src = read && read.ok === true ? read.pages : null;
                 if (!src || !src.length) return { ok: false };
                 return recompileAndPublish(env, { slug, pages: src, label: "Back online" });
               },

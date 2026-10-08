@@ -785,7 +785,7 @@ test("the model's own message never reaches a caller", () => {
 test("the page-generation catch returns the stage, not only a note", () => {
   const branch = WORKER_SRC.slice(WORKER_SRC.indexOf('console.error("page generation failed:'));
   const block = branch.slice(0, branch.indexOf("\n        }"));
-  assert.match(block, /pages\.stage = "generate"/, "a thrown generator must report its stage");
+  assert.match(block, /pages\.stage = e && e\.sourceUnknown \? "source" : "generate";/, "a thrown generator must report its stage — `source` only for a revise whose live pages could not be confirmed (H5)");
   assert.match(block, /pages\.error =/, "…and why, or a total outage looks like an unusable page");
   assert.match(block, /upstreamKind\(/, "…through the sanitiser, never the raw detail");
   // `detail` may appear in exactly two places: the log line, and the argument
@@ -1277,7 +1277,11 @@ test("the build route hands the attached files to the designer", () => {
   // reporting "the designer cannot see attachments" about a call that passes
   // them perfectly. What has to hold is that `attached.blocks` reaches the
   // designer, however many arguments sit after it.
-  const call = WORKER_SRC.match(/designSiteSchema\(env, briefWithLinks,[^)]*\)/);
+  // THE DESIGNER'S BRIEF IS THE LINKED BRIEF PLUS THE ATTACHED FILES BY NAME
+  // (2026-10-08, H6), so the call is anchored on `designBrief` and that name on
+  // `briefWithLinks`.
+  assert.match(WORKER_SRC, /const designBrief = briefWithLinks \+ attachedFilesNote\(/, "the designer's brief is no longer the linked brief");
+  const call = WORKER_SRC.match(/designSiteSchema\(env, designBrief,[^)]*\)/);
   assert.ok(call, "the build route no longer calls designSiteSchema with the linked brief");
   assert.match(call[0], /attached\.blocks/,
     "the designer is still not given the attached files, so a PDF menu cannot reach the seed rows");

@@ -1001,7 +1001,9 @@ export function planBudget(plan, { cap = IMAGE_CAP } = {}) {
   // `normalizePlan` has already dropped any entry naming a page the site has not
   // got and any with no description, so what arrives here is what can really be
   // bought — which is why this counts rather than re-judging.
-  if (Array.isArray(p.images)) return Math.min(p.images.length, lim);
+  // A PICTURE THE CUSTOMER SUPPLIED IS NOT BOUGHT (2026-10-08, H6): an entry
+  // with a `src` is their own stored photograph and costs nothing.
+  if (Array.isArray(p.images)) return Math.min(p.images.filter((s) => !ownShot(s)).length, lim);
   const led = componentsAreContent(p.components);
   let n = 0;
   for (const pg of pages) {
@@ -1272,8 +1274,17 @@ export function imageBrief(plan, budget) {
   // AN EMPTY LIST IS THE COUNT, not an empty brief. `planBudget` has already
   // turned a deliberate `[]` into a budget of 0, so the count says the zero —
   // and `imageDirective` states a zero rather than omitting it.
-  if (!list || !list.length || !n) return n;
-  return list.slice(0, n);
+  // THE CUSTOMER'S OWN PICTURES ARE NOT CUT BY THE BUDGET (2026-10-08, H6):
+  // they cost nothing, so a zero budget still places them, and only the
+  // pictures to be bought are sliced.
+  const own = list ? list.filter(ownShot) : [];
+  if (!list || !list.length || (!n && !own.length)) return n;
+  return [...own, ...list.filter((s) => !ownShot(s)).slice(0, n)];
+}
+
+/** An `images` entry that is a stored photograph the customer supplied. */
+export function ownShot(s) {
+  return !!(s && typeof s === "object" && typeof s.src === "string" && UPLOAD_URL_PATH.test(s.src));
 }
 
 /* -------------------------------------------------------------- the prompt */
@@ -1391,14 +1402,32 @@ export function imageDirective(n) {
   // no instruction — which is the one outcome that makes a page writer invent
   // its own tokens.
   if (n && typeof n === "object" && Array.isArray(n.buy)) {
-    const shots = n.buy
-      .filter((s) => s && typeof s === "object" && !Array.isArray(s) && String(s.describe || "").trim())
-      .slice(0, IMAGE_CAP);
+    const all = n.buy.filter((s) => s && typeof s === "object" && !Array.isArray(s) && String(s.describe || "").trim());
+    const own = all.filter(ownShot);
+    const shots = all.filter((s) => !ownShot(s)).slice(0, IMAGE_CAP);
+    // THE CUSTOMER'S OWN PHOTOGRAPHS, placed by their stored url (2026-10-08,
+    // H6). Said first and apart from the bought ones: a src is copied, never
+    // a prompt, and it is the one picture on the site nobody may swap.
+    const ownLines = own.map((s) => {
+      const alt = String(s.describe).replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS).replace(/"/g, "'");
+      return `  ${String(s.page || "/").trim() || "/"} — <SafeImage src="${s.src}" alt="${alt}" />`;
+    });
+    const ownPart = ownLines.length
+      ? "THE CUSTOMER'S OWN PHOTOGRAPHS: they asked for " + (ownLines.length === 1 ? "this picture" : "these pictures") +
+        " to be shown, and " + (ownLines.length === 1 ? "it is" : "they are") + " already stored. Put each on the page it names, " +
+        "with its src copied EXACTLY:\n" + ownLines.join("\n") + "\n"
+      : "";
+
     // AN UNUSABLE LIST FALLS BACK TO WHAT THE CALLER COULD OTHERWISE HAVE SAID.
     // With an inventory in hand that is the object's own zero form, which
     // states the zero as OURS; with none it is the bare count, which is the
     // build path's door and is left exactly as it was.
-    if (!shots.length) return imageDirective(n.shown ? { ...n, buy: null } : 0);
+    if (!shots.length) {
+      const rest = imageDirective(n.shown ? { ...n, buy: null } : 0);
+      // "none on this site" would contradict the line above, so the zero
+      // form is told it is about the pictures BEYOND the customer's own.
+      return ownPart ? ownPart + rest.replace(/^PHOTOGRAPHS: none on this site\./, "PHOTOGRAPHS: nothing else is bought, and no other real picture is placed.").replace("Every picture is", "Every other picture is") : rest;
+    }
     const byPage = new Map();
     for (const s of shots) {
       const page = String(s.page || "/").trim() || "/";
@@ -1410,7 +1439,7 @@ export function imageDirective(n) {
     for (const [page, list] of byPage) {
       for (const describe of list) lines.push(`  ${page} — <SafeImage src="@@IMG:${describe}@@" alt="..." />`);
     }
-    return "PHOTOGRAPHS: this site gets " + shots.length + " real " +
+    return ownPart + "PHOTOGRAPHS: this site gets " + shots.length + " real " +
       (shots.length === 1 ? "photograph" : "photographs") + ", and they are ALREADY CHOSEN. " +
       // THE PROSE MUST NOT SPELL THE DELIMITERS, and this is not style. Written
       // as "the text between `@@IMG:` and `@@`", the sentence itself parses as a

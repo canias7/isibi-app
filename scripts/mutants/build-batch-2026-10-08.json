@@ -1,0 +1,284 @@
+[
+{
+"label": "H4: the guard skipped",
+"files": [
+"worker.js"
+],
+"from": "          if (firstBuild) {\n            const usable = designUsable(designed);",
+"to": "          if (false) {\n            const usable = designUsable(designed);"
+},
+{
+"label": "H4: pages no longer required",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "  if (!pages.length) missing.push(\"pages\");",
+"to": "  if (false) missing.push(\"pages\");"
+},
+{
+"label": "H4: a null design counts",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "  if (!designed || typeof designed !== \"object\" || Array.isArray(designed)) return { ok: false, missing: [\"design\"] };",
+"to": "  if (!designed) return { ok: true, missing: [] };"
+},
+{
+"label": "H3: body images read as a look",
+"files": [
+"builder/site-edit.mjs"
+],
+"from": "    const bk = BODY_NOT_LOOK.has(k) ? undefined : b[k];",
+"to": "    const bk = b[k];"
+},
+{
+"label": "H6: own photos not placed",
+"files": [
+"worker.js"
+],
+"from": "        ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes));\n        merged.images = ownPhotos.images;",
+"to": "        ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes));"
+},
+{
+"label": "H6: the designer not told the names",
+"files": [
+"worker.js"
+],
+"from": "      const designBrief = briefWithLinks + attachedFilesNote(attachedNames(body.images)",
+"to": "      const designBrief = briefWithLinks + \"\" + String(attachedNames(body.images)"
+},
+{
+"label": "H6: own photo bought by the budget",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "  if (Array.isArray(p.images)) return Math.min(p.images.filter((s) => !ownShot(s)).length, lim);",
+"to": "  if (Array.isArray(p.images)) return Math.min(p.images.length, lim);"
+},
+{
+"label": "H6: zero budget drops own photos",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "  if (!list || !list.length || (!n && !own.length)) return n;",
+"to": "  if (!list || !list.length || !n) return n;"
+},
+{
+"label": "H6: a missing name kept to buy",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "    if (!file) { missing.push({ name, page: e.page, reason: \"no attached image has that name\" }); continue; }",
+"to": "    if (!file) { missing.push({ name, page: e.page, reason: \"no attached image has that name\" }); out.push(e); continue; }"
+},
+{
+"label": "H6: one file stored twice",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "    let r = done.get(name);",
+"to": "    let r = null;"
+},
+{
+"label": "H6: stopped build claims the site",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "  const published = state === \"published\";",
+"to": "  const published = true;"
+},
+{
+"label": "L10: deposit loss not reversed",
+"files": [
+"worker.js"
+],
+"from": "          const back = await refundBuildByRef(env, bu.id, billRef, \"unanswered\");",
+"to": "          const back = { short: false };"
+},
+{
+"label": "L10: lost settle not remembered",
+"files": [
+"worker.js"
+],
+"from": "            catch { unanswered.add(debitRef(\"settle\")); /* keep the build; a refusal below gives it back by ref */ }",
+"to": "            catch { /* keep the build */ }"
+},
+{
+"label": "L10: a failed by-ref reversal reads as nothing owed",
+"files": [
+"worker.js"
+],
+"from": "          if (!r.ok) { unknown = true; console.error(",
+"to": "          if (false) { unknown = true; console.error("
+},
+{
+"label": "H2: refused bearer not handed on",
+"files": [
+"worker.js"
+],
+"from": "        if (!trusted || !/^credit_debit rpc 40[13]$/.test(String((e && e.message) || \"\"))) throw e;",
+"to": "        throw e;"
+},
+{
+"label": "H2: any failure handed on",
+"files": [
+"worker.js"
+],
+"from": "        if (!trusted || !/^credit_debit rpc 40[13]$/.test(String((e && e.message) || \"\"))) throw e;",
+"to": "        if (!trusted) throw e;"
+},
+{
+"label": "H2: absent build_debit read as charged",
+"files": [
+"worker.js"
+],
+"from": "        if (absent) throw refused;",
+"to": "        if (absent) return { ok: true, taken: 0 };"
+},
+{
+"label": "H2: the row owner not compared",
+"files": [
+"worker.js"
+],
+"from": "  return row && row.op === BUILD_OP && typeof row.uid === \"string\" && row.uid === uid ? uid : \"\";",
+"to": "  return row && row.op === BUILD_OP && typeof row.uid === \"string\" ? row.uid : \"\";"
+},
+{
+"label": "H2: the expired bearer not vouched for",
+"files": [
+"worker.js"
+],
+"from": "        if (typeof uid === \"string\" && uid) bu = { id: uid, viaJob: true };",
+"to": "        if (false) bu = { id: uid, viaJob: true };"
+},
+{
+"label": "H1: reconcile not run",
+"files": [
+"worker.js"
+],
+"from": "  try { await reconcileLostBuilds(env); }",
+"to": "  try { void reconcileLostBuilds; }"
+},
+{
+"label": "H1: published refunded too",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  return at >= began ? { outcome: \"published\", why: \"pointer-after\" } : { outcome: \"not-published\", why: \"pointer-before\" };",
+"to": "  return { outcome: \"not-published\", why: \"pointer-before\" };"
+},
+{
+"label": "H1: unreadable pointer read as none",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (pointer === undefined) return { outcome: \"unknown\", why: \"pointer-unread\" };",
+"to": "  if (pointer === undefined) return { outcome: \"not-published\", why: \"no-pointer\" };"
+},
+{
+"label": "H1: settled marker ignored",
+"files": [
+"worker.js"
+],
+"from": "    if (mark && mark.settled === true) { seen.settled++; continue; }",
+"to": "    if (false) { seen.settled++; continue; }"
+},
+{
+"label": "H1: short refund marked settled",
+"files": [
+"worker.js"
+],
+"from": "settled: !short, at:",
+"to": "settled: true, at:"
+},
+{
+"label": "H5: build marks a stale copy current",
+"files": [
+"worker.js"
+],
+"from": "          if (!editableStored) {\n            console.error(\"build: the editable copy did not fully store for\"",
+"to": "          if (false) {\n            console.error(\"build: the editable copy did not fully store for\""
+},
+{
+"label": "H5: spine marks a stale copy current",
+"files": [
+"worker.js"
+],
+"from": "      if (unsaved.length) { tm(\"r2:head\", \"fail\", { why: \"unsaved:\" + unsaved.join(\",\") }); return; }",
+"to": "      if (false) { tm(\"r2:head\", \"fail\", { why: \"unsaved:\" + unsaved.join(\",\") }); return; }"
+},
+{
+"label": "H5: repair leaves the kit",
+"files": [
+"site-builds.mjs"
+],
+"from": "  if (typeof kit === \"string\" && keys.kit) { await deps.put(keys.kit, kit, \"application/json\"); wrote.push(\"kit\"); }",
+"to": "  if (false) { await deps.put(keys.kit, kit, \"application/json\"); wrote.push(\"kit\"); }"
+},
+{
+"label": "H5: text editor unchecked",
+"files": [
+"worker.js"
+],
+"from": "            if (srcRead.ok !== true) return Response.json({ ok: false, error: \"source-unconfirmed\"",
+"to": "            if (false) return Response.json({ ok: false, error: \"source-unconfirmed\""
+},
+{
+"label": "M7: refire reads nothing back",
+"files": [
+"worker.js"
+],
+"from": "      if (Array.isArray(v)) refireFiles = v;",
+"to": "      if (false) refireFiles = v;"
+},
+{
+"label": "M1: salvage waits for typecheck again",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "  if (salvageable(built)) {",
+"to": "  if (!built.ok && built.stage === \"typecheck\") {"
+},
+{
+"label": "M1: esbuild form not read",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "  for (const m of text.matchAll(new RegExp(F + \":(\\\\d+):(\\\\d+)\", \"g\"))) add(m[1], m[2], m[3]);",
+"to": "  void 0;"
+},
+{
+"label": "M1: working directory kept",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "    if (at >= 0) file = file.slice(at + 1);",
+"to": "    void at;"
+},
+{
+"label": "M1: a citation-free failure salvaged",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "  return errorCitations(e).length > 0;\n}",
+"to": "  return true;\n}"
+},
+{
+"label": "control: a comment in worker.js",
+"files": [
+"worker.js"
+],
+"from": "  // AND WHAT EACH LOST BUILD LEFT BEHIND (2026-10-08, the first-Build audit's",
+"to": "  // AND WHAT EACH LOST BUILD LEFT BEHIND (2026-10-08, the first-Build audit's  ",
+"control": true
+},
+{
+"label": "control: a comment in attached-photos",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "// THE CUSTOMER'S OWN PHOTOGRAPHS ON A BUILD (2026-10-08, the first-Build",
+"to": "// THE CUSTOMER'S OWN PHOTOGRAPHS ON A BUILD (2026-10-08, the first-Build  ",
+"control": true
+}
+]

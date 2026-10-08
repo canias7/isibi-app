@@ -184,7 +184,9 @@ test("`rebuild` REFUSES without stored source rather than publishing an empty si
   // reads through the repairing wrapper, so a copy behind the pointer is put
   // back before a rebuild republishes it.
   assert.match(seg, /loadSiteSourceForEdit\(/, "it must read the site's own stored source, through the repairing reader");
-  const guard = seg.indexOf("if (!rbPages)");
+  // CHECKED (2026-10-08, H5): an unconfirmed copy refuses as an empty one does.
+  assert.match(seg, /loadSiteSourceForEdit\(env, ownerSlug, \{ checked: true \}\)/, "the rebuild reads an unchecked copy");
+  const guard = seg.indexOf("if (!rbPages || !rbPages.length)");
   const publish = seg.indexOf("recompileAndPublish(");
   assert.ok(guard !== -1 && guard < publish, "the refusal must come BEFORE the publish");
   assert.match(seg.slice(guard, publish), /ours:\s*true/,

@@ -731,7 +731,7 @@ test("THE SCOPE HOOK, DRIVEN through the real build route: asked once, with the 
     if (url.includes("/v1/messages")) {
       order.push("design");
       return json({ id: "m1", type: "message", role: "assistant", stop_reason: "tool_use", usage: { input_tokens: 100, output_tokens: 50 },
-        content: [{ type: "tool_use", id: "t1", name: "design_schema", input: { brand: "Crookes Guitar", slug: "crookes-guitar-x", description: "lessons", kind: "shopfront", purpose: "book a lesson", pages: [], components: [] } }] });
+        content: [{ type: "tool_use", id: "t1", name: "design_schema", input: { brand: "Crookes Guitar", slug: "crookes-guitar-x", description: "lessons", kind: "shopfront", purpose: "book a lesson", pages: [{ path: "/", name: "Home" }], components: [] } }] });
     }
     if (url.includes("site_backends")) order.push("site_backends");
     calls.other.push(url);

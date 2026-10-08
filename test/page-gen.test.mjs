@@ -2921,8 +2921,11 @@ test("the source that produced a build is stored, and read back on a revise", ()
   // Either spelling is the property this guard holds (the source arrives,
   // gated on `existing`); WHICH reader the four editing call sites use is
   // `test/site-busy.test.mjs`'s to hold, and it holds all four by name.
-  assert.match(worker, /priorPages: existing \? await loadSiteSource(?:ForEdit)?\(env, slug\) : null/,
+  // CHECKED NOW (2026-10-08, H5): the read is made once, above, and a revise
+  // whose live pages cannot be confirmed stops before any page is written.
+  assert.match(worker, /const priorRead = existing \? await loadSiteSourceForEdit\(env, slug, \{ checked: true \}\) : null;/,
     "…and a revise must read it back, gated on OWNERSHIP rather than the stored brief");
+  assert.match(worker, /priorPages: priorRead \? priorRead\.pages : null/);
   // …and the last hop is in build-call.mjs, where `pagesRequest` is now called.
   assert.match(worker, /genPages\(keysFrom\(env\),(?:[^;]*?)priorPages\b/,
     "…and it must be handed to the model call");

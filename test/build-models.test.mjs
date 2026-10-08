@@ -203,7 +203,7 @@ test("the build route resolves the picker ONCE and gives it to both calls", () =
   // the day the designer gained a fourth argument (the site's current state on
   // an edit) — a correct change failing a test about arity, which is this repo's
   // recurring source-guard bug.
-  assert.match(workerCode, /designSiteSchema\(env, briefWithLinks, models\.design\b/,
+  assert.match(workerCode, /designSiteSchema\(env, designBrief, models\.design\b/,
     "the designer is not given the chosen model");
   assert.match(workerCode, /model: models\.pages/,
     "page generation is not given the chosen model");
@@ -374,7 +374,7 @@ test("the whole build is affordable before anything is spent", () => {
   const i = w.indexOf("const floor = buildFloor(models.design);");
   assert.ok(i > 0, "the build no longer checks it can afford itself");
   // BEFORE the schema call, or it is the same bug with an extra number in it.
-  const design = w.indexOf("designSiteSchema(env, briefWithLinks");
+  const design = w.indexOf("designSiteSchema(env, designBrief");
   assert.ok(design > 0 && i < design, "the affordability check runs after the model call it is meant to gate");
   // ANCHORED ON A LANDMARK, not on a byte count. This was `w.slice(i, i + 900)`
   // and went red on a correct change: `floor` moved a few lines up so BOTH credit

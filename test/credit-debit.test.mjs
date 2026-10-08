@@ -206,7 +206,9 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   assert.match(w, /const debitRef = \(step\) => billRef \+ ":" \+ step;/);
   // The pages debit rides the same ref, partial, and falls back to the
   // collect for a job stored before the ref existed.
-  assert.match(w, /useCredits: \(n\) => billRef \? debitCredits\(auth, n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
+  // THROUGH THE BUILD'S LEDGER (2026-10-08, H2): the bearer first, the job's
+  // own identity when the ledger refuses an expired one.
+  assert.match(w, /useCredits: \(n\) => billRef \? buildLedger\(env, \{ auth, uid, jobId \}\)\.debit\(n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
     "the pages debit is not under the build's ref");
   // The ref is in `buildArgs`, which is what the resume record stores, so a
   // resumed build debits under the SAME ref.

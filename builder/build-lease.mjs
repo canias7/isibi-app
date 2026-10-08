@@ -170,7 +170,13 @@ export function buildOutcome(status, body) {
 // THE SENTENCES THE CUSTOMER READS OFF A ROW. Composed here, once, so the poll
 // route and its guard read the same words — the reply the sweep writes for an
 // edit is composed the same way (`outcomeMessage("recovered")`).
-export const LOST_SITE_MSG = "That build stopped part-way and we lost track of it on our side. There's a stand-in page at your address; send your brief again to build the site. You weren't charged for the pages.";
+// NO CLAIM ABOUT MONEY ON THE ROW'S OWN SENTENCE (2026-10-08, the first-Build
+// audit's H1). It said "You weren't charged for the pages", which was true of
+// the pages and silent about the deposit and the design call already taken —
+// and the row alone cannot say whether the build published. What the attempt
+// cost, and what came back, is settled by `reconcileLostBuilds` from the
+// pointer and the ledger and told in the answer it writes, which wins over this.
+export const LOST_SITE_MSG = "That build stopped part-way and we lost track of it on our side. There's a stand-in page at your address; send your brief again to build the site. I'm checking what this attempt charged — anything taken for a site that didn't get built is returned automatically.";
 export const LOST_MSG = "That build stopped before it got anywhere and we lost track of it on our side. Send your brief again to build the site.";
 export const FAILED_MSG = "That build didn't finish. Send your brief again to try it once more.";
 export const CANCELLED_MSG = "That build was stopped.";
@@ -253,4 +259,45 @@ export function genBound(record, token, genId) {
   if (!record || typeof record !== "object" || Array.isArray(record)) return false;
   if (typeof token !== "string" || !token || typeof genId !== "string" || !genId) return false;
   return record.report === token && record.genId === genId;
+}
+
+/**
+ * WHAT A LOST BUILD ACTUALLY LEFT BEHIND (2026-10-08, the first-Build audit's
+ * H1). A row the sweep marked `lost` says only that its lease ran out; the
+ * build may have published before it died, or published afterwards (the
+ * container's own build is not fenced by the lease). So before any refund or
+ * sentence, the published state is read:
+ *
+ *   published      the site's pointer was activated after this build began —
+ *                  the site is live, and what the build charged stands
+ *   not-published  the build never had an address, or the address has no
+ *                  pointer, or the pointer is older than the build — nothing
+ *                  of this attempt is live, and what it charged comes back
+ *   unknown        the pointer could not be read, or a time could not be — no
+ *                  money moves and no sentence is written; the next sweep asks
+ *                  again
+ *
+ * `pointer` is the three-state read: `undefined` could not be read, `null`
+ * the site has none, an object the pointer.
+ */
+export function lostBuildVerdict({ row, pointer } = {}) {
+  const r = row && typeof row === "object" ? row : {};
+  if (!isRowSlug(r.slug)) return { outcome: "not-published", why: "no-address" };
+  if (pointer === undefined) return { outcome: "unknown", why: "pointer-unread" };
+  if (pointer === null) return { outcome: "not-published", why: "no-pointer" };
+  const began = Date.parse(String(r.created_at || ""));
+  const at = Date.parse(String((pointer && pointer.activatedAt) || ""));
+  if (!Number.isFinite(began) || !Number.isFinite(at)) return { outcome: "unknown", why: "no-time" };
+  return at >= began ? { outcome: "published", why: "pointer-after" } : { outcome: "not-published", why: "pointer-before" };
+}
+
+/** The sentences a reconciled lost build answers with, chosen by its outcome. */
+export function lostBuildMessage({ outcome, slug, returned = 0, short = false } = {}) {
+  if (outcome === "published") {
+    return "That build lost touch with us near the end, but your site did go live at its address — open it to check it. Its own report was lost, so I can't list what it made.";
+  }
+  const where = slug ? "There's a stand-in page at your address; send your brief again to build the site." : "Send your brief again to build the site.";
+  if (short) return "That build stopped part-way and we lost track of it on our side. " + where + " Returning what this attempt charged hasn't gone through yet — it's being retried automatically.";
+  return "That build stopped part-way and we lost track of it on our side. " + where +
+    (returned > 0 ? " What this attempt charged (" + returned + " credit" + (returned === 1 ? "" : "s") + ") has been returned." : " Nothing this attempt charged was kept.");
 }

@@ -10,9 +10,14 @@
 //                   "title": "<brand>",                              // OPTIONAL, the <title> tag + the mark
 //                   "lang":  "<bcp-47>",                             // OPTIONAL, the <html lang> attribute
 //                   "version": "<14 digits>-<tail>", "parent": "…" } // OPTIONAL, the publish's own prefix (stage 7), baked as SITE_VERSION / SITE_PARENT
-//     → 200 { "ok": true,  "files": {…dist…}, "ms": N }
-//     → 200 { "ok": false, "error": "<tsc output>",  "stage": "typecheck" }
+//     → 200 { "ok": true,  "files": {…dist…}, "ms": N, "typeErrors"?: "<tsc output>" }
+//     → 200 { "ok": false, "error": "<tsr output>",  "stage": "routes" }
 //     → 200 { "ok": false, "error": "<vite stderr>", "stage": "build" }
+//   The typecheck REPORTS and does not refuse (2026-08-30): its output rides
+//   out on a successful answer as `typeErrors`, and no answer says
+//   `stage: "typecheck"` any more. `stage: "build"` is also how a step that was
+//   killed, a missing bundle and an unexpected throw are reported — none of
+//   them a page's fault (`salvageable` in publish-pages.mjs).
 //   GET  /health  → 200 "ok"
 //
 // Every build starts from the same shell. src/routes is reset to the pristine copy

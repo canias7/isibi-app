@@ -615,6 +615,9 @@ export function keepStoredAccess(spec, known) {
  * an edit that does not take effect, which the customer can see and say again.
  * Being wrong toward "designed" silently re-themes a live site.
  */
+/** Body fields that share a look field's name and mean something else; see `mergeLook`. */
+export const BODY_NOT_LOOK = new Set(["images"]);
+
 export function mergeLook(prior, designed, body, { instructed = false, asked = false, clear = [] } = {}) {
   const p = prior && typeof prior === "object" ? prior : {};
   const d = designed && typeof designed === "object" ? designed : {};
@@ -684,7 +687,15 @@ export function mergeLook(prior, designed, body, { instructed = false, asked = f
     // deletes artwork somebody uploaded. A caller that forgets the flag
     // protects rather than overwrites.
     if (!asked && isMark(k) && ownedMark(readMark(k, p[k]))) { out[k] = p[k]; continue; }
-    const order = instructed ? [d[k], p[k], b[k]] : [p[k], d[k], b[k]];
+    // THE BODY'S `images` IS NEVER A LOOK (2026-10-08, the first-Build audit's
+    // H3). On every request that carries one, `body.images` is the files the
+    // customer ATTACHED — `{ name, data }` from the browser — and `images` on a
+    // look is the designer's photograph plan, `{ page, describe }`. Read as a
+    // fallback, a design that left the plan out stored the attachments as it
+    // (raw data URLs in the site's config), and the browser's empty list stored
+    // "this site has no photographs", which zeroed the photo budget.
+    const bk = BODY_NOT_LOOK.has(k) ? undefined : b[k];
+    const order = instructed ? [d[k], p[k], bk] : [p[k], d[k], bk];
     // FIELD-AWARE, so a palette is judged by `normalizeSeeds` whatever shape it
     // arrived in rather than by a heuristic that has an outside. See `keepsValue`.
     out[k] = order.find((v) => keepsValue(k, v)) ?? null;

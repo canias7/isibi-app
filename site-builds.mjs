@@ -19,6 +19,7 @@
 //   builds/<slug>/<version>/state/parts.json    the site's own components
 //   builds/<slug>/<version>/state/config.json   the look, css, logo, icon, translations
 //   builds/<slug>/<version>/state/sidecar.json  the publish-time head at that version
+//   builds/<slug>/<version>/state/kit.json      the kit files the project depends on (2026-10-08)
 //   builds/<slug>/<version>/manifest.json       written LAST — a prefix with one is whole
 //   current/<slug>.json                         THE ONE MUTABLE OBJECT: {version, build, parent, job, activatedAt}
 //
@@ -140,6 +141,10 @@ export async function stageBuild(deps, { slug, version, files, worker, state, ma
   const st = state || {};
   const stateWrites = [
     ["pages.json", st.pages], ["parts.json", st.parts], ["config.json", st.config], ["sidecar.json", st.sidecar],
+    // THE DEPENDENCIES TOO (2026-10-08, the first-Build audit's H5): a repair
+    // or a restore that put back the pages and not the kit files they import
+    // left a Download that could not build.
+    ["kit.json", st.kit],
   ];
   for (const [name, text] of stateWrites) {
     if (typeof text !== "string") continue;
@@ -406,6 +411,7 @@ export async function readBuild(deps, slug, version) {
     parts: await text(dest + STATE_DIR + "parts.json"),
     config: await text(dest + STATE_DIR + "config.json"),
     sidecar: await text(dest + STATE_DIR + "sidecar.json"),
+    kit: await text(dest + STATE_DIR + "kit.json"),
   };
 }
 
@@ -558,6 +564,10 @@ export async function repairEditable(deps, { slug, version, keys = {}, mergeConf
   wrote.push("source");
   const parts = await text(dest + "parts.json");
   if (typeof parts === "string" && keys.parts) { await deps.put(keys.parts, parts, "application/json"); wrote.push("parts"); }
+  // A version staged before its kit was kept has none to copy; the stored
+  // kit is then left as it is, and `wrote` says so by not naming it.
+  const kit = await text(dest + "kit.json");
+  if (typeof kit === "string" && keys.kit) { await deps.put(keys.kit, kit, "application/json"); wrote.push("kit"); }
   const config = await text(dest + "config.json");
   if (typeof config === "string" && typeof mergeConfig === "function" && (await mergeConfig(config)) === true) wrote.push("config");
   await writeHead(deps, slug, version, now);

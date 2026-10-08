@@ -222,8 +222,11 @@ test("refundFields READS the answer — the reporting line is reachable", () => 
   assert.match(body, /await giveBack\(ref, "refund", e\.taken - e\.back\)/, "refundFields no longer reverses each ref for what is owed on it");
   // WHAT STAYED decides both the field and the flag.
   assert.match(body, /const left = owed\(\);/, "the reply is not read off the ledger");
-  assert.match(body, /refundShort = left > 0;/, "the flag is not recomputed from what stayed");
-  assert.match(body, /return left > 0 \? \{ cost: left, refundShort: true \} : \{ cost: 0 \};/,
+  // …AND A DEBIT WHOSE OWN ANSWER WAS LOST, reversed by ref, is short when
+  // that reversal cannot be made (2026-10-08, L10): unknown is not nothing owed.
+  assert.match(body, /for \(const ref of unanswered\)/, "a debit whose answer was lost is not reversed by ref");
+  assert.match(body, /refundShort = left > 0 \|\| unknown;/, "the flag is not recomputed from what stayed");
+  assert.match(body, /return left > 0 \|\| unknown \? \{ cost: left, refundShort: true \} : \{ cost: 0 \};/,
     "a reversal that did not land no longer reports what the customer is still charged");
 
   // AND THE ONE PLACE THAT REVERSES READS THE LEDGER'S ANSWER — the helper the

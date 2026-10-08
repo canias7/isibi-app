@@ -351,6 +351,71 @@ export function schemaSettlement(usage, deposit) {
 }
 
 /**
+ * THE FILES A BUILD FAILURE CITES, IN EVERY FORM THE CONTAINER CAN SEND
+ * (2026-10-08, the first-Build audit's M1).
+ *
+ * The container's contract is `stage: "routes"` or `stage: "build"` — the
+ * typecheck reports and no longer refuses (build-server.mjs, 2026-08-30) — so
+ * the failure that names a page is VITE's, not tsc's. Readers here knew only
+ * tsc's `file(L,C)`, and salvage waited for a `typecheck` stage that no build
+ * has produced since; a page that did not bundle took the whole site with it.
+ *
+ * The forms, each measured from the tools' own output:
+ *   tsc              src/routes/menu.tsx(12,3): error TS2322 …
+ *   esbuild          /app/src/routes/menu.tsx:12:3: ERROR: Expected ";" …
+ *   rollup           src/routes/menu.tsx (12:3): "X" is not exported by …
+ *   rollup resolve   Rollup failed to resolve import "x" from "/app/src/routes/menu.tsx".
+ *   vite file line   file: /app/src/routes/menu.tsx:12:3
+ *
+ * Paths are cut back to start at `src/`, so a container's absolute working
+ * directory never reaches a caller; `line` is 0 where the form gives none.
+ * Anything not ending in .ts or .tsx is not cited.
+ */
+export function errorCitations(error) {
+  const text = String(error || "");
+  const out = [];
+  const seen = new Set();
+  const add = (raw, line, col) => {
+    let file = String(raw || "").replace(/\\/g, "/");
+    const at = file.lastIndexOf("/src/");
+    if (at >= 0) file = file.slice(at + 1);
+    file = file.replace(/^\.\//, "");
+    if (!/\.tsx?$/.test(file)) return;
+    const key = file + ":" + (line || 0);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ file, line: Number(line) || 0, col: Number(col) || 0 });
+  };
+  const F = "((?:/|\\.\\/)?(?:[\\w.$@-]+/)*[\\w.$@-]+\\.tsx?)";
+  for (const m of text.matchAll(new RegExp(F + "\\((\\d+),(\\d+)\\)", "g"))) add(m[1], m[2], m[3]);
+  for (const m of text.matchAll(new RegExp(F + ":(\\d+):(\\d+)", "g"))) add(m[1], m[2], m[3]);
+  for (const m of text.matchAll(new RegExp(F + " \\((\\d+):(\\d+)\\)", "g"))) add(m[1], m[2], m[3]);
+  for (const m of text.matchAll(new RegExp("\\bfrom \"" + F + "\"", "g"))) add(m[1], 0, 0);
+  return out;
+}
+
+/**
+ * WHETHER A FAILED COMPILE IS ONE SALVAGE MAY ANSWER — the container's real
+ * contract, not the one in a stale header. Only a bundler failure can be a
+ * page's fault; `routes` is the route tree, and a build that ran out of room,
+ * was killed, could not reach the service or produced no bundle is ours,
+ * whatever its stage says, and must never be read as a bad page and
+ * stubbed. `typecheck` is still accepted for an older container that sends it.
+ */
+export function salvageable(built) {
+  if (!built || built.ok) return false;
+  if (built.stage !== "build" && built.stage !== "typecheck") return false;
+  if (built.room) return false;
+  const e = String(built.error || "");
+  // A KILLED STEP NEEDS NO RULE OF ITS OWN: `exitReason` writes the "was
+  // killed by" sentence only when the step printed nothing, so it cites no
+  // page and the citation test below refuses it (measured: a mutant removing
+  // a separate `wasKilled` check here survived the sweep, equivalent).
+  if (/^the build service (?:is unreachable|returned nothing)|^build produced no client bundle$/.test(e)) return false;
+  return errorCitations(e).length > 0;
+}
+
+/**
  * The source lines a compiler error points at, so a failure explains itself.
  *
  * Bounded on every axis — how many citations, how long a line, how much total —
@@ -361,14 +426,16 @@ export function citedLines(error, pages, max = 4) {
   const byPath = new Map((pages || []).map((p) => [p.path, String(p.source || "").split("\n")]));
   const out = [];
   const seen = new Set();
-  for (const m of String(error || "").matchAll(/(?:src\/routes\/)?([\w.$/-]+\.tsx)\((\d+),(\d+)\)/g)) {
-    const key = m[1] + ":" + m[2];
+  for (const c of errorCitations(error)) {
+    const page = c.file.replace(/^(?:src\/)?routes\//, "");
+    if (!c.line) continue;
+    const key = page + ":" + c.line;
     if (seen.has(key)) continue;
     seen.add(key);
-    const lines = byPath.get(m[1]);
-    const line = lines && lines[Number(m[2]) - 1];
+    const lines = byPath.get(page);
+    const line = lines && lines[c.line - 1];
     if (typeof line !== "string") continue;
-    out.push(`${m[1]}:${m[2]}: ${line.trim().slice(0, 200)}`);
+    out.push(`${page}:${c.line}: ${line.trim().slice(0, 200)}`);
     if (out.length >= max) break;
   }
   return out;
@@ -525,8 +592,8 @@ export function salvagePlan(error, pages, live) {
   const stub = new Set();
   const foreign = new Set();
   const kept = new Set();
-  for (const m of String(error || "").matchAll(/((?:[\w.$-]+\/)*[\w.$-]+\.tsx?)\((\d+),(\d+)\)/g)) {
-    const cited = m[1];
+  for (const c of errorCitations(error)) {
+    const cited = c.file;
     const bare = cited.replace(/^(?:src\/)?routes\//, "");
     // A path is OURS only when stripping the routes prefix lands on a page this
     // build actually wrote. `src/components/ui/faq.tsx` never will, which is what
@@ -1339,11 +1406,17 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * The removal was about paying for a second GENERATION; this pays for a second
    * COMPILE, which is the cheap half.
    *
+   * ON THE CONTAINER'S REAL FAILURE (2026-10-08, M1): a page that does not
+   * BUNDLE, which is `stage: "build"` with the page cited (`salvageable`). It
+   * waited for `typecheck`, a stage the container stopped sending on
+   * 2026-08-30, so this never ran; and it never answers an infrastructure
+   * failure, which names no page.
+   *
    * The stage stays `typecheck` on a salvaged build and the charge is unchanged:
    * the pages were written and the model was paid for either way, and a customer
    * whose site publishes has been served better than one whose site did not.
    */
-  if (!built.ok && built.stage === "typecheck") {
+  if (salvageable(built)) {
     const plan = salvagePlan(built.error, pages, livePages);
     out.salvage = { stubbed: plan.stub, foreign: plan.foreign, kept: plan.kept, reason: plan.reason };
     if (plan.stub.length) {

@@ -418,7 +418,7 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // perfectly true while the ROUTE omits the argument — then `budget` is null
   // inside, the design call falls back to the flat per-call ceiling, and every
   // guard here still passes. That mutant SURVIVED the first sweep.
-  const dz = CODE.match(/designSiteSchema\(env, briefWithLinks,[^)]*\)/);
+  const dz = CODE.match(/designSiteSchema\(env, designBrief,[^)]*\)/);
   assert.ok(dz, "the build route no longer calls designSiteSchema with the linked brief");
   assert.match(dz[0], /\bbudget\b/,
     "the build route does not give the design call the build's budget, so it is bounded only per call");

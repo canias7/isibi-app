@@ -216,7 +216,9 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
   for (const m of saves) {
     const line = WORKER.slice(WORKER.lastIndexOf("\n", m.index) + 1, WORKER.indexOf("\n", m.index));
     assert.ok(!/if \(false\)|if \(0\)/.test(line), "a kit store is behind a dead branch: " + line.trim());
-    assert.match(line.trim(), /^(await saveSiteKit|if \(Array\.isArray\(built\.kit\)\) await saveSiteKit)/,
+    // EACH SAVE'S ANSWER KEPT NOW (2026-10-08, H5): the marker is written only
+    // when it landed, so the call is an assignment on both paths.
+    assert.match(line.trim(), /^(const kitStored = await saveSiteKit|if \(Array\.isArray\(built\.kit\)\) saved\.kit = await saveSiteKit)/,
       "a kit store is gated on something other than the answer carrying a kit: " + line.trim());
   }
   // AND THE BUILD PATH REMEMBERS WHAT THE CONTAINER SENT, on a live condition.
@@ -232,7 +234,10 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
 
   // 3. THE STORE SUBTRACTS WHAT THE BROWSER ALREADY GETS, derived from the
   // bundle itself rather than from a second list in the image.
-  const save = WORKER.slice(WORKER.indexOf("async function saveSiteKit("), WORKER.indexOf("async function loadSiteKit("));
+  // FROM `kitList`, which the store and a version's state both read
+  // (2026-10-08, H5), so the two can never disagree on what is kept.
+  const save = WORKER.slice(WORKER.indexOf("function kitList(kit) {"), WORKER.indexOf("async function loadSiteKit("));
+  assert.match(save, /async function saveSiteKit\(env, slug, kit\) \{[\s\S]*?const list = kitList\(kit\);/, "the store does not keep what kitList keeps");
   assert.ok(save.length > 300, "re-derive the save function's window");
   assert.match(save, /foundationPaths\(\)/, "the store does not subtract the bundled files, so the tree shows them twice");
   assert.match(save, /!have\.has\(f\.path\)/, "the subtraction is not applied");
@@ -321,6 +326,7 @@ test("DRIVEN: the store subtracts what the browser already gets, DERIVED from th
     "let FOUNDATION_PATH_SET = null;",
     konst("KIT_KEY"),
     fnOut("function foundationPaths() {", "\n}"),
+    fnOut("function kitList(kit) {", "\n}"),
     fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
     "return { saveSiteKit, foundationPaths };",
   ].join("\n"));
@@ -372,6 +378,7 @@ test("DRIVEN: a bucket that will not take the write is said, never thrown", () =
     "let FOUNDATION_PATH_SET = null;",
     WORKER.slice(at, WORKER.indexOf("\n", at)),
     fnOut("function foundationPaths() {", "\n}"),
+    fnOut("function kitList(kit) {", "\n}"),
     fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
     "return { saveSiteKit };",
   ].join("\n"))([], { error: () => {} });

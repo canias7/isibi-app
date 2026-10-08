@@ -843,7 +843,7 @@ test("the route reads the current state and hands it to the designer", () => {
   // failed a test about current state on a change that did not touch it. What
   // has to hold is that `editState` is what the call is given, whatever else
   // rides beside it.
-  assert.match(worker, /designSiteSchema\(env, briefWithLinks, models\.design, editState\b/,
+  assert.match(worker, /designSiteSchema\(env, designBrief, models\.design, editState\b/,
     "the designer is not given the site's current state, so it is still told nothing");
   // TWO READS SINCE 2026-08-24, and they are two facts: the look is config for
   // the compiled output and lives in R2 beside it, the schema describes a

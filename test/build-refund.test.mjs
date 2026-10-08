@@ -157,7 +157,9 @@ test("the route reverses a build that shipped nothing at a stage that is ours", 
   // BOTH CONDITIONS. Without the first, a salvaged site that IS live would be
   // refunded; without the second, a `typecheck` failure — the model's own
   // output, and the commonest real one — would go free.
-  assert.match(w, /if \(pages\.page !== "app" && ourFault\(pages\.stage\)\) await refundFields\(\);/,
+  // AND THE PAGES REF IS REVERSED BY REF THERE TOO (2026-10-08, L10): its
+  // debit runs inside the publish, which reads a lost answer as nothing taken.
+  assert.match(w, /if \(pages\.page !== "app" && ourFault\(pages\.stage\)\) \{ unanswered\.add\(debitRef\("pages"\)\); await refundFields\(\); \}/,
     "the route no longer reverses a build that shipped nothing at an our-fault stage");
   // AND IT IS IMPORTED. Until this change `ourFault` was named in three
   // comments in worker.js and called in none of them.

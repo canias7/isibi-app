@@ -619,12 +619,14 @@ test("the editable copy: four editing readers read through the repairing reader,
   for (const line of [
     "const eSource = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
-    "priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,",
+    // CHECKED SINCE 2026-10-08 (H5): read once above `buildArgs`, and a revise
+    // whose live pages cannot be confirmed stops before any page is written.
+    "const priorRead = existing ? await loadSiteSourceForEdit(env, slug, { checked: true }) : null;",
     // RE-ANCHORED 2026-09-06 (stage 9): the platform rebuild's read moved out
     // of the cron's dep (`const pages = …(env, slug)`) and into the route its
     // JOB replays, where the compile now happens. Same reader, same property,
     // one hop over.
-    "const rbPages = await loadSiteSourceForEdit(env, ownerSlug);",
+    "const rbRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
   ]) assert.ok(W.includes(line), "an editing reader does not read through the repair: " + line);
   // CALL SITES, not the definition: the wrapper's own read, and the readers that
   // answer a count, a listing, a delete or a DISPLAY and never publish.
@@ -674,7 +676,14 @@ test("the editable copy: four editing readers read through the repairing reader,
   const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
   // The tenth is the checked arm INSIDE the repairing wrapper; its caller
   // cannot publish unless recovery and the strict source read both succeeded.
-  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  //
+  // RE-ANCHORED 2026-10-08 — 9 → 7, AND BOTH LEFT THIS SIDE OF THE LINE (the
+  // first-Build audit's H5). The owner's text editor (`/api/site/<slug>/text`)
+  // and "Back online" both went on to PUBLISH what they read — a save of the
+  // edited words, a recompile — through a bare read, so a copy one version
+  // behind the live site was edited and published over it. Both read through
+  // the checked repairing reader now, and stop when it is not the live version.
+  assert.equal(bare.length, 7, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
   assert.ok(/withinMs\(loadSiteSource\(env, slug\)\.then\(sitePageRoutes\)/.test(W), "the router's page list is no longer the bare, bounded, addresses-only read");
@@ -726,7 +735,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.match(fix, /pointer = await readPointer\(deps, slug\);/, "the repair reads the cached pointer — an older one would read as a copy that is ahead");
   assert.doesNotMatch(fix, /sitePointer\(/);
   assert.match(fix, /const need = repairNeeded\(\{ pointer, head \}\);/);
-  assert.match(fix, /await repairEditable\(deps, \{ slug, version: pointer\.version, keys: \{ source: SOURCE_KEY\(slug\), parts: PARTS_KEY\(slug\) \}, mergeConfig \}\);/,
+  // AND THE KIT, the third editable key (2026-10-08, H5).
+  assert.match(fix, /await repairEditable\(deps, \{ slug, version: pointer\.version, keys: \{ source: SOURCE_KEY\(slug\), parts: PARTS_KEY\(slug\), kit: KIT_KEY\(slug\) \}, mergeConfig \}\);/,
     "the repair does not copy into the editable keys from the pointer's version");
   assert.match(fix, /if \(sameJson\(repairConfigOf\(cur\.config\), want\)\) return false;/, "the config is written without drift");
   assert.match(fix, /const w = await patchSiteConfig\(env, slug, null, want\);/, "the config is not put back through the site's own patch");

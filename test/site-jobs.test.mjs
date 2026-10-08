@@ -506,7 +506,9 @@ test("the build hands persistSiteJobs an owner id that the route actually binds"
   const seg = buildSource();
   const end = seg.indexOf("await persistSiteJobs");
   assert.ok(end > 0, "the build no longer calls persistSiteJobs");
-  assert.match(seg.slice(0, end), /\bconst bu\b\s*=/, "the build must bind `bu` before using bu.id");
+  // `let` since 2026-10-08 (H2): a queued build whose bearer expired is bound
+  // to its row's own account, vouched for by the lease holder.
+  assert.match(seg.slice(0, end), /\b(?:const|let) bu\b\s*=/, "the build must bind `bu` before using bu.id");
 });
 
 // ── the second channel ─────────────────────────────────────────────────────

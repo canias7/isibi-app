@@ -512,7 +512,11 @@ test("the vault refuses the marker as key material: a v1 row cannot be opened in
 // ── 6. the lists, held to the code ──────────────────────────────────────────
 
 /** The RPCs the Worker calls only from its own side: the cron, the routes, the enqueue. */
-const WORKER_ONLY_RPCS = ["edit_create", "edit_sweep_lost", "edit_sweep_stale", "edit_get", "edit_cancel", "rebuild_claim", "deploy_gate_set", "deploy_gate_clear", "edit_phase_stats"];
+// `build_debit` (2026-10-08, the first-Build audit's H2, proposed SQL not yet
+// applied): the Worker's own, asked only when the ledger refuses an expired
+// bearer. Not admitted to the wall — a container-run build meeting an expired
+// bearer fails its debit exactly as it did before (recorded as a limitation).
+const WORKER_ONLY_RPCS = ["edit_create", "edit_sweep_lost", "edit_sweep_stale", "edit_get", "edit_cancel", "rebuild_claim", "deploy_gate_set", "deploy_gate_clear", "edit_phase_stats", "build_debit"];
 
 test("every RPC the wall admits is one the Worker calls, and every RPC the Worker calls through the helper is admitted or named as the Worker's own", () => {
   const src = noComments(WORKER);

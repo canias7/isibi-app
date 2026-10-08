@@ -183,8 +183,9 @@ test("the spine prefers the parts it was handed and stores them only after the s
   assert.match(spine.slice(0, spine.indexOf("\n")), /\bparts = null\b/, "the spine no longer takes parts");
   const prefer = spine.indexOf("Array.isArray(parts) ? parts : await loadSiteParts(env, slug)");
   assert.ok(prefer > 0, "the spine does not prefer the parts it was handed");
-  const source = spine.indexOf("await saveSiteSource(env, slug, pages)");
-  const save = spine.indexOf("if (Array.isArray(parts)) await saveSiteParts(env, slug, parts)");
+  // EACH ANSWER KEPT (2026-10-08, H5): the marker waits on all of them.
+  const source = spine.indexOf("source: await saveSiteSource(env, slug, pages)");
+  const save = spine.indexOf("if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts)");
   assert.ok(source > 0 && save > source, "the parts are stored before the source, or not at all");
   // AFTER THE GATE, like every other write: a stolen lease must not store a
   // component list for a publish that never happened.
