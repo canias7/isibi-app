@@ -1034,7 +1034,11 @@ export function waitingCheck(listed, expect, { now = Date.now(), marginMs = UI_A
   if (Number.isFinite(asked) && now + marginMs >= asked + UI_QUESTION_LIFE_MS) {
     return no(`the question expires at ${new Date(asked + UI_QUESTION_LIFE_MS).toISOString()}, less than ${Math.round(marginMs / 60000)} minutes from now`);
   }
-  return { why: "", waiting: { key: x.key, part: x.part, text: q.text.trim(), id: typeof q.id === "string" ? q.id : "" } };
+  // THE REQUEST'S JOBS AS THEY STAND NOW (2026-10-08, Codex's review of
+  // 64148e83): a continuation's request already lists the jobs of the press
+  // that began it, and the read taken just before Send is this press's
+  // baseline — every job named here is history, not this press's activity.
+  return { why: "", waiting: { key: x.key, part: x.part, text: q.text.trim(), id: typeof q.id === "string" ? q.id : "", jobs: requestJobsOf(v) } };
 }
 
 /**
@@ -1122,6 +1126,23 @@ export function questionShown(view, s, key) {
   return { by: "step", key, part: p.n, id: ask.id, text: ask.text || String(p.question.text || "") };
 }
 
+/**
+ * WHAT ONE MESSAGE OF A PRESS FILED, against what its request already held
+ * (2026-10-08, Codex's review of 64148e83). `requestJobs` is the request's
+ * whole history, every job its view names; `jobs` is this press's activity:
+ * that history less the jobs an earlier message of this press already took
+ * (`earlier`) and less the request's baseline read at the gate just before
+ * Send (`prior`, a continuation's earlier press). The same view read twice
+ * gives the same answer, and no job is in `jobs` twice.
+ */
+export function pressJobsOf(view, { earlier = [], prior = [] } = {}) {
+  const requestJobs = requestJobsOf(view);
+  const skip = new Set([...(Array.isArray(earlier) ? earlier : []), ...(Array.isArray(prior) ? prior : [])]);
+  const jobs = [];
+  for (const id of requestJobs) if (!skip.has(id) && !jobs.includes(id)) jobs.push(id);
+  return { requestJobs, jobs };
+}
+
 /** Every job a request filed, part by part, in order — its routing, its runs, its hand-overs — off its own view. */
 export function requestJobsOf(view) {
   return (view && Array.isArray(view.parts) ? view.parts : []).flatMap((p) => (p && Array.isArray(p.ids) ? p.ids.filter((id) => typeof id === "string" && id) : []));
@@ -1181,6 +1202,24 @@ export function chainOrdered(before, published) {
     prev = p.id;
   }
   return out.concat(left);
+}
+
+/**
+ * THE VERSION TO WAIT FOR: the end of the chain that joins the before-read,
+ * never a publish left over at the end of `chainOrdered`'s list (2026-10-08,
+ * run 109: an earlier press's publish left last made the wait and the parent
+ * check point backward). With nothing joining, the last listed, so a genuine
+ * break is still waited on and named by `chainVerdict`.
+ */
+export function chainTarget(before, ordered) {
+  const rows = Array.isArray(ordered) ? ordered : [];
+  let prev = before;
+  for (const p of rows) {
+    if (!p || p.parent !== prev) break;
+    prev = p.id;
+  }
+  if (prev !== before) return prev;
+  return rows.length && rows[rows.length - 1] ? rows[rows.length - 1].id : before;
 }
 
 /** The recovery's condition probe through the canary's own PATCH; a throw is cannot-tell. */
@@ -1569,7 +1608,7 @@ export function jobCharges(jobs) {
  * left, which no row records. THE LIMIT, accepted by the owner: a charge this
  * press made that no ledger row records would read as someone else's.
  */
-export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window } = {}) {
+export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window, prior } = {}) {
   const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
   if (!(Number.isFinite(start) && start >= 0 && Number.isFinite(end) && end >= 0)) return bad("the balance could not be read at both ends");
   const cs = Array.isArray(calls) ? calls : [];
@@ -1599,8 +1638,15 @@ export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window } =
   const jobIds = (Array.isArray(jobs) ? jobs : []).map((j) => (j && typeof j.job === "string" ? j.job : "")).filter(Boolean);
   const mine = (ref) => typeof ref === "string" && (keyed.has(ref) || jobIds.some((id) => ref.includes(id)));
   let others = null;
+  // A CONTINUED REQUEST'S EARLIER JOBS (2026-10-08, Codex's review of
+  // 64148e83) are history, settled before this press: a ledger row under one
+  // of them while this press ran is a second charge for finished work, and
+  // fails the press rather than reading as someone else's activity.
+  const priorIds = (Array.isArray(prior) ? prior : []).filter((id) => typeof id === "string" && id && !jobIds.includes(id));
   if (window && window.ok === true && Array.isArray(window.rows)) {
     const rows = window.rows.filter((r) => r && !mine(r.ref));
+    const again = rows.filter((r) => typeof r.ref === "string" && priorIds.some((id) => r.ref.includes(id)));
+    if (again.length) return bad(`an earlier job of the continued request was charged again while this press ran (${again.map((r) => `row ${r.id} ${String(r.ref).slice(0, 48)} ${r.delta}`).join(", ")})`, { spent, routing, edits, own, duplicates: again.map((r) => ({ id: r.id, ref: String(r.ref || ""), delta: Number(r.delta) })) });
     let recorded = 0;
     for (const r of rows) {
       const d = Number(r.delta);
@@ -1608,7 +1654,7 @@ export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window } =
     }
     others = { recorded, unrecorded: excess - recorded, rows: rows.map((r) => ({ id: r.id, ref: String(r.ref || ""), delta: Number(r.delta) })) };
   }
-  return { ok: true, why: "", spent, routing, edits, own, excess, others };
+  return { ok: true, why: "", spent, routing, edits, own, excess, others, prior: priorIds };
 }
 
 /**
@@ -1654,42 +1700,66 @@ export function ownMoneySaid(m) {
  * open, so the total is called final only when nothing more can be charged.
  * Recorded, never a check: accounting, not a verdict.
  */
-export function laterChargesVerdict({ snapshot, slug, keys, rows, list } = {}) {
+export function laterChargesVerdict({ snapshot, slug, keys, rows, list, calls, prior } = {}) {
   const ks = (Array.isArray(keys) ? keys : []).filter((k) => typeof k === "string" && k);
-  if (!Number.isFinite(snapshot)) return { ok: false, why: "the snapshot of this press's own charges was not read", settled: false };
-  if (!ks.length) return { ok: true, snapshot, later: [], laterTotal: 0, total: snapshot, open: [], unknown: [], settled: true };
-  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: "the ledger after the press could not be read", snapshot, settled: false };
+  // THE SNAPSHOT IS ONE INPUT, NOT A GATE (2026-10-08, Codex's review of
+  // 64148e83): a press whose own-charges check failed still had its later rows
+  // fetched, and they are kept and told; only the total is withheld.
+  const snap = Number.isFinite(snapshot) ? snapshot : null;
+  const noSnap = snap === null ? "the snapshot of this press's own charges was not read" : "";
+  if (!ks.length) return snap === null ? { ok: false, why: noSnap, snapshot: null, later: [], laterTotal: 0, total: null, open: [], unknown: [], duplicates: [], settled: false }
+    : { ok: true, snapshot: snap, later: [], laterTotal: 0, total: snap, open: [], unknown: [], duplicates: [], settled: true };
+  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: noSnap || "the ledger after the press could not be read", snapshot: snap, settled: false };
   const views = list && list.ok === true && Array.isArray(list.requests) ? list.requests : null;
+  // EVERY JOB EACH REQUEST FILED, by the canonical reader (`requestJobsOf`,
+  // `parts[].ids`): `parts[].jobs` names only the jobs with a reply shown, and
+  // reading it alone dropped a charged routing job and called the total settled.
   const jobIds = new Set();
   const open = [], unknown = [];
   for (const k of ks) {
     const v = views ? views.find((q) => q && q.key === k) : null;
     if (!v) { unknown.push(k); continue; }
     if (v.ended !== true) open.push(k);
+    for (const j of requestJobsOf(v)) jobIds.add(j);
     for (const p of Array.isArray(v.parts) ? v.parts : []) for (const j of Array.isArray(p && p.jobs) ? p.jobs : []) if (typeof j === "string" && j) jobIds.add(j);
     for (const j of Array.isArray(v.jobs) ? v.jobs : []) if (typeof j === "string" && j) jobIds.add(j);
   }
+  const priorIds = new Set((Array.isArray(prior) ? prior : []).filter((id) => typeof id === "string" && id));
   const refs = new Set(ks.map((k) => "route:" + slug + ":" + k));
-  const later = [];
+  // THIS PRESS'S OWN ROUTING CALLS, by the refs they were charged under: a
+  // continuation's answer is routed under its own message key, not the request's.
+  for (const c of Array.isArray(calls) ? calls : []) if (c && typeof c.ref === "string" && c.ref) refs.add(c.ref);
+  const later = [], duplicates = [];
   let laterTotal = 0;
   for (const r of rows.rows) {
     const ref = r && typeof r.ref === "string" ? r.ref : "";
-    if (!refs.has(ref) && ![...jobIds].some((id) => ref.startsWith(id))) continue;
+    const priorHit = [...priorIds].some((id) => ref.startsWith(id));
+    if (!refs.has(ref) && !priorHit && ![...jobIds].some((id) => ref.startsWith(id))) continue;
     const d = Number(r.delta);
-    if (!Number.isFinite(d)) return { ok: false, why: `a later ledger row under ${ref} has no amount`, snapshot, settled: false };
-    later.push({ id: r.id, ref, delta: d, at: r.at });
+    if (!Number.isFinite(d)) return { ok: false, why: `a later ledger row under ${ref} has no amount`, snapshot: snap, settled: false };
+    const row = { id: r.id, ref, delta: d, at: r.at };
+    // A LATER ROW UNDER AN EARLIER PRESS'S JOB is finished work charged again:
+    // told apart, never added to this press's total.
+    if (priorHit) { duplicates.push(row); continue; }
+    later.push(row);
     laterTotal -= d;
   }
-  return { ok: true, snapshot, later, laterTotal, total: snapshot + laterTotal, open, unknown, settled: open.length === 0 && unknown.length === 0 };
+  const settled = snap !== null && open.length === 0 && unknown.length === 0;
+  return { ok: snap !== null, ...(noSnap ? { why: noSnap } : {}), snapshot: snap, later, laterTotal, total: snap === null ? null : snap + laterTotal, open, unknown, duplicates, settled };
 }
 
 /** The later account, in one line for the log. */
 export function laterChargesSaid(v) {
+  const dup = v && Array.isArray(v.duplicates) && v.duplicates.length ? `; DUPLICATE: ${v.duplicates.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ")} under an earlier press's job` : "";
+  if (v && v.ok !== true && Array.isArray(v.later)) {
+    const rows = v.later.length ? v.later.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ") : "none";
+    return `UNSETTLED: ${v.why || "not read"}; later rows read: ${rows} (${v.laterTotal})${dup}`;
+  }
   if (!v || v.ok !== true) return "UNSETTLED: " + ((v && v.why) || "not read");
   const rows = v.later.length ? v.later.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ") : "none";
   const state = v.settled ? "settled: every request this press made has ended"
     : `NOT FINAL: ${v.open.length ? v.open.length + " request(s) still open (" + v.open.join(", ") + "), so more can be charged" : ""}${v.unknown.length ? (v.open.length ? "; " : "") + v.unknown.length + " request(s) not found in the list" : ""}`;
-  return `snapshot ${v.snapshot}; later ${v.laterTotal} (${rows}); total so far ${v.total}; ${state}`;
+  return `snapshot ${v.snapshot}; later ${v.laterTotal} (${rows}); total so far ${v.total}; ${state}${dup}`;
 }
 
 /**
@@ -3286,8 +3356,16 @@ export async function runUi(opts) {
       // A REQUEST'S are the server's, every one its own view names — and a
       // later message of the same request (an answer) names only the jobs an
       // earlier message did not, so no job is read, or charged, twice.
-      const earlier = new Set(rec.steps.filter((x) => x !== r).flatMap((x) => (Array.isArray(x.jobs) ? x.jobs : [])));
-      r.jobs = r.request ? requestJobsOf(r.request.final).filter((id) => !earlier.has(id)) : r.network
+      // A CONTINUATION'S BASELINE (2026-10-08, run 109): the jobs its request
+      // already listed at the gate just before Send (`r.priorJobs`) are the
+      // earlier press's, kept whole in `r.requestJobs` and never this press's.
+      r.priorJobs = r.answering && Array.isArray(r.answering.jobs) ? r.answering.jobs.slice() : [];
+      const own = r.request ? pressJobsOf(r.request.final, {
+        earlier: rec.steps.filter((x) => x !== r).flatMap((x) => (Array.isArray(x.jobs) ? x.jobs : [])),
+        prior: r.priorJobs,
+      }) : null;
+      r.requestJobs = own ? own.requestJobs : [];
+      r.jobs = own ? own.jobs : r.network
         .filter((e) => e.method === "POST" && /\/(edit|addon)$/.test(e.path) && e.res && typeof e.res.job === "string" && e.res.job)
         .map((e) => e.res.job);
       r.job = r.jobs[0] || "";

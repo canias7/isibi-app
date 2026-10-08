@@ -60,7 +60,7 @@ import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
 // coverage it records and never fails on; its publishes put in the order the
 // request made them.
-import { chainOrdered } from "./canary-ui.mjs";
+import { chainOrdered, chainTarget } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
 import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
@@ -1186,7 +1186,8 @@ if (UI_ASK) {
       }
       console.log(`\n  versions   ${list ? list.status : "not read"}; publishes ${published.map((p) => `${p.n}: ${p.id}`).join("; ") || "none"}`);
     } else {
-      const target = published.length ? published[published.length - 1].id : beforeV;
+      // THE END OF THE CHAIN, never a leftover listed last (`chainTarget`).
+      const target = chainTarget(beforeV, published);
       const readHome = async () => {
         try {
           const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
@@ -1338,7 +1339,10 @@ if (UI_ASK) {
       const window = bal.startAt && bal.endAt
         ? await ledgerRows(`uid=eq.${encodeURIComponent(UID)}&at=gte.${encodeURIComponent(bal.startAt)}&at=lte.${encodeURIComponent(bal.endAt)}`)
         : null;
-      const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });
+      // A CONTINUATION'S EARLIER JOBS, its baseline at the gate before Send:
+      // history, kept apart from this press's own (`ownMoneyVerdict`'s prior).
+      const prior = [...new Set(ui.steps.flatMap((x) => (x && Array.isArray(x.priorJobs) ? x.priorJobs : [])))];
+      const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window, prior });
       requests.money = money;
       check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
       // THE MONEY AFTER OBSERVATION STOPPED (2026-10-08, run 107): the check
@@ -1353,7 +1357,7 @@ if (UI_ASK) {
           const laterRows = await ledgerRows(`uid=eq.${encodeURIComponent(UID)}&at=gt.${encodeURIComponent(bal.endAt)}`);
           const listed = await requestsIo.list().catch(() => null);
           const list = listed && listed.status === 200 && listed.json && Array.isArray(listed.json.requests) ? { ok: true, requests: listed.json.requests } : { ok: false };
-          const later = laterChargesVerdict({ snapshot: money.ok ? money.own : NaN, slug: CANARY, keys, rows: laterRows, list });
+          const later = laterChargesVerdict({ snapshot: money.ok ? money.own : NaN, slug: CANARY, keys, rows: laterRows, list, calls, prior });
           requests.moneyLater = { ...later, readAt: new Date().toISOString(), waitedMs: UI_LATER_READ_MS };
           console.log(`\n  THE MONEY AFTER OBSERVATION STOPPED (read ${UI_LATER_READ_MS / 1000} s after): ${laterChargesSaid(later)}`);
         }

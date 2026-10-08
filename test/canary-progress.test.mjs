@@ -791,7 +791,7 @@ test("THE CANARY: one sign-in, used for the run and handed to the driver for the
   assert.match(CANARY, /async function signIn\(\) \{/);
   assert.match(CANARY, /const session = \(await signIn\(\)\) \|\| \{\};/);
   assert.match(CANARY, /stopNow: requestsIo\.stop, freshSession: signIn \}\);/, "the driver is not handed the second sign-in");
-  const money = CANARY.indexOf("const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });");
+  const money = CANARY.indexOf("const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window, prior });");
   const gate = CANARY.indexOf("if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.progress === true) {", money);
   const nc = CANARY.indexOf("const nc = narrationChargeVerdict(money);", gate);
   const ids = CANARY.indexOf("writeFileSync(`${EVID}/narration-ids.json`", gate);

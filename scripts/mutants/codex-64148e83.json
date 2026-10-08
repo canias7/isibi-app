@@ -1,0 +1,16 @@
+[
+ {"label":"attribution: the baseline ignored","files":["scripts/canary-ui.mjs"],"from":"  const skip = new Set([...(Array.isArray(earlier) ? earlier : []), ...(Array.isArray(prior) ? prior : [])]);","to":"  const skip = new Set([...(Array.isArray(earlier) ? earlier : [])]);"},
+ {"label":"attribution: a job named twice kept twice","files":["scripts/canary-ui.mjs"],"from":"  for (const id of requestJobs) if (!skip.has(id) && !jobs.includes(id)) jobs.push(id);","to":"  for (const id of requestJobs) if (!skip.has(id)) jobs.push(id);"},
+ {"label":"attribution: the gate carries no jobs","files":["scripts/canary-ui.mjs"],"from":"id: typeof q.id === \"string\" ? q.id : \"\", jobs: requestJobsOf(v) } };","to":"id: typeof q.id === \"string\" ? q.id : \"\", jobs: [] } };"},
+ {"label":"chain: the wait is the last listed","files":["scripts/canary-ui.mjs"],"from":"  if (prev !== before) return prev;\n  return rows.length","to":"  return rows.length"},
+ {"label":"chain: a break waits on the before-read","files":["scripts/canary-ui.mjs"],"from":"  return rows.length && rows[rows.length - 1] ? rows[rows.length - 1].id : before;\n}","to":"  return before;\n}"},
+ {"label":"money: an earlier job charged again passes","files":["scripts/canary-ui.mjs"],"from":"    if (again.length) return bad(","to":"    if (false) return bad("},
+ {"label":"money: a baseline job that is also this press's read as prior","files":["scripts/canary-ui.mjs"],"from":"!jobIds.includes(id));\n  if (window","to":");\n  if (window"},
+ {"label":"later: only parts[].jobs read","files":["scripts/canary-ui.mjs"],"from":"    for (const j of requestJobsOf(v)) jobIds.add(j);\n","to":""},
+ {"label":"later: this press's own routing refs not read","files":["scripts/canary-ui.mjs"],"from":"  for (const c of Array.isArray(calls) ? calls : []) if (c && typeof c.ref === \"string\" && c.ref) refs.add(c.ref);","to":""},
+ {"label":"later: a duplicate added to the total","files":["scripts/canary-ui.mjs"],"from":"    if (priorHit) { duplicates.push(row); continue; }","to":"    if (priorHit) { duplicates.push(row); }"},
+ {"label":"later: a failed snapshot drops the rows","files":["scripts/canary-ui.mjs"],"from":"  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: noSnap || \"the ledger after the press could not be read\", snapshot: snap, settled: false };","to":"  if (snap === null) return { ok: false, why: noSnap, snapshot: null, settled: false };\n  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: noSnap || \"the ledger after the press could not be read\", snapshot: snap, settled: false };"},
+ {"label":"later: a total without a snapshot","files":["scripts/canary-ui.mjs"],"from":"total: snap === null ? null : snap + laterTotal,","to":"total: (snap || 0) + laterTotal,"},
+ {"label":"later: an open request called settled","files":["scripts/canary-ui.mjs"],"from":"  const settled = snap !== null && open.length === 0 && unknown.length === 0;","to":"  const settled = snap !== null && unknown.length === 0;"},
+ {"label":"control: a comment","files":["scripts/canary-ui.mjs"],"from":"// continuation's answer is routed under its own message key, not the request's.","to":"// continuation's answer is routed under its message key, not under the request's.","control":true}
+]

@@ -1,0 +1,51 @@
+{
+  "_source": "Transcribed 2026-10-08 from run 109's own log (GitHub Actions run 37721625850, job 113130355148: the JOB blocks, the routing line, the publishes line, the balance) and from the session's ledger reads of credit_events at 03:13:54-03:21:27 UTC (rows 404-409, non-secret columns). The canary-evidence artifact (11525827941) was not downloadable from this session; nothing here is invented beyond the field names the readers take.",
+  "slug": "fold-lane-bakery",
+  "requestKey": "475d4ff79c7887bb18d546fcecf15edf",
+  "balance": { "start": 15, "end": 11, "startAt": "2026-10-08T03:13:35Z", "endAt": "2026-10-08T03:18:39Z" },
+  "beforeVersion": "01791417187002-f821gr",
+  "answerRoute": { "idem": "300b626356a74115c6f8f937c9203217", "cost": 3 },
+  "baselineAtGate": {
+    "_note": "the request's view as the gate read it just before Send: run 107's four jobs (all created before 03:12 UTC)",
+    "key": "475d4ff79c7887bb18d546fcecf15edf", "ended": false,
+    "parts": [
+      { "n": 0, "status": "done", "route": "text", "ids": ["08b84314ea7533abf49c68976ffb2444"], "jobs": ["08b84314ea7533abf49c68976ffb2444"] },
+      { "n": 1, "status": "waiting", "route": "nav", "ids": ["bd79395e015814699b6efc8d78256f51", "cefef70f531c9efc2085db44b8d0243c", "becdd472a9a54f68b7f22b12058c7561"], "jobs": ["becdd472a9a54f68b7f22b12058c7561"],
+        "question": { "id": "a00872db7f0459d0fd270d6029e611ae", "text": "What’s the full address of your TikTok profile?" } }
+    ]
+  },
+  "finalView": {
+    "key": "475d4ff79c7887bb18d546fcecf15edf", "ended": true,
+    "parts": [
+      { "n": 0, "status": "done", "route": "text", "ids": ["08b84314ea7533abf49c68976ffb2444"], "jobs": ["08b84314ea7533abf49c68976ffb2444"] },
+      { "n": 1, "status": "done", "route": "nav", "addition": true,
+        "ids": ["bd79395e015814699b6efc8d78256f51", "cefef70f531c9efc2085db44b8d0243c", "becdd472a9a54f68b7f22b12058c7561", "30a0ad5c70a881c81fe7d4ee74323353", "90bc2b2d568b9fe89f16e0476b7fb38f"],
+        "jobs": ["becdd472a9a54f68b7f22b12058c7561", "90bc2b2d568b9fe89f16e0476b7fb38f"] }
+    ]
+  },
+  "jobRecords": [
+    { "job": "08b84314ea7533abf49c68976ffb2444", "row": { "billing": "finalized", "cost": 2 }, "ledgerRead": { "ok": true }, "ledger": [{ "id": 406, "delta": -2, "ref": "08b84314ea7533abf49c68976ffb2444#1", "at": "2026-10-07T23:53:06.768029+00:00" }] },
+    { "job": "bd79395e015814699b6efc8d78256f51", "row": { "billing": "finalized", "cost": 3 }, "ledgerRead": { "ok": true }, "ledger": [{ "id": 407, "delta": -3, "ref": "bd79395e015814699b6efc8d78256f51#1", "at": "2026-10-07T23:58:28.947028+00:00" }] },
+    { "job": "cefef70f531c9efc2085db44b8d0243c", "row": { "billing": "none", "cost": 0 }, "ledgerRead": { "ok": true }, "ledger": [] },
+    { "job": "becdd472a9a54f68b7f22b12058c7561", "row": { "billing": "none", "cost": 0 }, "ledgerRead": { "ok": true }, "ledger": [] },
+    { "job": "30a0ad5c70a881c81fe7d4ee74323353", "row": { "billing": "none", "cost": 0 }, "ledgerRead": { "ok": true }, "ledger": [] },
+    { "job": "90bc2b2d568b9fe89f16e0476b7fb38f", "row": { "billing": "finalized", "cost": 1 }, "ledgerRead": { "ok": true }, "ledger": [{ "id": 409, "delta": -1, "ref": "90bc2b2d568b9fe89f16e0476b7fb38f#1", "at": "2026-10-08T03:14:40.498603+00:00" }] }
+  ],
+  "ledgerWindow": [
+    { "id": 408, "kind": "build", "reason": "route", "delta": -3, "ref": "route:fold-lane-bakery:300b626356a74115c6f8f937c9203217", "at": "2026-10-08T03:13:54.456391+00:00" },
+    { "id": 409, "kind": "edit", "reason": "reserve", "delta": -1, "ref": "90bc2b2d568b9fe89f16e0476b7fb38f#1", "at": "2026-10-08T03:14:40.498603+00:00" }
+  ],
+  "ledgerAfter": [],
+  "versions": [
+    { "id": "01791429280760-09n7s1", "parent": "01791417187002-f821gr", "job": "90bc2b2d568b9fe89f16e0476b7fb38f" },
+    { "id": "01791417187002-f821gr", "parent": "01791416647630-ourh30", "job": "08b84314ea7533abf49c68976ffb2444" }
+  ],
+  "afterPages": ["/", "/allergens", "/bake-list", "/classes", "/faq", "/gallery", "/order", "/starter", "/tasting-evenings", "/visit", "/wholesale"],
+  "afterVersion": "01791429280760-09n7s1",
+  "live": {
+    "_note": "what run 109 printed, kept as it was",
+    "moneyCheck": "FAIL this press's own charges, routing 3 + jobs 6 = 9, are more than the balance's move of 4",
+    "chain": "UNVERIFIED (parent-mismatch) — before 01791417187002-f821gr, after-read at 01791417187002-f821gr",
+    "later": "UNSETTLED: the snapshot of this press's own charges was not read"
+  }
+}

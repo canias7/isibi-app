@@ -70,7 +70,7 @@ test("GUARD 1 — the scenario: one message, the answer word for word, to a ques
 
 test("GUARD 2 — the named question still waiting and answerable passes; every other request on the site is ignored", () => {
   const x = answerExpectation(X);
-  assert.deepEqual(waitingCheck(list(unrelated, theRequest()), x, { now: SOON }), { why: "", waiting: { key: KEY, part: 1, text: Q, id: QID } });
+  assert.deepEqual(waitingCheck(list(unrelated, theRequest()), x, { now: SOON }), { why: "", waiting: { key: KEY, part: 1, text: Q, id: QID, jobs: [] } });
 });
 
 test("GUARD 3 — the no-send cases off the list: an unrelated sole question, a replaced question on the same part, expiry, cancellation, an answered part, an unread list", () => {
@@ -181,7 +181,7 @@ test("GUARD 7 — with everything as named, the answer goes, checked twice befor
   let rec;
   try { rec = await drive(h, LT, { balanceNow: async () => 15, requestsNow: async () => { reads++; return list(unrelated, theRequest()); } }); } finally { Date.now = realNow; }
   assert.equal(rec.sent, 1, "the answer was not sent: " + JSON.stringify(rec.stopped));
-  assert.deepEqual(rec.steps[0].answering, { key: KEY, part: 1, text: Q, id: QID });
+  assert.deepEqual(rec.steps[0].answering, { key: KEY, part: 1, text: Q, id: QID, jobs: [] });
   assert.deepEqual(rec.steps[0].answerChecks.map((c) => c.when), ["first", "before-send"]);
   assert.ok(reads >= 2);
   // THE FREE PRESS (spend no): the first check, the question printed, nothing typed into a send.
