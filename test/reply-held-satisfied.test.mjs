@@ -23,7 +23,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { addon, writtenPage, compiledPages } from "./fixtures/addon-route.mjs";
-import { menuLinksKept } from "../builder/site-addon.mjs";
+import { menuLinksKept } from "../builder/site-nav.mjs";
 import { addonReplyFacts, editReplyFacts, requestReplyFacts, replyRequest } from "../builder/site-reply.mjs";
 
 const BAKERY = ["index", "order", "starter", "visit", "gallery"].map((f) => ({ path: f + ".tsx", source: fs.readFileSync(new URL("./fixtures/run47/" + f + ".before.tsx", import.meta.url), "utf8") }));
@@ -32,25 +32,49 @@ const TIKTOK_PART = "add a link to our TikTok in the footer";
 const texts = (r) => r.facts.map((f) => f.kind + ": " + f.text);
 const NOT_TRIED = /not tried|was not done|is missing/i;
 
-test("HELD 1 — the menu links an addition put in are kept only where the published page still carries them", () => {
-  const pages = [
-    { path: "index.tsx", source: "links: [{ href: \"/\" }, { href: \"/allergens\" }]" },
-    { path: "visit.tsx", source: "links: [{ href: '/' }]" }, // a later step took it back out
-    { path: "order.tsx", source: "<Link to=`/allergens`>Allergens</Link> <Link to=\"/faq\">" },
+// A PAGE AS THE KIT WRITES ONE: a shared menu (`CHROME.links`) and a body.
+const page = (path, { menu = ["/", "/order"], body = "<p>Come in.</p>", extra = "" } = {}) => ({
+  path,
+  source: "import { SiteChrome } from \"@/components/ui/site-chrome\";\n" + extra +
+    "const CHROME = { brand: \"Harbour Loaf\", links: [" + menu.map((h) => "{ label: \"" + (h === "/" ? "Home" : h.slice(1)) + "\", href: \"" + h + "\" }").join(", ") + "] };\n" +
+    "export default function Page() { return <SiteChrome {...CHROME}><main>" + body + "</main></SiteChrome>; }\n",
+});
+const ADDED = (paths) => new Map(paths.map((p) => [p, { source: "(after the link)", to: ["/allergens"] }]));
+const factsFor = (pages, paths) => {
+  const r = menuLinksKept({ pages, linked: ADDED(paths) });
+  const f = texts(addonReplyFacts({ ok: true, kinds: ["page"], added: ["allergens.tsx"], changed: paths, linked: r.kept, linkedUnsure: r.unsure, deferred: LINK_PART }, { inRequest: true }));
+  return { r, f };
+};
+
+test("HELD 1 — only a link the published MENU carries is told as there: comments, stray strings, body links and links taken out later are not; an unreadable menu is told as not known", () => {
+  // A GENUINE MENU LINK, on both pages.
+  let { r, f } = factsFor([page("index.tsx", { menu: ["/", "/order", "/allergens"] }), page("order.tsx", { menu: ["/", "/order", "/allergens"] })], ["index.tsx", "order.tsx"]);
+  assert.deepEqual(r, { kept: [{ path: "index.tsx", to: ["/allergens"] }, { path: "order.tsx", to: ["/allergens"] }], unsure: [] });
+  assert.ok(f.includes("changed: The menu on / and /order now links to /allergens."), JSON.stringify(f));
+  // CODEX'S TWO REPRODUCTIONS, and their kin: the address only in a comment,
+  // only in an unrelated string, only in a link in the page's body, or gone
+  // from the menu after a later change. None is a menu link; none is told.
+  const cases = [
+    ["a comment", page("index.tsx", { extra: "// the new page lives at \"/allergens\"\n" })],
+    ["an unrelated string", page("index.tsx", { extra: "const NOTE = '/allergens';\n" })],
+    ["a body-only link", page("index.tsx", { body: "<a href=\"/allergens\">Allergens</a>" })],
+    ["a link removed by a later change", page("index.tsx", { menu: ["/", "/order"] })],
   ];
-  const linked = new Map([
-    ["index.tsx", { source: "x", to: ["/allergens"] }],
-    ["visit.tsx", { source: "y", to: ["/allergens"] }],
-    ["order.tsx", { source: "z", to: ["/allergens", "/allergens", "/gone", 7, "nope"] }],
-    ["missing.tsx", { source: "w", to: ["/allergens"] }],
-  ]);
-  assert.deepEqual(menuLinksKept({ pages, linked }), [
-    { path: "index.tsx", to: ["/allergens"] },
-    { path: "order.tsx", to: ["/allergens"] },
-  ]);
+  for (const [what, pg] of cases) {
+    ({ r, f } = factsFor([pg], ["index.tsx"]));
+    assert.deepEqual(r, { kept: [], unsure: [] }, what + ": " + JSON.stringify(r));
+    assert.ok(!f.some((t) => /now links to \/allergens/.test(t)), what + " is told as a menu link: " + JSON.stringify(f));
+    assert.ok(!f.some((t) => /could not be read/.test(t)), what + ": a readable menu is told as unknown");
+  }
+  // NO MENU CAN BE READ (the page has none in a shape the reader knows, or the
+  // page is not among the published ones): nothing is claimed either way.
+  ({ r, f } = factsFor([{ path: "index.tsx", source: "export default () => <Layout>/allergens</Layout>;" }], ["index.tsx", "visit.tsx"]));
+  assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }, { path: "visit.tsx", to: ["/allergens"] }] });
+  assert.ok(!f.some((t) => /now links to/.test(t)), JSON.stringify(f));
+  assert.ok(f.includes("note: A link to /allergens was put in the menu on /, but whether the published menu there still carries it could not be read, so it is not known either way."), JSON.stringify(f));
   // CANNOT-TELL NEVER READS AS A LINK.
-  assert.deepEqual(menuLinksKept({}), []);
-  assert.deepEqual(menuLinksKept({ pages, linked: { "index.tsx": { to: ["/allergens"] } } }), []);
+  assert.deepEqual(menuLinksKept({}), { kept: [], unsure: [] });
+  assert.deepEqual(menuLinksKept({ pages: [page("index.tsx", { menu: ["/", "/allergens"] })], linked: { "index.tsx": { to: ["/allergens"] } } }), { kept: [], unsure: [] });
 });
 
 test("HELD 2 — through the real add-on route: an earlier part already satisfies a later one, and the facts say what the site holds, not that the later part is missing", async () => {
@@ -135,4 +159,17 @@ test("HELD 7 — the request's own facts and the rules the model writes under: a
   const rules = sys.slice(sys.indexOf("RULES"), sys.indexOf("Never put a fact"));
   assert.ok(rules.length > 100, "the rules were not found");
   assert.doesNotMatch(rules, /\bmenu\b|\bfooter\b|\blink\b/i);
+});
+
+test("HELD 8 — the Worker hands both readings to the reply: the menu links the published menus carry, and those whose menu could not be read", () => {
+  // THROUGH THE ROUTE an unreadable menu cannot be made: the menu step links
+  // only pages whose menus it reads. So the hand-off is held here, landmark to
+  // landmark, and the facts' side of it in HELD 1.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked });");
+  assert.ok(at > 0, "the Worker no longer reads the menus it published");
+  const next = src.indexOf("})(),", at);
+  const body = src.slice(at, next);
+  assert.ok(next > at && body.includes("{ linked: aKept.kept }") && body.includes("{ linkedUnsure: aKept.unsure }"), body);
+  assert.ok(src.includes('import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";'));
 });

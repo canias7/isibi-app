@@ -126,6 +126,35 @@ export function navSlots(pages) {
 }
 
 /**
+ * THE MENU LINKS AN ADDITION'S OWN STEP PUT IN, AS THE PUBLISHED MENUS HOLD
+ * THEM (2026-10-08, run 107; corrected the same day on Codex's review of
+ * b3d2a409). The menu-link step records each page it linked and the addresses
+ * it gained (`linked`, from the menu writer's own report). An address is kept
+ * only where the page's final source has a menu, read by this module's own
+ * reader (`navSlots`), whose items link it. A comment, an unrelated string or a
+ * link in the page's body names the address without being in a menu, and is
+ * never kept, as a link a later change took back out is not. Where no menu can
+ * be read on the page at all, nothing is claimed either way (`unsure`).
+ * `{ kept: [{ path, to }], unsure: [{ path, to }] }`.
+ */
+export function menuLinksKept({ pages = [], linked = new Map() } = {}) {
+  const now = new Map((Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => [p.path, p.source]));
+  const kept = [], unsure = [];
+  for (const [path, l] of linked instanceof Map ? linked : []) {
+    const to = l && Array.isArray(l.to) ? [...new Set(l.to.filter((t) => typeof t === "string" && t.charAt(0) === "/"))] : [];
+    if (typeof path !== "string" || !to.length) continue;
+    const source = now.get(path);
+    let slots = null;
+    if (typeof source === "string") { try { slots = navSlots([{ path, source }]); } catch { slots = null; } }
+    if (!Array.isArray(slots) || !slots.length) { unsure.push({ path, to }); continue; }
+    const hrefs = new Set(slots.flatMap((s) => (Array.isArray(s.items) ? s.items : []).map((i) => (i && typeof i.href === "string" ? i.href : ""))).filter(Boolean));
+    const inMenu = to.filter((t) => hrefs.has(t));
+    if (inMenu.length) kept.push({ path, to: inMenu });
+  }
+  return { kept, unsure };
+}
+
+/**
  * The header's CALL-TO-ACTION BUTTON, on every page that has one.
  *
  * THE SINGLE MOST IMPORTANT CONTROL ON A SMALL BUSINESS'S SITE, and its

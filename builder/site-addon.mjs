@@ -706,28 +706,6 @@ export function settleReverted({ reverted = [], stored = [], pages = [], linked 
   return out;
 }
 
-/**
- * THE MENU LINKS THIS ADDITION'S OWN STEP PUT IN, AS THEY STAND IN THE PAGES
- * IT PUBLISHES (2026-10-08, run 107). The menu-link step records each page it
- * linked and the addresses it gained (`linked`, from the menu writer's own
- * report); this keeps each address only where the page's final source still
- * carries it, quoted — so a link a later step took back out is never told as
- * added. Its reply then says what the site really holds, and a later part of
- * the same request asking for that link is not told as still missing.
- */
-export function menuLinksKept({ pages = [], linked = new Map() } = {}) {
-  const now = new Map((Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => [p.path, p.source]));
-  const out = [];
-  for (const [path, l] of linked instanceof Map ? linked : []) {
-    const src = now.get(path);
-    if (typeof src !== "string" || !l || !Array.isArray(l.to)) continue;
-    const to = [...new Set(l.to.filter((t) => typeof t === "string" && t.charAt(0) === "/"))]
-      .filter((t) => src.includes('"' + t + '"') || src.includes("'" + t + "'") || src.includes("`" + t + "`"));
-    if (to.length) out.push({ path, to });
-  }
-  return out;
-}
-
 export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [], restored = [], suggestions = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));

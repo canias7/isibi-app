@@ -168,11 +168,20 @@ export function requestStepChecks(step, scenario) {
   }
   const key = requestKeyOf(net);
   // A CONTINUATION'S ANSWER (`answer`, 2026-10-08): it resumed exactly the part that was waiting.
+  const fin = finalOf(step);
   if (Object.hasOwn(step, "answering")) {
     const v = answerResumedVerdict(step);
     add(`message ${n} answered the question that was waiting and resumed exactly that part`, v.ok, v.why);
+    // AND AFTERWARDS, THE SAME IDENTITIES (2026-10-08): the request the page
+    // followed is the named one, and its named part moved on from the named
+    // question to done.
+    const w = step.answering || {};
+    const fp = fin && fin.key === w.key && Array.isArray(fin.parts) ? fin.parts.find((p) => p && p.n === w.part) : null;
+    const still = fp && fp.status === "waiting" && fp.question && (fp.question.id === w.id || String(fp.question.text || "").trim() === w.text);
+    add(`message ${n}: afterwards, part ${w.part} of request ${w.key} moved on from the named question to done`,
+      !!fp && !still && fp.status === "done",
+      !fin ? "the request was not read afterwards" : fin.key !== w.key ? `the request read afterwards is ${fin.key}, not ${w.key}` : !fp ? `request ${w.key} has no part ${w.part} afterwards` : still ? "it still waits on the named question" : `it is ${JSON.stringify(fp.status)}`);
   }
-  const fin = finalOf(step);
   const parts = fin && Array.isArray(fin.parts) ? fin.parts : [];
   const wall = step.request && step.request.wall;
   if (step.mode === "question") {

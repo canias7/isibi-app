@@ -29,7 +29,9 @@ export function rqApp(opt = {}) {
   const calls = [];
   const routes = [];
   const requestListeners = [];
-  const keep0 = () => ({ msgs: [], requests: {}, ask: null, previewV: 0, pages: opt.pages ? [...opt.pages] : null, tables: opt.tables ? [...opt.tables] : null });
+  // A QUESTION ALREADY LIVE WHEN THE SITE OPENS (`liveAsk`, 2026-10-08): the page
+  // makes a waiting request's question its live one on open, as `siteRequestShow` does.
+  const keep0 = () => ({ msgs: [], requests: {}, ask: opt.liveAsk ? { ...opt.liveAsk } : null, previewV: 0, pages: opt.pages ? [...opt.pages] : null, tables: opt.tables ? [...opt.tables] : null });
   // WHAT THE PAGE KEEPS, PER BROWSER CONTEXT (2026-10-06): the run's own; and,
   // where a case says so (`fresh`), each later context's own, empty — a fresh
   // browser session holds nothing of the first's.
@@ -274,6 +276,6 @@ export function rqApp(opt = {}) {
 export const SESSION = { access_token: "a", refresh_token: "r", expires_at: 2_000_000_000, user: { id: UID } };
 export const drive = (h, scenario, over = {}) => runUi({
   base: ORIGIN, session: SESSION, slug: SLUG, scenario, spend: true, balanceNow: async () => 100, evid: "", launch: h.launch, log: () => {},
-  openMs: 200, attachMs: 50, startMs: 50, stepMs: 2_000, stepCapMs: 2_000, pollMs: 1, settleMs: 0, viewEveryMs: 0, awayEveryMs: 1,
+  openMs: 200, attachMs: 50, startMs: 50, stepMs: 2_000, stepCapMs: 2_000, pollMs: 1, settleMs: 0, viewEveryMs: 0, awayEveryMs: 1, askShownMs: 30,
   requestsNow: h.requestsNow, stopNow: h.stopNow, ...over,
 });

@@ -1068,6 +1068,14 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
       }
       [...groups.values()].forEach((g, i) => F.add("changed", "The menu on " + listOf(g.at) + " now links to " + listOf(g.to) + ".", "linked:" + i));
     }
+    // A MENU THAT COULD NOT BE READ (`linkedUnsure`): the link was put in, but
+    // whether the published menu still carries it is not established — so it
+    // is said as not known, never as there and never as missing.
+    (Array.isArray(a.linkedUnsure) ? a.linkedUnsure : []).forEach((l, i) => {
+      const at = l && typeof l === "object" ? pathOf(l.path) : "";
+      const to = paths(l && l.to);
+      if (at && to.length) F.add("note", "A link to " + listOf(to) + " was put in the menu on " + at + ", but whether the published menu there still carries it could not be read, so it is not known either way.", "linked-unsure:" + i);
+    });
     const tables = strings(a.tables);
     if (tables.length) F.add("changed", "The site now stores " + listOf(tables) + ".");
     const fns = strings(a.functions);

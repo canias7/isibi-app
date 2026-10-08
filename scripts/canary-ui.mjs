@@ -27,6 +27,7 @@
 // NOTHING SECRET IS RECORDED. No header is kept, auth traffic is not recorded,
 // and an attached image travels into the record as its name, size and sha256.
 
+import { WAIT_MS as REQUEST_WAIT_MS } from "../builder/request.mjs";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
@@ -807,7 +808,16 @@ export const UI_SCENARIOS = Object.freeze({
     steps: Object.freeze([
       Object.freeze({
         say: "It's tiktok.com/@harbourloaf",
-        answer: true,
+        // THE QUESTION IT ANSWERS, BY ITS IDENTITIES (run 107's own readings:
+        // request 475d4ff7…, part 1, job becdd472… at 23:59:18 UTC). The
+        // mechanism knows no request of its own; only this scenario does.
+        answer: Object.freeze({
+          key: "475d4ff79c7887bb18d546fcecf15edf",
+          part: 1,
+          question: "What’s the full address of your TikTok profile?",
+          id: "a00872db7f0459d0fd270d6029e611ae",
+          askedAt: "2026-10-07T23:59:18Z",
+        }),
         ms: 8 * 60_000,
         path: Object.freeze([
           Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
@@ -876,6 +886,9 @@ export function pressLimitMs(s) {
 // session opens the site. Both inside the message's own bound.
 export const UI_FIRST_LINE_MS = 6 * 60_000;
 export const UI_FRESH_AWAY_MS = 30_000;
+// HOW LONG THE PAGE IS GIVEN TO DRAW A WAITING QUESTION AS ITS LIVE ONE, before a
+// continuation's answer (`pageAskCheck`).
+export const UI_ASK_SHOWN_MS = 20_000;
 
 /**
  * WHAT A READING OF THE PAGE SAYS OF THE OPEN SITE'S PREVIEW AND LISTS
@@ -966,25 +979,77 @@ export function requestKeyOf(network) {
 }
 
 /**
- * THE ONE QUESTION A CONTINUATION ANSWERS (`answer: true`, 2026-10-08): read
- * for free off the requests list before anything is sent. Exactly one part of
- * one request on the site must be waiting on a question; none, several, or an
- * unread list, and nothing is sent. `{ why, waiting }`.
+ * THE QUESTION A CONTINUATION ANSWERS, NAMED BY ITS CALLER (`answer`, 2026-10-08;
+ * corrected the same day on Codex's review of b3d2a409, where "exactly one
+ * question waiting" let the answer go to an unrelated request asking "What
+ * should the company be called?"). The scenario names the request, the part
+ * and the question (its words, and its id where known, and when it was asked
+ * where known): `{ key, part, question, id?, askedAt? }`. Anything less is no
+ * expectation, and nothing is sent. Generic: no request is known here.
  */
-export function waitingRefusal(listed) {
+export function answerExpectation(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const key = typeof raw.key === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(raw.key) ? raw.key : "";
+  const question = typeof raw.question === "string" ? raw.question.trim() : "";
+  if (!key || !Number.isInteger(raw.part) || raw.part < 0 || !question) return null;
+  const id = typeof raw.id === "string" && raw.id ? raw.id : "";
+  const askedAt = raw.askedAt === undefined ? null : Date.parse(raw.askedAt);
+  if (raw.askedAt !== undefined && !Number.isFinite(askedAt)) return null;
+  return { key, part: raw.part, question, id, askedAt };
+}
+
+// THE LEAST TIME A QUESTION MUST HAVE LEFT BEFORE IT EXPIRES for an answer to be
+// sent: the answer's routing, its step and its publish (`lv-tiktok-answer`'s path).
+export const UI_ANSWER_MARGIN_MS = 10 * 60_000;
+// A PART WAITS ON A QUESTION THIS LONG (the request flow's own `WAIT_MS`).
+export const UI_QUESTION_LIFE_MS = REQUEST_WAIT_MS;
+
+/**
+ * WHETHER THE NAMED QUESTION IS STILL WAITING AND ANSWERABLE, off the requests
+ * list (free): the named request there, not ended or stopped; the named part
+ * waiting, its question asked (not queued), with the named words and id; and
+ * not expiring within the margin. Every other request on the site is ignored,
+ * whatever it asks. `{ why, waiting }`; `why` empty only when all of it holds.
+ */
+export function waitingCheck(listed, expect, { now = Date.now(), marginMs = UI_ANSWER_MARGIN_MS } = {}) {
+  const no = (why) => ({ why, waiting: null });
+  const x = expect && typeof expect === "object" && typeof expect.key === "string" ? expect : null;
+  if (!x) return no("the scenario names no expected request, part and question");
   if (!listed || listed.status !== 200 || !listed.json || !Array.isArray(listed.json.requests)) {
-    return { why: `the requests list did not answer (${listed && Number.isFinite(listed.status) ? listed.status : "no answer"}), so the waiting question cannot be found`, waiting: null };
+    return no(`the requests list did not answer (${listed && Number.isFinite(listed.status) ? listed.status : "no answer"}), so the named question cannot be confirmed`);
   }
-  const found = [];
-  for (const q of listed.json.requests) {
-    for (const p of Array.isArray(q && q.parts) ? q.parts : []) {
-      if (p && p.status === "waiting" && p.question && typeof p.question.text === "string" && p.question.text.trim() && p.question.queued !== true) {
-        found.push({ key: q.key, part: p.n, text: p.question.text, words: typeof p.words === "string" ? p.words : "" });
-      }
-    }
+  const v = listed.json.requests.find((q) => q && q.key === x.key);
+  if (!v) return no(`request ${x.key} is not on the site's requests list`);
+  if (v.stop === true) return no(`request ${x.key} was stopped`);
+  if (v.ended === true) return no(`request ${x.key} has ended (${v.state || "ended"})`);
+  const p = (Array.isArray(v.parts) ? v.parts : []).find((q) => q && q.n === x.part);
+  if (!p) return no(`request ${x.key} has no part ${x.part}`);
+  if (p.status !== "waiting") return no(`part ${x.part} of request ${x.key} is ${JSON.stringify(p.status)}, not waiting on its question`);
+  const q = p.question && typeof p.question === "object" ? p.question : null;
+  if (!q || typeof q.text !== "string" || !q.text.trim()) return no(`part ${x.part} of request ${x.key} waits on no readable question`);
+  if (q.queued === true) return no(`part ${x.part}'s question is queued behind another, not asked yet`);
+  if (q.text.trim() !== x.question) return no(`part ${x.part} of request ${x.key} now asks ${JSON.stringify(q.text)}, not the named question`);
+  if (x.id && q.id !== x.id) return no(`part ${x.part}'s question is now ${JSON.stringify(q.id || null)}, not the named ${x.id} (asked again or replaced)`);
+  const asked = Number.isFinite(q.at) ? q.at : x.askedAt;
+  if (Number.isFinite(asked) && now + marginMs >= asked + UI_QUESTION_LIFE_MS) {
+    return no(`the question expires at ${new Date(asked + UI_QUESTION_LIFE_MS).toISOString()}, less than ${Math.round(marginMs / 60000)} minutes from now`);
   }
-  if (found.length !== 1) return { why: found.length ? `${found.length} questions are waiting on the site, so which one this answers cannot be told` : "no question is waiting on the site (answered, cancelled or expired)", waiting: null };
-  return { why: "", waiting: found[0] };
+  return { why: "", waiting: { key: x.key, part: x.part, text: q.text.trim(), id: typeof q.id === "string" ? q.id : "" } };
+}
+
+/**
+ * WHETHER THE PAGE'S OWN LIVE QUESTION IS THE NAMED ONE: what the composer's
+ * next message answers (`ask`, read off the page, with its card). Its id must
+ * be the named id where one is named, else its words the named words; the
+ * request and part where the page noted them.
+ */
+export function pageAskCheck(s, expect) {
+  const ask = s && s.ask && typeof s.ask === "object" ? s.ask : null;
+  if (!ask || typeof ask.id !== "string" || !ask.id || s.askCard !== true) return "the page shows no live question, so the message would not be an answer to it";
+  if (expect.id ? ask.id !== expect.id : String(ask.text || "").trim() !== expect.question) return `the page's live question is ${JSON.stringify(ask.text || ask.id)}, not the named one`;
+  if (ask.key && ask.key !== expect.key) return `the page's live question belongs to request ${ask.key}, not ${expect.key}`;
+  if (Number.isInteger(ask.part) && ask.part !== expect.part) return `the page's live question is part ${ask.part}'s, not part ${expect.part}'s`;
+  return "";
 }
 
 /** Whether the answer resumed exactly the part that was waiting: its routing answer's `resumed`. */
@@ -2428,6 +2493,7 @@ export async function runUi(opts) {
     requestsNow = null, stopNow = null, awayEveryMs = UI_AWAY_EVERY_MS,
     // THE LEAST TIME A REQUEST'S REPLIES GET ONCE IT HAS ENDED (`watchReplies`).
     replyFloorMs = UI_REPLY_FLOOR_MS,
+    askShownMs = UI_ASK_SHOWN_MS,
     // A MESSAGE WHOSE TAB IS CLOSED ONCE ITS PROGRESS SHOWS (`away: "fresh"`):
     // `freshSession()` signs the canary's account in afresh — a second session,
     // as another device's — for the fresh browser session that opens the site
@@ -3093,12 +3159,25 @@ export async function runUi(opts) {
       // off the requests list for free, or sends nothing. Read BEFORE the
       // rehearsal's stop, so a free press (spend no) says whether the question
       // is still waiting and resumable.
-      if (step.answer === true) {
+      // THE QUESTION IS THE ONE THE SCENARIO NAMES — request, part, words, id —
+      // still waiting and answerable on the server, and live on the page.
+      const expectAnswer = step.answer !== undefined ? answerExpectation(step.answer) : null;
+      const answerGate = async (when) => {
+        if (!expectAnswer) return "the scenario names no expected request, part and question";
         const listed = typeof requestsNow === "function" ? await Promise.resolve().then(() => requestsNow()).catch(() => null) : null;
-        const w = waitingRefusal(listed);
+        const w = waitingCheck(listed, expectAnswer);
+        if (w.why) return w.why;
+        const shown = await until(page, (s) => !!(s && s.ask && s.askCard), askShownMs);
+        const askWhy = pageAskCheck(shown.s || null, expectAnswer);
+        if (askWhy) return askWhy;
+        (r.answerChecks = r.answerChecks || []).push({ when, at: Date.now(), ...w.waiting });
         r.answering = w.waiting;
-        if (w.why) { stop(`step ${n}`, `${w.why} — nothing is sent`); break; }
-        log(`  waiting, and answerable: part ${w.waiting.part} of request ${w.waiting.key} asks "${w.waiting.text}"`);
+        return "";
+      };
+      if (step.answer !== undefined) {
+        const why = await answerGate("first");
+        if (why) { stop(`step ${n}`, `${why} — nothing is sent`); break; }
+        log(`  waiting, and answerable: part ${r.answering.part} of request ${r.answering.key} asks "${r.answering.text}"`);
       }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);
@@ -3133,6 +3212,12 @@ export async function runUi(opts) {
         }
       }
 
+      // AND ONCE MORE, IMMEDIATELY BEFORE THE SEND: anything changed since —
+      // answered, cancelled, expired, asked again — and nothing is sent.
+      if (step.answer !== undefined) {
+        const why = await answerGate("before-send");
+        if (why) { stop(`step ${n}`, `the named question changed before sending: ${why} — nothing is sent`); break; }
+      }
       const before = typed.messages.length;
       const netFrom = rec.network.length;
       const sentAt = r.sentAt = Date.now();

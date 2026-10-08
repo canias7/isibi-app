@@ -207,7 +207,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 // Generated from the template by `builder/gen-foundation.mjs` and bundled,
 // because a Worker has no filesystem and the template lives in the image.
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
-import { runNavEdit, applyAdditions } from "./builder/site-nav.mjs";
+import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -216,7 +216,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, menuLinksKept, problemsShipped } from "./builder/site-addon.mjs";
+import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -34244,12 +34244,14 @@ async function handleRequest(request, env, ctx) {
                 return { reverted: aSettled.reverted, ...(aSettled.restored.length ? { restored: aSettled.restored } : {}) };
               })(),
               // EVERY MENU LINK THE MENU-LINK STEP PUT IN AND THE PUBLISHED
-              // PAGES STILL CARRY (2026-10-08, run 107): its reply said a later
-              // part asking for that link was "not tried", beside the link it
-              // had itself added to nine menus. Absent when there were none.
+              // MENUS STILL CARRY, read by the menu reader (2026-10-08, run 107):
+              // its reply said a later part asking for that link was "not
+              // tried", beside the link it had itself added to nine menus. A
+              // page whose menu cannot be read is `linkedUnsure`, never told
+              // either way. Each absent when there were none.
               ...(() => {
                 const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked });
-                return aKept.length ? { linked: aKept } : {};
+                return { ...(aKept.kept.length ? { linked: aKept.kept } : {}), ...(aKept.unsure.length ? { linkedUnsure: aKept.unsure } : {}) };
               })(),
               // THE NEW WORDS AND THE SITE'S OWN PHOTOGRAPHS PLACED (2026-10-02),
               // each one found on its page by `wordsLanded` / `photosLanded`
