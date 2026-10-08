@@ -143,8 +143,19 @@ and 15 components.
 - **`test/fixtures/request-flow.mjs` and `test/handover-resume.test.mjs`**
   answer `build_debit` 404, as production does today. Their generic `[]` or
   `{ok:false}` answer had been read as a real refusal.
-- **Measured numbers** (red/green, sweep, suite, CI) are in the owner-notes
-  handoff, stamped after each run.
+- **Before**, on `3308d51d`'s code: 15 of 18 fail. The 3 that pass are
+  controls: a recorded activation through pruning, a success before a
+  failure, and a partial refund. **After**: 18 of 18 pass.
+- **Sweep**: 21 of 21 killed, 2 comment-only controls survived
+  (`scripts/mutants/build-batch-o-2026-10-08.json`). One first-form mutant
+  was equivalent: an unreadable fence read as absent, which both writers
+  already decline. It was replaced by one that writes, and that one was
+  killed.
+- **Full suite** on `b4f8fb90`: `10002 / 10002 / 0 / 0` locally.
+- **Required CI on `b4f8fb90`**: unit tests run 37756232496,
+  `10002 / 9980 / 0 / 22` (totals match); site build run 37756232598, 8 of 8
+  green.
+- **The next image, predicted** (not built): `e60ea756d233d2f7`, 198 inputs.
 
 ## Remaining gaps
 

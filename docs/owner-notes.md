@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the second Build correction batch in `d1b338f0`)
+## Current handoff — read this first (2026-10-08, the third Build correction batch in `b4f8fb90`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,118 +8,115 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
-  `335396c8c0e0fbcb`), unchanged. **Balance 11** (last ledger row 409; not
-  read again; nothing this round moved money).
+  `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
+  this round moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`, now ending in
-  **`d1b338f0`** (this batch's code, tests and records) and the record of its
-  CI. Nothing merged, deployed or built; no paid call; no live retest; no SQL
-  applied.
+  **`b4f8fb90`** (this batch) and its records. Nothing merged, deployed or
+  built; no paid call; no live retest; no SQL applied.
+- **Codex passed `3308d51d`'s attachment-ID and gateway-binding
+  corrections**; both are kept unchanged.
 
-**Your clarification, recorded** (here and in `owner-preferences.md`):
-Build keeps its maximum of 1 page and 15 selected components. Every other
-limit is reviewed on its own. This is not permission to remove timeouts,
-provider constraints, security controls or spending safeguards.
+**Corrections to the previous handoff.** Two claims there were wrong:
+- **"Unresolved recovery stays listed and retried until it settles."**
+  Past 20 fresh rows it did not: the scan re-read the same oldest 20, and
+  the pending listing had no pages.
+- **That applying `build_debit.sql` closes the billing race.** It did not:
+  a valid bearer never reached the function, and its job-row read had no
+  lock.
 
-**The second Build batch (`d1b338f0`)**: Codex's four reproduced gaps on
-`b4300a07`, fixed together, plus your additions. The full record is
-`docs/history/2026-10-08-build-batch-2.md`.
-- **Attachment identity.** Every attached file is `attachment-<n>` (its
-  place in the request), from planning through storage and resume, and keeps
-  its original name for display.
-  - Two uploads with the same name, or with a long shared prefix, are two
-    ids. The second id stores the second file's own bytes.
-  - A shared name, a prefix or an unknown id is refused and told, never
-    guessed.
-  - A file refused by the reader no longer shifts the files after it.
-- **Publication by evidence, never a timestamp.** A lost build counts as
-  published only when its own record, the live pointer or a saved version
-  names its job.
-  - That record is a create-only "fence" per job; the build writes the
-    version it put live there.
-  - An unrelated edit published later is not that build's publication: the
-    build is refunded.
-  - A build that published and was then edited over still counts as
-    published.
-  - A publish still in progress, or an older job beside a version that
-    names no job, is "unknown": nothing moves, and it stays listed.
-- **A late worker after recovery** can neither publish nor charge.
-  - Recovery claims the outcome first, and the build checks it right before
-    the pointer.
-  - Every build debit checks the job's state first, whether the login token
-    is expired or still valid.
-  - A late finish never overwrites recovery's answer. A duplicate delivery
-    of the same job finds its own claim.
-- **The container's billing path.** The job gateway admits `build_debit`,
-  and one ledger read, only for the job's own id, its own account and its
-  three exact refs. **`supabase/proposed/build_debit.sql` stays unapplied**:
-  your word.
-- **A lost pages-debit answer** is read back from the ledger by ref. If not
-  found, or unreadable, the charge is "unknown" and is said to be being
-  checked, never "nothing charged".
-- **Unresolved recovery no longer ages out after a day.** It is listed and
-  retried every tick until it settles.
-- **Customer wording**: no new canned narration. The build's sentences are
-  the existing ones, chosen by verified outcome facts.
+**This batch (`b4f8fb90`)** closes Codex's four reproduced gaps together.
+The full record is `docs/history/2026-10-08-build-batch-3.md`.
+- **Publication needs a record of a completed activation.**
+  - Only the fence's record of the version an activation put live, written
+    after it answered success, proves publication.
+  - A version staged for the job (its manifest) is staging, not
+    publication.
+  - The pointer naming the job means "under way or done".
+  - Either alone is now **unknown**: nothing moves, and the build stays
+    listed.
+  - Covered: a failed activation, a rollback that did or didn't land, a
+    crash between steps, later edits and pruning.
+- **The fence moves one way.**
+  - Every outcome write is conditional on what it read, and goes from
+    publish to failed to published; recovery's fence is never taken.
+  - A failure that read before a success can no longer erase it. Tested by
+    running the success between the failure's read and its write, and the
+    reverse.
+- **One billing path for a queued build, whatever its login token.**
+  - Every debit goes through `build_debit` first.
+  - The proposed SQL now locks the job row before it reads its state, so a
+    terminal "lost" and a debit can't interleave. Either the debit lands
+    first and recovery refunds it by ref, or the debit is refused.
+  - A duplicate answers "repeat". A lost or malformed answer is never
+    charged a second way.
+  - **The SQL stays unapplied.** Until you apply it, production keeps the
+    fallback, which still has the race. The SQL and this Worker code close
+    it only together.
+- **The recovery scan makes progress.**
+  - A saved cursor walks the lost rows forward.
+  - Every unsettled row is registered as pending before it is decided, and
+    the scan never moves past a row it could not register.
+  - An outage of any length loses nothing.
+  - The pending list is paged and resumes, so 60 entries are all retried.
 
-**The Build limits** (`docs/investigations/build-limits-2026-10-08.md`):
-every other limit with its location, value, reason and effect, sorted into
-operational constraints and content restrictions.
-- **Silent drops found**, notably:
-  - a customer's third attached photo, cut by the plan's two-image cap before
-    it is counted;
-  - band sections that failed, published as empty stubs;
-  - sections, actions and purpose cut without a word;
-  - browser cuts at 2,000 and 200 characters;
-  - `behavior`, never read at build time.
-- **Proposals P1–P11 for your review.** Page 1 and component 15 are
-  unchanged, and no timeout, provider bound, security control or spending
-  safeguard is touched.
+**The Build limits.** `docs/investigations/build-limits-2026-10-08.md`
+keeps the inventory for review one item at a time. **P3–P5 are rewritten**:
+instead of keeping the cuts and warning afterwards, each says how to carry
+the customer's requirements within the real constraints (input budget,
+output budget, time, money). That covers briefs, clarification answers,
+sections, actions, image requests, facts and linked pages. Nothing is
+implemented. Page 1 and component 15 are unchanged.
 
 **Tests actually run**
-- `test/build-audit-batch.test.mjs`: **63 cases, all pass**; plus a
-  `publishPages` `chargeUnknown` case and updated pins in six files.
-- **Red check** on `b4300a07`'s code: 31 of 61 fail, including every new
-  boundary case; the 30 that pass are the first batch's unchanged behaviour.
-  The `publishPages` case fails there too.
-- **Mutation sweep**: **33 of 33 killed, 2 comment-only controls survived**
-  (`scripts/mutants/build-batch-n-2026-10-08.json`). Two first-pass
-  survivors were real gaps in the tests, not the code: the claim race, and a
-  failure overwriting a recorded publish. Tests were added and both were
-  killed on re-run.
-- **Full suite** on `d1b338f0`: **`9984 / 9984 / 0 / 0`** locally.
-- **Required CI on `d1b338f0`**: **green**. Unit tests run 37749514544: `9984 / 9962 / 0 / 22` (the totals match; CI skips 22). Site build run 37749514610: all 8 jobs green.
+- `test/build-recovery-billing.test.mjs`, 18 cases:
+  - **before, on `3308d51d`'s code: 15 of 18 fail.** The 3 that pass are
+    controls: a recorded activation through pruning, a success written
+    before a failure, and a partial refund;
+  - **after: 18 of 18 pass.**
+- `test/build-audit-batch.test.mjs`: 63 of 63.
+  - Pins that changed on purpose were updated: `build_debit` first;
+    publication by record.
+  - A test bug was fixed: an async wrapper that made the bucket's read a
+    Promise, hidden by the old scan.
+- **Generic stubs elsewhere** now answer `build_debit` as production does
+  today (not applied, 404).
+- **Mutation sweep**: **21 of 21 killed, 2 comment-only controls survived**
+  (`scripts/mutants/build-batch-o-2026-10-08.json`). One first-form mutant
+  was equivalent and was replaced by one that really writes an unreadable
+  fence; that one was killed.
+- **Full suite** on `b4f8fb90`: **`10002 / 10002 / 0 / 0`** locally.
+- **Required CI on `b4f8fb90`: green.** Unit tests run 37756232496,
+  `10002 / 9980 / 0 / 22` (the totals match; CI skips 22). Site build run
+  37756232598, all 8 jobs green.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`e703e55ffa3415b1`** (198 inputs; the branch's previous prediction was
-`f39e59b4bdb7ec77`).
+**`e60ea756d233d2f7`** (198 inputs).
 
-**Remaining gaps** (in full in the history and the backlog)
-- `build_debit` SQL is unapplied. Until then an expired bearer's debit
-  fails as before, in the Worker and in the container.
-- The bearer path's state check is a read before the debit, not one
-  transaction. A row turning lost in between, or a debit landing after
-  recovery's refund, is not caught; the applied function closes this.
-- A row marked lost after its publish and before its pages debit leaves the
-  pages uncharged (in the customer's favour).
-- A job filed before this code, with a later version that names no job,
-  stays pending until evidence or review.
-- `credit_reverse`'s gateway binding is still a prefix. Fence objects are
-  never deleted.
-- A real model's use of the attachment id is unmeasured; the reply cannot
-  see whether the writer placed the photo.
+**Remaining gaps**
+- **The billing race remains in production until `build_debit.sql` is
+  applied** together with this code.
+- A crash between a successful activation and its record stays unknown,
+  listed and retried, until review. Builds have no live-script probe.
+- Pre-fence jobs with a staged manifest or an unattributed version stay
+  unknown.
+- The scan's first run starts one day back; older lost rows from before
+  this code are not picked up.
+- `credit_reverse`'s gateway binding is still a prefix. Fence and cursor
+  objects are never deleted.
+- A real model's use of attachment ids is unmeasured.
 - The first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
 
 **Yours to decide**
-- The review of `d1b338f0`.
+- The review of `b4f8fb90`.
 - Whether to apply `build_debit.sql`.
-- Which limit proposals (P1–P11) to take.
+- Which limit proposals to take.
 - Any release: one merge, one image build, its own runtime check.
 - Next in order, as you set it: parallel-task execution work (not started).
 
-**Links**: `docs/history/2026-10-08-build-batch-2.md` (this round),
+**Links**: `docs/history/2026-10-08-build-batch-3.md` (this round),
 `docs/investigations/build-limits-2026-10-08.md`,
-`docs/history/2026-10-08-build-batch.md` (the first batch),
-`docs/investigations/first-build-audit-2026-10-08.md`.
+`docs/history/2026-10-08-build-batch-2.md`,
+`docs/history/2026-10-08-build-batch.md`.
 
 ## How you like things done
 
@@ -128,6 +125,36 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The third Build correction batch: recovery and billing closed together (on the branch, `b4f8fb90`; nothing merged, deployed, built or paid)
+
+Codex passed the attachment-ID and gateway corrections and found four gaps,
+each shown with the real code. All four are fixed together:
+- **A version prepared but never put live** no longer counts as published.
+  Only a record written after the site actually went live counts.
+- **A failure can't overwrite a success** written a moment before it.
+- **Every charge for a queued build goes through one locked database
+  function**, whatever the login. Once you apply its SQL, a charge can't land
+  after the build was given up and refunded. Until then that risk remains.
+  The previous handoff said applying the SQL alone was enough; that was
+  wrong.
+- **The recovery scan works through every lost build.** The previous
+  handoff said nothing could be missed, but past 20 builds it could. Now
+  nothing is skipped or lost in an outage.
+
+The limits proposals P3–P5 now say how to keep what the customer asked for,
+instead of cutting and warning.
+
+Checks:
+- tests 18 of 18;
+- the same tests on the old code: 15 of 18 fail, and the 3 that pass are
+  controls;
+- sweep 21 of 21 killed, with both controls surviving;
+- suite `10002 / 10002 / 0 / 0`;
+- CI green (unit `10002 / 9980 / 0 / 22`, site build 8 of 8).
+
+The next image is predicted at `e60ea756d233d2f7`. The record is
+`docs/history/2026-10-08-build-batch-3.md`.
 
 ## 2026-10-08 — The second Build correction batch: attachment ids, publication by evidence, late workers fenced out (on the branch, `d1b338f0`; nothing merged, deployed, built or paid)
 
