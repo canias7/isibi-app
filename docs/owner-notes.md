@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the third Build correction batch in `b4f8fb90`)
+## Current handoff — read this first (2026-10-08, the fourth Build correction batch in `148cb1e4`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,112 +11,93 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   this round moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`, now ending in
-  **`b4f8fb90`** (this batch) and its records. Nothing merged, deployed or
+  **`148cb1e4`** (this batch) and its records. Nothing merged, deployed or
   built; no paid call; no live retest; no SQL applied.
-- **Codex passed `3308d51d`'s attachment-ID and gateway-binding
-  corrections**; both are kept unchanged.
+- **Codex passed `41731e86`'s four reproductions offline**: staging versus
+  publication, concurrent outcome writes, queued billing through
+  `build_debit`, and recovery pagination (equal timestamps, 60 pending, a
+  multi-day outage). All kept unchanged.
 
-**Corrections to the previous handoff.** Two claims there were wrong:
-- **"Unresolved recovery stays listed and retried until it settles."**
-  Past 20 fresh rows it did not: the scan re-read the same oldest 20, and
-  the pending listing had no pages.
-- **That applying `build_debit.sql` closes the billing race.** It did not:
-  a valid bearer never reached the function, and its job-row read had no
-  lock.
-
-**This batch (`b4f8fb90`)** closes Codex's four reproduced gaps together.
-The full record is `docs/history/2026-10-08-build-batch-3.md`.
-- **Publication needs a record of a completed activation.**
-  - Only the fence's record of the version an activation put live, written
-    after it answered success, proves publication.
-  - A version staged for the job (its manifest) is staging, not
-    publication.
-  - The pointer naming the job means "under way or done".
-  - Either alone is now **unknown**: nothing moves, and the build stays
-    listed.
-  - Covered: a failed activation, a rollback that did or didn't land, a
-    crash between steps, later edits and pruning.
-- **The fence moves one way.**
-  - Every outcome write is conditional on what it read, and goes from
-    publish to failed to published; recovery's fence is never taken.
-  - A failure that read before a success can no longer erase it. Tested by
-    running the success between the failure's read and its write, and the
-    reverse.
-- **One billing path for a queued build, whatever its login token.**
-  - Every debit goes through `build_debit` first.
-  - The proposed SQL now locks the job row before it reads its state, so a
-    terminal "lost" and a debit can't interleave. Either the debit lands
-    first and recovery refunds it by ref, or the debit is refused.
-  - A duplicate answers "repeat". A lost or malformed answer is never
-    charged a second way.
-  - **The SQL stays unapplied.** Until you apply it, production keeps the
-    fallback, which still has the race. The SQL and this Worker code close
-    it only together.
-- **The recovery scan makes progress.**
-  - A saved cursor walks the lost rows forward.
-  - Every unsettled row is registered as pending before it is decided, and
-    the scan never moves past a row it could not register.
-  - An outage of any length loses nothing.
-  - The pending list is paged and resumes, so 60 entries are all retried.
-
-**The Build limits.** `docs/investigations/build-limits-2026-10-08.md`
-keeps the inventory for review one item at a time. **P3–P5 are rewritten**:
-instead of keeping the cuts and warning afterwards, each says how to carry
-the customer's requirements within the real constraints (input budget,
-output budget, time, money). That covers briefs, clarification answers,
-sections, actions, image requests, facts and linked pages. Nothing is
-implemented. Page 1 and component 15 are unchanged.
+**This batch (`148cb1e4`)**: the two lifecycle defects Codex found, fixed
+together. The full record is `docs/history/2026-10-08-build-batch-4.md`.
+- **The protocol survives the consumed envelope.**
+  - The queue consumer deletes the job envelope, which holds the customer's
+    session, before it runs the build. Recovery used to read the "fenced"
+    flag from that deleted envelope.
+  - The flag now lives in its own record with no credential in it. It is
+    written once, by the producer and again by the consumer just before the
+    delete. The container runs the same consumer, and a resume reuses the
+    job id.
+  - An older envelope, or a record that couldn't be written, stays
+    **unknown** — never guessed.
+- **Money and the customer's answer are recorded apart.**
+  - Before, the "settled" mark was written before the answer, so a failed
+    answer was never repaired.
+  - Now the settlement record holds enough to rebuild the answer, and the
+    answer is retried every tick until it is stored.
+  - After a restart, the refunded amount is read from the ledger's own
+    totals, so the customer sees the true amount, not zero.
+  - The build's own newer answer is never overwritten.
 
 **Tests actually run**
-- `test/build-recovery-billing.test.mjs`, 18 cases:
-  - **before, on `3308d51d`'s code: 15 of 18 fail.** The 3 that pass are
-    controls: a recorded activation through pruning, a success written
-    before a failure, and a partial refund;
-  - **after: 18 of 18 pass.**
-- `test/build-audit-batch.test.mjs`: 63 of 63.
-  - Pins that changed on purpose were updated: `build_debit` first;
-    publication by record.
-  - A test bug was fixed: an async wrapper that made the bucket's read a
-    Promise, hidden by the old scan.
-- **Generic stubs elsewhere** now answer `build_debit` as production does
-  today (not applied, 404).
-- **Mutation sweep**: **21 of 21 killed, 2 comment-only controls survived**
-  (`scripts/mutants/build-batch-o-2026-10-08.json`). One first-form mutant
-  was equivalent and was replaced by one that really writes an unreadable
-  fence; that one was killed.
-- **Full suite** on `b4f8fb90`: **`10002 / 10002 / 0 / 0`** locally.
-- **Required CI on `b4f8fb90`: green.** Unit tests run 37756232496,
-  `10002 / 9980 / 0 / 22` (the totals match; CI skips 22). Site build run
-  37756232598, all 8 jobs green.
+- **`test/build-recovery-lifecycle.test.mjs`, 12 cases, through the real
+  lifecycle.**
+  - The real producer envelope is consumed by the real queue consumer,
+    stopped where an evicted worker stops.
+  - The site is staged or published with the real helpers, the job is lost,
+    recovery runs repeatedly, and the stored customer answer is read back.
+  - Outcomes covered: published, proven not-published, unknown, an older
+    envelope, a missing record, and the record being write-once.
+  - Failures covered: the answer write failing after the refund (Codex's
+    injection), and crashes before the settlement record, before the
+    delivery record and before the pending clean-up. Also a newer answer of
+    the build's own, and a short refund finished later.
+- **Before, on `41731e86`'s code: 8 of 11 fail.** The 3 that pass are
+  controls. The 12th case was added after the sweep.
+- **The billing in these tests is mocked.** The `credit_reverse` stand-in
+  answers as the applied SQL does. `build_debit`'s row lock is checked only
+  as SQL text; no Postgres transaction is run anywhere.
+- **The earlier concurrency and pagination suites pass unchanged.**
+- **Mutation sweep**: **11 of 11 killed, the comment-only control survived**
+  (`scripts/mutants/build-batch-p-2026-10-08.json`). The one first-pass
+  survivor, the write-once record, got its own test and was killed.
+- **Full suite** on `148cb1e4`: **`10014 / 10014 / 0 / 0`** locally.
+- **Required CI on `148cb1e4`: green.** Unit tests run 37759979279,
+  `10014 / 9992 / 0 / 22` (the totals match; CI skips 22). Site build run
+  37759979264, all 8 jobs green.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`e60ea756d233d2f7`** (198 inputs).
+**`8b18b5eea7548730`** (198 inputs).
 
 **Remaining gaps**
-- **The billing race remains in production until `build_debit.sql` is
-  applied** together with this code.
-- A crash between a successful activation and its record stays unknown,
-  listed and retried, until review. Builds have no live-script probe.
-- Pre-fence jobs with a staged manifest or an unattributed version stay
-  unknown.
-- The scan's first run starts one day back; older lost rows from before
-  this code are not picked up.
-- `credit_reverse`'s gateway binding is still a prefix. Fence and cursor
-  objects are never deleted.
-- A real model's use of attachment ids is unmeasured.
+- **The billing race remains in production** until `build_debit.sql` is
+  applied together with this code. The transaction is verified only as
+  text.
+- A job filed and consumed before the protocol record existed — or whose
+  record couldn't be written at either end — stays unknown when its outcome
+  needs the flag.
+- A crash between a successful activation and its record stays unknown
+  until review.
+- The scan's first run starts one day back.
+- Settlement records from the earlier unmerged code lack `delivered`. They
+  were never deployed, so none exist.
+- Protocol, fence, settlement and cursor objects are never deleted.
+- `credit_reverse`'s gateway binding is still a prefix.
 - The first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
 
-**Yours to decide**
-- The review of `b4f8fb90`.
-- Whether to apply `build_debit.sql`.
-- Which limit proposals to take.
-- Any release: one merge, one image build, its own runtime check.
-- Next in order, as you set it: parallel-task execution work (not started).
+**Next, as you set it**: the Build content-preservation work — photos,
+briefs, clarification answers, sections and actions — keeping 1 page and 15
+components, and reviewing the other limits one at a time. Then
+parallel-task execution, later.
 
-**Links**: `docs/history/2026-10-08-build-batch-3.md` (this round),
-`docs/investigations/build-limits-2026-10-08.md`,
-`docs/history/2026-10-08-build-batch-2.md`,
-`docs/history/2026-10-08-build-batch.md`.
+**Yours to decide**
+- The review of `148cb1e4`.
+- Whether to apply `build_debit.sql`.
+- Any release: one merge, one image build, its own runtime check.
+
+**Links**: `docs/history/2026-10-08-build-batch-4.md` (this round),
+`docs/history/2026-10-08-build-batch-3.md`,
+`docs/investigations/build-limits-2026-10-08.md`.
 
 ## How you like things done
 
@@ -125,6 +106,32 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The fourth Build correction batch: recovery through the real job lifecycle (on the branch, `148cb1e4`; nothing merged, deployed, built or paid)
+
+Codex passed the previous four fixes and found two more by running the real
+job lifecycle:
+- **Recovery read a flag from a file the worker had already deleted.** A
+  build that was only prepared, never put live, was therefore never refunded.
+  The flag now has its own record with no customer credentials in it,
+  written before the file is deleted.
+- **Recovery could forget to store the customer's answer** if that one write
+  failed after the refund. The refund and the answer are now recorded
+  separately. The answer is retried until it is stored, with the correct
+  amount, and never twice charged or refunded.
+
+The tests run the real worker, the real staging and publishing, and the
+recovery, with failures injected between each step:
+- tests 12 of 12;
+- the same tests on the old code: 8 of 11 fail, and the 3 that pass are
+  controls;
+- sweep 11 of 11 killed;
+- suite `10014 / 10014 / 0 / 0`;
+- CI green (unit `10014 / 9992 / 0 / 22`, site build 8 of 8).
+
+Billing in these tests is mocked, not a real database. The next image is
+predicted at `8b18b5eea7548730`. The record is
+`docs/history/2026-10-08-build-batch-4.md`.
 
 ## 2026-10-08 — The third Build correction batch: recovery and billing closed together (on the branch, `b4f8fb90`; nothing merged, deployed, built or paid)
 

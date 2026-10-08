@@ -155,3 +155,15 @@ part 2.
 - **Protocol, fence, settlement and cursor objects** are never deleted.
 - **`build_debit.sql` is unapplied**. Until it is applied, the billing race
   remains in production, and the transaction is verified only as text.
+
+## Measured
+
+- **Sweep**: 11 of 11 killed, the comment-only control survived
+  (`scripts/mutants/build-batch-p-2026-10-08.json`). The first-pass survivor
+  (the protocol record overwritten by a later writer) got its own case and
+  was killed.
+- **Full suite** on `148cb1e4`: `10014 / 10014 / 0 / 0` locally.
+- **Required CI on `148cb1e4`**: unit tests run 37759979279,
+  `10014 / 9992 / 0 / 22` (totals match); site build run 37759979264, 8 of 8
+  green.
+- **The next image, predicted** (not built): `8b18b5eea7548730`, 198 inputs.
