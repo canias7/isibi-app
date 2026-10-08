@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, Codex's review of b3d2a409: both corrections made; the guarded continuation waits for your review)
+## Current handoff — read this first (2026-10-08, Codex's review of dd4b96d8: menu links from the menus the page renders; the guarded continuation kept)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,111 +9,74 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
   **Run 107's verdict stands: failed.** The demo changes stay. Balance **15**.
-- **On the branch, unmerged**:
-  - `2f2b9ace`: the follow-up batch;
-  - `1537c518`: the two corrections from Codex's review of `b3d2a409`;
-  - these records.
+- **On the branch, unmerged**: `2f2b9ace` (the follow-up batch), `1537c518`
+  (Codex's review of `b3d2a409`), **`d24ab456` (this round)**, and records.
   Nothing merged, deployed or built, no model called, nothing paid, nothing
-  sent.
-- **The TikTok request is untouched.** It is still waiting, until about 23:59
-  UTC today (2026-10-08), when it expires. **The guarded continuation is
-  ready for your review**, and nothing is pressed without your approval.
+  sent. Run 107 is not repeated.
+- **The TikTok request is untouched**: still waiting until about 23:59 UTC
+  today (2026-10-08), when it expires.
 
-**Codex's review of `b3d2a409`: both reproductions confirmed, both corrected (`1537c518`)**
-1. **The menu-link evidence is now read from the menus themselves.**
-   - Reproduced on the old function: a comment-only mention of `/allergens`
-     and a body-only link were both reported as kept menu links.
-   - Now `menuLinksKept` (moved to `builder/site-nav.mjs`) reads each
-     published page's menus with the existing menu reader (`navSlots`), and
-     keeps an address only where a menu item links it.
-   - A comment, an unrelated string, a body link, or a link a later change
-     took out is never told as a menu link.
-   - **Uncertainty is kept**: a page whose menu cannot be read is
-     `linkedUnsure`, and the reply model is told it is *not known either way*.
-   - Tested through the reply-facts boundary: a genuine menu link, a comment,
-     an unrelated string, a body-only link, a link removed, and an unreadable
-     page. The real add-on route still passes (HELD 2).
-2. **The continuation answers only the question named by its caller.**
-   - Reproduced on the old function: it accepted an unrelated request whose
-     only question was *"What should the company be called?"*.
-   - Now the scenario names the request, the part, the question's words, its
-     id and when it was asked.
-   - The mechanism checks them in three places:
-     - on the requests list: the named request is not stopped or ended, the
-       named part is waiting with the named words and id, and the question is
-       not within 10 minutes of expiring;
-     - on the page: its own live question is the named one;
-     - **again immediately before the send**.
-   - **Afterwards** the answer must have resumed that part, and that part must
-     have moved on to done.
-   - The mechanism is generic: run 107's identifiers appear only in the
-     `lv-tiktok-answer` scenario's data, and a test holds that.
-   - No-send controls through the real `runUi`: an unrelated sole question, a
-     replaced question on the same part (other words, or the same words under
-     another id), an expired part, a question within its expiry margin, a
-     stopped request, the page's live question being another, the page showing
-     none, and a change between the first check and the send (answered
-     elsewhere, cancelled, expired, asked again).
+**Kept as you asked: the continuation guard.** Codex's independent checks
+accepted the right question and rejected the wrong request, a replacement
+question, a stopped request and an expired question. Nothing in it changed.
 
-**Kept from the follow-up batch**: the timing from the measured path, and the
-later money (22 + 3 = 25, not final). Details below.
+**The menu evidence, corrected at the evidence boundary (`d24ab456`)**
+- **Reproduced on `dd4b96d8`**:
+  - a commented-out `/* old menu: links: [{label:"Allergens",href:"/allergens"}] */`
+    beside a rendered Home-only menu was told as a kept menu link;
+  - so was an unused `OLD` object holding the link while the page renders a
+    different `CHROME`;
+  - two more of the same kind: a menu in a component nothing renders, and a
+    spread overridden by a later `links` attribute;
+  - and a `CHROME` whose links were pushed to after their declaration was
+    read as certainly without the link.
+- **Now** `menuLinksKept` keeps an address only where a menu **the page
+  renders** links it (`renderedMenus`, in `builder/site-nav.mjs`):
+  - comments, strings and the text between JSX tags are never read as code;
+  - only elements inside declarations the page's exports reach count, so an
+    unused object or component counts for nothing;
+  - each `links` attribute and spread is followed through the supported
+    bindings: an inline array, a `const` array or object, `NAME.links`,
+    `{...NAME}`, an object's own spread. The last one written wins;
+  - **uncertainty is kept**: anything else that could set the menu (an
+    import, a parameter, a call, a name declared twice, a binding written to
+    later, a page the scanner cannot read) makes the page "not known either
+    way", never a link and never not one.
+- **Unchanged**: `navSlots` and every navigation edit; the Worker's hand-off;
+  the reply's facts and rules; the wording, which stays the model's. Nothing
+  names a page, label or address, and nothing is written for the two
+  examples.
+- **On the 324 hand-written corpus pages and the 5 bakery pages**:
+  - every page reads;
+  - wherever the editor finds a menu, the rendered menus are the same set;
+  - 15 pages are "not known", each because a spread comes from an import, a
+    callback parameter or form helpers. A link found in a certain menu is
+    still reported there.
 
-**What this batch did** (`docs/history/2026-10-08-run107-followup.md`)
-1. **Run 107's failures, by cause**: nine failing check lines in five groups,
-   all from **one cause**. Message 2's 6-minute bound was shorter than its real
-   path: the TikTok part ran only after the heading's publish, which waited
-   221 s for a container, so the question came at **7 min 2 s**. The product
-   asked it. **Unverified, separately: clarification end to end** (an answer
-   resuming the part, the link placed).
-2. **Timing from the measured path**:
-   - each `lv-combined` message now carries its path from run 107's job rows,
-     with every container wait counted at the longest measured (262 s);
-   - message 2's bound is 10 min (was 6), message 3's 8 (was 7);
-   - the overall limit stays explicit: `lv-combined` has its own press limit
-     of 36 min and its own workflow timeout of 55, the same quarter-hour to
-     spare; every other press keeps 30 and 45;
-   - budget 38 and cap 40 unchanged.
-3. **The reply: not run is not absent, for every kind of part**:
-   - the add-on's answer now carries the menu links its own step put in and the
-     published pages still hold (`linked`), and its facts say them;
-   - a later part of the same request is told as *not run yet, which says
-     nothing about whether the site already has it*;
-   - the rule saying held work is "not tried" now applies only where nothing
-     will run it, and a new rule says a queued or waiting status is never
-     evidence the site lacks something;
-   - the wording stays the model's: no canned sentence, and no rule names a
-     menu, link or footer.
-4. **Accounting after observation stops**:
-   - run 107: **snapshot 22** (rows 402–406), **later 3** (row 407, the
-     TikTok routing, 9 s after the press stopped), **25 so far, NOT FINAL**,
-     since the request still waits and an answer would charge more;
-   - the canary now reads the ledger again after one explicit 60 s wait, and
-     says "settled" only when every request it made has ended.
-5. **The extra routing, investigated, nothing changed**:
-   - every part after the first gets its own routing call (3 each in run 107,
-     almost uncached);
-   - both links were routed to the add-on step and handed to the menu step for
-     free;
-   - for the menu link, the menu step then found the link already there and
-     charged nothing;
-   - **needed**: routing a part that depends on an earlier one, after it;
-   - **avoidable**: the TikTok part's separate routing call, since it depended
-     on nothing, but routing every part in one call is a router change, recorded
-     as an option only; also the platform's own add-on picker call on each
-     misrouted link;
-   - no pricing change, no keyword routing.
-6. **The continuation, prepared, not sent**: `lv-tiktok-answer`.
-   - One message, `lv-combined`'s own answer word for word.
-   - It is sent only when exactly one question is waiting on the site, and it
-     must resume exactly that part.
-   - It checks only the TikTok footer link, so nothing completed is repeated.
-   - **About 2–5 credits** (routing 1–3, the footer link 1–2). Budget 6, hard
-     cap 15.
+**Tests actually run this round**
+- **The controls, each through the helper and the real reply facts**:
+  - HELD 9: a genuine rendered menu (told); a commented-out menu, an unused
+    menu object, a body-only link and a removed link (not told); an
+    unresolved binding (told as not known);
+  - HELD 10: 17 more shapes, among them a call beside a certain menu, an
+    item commented out inside the menu, and a name declared twice;
+  - HELD 11: the corpus agreement.
+- HELD 1–8 unchanged and passing; HELD 2 runs through the real add-on route.
+- **Red check against `dd4b96d8`**: HELD 9 and 10 fail; the rest pass.
+- **Sweep** (`scripts/mutants/codex-dd4b96d8.json`): 16 of 16 killed, and the
+  comment-only control survived. The one first-pass survivor was closed with
+  the "call beside a certain menu" case.
+- **Full suite**: **9908 tests, 9908 pass, 0 fail, 0 skipped**.
+- Unit CI on the push: below once read.
 
-**The continuation, for your review** (`lv-tiktok-answer`; nothing pressed):
-- **About 2–5 credits**: budget 6, hard cap 15.
-- It must be answered before about 23:59 UTC today. The guard refuses within
-  10 minutes of that.
+**The next image, predicted** (not built): `335396c8c0e0fbcb` →
+**`558037dd99f47d81`** (196 inputs; `worker.js`, `builder/site-nav.mjs` and
+`builder/site-reply.mjs` differ from production).
+
+**The continuation, ready against deploy 2188** (`lv-tiktok-answer`; it does
+not need the reply fix released; nothing pressed):
+- **About 2–5 credits**: budget 6, hard cap 15. It must be answered before
+  about 23:59 UTC today; the guard refuses within 10 minutes of that.
 - **Free check, once you approve** (*Actions → edit canary*, "Use workflow
   from": `claude/help-needed-ehlwlj`):
   - "Run the ONE paid edit as well (yes/no)": `no`
@@ -123,175 +86,21 @@ later money (22 + 3 = 25, not final). Details below.
     or the exact reason not to send.
 - **Paid answer, only on your word**: the same, with `yes`, the deploy sha box
   `9d6bda8a` and the image box `335396c8c0e0fbcb`.
-- Both run against deploy 2188, not the branch's reply fixes.
-
-**Tests actually run this round**:
-- **Focused**: the held-part file, 8 cases, including the new hand-off guard;
-  the guard file, 8 cases; every canary test file, the reply tests, add-on
-  settle and the request flow together, 617 of 617 before the two survivors'
-  tests were added.
-- **Red check against `b3d2a409`**: HELD 1 fails there. The old functions
-  reproduce Codex's three findings: a comment-only mention and a body-only link
-  kept, and the unrelated sole question accepted with no refusal. The guard
-  file cannot load there.
-- **Sweep** (`scripts/mutants/codex-b3d2a409.json`): 18 of 18 killed, the
-  comment-only control survived. The first pass left two survivors: the
-  Worker's hand-off of unsure links, closed by a source guard because an
-  unreadable menu cannot be produced through the route; and another request
-  read afterwards, closed by a case where that request has its own done
-  part 1.
-- **Full suite**: first run 9905 tests, 9904 pass, **1 fail**. That was BG11
-  in `test/reply-background.test.mjs` (*"a held reply never reached its
-  writer"*, 2 !== 3), a file this round did not touch. It passed 3 of 3 alone
-  and 5 of 5 beside the heaviest reply and request files. **The second full
-  run: 9905, 9905 pass, 0 fail, 0 skipped.** It is recorded in the backlog as
-  a load-dependent flake.
-
-**The next image, predicted** (not built): `335396c8c0e0fbcb` →
-**`88dec7358f40e72e`** (196 inputs; `worker.js`, `builder/site-nav.mjs` and
-`builder/site-reply.mjs` differ).
 
 **Yours to decide**
-- **Review the guarded continuation.** Then, if you approve, the free check,
-  and on your word the paid answer, before about 23:59 UTC today.
-- **Releasing the branch** (one merge, one image build) when you choose.
+- The continuation: the free check, then on your word the paid answer, before
+  about 23:59 UTC today.
+- Releasing the branch (one merge, one image build) when you choose.
 - **Next: the first-Build audit**, then the parallel-execution planning.
 
-**The gate, exactly**
-- **Attempt 1** (the push of `570adb45`, 19:29–19:50 UTC) was incomplete:
-  the theme checks, shards 1 and 2 and the rest of the kit job stopped at
-  their 20-minute limit inside `npx playwright install --with-deps chromium`
-  (apt waiting on Ubuntu's `noble-security` index), before any of their
-  tests ran. My one re-run request answered **403** (this session's GitHub
-  access cannot re-run a job), and I didn't retry.
-- **Attempt 2, your press** (*Re-run failed jobs*, 22:28:20–22:35:27 UTC):
-  the four jobs ran again and passed. GitHub kept attempt 1's three green
-  jobs (the published-site checks and shards 3 and 4). Read from each job's
-  own log:
-  - the kit job: contrast-cases 16 passed, 0 failed; kit-a11y, kit-effects
-    and kit-paint all passed; its first steps passed again;
-  - the theme checks: theme-seam 11 passed, 0 failed; theme-render 29
-    passed, 0 failed;
-  - shard 1 (`style-overrides`, 108 checks) and shard 2 (`logo-and-serving`
-    and `dead-link`, 75 checks), both complete, none failed.
-- **The gate** (`all checks`, 22:35:13–22:35:26) found every job it waits on
-  `success`, and four shard reports: 1 and 2 from attempt 2, 3 and 4 from
-  attempt 1. Each is on commit `570adb45` and this harness, complete, with no
-  failed check. Each of the 27 sections ran exactly once, in its own shard,
-  and the inputs are `de6345b9058cd1cc` (3,974 files). Its verdict: **"ALL
-  CHECKS: 404 checks in 27 sections across 4 shards, every job green"**. That
-  is the shards' 403 section checks plus the preamble every shard runs,
-  counted once.
-- **The inputs match the candidate**: the fingerprint is `de6345b9058cd1cc`
-  at `570adb45`, `092ff48a`, `b791dec0` and `43c5b635`. These records touch
-  only documents, none of its inputs. It is read again on the candidate
-  before any merge.
-- **No correction was needed**: Chromium installed in 21 to 122 seconds in
-  each of the four jobs. The stall stays in the backlog, seen once.
-- **One count differs from my local run**: kit-a11y counted 2,628 named
-  controls on CI and 2,626 locally. The count comes from the browser's
-  accessibility tree, and the browsers differ (Chrome for Testing
-  151.0.7922.34 on CI, Chromium 141.0.7390.37 here). The check passes on a
-  floor of 1,000 with no unnamed control, which both meet. Every other count
-  matches the local run.
+**Still open** (`docs/backlog.md`): run 107's findings; the BG11 load flake;
+the site build's Chromium install stall (seen once); the provisioning and undo
+items carried from earlier rounds. An uncertain database creation can still
+need your manual settlement (the note under
+`source/<slug>/neon-unrecorded/`).
 
-**The release plan, in short** (each step and every box in the plan)
-1. Your re-run: **done, green** (above).
-2. Before the merge, the session: nothing in flight; unit CI green on the
-   candidate; the gate's inputs read again; the image predicted on both
-   ends; the rollback verified in a throwaway worktree; `chat.js` read as
-   served; the balance read.
-3. **The merge, on your word**: `main` `bcc22295` → the candidate (the
-   branch's tip), one fast-forward. Its deploy builds the container image
-   once: **`5f946c22d42a1b10` → `335396c8c0e0fbcb`** (196 inputs; seventeen
-   differ, the new `builder/seed-rows.mjs` among them). Progress stays on.
-4. The deploy read, `chat.js` served byte for byte as merged (939,255 bytes,
-   `dfa075929c9889e0…`), the image window waited once.
-5. **Your free runtime check** (the plan's §3.1).
-6. The funds: **done**, 40 since 22:06 UTC (above). Nothing more is added,
-   and the press sends nothing outside 38 to 40.
-7. **Your paid press**, `lv-combined` (the plan's §3.2), three messages on
-   the bakery:
-   - *"Put a link to the new Allergens page in the menu, and add an
-     Allergens page saying all our loaves are baked in one kitchen that also
-     handles nuts, seeds and dairy, so we can't promise any loaf is free of
-     them, and that anyone with an allergy should ask us at the counter."* —
-     its tab closed once a progress line shows, followed to its end in a
-     fresh browser session;
-   - *"Change the Order page heading 'Pick a loaf and a collection slot' to
-     'Choose your loaf and a collection time', and add a link to our TikTok
-     in the footer."* — ending on the link step's question;
-   - *"It's tiktok.com/@harbourloaf"* — the answer.
-8. The session reads and records it.
-
-**What the press covers**: mixed requests (messages 1 and 2); dependency
-order (message 1's link waits for its page, judged on every reading,
-the card's included); clarification (message 2's question, message 3's
-answer); model-written progress and closed-tab completion (message 1, in a
-fresh browser session); final results (the page, its links, the heading, the
-footer link, everything else as it was) and charges (the press's own charges
-equal its balance's move). No form and no table: nothing is provisioned, and
-deliberate provisioning failures stay in the offline tests.
-
-**The money**: about 28 credits (22–38). Budget 38, hard cap 40.
-
-**It stops by itself** when: the Worker or a cold container is not on the
-merged commit and the image; progress is off; the balance is below 38 or
-above 40; the press has spent 38 before message 2 or 3; a part goes where it
-may not (it is stopped); message 2 ends without its question (message 3 is
-not sent); a message passes its bound (nothing more is sent). Any failed
-step stops the stage; nothing is pressed again without your word.
-
-**The remaining operational limitation: an uncertain database creation can
-require manual settlement.** A create Neon answered with anything but its own
-refusal, whose project never shows under its attempt's name, keeps that site
-from making a database until you settle it. Look in the Neon console for the
-name in the note (`source/<slug>/neon-unrecorded/<attempt>.json`): if a
-project carries it, leave the note — the next attempt claims it once Neon's
-listing shows it. Deleting the note is your judgment that no project carries
-the name and none will appear (the code no longer draws that from absence or
-time); a project that appeared afterwards would not be tracked.
-
-**Tests actually run this round**: the new press's own cases, 9, and the
-order check's card cases; every canary test file, 21 files, 496 of 496; a red
-check on `092ff48a`'s canary scripts, 11 of 86 failing (8 of the new file's
-9, the two scenario lists, the card case on the old order check); the sweep:
-18 of 18 killed, the comment-only control survived; the full suite: **9885 tests, 9885 pass, 0 fail, 0 skipped**. Unit CI on `b791dec0`: run 37686599138, `9885 / 9863 / 0 / 22`, the total matching the local run (the 22 real-browser cases skipped, as on every CI run); no site build ran, since none of its inputs changed. Since: the site build on `570adb45`, attempt 2, green (above); unit CI on `43c5b635`, run 37687074060, `9885 / 9863 / 0 / 22`.
-
-**Yours to decide**
-- **The release plan**: the merge, its deploy and one image build, your free
-  check, your paid press. The re-run and the funds are done.
-- **An unsettled database attempt**, if one ever appears: yours to settle
-  (above).
-- **Live verification not in this plan** (each paid, none prepared): a
-  two-part request whose second part is refused after its table went in; a
-  data removal read late after an edit from another device, then "put that
-  back"; several parts finishing together. A provision that fails after its
-  project cannot be produced safely on a live site.
-
-**Still open** (`docs/backlog.md`)
-- The site build's Chromium install can stall in apt (seen once, in attempt
-  1; not in the re-run).
-- Provisioning: Neon's own refusal is trusted to mean a create made nothing
-  on HTTP's meaning of those statuses — no Neon document says it; Neon's
-  search, paging and error body are from its API reference, not measured
-  live; the first-build route answers an unsettled attempt with its generic
-  502.
-- A column declaration an earlier apply left behind stays in `_meta`; no
-  reader that hands columns to a model sees it.
-- A late-kept undo offer does not count a Data panel write; two tabs merge
-  request evidence and the undo offer, not their threads.
-- Carried: the task titles' usage from run 105 stays unverified; a progress
-  line's words are the model's; the test platform answers every column of a
-  job-table read; an old request's own reply with no record is asked for
-  whenever read.
-
-**Links**
-- This round: `docs/history/2026-10-07-combined-release-prep.md`, and the
-  plan, `docs/investigations/combined-release-plan.md`.
-- The batch, the correction round and the recovery correction:
-  `docs/history/2026-10-07-cleanup-batch.md`.
-- The open items: `docs/backlog.md`.
+**Links**: `docs/history/2026-10-08-run107-followup.md` (§9 is this round),
+`docs/history/2026-10-07-combined-release.md`, `docs/backlog.md`.
 
 ---
 
@@ -302,6 +111,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Codex's review of dd4b96d8: menu links from the menus the page renders (on the branch, `d24ab456`; nothing merged, deployed, built, paid or sent)
+
+- Kept: the continuation guard, as Codex's checks confirmed it.
+- Reproduced: a commented-out menu array and an unused `OLD` object were told
+  as kept menu links. So were a menu in an unused component and an
+  overridden spread.
+- Corrected: a link is told as in the menu only where a menu the page renders
+  carries it. It is followed through the bindings the reader supports, with
+  comments, strings and unused declarations left out. Anything it cannot
+  follow is told as not known either way. The navigation editor is unchanged.
+- Checks: the six controls through the reply facts, 17 more shapes and
+  agreement on 324 corpus pages; red check 2 failing on `dd4b96d8`; sweep 16
+  of 16; full suite 9908 of 9908.
+- The TikTok request is untouched; the continuation stays ready against
+  deploy 2188.
 
 ## 2026-10-08 — Codex's review of b3d2a409: menu links read from the menus; the continuation answers only the named question (on the branch, `1537c518`; nothing merged, deployed, built, paid or sent)
 
