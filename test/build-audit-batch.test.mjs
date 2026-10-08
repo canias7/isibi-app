@@ -284,8 +284,10 @@ test("H2: when the ledger refuses an expired bearer, a build with its job identi
     assert.equal(l.trusted, true);
     const d = await l.debit(3, "build:a1b2c3d4e5f60718293a4b5c6d7e8f90:settle", "debit", true);
     assert.equal(d.taken, 3);
-    assert.deepEqual(seen.map((x) => x.fn), ["credit_debit", "build_debit"]);
-    const bd = seen[1];
+    // A QUEUED BUILD ASKS build_debit FIRST, whatever its token (2026-10-08,
+    // the transactional protocol); the expired bearer is never presented.
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit"]);
+    const bd = seen[0];
     assert.equal(bd.args.p_uid, BUILD_USER.id);
     assert.equal(bd.args.p_id, "a1b2c3d4e5f60718293a4b5c6d7e8f90");
     assert.equal(bd.args.p_ref, "build:a1b2c3d4e5f60718293a4b5c6d7e8f90:settle", "the trusted debit is not under the same ref");
@@ -303,19 +305,20 @@ test("H2: a live bearer bills exactly as before; build_debit not yet applied (40
   let restore = stubRpc({ credit_debit: { ok: true, exempt: false, taken: 2, balance: 5, repeat: false } }, seen);
   try {
     assert.equal((await buildLedger(env, who).debit(2, "build:a1b2c3d4e5f60718293a4b5c6d7e8f90:deposit")).taken, 2);
-    assert.deepEqual(seen.map((x) => x.fn), ["credit_debit"], "a live bearer was not used, or build_debit ran beside it");
+    // build_debit NOT APPLIED (404): the reviewed fallback, the live bearer.
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit", "credit_debit"], "a live bearer was not used after the absent function");
   } finally { restore(); }
   seen = [];
   restore = stubRpc({ credit_debit: new Response("{}", { status: 401 }) }, seen);
   try {
     await assert.rejects(() => buildLedger(env, who).debit(2, "build:a1b2c3d4e5f60718293a4b5c6d7e8f90:deposit"), /credit_debit rpc 401/);
-    assert.deepEqual(seen.map((x) => x.fn), ["credit_debit", "build_debit"]);
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit", "credit_debit"], "an absent function was asked twice");
   } finally { restore(); }
   seen = [];
   restore = stubRpc({ credit_debit: new Response("timeout", { status: 504 }) }, seen);
   try {
     await assert.rejects(() => buildLedger(env, who).debit(2, "build:a1b2c3d4e5f60718293a4b5c6d7e8f90:deposit"), /504/);
-    assert.deepEqual(seen.map((x) => x.fn), ["credit_debit"], "a debit that may have landed was charged a second way");
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit", "credit_debit"], "a debit that may have landed was charged a second way");
   } finally { restore(); }
   seen = [];
   restore = stubRpc({ credit_debit: new Response("{}", { status: 401 }), build_debit: new Response("boom", { status: 500 }) }, seen);
@@ -398,7 +401,9 @@ async function reconcileWith({ row, rows = null, pointer, entries = {}, fenced =
   const b = store || buildBucket();
   for (const [k, v] of Object.entries(entries)) b.store.set(k, v);
   if (fenced) b.store.set(jobKey(row.id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: "{}", uid: row.uid, at: 1 })));
-  if (pointer === "throws") b.get = (async (orig) => async (k) => { if (k.startsWith("current/")) throw new Error("r2 down"); return orig(k); })(b.get.bind(b));
+  // A WRAPPER, NOT AN ASYNC IIFE (2026-10-08): the first version assigned a
+  // Promise to b.get, so every read failed and the old scan's catch-all hid it.
+  if (pointer === "throws") b.get = ((orig) => async (k) => { if (k.startsWith("current/")) throw new Error("r2 down"); return orig(k); })(b.get.bind(b));
   else if (pointer) b.store.set("current/" + row.slug + ".json", JSON.stringify(pointer));
   const all = rows || [row];
   const seen = [];
@@ -410,8 +415,11 @@ async function reconcileWith({ row, rows = null, pointer, entries = {}, fenced =
     queries.push(u);
     if (readFails) return new Response("down", { status: 503 });
     const ids = u.match(/id=in\.\(([^)]*)\)/);
-    const since = u.match(/updated_at=gt\.([^&]+)/);
-    const out = all.filter((x) => (ids ? ids[1].split(",").includes(x.id) : true) && (since ? Date.parse(x.updated_at) > Date.parse(decodeURIComponent(since[1])) : true));
+    // THE KEYSET FILTER the scan sends (2026-10-08), read as PostgREST reads it.
+    const or = new URL(u).searchParams.get("or");
+    const k = or && or.match(/^\(updated_at\.gt\."([^"]+)",and\(updated_at\.eq\."([^"]+)",id\.gt\."([^"]*)"\)\)$/);
+    const after = (x) => !k || Date.parse(x.updated_at) > Date.parse(k[1]) || (Date.parse(x.updated_at) === Date.parse(k[1]) && x.id > k[3]);
+    const out = all.filter((x) => (ids ? ids[1].split(",").includes(x.id) : true) && after(x));
     return new Response(JSON.stringify(out), { status: 200 });
   };
   const restore = stubRpc({ credit_reverse: reverse, __rest: rest }, seen);
@@ -448,8 +456,10 @@ test("H1: …and recovery run again moves nothing more and does not rewrite the 
   assert.equal(again.answer, null, "a second pass wrote a new answer");
 });
 
-test("H1: a lost build the pointer names by job keeps what it charged, and says the site is live", async () => {
-  const r = await reconcileWith({ row: lostRow(), pointer: { version: V_LATE, job: LOST_ID, activatedAt: "2026-10-08T11:05:00Z" }, entries: manifest(V_LATE, { job: LOST_ID }) });
+test("H1: a lost build whose activation was recorded keeps what it charged, and says the site is live", async () => {
+  // THE RECORD OF A COMPLETED ACTIVATION proves it (2026-10-08, Codex's review
+  // of 3308d51d); the pointer naming the job alone is "under way or done".
+  const r = await reconcileWith({ row: lostRow(), pointer: { version: V_LATE, job: LOST_ID, activatedAt: "2026-10-08T11:05:00Z" }, entries: { ...manifest(V_LATE, { job: LOST_ID }), ["jobs/" + LOST_ID + ".fence.json"]: JSON.stringify({ by: "publish", published: V_LATE }) } });
   assert.equal(r.reversed, 0, "a published build was refunded");
   assert.equal(r.answer.ok, true);
   assert.equal(r.answer.page, "app");
@@ -481,10 +491,12 @@ test("N2: a build that published and was then edited over is still published —
   assert.equal(r.answer.version, "01791417187002-f821gr");
 });
 
-test("N2: …and so is one whose version manifest names it after the pointer moved on", async () => {
+test("N2: …but a version manifest naming it, with no record of its activation, is staging — unknown: nothing moved, kept pending", async () => {
+  // A MANIFEST IS WRITTEN WHEN A VERSION IS STAGED (Codex's review of 3308d51d).
   const r = await reconcileWith({ row: lostRow(), pointer: { version: V_LATE, job: OTHER_JOB }, entries: { ...manifest(V_LATE, { job: OTHER_JOB }), ...manifest("01791417187002-f821gr", { job: LOST_ID }) } });
   assert.equal(r.reversed, 0);
-  assert.equal(r.answer.version, "01791417187002-f821gr");
+  assert.equal(r.answer, null);
+  assert.equal(r.pending, true);
 });
 
 test("N2: a publish that claimed the fence and left no record yet is unknown — nothing moved, kept pending; one that recorded its failure is refunded", async () => {
@@ -565,7 +577,7 @@ const LATE_ID = "d1b2c3d4e5f60718293a4b5c6d7e8f90";
 function rowStub(state, seen) {
   return stubRpc({
     credit_debit: { ok: true, exempt: false, taken: 2, balance: 5, repeat: false },
-    build_debit: { ok: true, exempt: false, taken: 2, balance: 5, repeat: false },
+    // build_debit NOT APPLIED (404): the cases below drive the reviewed fallback.
     __rest: (u) => (u.includes("/rest/v1/edit_jobs") ? (state === "unread" ? new Response("down", { status: 503 }) : new Response(JSON.stringify(state ? [{ id: LATE_ID, uid: BUILD_USER.id, op: "build", state }] : []), { status: 200 })) : null),
   }, seen);
 }
@@ -657,34 +669,35 @@ for (const token of ["Bearer expired", "Bearer live"]) {
     const seen = [];
     const restore = stubRpc({
       credit_debit: token === "Bearer expired" ? new Response(JSON.stringify({ message: "JWT expired" }), { status: 401 }) : { ok: true, exempt: false, taken: 2, balance: 5, repeat: false },
-      build_debit: { ok: true, exempt: false, taken: 2, balance: 5, repeat: false },
+      // build_debit AS THE PROPOSED SQL ANSWERS a lost row, under its row lock.
+      build_debit: { ok: false, error: "terminal", state: "lost", taken: 0 },
       __rest: (u) => (u.includes("/rest/v1/edit_jobs") ? new Response(JSON.stringify([{ id: LATE_ID, uid: BUILD_USER.id, op: "build", state: "lost" }]), { status: 200 }) : null),
     }, seen);
     try {
       await assert.rejects(() => buildLedger({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint" }, { auth: token, uid: BUILD_USER.id, jobId: LATE_ID }).debit(2, "build:" + LATE_ID + ":pages", "debit", true), (e) => e.jobState === "lost");
-      assert.deepEqual(seen.map((x) => x.fn), [], "a lost job reached the ledger");
+      assert.deepEqual(seen.map((x) => x.fn), ["build_debit"], "a lost job reached credit_debit");
     } finally { restore(); }
   });
 }
 
-test("N2: a job whose row cannot be read, or whose recovery holds the fence, is charged nothing on either path; a live row is charged as before", async () => {
+test("N2: while build_debit is not applied, a job whose row cannot be read, or whose recovery holds the fence, is charged nothing; a live row is charged as before", async () => {
   const { buildLedger } = await loadWorkerModule();
   const who = { auth: "Bearer live", uid: BUILD_USER.id, jobId: LATE_ID };
   let seen = [];
   let restore = rowStub("unread", seen);
   try {
     await assert.rejects(() => buildLedger({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint" }, who).debit(2, "build:" + LATE_ID + ":settle"), (e) => !!e.jobState);
-    assert.deepEqual(seen.map((x) => x.fn), []);
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit"], "an unread job reached credit_debit");
   } finally { restore(); }
   seen = [];
   restore = rowStub("claimed", seen);
   try {
     const b = buildBucket({ ["jobs/" + LATE_ID + ".fence.json"]: JSON.stringify({ by: "recovery" }) });
     await assert.rejects(() => buildLedger({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint", SITES_BUCKET: b }, who).debit(2, "build:" + LATE_ID + ":pages"), (e) => e.jobState === "recovered");
-    assert.deepEqual(seen.map((x) => x.fn), [], "a recovered job reached the ledger");
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit"], "a recovered job reached credit_debit");
     const ok = await buildLedger({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint", SITES_BUCKET: buildBucket() }, who).debit(2, "build:" + LATE_ID + ":settle");
     assert.equal(ok.taken, 2);
-    assert.deepEqual(seen.map((x) => x.fn), ["credit_debit"]);
+    assert.deepEqual(seen.map((x) => x.fn), ["build_debit", "build_debit", "credit_debit"]);
   } finally { restore(); }
 });
 

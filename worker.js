@@ -553,10 +553,12 @@ async function debitCredits(authHeader, amount, ref, reason = "debit", partial =
  *
  * `who` is the build's trusted identity: `uid`, read by `authUser` when the
  * build began, and `jobId`, the build's own row, filed by `edit_create` with
- * that uid. THE TOKEN IS STILL ASKED FIRST, so every build whose bearer is
- * alive bills exactly as it did. When the ledger REFUSES the bearer (401 or
- * 403 — expired, or revoked), and only then, a build with both ids, the
- * service key and the mint key debits through `build_debit`
+ * that uid. A QUEUED BUILD (a job row, the service key and the mint key)
+ * DEBITS THROUGH `build_debit` FIRST, whatever its token (2026-10-08, the
+ * transactional protocol: see `debit` below). Only while that function is
+ * absent (404) does the older order hold: the token first, and when the
+ * ledger REFUSES the bearer (401 or 403 — expired, or revoked), a build with
+ * both ids, the service key and the mint key debits through `build_debit`
  * (supabase/proposed/build_debit.sql), which bills the ROW'S account under the
  * ROW'S own ref and nothing else — the edit queue's trust boundary, never a
  * customer credential — and a balance is read by uid (`readCreditsFor`), as
@@ -583,12 +585,29 @@ export function buildLedger(env, { auth = "", uid = "", jobId = "" } = {}) {
       catch (e) { if (trusted) return readCreditsFor(env, uid); throw e; }
     },
     debit: async (amount, ref, reason = "debit", partial = false) => {
-      // THE JOB MUST STILL BE ALIVE, WHICHEVER PATH CHARGES (2026-10-08,
-      // Codex's review of `b4300a07`: the bearer path skipped the job-state
-      // check `build_debit` makes). A build recovered as lost, failed or
-      // cancelled is charged nothing by a worker that outlived it; a state that
-      // cannot be read charges nothing either. Both throw before the ledger is
-      // touched, so what was taken is known: nothing.
+      // ONE TRANSACTIONAL PATH FOR A QUEUED BUILD, WHATEVER ITS TOKEN
+      // (2026-10-08, Codex's review of `3308d51d`: a valid bearer went
+      // straight to `credit_debit`, and the state read before it raced
+      // recovery). A build with a job row debits through `build_debit` first,
+      // which locks that row, reads its state under the lock and debits in
+      // the same transaction — so the sweep's terminal write and a debit
+      // serialize: a debit committed first is on the ledger when recovery
+      // reverses by ref, and one asked after is refused. Nothing then goes a
+      // second way: a lost answer is the caller's to reconcile by ref, a
+      // refusal is known (nothing charged). Only an ABSENT function (404, the
+      // SQL not applied) or a build with no row (`no-job`) keeps the
+      // reviewed fallback below.
+      let absent = false;
+      if (trusted && isResumeId(jobId)) {
+        const a = await editRpc(env, "build_debit", { p_id: jobId, p_uid: uid, p_ref: ref, p_amount: amount, p_reason: reason, p_partial: !!partial });
+        absent = !!(a && a.error === "rpc" && a.status === 404);
+        if (!absent && !(a && a.ok === false && a.error === "no-job")) return readBuildDebit(a);
+      }
+      // THE FALLBACK — no job row, or `build_debit` not applied yet. THE JOB
+      // MUST STILL BE ALIVE, WHICHEVER PATH CHARGES (Codex's review of
+      // `b4300a07`). This read is not in the debit's transaction, so a row
+      // that turns terminal between the two is not caught here; only the
+      // applied function closes that (docs/history/2026-10-08-build-batch-3.md).
       if (jobId && env.SUPABASE_SERVICE_KEY) {
         const st = await buildJobAlive(env, jobId);
         if (st.alive !== true) {
@@ -602,26 +621,38 @@ export function buildLedger(env, { auth = "", uid = "", jobId = "" } = {}) {
       catch (e) {
         // ONLY A REFUSED BEARER IS HANDED ON. A timeout or a 5xx may have
         // landed, and is the caller's to treat as unanswered (L10).
-        if (!trusted || !/^credit_debit rpc 40[13]$/.test(String((e && e.message) || ""))) throw e;
+        if (!trusted || absent || !/^credit_debit rpc 40[13]$/.test(String((e && e.message) || ""))) throw e;
         refused = e;
       }
-      {
-        const a = await editRpc(env, "build_debit", { p_id: jobId, p_uid: uid, p_ref: ref, p_amount: amount, p_reason: reason, p_partial: !!partial });
-        const absent = a && a.error === "rpc" && a.status === 404;
-        if (absent) throw refused;
-        {
-          if (!a || typeof a !== "object" || a.error === "rpc" || a.error === "rpc-shape" || a.error === "no-service-key") {
-            throw new Error("build_debit " + String((a && (a.status || a.error)) || "answered nothing"));
-          }
-          return {
-            ok: a.ok === true, exempt: a.exempt === true, repeat: a.repeat === true, short: a.short === true,
-            taken: Math.max(0, Number(a.taken) || 0), prior: Math.max(0, Number(a.prior) || 0),
-            balance: Number.isFinite(Number(a.balance)) && a.balance !== null && a.balance !== undefined ? Number(a.balance) : null,
-            error: typeof a.error === "string" ? a.error : null,
-          };
-        }
-      }
+      const a = await editRpc(env, "build_debit", { p_id: jobId, p_uid: uid, p_ref: ref, p_amount: amount, p_reason: reason, p_partial: !!partial });
+      if (a && a.error === "rpc" && a.status === 404) throw refused;
+      return readBuildDebit(a);
     },
+  };
+}
+
+/**
+ * `build_debit`'s answer as the ledger's: a terminal row is a KNOWN refusal
+ * (`jobState`, nothing charged); a transport failure or a shape that cannot
+ * be read throws as unanswered — it may have landed.
+ */
+function readBuildDebit(a) {
+  if (!a || typeof a !== "object" || Array.isArray(a) || a.error === "rpc" || a.error === "rpc-shape" || a.error === "no-service-key") {
+    throw new Error("build_debit " + String((a && !Array.isArray(a) && (a.status || a.error)) || "answered nothing"));
+  }
+  // NOT THE LEDGER'S SHAPE IS NOT "NOTHING TAKEN": an answer with no `ok` may
+  // stand for a debit that landed, so it is unanswered, never zero.
+  if (typeof a.ok !== "boolean") throw new Error("build_debit answered no ledger shape");
+  if (a.ok === false && a.error === "terminal") {
+    const err = new Error("the build job is " + String(a.state || "terminal") + "; nothing was charged");
+    err.jobState = String(a.state || "terminal");
+    throw err;
+  }
+  return {
+    ok: a.ok === true, exempt: a.exempt === true, repeat: a.repeat === true, short: a.short === true,
+    taken: Math.max(0, Number(a.taken) || 0), prior: Math.max(0, Number(a.prior) || 0),
+    balance: Number.isFinite(Number(a.balance)) && a.balance !== null && a.balance !== undefined ? Number(a.balance) : null,
+    error: typeof a.error === "string" ? a.error : null,
   };
 }
 
@@ -15277,13 +15308,53 @@ export async function claimBuildFence(env, id, by) {
 }
 
 /**
+ * THE FENCE MOVES ONE WAY, AND ONLY FROM WHAT IT SAYS NOW (2026-10-08,
+ * Codex's review of `3308d51d`: a failure that read the fence, then a success
+ * written, then the failure's write, erased the publish). Every outcome
+ * write is a read, a decision on what was read, and a write CONDITIONAL on
+ * that read's etag; a write refused because the fence changed reads again and
+ * decides again. `next(cur)` answers the new fence or null for "leave it".
+ * The states only move forward:
+ *
+ *   publish → publish + failed → publish + published
+ *   publish → publish + published            (terminal)
+ *   recovery                                 (terminal; no outcome write
+ *                                             ever takes it)
+ *
+ * An unreadable fence is left alone — recovery reads "in flight" as unknown
+ * and asks again. Answers the fence as it was left, or null when unknown.
+ */
+async function moveFence(env, id, next, what) {
+  for (let i = 0; i < 6; i++) {
+    let o, cur;
+    try { o = await env.SITES_BUCKET.get(fenceKey(id)); cur = o ? JSON.parse(await o.text()) : null; }
+    catch (e) { console.error("build fence: unreadable, not", what, id, String((e && e.message) || e)); return null; }
+    const want = next(cur);
+    if (!want) return cur;
+    let put;
+    try {
+      put = await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ ...want, at: new Date().toISOString() }),
+        { onlyIf: o && typeof o.etag === "string" ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" } });
+    } catch (e) { console.error("build fence: could not write", what, id, String((e && e.message) || e)); return null; }
+    if (put) return want;
+  }
+  console.error("build fence: still contended after 6 tries, not", what, id);
+  return null;
+}
+
+/**
  * A publish that activated, recorded on the job's own fence: the version it
  * put live. Durable where the pointer and the version list are not — a later
- * edit moves the pointer, and a version list is pruned to two.
+ * edit moves the pointer, and a version list is pruned to two. A fence that
+ * already records a version keeps it (the first delivery's), and recovery's
+ * fence is never taken.
  */
 export async function markPublished(env, id, version) {
-  try { await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ by: "publish", published: version, at: new Date().toISOString() })); }
-  catch (e) { console.error("build fence: could not record the publish of", id, String((e && e.message) || e)); }
+  return moveFence(env, id, (cur) => {
+    if (!cur || cur.by !== "publish") return null;
+    if (typeof cur.published === "string" && cur.published) return null;
+    return { by: "publish", published: version };
+  }, "record the publish of");
 }
 
 /**
@@ -15314,17 +15385,18 @@ async function recoveryOwns(env, id) {
   } catch { return false; }
 }
 
-/** A publish that claimed the fence and then did not activate, said so for recovery. */
+/**
+ * A publish that claimed the fence and then did not activate, said so for
+ * recovery — only over a fence that is still a bare publish claim: never over
+ * a recorded publish (a duplicate delivery's, written between this read and
+ * this write included), never over recovery's.
+ */
 export async function markPublishFailed(env, id) {
-  // A DUPLICATE DELIVERY'S FAILURE NEVER ERASES THE FIRST ONE'S PUBLISH: the
-  // version already recorded is the evidence recovery reads.
-  try {
-    const o = await env.SITES_BUCKET.get(fenceKey(id));
-    const v = o ? JSON.parse(await o.text()) : null;
-    if (v && typeof v.published === "string" && v.published) return;
-  } catch { return; /* unreadable: leave it; recovery reads "in flight" as unknown and asks again */ }
-  try { await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ by: "publish", failed: true, at: new Date().toISOString() })); }
-  catch (e) { console.error("build fence: could not mark a failed publish for", id, String((e && e.message) || e)); }
+  return moveFence(env, id, (cur) => {
+    if (!cur || cur.by !== "publish") return null;
+    if ((typeof cur.published === "string" && cur.published) || cur.failed === true) return null;
+    return { by: "publish", failed: true };
+  }, "mark a failed publish for");
 }
 
 /**
@@ -15400,15 +15472,29 @@ async function buildJobOwner(env, id, uid) {
  * the row's neutral sentence at both readers.
  */
 const LOST_BUILD_WINDOW_MS = 24 * 3600 * 1000;
-// UNRESOLVED RECOVERY STAYS FINDABLE (2026-10-08, Codex's review of
-// `b4300a07`): a lost build whose outcome is unknown, or whose refund fell
-// short, is listed here until it settles, and every tick retries it — the
-// one-day window only decides which NEW lost rows are picked up.
+// UNRESOLVED RECOVERY STAYS FINDABLE (2026-10-08, Codex's reviews of
+// `b4300a07` and `3308d51d`). Two listings, each resumable:
+//
+//   FRESH  the lost build rows, walked forward by a keyset cursor
+//          (`recovery/cursor.json`: the last row's `updated_at` and id),
+//          twenty a tick. The old read took the oldest twenty of the last
+//          day every tick, so twenty settled rows hid the twenty-first
+//          forever. The cursor only moves past a row once that row is
+//          settled or REGISTERED as pending, and a failed read moves
+//          nothing — so an outage of any length loses no row. The one-day
+//          window is only where a first run starts.
+//   PENDING `recovery/pending/<id>`, every row not yet settled, paged fifty
+//          a tick by R2's own cursor (`recovery/pending-cursor.json`), which
+//          wraps to the start when the listing ends — so every entry is
+//          retried, however many there are, until it settles.
 const RECOVERY_PENDING = "recovery/pending/";
+const RECOVERY_CURSOR = "recovery/cursor.json";
+const RECOVERY_PENDING_CURSOR = "recovery/pending-cursor.json";
+const RECOVERY_FRESH_PAGE = 20;
+const RECOVERY_PENDING_PAGE = 50;
 const pendingKey = (id) => RECOVERY_PENDING + id;
 export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return { checked: 0 };
-  const since = new Date(now - LOST_BUILD_WINDOW_MS).toISOString();
   const cols = "id,uid,slug,op,state,created_at,updated_at";
   const read = async (q) => {
     try {
@@ -15417,17 +15503,59 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       return Array.isArray(v) ? v : null;
     } catch (e) { console.error("lost builds: could not read edit_jobs", String((e && e.message) || e)); return null; }
   };
-  const fresh = await read(`op=eq.${BUILD_OP}&state=eq.lost&updated_at=gt.${encodeURIComponent(since)}&order=updated_at.asc&limit=20`);
+  // undefined: unreadable; null: absent.
+  const readObj = async (k) => { try { const o = await env.SITES_BUCKET.get(k); return o ? JSON.parse(await o.text()) : null; } catch { return undefined; } };
+  const isSettled = async (id) => { const m = await readObj("jobs/" + id + ".lost.json"); return !!(m && m.settled === true); };
+
+  // ── FRESH: forward from the cursor ──
+  const freshRows = [];
+  const cursor = await readObj(RECOVERY_CURSOR);
+  if (cursor !== undefined) {
+    const from = cursor && typeof cursor.at === "string" ? { at: cursor.at, id: String(cursor.id || "") } : { at: new Date(now - LOST_BUILD_WINDOW_MS).toISOString(), id: "" };
+    const q = (v) => '"' + String(v).replace(/"/g, "") + '"';
+    const after = `(updated_at.gt.${q(from.at)},and(updated_at.eq.${q(from.at)},id.gt.${q(from.id)}))`;
+    const page = await read(`op=eq.${BUILD_OP}&state=eq.lost&or=${encodeURIComponent(after)}&order=updated_at.asc,id.asc&limit=${RECOVERY_FRESH_PAGE}`);
+    if (Array.isArray(page)) {
+      let at = from;
+      for (const row of page) {
+        const id = String((row && row.id) || "");
+        if (!isResumeId(id) || typeof row.updated_at !== "string") { if (row && typeof row.updated_at === "string") at = { at: row.updated_at, id }; continue; }
+        if (!(await isSettled(id))) {
+          // REGISTERED BEFORE IT IS DECIDED: a crash in the decision leaves it
+          // pending, never behind the cursor. A row that cannot be registered
+          // stops the page here; the next tick starts from it again.
+          try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why: "discovered", at: new Date(now).toISOString() })); }
+          catch (e) { console.error("lost builds: could not register", id, "— the scan stops before it", String((e && e.message) || e)); break; }
+          freshRows.push(row);
+        }
+        at = { at: row.updated_at, id };
+      }
+      if (!cursor || at.at !== from.at || at.id !== from.id) {
+        try { await env.SITES_BUCKET.put(RECOVERY_CURSOR, JSON.stringify(at)); }
+        catch (e) { console.error("lost builds: could not move the cursor; the next tick reads the same rows again", String((e && e.message) || e)); }
+      }
+    }
+  } else console.error("lost builds: the cursor could not be read; no fresh rows are taken this tick");
+
+  // ── PENDING: one page, resumed where the last tick stopped ──
   let pendingIds = [];
+  const pc = await readObj(RECOVERY_PENDING_CURSOR);
   try {
-    const l = await env.SITES_BUCKET.list({ prefix: RECOVERY_PENDING, limit: 50 });
+    const l = await env.SITES_BUCKET.list({ prefix: RECOVERY_PENDING, limit: RECOVERY_PENDING_PAGE, ...(pc && typeof pc.cursor === "string" ? { cursor: pc.cursor } : {}) });
     pendingIds = ((l && l.objects) || []).map((o) => String(o.key || "").slice(RECOVERY_PENDING.length)).filter(isResumeId);
-  } catch (e) { console.error("lost builds: could not list the pending recoveries", String((e && e.message) || e)); }
-  const known = new Set((fresh || []).map((x) => x && x.id));
+    try {
+      if (l && l.truncated && typeof l.cursor === "string") await env.SITES_BUCKET.put(RECOVERY_PENDING_CURSOR, JSON.stringify({ cursor: l.cursor }));
+      else await env.SITES_BUCKET.delete(RECOVERY_PENDING_CURSOR);
+    } catch (e) { console.error("lost builds: could not keep the pending cursor", String((e && e.message) || e)); }
+  } catch (e) {
+    console.error("lost builds: could not list the pending recoveries", String((e && e.message) || e));
+    // A cursor R2 no longer accepts is dropped, so the next tick starts over.
+    try { await env.SITES_BUCKET.delete(RECOVERY_PENDING_CURSOR); } catch { /* the next tick tries again */ }
+  }
+  const known = new Set(freshRows.map((x) => x && x.id));
   const older = pendingIds.filter((x) => !known.has(x));
   const back = older.length ? await read(`op=eq.${BUILD_OP}&id=in.(${older.join(",")})`) : [];
-  if (!Array.isArray(fresh) && !Array.isArray(back)) return { checked: 0, unread: true };
-  const rows = [...(fresh || []), ...(back || [])];
+  const rows = [...freshRows, ...(Array.isArray(back) ? back : [])];
   const seen = { checked: 0, published: 0, refunded: 0, unknown: 0, settled: 0, pending: 0 };
   for (const row of rows) {
     const id = String((row && row.id) || "");

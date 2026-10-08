@@ -30,6 +30,23 @@
 -- answers `repeat` with `prior`; the account row lock makes a duplicate
 -- delivery safe.
 --
+-- THE TRANSACTIONAL PROTOCOL (2026-10-08, Codex's review of `3308d51d`: the
+-- job-row read had no lock, and a valid bearer never reached this function).
+--   * Every debit of a queued build goes through this function, whatever its
+--     token (worker.js `buildLedger`); credit_debit is used for such a build
+--     only while this function is absent (404) or the build has no row.
+--   * The job row is read FOR UPDATE before its state is checked, and the
+--     debit happens in the same transaction. The sweep marks a row lost with
+--     an UPDATE, which takes the same row lock; the states lost, failed and
+--     cancelled are terminal in every applied function (no transition leaves
+--     them). So either the debit commits first — and recovery, which acts only
+--     on a row already lost, finds it on the ledger when it reverses by ref —
+--     or the terminal write commits first and the debit is refused.
+--   * A duplicate delivery of the same ref and reason answers `repeat`, as
+--     before; a lost answer is reconciled by ref by the caller.
+-- Applying this file alone is not the whole change: it closes the race only
+-- with the Worker code that routes every queued-build debit here.
+--
 -- ROLLBACK: drop the function; the Worker falls back to credit_debit with the
 -- stored token when this answers 404.
 
@@ -48,7 +65,9 @@ begin
   if p_ref is null or p_ref not in ('build:' || p_id || ':deposit', 'build:' || p_id || ':settle', 'build:' || p_id || ':pages') then
     raise exception 'bad ref';
   end if;
-  select * into j from public.edit_jobs where id = p_id;
+  -- THE ROW LOCK, before the state is read: the sweep's terminal write and
+  -- this debit serialize on it (see the protocol note above).
+  select * into j from public.edit_jobs where id = p_id for update;
   if not found then return jsonb_build_object('ok', false, 'error', 'no-job'); end if;
   if j.op is distinct from 'build' then return jsonb_build_object('ok', false, 'error', 'not-a-build'); end if;
   if p_uid is null or j.uid is distinct from p_uid then return jsonb_build_object('ok', false, 'error', 'not-owner'); end if;

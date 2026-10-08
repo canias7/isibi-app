@@ -19,22 +19,42 @@ export const BUILD_USER = { id: "u-audit-1", email: "o@example.com" };
 
 const json = (v, s = 200) => new Response(JSON.stringify(v), { status: s, headers: { "content-type": "application/json" } });
 
-/** An R2 stand-in over a Map, with the list the upload store reads. */
-export function buildBucket(entries = {}) {
+/**
+ * An R2 stand-in over a Map, with the list the upload store reads.
+ *
+ * R2'S CONDITIONS AND PAGES, HONOURED (2026-10-08): every write gives the key
+ * a new etag; `onlyIf.etagDoesNotMatch: "*"` writes only when the key is
+ * absent, `onlyIf.etagMatches` only when the key still has that etag, and a
+ * refused write answers null. `list` pages by `limit` and an opaque
+ * `cursor`, and says `truncated`. `hooks.beforePut(key, value, opts)` lets a
+ * test run another writer between a read and a write — the interleavings.
+ */
+export function buildBucket(entries = {}, hooks = {}) {
   const store = new Map(Object.entries(entries));
-  const obj = (k, v) => ({ key: k, etag: "e-" + k, text: async () => v, json: async () => JSON.parse(v), arrayBuffer: async () => new TextEncoder().encode(v).buffer });
+  const etags = new Map();
+  let n = 0;
+  const tag = (k) => { if (!etags.has(k)) etags.set(k, "e" + (++n)); return etags.get(k); };
+  const obj = (k, v) => ({ key: k, etag: tag(k), text: async () => v, json: async () => JSON.parse(v), arrayBuffer: async () => new TextEncoder().encode(v).buffer });
   return {
     store,
     async get(k) { const v = store.get(k); return v === undefined ? null : obj(k, v); },
-    // R2'S CREATE-ONLY CONDITION, honoured: `etagDoesNotMatch: "*"` writes only
-    // when the key is absent and answers null otherwise (the build fence).
     async put(k, v, opts) {
-      if (opts && opts.onlyIf && opts.onlyIf.etagDoesNotMatch === "*" && store.has(k)) return null;
+      if (hooks.beforePut) await hooks.beforePut(k, v, opts);
+      const c = opts && opts.onlyIf;
+      if (c && c.etagDoesNotMatch === "*" && store.has(k)) return null;
+      if (c && typeof c.etagMatches === "string" && (!store.has(k) || tag(k) !== c.etagMatches)) return null;
       store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : String(v));
-      return { key: k, etag: "e-" + k };
+      etags.set(k, "e" + (++n));
+      return { key: k, etag: etags.get(k) };
     },
-    async delete(k) { store.delete(k); },
-    async list({ prefix = "" } = {}) { return { objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((k) => ({ key: k, size: 1 })), truncated: false }; },
+    async delete(k) { store.delete(k); etags.delete(k); },
+    async list({ prefix = "", limit = 1000, cursor } = {}) {
+      const keys = [...store.keys()].filter((k) => k.startsWith(prefix)).sort();
+      const from = cursor ? Number(cursor) || 0 : 0;
+      const page = keys.slice(from, from + limit);
+      const truncated = from + limit < keys.length;
+      return { objects: page.map((k) => ({ key: k, size: 1 })), truncated, ...(truncated ? { cursor: String(from + limit) } : {}) };
+    },
     async head(k) { return store.has(k) ? { key: k, size: 1 } : null; },
   };
 }

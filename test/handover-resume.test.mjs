@@ -169,6 +169,8 @@ async function chain({ report = "done", alsoAsked = [LATER, MAP], handOver = HAN
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
     if (/\/rest\/v1\/rpc\/edit_\w+/.test(url)) return rjson({ ok: true, claimed: true, state: "claimed", uid: USER.id, slug, job: { id: "x", uid: USER.id, slug } });
     if (url.includes("/auth/v1/user")) return rjson(USER);
+    // build_debit as production answers it today: not applied (404).
+    if (url.includes("/rpc/build_debit")) return new Response(JSON.stringify({ message: "Could not find the function" }), { status: 404 });
     if (url.includes("/rpc/credit_debit")) return rjson({ ok: true, exempt: false, taken: 2, balance: 500, repeat: false });
     if (url.includes("/rpc/credit_reverse")) return rjson({ ok: true, refunded: 2, already: 0, debited: 2, repeat: false });
     if (url.includes("/rpc/use_quota")) return rjson(true);

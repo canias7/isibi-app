@@ -449,6 +449,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // A CALL THAT NEVER LANDS (`failRpc`): the database down for that one call.
       const rf = rpcFaults.findIndex((x) => x.fn === fn && (x.when ? x.when(args) : true));
       if (rf >= 0) { rpcFaults.splice(rf, 1); return new Response("unavailable", { status: 503 }); }
+      // build_debit AS PRODUCTION ANSWERS IT TODAY (2026-10-08): not applied,
+      // so PostgREST's 404, and a queued build keeps the reviewed fallback.
+      if (fn === "build_debit" && !Object.hasOwn(rpc, fn)) { rpcLog.push({ fn, args, out: 404 }); return new Response(JSON.stringify({ message: "Could not find the function" }), { status: 404, headers: { "content-type": "application/json" } }); }
       let out;
       if (Object.hasOwn(rpc, fn)) out = rpc[fn](args);
       else if (fn === "credit_debit") {

@@ -27,25 +27,26 @@ here; take a closed one out of both.**
   `docs/history/2026-10-08-build-batch.md`. **Still open**: M2–M6, M8–M12,
   L1–L9 and L11–L12 as the audit lists them, and the batch's own limits
   below.
-- **The build batch's limits** (2026-10-08, updated by the second batch):
-  - `supabase/proposed/build_debit.sql` must be applied (your word) before
-    an expired bearer's build can be billed; the gateway now admits it for a
-    container-run build, bound to the job's own id, account and three refs;
-  - the bearer path's job-state check is a read before the debit, not one
-    transaction: a row that turns lost between the two, or a debit that
-    lands after recovery's refund, is not caught (the applied `build_debit`
-    checks the row in the same statement);
+- **The build batch's limits** (2026-10-08, updated by the third batch):
+  - `supabase/proposed/build_debit.sql` (row-locked) must be applied (your
+    word). Until then a queued build keeps the fallback, whose state read is
+    not in the debit's transaction, so a debit can still land after a row
+    turns terminal. The Worker code that sends every queued-build debit
+    through the function is on the branch; the two together close it;
+  - a crash between a successful activation and its record stays unknown,
+    listed and retried, until review (no live-script probe for builds);
+  - a pre-fence job with a staged manifest or an unattributed version stays
+    unknown;
+  - the scan's first run starts one day back; older lost rows from before
+    this code are not picked up;
   - a row marked lost after its publish and before its pages debit leaves
-    the pages uncharged (the customer is favoured);
-  - a job filed before the fence existed, with a later version that names
-    no job, stays pending (unknown) and is retried every tick; nothing
-    settles it but evidence, so it waits for review;
-  - `credit_reverse`'s gateway binding is still a prefix (`build:<id>…`),
-    not the three exact refs;
-  - the fence objects (`jobs/<id>.fence.json`) are never deleted;
+    the pages uncharged (in the customer's favour);
+  - `credit_reverse`'s gateway binding is still a prefix;
+  - fence, cursor and pending-cursor objects are never deleted;
   - the reply cannot see whether the writer placed a customer's photograph;
-  - a real model's use of `attached` (now an id) is unmeasured;
-  - the Build limits proposals P1–P11 await your review
+  - a real model's use of `attached` (an id) is unmeasured;
+  - the Build limits proposals await your review, with P3–P5 revised to
+    keep requirements rather than truncate
     (`docs/investigations/build-limits-2026-10-08.md`).
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run

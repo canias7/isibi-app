@@ -26,3 +26,13 @@ prefix). The gateway supplies the mint proof. The function's own row check
 still applies once the SQL is in. **The SQL stays unapplied** until the
 owner's word; until then the gateway forwards to a function PostgREST
 answers 404 for, and the caller keeps the bearer's refusal as before.
+
+**The transactional protocol** (2026-10-08, Codex's review of `3308d51d`):
+- `build_debit` now reads the job row `FOR UPDATE` before checking its
+  state, and debits in the same transaction.
+- The Worker sends every queued-build debit through it first, whatever the
+  token.
+- The two belong together. **Applying the SQL alone does not close the race**
+  — the earlier note that implied it was wrong — and neither does the Worker
+  code alone: while the function is absent, a queued build keeps the
+  fallback, whose state read is not transactional.

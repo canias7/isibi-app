@@ -1,0 +1,188 @@
+[
+{
+"label": "A: a staged manifest proves publication again",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (id && builds.some((b) => b && b.job === id)) return { outcome: \"unknown\", why: \"staged-unconfirmed\" };",
+"to": "  if (id && builds.some((b) => b && b.job === id)) return { outcome: \"published\", why: \"staged-unconfirmed\" };"
+},
+{
+"label": "A: the pointer naming the job proves publication",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (pointer && id && pointer.job === id) return { outcome: \"unknown\", why: \"activation-unconfirmed\" };",
+"to": "  if (pointer && id && pointer.job === id) return { outcome: \"published\", why: \"activation-unconfirmed\", version: pointer.version };"
+},
+{
+"label": "A: the pointer check dropped (a failed record decides)",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (pointer && id && pointer.job === id) return { outcome: \"unknown\", why: \"activation-unconfirmed\" };",
+"to": ""
+},
+{
+"label": "A: the activation record ignored",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (typeof f.published === \"string\" && f.published) return { outcome: \"published\", why: \"activation-recorded\", version: f.published };",
+"to": ""
+},
+{
+"label": "A: a claimed publish decides as not-published",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (f.owner === \"publish\" && f.failed !== true) return { outcome: \"unknown\", why: \"publish-in-flight\" };",
+"to": ""
+},
+{
+"label": "B: the failure write unconditional",
+"files": [
+"worker.js"
+],
+"from": "        { onlyIf: o && typeof o.etag === \"string\" ? { etagMatches: o.etag } : { etagDoesNotMatch: \"*\" } });",
+"to": "        {});"
+},
+{
+"label": "B: a conflict is not re-read",
+"files": [
+"worker.js"
+],
+"from": "    if (put) return want;\n  }",
+"to": "    return want;\n  }"
+},
+{
+"label": "B: a failure overwrites a recorded publish",
+"files": [
+"worker.js"
+],
+"from": "    if ((typeof cur.published === \"string\" && cur.published) || cur.failed === true) return null;\n    return { by: \"publish\", failed: true };",
+"to": "    return { by: \"publish\", failed: true };"
+},
+{
+"label": "B: a success takes recovery's fence",
+"files": [
+"worker.js"
+],
+"from": "    if (!cur || cur.by !== \"publish\") return null;\n    if (typeof cur.published === \"string\" && cur.published) return null;\n    return { by: \"publish\", published: version };",
+"to": "    if (typeof cur.published === \"string\" && cur.published) return null;\n    return { by: \"publish\", published: version };"
+},
+{
+"label": "B: a later success replaces the first version",
+"files": [
+"worker.js"
+],
+"from": "    if (typeof cur.published === \"string\" && cur.published) return null;\n    return { by: \"publish\", published: version };",
+"to": "    return { by: \"publish\", published: version };"
+},
+{
+"label": "B: an unreadable fence is written anyway (replaces an equivalent first form: no fence read as absent, which both writers already decline)",
+"files": [
+"worker.js"
+],
+"from": "    catch (e) { console.error(\"build fence: unreadable, not\", what, id, String((e && e.message) || e)); return null; }",
+"to": "    catch (e) { const w = next({ by: \"publish\" }); if (w) await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify(w)); return null; }"
+},
+{
+"label": "C: a queued build skips build_debit",
+"files": [
+"worker.js"
+],
+"from": "      if (trusted && isResumeId(jobId)) {\n        const a = await editRpc(env, \"build_debit\",",
+"to": "      if (false) {\n        const a = await editRpc(env, \"build_debit\","
+},
+{
+"label": "C: a terminal refusal is read as a charge",
+"files": [
+"worker.js"
+],
+"from": "  if (a.ok === false && a.error === \"terminal\") {",
+"to": "  if (false) {"
+},
+{
+"label": "C: a lost build_debit answer falls back to the token",
+"files": [
+"worker.js"
+],
+"from": "        if (!absent && !(a && a.ok === false && a.error === \"no-job\")) return readBuildDebit(a);",
+"to": "        if (!absent && !(a && a.ok === false && a.error === \"no-job\") && a && a.ok !== undefined) return readBuildDebit(a);"
+},
+{
+"label": "C: an absent function asked twice",
+"files": [
+"worker.js"
+],
+"from": "        if (!trusted || absent || !/^credit_debit rpc 40[13]$/",
+"to": "        if (!trusted || !/^credit_debit rpc 40[13]$/"
+},
+{
+"label": "C: the row lock removed from the SQL",
+"files": [
+"supabase/proposed/build_debit.sql"
+],
+"from": "  select * into j from public.edit_jobs where id = p_id for update;",
+"to": "  select * into j from public.edit_jobs where id = p_id;"
+},
+{
+"label": "D: the cursor never moves",
+"files": [
+"worker.js"
+],
+"from": "        at = { at: row.updated_at, id };\n      }",
+"to": "      }"
+},
+{
+"label": "D: a failed registration is skipped past",
+"files": [
+"worker.js"
+],
+"from": "          catch (e) { console.error(\"lost builds: could not register\", id, \"\u2014 the scan stops before it\", String((e && e.message) || e)); break; }",
+"to": "          catch (e) { console.error(\"lost builds: could not register\", id, \"\u2014 the scan stops before it\", String((e && e.message) || e)); }"
+},
+{
+"label": "D: no registration before the decision",
+"files": [
+"worker.js"
+],
+"from": "          try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why: \"discovered\", at: new Date(now).toISOString() })); }",
+"to": "          try { void 0; }"
+},
+{
+"label": "D: the pending listing never resumes",
+"files": [
+"worker.js"
+],
+"from": "...(pc && typeof pc.cursor === \"string\" ? { cursor: pc.cursor } : {})",
+"to": "...({})"
+},
+{
+"label": "D: the cursor restarts from the last day each tick",
+"files": [
+"worker.js"
+],
+"from": "    const from = cursor && typeof cursor.at === \"string\" ? { at: cursor.at, id: String(cursor.id || \"\") } :",
+"to": "    const from = false ? null :"
+},
+{
+"label": "control: a comment in worker.js",
+"files": [
+"worker.js"
+],
+"from": "// UNRESOLVED RECOVERY STAYS FINDABLE (2026-10-08, Codex's reviews of",
+"to": "// UNRESOLVED RECOVERY STAYS FINDABLE (control) (2026-10-08, Codex's reviews of",
+"control": true
+},
+{
+"label": "control: a comment in build-lease",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  // A JOB FROM BEFORE THE FENCE published without recording it, so only the",
+"to": "  // A JOB FROM BEFORE THE FENCE (control) published without recording it, so only the",
+"control": true
+}
+]

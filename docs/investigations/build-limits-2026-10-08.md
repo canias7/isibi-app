@@ -134,9 +134,9 @@ The wording stays model-written from the facts.
 |---|---|---|---|
 | P1 | `pageImages` cap 2 | Never cap entries that carry `attached` (the customer's own files, at most 3 by the attachment cap); count the rest past the cap into `overflow`, so `imageNote` reports "wanted N". The purchase bound stays `IMAGE_CAP` and the balance | stop a silent drop |
 | P2 | band stubs | Carry `bandsStubbed: [{page, section}]` on the build's outcome facts, so the reply model can say which section did not get written | say it |
-| P3 | `MAX_SECTIONS`, `MAX_SECTION`, `MAX_ACTION`, `MAX_PURPOSE`, `MAX_IMAGE_PROMPT` | Keep the numbers (output cost). Record what was cut (`designCuts: {field, kept, asked}`) in the outcome facts, and tell the model the action cap in `ACTION_FIELD` | say it |
-| P4 | browser 2,000 first-build cut, 200 clarify cut | Refuse-and-tell, as a revise does at 16,000 (words back in the box), instead of cutting; or raise to the server's 5,000. The server keeps one bound | stop a silent cut |
-| P5 | server brief 5,000; facts 2,500; linked page 4,000 | Keep (token cost); add `contextCuts` to the facts so the reply can say what was not read | say it |
+| P3 | `MAX_SECTIONS`, `MAX_SECTION`, `MAX_ACTION`, `MAX_PURPOSE`, `MAX_IMAGE_PROMPT` | **Superseded — see "P3–P5, revised" below.** The first version kept the cuts and only reported them | revised |
+| P4 | browser 2,000 first-build cut, 200 clarify cut | **Superseded — see below** | revised |
+| P5 | server brief 5,000; facts 2,500; linked page 4,000 | **Superseded — see below** | revised |
 | P6 | links past 2; link quota | Name the links not read, and a quota refusal, in `contextSentence` | say it |
 | P7 | `behavior` never read | Either hand it to the writer or stop asking for it at build time — the owner's choice | decide |
 | P8 | `MAX_TSX` on the band path | Apply it at design time with the others, and record a cut like P3 | consistency |
@@ -148,3 +148,77 @@ Not proposed for change: every timeout, deadline, retry count, provider size
 bound, the request-body cap, the SSRF and fetch bounds, the link quota's
 number, the spending floors and fees, the upload library's allowance, and the
 attachment bounds (all already told).
+
+## P3–P5, revised: keep the requirement, then fit the work to the real constraint (2026-10-08)
+
+The owner did not accept P3–P5's first approach, which kept the arbitrary
+cuts and only reported them afterwards. The principle below replaces it.
+
+**What the customer asked for is carried whole, as their own words, to every
+step that needs it. Where a real constraint binds, the work is split, or
+summarised by a model with the original kept beside it — never truncated by
+character count. A request is refused, with the customer told, only when
+it is past a real operational bound: the request-body cap, the provider's
+context window, time or money.**
+
+The real constraints are measured ones: model input is priced and bounded by
+the context window, model output by `max_tokens`, and time by the 13-minute
+budget. None of them is a character count on the customer's words. Each item
+below says how to keep the requirement within those constraints. **Nothing is
+implemented; each needs the owner's word.**
+
+- **The brief** (browser 2,000 on a first build; server 5,000 for designer and
+  writer; research 2,000; seed 4,000).
+  - Carry the full brief to the designer and the writer, bounded by the
+    input budget that `builder/input-budget.mjs` already applies to revises:
+    16,000 characters, refused and told in the thread with the words back in
+    the box.
+  - 16,000 characters is about 4,000 tokens, small beside the 16,000/30,000
+    output budgets and the context window.
+  - The side calls (research, seed) get either the full brief or a
+    model-written digest that names every requirement. The original stays the
+    source of truth, and no call reads a prefix.
+- **Clarification answers** (200 characters each, three pairs).
+  - A typed answer is carried in full. The three-question round is a
+    conversation design, not a data cap: an answer is never cut.
+  - The answers are folded into the brief under the same 16,000-character
+    input budget. Past it, the customer is told before anything is charged.
+- **Sections** (8 per page, 120 characters each).
+  - The designer's `shape` is the customer's page structure, so every
+    section is kept.
+  - The real constraint is the writer's output budget: 30,000 tokens per call
+    or band. The band path already writes one section per agent, so more
+    sections mean more bands, each in its own budget, inside the build's time
+    budget.
+  - A section line longer than a line is the designer's description, kept
+    whole. The band writer reads it.
+  - When the time budget can't fit all the bands, the outcome lists the
+    sections not written: P2's facts, model-written into the reply. A section
+    is never dropped before anyone tries.
+- **Actions** (3, 80 characters each).
+  - Keep every action the customer named: actions are the site's purpose.
+  - The tool description says what the writer can wire. An action the
+    platform cannot perform (an add-on kind) goes to the add-on path's
+    requirement report, as today, not into a silent cap.
+- **Purpose** (400 characters). Kept whole; it is one field of the plan, read
+  by the writer and the reply.
+- **Image requests** (2 per first build; descriptions 240 characters).
+  - Every requested image is kept in the plan, the customer's own attached
+    photos first (P1).
+  - The real constraints are money and time: `IMAGE_CAP`, the balance and
+    `PHOTO_FLOOR_MS`. Those decide how many are bought. The rest become
+    placeholders, told through `imageNote` from the counts.
+  - A long description is what the customer wants pictured. The image model's
+    own prompt limit is met by a model-written prompt from the full
+    description, never by slicing it.
+- **Facts and linked pages** (2,500 and 4,000 characters).
+  - Research facts and linked-page text go to the writer up to the input
+    budget, as one block the writer reads.
+  - Where a page is too long, a model-written digest of it is carried, which
+    names what it covers. The reply's facts say which links were read and
+    which were not (P6).
+
+Under this approach the reply's facts report what the CONSTRAINT decided —
+images not bought for lack of credit, sections not written in time — not
+what an arbitrary number dropped. The wording stays model-written from those
+facts.
