@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the seventh Build batch in `f3221a9a`)
+## Current handoff — read this first (2026-10-08, the eighth Build batch in `ae905c3e`, finishing the Build batch)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,110 +11,121 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`, ending in
-  **`f3221a9a`** (this batch) and its records. Before it, the sixth batch
-  (`04f94e9e`, records `1a294654`).
+  **`ae905c3e`** (this pass) and its records. Before it:
+  - the seventh batch (`f3221a9a`, records `ff1fd469`);
+  - the sixth (`04f94e9e`).
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL
   applied.
-- **Codex passed 49 focused tests on `1a294654` and confirmed CI green.**
-  Those passes are kept: all 49 still pass, among the full suite.
-- The limits of 1 page and 15 components are unchanged.
+- **Codex passed all 65 focused tests on `ff1fd469` and confirmed CI green.**
+  Those fixes are kept; the tests still pass, among the full suite.
+- The limits of 1 page and 15 components, the spending safeguards and the
+  .txt reminder are unchanged.
 
-**This batch: three gaps, closed together.** The record is
-`docs/history/2026-10-08-build-batch-7.md`.
-- **A refund can no longer be erased by a failed read.**
-  - What Codex showed:
-    - the resume was held, and recovery refunded 6 meanwhile;
-    - the settlement record's read was then failed during the resume's
-      retry;
-    - the final answer dropped the refund, nothing was left to reconcile,
-      and later ticks never fixed it.
-  - Now an unreadable record is kept apart from an absent one. The writer
-    keeps the facts the answer already carries and lists the build as
-    pending.
-  - Recovery's next tick then repairs a final answer that lacks the facts.
-    It only ever adds them. It never refunds again, and never reruns the
-    build, a picture purchase or a debit.
-- **"Photographs put on the site" now needs proof that they are on the
-  site.**
-  - What Codex showed: a picture bought and then a compile failure was still
-    told as on the site.
-  - Each bought picture now says where it got to:
-    - stored;
-    - written into the pages but not published (compile failure, a refused
-      publish);
-    - published.
-  - That holds through compilation failure, salvage (a stubbed page's
-    picture is not on the site), a refused publish and success.
-  - A picture still being made when the build stopped waiting is "not
-    known", never "the image service failed".
-- **The explanation is written on every path, and shown even when the build
-  failed.**
-  - Recovery's answer and a failed resume's answer are now told by the reply
-    model from their facts.
-  - Recovery keeps its one attempt, so retrying delivery never pays for the
-    same explanation twice.
-  - With the switch off, the page says "What was recorded about this build"
-    rather than claiming the writer failed.
-  - The chat now shows the narration, or the facts and the refund, on an
-    error response too.
-  - The fixed outage messages and the refund labels are unchanged.
+**This pass: three gaps, closed together to finish the Build batch.** The
+record is `docs/history/2026-10-08-build-batch-8.md`.
+- **No paying twice for the same explanation while a refund is short.**
+  - What Codex showed: two recovery passes, both returning 4 credits and
+    still short, and the second paid the reply model again for the
+    identical explanation.
+  - The explanation is now kept across every rewrite of the settlement
+    record, tied to the facts it explains, and reused while they are the
+    same.
+  - When the amount or outcome really changes, a new one is written.
+  - Every attempt is claimed on the record before the call. Overlapping
+    passes, a save that failed or a record that couldn't be read never lead
+    to a second paid call.
+- **"On the site" now means a published page actually renders the picture.**
+  - What Codex showed: a photograph sat in a component no page uses, yet it
+    was told as on the site.
+  - The published pages are now read for what they actually render,
+    following the components they use.
+  - A picture in an unused component, one cut off by salvage, a comment or
+    an unused string is "not shown".
+  - Where that can't be established, it is "in the published files,
+    unconfirmed". That is the answer in production today, because the
+    Worker has no page reader.
+  - The reply model and the page labels use the same answer.
+- **Ordinary build failures are now explained by the reply model.**
+  - These are: the designer's answer unusable, too big or too slow; a part
+    left for later that couldn't be separated; the pages not written or not
+    compiled.
+  - Outages keep their fixed messages: the provider busy or out of
+    balance, no room, provisioning, and credits.
+  - Every error the page shows now also shows any explanation, facts or
+    refund it carries, beside the fixed sentence.
 
 **Tests actually run**
-- **`test/build-batch-7.test.mjs`, 16 cases**, through the real producer,
-  consumer, resume and recovery, `publishPages`, and the Worker's own
-  purchase code:
-  - Codex's two reproductions, exactly;
-  - a collected answer with the record unreadable;
-  - the record still unreadable on the next tick;
-  - salvage;
-  - a refused publish;
-  - one picture bought, one refused and one still running at the cutoff;
-  - recovery narrated once, then a retried delivery;
-  - the writer down;
-  - the switch off;
-  - a failed resume narrated;
-  - controls for each.
-- **4 new browser cases in real Chromium**, through the page's failure
-  branch: narrated, unavailable, never attempted, and a control.
-  Screenshots shown to you.
-- **Before, on `1a294654`'s code: 19 of 23 fail.** The 4 that pass are
-  controls.
+- **`test/build-batch-8.test.mjs`, 19 cases**:
+  - **1, through the real recovery**:
+    - Codex's two-pass reproduction (one call);
+    - a control where the facts change (a new explanation);
+    - overlapping passes;
+    - a save that failed;
+    - a claim that failed;
+    - a pass whose view went stale;
+    - two passes racing at the claim;
+    - the rule.
+  - **2, through `publishPages` with the real parser**:
+    - Codex's reproduction (not shown);
+    - a used component (shown);
+    - imported but not rendered;
+    - behind a condition;
+    - a comment;
+    - an unused string;
+    - salvage;
+    - no parser;
+    - a real queued build buying and publishing a picture through the
+      Worker (shown).
+  - **3, through the real inline route**:
+    - the designer unusable, narrated and with the writer down;
+    - an outage control;
+    - the page writer failing;
+    - every failure kind.
+- **5 new browser cases in real Chromium**, with screenshots shown to you.
+- **Before, on `ff1fd469`'s code: 21 of 28 fail.** The 7 that pass are
+  controls and the seventh batch's cases. The reproductions fail on the
+  defect itself.
 - **Mutation sweep: 21 of 21 killed, the comment-only control survived.**
-- **Full suite** on `f3221a9a`: **`10085 / 10085 / 0 / 0`** locally.
-- **Required CI on `f3221a9a`: green.**
-  - Unit tests run 37784973579: `10085 / 10053 / 0 / 32`. The totals
-    match; CI skips the browser cases (4 of them new).
-  - Site build run 37784973566: 8 of 8 jobs green.
+  The first pass left 4 survivors, each answered:
+  - two masked each other, so a redundant line was dropped and a
+    stale-view test added;
+  - one needed a claim race;
+  - one needed a real queued build buying a picture.
+- **Full suite** on `ae905c3e`: **`10109 / 10109 / 0 / 0`** locally.
+- **Required CI on `ae905c3e`: green.**
+  - Unit tests run 37799832496: `10109 / 10072 / 0 / 37`. The totals
+    match; CI skips the browser cases (5 of them new).
+  - Site build run 37799832581: 8 of 8 jobs green.
 
 **Mocked versus live**
 - Every model answer in these tests is a stand-in: the designer, the page
-  writer, the reply writer, and the image service.
-- The ledger is a stand-in, not the real database.
-- Storage is a Map that honours R2's conditions. Read failures are injected
-  one key at a time.
-- No real reply call was made. The quality and cost of narration on
-  builds, recovery and failed resumes are unmeasured.
+  writer, the reply writer and the image service.
+- The ledger is a stand-in; storage is a Map with R2's conditions.
+- The page reader is the real TypeScript parser under Node. A deployed
+  Worker has none, so live answers say "unconfirmed".
+- No real reply call was made: narration's quality and cost remain
+  unmeasured.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`47b0d2fd2274633a`** (198 inputs; the picture modules are image inputs, so it moved from the sixth batch's `f3c7f6235ff045af`).
+**`fbb1e9a1d0b70b11`** (199 inputs: the new `rendered-pictures.mjs` is copied into the image).
 
 **Remaining gaps**
-- **Narration with a real model is unmeasured**: wording and cost per
-  build, per recovery and per failed resume.
-- **A recovery narration that could not be saved** (its record write
-  failed) may be asked again on a later retry.
-- **An inline build's own failure exits are not narrated.** They are fixed
-  messages, as before.
-- **A pending repair waits until recovery can read the build's row.**
+- **Picture visibility in production stays "unconfirmed"** until the publish
+  runs where the page reader exists, or the reader is bundled.
+- **A claimed attempt whose outcome was never saved is never retried** for
+  the same facts. Those facts go out without a new explanation, keeping
+  any text already delivered.
+- **The picture reader is bounded**:
+  - it follows `-parts` imports and plain `src` values;
+  - backgrounds, computed addresses, props and lists read as unknown.
+- **Provisioning and schema failures keep their technical answers.**
 - **Still open from earlier batches**:
   - the add-on's 240-character description cut;
   - the link count of 2;
-  - long descriptions unmeasured against the image service;
-  - P6–P11, and the first audit's M2–M6, M8–M12, L1–L9 and L11–L12;
-  - the billing race in production until `build_debit.sql` is applied;
-  - older jobs without a protocol record stay unknown;
-  - recovery objects are never deleted;
-  - `canary-reopen-browser` is flaky under the full suite's load.
+  - P6–P11, and the first audit's open items;
+  - `build_debit.sql` not applied;
+  - recovery objects never deleted;
+  - `canary-reopen-browser` is flaky under load.
 
 **Recorded for later (unchanged)**: an oversized pasted message becomes a
 complete .txt attachment (`owner-preferences.md`, backlog).
@@ -123,13 +134,13 @@ complete .txt attachment (`owner-preferences.md`, backlog).
 reviewed.
 
 **Yours to decide**
-- The review of `f3221a9a` (and the earlier unmerged batches).
+- The review of `ae905c3e` (and the earlier unmerged batches).
 - Whether to apply `build_debit.sql`.
 - Any release: one merge, one image build, its own runtime check, and a
   first real measurement of the narration.
 
-**Links**: `docs/history/2026-10-08-build-batch-7.md` (this round),
-`docs/history/2026-10-08-build-batch-6.md`,
+**Links**: `docs/history/2026-10-08-build-batch-8.md` (this round),
+`docs/history/2026-10-08-build-batch-7.md`,
 `docs/investigations/build-limits-2026-10-08.md`.
 
 ## How you like things done
@@ -137,6 +148,33 @@ reviewed.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-08 — The eighth Build batch: one explanation per set of facts, pictures from what pages render, ordinary failures told (on the branch, `ae905c3e`; nothing merged, deployed, built or paid)
+
+Codex found three last gaps after passing the seventh batch's 65 tests.
+- **A short refund could pay for the same explanation twice.** Each recovery
+  pass rewrote the settlement record and dropped the explanation. Now it is
+  kept, reused while the facts are the same, rewritten when they change,
+  and claimed before any paid call, so no uncertain attempt is paid for
+  again.
+- **A picture in a component no page uses was told as on the site.** Now
+  the published pages are read for what they render. "Not shown" and
+  "unconfirmed" are told apart from "shown", and the reply model and the
+  page agree.
+- **Ordinary build failures used fixed sentences.** Now they are explained
+  by the reply model from recorded facts. Outages keep their fixed
+  messages, and every error shows the facts and refund it carries.
+
+What was run:
+- 24 new tests, 21 of 28 failing on the old code;
+- sweep: 21 of 21 killed;
+- suite: `10109 / 10109 / 0 / 0`;
+- CI green (unit `10109 / 10072 / 0 / 37`, site build 8 of 8).
+
+All model answers in the tests are stand-ins. The record is
+`docs/history/2026-10-08-build-batch-8.md`.
 
 ---
 

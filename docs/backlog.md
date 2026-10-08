@@ -59,10 +59,16 @@ here; take a closed one out of both.**
     pages, settlement) are told by the reply writer since the sixth batch,
     and on recovery's answer and a failed resume's since the seventh; the
     real-model quality and the cost per build, per recovery and per failed
-    resume are unmeasured. An inline build's own failure exits are not
-    narrated. A recovery narration whose record write failed may be asked
-    again on a later delivery retry. The outage line and the fact labels are
-    fixed page text;
+    resume are unmeasured. The ordinary inline failures are narrated since
+    the eighth batch; outages keep fixed messages. A recovery explanation is
+    claimed before any paid call and never paid for twice; a claim whose
+    outcome was never saved is not retried for the same facts (no time-out).
+    The outage line and the fact labels are fixed page text;
+  - picture visibility is read from what the published routes render (the
+    eighth batch) only where the page reader resolves; a deployed Worker
+    has none, so live answers say "unconfirmed". The reader follows
+    `-parts` imports and plain `src` values; backgrounds, computed
+    addresses, props and lists read as unknown;
   - a final answer written while the settlement record cannot be read is
     repaired by recovery's next tick (the seventh batch), but only once the
     build's row can be read; until then it stays pending;
