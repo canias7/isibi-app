@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -225,7 +225,17 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   // WAITING FOR THE GO-AHEAD, NOT ENDED: the request is not over for it.
   assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["approval", "handed-off"]);
   assert.equal(r.record.ended, false);
-  assert.equal(r.file.n, 1, "the independent part did not go ahead");
+  // RE-ANCHORED 2026-10-08 (the parallel-tasks batch): the independent part's
+  // routing is prepared beside the first part's job, and the part is filed
+  // when that preparation answers — filed before, its job would make the same
+  // call again. Still: it goes ahead while the first part waits.
+  let go = r;
+  if (!go.file) {
+    const p1 = go.record.parts[1];
+    assert.equal(p1.prep && p1.prep.state, "attempting", "the independent part was neither filed nor being prepared");
+    go = nextStep(notePrepared(go.record, 1, p1.prep.seq, { ok: true, outcome: "routed" }).record, {});
+  }
+  assert.equal(go.file && go.file.n, 1, "the independent part did not go ahead");
   // THE PAGE IS SHOWN NO HAND-OVER JOB AS A PART'S REPLY.
   assert.deepEqual(requestView(r.record).parts[0].jobs, []);
   // THE GO-AHEAD SENDS THE PART'S OWN WORDS: the other parts run on their own.

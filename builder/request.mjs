@@ -1191,6 +1191,22 @@ export function notePrepared(record, n, seq, { ok = false, outcome = "error", ke
   return { record: rec, kept: true };
 }
 
+/**
+ * A PREPARED ROUTING'S STEP, as its run job will see the part: the record with
+ * the part routed (its route, its named targets) and whether that step may be
+ * prepared now — a step the preparation runs, with no earlier part it
+ * conflicts with or that writes what it reads. Asked again here because the
+ * route is what makes those known.
+ */
+export function routedForPrep(record, n, read) {
+  const work = clone(record);
+  const p = work.parts[n];
+  if (!p || !read || !read.route) return { work, ok: false };
+  Object.assign(p, { route: { ...read.route, hops: 0 }, phase: "run" });
+  if (read.targets && read.targets[0]) addTargets(p, read.targets[0]);
+  return { work, ok: preparable(p) && clearToPrepare(work.parts, n, (q) => PART_TERMINAL.includes(q.status)) };
+}
+
 /** What the page and the progress writer read of a part's preparation: `preparing`, `prepared`, or nothing. */
 export function prepState(p, now = Date.now()) {
   if (!p || !["ready", "blocked", "queued"].includes(p.status) || !prepFor(p)) return "";

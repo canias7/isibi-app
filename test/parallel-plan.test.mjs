@@ -141,3 +141,79 @@ test("the progress writer reads a preparation from the raw record: in progress w
   assert.equal(st(other({ seq: 1, for: 2, phase: "run", state: "attempting", at: now })), control, "a preparation for an earlier step is not this one's");
   assert.equal(st(other("preparing")), control, "the view's word is not the record's");
 });
+
+// ── THE DRIVER'S CHOICES, ONE BY ONE (answering the first sweep's survivors) ──
+import { planParts, newRequest, nextStep, noteJobId, notePrepared, routedForPrep, PREP_MAX_LIVE } from "../builder/request.mjs";
+
+const PKEY = "rqpar0000000000001";
+const HELD = ["make a photo of bread for the home page", "make a photo of cakes for the gallery", "make a photo of the shop for the visit page", "make a photo of flour for the about page", "make a photo of ovens for the story page"];
+const MSG5 = "Change our TikTok link on the Visit page, and " + HELD.join(", and ") + ".";
+const doneRow = { ok: true, state: "done", billing: "finalized", needs_review: false, result: { status: 200, body: JSON.stringify({ ok: true, layer: "text" }) } };
+function fiveHeld() {
+  // EACH CHANGE'S TARGETS NAMED, as the router is asked to: a part not yet
+  // routed with nothing named is the whole site, and holds back the rest.
+  const routed = { intent: "edit", layer: "text", page: "/visit", alsoAsked: HELD.slice(), targets: [{ change: 0, writes: ["page:/visit"] }, ...HELD.map((_, i) => ({ change: i + 1, writes: ["images", "page:/p" + i] }))] };
+  const planned = planParts(MSG5, routed);
+  assert.equal(planned.ok, true, JSON.stringify(planned));
+  return newRequest({ key: PKEY, uid: "u1", slug: "fold-lane", message: MSG5, accepted: routed, parts: planned.parts });
+}
+
+test("nextStep: at most PREP_MAX_LIVE preparations at once, claimed in the same write as the job it files", () => {
+  const now = Date.now();
+  const r = nextStep(fiveHeld(), {}, now);
+  assert.equal(r.file && r.file.n, 0, "the first part's job is filed");
+  assert.equal(PREP_MAX_LIVE, 3);
+  assert.deepEqual(r.prepare.map((t) => t.n), [1, 2, 3], "more preparations than the cap, or not in order");
+  for (const t of r.prepare) assert.equal(r.record.parts[t.n].prep.state, "attempting");
+  assert.equal(r.record.parts[4].prep, null, "a part past the cap was claimed");
+});
+
+test("nextStep: a part whose preparation is still running is passed over for a ready part with none; with only such parts, nothing is filed", () => {
+  const now = Date.now();
+  const r1 = nextStep(fiveHeld(), {}, now);
+  const rec = noteJobId(r1.record, r1.file.key, "j0");
+  const r2 = nextStep(rec, { j0: doneRow }, now + 1000);
+  assert.equal(r2.file && r2.file.n, 4, "a part still being prepared was filed ahead of a free one: " + JSON.stringify(r2.file));
+  const only = JSON.parse(JSON.stringify(rec));
+  for (const p of only.parts.slice(4)) p.status = "cancelled";
+  const r3 = nextStep(only, { j0: doneRow }, now + 1000);
+  assert.equal(r3.file, null, "a part was filed while its preparation runs and nothing else was ready");
+});
+
+test("nextStep: a part whose preparation found a question goes first, ahead of an earlier ready part", () => {
+  const now = Date.now();
+  const r1 = nextStep(fiveHeld(), {}, now);
+  let rec = noteJobId(r1.record, r1.file.key, "j0");
+  // Part 1's preparation answered (routed) and part 3's found a question:
+  // part 1 is free and earlier, but the question goes first.
+  ({ record: rec } = notePrepared(rec, 1, rec.parts[1].prep.seq, { ok: true, outcome: "routed", now }));
+  ({ record: rec } = notePrepared(rec, 3, rec.parts[3].prep.seq, { ok: true, outcome: "ask", now }));
+  const r2 = nextStep(rec, { j0: doneRow }, now + 1000);
+  assert.equal(r2.file && r2.file.n, 3, "the part with a question waiting was not asked first: " + JSON.stringify(r2.file));
+});
+
+test("notePrepared keeps an outcome only for the claim it answers, once", () => {
+  const now = Date.now();
+  const rec = nextStep(fiveHeld(), {}, now).record;
+  const seq = rec.parts[1].prep.seq;
+  assert.equal(notePrepared(rec, 1, seq + 1, { ok: true, outcome: "ready" }).kept, false, "an answer for another claim was kept");
+  const once = notePrepared(rec, 1, seq, { ok: true, outcome: "ready" });
+  assert.equal(once.kept, true);
+  assert.equal(once.record.parts[1].prep.outcome, "ready");
+  assert.equal(notePrepared(once.record, 1, seq, { ok: true, outcome: "error" }).kept, false, "a second answer to the same claim overwrote the first");
+  assert.equal(notePrepared(rec, 4, 1, { ok: true }).kept, false, "a part with no claim took an answer");
+});
+
+test("routedForPrep: the step a prepared routing chose is held back when the part's OWN routing names a target an earlier part writes; without it, prepared (the control)", () => {
+  const routed = { intent: "edit", layer: "nav", alsoAsked: [HELD[0]], targets: [{ change: 0, writes: ["menu", "component:SiteHeader"] }] };
+  const planned = planParts("Tidy the menu, and " + HELD[0] + ".", routed);
+  const rec = nextStep(newRequest({ key: PKEY, uid: "u1", slug: "fold-lane", message: "m", accepted: routed, parts: planned.parts }), {}, Date.now()).record;
+  const own = { route: { op: "edit", layer: "picture", page: "/" }, targets: { 0: { writes: ["images", "component:siteheader"], reads: [] } } };
+  assert.equal(routedForPrep(rec, 1, own).ok, false, "a step reaching the header an unapplied part changes was prepared");
+  assert.equal(routedForPrep(rec, 1, { ...own, targets: { 0: { writes: ["images", "page:/"], reads: [] } } }).ok, true, "CONTROL: an independent step was not prepared");
+  assert.equal(routedForPrep(rec, 1, { route: { op: "addon" } }).ok, false, "an addition's work was prepared");
+  const w = routedForPrep(rec, 1, own).work.parts[1];
+  assert.equal(w.phase, "run");
+  assert.ok(w.targets.writes.includes("component:siteheader"));
+  assert.equal(rec.parts[1].phase, "route", "the record itself was changed");
+});

@@ -246,9 +246,9 @@ export function applyOrder(parts) {
 
 /**
  * May a part be prepared ahead of its turn? Never ahead of an earlier part in
- * the apply order that has not ended and that conflicts with it, or writes
- * what its step reads (`stepInputs`): prepared then, its job would only ask
- * again — a call made for nothing.
+ * the apply order that has not ended and that writes what its step reads
+ * (`stepInputs`), nor — for a step that writes — one it conflicts with:
+ * prepared then, its job would only ask again, a call made for nothing.
  */
 export function clearToPrepare(parts, n, ended) {
   const order = applyOrder(parts);
@@ -258,7 +258,9 @@ export function clearToPrepare(parts, n, ended) {
     if (m === n) return true;
     const q = parts[m];
     if (!q || ended(q)) continue;
-    if (conflicts(q, me)) return false;
+    // A ROUTING writes nothing, so only what it reads (the page list) can make
+    // it wait; a step that writes waits for any earlier part it conflicts with.
+    if (me.phase !== "route" && me.route && conflicts(q, me)) return false;
     if (effectiveTargets(q).writes.some((w) => inputs.some((i) => feeds(w, i)))) return false;
   }
   return true;

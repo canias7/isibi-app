@@ -260,7 +260,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, notePrepared, readRoute, PREP_LAYERS, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, notePrepared, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -16835,12 +16835,12 @@ async function runRequestPrep(env, ctx, task) {
       const read = readRoute({ status: r.status, body: r.body });
       if (read.act === "clarify") outcome = "ask";
       else if (read.act !== "route") outcome = read.act === "failed" ? "error" : "stopped";
-      else if (read.route.op === "addon" || !PREP_LAYERS.includes(read.route.layer)) outcome = "routed";
       else {
-        // THE STEP ITS ROUTING CHOSE, prepared as its run job will send it.
-        work = JSON.parse(JSON.stringify(rec));
-        Object.assign(work.parts[n], { route: { ...read.route, hops: 0 }, phase: "run" });
-        outcome = "run";
+        // THE STEP ITS ROUTING CHOSE, prepared as its run job will send it —
+        // only a step a preparation runs, clear of every earlier part it
+        // conflicts with now that its route says what it writes.
+        const step = routedForPrep(rec, n, read);
+        if (step.ok) { work = step.work; outcome = "run"; } else outcome = "routed";
       }
     } else outcome = "run";
     if (outcome === "run") {

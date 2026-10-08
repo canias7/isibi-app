@@ -34,6 +34,25 @@ const statuses = (rec) => rec.parts.map((p) => p.status);
 const jobLine = (P, key) => P.jobsOf(key).map((j) => j.op + ":" + j.state);
 const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + "#") && e.reason === "reserve").map((e) => -e.delta);
 const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
+/**
+ * A PREPARATION TOUCHES NO MONEY AND NO JOB: every database call made while
+ * the case ran names a job that was filed — a preparation that reserved,
+ * charged, beat or wrote a phase under its own id would name one that never
+ * was — and the ledger holds no line but a filed job's or the message's own
+ * routing charge. Alive only when the case made such calls at all.
+ */
+function noPrepMoney(P, key) {
+  const ids = new Set(P.jobs.keys());
+  let seen = 0;
+  for (const e of P.rpcLog) {
+    const id = e.args && (e.args.p_id || e.args.p_job_id);
+    if (typeof id !== "string") continue;
+    seen++;
+    assert.ok(ids.has(id), e.fn + " named a job that was never filed: " + id);
+  }
+  assert.ok(seen > 0, "no call named a job — the check saw nothing");
+  for (const l of P.ledger) assert.ok([...ids].some((id) => l.ref === id || l.ref.startsWith(id + "#")) || l.ref.startsWith("route:"), "a ledger line no filed job or routing made: " + l.ref + " (" + l.reason + ")");
+}
 
 // THE OWNER'S OWN EXAMPLE: a photograph made for the home page and the TikTok
 // link changed on the Visit page — independent: the link's step never reads
@@ -119,6 +138,7 @@ test("P1 OVERLAP (Edit + Edit, the owner's example) — the photograph is prepar
     const js = P.jobsOf(r.key);
     for (const j of js) assert.equal(reserveOf(P, j.id).length, 1, j.op + " was not charged exactly once");
     assert.ok(reserveOf(P, js[2].id)[0] > 1, "the photograph was not billed to the picture job: " + JSON.stringify(reserveOf(P, js[2].id)));
+    noPrepMoney(P, r.key);
   });
 });
 
@@ -181,7 +201,7 @@ const HEAD_FROM = "Harbour Loaf";
 const HEAD_TO = "Harbour Loaf Bakery";
 const HEADING = "make the home page heading say Harbour Loaf Bakery";
 
-test("P3 SHARED PAGE — two changes to the same page: the second is NOT prepared while the first is still to be applied, so nothing is asked for nothing; it is then run against the page as the first left it, and BOTH changes are kept", async () => {
+test("P3 SHARED PAGE — two changes to the same page: the second's ROUTING is prepared beside the first's job (it writes nothing), but its STEP is not prepared while the first is still to be applied, so nothing is asked for nothing; it is then run against the page as the first left it, and BOTH changes are kept", async () => {
   await withPlatform({
     slug: slugOf("p3"),
     answers: {
@@ -197,10 +217,17 @@ test("P3 SHARED PAGE — two changes to the same page: the second is NOT prepare
     const r = await sendMessage(P, { message: OPEN_LINE + ", and " + HEADING + "." });
     const rec0 = P.record(r.key);
     assert.deepEqual(statuses(rec0), ["queued", "ready"]);
-    assert.equal(rec0.parts[1].prep, null, "a part was prepared against a page another part is about to change");
-    assert.equal(P.queue.filter((m) => m.body.kind === "request-prep").length, 0);
+    assert.equal(rec0.parts[1].prep && rec0.parts[1].prep.phase, "route", "the second part's routing was not prepared");
+    const prep = P.queue.filter((m) => m.body.kind === "request-prep");
+    assert.equal(prep.length, 1);
+    P.queue.splice(P.queue.indexOf(prep[0]), 1);
+    await deliver(P, prep[0]);
+    assert.equal(P.record(r.key).parts[1].prep.outcome, "routed", "a step was prepared against a page another part is about to change");
+    assert.equal(calls(P, T.text).length, 0, "the preparation asked the text step before the first change was applied");
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // THE SECOND PART ROUTED ONCE: its routing job answered from the preparation.
+    assert.equal(calls(P, T.route).length, 2, "the prepared routing was asked again");
     // BOTH CHANGES ON THE ONE PAGE: neither wrote over the other.
     const home = P.page("index.tsx");
     assert.ok(home.includes(HOME_LINE_TO) && home.includes(">" + HEAD_TO + "<"), home);
@@ -209,10 +236,11 @@ test("P3 SHARED PAGE — two changes to the same page: the second is NOT prepare
     assert.equal(calls(P, T.text).length, 2);
     const js = P.jobsOf(r.key);
     for (let i = 1; i < js.length; i++) assert.ok(js[i].created_at >= js[i - 1].updated_at - 1, "a write was started while another was live");
+    noPrepMoney(P, r.key);
   });
 });
 
-test("P3b SHARED COMPONENT, UNRELATED WORDS — a menu change and a photograph whose words have nothing in common, but the model says both reach the site header: the photograph is held back from preparation until the menu change is applied; without that shared target it would be prepared at once (the control)", async () => {
+test("P3b SHARED COMPONENT, UNRELATED WORDS — a menu change and a photograph whose words have nothing in common, but the model says both reach the site header: the photograph's step is held back from preparation until the menu change is applied (its routing, which writes nothing, is prepared); without that shared target its step is prepared at once (the control)", async () => {
   for (const shared of [true, false]) {
     await withPlatform({
       slug: slugOf("p3b"), pages: PIC_PAGES, images: true,
@@ -225,10 +253,41 @@ test("P3b SHARED COMPONENT, UNRELATED WORDS — a menu change and a photograph w
       },
     }, async (P) => {
       const r = await sendMessage(P, { message: "Tidy the menu, and " + PHOTO + "." });
-      const rec0 = P.record(r.key);
-      assert.equal(!!rec0.parts[1].prep, !shared, shared ? "a part sharing a component with an unapplied part was prepared" : "CONTROL: an independent part was not prepared");
+      const prep = P.queue.filter((m) => m.body.kind === "request-prep");
+      assert.equal(prep.length, 1, "the photograph's routing was not prepared");
+      P.queue.splice(P.queue.indexOf(prep[0]), 1);
+      await deliver(P, prep[0]);
+      const out = P.record(r.key).parts[1].prep.outcome;
+      assert.equal(out, shared ? "routed" : "ready", shared ? "a step sharing a component with an unapplied part was prepared" : "CONTROL: an independent step was not prepared");
+      assert.equal(calls(P, "choose_pictures").length, shared ? 0 : 1);
     });
   }
+});
+
+test("P1c A PREPARED STEP THAT REFUSES — the photograph's picture step finds nothing it can fill while being prepared: the preparation ends `stopped`, charges nothing and names no job; the part's own job meets the same refusal from the recorded answer and is the one charged, once", async () => {
+  await withPlatform({
+    slug: slugOf("p1c"), pages: PIC_PAGES, images: true,
+    answers: {
+      route: ROUTE_PIC,
+      choose_pictures: { pictures: [{ page: "index.tsx", alt: "A picture this page does not have", describe: "a sourdough loaf" }] },
+      [T.text]: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", TIKTOK_LINE), to: TIKTOK_TO }] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + PHOTO + "." });
+    const prep = P.queue.filter((m) => m.body.kind === "request-prep");
+    assert.equal(prep.length, 1);
+    P.queue.splice(P.queue.indexOf(prep[0]), 1);
+    await deliver(P, prep[0]);
+    assert.equal(P.record(r.key).parts[1].prep.outcome, "stopped", JSON.stringify(P.record(r.key).parts[1].prep));
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.parts[0].status, "done");
+    assert.notEqual(rec.parts[1].status, "done", "a refused picture was called done");
+    assert.equal(calls(P, "choose_pictures").length, 1, "the refused step's call was made again");
+    assert.equal(P.imageLog.length, 0);
+    const pic = P.jobsOf(r.key).filter((j) => j.op === "edit").pop();
+    assert.equal(reserveOf(P, pic.id).length, 1, "the refusal was not charged to the part's own job, once");
+    noPrepMoney(P, r.key);
+  });
 });
 
 // ── A QUESTION PAUSES ONLY ITS OWN TASK ─────────────────────────────────────
@@ -275,6 +334,7 @@ test("P4 CLARIFICATION — a photograph whose preparation finds a question is as
     assert.match(P.page("index.tsx"), /<SafeImage src="\/u\/[^"]+\.jpg" alt="A loaf on the counter"/);
     assert.equal(calls(P, "choose_pictures").length, 2);
     assert.equal(P.imageLog.length, 1);
+    noPrepMoney(P, r.key);
   });
 });
 
@@ -380,6 +440,7 @@ test("P7 MIXED (Edit + Add-on) — the addition's routing is prepared while the 
     assert.ok(P.page("visit.tsx").includes(TIKTOK_TO));
     assert.ok(P.pages().includes("gallery.tsx"));
     for (const j of P.jobsOf(r.key)) assert.equal(reserveOf(P, j.id).length, 1);
+    noPrepMoney(P, r.key);
   });
 });
 
