@@ -23,7 +23,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { addon, writtenPage, compiledPages } from "./fixtures/addon-route.mjs";
-import { menuLinksKept } from "../builder/site-nav.mjs";
+import { menuLinksKept, renderedMenus, navSlots } from "../builder/site-nav.mjs";
+import path from "node:path";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { addonReplyFacts, editReplyFacts, requestReplyFacts, replyRequest } from "../builder/site-reply.mjs";
 
 const BAKERY = ["index", "order", "starter", "visit", "gallery"].map((f) => ({ path: f + ".tsx", source: fs.readFileSync(new URL("./fixtures/run47/" + f + ".before.tsx", import.meta.url), "utf8") }));
@@ -172,4 +174,113 @@ test("HELD 8 — the Worker hands both readings to the reply: the menu links the
   const body = src.slice(at, next);
   assert.ok(next > at && body.includes("{ linked: aKept.kept }") && body.includes("{ linkedUnsure: aKept.unsure }"), body);
   assert.ok(src.includes('import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";'));
+});
+
+// THE MENU THE PAGE RENDERS, NOT AN ARRAY OF ITS SHAPE (2026-10-08, Codex's
+// review of dd4b96d8). A commented-out `links` array, or an unused object
+// beside the one the page renders, has a menu's shape and is no evidence of
+// one. Each control is read by the helper and then told through the real
+// facts, so what reaches the reply writer is checked as well as the reading.
+const ROUTED = (decls, jsx) => ({
+  path: "index.tsx",
+  source: "import { createFileRoute } from \"@tanstack/react-router\";\nimport { SiteChrome } from \"@/components/ui/site-chrome\";\n" +
+    "export const Route = createFileRoute(\"/\")({ component: Home });\n" + decls +
+    "function Home() {\n  return (\n" + jsx + "\n  );\n}\n",
+});
+const HOME_ONLY = "const CHROME = { name: \"Harbour Loaf\", links: [{ label: \"Home\", href: \"/\" }] };\n";
+const WITH_LINK = "const CHROME = { name: \"Harbour Loaf\", links: [{ label: \"Home\", href: \"/\" }, { label: \"Allergens\", href: \"/allergens\" }] };\n";
+const SHELL = (inner = "<p>We're open.</p>") => "    <SiteChrome {...CHROME}>\n      <main>" + inner + "</main>\n    </SiteChrome>";
+const told = (f) => f.some((t) => /now links to \/allergens/.test(t));
+const unknown = (f) => f.some((t) => /could not be read/.test(t));
+
+test("HELD 9 — the six controls: a rendered menu is told; a commented-out menu, an unused menu object, a body-only link and a removed link are not; an unresolved binding is told as not known", () => {
+  const controls = [
+    ["a genuine rendered menu", ROUTED(WITH_LINK, SHELL()), "kept"],
+    ["a commented-out menu", ROUTED(HOME_ONLY + "/* old menu: links: [{label:\"Allergens\",href:\"/allergens\"}] */\n", SHELL()), "absent"],
+    ["an unused menu object", ROUTED("const OLD = { name: \"Harbour Loaf\", links: [{ label: \"Home\", href: \"/\" }, { label: \"Allergens\", href: \"/allergens\" }] };\n" + HOME_ONLY, SHELL()), "absent"],
+    ["a body-only link", ROUTED(HOME_ONLY, SHELL("<a href=\"/allergens\">Allergens</a>")), "absent"],
+    ["a removed link", ROUTED(HOME_ONLY, SHELL()), "absent"],
+    ["an unresolved binding", ROUTED("import { CHROME } from \"./shared\";\n", SHELL()), "unsure"],
+  ];
+  for (const [what, pg, want] of controls) {
+    const read = renderedMenus(pg.source);
+    assert.ok(read, what + ": the page could not be scanned");
+    const { r, f } = factsFor([pg], ["index.tsx"]);
+    if (want === "kept") {
+      assert.deepEqual(read, { menus: [[{ label: "Home", href: "/" }, { label: "Allergens", href: "/allergens" }]], unsure: false }, what);
+      assert.deepEqual(r, { kept: [{ path: "index.tsx", to: ["/allergens"] }], unsure: [] }, what);
+      assert.ok(f.includes("changed: The menu on / now links to /allergens."), what + ": " + JSON.stringify(f));
+      assert.ok(!unknown(f), what);
+    } else if (want === "absent") {
+      assert.deepEqual(read, { menus: [[{ label: "Home", href: "/" }]], unsure: false }, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f), what + " is told as a menu link: " + JSON.stringify(f));
+      assert.ok(!unknown(f), what + ": a readable menu is told as unknown");
+    } else {
+      assert.deepEqual(read, { menus: [], unsure: true }, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] }, what);
+      assert.ok(!told(f), what + " is told as a menu link: " + JSON.stringify(f));
+      assert.ok(f.includes("note: A link to /allergens was put in the menu on /, but whether the published menu there still carries it could not be read, so it is not known either way."), what + ": " + JSON.stringify(f));
+    }
+  }
+  // THE SAME TWO REPRODUCTIONS STILL HAVE A MENU'S SHAPE to the editor's own
+  // finder, which reaches every array it may have to rewrite and is unchanged.
+  assert.ok(navSlots([controls[1][1]]).some((s) => s.items.some((i) => i.href === "/allergens")), "the control no longer has the shape it is meant to have");
+  assert.ok(navSlots([controls[2][1]]).some((s) => s.items.some((i) => i.href === "/allergens")), "the control no longer has the shape it is meant to have");
+});
+
+test("HELD 10 — the bindings followed and those left unknown: inline, member and spread menus; an unused component, a later attribute, a string in the markup; a call, a parameter, a written-to binding", () => {
+  const LINKED = "[{ label: \"Home\", href: \"/\" }, { label: \"Allergens\", href: \"/allergens\" }]";
+  const shapes = [
+    ["an inline array", ROUTED("", "    <SiteHeader links={" + LINKED + "} />"), "kept"],
+    ["a const array", ROUTED("const LINKS = " + LINKED + " as const;\n", "    <SiteHeader links={LINKS} />"), "kept"],
+    ["a member of a const object", ROUTED(WITH_LINK, "    <SiteHeader links={CHROME.links} />"), "kept"],
+    ["an object spread inside the object", ROUTED(WITH_LINK + "const PAGE = { ...CHROME, name: \"Allergens\" };\n", "    <SiteChrome {...PAGE} />"), "kept"],
+    ["a menu in a component nothing renders", ROUTED(HOME_ONLY + "function OldHome() { return <SiteHeader links={" + LINKED + "} />; }\n", SHELL()), "absent"],
+    ["a later attribute overriding the spread", ROUTED(WITH_LINK, "    <SiteChrome {...CHROME} links={[{ label: \"Home\", href: \"/\" }]} />"), "absent"],
+    ["a menu-shaped string in the markup", ROUTED(HOME_ONLY, SHELL("{\"links: [{label:\\\"Allergens\\\",href:\\\"/allergens\\\"}]\"}")), "absent"],
+    ["a call", ROUTED("", "    <SiteHeader links={menuFor(\"/\")} />"), "unsure"],
+    ["a call beside a certain menu", ROUTED(HOME_ONLY, "    <>\n      <SiteChrome {...CHROME} />\n      <SiteFooter links={menuFor(\"/\")} />\n    </>"), "unsure"],
+    ["a component's own parameter", { path: "index.tsx", source: "export default function Nav({ links }) { return <SiteHeader links={links} />; }\n" }, "unsure"],
+    ["a binding written to after it is declared", ROUTED(HOME_ONLY + "CHROME.links.push({ label: \"Allergens\", href: \"/allergens\" });\n", SHELL()), "unsure"],
+    ["a later spread nobody can read", ROUTED(HOME_ONLY, "    <SiteChrome links={CHROME.links} {...props} />"), "unsure"],
+    ["an item commented out inside the rendered menu", ROUTED("const CHROME = { links: [{ label: \"Home\", href: \"/\" }, /* { label: \"Allergens\", href: \"/allergens\" } */] };\n", SHELL()), "absent"],
+    ["a certain menu beside one that cannot be read", ROUTED(HOME_ONLY, "    <>\n      <SiteChrome {...CHROME} />\n      <SiteFooter {...FOOTER()} />\n    </>"), "unsure"],
+    ["a menu inside a destructured declaration", ROUTED(HOME_ONLY + "const [Header] = [() => <SiteHeader links={" + LINKED + "} />];\n", "    <>\n      <SiteChrome {...CHROME} />\n      <Header />\n    </>"), "unsure"],
+    ["a name declared twice", ROUTED("function Old() { const CHROME = { links: " + LINKED + " }; return CHROME; }\n" + HOME_ONLY, SHELL()), "unsure"],
+  ];
+  for (const [what, pg, want] of shapes) {
+    const { r, f } = factsFor([pg], ["index.tsx"]);
+    if (want === "kept") {
+      assert.deepEqual(r, { kept: [{ path: "index.tsx", to: ["/allergens"] }], unsure: [] }, what + ": " + JSON.stringify(r));
+      assert.ok(told(f), what + ": " + JSON.stringify(f));
+    } else if (want === "absent") {
+      assert.deepEqual(r, { kept: [], unsure: [] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && !unknown(f), what + ": " + JSON.stringify(f));
+    } else {
+      assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && unknown(f), what + ": " + JSON.stringify(f));
+    }
+  }
+  // A PAGE THE SCANNER CANNOT READ claims nothing either way.
+  assert.equal(renderedMenus("export default () => <SiteHeader links={[{ label: \"A\", href: \"/a\" }]} "), null);
+  assert.deepEqual(menuLinksKept({ pages: [{ path: "index.tsx", source: "export default () => <SiteHeader links={" + LINKED + "} " }], linked: ADDED(["index.tsx"]) }), { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] });
+});
+
+test("HELD 11 — on every hand-written page in the corpus, the rendered menus are exactly the menus the editor finds: the reader never loses a real menu", () => {
+  let pages = 0, menus = 0, unsure = 0;
+  for (const d of fs.readdirSync(CORPUS_DIR)) for (const f of fs.readdirSync(path.join(CORPUS_DIR, d))) {
+    if (!f.endsWith(".tsx")) continue;
+    const source = fs.readFileSync(path.join(CORPUS_DIR, d, f), "utf8");
+    const read = renderedMenus(source);
+    pages++;
+    assert.ok(read, d + "/" + f + " could not be scanned");
+    const mine = new Set(read.menus.map((m) => JSON.stringify(m)));
+    const theirs = new Set(navSlots([{ path: f, source }]).map((s) => JSON.stringify(s.items)));
+    assert.deepEqual([...mine].sort(), [...theirs].sort(), d + "/" + f);
+    if (theirs.size) menus++;
+    if (read.unsure) unsure++;
+  }
+  assert.ok(pages >= 300 && menus >= 280, pages + " pages, " + menus + " with a menu");
+  assert.ok(unsure <= 20, unsure + " pages told as not known");
 });
