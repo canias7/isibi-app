@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the first Build correction batch in `c7aaf1e5`; the continuation's accounting closed)
+## Current handoff — read this first (2026-10-08, the second Build correction batch in `d1b338f0`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,111 +8,118 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
-  `335396c8c0e0fbcb`), unchanged. **Balance 11** (last ledger row 409; no job
-  open; not read again this round, which moved no money).
+  `335396c8c0e0fbcb`), unchanged. **Balance 11** (last ledger row 409; not
+  read again; nothing this round moved money).
 - **On the branch, unmerged**: everything since `9d6bda8a`, now ending in
-  `c7aaf1e5` (this batch's code and tests) and its records. Nothing merged,
-  deployed or built; no paid call; no live retest.
-- **The continuation's accounting round is closed.** Codex reviewed
-  `8ac4a235`, passed 11 focused checks and confirmed CI green.
+  **`d1b338f0`** (this batch's code, tests and records) and the record of its
+  CI. Nothing merged, deployed or built; no paid call; no live retest; no SQL
+  applied.
 
-**The first Build correction batch (`c7aaf1e5`): H1–H6, M7, L10 and M1**
-The full record is `docs/history/2026-10-08-build-batch.md`. Each finding was
-first reproduced through its route or shared boundary, with supplied model
-answers and controlled failures, and the reproductions are committed
-(`test/build-audit-batch.test.mjs`, 39 cases).
-- **H1, lost builds.** Qualified first: the row's sentence said "You weren't
-  charged for the pages" — true of the pages, silent about the deposit and
-  the design call already taken; it never said nothing was charged.
-  - A lost build is now reconciled from the pointer and the ledger before any
-    refund or sentence: reversed by ref when nothing published; kept when the
-    site went live; untouched, with nothing written, when the pointer cannot
-    be read.
-  - Repeated recovery cannot double-charge (it never debits) or over-refund
-    (`credit_reverse` is bounded and idempotent; a marker keeps the settled
-    answer).
-  - The row's own sentence makes no money claim now.
-- **H2, the expiring token.** A queued build whose bearer expired runs as its
-  row's own account, vouched for by the lease holder (the row read with the
-  service key, matched to the account the job was filed with). The ledger
-  still asks the bearer first, and uses `build_debit` only when the bearer is
-  refused. **`supabase/proposed/build_debit.sql` is not applied — it needs
-  your word.** Until then an expired bearer's debit fails as before, and the
-  build gives back what it took by ref.
-- **H4, missing design output.** A first build with no name, purpose or page
-  stops right after the design call and gives the deposit back, before
-  seeding, provisioning and generation. A valid frontend-only design with no
-  tables still builds.
-- **H3, H6, M7, attachments and photographs.**
-  - The request's attachments are never stored as the photograph plan (H3).
-  - The designer is told the files by name. When it ties a picture to one,
-    that file is stored as an owner upload and handed to the page writer by
-    its url, never bought. A reference image is never stored; a name that
-    matches nothing is told (H6).
-  - A refire reads the attached files back from beside the resume record
-    (M7).
-- **H5, editable source.** The marker moves only when source, parts and kit
-  all saved. A version keeps its kit. Every reader that goes on to publish —
-  the revise anchor, the platform rebuild, the text editor and "Back online"
-  — reads the checked source and stops, or says so, when it is not the live
-  version's.
-- **M1, salvage.** It follows the container's real contract: a bundler
-  failure citing one of the build's own pages. Infrastructure failures cite
-  none and are never stubbed; the missing section is told.
-- **L10.** Debits whose answer was lost are reversed by ref, and a reversal
-  that cannot be made reads as short.
+**Your clarification, recorded** (here and in `owner-preferences.md`):
+Build keeps its maximum of 1 page and 15 selected components. Every other
+limit is reviewed on its own. This is not permission to remove timeouts,
+provider constraints, security controls or spending safeguards.
 
-**Tests actually run this round**
-- **Red check**: the batch file over `8ac4a235`'s code — **36 of 39 fail**;
-  the 3 that pass are exactly the controls.
+**The second Build batch (`d1b338f0`)**: Codex's four reproduced gaps on
+`b4300a07`, fixed together, plus your additions. The full record is
+`docs/history/2026-10-08-build-batch-2.md`.
+- **Attachment identity.** Every attached file is `attachment-<n>` (its
+  place in the request), from planning through storage and resume, and keeps
+  its original name for display.
+  - Two uploads with the same name, or with a long shared prefix, are two
+    ids. The second id stores the second file's own bytes.
+  - A shared name, a prefix or an unknown id is refused and told, never
+    guessed.
+  - A file refused by the reader no longer shifts the files after it.
+- **Publication by evidence, never a timestamp.** A lost build counts as
+  published only when its own record, the live pointer or a saved version
+  names its job.
+  - That record is a create-only "fence" per job; the build writes the
+    version it put live there.
+  - An unrelated edit published later is not that build's publication: the
+    build is refunded.
+  - A build that published and was then edited over still counts as
+    published.
+  - A publish still in progress, or an older job beside a version that
+    names no job, is "unknown": nothing moves, and it stays listed.
+- **A late worker after recovery** can neither publish nor charge.
+  - Recovery claims the outcome first, and the build checks it right before
+    the pointer.
+  - Every build debit checks the job's state first, whether the login token
+    is expired or still valid.
+  - A late finish never overwrites recovery's answer. A duplicate delivery
+    of the same job finds its own claim.
+- **The container's billing path.** The job gateway admits `build_debit`,
+  and one ledger read, only for the job's own id, its own account and its
+  three exact refs. **`supabase/proposed/build_debit.sql` stays unapplied**:
+  your word.
+- **A lost pages-debit answer** is read back from the ledger by ref. If not
+  found, or unreadable, the charge is "unknown" and is said to be being
+  checked, never "nothing charged".
+- **Unresolved recovery no longer ages out after a day.** It is listed and
+  retried every tick until it settles.
+- **Customer wording**: no new canned narration. The build's sentences are
+  the existing ones, chosen by verified outcome facts.
+
+**The Build limits** (`docs/investigations/build-limits-2026-10-08.md`):
+every other limit with its location, value, reason and effect, sorted into
+operational constraints and content restrictions.
+- **Silent drops found**, notably:
+  - a customer's third attached photo, cut by the plan's two-image cap before
+    it is counted;
+  - band sections that failed, published as empty stubs;
+  - sections, actions and purpose cut without a word;
+  - browser cuts at 2,000 and 200 characters;
+  - `behavior`, never read at build time.
+- **Proposals P1–P11 for your review.** Page 1 and component 15 are
+  unchanged, and no timeout, provider bound, security control or spending
+  safeguard is touched.
+
+**Tests actually run**
+- `test/build-audit-batch.test.mjs`: **63 cases, all pass**; plus a
+  `publishPages` `chargeUnknown` case and updated pins in six files.
+- **Red check** on `b4300a07`'s code: 31 of 61 fail, including every new
+  boundary case; the 30 that pass are the first batch's unchanged behaviour.
+  The `publishPages` case fails there too.
 - **Mutation sweep**: **33 of 33 killed, 2 comment-only controls survived**
-  (`scripts/mutants/build-batch-2026-10-08.json`). The one first-pass
-  survivor was an equivalent check, removed, and its replacement mutant was
-  killed.
-- **Full suite** on `c7aaf1e5`: **9959 of 9959** locally (`9959 / 9959 / 0 / 0`).
-- **Existing guards**: 52 failed first. Real regressions were found and
-  fixed (a balance read, live-token billing, the Dockerfile's worker tree).
-  Pins on the old spellings were re-anchored with reasons in place, and the
-  one case asserting the salvage defect was converted.
-- **Required CI green on `c7aaf1e5`**: unit tests run 37730110015 (`9959 / 9937 / 0 / 22` — the totals match; CI skips 22), and site build run 37730110049, all 8 jobs green.
+  (`scripts/mutants/build-batch-n-2026-10-08.json`). Two first-pass
+  survivors were real gaps in the tests, not the code: the claim race, and a
+  failure overwriting a recorded publish. Tests were added and both were
+  killed on re-run.
+- **Full suite** on `d1b338f0`: **`9984 / 9984 / 0 / 0`** locally.
+- **Required CI on `d1b338f0`**: **green**. Unit tests run 37749514544: `9984 / 9962 / 0 / 22` (the totals match; CI skips 22). Site build run 37749514610: all 8 jobs green.
 
-**The next image, predicted** (not built): `335396c8c0e0fbcb` (production) →
-**`f39e59b4bdb7ec77`** (198 inputs; the branch's previous prediction was
-`59059c19e7c883fd`, 197). The new input is `builder/attached-photos.mjs`.
+**The next image, predicted** (not built): production `335396c8c0e0fbcb` →
+**`e703e55ffa3415b1`** (198 inputs; the branch's previous prediction was
+`f39e59b4bdb7ec77`).
 
-**Release limitations** (in full in the history and the backlog)
-- `build_debit` must be applied before an expired bearer's build can be
-  billed; a container-run build is not admitted to it at the gateway.
-- A build that publishes after it was reconciled lost, with a live bearer,
-  charges its pages after the refund.
-- A later edit to the same site within the window reads as the lost build's
-  publish.
-- An unknown outcome past the one-day window moves nothing.
-- The reply cannot see whether the writer placed a customer's photograph.
-- A real model's use of `attached` is unmeasured (no paid call).
-- A lost pages-debit answer on a charged stage reads as nothing taken.
-- The build's replies are still composed in code from the outcome's facts;
-  model-written build replies are not in this batch.
-
-**Remaining audit items**: M2–M6, M8–M12, L1–L9 and L11–L12, as
-`docs/investigations/first-build-audit-2026-10-08.md` lists them. That file
-now records the reviewed commit (`e2dc4039`, product code identical at
-`8ac4a235`), the corrected `site-builds.mjs` path and H1's qualification.
+**Remaining gaps** (in full in the history and the backlog)
+- `build_debit` SQL is unapplied. Until then an expired bearer's debit
+  fails as before, in the Worker and in the container.
+- The bearer path's state check is a read before the debit, not one
+  transaction. A row turning lost in between, or a debit landing after
+  recovery's refund, is not caught; the applied function closes this.
+- A row marked lost after its publish and before its pages debit leaves the
+  pages uncharged (in the customer's favour).
+- A job filed before this code, with a later version that names no job,
+  stays pending until evidence or review.
+- `credit_reverse`'s gateway binding is still a prefix. Fence objects are
+  never deleted.
+- A real model's use of the attachment id is unmeasured; the reply cannot
+  see whether the writer placed the photo.
+- The first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
 
 **Yours to decide**
-- Whether to apply `supabase/proposed/build_debit.sql`.
-- The review of `c7aaf1e5`, then any release (one merge, one image build,
-  its own runtime check).
-- Next in order, as you set it: dependency-based planning for parallel
-  execution (not started; no product parallel-execution change made here).
+- The review of `d1b338f0`.
+- Whether to apply `build_debit.sql`.
+- Which limit proposals (P1–P11) to take.
+- Any release: one merge, one image build, its own runtime check.
+- Next in order, as you set it: parallel-task execution work (not started).
 
-**Still open** (`docs/backlog.md`): the audit's remaining items and this
-batch's limits; run 107's findings (routing every part in one call, prompt
-caching); the BG11 load flake.
-
-**Links**: `docs/history/2026-10-08-build-batch.md` (this round),
-`docs/history/2026-10-08-run107-followup.md` (the closed continuation
-rounds), `docs/investigations/first-build-audit-2026-10-08.md`.
+**Links**: `docs/history/2026-10-08-build-batch-2.md` (this round),
+`docs/investigations/build-limits-2026-10-08.md`,
+`docs/history/2026-10-08-build-batch.md` (the first batch),
+`docs/investigations/first-build-audit-2026-10-08.md`.
 
 ## How you like things done
 
@@ -121,6 +128,44 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The second Build correction batch: attachment ids, publication by evidence, late workers fenced out (on the branch, `d1b338f0`; nothing merged, deployed, built or paid)
+
+Codex reviewed `b4300a07` and reproduced four gaps:
+- long file names that collided;
+- a later edit counted as a lost build's publish;
+- the gateway refusing the build's own debit;
+- a debit that skipped the job-state check when the login still worked.
+
+All four are fixed together, along with what you added:
+- **Every attached file is identified by its place in the request**, so two
+  files can never be confused. Its real name is kept for display.
+- **A lost build counts as published only when its own record names it.**
+  A timestamp never decides.
+- **A worker that finishes after recovery** can't publish or charge, whatever
+  its login.
+- **The container can settle its own build's charge** once you apply the
+  SQL. The gateway admits it only for that job, that account and those three
+  refs.
+- **A pages charge whose answer was lost** is checked against the ledger,
+  and is "being checked" until known, never "nothing charged".
+- **Unsettled recoveries stay listed** until they settle.
+
+You also asked to keep Build's 1 page and 15 components, and to review every
+other limit on its own. That is recorded as your preference, and the review
+is `docs/investigations/build-limits-2026-10-08.md`. It found several silent
+drops. The most important: a customer's third attached photo is dropped
+before it is ever counted. Eleven proposals are waiting for you.
+
+Checks:
+- tests 63 of 63 in the batch file;
+- red 31 of 61 on the old code (every new case);
+- sweep 33 of 33 killed, with both controls surviving;
+- suite `9984 / 9984 / 0 / 0`;
+- CI green (unit `9984 / 9962 / 0 / 22`, site build 8 of 8).
+
+The next image is predicted at `e703e55ffa3415b1`. The record is
+`docs/history/2026-10-08-build-batch-2.md`.
 
 ## 2026-10-08 — The first Build correction batch: H1–H6, M7, L10, M1 (on the branch, `c7aaf1e5`; nothing merged, deployed, built or paid)
 

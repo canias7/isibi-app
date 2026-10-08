@@ -159,8 +159,16 @@ The inventory and its proposals are
   missing exports in a throwaway worktree: 31 of 61 fail, including every
   new boundary case. The 30 that pass are the first batch's unchanged
   behaviour. The `publishPages` case fails there too.
-- **Sweep, full suite, CI and image**: see the owner-notes handoff for the
-  measured numbers.
+- **Sweep**: 33 of 33 killed, 2 comment-only controls survived
+  (`scripts/mutants/build-batch-n-2026-10-08.json`). Two first-pass
+  survivors were real test gaps (the claim race; a failure overwriting a
+  recorded publish), closed by two added cases and killed on re-run.
+- **Full suite** on `d1b338f0`: `9984 / 9984 / 0 / 0` locally.
+- **Required CI on `d1b338f0`**: unit tests run 37749514544,
+  `9984 / 9962 / 0 / 22` (totals match); site build run 37749514610, 8 of 8
+  jobs green.
+- **The next image, predicted** (not built): `e703e55ffa3415b1`, 198
+  inputs (previously `f39e59b4bdb7ec77`; production `335396c8c0e0fbcb`).
 
 ## 9. Limits that remain
 
