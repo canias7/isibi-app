@@ -67,7 +67,10 @@ question, a stopped request and an expired question. Nothing in it changed.
   comment-only control survived. The one first-pass survivor was closed with
   the "call beside a certain menu" case.
 - **Full suite**: **9908 tests, 9908 pass, 0 fail, 0 skipped**.
-- Unit CI on the push: below once read.
+- **Required CI green on `638f7d6a`** (code `d24ab456` plus records): unit
+  tests run 37714983739, **9908 tests, 9886 pass, 0 fail, 22 skipped** (CI
+  skips the 22 browser cases; the total matches the local run); site build
+  run 37714983775, all eight jobs green.
 
 **The next image, predicted** (not built): `335396c8c0e0fbcb` →
 **`558037dd99f47d81`** (196 inputs; `worker.js`, `builder/site-nav.mjs` and
