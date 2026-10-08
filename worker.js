@@ -4550,6 +4550,13 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
   }
   let usage = (dz && dz.usage) || (err && err.usage) || null;
   let cur = { dz, err };
+  // THE CORRECTION IN FORCE (2026-10-08, the parallel-tasks batch, carried
+  // from Codex's review of the ninth): a corrective call that meets a busy
+  // provider is asked AGAIN WITH THE SAME CORRECTION — the same validation
+  // failures, the same earlier answer, the same question field — never the
+  // plain request, which would lose both the correction and the customer's
+  // way to be asked.
+  let fix = null;
   for (let step = 0; step < DESIGN_REPAIR_MAX + DESIGN_RETRY_MAX + 1; step++) {
     const e = cur.err;
     const f = designFailure({
@@ -4573,11 +4580,12 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
     const partial = (cur.dz && (cur.dz.input || cur.dz.partial)) || (e && e.partial) || null;
     console.log("design: recovering a", f.kind, "design (" + f.why + ") with", f.retry === "repair" ? "a corrective attempt" : "one more try");
     try {
-      // ONE CALL SITE: the same designer, told what to correct only when
-      // there is something of its own to correct.
-      const next = await designSiteSchema(env, brief, model, null, files, budget, frontendOnly, f.retry === "repair" ? { note: repairNote(f, partial), ask: true } : null);
+      // ONE CALL SITE: the same designer, told what to correct when there is
+      // something of its own to correct, and still told it on a retry.
+      if (f.retry === "repair") fix = { note: repairNote(f, partial), ask: true };
+      const next = await designSiteSchema(env, brief, model, null, files, budget, frontendOnly, fix);
       usage = addUsage(usage, next && next.usage);
-      if (f.retry === "repair") {
+      if (fix) {
         const o = repairOutcome(next);
         if (o.kind === "question") return { ok: false, question: o.question, attempts: list, usage };
       }

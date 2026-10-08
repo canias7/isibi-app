@@ -775,10 +775,14 @@ test("the answers are folded back into the ORIGINAL brief", () => {
   assert.equal(clarifiedBrief("  a cafe  ", [{ q: "", a: "" }]), "a cafe");
   // Half-written pairs are dropped rather than rendered as a dangling question.
   assert.equal(clarifiedBrief("a cafe", [{ q: "why?", a: "" }, { q: "", a: "yes" }]), "a cafe");
-  // Bounded by the same cap the round is, so a caller cannot append fifty lines
-  // of its own text to a brief by claiming they were answers.
+  // EVERY ANSWER IS KEPT SINCE 2026-10-08 (the parallel-tasks batch): the
+  // designer can ask after the router's MAX_CLARIFY, and a count dropped
+  // decisions the customer made. The SIZE is held where it always was — the
+  // route refuses a brief and answers past what one request may carry
+  // (`input-budget.mjs`) before any model call.
   const many = clarifiedBrief("a cafe", Array.from({ length: 40 }, (_, i) => ({ q: "q" + i, a: "a" + i })));
-  assert.equal(many.split("\n").filter((l) => l.startsWith("- ")).length, MAX_CLARIFY);
+  assert.equal(many.split("\n").filter((l) => l.startsWith("- ")).length, 40);
+  assert.ok(MAX_CLARIFY < 40, "OBSERVER: the count is past the asking budget");
 });
 
 // ── the chain ────────────────────────────────────────────────────────────────

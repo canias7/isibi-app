@@ -1153,8 +1153,11 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
       "they are explicitly asking to scrap this site and make a different one. Rebuilding replaces every page they have."
     : "\n\nWHICH CASE YOU ARE IN\nTHERE IS NO SITE YET. Answer \"build\" for work — never \"edit\" or \"addon\", because " +
       "there is nothing yet to change or to add to.";
-  const qaDone = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a).slice(0, MAX_CLARIFY);
-  const left = MAX_CLARIFY - qaDone.length;
+  // EVERY ANSWER THEY GAVE IS SHOWN (2026-10-08, the parallel-tasks batch):
+  // the designer can ask beyond the router's own budget, so the answers can
+  // outnumber `MAX_CLARIFY`. The budget limits ASKING, never what is kept.
+  const qaDone = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a);
+  const left = Math.max(0, MAX_CLARIFY - qaDone.length);
   // WHAT THE ROUND SO FAR WAS, so the next question is not the last one again.
   // Only present on a first build; a revise sends none of this and is told
   // plainly that questions are closed, rather than being left to infer it from
@@ -2614,8 +2617,10 @@ export function clarifiedBrief(brief, qa) {
   const pairs = (Array.isArray(qa) ? qa : [])
     .filter((p) => p && typeof p === "object")
     .map((p) => ({ q: String(p.q || "").trim(), a: String(p.a || "").trim() }))
-    .filter((p) => p.q && p.a)
-    .slice(0, MAX_CLARIFY);
+    // EVERY PAIR (2026-10-08): a designer's question can follow the router's
+    // three, and an answer dropped here is a decision the build never saw.
+    // Size is held by the request budget, not by a count.
+    .filter((p) => p.q && p.a);
   if (!pairs.length) return base;
   return base + "\n\nThey were asked, and answered:\n" +
     pairs.map((p) => "- " + p.q + " " + p.a).join("\n");

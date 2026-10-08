@@ -9627,7 +9627,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
   // `let` SINCE 2026-10-02: an answered question runs the request it was asked
   // about, with the answer added, in place of the typed words — on the rewrite too.
   let brief = round ? round.brief : t;
-  const qa = round ? round.qa.slice(0, 8) : [];
+  // EVERY ANSWER, NONE DROPPED (2026-10-08): a designer's question can follow
+  // the router's, and the server holds the size, not a count here.
+  const qa = round ? round.qa.slice() : [];
   // THE ANSWERS ARE FOLDED IN ON THE SERVER, by `clarifiedBrief` in
   // builder/site-ask.mjs. Composing them here would be a second implementation
   // of the sentence the designer reads, in a file that cannot import the first —
