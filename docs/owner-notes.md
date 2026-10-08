@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the ninth Build batch in `241720dc`: a first Build's design recovered)
+## Current handoff — read this first (2026-10-08, parallel tasks in one message, ending in `703eff67`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,131 +10,141 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`, ending in this
-  pass and its records:
-  - `e19f5adf`, the recovery;
-  - `26f0080f`, the guards;
-  - `241720dc`, the tests that answer the sweep.
-  Before it: the eighth batch (`ae905c3e`, records `8180a7cf`) and the
-  earlier ones.
-- Nothing merged, deployed or built. No paid call, no paid retest, no SQL
-  applied.
-- **Codex passed 84 focused tests on `8180a7cf`** and reproduced the gap this
-  pass closes. Those fixes are kept; the tests still pass, among the full
-  suite.
-- The limits of 1 page and 15 components, the spending safeguards and the
-  .txt reminder are unchanged.
+- **On the branch, unmerged**: everything since `9d6bda8a`. This batch is:
+  - `af80c83a`, the two carried recovery fixes;
+  - `b772ec67`, the plan and the preparation claims;
+  - `41e889e8`, preparation and replay in the Worker, the card, the tests;
+  - `6b9c1dcb`, restoring 31 planner tests `41e889e8` wrote over (my
+    mistake, caught by the suite's total);
+  - `703eff67`, two flaws the sweep found, fixed, with their cases;
+  - and the records.
+  Before it: batch 9 (`241720dc`, records `7012286a`) and the earlier
+  batches.
+- Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
+- The limits of 1 page and 15 components, the ownership and accounting
+  protections and the .txt reminder are unchanged.
 
-**This pass: a first Build's design is recovered, not abandoned.** The record
-is `docs/history/2026-10-08-build-batch-9.md`.
-- **What Codex showed**: a first Build got an unusable design, made exactly
-  one design call, stopped, and never tried to correct it.
-- **What was reused, not rebuilt**:
-  - the first build's question round on the page;
-  - the shared question field every step's tool can carry;
-  - the existing reading of provider errors;
-  - the existing settlement.
-  The later page repairs are kept as they are.
-- **Now, what went wrong decides what happens next**:
-  - **the model's own mistake** (no tool call, missing parts) **or an
-    answer that ran out of room**: one corrective attempt. It gets the same
-    request, the exact validation failures and what it had already written,
-    with "keep every page, feature, table and requirement". The answer is
-    checked again. If it is usable, **the same build goes on**;
-  - **a busy provider or a dropped connection**: asked once more;
-  - **an account or billing refusal, a request the provider rejects, our own
-    time limit**: never retried. No attempt would help;
-  - **a decision only you (the customer) can make**: the model asks it in its
-    own words, through the existing question round. Nothing is built, and the
-    deposit is returned.
-- **Every designer mode is covered**: the single call, the waves and the
-  graph. The split designers now hand over what they had already worked out.
-- **No duplicates, even with the browser closed or the job redelivered**.
-  Each attempt is recorded beside the job before it is made. A redelivered
-  job never repeats one, and an attempt that cannot be recorded is not made.
-  A queued build's final answer still says the design was corrected.
-- **Money**:
-  - a repaired build settles every design call it actually made, once;
-  - a question or a final stop returns the deposit in full;
-  - at most two extra design calls per build.
-- **Told from what happened**: a corrected design is told as done, with
-  nothing dropped. A final stop names what was tried. **It no longer tells
-  anyone to "describe fewer things"**: a valid request is never theirs to
-  shrink.
+**The two carried recovery fixes** (`af80c83a`)
+- **Every clarification answer is kept**: on the page, in the router's
+  prompt and in the designer's brief. The question limit now only bounds how
+  many more questions may be asked.
+- **A corrective design call that meets a busy provider is retried with the
+  same correction and the same question field**, never the plain request.
+- 5 cases; 4 of them fail on the old code.
 
-**Tests actually run**
-- **`test/build-batch-9.test.mjs`, 22 cases, offline**:
-  - **Codex's reproduction**: one corrective call, the same first-build tool,
-    the build goes on, usage summed;
-  - a cut-off answer;
-  - a busy provider;
-  - account and rejected controls;
-  - a usable-design control;
-  - a question;
-  - still unusable (never a third call);
-  - the waves designer;
-  - the durable record: written before the call; a redelivery; an
-    unreadable or unwritable record; no time left; the bounds;
-  - **a queued build with the browser closed**: repaired, finished by the
-    resume with the fact, and its redelivery makes no second attempt.
-- **`test/design-question-browser.test.mjs`, 3 cases in real Chromium**, with
-  the screenshot shown to you. The designer's question opens the round, the
-  answer runs the same brief again, and a typed answer works with no buttons.
-- **Before, on `8180a7cf`'s code: 18 of 25 fail.** The 7 that pass are the
-  supplied pure module's 4 cases and 3 controls. The reproduction fails on
-  the defect itself: 1 designer call where 2 were expected.
-- **Mutation sweep: 31 of 31 killed, and the comment-only control survived.**
-  The first pass left 5 real survivors. All came from weak assertions, all
-  were answered, and one of them added the queued resume check.
-- **Full suite** on `26f0080f`: **`10133 / 10133 / 0 / 0`** locally. The first
-  run's 6 failures were guards that saw the new call site, mark and fields;
-  each is updated with its reason.
-- **Required CI on `241720dc`**: green. Unit tests run 37808492484: `10134 / 10094 / 0 / 40`. That total is the local `10133` on `26f0080f` plus the one case `241720dc` added; CI skips the browser cases, 3 of them new. Site build run 37808492447: 8 of 8 jobs green.
+**Parallel tasks: how it works.** The record is
+`docs/history/2026-10-08-parallel-requests.md`.
+- **Nothing new to orchestrate with.** It lives in the existing request
+  record, driver (`nextStep`), jobs, routing, question round, sweep and
+  ledger.
+- **The model plans, code checks**:
+  - the router now names, for each change it finds, what it writes and reads
+    (pages, the menu, the footer, the theme, a component, a table, the
+    pictures, or something it creates);
+  - code keeps only what parses, and adds what each step is known to write
+    from its own wiring;
+  - code adds one kind of waiting itself: a task that refers to something
+    another task *creates* waits for it, in whichever order you wrote them;
+  - no phrase matching anywhere.
+- **What overlaps**:
+  - the database lets one job change a site at a time, and that is not
+    changed here (it would be SQL);
+  - so while one task's job runs, up to three other tasks are **prepared**
+    beside it, in the Worker: their routing, and for text, menu and picture
+    changes the step itself, including buying the picture;
+  - a preparation writes nothing, charges nothing and stores no question.
+- **Against the site as it is**: when a task's own job runs, it reuses a
+  prepared answer only for a call whose request is byte for byte the one
+  prepared. Anything else is asked again against the current site, so a
+  prepared answer is never applied to a site it wasn't made for. The publish
+  is the existing one, so no task overwrites another's work.
+- **When a task waits**:
+  - it needs another's result (by the model's order, or by creation);
+  - or another task's unapplied change touches what it reads or writes (the
+    same page, the same component, the menu, the page list).
+  For example, a photo and a TikTok link run together; a menu link waits for
+  the page it links to; two changes to one page or one component take turns.
+- **Questions**: a question found while preparing is asked first, at no new
+  model cost. Independent tasks carry on, and your answer resumes the task
+  without your resending anything.
+- **Browser closed, redelivery, retries**: all on the server. A job retried
+  after a failure is answered from the same preparation, with no second call
+  or picture; a message delivered twice publishes and charges once.
+- **On screen**: the card says "Working on it alongside" and then "Ready,
+  applying next". A task is shown as done only after its own job has applied
+  and published it. Three screenshots were sent in the chat.
+
+**Cost, honestly**
+- **The same calls are billed**: parallel does not save credits in itself,
+  it saves waiting.
+- **No duplicate routing or planning**: each task is routed once, in its
+  preparation, and its job reuses that.
+- **What can be wasted is ours, not the customer's**: a prepared call or
+  picture no job used, because an earlier task changed what it reads. The
+  waiting rules keep this rare, but not zero.
+- **A prepared picture is bought before its task is applied.** If the task
+  is then stopped, that purchase is ours.
+
+**Tests actually run** (supplied model answers only)
+- **`test/parallel-requests.test.mjs`, 11 cases** through the real routes,
+  driver and queue consumer:
+  - overlap, proven with a gate;
+  - reverse-order dependency;
+  - a shared page;
+  - a shared component with unrelated wording;
+  - a question during preparation while other work continues;
+  - a crash and retry reusing the preparation;
+  - double delivery;
+  - mixed Edit + Add-on, and Add-on + Add-on;
+  - a prepared step that refuses;
+  - Build's design graph.
+- **`test/parallel-plan.test.mjs`, 14 unit cases**, and a real-Chromium case
+  for the card.
+- **Before, on `af80c83a`**: 9 of the 11 integration cases fail. P6 (double
+  delivery) and P8 (Build) pass there too: they guard behaviour that already
+  existed.
+- **Sweep: 31 of 31 killed, and the comment-only control survived.** The
+  first round's 6 survivors led to two real fixes (`703eff67`):
+  - a task not yet routed was never prepared unless the router named its
+    targets;
+  - a prepared routing's step was not re-checked against its own route.
+- **Full suite on `703eff67`: `10165 / 10165 / 0 / 0`**, against the base's
+  `10139`, measured in a worktree.
+- **Required CI**: pending at this writing; recorded in the next commit.
 
 **Mocked versus live**
-- Every model answer in these tests is a stand-in: the designer, the split
-  agents and the reply writer.
-- The ledger is a stand-in; storage is a Map with R2's conditions.
-- **No real designer has been asked to correct itself.** Its success rate,
-  cost and question wording are unmeasured.
+- Every model answer and every picture purchase is a stand-in, and so are
+  Supabase's calls and the queue.
+- **Not shown live**: whether real models name useful targets, real overlap
+  timings, how often a prepared answer is missed, and the preparation's
+  Worker cost.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`18d409f0090515bd`** (200 inputs: the new `design-repair.mjs` is copied in).
+**`187c501d7e7f2007`** (202 inputs: the two new modules are copied in).
 
-**Where the same principle is still missing** (backlog, not started):
-- a revise's design;
-- the page writer's failed answer (the placeholder; you must send it again);
-- the seed top-up;
-- live progress during a first build's design;
-- a question's answer re-running the whole build;
-- the 150-second time floor, which is an estimate.
+**Remaining gaps** (backlog):
+- writes one at a time per site;
+- look, page, logo, data, rules and add-on steps prepared only up to their
+  routing;
+- wasted preparation is ours;
+- targets depend on the model;
+- no progress milestone of the preparation's own;
+- a build mixed with edits is not covered;
+- the constants are estimates;
+- no live run.
 
-**Still open from earlier batches**:
-- picture visibility "unconfirmed" in production;
-- a narration claim never retried;
-- the add-on's 240-character cut;
-- the link count of 2;
-- P6–P11;
-- `build_debit.sql` not applied;
-- recovery objects (now also design attempt records) never deleted;
-- `canary-reopen-browser` flaky under load.
-
-**Recorded for later (unchanged)**: an oversized pasted message becomes a
-complete .txt attachment.
-
-**Next, as you set it**: parallel-task execution, once this batch is
-reviewed.
+**Still open from earlier batches**: as in batch 9's handoff (in git), plus
+the design-recovery gaps it listed.
 
 **Yours to decide**
-- The review of `241720dc` (and the earlier unmerged batches).
-- Whether a revise's design and the page writer should get the same
-  recovery next.
-- Whether to apply `build_debit.sql`.
+- The review of this batch (and the earlier unmerged batches).
+- Whether concurrent writes to one site are worth a database change.
+- Whether the look, page and add-on steps should get staged preparation.
 - Any release: one merge, one image build, its own runtime check, and a
-  first real measurement of a corrective design attempt.
+  first real measurement of overlap and miss rate.
 
-**Links**: `docs/history/2026-10-08-build-batch-9.md` (this round),
-`docs/history/2026-10-08-build-batch-8.md`, `docs/backlog.md`.
+**Links**: `docs/history/2026-10-08-parallel-requests.md` (this round),
+`docs/request-flow.md`, `docs/backlog.md`.
 
 ## How you like things done
 
@@ -143,6 +153,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Parallel tasks in one message, inside the existing request driver (on the branch, `703eff67`; nothing merged, deployed, built or paid)
+
+You asked for one message to carry several tasks, independent ones to run
+together, and tasks to wait only for a result they need or a change they
+would clash with, reusing what exists. You also asked to carry batch 9's
+two recovery fixes into this batch.
+
+- **Carried fixes** (`af80c83a`):
+  - every clarification answer is kept;
+  - a corrective design retry keeps its correction and question.
+- **What changed**:
+  - the router names each change's targets;
+  - code adds each step's known writes and waits only for creation;
+  - up to three other tasks are prepared beside the running job (routing,
+    plus text, menu and picture steps), with nothing written, charged or
+    asked;
+  - a task's own job reuses a prepared answer only for an identical
+    request;
+  - writes stay one at a time, as the database requires.
+- **What it reuses**: the request records, the jobs, the question round,
+  the sweep, the ledger and Build's design graph.
+- **Money**: the same calls are billed, once. Wasted preparation is our
+  cost. There is no inherent credit saving.
+- **A mistake on the way**: a new test file was written over an existing
+  one (31 planner tests). The suite's total showed it, and `6b9c1dcb`
+  restored it word for word.
+- **Commits**: `af80c83a`, `b772ec67`, `41e889e8`, `6b9c1dcb`,
+  `703eff67`, and the records.
+- **Results**:
+  - 26 new cases;
+  - red check: 9 of 11 integration cases fail on the base;
+  - sweep: 31 of 31, with the control surviving;
+  - full suite `10165 / 10165 / 0 / 0`;
+  - three screenshots of the card.
+- **Mocked versus live**: supplied answers only. No real model or live run.
+- **Remaining**: in the handoff and in `docs/backlog.md`.
 
 ## 2026-10-08 — The ninth Build batch: a first Build's design recovered on the same job (on the branch, `241720dc`; nothing merged, deployed, built or paid)
 

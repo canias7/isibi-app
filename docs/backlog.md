@@ -20,6 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **What parallel tasks do not cover yet** (2026-10-08, the parallel-tasks
+  batch): writes one at a time per site (the database's lock), only
+  routings and the text, menu and picture steps prepared, prepared work a
+  job does not use is ours, targets depend on the model, no live evidence.
+  In full under Backlog below; `docs/history/2026-10-08-parallel-requests.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -996,6 +1001,29 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, the parallel-tasks
+  batch; `docs/history/2026-10-08-parallel-requests.md` §9).** Parts of one
+  message are prepared beside the running job and applied one at a time.
+  Not yet:
+  - **concurrent writes to one site**: `edit_claim` takes
+    `private.site_busy` for every job, so applies stay serialized; changing
+    it is SQL;
+  - **preparing the look, page, logo, data, rules and add-on steps**: they
+    write as they go, so only their routing is prepared; they would need
+    their writes staged apart from the site;
+  - **wasted preparation**: a call or a picture a preparation made that no
+    job used (its request changed) is our cost, and a prepared picture is
+    bought before its part is applied;
+  - **targets from the model**: a part with none named is the whole site, so
+    nothing is prepared beside it; whether real models name useful targets
+    is unmeasured;
+  - **a progress milestone for the preparation itself** (the card and the
+    task lines show it as in progress);
+  - **a message mixing a build with edits** is not a request of this flow;
+  - **the constants** (`PREP_MAX_LIVE` 3, `PREP_TRIES` 2, `PREP_FRESH_MS`
+    10 min, `PREP_RUN_MS` 8 min) are estimates;
+  - **no real-model or live run**; supplied answers only.
 
 - **WHERE THE DESIGN-RECOVERY PRINCIPLE IS STILL MISSING (2026-10-08, the
   ninth Build batch; `docs/history/2026-10-08-build-batch-9.md`).** A first

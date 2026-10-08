@@ -37,6 +37,17 @@
   The existing claim, lease, site lock, reserves, publish marks, refunds,
   sweeps and reconcile apply unchanged, and **one job of a request runs at a
   time**, against the site as the part before left it.
+- **Other parts are prepared beside it** (2026-10-08, the parallel-tasks
+  batch; `docs/history/2026-10-08-parallel-requests.md`). Up to three parts'
+  routings, and their text, menu or picture steps, run in the Worker with
+  nothing written, nothing charged and no question kept; their model calls
+  and pictures are recorded. The part's own job is answered from the record
+  only for a call whose request is byte for byte the one prepared, and
+  makes any other call against the site as it is then. The router names
+  each change's targets; code adds what each step is known to write, waits
+  a part that refers to something another part creates, and prepares a
+  part only when no earlier unfinished part writes what its step reads or
+  conflicts with what it writes.
 - **A part only the full rewrite can make waits for the customer's
   go-ahead on the request itself**, with its files kept. The go-ahead is
   written before anything depends on it, and the server files the existing
@@ -494,6 +505,12 @@ accepted ones finish, is `docs/investigations/request-flow-rollout.md`
 executed).
 
 ## Limits, as built
+
+- **Preparation beside the running job (2026-10-08)**: writes stay one at a
+  time per site (the database's `site_busy`); only routings and the text,
+  menu and picture steps are prepared; a prepared call or picture no job
+  uses is ours; with no targets named a part is the whole site and nothing
+  is prepared beside it. In full: `docs/history/2026-10-08-parallel-requests.md` §9.
 
 - **Supplied model answers only.** No real-model evidence: not for the
   add-on picker's `scopes`, the router's relations, or any reply.
