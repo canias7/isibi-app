@@ -49,8 +49,35 @@ const container = { idFromName: (n) => n, get: () => ({ fetch: async () => json(
 const queue = () => ({ sent: [], async send(m) { this.sent.push(m); }, async sendBatch() { throw new Error("no batch"); } });
 
 /** THE REAL CONSUMER, run to its end: it designs, fires the generation and stores its real 202. Nobody collects it (the browser is closed). */
-export async function fireInterim(b, id, led, { design = GOOD_DESIGN } = {}) {
-  b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief: BRIEF, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
+/**
+ * A linked page answered by the stand-in network: `links` maps a hostname to
+ * the text its page carries.
+ */
+function linkAnswer(links, u) {
+  let host = "";
+  try { host = new URL(u).hostname; } catch { return null; }
+  if (!links || !Object.hasOwn(links, host)) return null;
+  return new Response("<html><head><title>" + host + "</title></head><body><p>" + links[host] + "</p></body></html>", { status: 200, headers: { "content-type": "text/html" } });
+}
+
+/**
+ * THE REPLY WRITER, STOOD IN FOR (never a paid call). With `reply` a string,
+ * it answers the forced `write_reply` tool covering every fact id it was
+ * sent; otherwise the provider is down (503). Every request is recorded in
+ * `seen` so a case can read what the writer was told.
+ */
+function replyAnswer(reply, seen, init) {
+  const bd = JSON.parse(String((init && init.body) || "{}"));
+  if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
+  const text = JSON.stringify(bd.messages || "");
+  seen.push(text);
+  if (typeof reply !== "string") return new Response("provider down", { status: 503 });
+  const ids = [...text.matchAll(/\[([a-z0-9-]+)\]/g)].map((m) => m[1]);
+  return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "r1", name: "write_reply", input: { reply, covers: [...new Set(ids)] } }] });
+}
+
+export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null } = {}) {
+  b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
   let claimedSite = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -72,9 +99,15 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN } = {}) {
     }
     if (u.includes("/v1/messages")) {
       const bd = JSON.parse(String((init && init.body) || "{}"));
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: design }], usage: { input_tokens: 100, output_tokens: 50 } });
+      // `design: null` — a designer that answered no plan, so the build ends
+      // before it fires, on its own terminal answer.
+      if (bd.tool_choice && bd.tool_choice.name === "design_schema") {
+        if (design === null) return json({ stop_reason: "end_turn", content: [{ type: "text", text: "Here is a design." }], usage: { input_tokens: 100, output_tokens: 50 } });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: design }], usage: { input_tokens: 100, output_tokens: 50 } });
+      }
       return new Response("stop", { status: 503 });
     }
+    { const l = linkAnswer(links, u); if (l) return l; }
     if (u.includes("/rest/v1/")) return json([]);
     return new Response("no", { status: 503 });
   };
@@ -89,7 +122,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN } = {}) {
 }
 
 /** THE REAL RESUME of that build, finishing with a stored generation: it writes the build's own final answer. */
-export async function finishResume(b, id, led, { credits = null, source = null } = {}) {
+export async function finishResume(b, id, led, { credits = null, source = null, reply = undefined, env: extraEnv = {}, seen = [] } = {}) {
   const rec = JSON.parse(b.store.get(resumeKey(id)));
   // THE GENERATION'S ANSWER: the plain shape the collector has always taken
   // (no page it can use — the build ends on its own refusal), or, with a
@@ -112,6 +145,7 @@ export async function finishResume(b, id, led, { credits = null, source = null }
       if (credits != null && (m[1] === "use_credits" || m[1] === "credit_debit")) return json({ ok: true, taken: Number(args.p_amount) || 0, balance: credits, repeat: false });
       return json({ ok: true });
     }
+    if (u.includes("/v1/messages")) { const r = replyAnswer(reply, seen, init); if (r) return r; }
     if (isDispatchUpload(u)) return dispatchOk();
     if (u.includes("/rest/v1/")) return json([]);
     return new Response("no", { status: 503 });
@@ -120,7 +154,7 @@ export async function finishResume(b, id, led, { credits = null, source = null }
   try {
     const worker = await loadWorker();
     const ctx = makeCtx();
-    await worker.queue({ messages: [{ body: { kind: RESUME_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ...dispatchEnv(), SITES_BUCKET: b, SITE_BUILD_CONTAINER: {}, BUILD_QUEUE: queue() }, ctx);
+    await worker.queue({ messages: [{ body: { kind: RESUME_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ...dispatchEnv(), SITES_BUCKET: b, SITE_BUILD_CONTAINER: {}, BUILD_QUEUE: queue(), ...extraEnv }, ctx);
     await Promise.allSettled(ctx.pending);
   } finally { globalThis.fetch = real; c.uninstall(); }
 }

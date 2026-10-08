@@ -489,10 +489,15 @@ test("both of the build's success answers are composed by the one composer, and 
   // AND NEITHER WRITES THE FIELDS BESIDE THE CALL. A literal `slug:` back in
   // either answer is the two shapes starting to diverge again.
   for (const [name, body] of [["the collector", collector]]) {
-    const start = body.indexOf("out = packResult({");
-    assert.ok(start > 0, name + " no longer packs a result");
-    const end = body.indexOf("uid: claimed.uid", start);
-    assert.ok(end > start, name + "'s packed result has no end landmark");
+    // THE ANSWER IS COMPOSED AS `rBody` SINCE 2026-10-08 (the sixth batch:
+    // it is told by the reply writer before it is packed), so the window
+    // starts at that object.
+    const start = body.indexOf("const rBody = {");
+    assert.ok(start > 0, name + " no longer composes its answer");
+    // ENDS WHERE THE ANSWER OBJECT ENDS: the reply writer's own arguments
+    // (`narrateBuild(env, rBody, { …, slug })`) are not the answer's fields.
+    const end = body.indexOf("buildFacts: buildFacts(", start);
+    assert.ok(end > start, name + "'s answer has no end landmark");
     const win = body.slice(start, end);
     assert.ok(win.includes("...siteAnswer({"), name + " does not spread the composer into its answer");
     // THE COMPOSER'S OWN ARGUMENTS EXCISED BY BRACE DEPTH, never by a flat

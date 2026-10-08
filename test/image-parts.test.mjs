@@ -311,12 +311,14 @@ test("the census: buySitePhotos takes the parts and hands them back", () => {
   // call is found by its own `return`, its argument list walked depth-aware, and
   // the two are required to be different places in the file.
   const decl = WORKER.indexOf("async function buySitePhotos(");
-  const call = WORKER.indexOf("return buySitePhotos(env, {");
+  // THROUGH `withPictureFacts` SINCE 2026-10-08 (the sixth batch): the call
+  // is its first argument, so it is found after that wrapper's own opening.
+  const call = WORKER.indexOf("buySitePhotos(env, {", WORKER.indexOf("return withPictureFacts("));
   assert.ok(call > 0, "the build path no longer calls buySitePhotos — rescope this guard");
   assert.ok(call !== decl, "the call and the declaration resolved to one place, so this check cannot see either");
-  let d = 1, i = call + "return buySitePhotos(".length;
+  let d = 1, i = call + "buySitePhotos(".length;
   for (; i < WORKER.length && d > 0; i++) { if (WORKER[i] === "(") d++; else if (WORKER[i] === ")") d--; }
-  const args = WORKER.slice(call + "return buySitePhotos(".length, i - 1);
+  const args = WORKER.slice(call + "buySitePhotos(".length, i - 1);
   assert.match(args, /\bparts\b/,
     "the build path calls buySitePhotos without the parts it now takes: buySitePhotos(" + args + ")");
   assert.match(WORKER, /images: \(pages, \{ balance, reserve, parts \}\)/,

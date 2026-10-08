@@ -30,12 +30,13 @@ import assert from "node:assert/strict";
 import { driveBuild, GOOD_DESIGN, BRIEF } from "./fixtures/build-route.mjs";
 import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
 import { normalizePlan, MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
-import { imageDirective, imagesNotOffered, notOfferedWhy, notOfferedNote, imageNote, planImages, shotKey, imagePrompt, budgetFor, IMAGE_CAP } from "../builder/site-images.mjs";
-import { readLinkedPages, contextSummary, contextSentence, MAX_LINKED_CHARS, MAX_URLS } from "../builder/site-context.mjs";
+import { imageDirective, imagesNotOffered, notOfferedWhy, pictureOutcomes, imageNote, planImages, shotKey, imagePrompt, budgetFor, IMAGE_CAP } from "../builder/site-images.mjs";
+import { readLinkedPages, contextSummary, contextFacts, MAX_LINKED_CHARS, MAX_URLS } from "../builder/site-context.mjs";
+import { buildReplyFacts } from "../builder/site-reply.mjs";
 import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 import { generateSiteBands, splitPlan, bandName } from "../builder/page-bands.mjs";
-import { publishPages, unwrittenNote } from "../builder/publish-pages.mjs";
-import { pageNotes, NOTE_FIELDS } from "../builder/build-answer.mjs";
+import { publishPages } from "../builder/publish-pages.mjs";
+import { pageNotes, NOTE_FIELDS, buildFacts } from "../builder/build-answer.mjs";
 import { buildBucket } from "./fixtures/build-route.mjs";
 import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
 import { resultKey, readResult } from "../builder/build-job.mjs";
@@ -121,15 +122,16 @@ test("linked pages share one message's worth: the first whole, the second cut wi
   assert.match(pc.reason, new RegExp("at most " + MAX_URLS + " links"));
   const s = contextSummary({ pages });
   assert.deepEqual(s.read.map((x) => x.kept), [undefined, MAX_LINKED_CHARS - a.length]);
-  const said = contextSentence(s);
-  assert.match(said, /Used only the first 11,000 of 14,000 characters of b\.example/);
-  assert.match(said, /Couldn't read c\.example — one build opens at most 2 links/);
+  // AS FACTS (since the sixth batch, not a sentence): used, partial with its
+  // exact numbers, and never opened — three states, kept apart.
+  assert.deepEqual(contextFacts(s).sources.map((x) => x.status), ["used", "partial", "unopened"]);
+  assert.deepEqual(contextFacts(s).sources[1], { url: "https://b.example/", status: "partial", kept: 11000, chars: 14000, allowance: MAX_LINKED_CHARS });
 });
 
 test("a link the quota refuses is named with that reason — never read, never silent", async () => {
   const pages = await readLinkedPages("see https://a.example", { readUrl: async () => ({ ok: false, quota: true }) });
   assert.equal(pages[0].ok, false);
-  assert.match(contextSentence(contextSummary({ pages })), /Couldn't read a\.example — you've had a lot of links read today/);
+  assert.deepEqual(contextFacts(contextSummary({ pages })).sources, [{ url: "https://a.example/", status: "unread", reason: "you've had a lot of links read today" }]);
 });
 
 test("the real build route spends one of the link quota PER LINK OPENED", async () => {
@@ -152,12 +154,13 @@ test("pictures past what one build buys are named with their rule — the cap, a
   const left = imagesNotOffered(plan, budget, notOfferedWhy({ revise: false, priorPages: null, slug: "harbour-loaf", plan }));
   assert.deepEqual(left.map((x) => x.describe), ["picture 7", "picture 8", "picture 9"]);
   assert.ok(left.every((x) => x.why === "cap"));
-  const said = imageNote({ made: 6, planned: 6, budget: 6, overflow: 0, notOffered: left });
-  assert.match(said, /^Made 6 photographs for the site\./);
-  assert.match(said, /3 more pictures were asked for than one build makes \(at most 6\): “picture 7”, “picture 8”, “picture 9”/);
+  // TOLD FROM FACTS (the sixth batch): the fixed sentence keeps its old
+  // wording and adds nothing; the not-offered pictures reach the reply writer
+  // as facts, each named with its reason.
+  assert.equal(imageNote({ made: 6, planned: 6, budget: 6, overflow: 0, notOffered: left }), "Made 6 photographs for the site.");
+  const told = buildReplyFacts({ pictures: pictureOutcomes({ plan, budget, notOffered: left, buy: { bought: [], attempted: [], notTried: [] } }) }).facts.map((f) => f.text).join("\n");
+  assert.match(told, /never offered to the page writer, because one build makes at most 6 photographs[^\n]*“picture 7”; “picture 8”; “picture 9”/);
   assert.equal(notOfferedWhy({ plan: { kind: "tool" } }), "tool");
-  assert.match(notOfferedNote([{ describe: "a mug", why: "tool" }]), /A working tool gets no photographs, so “a mug” wasn't made/);
-  assert.match(notOfferedNote([{ describe: "a loaf", why: "kept" }]), /already has its photographs, so I kept them rather than buying new ones for “a loaf”/);
   // CONTROL: within the budget, nothing is named and the sentence is unchanged.
   assert.deepEqual(imagesNotOffered(normalizePlan({ ...GOOD_DESIGN, images: nine.slice(0, 3) }), 3), []);
   assert.equal(imageNote({ made: 3, planned: 3, budget: 3, overflow: 0 }), "Made 3 photographs for the site.");
@@ -176,7 +179,11 @@ test("THROUGH THE WORKER: a real queued build that asked for nine pictures, publ
   const body = JSON.parse(r.body);
   assert.equal(body.page, "app", "the resumed build did not publish: " + r.body.slice(0, 300));
   assert.deepEqual(body.images.notOffered.map((x) => x.describe), ["picture 7", "picture 8", "picture 9"]);
-  assert.match(body.imagesNote, /3 more pictures were asked for than one build makes \(at most 6\): “picture 7”, “picture 8”, “picture 9”/);
+  // EVERY PICTURE ACCOUNTED FOR, AS FACTS: the six offered were not placed by
+  // the writer (the page has no picture), the three past the cap never offered.
+  const st = body.buildFacts.pictures.map((x) => x.describe + ":" + x.status + (x.why ? "/" + x.why : ""));
+  assert.deepEqual(st, [1, 2, 3, 4, 5, 6].map((n) => "picture " + n + ":not-placed").concat([7, 8, 9].map((n) => "picture " + n + ":not-offered/cap")));
+  assert.doesNotMatch(String(body.imagesNote || ""), /picture 7/, "the fixed sentence still tells what the facts carry");
 });
 
 /** A minimal `publishPages` harness: everything succeeds, nothing is paid. */
@@ -192,21 +199,21 @@ function deps(over = {}) {
 }
 const PAGE = { path: "index.tsx", source: 'import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/")({ component: Page });\nfunction Page() { return <div>Harbour Loaf</div>; }' };
 
-test("publishPages carries the not-offered pictures through to the answer's sentence", async () => {
+test("publishPages carries the not-offered pictures and the picture outcomes through as facts", async () => {
   const notOffered = [{ page: "/", describe: "picture 7", why: "cap" }];
   const out = await publishPages(deps({
     generate: async () => ({ input: { pages: [PAGE], notes: "" }, usage: { in: 1, out: 1, cacheRead: 0, cacheWrite: 0 } }),
-    images: async (pages) => ({ pages, made: 0, planned: 0, budget: 6, overflow: 0, notOffered }),
+    images: async (pages) => ({ pages, made: 0, planned: 0, budget: 6, overflow: 0, notOffered, pictures: [{ page: "/", describe: "picture 7", status: "not-offered", why: "cap" }] }),
   }), { spec: { tables: [] }, slug: "harbour-loaf" });
   assert.deepEqual(out.images.notOffered, notOffered);
-  assert.match(pageNotes(out).imagesNote || "", /“picture 7”/);
+  assert.equal(out.images.pictures[0].status, "not-offered");
 });
 
 // ── a section no writer could write (P2) ───────────────────────────────────
 
 const band = (src) => ({ content: [{ type: "tool_use", input: { source: src } }], usage: {} });
 
-test("P2: a band whose writer failed is published as an empty part AND named — in the plan's own words — as a fact and in the answer", async () => {
+test("P2: a band whose writer failed is published as an empty part AND named — in the plan's own words — as a fact for the reply writer", async () => {
   const sections = ["a hero with the shop photograph", "the price list for every loaf, with Saturday collection times", "the footer"];
   const lines = splitPlan({ shape: [{ path: "/", sections }], route: "/", mode: "build" });
   const fan = await generateSiteBands({ brief: "b", spec: {}, brand: "Harbour Loaf", model: "grok-4.6", route: "/", chrome: { name: "Harbour Loaf" }, lines },
@@ -219,10 +226,13 @@ test("P2: a band whose writer failed is published as an empty part AND named —
   const out = await publishPages(deps({ generate: async () => fan }), { spec: { tables: [] }, slug: "harbour-loaf" });
   assert.equal(out.page, "app", "the page with two written bands did not publish: " + JSON.stringify(out.problems));
   assert.deepEqual(out.unwritten.map((u) => u.section), [sections[1]]);
+  // A FACT, TOLD BY THE REPLY WRITER (the sixth batch): no fixed sentence.
   const notes = pageNotes(out);
-  assert.ok(NOTE_FIELDS.includes("unwrittenNote"));
-  assert.match(notes.unwrittenNote || "", /One part of the page couldn't be written, so it's left out for now: “the price list for every loaf, with Saturday collection times”/);
-  assert.equal(unwrittenNote([]), "");
+  assert.ok(!NOTE_FIELDS.includes("unwrittenNote"));
+  assert.equal(notes.unwrittenNote, undefined);
+  assert.deepEqual(notes.unwritten, [{ section: sections[1], why: out.unwritten[0].why }]);
+  assert.deepEqual(buildFacts({ unwritten: notes.unwritten }).unwritten, [{ section: sections[1] }], "the unwritten section left the answer's facts");
+  assert.match(buildReplyFacts({ unwritten: notes.unwritten }).facts[0].text, /“the price list for every loaf, with Saturday collection times”/);
 });
 
 test("P2 CONTROL: every band written — no fact, no sentence", async () => {
@@ -231,5 +241,5 @@ test("P2 CONTROL: every band written — no fact, no sentence", async () => {
     {}, async () => lines.map((l, i) => ({ i, state: "done", answer: band("function " + bandName(l, i) + "() { return <p>ok</p>; }") })), null);
   const out = await publishPages(deps({ generate: async () => fan }), { spec: { tables: [] }, slug: "b" });
   assert.equal(out.unwritten, undefined);
-  assert.equal(pageNotes(out).unwrittenNote, undefined);
+  assert.equal(pageNotes(out).unwritten, undefined);
 });

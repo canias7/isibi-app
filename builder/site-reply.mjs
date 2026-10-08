@@ -1264,6 +1264,67 @@ export function cancelReplyFacts(r) {
 }
 
 /**
+ * THE FACTS OF A FIRST BUILD'S OUTCOMES (2026-10-08, the sixth batch; the
+ * owner's standing rule that ordinary explanations are model-written). From
+ * `buildFacts` — structured, decided by code — one fact per thing the
+ * customer should hear about: the pictures (made, failed, never attempted,
+ * never offered, unknown, their own), each linked page (used, partly used,
+ * unread, never opened), the web lookup, each section no writer could write,
+ * each page shown as a stand-in, and what recovery returned. The reply is
+ * written from these alone; nothing here is shown to the customer as it is.
+ */
+export function buildReplyFacts(bf) {
+  if (!bf || typeof bf !== "object" || Array.isArray(bf)) return { skip: "unreadable", facts: [] };
+  const F = factList();
+  const pics = Array.isArray(bf.pictures) ? bf.pictures.filter((x) => x && typeof x.describe === "string") : [];
+  const of = (st) => pics.filter((x) => x.status === st);
+  const named = (xs) => xs.map((x) => quote(x.describe) + (x.page && x.page !== "/" ? " (on " + x.page + ")" : "")).join("; ");
+  if (of("made").length) F.add("changed", "Photographs made and put on the site: " + named(of("made")));
+  if (of("own").length) F.add("note", "Their own photographs, which they supplied, were handed to the page writer to use: " + named(of("own")) + ". Whether each was placed is not recorded.");
+  if (of("failed").length) F.add("not-done", "Photographs tried and not made (the image service did not return them), so their frames are empty placeholders: " + named(of("failed")));
+  const why = { library: "their image library is full", time: "the build ran out of time before buying them", budget: "the credits left could not pay for them" };
+  for (const w of ["library", "time", "budget"]) {
+    const xs = of("not-attempted").filter((x) => x.why === w);
+    if (xs.length) F.add("not-done", "Photographs the page asked for but never tried, because " + why[w] + ", so their frames are empty placeholders: " + named(xs));
+  }
+  if (of("not-placed").length) F.add("not-done", "Pictures offered to the page writer that it did not put on the page, so none was bought: " + named(of("not-placed")));
+  const offWhy = { cap: "one build makes at most 6 photographs", tool: "a working tool gets no photographs", kept: "the site already has its photographs, so they were kept rather than replaced" };
+  for (const w of Object.keys(offWhy)) {
+    const xs = of("not-offered").filter((x) => x.why === w);
+    if (xs.length) F.add("not-done", "Pictures they asked for that were never offered to the page writer, because " + offWhy[w] + "; they are not on the site and can be asked for next: " + named(xs));
+  }
+  const odd = of("not-offered").filter((x) => !Object.hasOwn(offWhy, x.why));
+  if (odd.length) F.add("not-done", "Pictures they asked for that were not made in this build: " + named(odd));
+  if (of("unknown").length) F.add("not-done", "Photographs that were being bought when the purchase failed; whether any of them was made is not known: " + named(of("unknown")));
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u); } };
+  for (const x of Array.isArray(bf.sources) ? bf.sources : []) {
+    if (!x || typeof x.url !== "string") continue;
+    if (x.status === "used") F.add("note", "The linked page " + host(x.url) + " was read and its text used in full.");
+    else if (x.status === "partial") F.add("not-done", "The linked page " + host(x.url) + " was read, but only the first " + x.kept + " of its " + x.chars + " characters were used: all linked pages together carry at most " + x.allowance + ".");
+    else if (x.status === "unread") F.add("not-done", "The linked page " + host(x.url) + " could not be read (" + String(x.reason || "unknown reason") + "), so the site was built from their description instead.");
+    else if (x.status === "unopened") F.add("not-done", "The link " + host(x.url) + " was not opened (" + String(x.reason || "") + "), so nothing from it was used.");
+  }
+  if (bf.research && typeof bf.research === "object") {
+    F.add(bf.research.found ? "note" : "not-done", bf.research.found
+      ? "Current details were looked up on the web and used."
+      : "A web lookup was tried and found nothing usable, so the site was written from their description.");
+  }
+  for (const u of Array.isArray(bf.unwritten) ? bf.unwritten : []) {
+    if (u && typeof u.section === "string" && u.section.trim()) F.add("not-done", "This part of the page could not be written and is left out for now (it can be asked for again): " + quote(u.section));
+  }
+  for (const pg of Array.isArray(bf.salvaged) ? bf.salvaged : []) {
+    F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; the rest of the site is live.");
+  }
+  const st = bf.settlement;
+  if (st && typeof st === "object") {
+    if (st.outcome === "published") F.add("note", "The build lost touch with us near the end, but its site did go live; nothing was refunded.");
+    else if (st.short) F.add("not-done", "The build stopped and returning what it charged has not gone through yet; it is being retried.");
+    else F.add("changed", "The build stopped; what it charged (" + st.refunded + " credits) has been returned.");
+  }
+  return { skip: null, facts: F.out };
+}
+
+/**
  * THE FACTS OF A REQUEST OF SEVERAL PARTS (2026-10-03, the combined request
  * flow): one fact per part, from its status on the server (`requestView` in
  * builder/request.mjs) — for what no part's own reply explains. A part a job

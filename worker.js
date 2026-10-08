@@ -44,7 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
-import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -89,7 +89,7 @@ import { RESUME_FIRST_SECONDS, genMarks, resumeKey, attachmentsKey, isResumeId, 
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
-import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs";
+import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/build-answer.mjs";
 // WHICH CHAT A SITE BELONGS TO (2026-09-08). The browser has always minted a
 // per-workspace id and never sent it; the module owns the shape rule and the
 // one spelling of the column, and says why it is not called `project`.
@@ -167,7 +167,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -237,13 +237,13 @@ import {
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
-import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
+import { readLinkedPages, contextFacts, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
 import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, wordsIn, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
+import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
 import {
@@ -2831,6 +2831,11 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     // because a sweep cannot say any of the above and the next session deletes
     // what nothing appears to need.
     bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: urls.get(s.token) })),
+    // WHAT WAS TRIED AND WHAT WAS NOT (2026-10-08, the sixth batch): every
+    // shot the purchase attempted, and every written picture past what it
+    // could afford — so a failure and a picture never attempted stay apart.
+    attempted: plan.shots.map((s) => shotKey(s.prompt)),
+    notTried: (plan.extra || []).map((s) => shotKey(s.prompt)),
     ...(plan.empty ? { empty: plan.empty } : {}),
     ...(libraryFull ? { full: true } : {}),
     // The third cause of a zero, and it needs its own sentence for the same
@@ -6490,6 +6495,61 @@ async function composeModelReply(env, kind, body, ask, { background = false } = 
     console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0, background ? "background" : "inline");
   } catch { /* a log line never costs the reply */ }
   return out.ok ? { ok: true, text: out.text } : { ok: false, why: out.why || "send" };
+}
+
+/**
+ * A BUILD'S ANSWER, TOLD BY THE REPLY WRITER (2026-10-08, the sixth batch;
+ * the owner's standing rule). The outcome is decided by code and carried as
+ * `buildFacts`; this asks the reply writer to tell it, from those facts
+ * alone. Written → `reply` with `replySource: "model"` (`withReplyText`).
+ * Not written — the switch off, the provider down, a reply that left a fact
+ * out — → `replyState: "unavailable"` and the facts kept on the answer, so
+ * the page says a fixed outage line and shows what was recorded; nothing is
+ * invented and nothing is lost. Never throws.
+ */
+async function narrateBuild(env, body, { picker = "", request = "", name = "", slug = "", background = false } = {}) {
+  try {
+    const bf = body && body.buildFacts;
+    if (!bf) return body;
+    const read = buildReplyFacts(bf);
+    if (read.skip || !read.facts.length) return body;
+    if (!repliesOn(env)) return { ...body, replyState: "unavailable", replyWhy: "off" };
+    const out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
+      facts: read.facts,
+      context: replyContext({ request, site: { name, slug, pages: [] } }),
+      model: modelsFor(picker).quick,
+      ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
+    });
+    console.log("reply: build", out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length);
+    return out.ok ? withReplyText(body, out.text) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
+  } catch (e) {
+    console.error("reply: build narration threw —", String((e && e.message) || e));
+    return { ...body, replyState: "unavailable", replyWhy: "send" };
+  }
+}
+
+/**
+ * THE CUSTOMER'S OWN WORDS out of a stored brief: `contextBrief` appends the
+ * linked pages, attached files and looked-up facts under their own headings,
+ * and the reply writer is told what they asked for, not what was read for
+ * them (that arrives as facts).
+ */
+function ownWords(brief) {
+  const s = String(brief || "");
+  const cut = ["\n\nFILES THE USER ATTACHED", "\n\nLINKED PAGES THE USER POINTED AT", "\n\nCURRENT FACTS, LOOKED UP JUST NOW"]
+    .map((h) => s.indexOf(h)).filter((i) => i >= 0);
+  return (cut.length ? s.slice(0, Math.min(...cut)) : s).trim();
+}
+
+/** A queued build's context facts, as its first invocation kept them; null when there are none or they cannot be read. */
+async function keptContextFacts(env, id) {
+  try {
+    if (!id || !isJobId(id) || !env.SITES_BUCKET) return null;
+    const o = await env.SITES_BUCKET.get(contextKey(id));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return v && typeof v === "object" && Array.isArray(v.sources) ? { sources: v.sources, ...(v.research ? { research: v.research } : {}) } : null;
+  } catch (e) { console.error("build: could not read the kept context facts for", id, String((e && e.message) || e)); return null; }
 }
 
 /** The answer with its reply on it, or the answer exactly as it was. */
@@ -13693,8 +13753,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // AND THE PICTURES NO WRITER WAS OFFERED (2026-10-08, the content-
       // preservation batch): the designer's list past `imgBudget`, named with
       // the rule that stopped them, so the answer accounts for every one.
-      return buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget })
-        .then((bought) => imgNotOffered.length && bought && typeof bought === "object" ? { ...bought, notOffered: imgNotOffered } : bought);
+      // THE PICTURE FACTS EITHER WAY IT ENDS (`withPictureFacts`, 2026-10-08,
+      // the sixth batch): a throw keeps what was known before it.
+      return withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget }), { plan, budget: imgBudget, notOffered: imgNotOffered });
     },
     compile: async (pages, builtParts) => {
       // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
@@ -14790,10 +14851,10 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
       const back = await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);
       console.log("build queue:", id, "gave up waiting after", row.deferrals, "deferrals (" + why + ") — deposit back:", back.refunded);
       try {
-        await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+        await storeBuildResult(env, id, packResult({
           status: 409, type: "application/json", uid: job.uid,
           body: JSON.stringify({ ok: false, stage: "queue", error: why, job: id, deferrals: row.deferrals, refunded: back.refunded, msg: row.gated ? GATED_BUILD_MSG : BUSY_BUILD_MSG }),
-        })));
+        }), "final", "build answer");
       } catch (e) { console.error("build queue: could not write the busy answer for", id, String((e && e.message) || e)); }
       await requestRewriteEnded(env, ctx, rewriteRequestOf(job));
       return;
@@ -14993,16 +15054,11 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // (2026-10-08, Codex's review of `b4300a07`): once recovery owns the
     // outcome, what the customer reads is what recovery settled.
     if (await recoveryOwns(env, id)) console.log("build queue: recovery owns job", id, "— its late answer is not written");
-    // A "STILL BUILDING" ANSWER NEVER TAKES AN ANSWER'S PLACE (2026-10-08,
-    // Codex's review of `deb1fee5`): it is written only into an empty slot,
-    // so one that lost the race with recovery's (or the resume's final)
-    // answer leaves that answer where it is. A final answer is written as
-    // before and replaces an interim one.
-    else if (resultKind(out) === "interim") {
-      const put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out), { onlyIf: { etagDoesNotMatch: "*" } });
-      if (!put) console.log("build queue: an answer is already stored for job", id, "— the \"still building\" answer is not written over it");
-    }
-    else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
+    // ONE DELIVERY RULE FOR EVERY WRITER (`storeBuildResult`, 2026-10-08,
+    // Codex's review of `366dc581`): a "still building" answer only into an
+    // empty slot; a final one with recovery's recorded settlement facts on
+    // it — whichever of the two wrote first.
+    else await storeBuildResult(env, id, out, resultKind(out) === "interim" ? "interim" : "final", "build queue");
   } catch (e) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
   }
@@ -15254,10 +15310,10 @@ async function closeStaleJob(env, x) {
     if (uid) back = await reverseCredits(env, uid, "build:" + id + ":deposit", "stale", SITE_BUILD_FEE);
     console.log("stale sweep:", id, "failed — a build never picked up; deposit back:", back.refunded);
     try {
-      await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+      await storeBuildResult(env, id, packResult({
         status: 409, type: "application/json", uid,
         body: JSON.stringify({ ok: false, stage: "queue", error: "stale", job: id, refunded: back.refunded, msg: STALE_BUILD_MSG }),
-      })));
+      }), "final", "build answer");
     } catch (e) { console.error("stale sweep: could not write the answer for", id, String((e && e.message) || e)); }
     return;
   }
@@ -15712,6 +15768,45 @@ async function refundLostBuild(env, uid, billRef) {
 }
 
 /**
+ * THE ONE WAY A BUILD'S ANSWER SLOT IS WRITTEN (2026-10-08, Codex's review of
+ * `366dc581`). Every writer — the queue consumer, the resume, recovery and the
+ * platform's own refusals — reads the slot and recovery's settlement record,
+ * asks `nextResult` what the slot should hold, and puts that conditionally on
+ * what it read (the etag, or absence). A refused put means another writer got
+ * there between the read and the write: the slot is read and decided again.
+ * So the order two writers race in cannot change the end: the build's final
+ * answer, the authority on publication, carries recovery's settlement facts,
+ * the authority on money. Answers `{ ok, as, wrote }`; `ok: false` when the
+ * slot could not be read or written, or stayed contended for six tries.
+ *
+ * A settlement record that cannot be read is not "none" for recovery (it
+ * waits), but a build's final answer is still written without it — recovery
+ * adds the facts on its next pass, as it does to any final answer that lacks
+ * them.
+ */
+async function storeBuildResult(env, id, out, role, who = "build") {
+  for (let i = 0; i < 6; i++) {
+    let cur = null, raw = null;
+    try {
+      cur = await env.SITES_BUCKET.get(resultKey(id));
+      if (cur) { try { raw = JSON.parse(await cur.text()); } catch { raw = {}; } }
+    } catch (e) { console.error(who + ": could not read the answer slot for", id, String((e && e.message) || e)); return { ok: false }; }
+    let facts = null;
+    try { const m = await env.SITES_BUCKET.get("jobs/" + id + ".lost.json"); facts = m ? settlementFacts(JSON.parse(await m.text())) : null; }
+    catch (e) { console.error(who + ": could not read the settlement record for", id, String((e && e.message) || e)); facts = null; }
+    const { next, as } = nextResult(cur ? raw : null, out, role, facts);
+    if (!next) return { ok: true, as, wrote: false };
+    if (cur && typeof cur.etag !== "string") { console.error(who + ": the answer slot for", id, "has no etag; not written blind"); return { ok: false }; }
+    let put;
+    try { put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(next), { onlyIf: cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } }); }
+    catch (e) { console.error(who + ": could not write the answer for", id, String((e && e.message) || e)); return { ok: false }; }
+    if (put) return { ok: true, as, wrote: true };
+  }
+  console.error(who + ": the answer slot for", id, "is still contended after 6 tries");
+  return { ok: false };
+}
+
+/**
  * THE CUSTOMER'S ANSWER FOR A RECOVERED BUILD, BUILT FROM THE SETTLEMENT
  * RECORD ALONE (so a later tick can store it again with nothing else) and
  * stored where the build's own would be.
@@ -15742,29 +15837,17 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
     : slug
       ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
       : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
-  const packed = JSON.stringify(packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) }));
-  for (let i = 0; i < 6; i++) {
-    let cur = null;
-    let kind = "nothing";
-    try {
-      cur = await env.SITES_BUCKET.get(resultKey(id));
-      if (cur) { let raw = null; try { raw = JSON.parse(await cur.text()); } catch { raw = null; } kind = resultKind(raw); }
-    } catch (e) { console.error("lost builds: could not read the stored answer for", id, String((e && e.message) || e)); return { ok: false }; }
-    if (kind === "terminal") return { ok: true, as: "build" };
-    const onlyIf = cur && typeof cur.etag === "string" ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" };
-    if (cur && typeof cur.etag !== "string") { console.error("lost builds: the stored answer for", id, "has no etag; not replaced"); return { ok: false }; }
-    let put;
-    try { put = await env.SITES_BUCKET.put(resultKey(id), packed, { onlyIf }); }
-    catch (e) { console.error("lost builds: could not store the answer for", id, String((e && e.message) || e)); return { ok: false }; }
-    if (put) {
-      if (kind === "interim") console.log("lost builds:", id, "— a \"still building\" answer replaced by the recovered outcome");
-      return { ok: true, as: "recovery" };
-    }
-    // REFUSED: something else wrote between the read and the write. Read it
-    // again and judge what is there now.
-  }
-  console.error("lost builds: the answer slot for", id, "is still contended after 6 tries; kept pending");
-  return { ok: false };
+  // THE FACTS TRAVEL WITH RECOVERY'S ANSWER TOO (2026-10-08, the sixth
+  // batch): which links the lost build read, kept when it handed over, and
+  // what recovery settled — so a lost build is never silent about either.
+  const kept = await keptContextFacts(env, id);
+  const facts = buildFacts({ context: kept, settlement: settlementFacts(mark) });
+  if (kept) body.context = kept;
+  if (facts) body.buildFacts = facts;
+  const packed = packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) });
+  const done = await storeBuildResult(env, id, packed, "recovery", "lost builds");
+  if (done.ok && done.wrote && done.as === "recovery") console.log("lost builds:", id, "— the recovered outcome stored");
+  return done.ok ? { ok: true, as: done.as } : { ok: false };
 }
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
@@ -16856,10 +16939,10 @@ async function requestRewriteStopped(env, ctx, id, job, mark, lease, { inContain
   if (!stopped) return false;
   await editRpc(env, "edit_refund", { p_id: id, p_state: "cancelled", p_note: "stopped before the rewrite began" });
   try {
-    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+    await storeBuildResult(env, id, packResult({
       status: 410, type: "application/json", uid: job.uid,
       body: JSON.stringify({ ok: false, cancelled: true, stage: "queue", job: id, cost: 0, msg: CANCELLED_MSG }),
-    })));
+    }), "final", "build answer");
   } catch (e) { console.error("request rewrite: could not write the stop for", id, errorClassForLog(e)); }
   await requestRewriteEnded(env, ctx, mark);
   return true;
@@ -17979,10 +18062,11 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     }
     const rSpec = (design && design.spec) || {};
     const rTables = Array.isArray(rSpec.tables) ? rSpec.tables : [];
-    out = packResult({
-      status: 200,
-      type: "application/json",
-      body: JSON.stringify({
+    // WHAT THE FIRST INVOCATION READ, kept for this one (2026-10-08, the
+    // sixth batch): the context facts the build wrote before it handed the
+    // generation over — the resume cannot see the linked pages again.
+    const rContext = await keptContextFacts(env, id);
+    const rBody = {
         ok: true,
         resumed: decision.act,
         ...pages,
@@ -18011,7 +18095,15 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // (2026-10-02, the review of batch 2): this is the answer the customer
         // reads after a 202, and it names the parts as the inline reply would.
         ...resumeHeld(claimed),
-      }),
+        ...(rContext ? { context: rContext } : {}),
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged }) || undefined,
+    };
+    out = packResult({
+      status: 200,
+      type: "application/json",
+      // TOLD BY THE REPLY WRITER, in the background budget: nobody is waiting
+      // on this connection (2026-10-08, the sixth batch).
+      body: JSON.stringify(await narrateBuild(env, rBody, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: rSlug, background: true })),
       uid: claimed.uid,
     });
   } catch (e) {
@@ -18091,6 +18183,9 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...(rk.billing ? { billing: true } : {}),
         // AND ON A FAILURE TOO: the parts were put off, and nothing tried them.
         ...resumeHeld(claimed),
+        // AND WHAT THE FIRST INVOCATION READ (2026-10-08, the sixth batch):
+        // a failed resume still owes the customer which links were used.
+        ...(await (async () => { const c = await keptContextFacts(env, id); const f = buildFacts({ context: c }); return c ? { context: c, ...(f ? { buildFacts: f } : {}) } : {}; })()),
       }),
     });
   } finally {
@@ -18127,7 +18222,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   try { await env.SITES_BUCKET.delete(attachmentsKey(id)); } catch { /* the files kept for a refire go with their record */ }
   try {
     if (await recoveryOwns(env, id)) console.log("build resume: recovery owns job", id, "— its late answer is not written");
-    else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
+    else await storeBuildResult(env, id, out, "final", "build resume");
   } catch (e) {
     console.error("build resume: could not write the result for", id, String((e && e.message) || e));
   }
@@ -19924,6 +20019,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // one. The summary makes that distinction; without this flag it cannot.
         searchWanted: !!researchPromise,
       });
+      // KEPT FOR WHOEVER FINISHES THIS BUILD (2026-10-08, the sixth batch): a
+      // queued build's generation is finished by the resume, a refire or
+      // recovery, none of which can see the linked pages again. The facts,
+      // not a sentence, and only for a build with a job.
+      const contextOut = contextFacts(context);
+      if (jobId && contextOut && env.SITES_BUCKET) {
+        try { await env.SITES_BUCKET.put(contextKey(jobId), JSON.stringify({ v: 1, ...contextOut })); }
+        catch (e) { console.error("build: could not keep the context facts for", jobId, String((e && e.message) || e)); }
+      }
 
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       // WHICH SIDE HELD THE TEN-MINUTE CALL, DECLARED OUT HERE ON PURPOSE.
@@ -20514,7 +20618,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // opposite of what it does. The same misread has already been fixed in the
       // lint, the digest, the seeder and the owner routes; this was the last copy.
       const levels = (pageSpec.tables || spec.tables || []).map((t) => ({ name: t.name, access: accessLabel(t) }));
-      return Response.json({
+      // TOLD BY THE REPLY WRITER (2026-10-08, the sixth batch): the answer
+      // carries its outcome as facts (`buildFacts`), and `narrateBuild` asks
+      // the reply writer to tell them.
+      return Response.json(await narrateBuild(env, {
         // WHICH SITE THIS BUILD MADE, composed by `siteAnswer` rather than
         // written out here — because the COLLECTOR has to answer the same six
         // fields and did not. Every build whose generation outlives this socket
@@ -20862,7 +20969,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // now be priced from two different rows, and this is the field that says
         // which is which.
         models: { picker: models.picker, design: models.design, pages: models.pages },
-      });
+        buildFacts: buildFacts({ images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged }) || undefined,
+      }, { picker: models.picker, request: brief, name: brand, slug }));
       })(), bHeld.parts);
 }
 

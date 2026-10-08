@@ -1,0 +1,162 @@
+[
+{
+"label": "protocol: final answer without settlement facts",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    return { next: facts ? withSettlement(incoming, facts) : incoming, as: \"build\" };",
+"to": "    return { next: incoming, as: \"build\" };"
+},
+{
+"label": "protocol: recovery over a terminal answer",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    if (kind === \"terminal\") {\n      if (!facts) return { next: null, as: \"build\" };",
+"to": "    if (false) {\n      if (!facts) return { next: null, as: \"build\" };"
+},
+{
+"label": "protocol: interim over an outcome",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    if (kind !== \"nothing\" && kind !== \"interim\") return { next: null, as: \"kept\" };\n",
+"to": ""
+},
+{
+"label": "protocol: unconditional put",
+"files": [
+"worker.js"
+],
+"from": "{ onlyIf: cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: \"*\" } }",
+"to": "{}"
+},
+{
+"label": "protocol: settlement record ignored",
+"files": [
+"worker.js"
+],
+"from": "facts = m ? settlementFacts(JSON.parse(await m.text())) : null;",
+"to": "facts = null;"
+},
+{
+"label": "resume: final bypasses the protocol",
+"files": [
+"worker.js"
+],
+"from": "else await storeBuildResult(env, id, out, \"final\", \"build resume\");",
+"to": "else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));"
+},
+{
+"label": "consumer: final bypasses the protocol",
+"files": [
+"worker.js"
+],
+"from": "else await storeBuildResult(env, id, out, resultKind(out) === \"interim\" ? \"interim\" : \"final\", \"build queue\");",
+"to": "else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));"
+},
+{
+"label": "context: not kept for the resume",
+"files": [
+"worker.js"
+],
+"from": "      if (jobId && contextOut && env.SITES_BUCKET) {",
+"to": "      if (false) {"
+},
+{
+"label": "context: resume ignores the kept facts",
+"files": [
+"worker.js"
+],
+"from": "    const rContext = await keptContextFacts(env, id);",
+"to": "    const rContext = null;"
+},
+{
+"label": "context: recovery ignores the kept facts",
+"files": [
+"worker.js"
+],
+"from": "  const kept = await keptContextFacts(env, id);",
+"to": "  const kept = null;"
+},
+{
+"label": "context: unopened merged into unread",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "const failed = pages.filter((p) => p && !p.ok && p.unopened !== true)",
+"to": "const failed = pages.filter((p) => p && !p.ok)"
+},
+{
+"label": "pictures: a throw guessed as made",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    if (!ok) { out.push({ page, describe, status: \"unknown\"",
+"to": "    if (!ok) { out.push({ page, describe, status: \"made\""
+},
+{
+"label": "pictures: rejection drops the facts",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "          e.pictures = pictureOutcomes(",
+"to": "          e.picturesX = pictureOutcomes("
+},
+{
+"label": "pictures: publish catch drops the facts",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "      if (e && Array.isArray(e.pictures)) out.images.pictures = e.pictures;",
+"to": ""
+},
+{
+"label": "narration: an unavailable writer invents a reply",
+"files": [
+"worker.js"
+],
+"from": ": { ...body, replyState: \"unavailable\", replyWhy: String(out.why || \"send\") };",
+"to": ": withReplyText(body, \"Your site is ready.\");"
+},
+{
+"label": "narration: partial link not told",
+"files": [
+"builder/site-reply.mjs"
+],
+"from": "    else if (x.status === \"partial\") F.add(",
+"to": "    else if (false) F.add("
+},
+{
+"label": "narration: linked text as the request",
+"files": [
+"worker.js"
+],
+"from": "request: ownWords(design && design.brief)",
+"to": "request: design && design.brief"
+},
+{
+"label": "chat: model account ignored",
+"files": [
+"public/chat.js"
+],
+"from": "  if (model) return [model, money].filter(Boolean);",
+"to": ""
+},
+{
+"label": "facts: unwritten dropped",
+"files": [
+"builder/build-answer.mjs"
+],
+"from": "  if (u.length) out.unwritten = u;",
+"to": ""
+},
+{
+"label": "CONTROL: comment only",
+"files": [
+"worker.js"
+],
+"from": " * THE ONE WAY A BUILD'S ANSWER SLOT IS WRITTEN",
+"to": " * THE ONE  WAY A BUILD'S ANSWER SLOT IS WRITTEN"
+}
+]

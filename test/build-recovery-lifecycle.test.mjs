@@ -279,7 +279,14 @@ test("2: a newer authoritative answer — the build's own — is never overwritt
   const own = JSON.stringify({ v: 1, status: 200, type: "application/json", uid: BUILD_USER.id, body: JSON.stringify({ ok: true, page: "app", slug: SLUG }) });
   b.store.set(resultKey(id), own);
   await tick(b, id, led);
-  assert.equal(b.store.get(resultKey(id)), own, "recovery overwrote the build's own answer");
+  // THE BUILD'S OWN FIELDS ARE KEPT; recovery adds only its settlement facts
+  // (2026-10-08, the sixth batch: one rule for every writer).
+  const a = answerOf(b, id);
+  assert.equal(a.body.ok, true, "recovery overwrote the build's own answer");
+  assert.equal(a.body.page, "app");
+  assert.equal(a.body.slug, SLUG);
+  assert.equal(a.body.lost, undefined, "recovery's own answer replaced the build's");
+  assert.equal(a.body.settlement.refunded, 6);
   assert.equal(pending(b, id), false);
 });
 

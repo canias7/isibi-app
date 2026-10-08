@@ -1179,6 +1179,10 @@ export function planImages(pages, budget) {
   return {
     shots: usable.slice(0, lim),
     overflow: usable.length - Math.min(usable.length, lim),
+    // THE OVERFLOW BY NAME (2026-10-08, the sixth batch): the tokens past the
+    // budget, so a picture that was written and never attempted can be told
+    // apart from one that was attempted and failed.
+    extra: usable.slice(lim),
     empty: all.length - usable.length,
   };
 }
@@ -1588,37 +1592,11 @@ export function imageDirective(n) {
  * a site that has no photographs and never asked for any.
  */
 export function imageNote(images) {
-  const base = imageNoteBase(images);
-  const extra = notOfferedNote(images && images.notOffered);
-  return base && extra ? base + " " + extra : base || extra;
-}
-
-/**
- * PICTURES THE SITE ASKED FOR THAT NO WRITER WAS EVER OFFERED (2026-10-08, the
- * content-preservation batch): the designer's list past what one build buys.
- * Each is named by what it shows, with the reason — the per-build cap, a
- * working tool (which buys none), or a site that already has its photographs
- * (a rewrite keeps them rather than buying new ones). "" when there are none.
- */
-export function notOfferedNote(list) {
-  const all = Array.isArray(list) ? list.filter((s) => s && typeof s.describe === "string" && s.describe.trim()) : [];
-  if (!all.length) return "";
-  const said = (xs) => xs.map((s) => "“" + s.describe.trim() + "”").join(", ");
-  const by = (w) => all.filter((s) => s.why === w);
-  const out = [];
-  const cap = by("cap");
-  if (cap.length) {
-    out.push((cap.length === 1 ? "One more picture was asked for than" : cap.length + " more pictures were asked for than") +
-      " one build makes (at most " + IMAGE_CAP + "): " + said(cap) + ". " + (cap.length === 1 ? "It isn't" : "They aren't") +
-      " on the page — ask for " + (cap.length === 1 ? "it" : "them") + " next and I'll add " + (cap.length === 1 ? "it" : "them") + ".");
-  }
-  const kept = by("kept");
-  if (kept.length) out.push("The site already has its photographs, so I kept them rather than buying new ones for " + said(kept) + ".");
-  const tool = by("tool");
-  if (tool.length) out.push("A working tool gets no photographs, so " + said(tool) + (tool.length === 1 ? " wasn't" : " weren't") + " made.");
-  const other = all.filter((s) => s.why !== "cap" && s.why !== "kept" && s.why !== "tool");
-  if (other.length) out.push(said(other) + (other.length === 1 ? " wasn't" : " weren't") + " made in this build.");
-  return out.join(" ");
+  // THE PICTURES' STORY IS TOLD FROM FACTS NOW (2026-10-08, the sixth batch):
+  // the not-offered list rides as data (`images.notOffered`,
+  // `images.pictures`) to the reply writer, and this sentence keeps only the
+  // wording it had before the fifth batch.
+  return imageNoteBase(images);
 }
 
 /**
@@ -1632,6 +1610,74 @@ export function imagesNotOffered(plan, budget, why = "cap") {
   const n = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(budget)) || 0));
   return list.filter((s) => s && typeof s === "object" && !ownShot(s) && String(s.describe || "").trim())
     .slice(n).map((s) => ({ page: String(s.page || "/"), describe: String(s.describe).trim(), why }));
+}
+
+/**
+ * WHAT HAPPENED TO EVERY PICTURE THE PLAN NAMED (2026-10-08, the sixth
+ * batch), from what was recorded and nothing else — one entry each:
+ *   own            the customer's own photograph (placement is not claimed)
+ *   not-offered    past what one build buys, never offered to a writer (`why`)
+ *   made           offered, written, and bought
+ *   failed         offered, written, attempted, and not bought
+ *   not-attempted  offered and written, but past what the purchase could
+ *                  afford (`why`: library, time or budget)
+ *   not-placed     offered, and the writer wrote no picture for it
+ *   unknown        offered, and the purchase threw before it said anything —
+ *                  never guessed into made or failed
+ * Built from the plan's list, the budget, the not-offered list (known before
+ * any purchase) and the purchase's own return (`attempted`, `notTried`,
+ * `bought`) — or `thrown` when there is none.
+ */
+export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thrown = "" } = {}) {
+  const list = plan && Array.isArray(plan.images) ? plan.images.filter((s) => s && typeof s === "object" && String(s.describe || "").trim()) : [];
+  if (!list.length) return [];
+  const n = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(budget)) || 0));
+  const out = [];
+  for (const s of list.filter(ownShot)) out.push({ page: String(s.page || "/"), describe: String(s.describe).trim(), status: "own" });
+  const offered = list.filter((s) => !ownShot(s)).slice(0, n);
+  const ok = buy && typeof buy === "object" && !thrown;
+  const keys = (xs) => new Set((Array.isArray(xs) ? xs : []).map((x) => (typeof x === "string" ? x : x && x.key)).filter((x) => typeof x === "string"));
+  const bought = ok ? keys(buy.bought) : new Set();
+  const attempted = ok ? keys(buy.attempted) : new Set();
+  const notTried = ok ? keys(buy.notTried) : new Set();
+  for (const s of offered) {
+    const page = String(s.page || "/");
+    const describe = String(s.describe).trim();
+    const k = shotKey(describe);
+    if (!ok) { out.push({ page, describe, status: "unknown", why: thrown ? "purchase-error" : "no-record" }); continue; }
+    if (bought.has(k)) out.push({ page, describe, status: "made" });
+    else if (attempted.has(k)) out.push({ page, describe, status: "failed" });
+    else if (notTried.has(k)) out.push({ page, describe, status: "not-attempted", why: buy.full ? "library" : buy.slow ? "time" : "budget" });
+    else out.push({ page, describe, status: "not-placed" });
+  }
+  for (const s of Array.isArray(notOffered) ? notOffered : []) {
+    if (s && typeof s.describe === "string") out.push({ page: String(s.page || "/"), describe: s.describe, status: "not-offered", why: String(s.why || "cap") });
+  }
+  return out;
+}
+
+/**
+ * THE PURCHASE, WITH ITS PICTURE FACTS EITHER WAY IT ENDS (2026-10-08, the
+ * sixth batch). `bought` is the purchase's promise. Resolved: its return,
+ * plus the not-offered list and `pictures` from what it recorded. Rejected:
+ * the same error, carrying the not-offered list and `pictures` from what was
+ * known before it — so a throw never erases which pictures were planned and
+ * why the rest were never offered, and the ones it was buying read
+ * `unknown`, never made or failed.
+ */
+export function withPictureFacts(bought, { plan, budget, notOffered = [] } = {}) {
+  const extra = Array.isArray(notOffered) && notOffered.length ? { notOffered } : {};
+  return Promise.resolve(bought).then(
+    (r) => (r && typeof r === "object" ? { ...r, ...extra, pictures: pictureOutcomes({ plan, budget, notOffered, buy: r }) } : r),
+    (e) => {
+      try {
+        if (e && typeof e === "object") {
+          e.notOffered = Array.isArray(notOffered) ? notOffered : [];
+          e.pictures = pictureOutcomes({ plan, budget, notOffered, thrown: String((e && e.message) || e) || "error" });
+        }
+      } catch { /* the facts never cost the throw */ }
+      throw e;
+    });
 }
 
 /** Why a build's picture budget stops where it does: "kept", "tool" or "cap" — the three rules `budgetFor` applies. */

@@ -440,7 +440,8 @@ test("the consumer claims after the object, beats while it works, hands its name
   assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\) \}\)/, "the consumer's lease name does not reach the build");
   assert.match(fn, /\} finally \{\s+if \(rowBeat\) clearInterval\(rowBeat\);\s+\}/, "the beat is not cleared in a finally");
   // THE CLOSE COMES AFTER THE RESULT IS WRITTEN, and reads the outcome off it.
-  const put = fn.indexOf("SITES_BUCKET.put(resultKey(id)");
+  // THROUGH THE ONE DELIVERY RULE SINCE 2026-10-08 (`storeBuildResult`).
+  const put = fn.indexOf("await storeBuildResult(env, id, out,");
   const closeAt = fn.indexOf("await closeBuildRow(env, id, buildOutcome(out.status, payload)");
   assert.ok(put > 0 && closeAt > put, "the row is closed before the answer is written — a poll could read `done` for a build still writing");
   assert.match(fn, /if \(row\.row\) \{/, "the close is not gated on a row existing");
@@ -503,7 +504,7 @@ test("the collector claims or takes the lease over by name after the wait branch
   assert.match(resume, /const rowBeat = lease \? buildRowBeat\(env, id, lease\) : null;/);
   assert.match(resume, /\} finally \{\s+if \(rowBeat\) clearInterval\(rowBeat\);\s+\}/, "the collector's beat is not cleared in a finally");
   assert.match(resume, /await recordRefire\(env, id, claimed, stored, pages\.resume, decision, tr, rec, lease\);/, "a refire is not handed the lease to move");
-  const put = resume.indexOf("SITES_BUCKET.put(resultKey(id)");
+  const put = resume.indexOf("await storeBuildResult(env, id, out,");
   const closeAt = resume.indexOf("await closeBuildRow(env, id, buildOutcome(out.status, payload)");
   assert.ok(put > 0 && closeAt > put, "the collector closes the row before its answer is written");
   // THE REFIRE'S HANDOFF: after the record, before the message, gated on the lease.

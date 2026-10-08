@@ -385,8 +385,14 @@ export function contextSummary({ pages = [], facts = "", sources = [], searches 
     // A PAGE THE SHARED ALLOWANCE CUT says how much it kept of how much.
     ...(Number.isFinite(p.kept) ? { kept: p.kept, chars: p.chars } : {}),
   }));
-  const failed = pages.filter((p) => p && !p.ok).map((p) => ({ url: p.url, reason: p.reason || "we couldn't read it" }));
+  // A LINK NEVER OPENED IS NOT A LINK THAT FAILED (2026-10-08, the sixth
+  // batch): `failed` is a link we tried and could not read; `unopened` is one
+  // past the opening bound, never tried. They stay apart all the way to the
+  // facts the reply is written from.
+  const failed = pages.filter((p) => p && !p.ok && p.unopened !== true).map((p) => ({ url: p.url, reason: p.reason || "we couldn't read it" }));
+  const unopened = pages.filter((p) => p && !p.ok && p.unopened === true).map((p) => ({ url: p.url, reason: p.reason || "" }));
   const out = { read, failed, searched: !!searches, searches: searches || 0 };
+  if (unopened.length) out.unopened = unopened;
   // RESEARCH THAT PRODUCED NO FACTS IS A FAILURE, however many searches ran.
   //
   // The discriminator is the FACTS, and a first draft keyed on the searches —
@@ -420,6 +426,33 @@ export function contextSummary({ pages = [], facts = "", sources = [], searches 
 }
 
 /**
+ * WHAT HAPPENED TO EVERY SOURCE, AS FACTS (2026-10-08, the sixth batch): one
+ * entry per link, in four states that never blur —
+ *   used      read, and its text reached the designer whole
+ *   partial   read, and only `kept` of its `chars` characters reached it (the
+ *             shared allowance, `MAX_LINKED_CHARS`)
+ *   unread    tried and not read, with the reason
+ *   unopened  past the opening bound, never tried
+ * — and whether a web lookup was wanted and produced facts. This, not a
+ * sentence, is what travels with a queued build (`jobs/<id>.context.json`)
+ * and what the reply is written from. Null when there is nothing to say.
+ */
+export function contextFacts(summary) {
+  const s = summary && typeof summary === "object" ? summary : null;
+  if (!s) return null;
+  const sources = [
+    ...(s.read || []).map((p) => Number.isFinite(p.kept)
+      ? { url: p.url, status: "partial", kept: p.kept, chars: p.chars, allowance: MAX_LINKED_CHARS }
+      : { url: p.url, status: "used" }),
+    ...(s.failed || []).map((p) => ({ url: p.url, status: "unread", reason: p.reason })),
+    ...(s.unopened || []).map((p) => ({ url: p.url, status: "unopened", reason: p.reason })),
+  ];
+  const research = s.searched || s.searchFailed ? { found: !s.searchFailed, searches: s.searches || 0 } : null;
+  if (!sources.length && !research) return null;
+  return { sources, ...(research ? { research } : {}) };
+}
+
+/**
  * The same thing as a sentence for the chat thread.
  *
  * Empty when nothing was read and nothing was searched, so an ordinary build
@@ -432,12 +465,6 @@ export function contextSentence(summary) {
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u); } };
   const bits = [];
   if (summary.read && summary.read.length) bits.push("Read " + summary.read.map((p) => host(p.url)).join(" and ") + ".");
-  const cut = (summary.read || []).filter((p) => p && Number.isFinite(p.kept));
-  if (cut.length) {
-    const n = (x) => Number(x).toLocaleString("en-US");
-    bits.push(cut.map((p) => "Used only the first " + n(p.kept) + " of " + n(p.chars) + " characters of " + host(p.url)).join("; ") +
-      " — the linked pages carry at most " + n(MAX_LINKED_CHARS) + " in all.");
-  }
   if (summary.failed && summary.failed.length) {
     bits.push(summary.failed.map((p) => "Couldn't read " + host(p.url) + " — " + p.reason).join("; ") +
       ", so I built from your description instead.");

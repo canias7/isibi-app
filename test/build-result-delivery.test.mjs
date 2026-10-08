@@ -223,7 +223,12 @@ test("2: a final answer stored before recovery runs is kept, never replaced, and
   const final = b.store.get(resultKey(id));
   assert.equal(answerOf(b, id).kind, "terminal");
   for (let t = 0; t < 2; t++) await tick(b, id, led);
-  assert.equal(b.store.get(resultKey(id)), final);
+  // KEPT, AND GIVEN THE SETTLEMENT FACTS (2026-10-08, the sixth batch): every
+  // field the build wrote is unchanged; the refund recovery recorded is added.
+  const was = JSON.parse(readResult(JSON.parse(final)).body);
+  const now = answerOf(b, id);
+  for (const [k, v] of Object.entries(was)) if (k !== "refunded" && k !== "refundShort") assert.deepEqual(now.body[k], v, k);
+  assert.ok(settled6(now));
   assert.equal(settlement(b, id).deliveredAs, "build");
   assert.equal(pending(b, id), false);
 });
@@ -269,4 +274,121 @@ test("2: delivery's conditional write is refused every time (a slot that keeps m
   assert.equal(answerOf(b, id).kind, "recovery");
   assert.equal(pending(b, id), false);
   assert.equal(refundsBy(led, "lost"), 3);
+});
+
+// ── 3: one protocol for every writer — either order ends the same ──────────
+//
+// Codex's review of `366dc581`: the real resume held immediately before its
+// final write, recovery allowed to finish (refund of 6, deliveredAs
+// "recovery"), then the resume released — its unconditional write replaced
+// recovery's answer and the refund with it, and later ticks left it. Now every
+// writer applies one rule (`nextResult`) and writes conditionally: the build's
+// final answer is the authority on publication, recovery's record on money,
+// and the slot ends holding both, whichever wrote first.
+
+const settled6 = (a) => a && a.body && a.body.settlement && a.body.settlement.refunded === 6 && a.body.refunded === 6;
+
+test("3 (Codex's order): the resume held before its final write, recovery finishes first, the resume released — the final answer keeps the refund; later ticks agree and move no money", async () => {
+  const id = newId();
+  const b = buildBucket();
+  const led = ledger();
+  await fireInterim(b, id, led);
+  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
+  const resumeRun = finishResume(b, id, led);
+  await resumeWrite.reached;
+  await tick(b, id, led);
+  assert.equal(answerOf(b, id).kind, "recovery");
+  assert.equal(settlement(b, id).deliveredAs, "recovery");
+  resumeWrite.release();
+  await resumeRun;
+  const a = answerOf(b, id);
+  assert.equal(a.kind, "terminal", "the build's final answer did not land: " + JSON.stringify(a.body).slice(0, 200));
+  assert.equal(a.body.resumed, "finish");
+  assert.ok(settled6(a), "the final answer dropped the recorded refund: " + JSON.stringify(a.body.settlement || null));
+  const before = led.calls.length;
+  const after = b.store.get(resultKey(id));
+  for (let t = 0; t < 2; t++) await tick(b, id, led);
+  assert.equal(led.calls.length, before, "a later tick asked for money again");
+  assert.equal(b.store.get(resultKey(id)), after, "a later tick changed a consistent answer");
+});
+
+test("3 (the other order): the resume past its check, recovery held at its write, the final lands first — recovery's write is refused, re-judged, and adds its refund to the final answer", async () => {
+  const id = newId();
+  const b = buildBucket();
+  const led = ledger();
+  await fireInterim(b, id, led);
+  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
+  const resumeRun = finishResume(b, id, led);
+  await resumeWrite.reached;
+  const deliveryWrite = hold(b, isRecoveryAnswer(id));
+  const tickRun = tick(b, id, led);
+  await deliveryWrite.reached;
+  resumeWrite.release();
+  await resumeRun;
+  deliveryWrite.release();
+  await tickRun;
+  const a = answerOf(b, id);
+  assert.equal(a.kind, "terminal");
+  assert.equal(a.body.resumed, "finish");
+  assert.ok(settled6(a), "the final answer lacks the refund: " + JSON.stringify(a.body.settlement || null));
+  assert.equal(settlement(b, id).deliveredAs, "build");
+  assert.equal(pending(b, id), false);
+});
+
+test("3 CONTROL: recovery claimed the outcome before the resume's check — the late resume writes nothing, and recovery's answer with its refund stands", async () => {
+  const id = newId();
+  const b = buildBucket();
+  const led = ledger();
+  await fireInterim(b, id, led);
+  await tick(b, id, led);
+  await finishResume(b, id, led);
+  const a = answerOf(b, id);
+  assert.equal(a.kind, "recovery");
+  assert.equal(a.body.refunded, 6);
+});
+
+test("3: a closed browser and a final answer stored before recovery — recovery adds its settlement facts to it once, keeps every field the build wrote, and is idle after", async () => {
+  const id = newId();
+  const b = buildBucket();
+  const led = ledger();
+  await fireInterim(b, id, led);
+  await finishResume(b, id, led);
+  const own = JSON.parse(readResult(JSON.parse(b.store.get(resultKey(id)))).body);
+  await tick(b, id, led);
+  const a = answerOf(b, id);
+  for (const [k, v] of Object.entries(own)) if (k !== "refunded" && k !== "refundShort") assert.deepEqual(a.body[k], v, "the build's own field " + k + " changed");
+  assert.ok(settled6(a));
+  const once = b.store.get(resultKey(id));
+  await tick(b, id, led);
+  assert.equal(b.store.get(resultKey(id)), once);
+});
+
+test("3: the queue consumer's own final answer (a build that ended before firing) racing recovery — either order ends with the answer and the refund", async () => {
+  for (const order of ["consumer-held", "recovery-held"]) {
+    const id = newId();
+    const b = buildBucket();
+    const led = ledger();
+    if (order === "consumer-held") {
+      const w = hold(b, (k, v) => k === resultKey(id) && !String(v).includes('\\"lost\\":true'));
+      const run = fireInterim(b, id, led, { design: null });
+      await w.reached;
+      await tick(b, id, led);
+      w.release();
+      await run;
+    } else {
+      const w = hold(b, isRecoveryAnswer(id));
+      // the consumer's terminal answer must exist before recovery's write lands
+      const t = (async () => { await new Promise((r) => setTimeout(r, 0)); })();
+      await fireInterim(b, id, led, { design: null });
+      const tickRun = tick(b, id, led);
+      await Promise.race([w.reached, tickRun]);
+      w.release();
+      await tickRun;
+      await t;
+    }
+    const a = answerOf(b, id);
+    assert.equal(a.kind, "terminal", order + ": " + JSON.stringify(a.body).slice(0, 200));
+    assert.equal(a.body.settlement && a.body.settlement.outcome, "not-published", order);
+    assert.equal(a.body.settlement.recovered, true, order);
+  }
 });

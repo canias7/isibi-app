@@ -9248,6 +9248,61 @@ function buildWhy(d) {
   return out.join('\n');
 }
 
+// ── A BUILD'S OUTCOME, AS THE SERVER RECORDED IT (2026-10-08) ─────────────
+//
+// `buildFacts` is decided on the server; `reply` (`replySource: "model"`) is
+// the reply writer's account of it. When that account could not be written
+// (`replyState: "unavailable"`), the page says so in one fixed line and shows
+// the facts themselves — terse labels over the server's own fields, not an
+// explanation composed here. Null when the answer carries neither.
+function buildToldLines(d) {
+  if (!d || typeof d !== 'object') return null;
+  const model = (typeof EditPoll !== 'undefined' && EditPoll.modelReply) ? EditPoll.modelReply(d) : '';
+  const money = settlementLine(d.settlement || (d.buildFacts && d.buildFacts.settlement));
+  if (model) return [model, money].filter(Boolean);
+  if (!d.buildFacts) return money ? [money] : null;
+  const lines = buildFactLines(d.buildFacts);
+  if (!lines.length) return money ? [money] : null;
+  return ["I couldn't write up this build's details just now. What was recorded:", ...lines, money].filter(Boolean);
+}
+function settlementLine(st) {
+  if (!st || typeof st !== 'object') return '';
+  if (st.outcome === 'published') return 'Recovered: the site went live; nothing was refunded.';
+  if (st.short) return 'Refund: still being returned.';
+  return 'Refund: ' + (Number(st.refunded) || 0) + ' credit' + (Number(st.refunded) === 1 ? '' : 's') + ' returned.';
+}
+function buildFactLines(f) {
+  const out = [];
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return String(u); } };
+  const q = (x) => '“' + String(x.describe) + '”';
+  const pics = Array.isArray(f.pictures) ? f.pictures : [];
+  const group = (st, label, by) => {
+    const xs = pics.filter((x) => x && x.status === st);
+    if (!xs.length) return;
+    if (!by) { out.push(label + ': ' + xs.map(q).join(', ')); return; }
+    const whys = Array.from(new Set(xs.map((x) => x.why || '')));
+    for (const w of whys) out.push(label + ' (' + (by[w] || w || 'no reason recorded') + '): ' + xs.filter((x) => (x.why || '') === w).map(q).join(', '));
+  };
+  group('made', 'Pictures made');
+  group('own', 'Your own photos, handed to the page writer');
+  group('failed', 'Pictures tried, not returned');
+  group('not-attempted', 'Pictures not tried', { library: 'image library full', time: 'out of time', budget: 'credits left' });
+  group('not-placed', 'Pictures not placed by the page writer');
+  group('not-offered', 'Pictures not offered', { cap: 'at most 6 per build', tool: 'a working tool gets none', kept: 'existing photographs kept' });
+  group('unknown', 'Pictures, outcome unknown (the purchase failed)');
+  for (const x of Array.isArray(f.sources) ? f.sources : []) {
+    if (!x || !x.url) continue;
+    if (x.status === 'used') out.push('Link used: ' + host(x.url));
+    else if (x.status === 'partial') out.push('Link partly used: ' + host(x.url) + ' (first ' + x.kept + ' of ' + x.chars + ' characters)');
+    else if (x.status === 'unread') out.push('Link not read: ' + host(x.url) + (x.reason ? ' (' + x.reason + ')' : ''));
+    else if (x.status === 'unopened') out.push('Link not opened: ' + host(x.url) + (x.reason ? ' (' + x.reason + ')' : ''));
+  }
+  if (f.research) out.push('Web lookup: ' + (f.research.found ? 'used' : 'found nothing usable'));
+  for (const u of Array.isArray(f.unwritten) ? f.unwritten : []) if (u && u.section) out.push('Section left out: “' + u.section + '”');
+  for (const p of Array.isArray(f.salvaged) ? f.salvaged : []) out.push('Page showing a stand-in: ' + String(p).replace(/\.tsx$/i, ''));
+  return out;
+}
+
 function siteFinishBuild(origin, reply, build, note, why) {
   siteBusy = false; siteBuildStop();
   const s = siteById(origin); if (!s) return;
@@ -13644,9 +13699,6 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
         // W3): the home page, or one another page still links to. It stays,
         // and this says which and why.
         (d && typeof d.keptNote === 'string') ? d.keptNote.trim() : '',
-        // A SECTION NO WRITER COULD WRITE (2026-10-08): it is published as an
-        // empty part, and this names it in the customer's own plan words.
-        (d && typeof d.unwrittenNote === 'string') ? d.unwrittenNote.trim() : '',
         // AND WHAT THE FINISHED PAGES ACTUALLY LOOK LIKE. The one check in the
         // whole build path that opens the site in a browser — every other one is
         // textual, so a page that renders blank, throws on load or paints text
@@ -13655,6 +13707,16 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
         // look", never "we stopped".
         (d && typeof d.renderNote === 'string') ? d.renderNote.trim() : '',
       ].filter(Boolean).join('\n');
+      // TOLD BY THE REPLY WRITER WHEN IT COULD BE (2026-10-08, the sixth batch):
+      // the links, the pictures, a page shown as a stand-in and a section left
+      // out come from the server's facts (`buildFacts`) — written up by the
+      // model (`reply`), or, when that could not be done, a fixed outage line
+      // and the recorded facts as they are. In place of the old sentences for
+      // those four, never beside them; the other notes stay as they are.
+      const told = buildToldLines(d);
+      const noteShown = told
+        ? [...told, ...['tokensNote', 'styleNote', 'cssNote', 'keptNote', 'renderNote'].map((k) => (d && typeof d[k] === 'string') ? d[k].trim() : '')].filter(Boolean).join('\n')
+        : note;
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always
       // discarded — `notes` came back on every response and nothing rendered it,
       // so we paid for prose nobody read. Falls back to the canned line when the
@@ -13678,7 +13740,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       const reply = firedJob
         ? '⏳ ' + ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
         : (built ? '✅ ' : '⚠️ ') + (said || canned);
-      siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, note, buildWhy(d));
+      siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       // THE SERVER'S OWN SENTENCE WINS, because on the picker-floor refusal it
       // names the FREE way out and this one does not. `buildFloor` answers with

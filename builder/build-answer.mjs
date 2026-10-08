@@ -163,10 +163,9 @@ export function pageNotes(pages) {
   // itself, so the customer hears which page stayed and why.
   const kept = typeof p.keptNote === "string" && p.keptNote ? p.keptNote : "";
   if (kept) out.keptNote = kept;
-  // A SECTION NO WRITER COULD WRITE (2026-10-08, P2): composed by
-  // `publishPages` from the band fan-out's own refusals.
-  const unwritten = typeof p.unwrittenNote === "string" && p.unwrittenNote ? p.unwrittenNote : "";
-  if (unwritten) out.unwrittenNote = unwritten;
+  // A SECTION NO WRITER COULD WRITE (2026-10-08, P2): the fact, from the
+  // band fan-out's own refusals; the reply writer tells it.
+  if (Array.isArray(p.unwritten) && p.unwritten.length) out.unwritten = p.unwritten;
   return out;
 }
 
@@ -174,4 +173,26 @@ export function pageNotes(pages) {
  * The note fields this composes, named so a guard can compare both answers
  * without keeping its own list.
  */
-export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote", "unwrittenNote"];
+export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote"];
+
+/**
+ * EVERYTHING ABOUT A BUILD'S OUTCOME THE CUSTOMER SHOULD HEAR, AS DATA
+ * (2026-10-08, the sixth batch): the pictures (`pictureOutcomes`), the
+ * sources (`contextFacts`), the sections no writer could write, the pages
+ * shown as stand-ins, and recovery's settlement. Decided by code; the reply
+ * writer tells it (`buildReplyFacts`), and when it cannot, the page shows a
+ * fixed outage line with these facts kept. Null when there is nothing.
+ */
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null } = {}) {
+  const out = {};
+  const pictures = images && Array.isArray(images.pictures) ? images.pictures : [];
+  if (pictures.length) out.pictures = pictures;
+  if (context && Array.isArray(context.sources) && context.sources.length) out.sources = context.sources;
+  if (context && context.research && typeof context.research === "object") out.research = context.research;
+  const u = (Array.isArray(unwritten) ? unwritten : []).filter((x) => x && typeof x.section === "string" && x.section.trim()).map((x) => ({ section: x.section }));
+  if (u.length) out.unwritten = u;
+  const sv = (Array.isArray(salvaged) ? salvaged : []).map((x) => String(x)).filter(Boolean);
+  if (sv.length) out.salvaged = sv;
+  if (settlement && typeof settlement === "object") out.settlement = settlement;
+  return Object.keys(out).length ? out : null;
+}

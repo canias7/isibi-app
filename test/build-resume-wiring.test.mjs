@@ -833,7 +833,13 @@ test("BOTH ENDS OF THE RESUME NAME THE BRANCH, not just the one that worked", ()
     packs.push(body.slice(i, close(body, i + "packResult".length)));
   }
   assert.ok(packs.length >= 2, `the resume packs ${packs.length} results — one of the two outcomes is gone`);
+  // THE SUCCESS ANSWER IS COMPOSED AS `rBody` AND TOLD BEFORE IT IS PACKED
+  // (2026-10-08, the sixth batch): its pack names that object, which carries
+  // the branch.
+  const rBodyAt = body.indexOf("const rBody = {");
+  const rBody = rBodyAt > 0 ? body.slice(rBodyAt, body.indexOf("};", rBodyAt)) : "";
   for (const p of packs) {
+    if (/narrateBuild\(env, rBody,/.test(p)) { assert.match(rBody, /resumed: decision\.act/, "the told answer does not name its branch"); continue; }
     assert.match(p, /resumed: decision\.act/,
       "a resume outcome does not say which terminal branch produced it — the one fact that separates a replayed answer from a Worker-side retry that hit the ceiling");
   }

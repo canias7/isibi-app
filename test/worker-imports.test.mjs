@@ -864,8 +864,12 @@ test("the build response reads only fields the build RESULT carries", () => {
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf("        cost: schemaCost + pages.cost,");
   assert.ok(at > 0, "the build response literal moved — rescope this");
-  const start = w.lastIndexOf("return Response.json({", at);
-  const end = w.indexOf("\n      });", at);
+  // TOLD BY THE REPLY WRITER SINCE 2026-10-08 (the sixth batch): the literal
+  // is handed to `narrateBuild` inside the `Response.json(...)`.
+  const start = Math.max(w.lastIndexOf("return Response.json({", at), w.lastIndexOf("return Response.json(await narrateBuild(env, {", at));
+  // …and it closes on the reply writer's own options since then.
+  const ends = [w.indexOf("\n      });", at), w.indexOf("\n      }, { picker: models.picker", at)].filter((i) => i > 0);
+  const end = Math.min(...ends);
   assert.ok(start > 0 && end > start, "the response literal scan lost its bounds");
   // Comments blanked first: this file states its reasoning between the lines,
   // and prose about a variable spells that variable.

@@ -129,6 +129,19 @@ export function readJobMeta(raw) {
   return { fenced: raw.fenced };
 }
 
+/**
+ * WHAT A QUEUED BUILD READ, KEPT FOR WHOEVER FINISHES IT (2026-10-08, the
+ * sixth batch): the structured context facts (`contextFacts`) — which links
+ * were used, partly used, unread or never opened, and whether research found
+ * anything. Written by the build before its generation is handed to the
+ * container, read by the resume, a refire and recovery, none of which can
+ * see the linked pages again. No credential, no page text.
+ */
+export function contextKey(id) {
+  if (!isJobId(id)) throw new Error("build-job: refusing to build a key from an id we did not mint");
+  return `${JOB_PREFIX}${id}.context.json`;
+}
+
 export function resultKey(id) {
   if (!isJobId(id)) throw new Error("build-job: refusing to build a key from an id we did not mint");
   return `${JOB_PREFIX}${id}.result.json`;
@@ -260,6 +273,93 @@ export function resultKind(raw) {
   // it is an answered build there, and is here.
   if (body.stage === "resuming") return "interim";
   return "terminal";
+}
+
+/**
+ * THE SETTLEMENT FACTS A LOST BUILD'S RECOVERY RECORDED, as they ride on an
+ * answer (2026-10-08, Codex's review of `366dc581`). From the settlement
+ * record (`jobs/<id>.lost.json`) alone: the outcome recovery decided from the
+ * fence and the pointer, why, what came back, and whether the return is
+ * still short. Null when there is no decided settlement to carry.
+ */
+export function settlementFacts(mark) {
+  const m = mark && typeof mark === "object" && !Array.isArray(mark) ? mark : null;
+  if (!m || (m.outcome !== "published" && m.outcome !== "not-published")) return null;
+  return {
+    recovered: true,
+    outcome: m.outcome,
+    why: typeof m.why === "string" ? m.why : "",
+    refunded: Math.max(0, Number(m.returned) || 0),
+    short: m.short === true,
+  };
+}
+
+const sameFacts = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+
+/**
+ * A stored answer with the settlement facts on it: the body keeps every field
+ * the writer gave it, and gains `settlement` (and, for a build that did not
+ * publish, the `refunded` / `refundShort` the chat already reads). The facts
+ * never replace what the answer says about publication — the build's own
+ * terminal answer is authoritative for that; recovery's record is
+ * authoritative for the money.
+ */
+export function withSettlement(stored, facts) {
+  const r = readResult(stored);
+  if (!r || !facts) return stored;
+  let body;
+  try { body = JSON.parse(r.body); } catch { return stored; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return stored;
+  const next = { ...body, settlement: facts };
+  if (facts.outcome === "not-published") {
+    next.refunded = facts.refunded;
+    if (facts.short) next.refundShort = true; else delete next.refundShort;
+  }
+  return { ...stored, body: JSON.stringify(next) };
+}
+
+/**
+ * ONE DELIVERY RULE FOR EVERY WRITER OF A BUILD'S ANSWER SLOT (2026-10-08,
+ * Codex's review of `366dc581`: the resume's unconditional final write
+ * replaced recovery's answer and its refund, in the ordering the previous
+ * batch did not cover). Given what is in the slot now, what this writer
+ * brings, its role, and the settlement facts recovery has recorded (or
+ * null), answers what the slot should hold next — or null to leave it:
+ *
+ *   interim   a "still building" answer: only into an empty slot or over
+ *             another interim one; never over an outcome
+ *   final     the build's own terminal answer: it is the authority on what
+ *             was published, so it replaces anything — carrying the recorded
+ *             settlement facts, so the refund survives whichever wrote first
+ *   recovery  recovery's answer: over anything but a terminal one; a terminal
+ *             answer is kept and only gains the settlement facts it lacks
+ *
+ * Pure, so every writer applies the same decision; each writer then puts the
+ * result conditionally on what it read, and a refused put reads and decides
+ * again. In either order the slot ends as: the build's terminal answer with
+ * recovery's settlement facts, or recovery's answer when no terminal one
+ * ever came.
+ */
+export function nextResult(cur, incoming, role, facts = null) {
+  const kind = cur ? resultKind(cur) : "nothing";
+  if (role === "interim") {
+    if (kind !== "nothing" && kind !== "interim") return { next: null, as: "kept" };
+    return { next: incoming, as: "interim" };
+  }
+  if (role === "final") {
+    return { next: facts ? withSettlement(incoming, facts) : incoming, as: "build" };
+  }
+  if (role === "recovery") {
+    if (kind === "terminal") {
+      if (!facts) return { next: null, as: "build" };
+      let have = null;
+      try { have = JSON.parse(readResult(cur).body).settlement || null; } catch { have = null; }
+      return { next: sameFacts(have, facts) ? null : withSettlement(cur, facts), as: "build" };
+    }
+    if (kind === "recovery" && cur && sameFacts(cur, incoming)) return { next: null, as: "recovery" };
+    return { next: incoming, as: "recovery" };
+  }
+  throw new Error("nextResult: unknown role " + String(role));
 }
 
 /**
