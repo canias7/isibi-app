@@ -61,7 +61,7 @@ is in git; the dated entries further down are the full story.*
     chain verified, the later read settled at 4.
   - **Checks**: red check 7 of 8 failing on `64148e83`'s code (the clean
     chain is the control); sweep 13 of 13; canary files 508 of 508; full
-    suite **9918 of 9918**. Unit CI: below once read.
+    suite **9918 of 9918**. Unit CI green: run 37723761994 on `5ff16a6f`, 9918 tests, 9896 pass, 0 fail, 22 skipped (the totals match). Only scripts, tests and docs changed, so no site build ran and no image moves.
 - **Not verified by this**:
   - run 107's unsent third message as its own press (run 107 stays failed);
   - the unreleased reply corrections (`2506e43b`, `eaa516e7`, not deployed);
