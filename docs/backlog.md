@@ -20,11 +20,10 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **The canary's money check counts a continued request's earlier jobs as
-  this press's** (2026-10-08, run 109): it summed routing 3 + jobs 6 = 9
-  against a balance move of 4, because jobs 6 included run 107's two charged
-  jobs on the same request. The ledger shows 4 (rows 408 and 409). The
-  late-money snapshot then went unread. In full below.
+- **The canary's attribution on a continued request** (2026-10-08, run 109):
+  it counted run 107's jobs as its own (9 against a move of 4) and left run
+  107's publish last (the wait pointed backward). **Fixed on the branch in
+  `a0cbc473`**, awaiting your review. In full below.
 - **Run 107's three findings** (2026-10-07, `lv-combined` on deploy 2188):
   the bound and the reply are **fixed on the branch** (2026-10-08, not
   deployed); the 3-credit routing of every later part is **investigated, still
@@ -936,20 +935,29 @@ here; take a closed one out of both.**
     lists the jobs of the press that began it, so run 107's two charged jobs
     on request `475d4ff7…` (`08b84314…` −2 and the routing job `bd79395e…`
     −3) were counted again. It printed routing 3 + jobs 6 = 9 against a
-    balance move of 4, failed, and so never read the snapshot that settles
-    the late money ("UNSETTLED").
+    balance move of 4 and failed. The caller did fetch the later rows, but
+    the later verdict short-circuited on the invalid snapshot and printed
+    "UNSETTLED" without them (corrected 2026-10-08).
   - **What the ledger shows**: this press made exactly two rows. Row 408 is
     the answer's routing (−3) and row 409 is the footer job `90bc2b2d…`
     (−1). That is 15 → 11, one row per charged job, nothing after 03:14:40,
     read again at 03:21:27, and no duplicate.
-  - **The fix, when the owner wants it**: count only jobs created after this
-    press's first send (or not in the request's job list before it), and
-    read the late-money snapshot even after a failed check. It is a canary
-    change, not a product one.
-  - **Also seen in the same run, an instrument note**: the publish chain
-    read "UNVERIFIED (parent-mismatch)". The after-read named the before
-    version, while the served pages were already at `09n7s1` (published
-    from `f821gr`). The served-page checks passed.
+  - **The same history contaminated the publish list**: run 107's publish
+    `f821gr` was left last, so the wait target and the parent check pointed
+    backward ("UNVERIFIED (parent-mismatch)"). The served pages were already
+    at `09n7s1`, and the served-page checks passed.
+  - **Fixed on the branch, `a0cbc473`** (Codex's review of `64148e83`):
+    - the request's jobs at the gate before Send are the baseline;
+    - this press's activity is what the request gained after it, and the
+      same attribution feeds the charges, the publishes and the wait
+      target;
+    - the later read uses every job and keeps its rows when the snapshot
+      failed;
+    - duplicates under an earlier job are caught.
+
+    Replayed offline from run 109's evidence: 4 credits, chain verified.
+    `docs/history/2026-10-08-run107-followup.md` §13. Open until your review;
+    no rerun.
 
 - **RUN 107'S THREE FINDINGS (2026-10-07, `lv-combined`, deploy 2188;
   `docs/history/2026-10-07-combined-release.md` §4.4).**

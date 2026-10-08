@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the TikTok continuation ran: run 109 resumed the right part and published the link; 4 credits; one red check is the canary's own accounting)
+## Current handoff — read this first (2026-10-08, run 109's canary attribution corrected offline in `a0cbc473`; the first-Build audit next)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -39,11 +39,29 @@ is in git; the dated entries further down are the full story.*
   - **money, 4 credits** (estimate 2–5): routing −3 (row 408) and the
     footer job −1 (row 409). That is 15 → 11, no later row after 7 minutes,
     no duplicate, no open job.
-- **Why run 109 shows red**: one check, "this press's own charges add up",
-  summed 3 + 6 = 9. It counted run 107's two charged jobs on the same
-  request as this press's, and having failed it skipped its late-money
-  read. The ledger above settles both. This is a canary defect, now in
-  `docs/backlog.md`; no rerun.
+- **Why run 109 shows red** (its original verdict, kept as printed): "this
+  press's own charges add up" summed 3 + 6 = 9. It counted run 107's two
+  charged jobs on the same request as this press's, and run 107's publish
+  left last pointed the wait backward. The caller did fetch the later rows;
+  the later verdict short-circuited on the invalid snapshot (corrected
+  wording; the earlier note said the read was skipped).
+- **Corrected in the canary, `a0cbc473`** (Codex's review of `64148e83`, no
+  product code):
+  - the request's jobs at the gate before Send are the baseline, and this
+    press's activity is what the request gained after it;
+  - the same attribution feeds the charges, the publishes and the wait
+    target (the end of the chain);
+  - an earlier job charged again fails the money;
+  - the later read uses every job (`parts[].ids`) and this press's own
+    routing refs, and keeps its rows when the snapshot fails.
+- **Tests**: 8 new cases (`test/canary-continuation.test.mjs`).
+  - **Run 109 replayed offline** from its transcribed evidence: live 9 and
+    `parent-mismatch` reproduced as printed; corrected, **4 credits**
+    (routing 3 + footer job 1, nothing else), one publish `09n7s1`, the
+    chain verified, the later read settled at 4.
+  - **Checks**: red check 7 of 8 failing on `64148e83`'s code (the clean
+    chain is the control); sweep 13 of 13; canary files 508 of 508; full
+    suite **9918 of 9918**. Unit CI: below once read.
 - **Not verified by this**:
   - run 107's unsent third message as its own press (run 107 stays failed);
   - the unreleased reply corrections (`2506e43b`, `eaa516e7`, not deployed);
@@ -53,14 +71,14 @@ is in git; the dated entries further down are the full story.*
 - The branch's reply-evidence corrections are unreleased, so the next image
   `59059c19e7c883fd` is predicted, not built. A release needs your word, one
   merge, one image build and its own runtime check.
-- The canary's continuation accounting (backlog) should be fixed before its
-  next continuation press.
+- The canary's continuation attribution is fixed on the branch
+  (`a0cbc473`) and shown offline only. No continuation press has run on it.
 - Run 107's open findings (routing every part in one call, prompt caching)
   stay in the backlog.
 
-**Next, in order**: finish this Edit/Add-on verification (your review of run
-109), then the first-Build audit, then dependency-based parallel-execution
-planning.
+**Next, in order**: the first-Build audit (from source, existing evidence and
+offline tests; confirmed gaps presented together before any fix), then
+dependency-based parallel-execution planning.
 
 **The closed correction round, for reference.** What Codex confirmed on `c288078d`: the false-conditional and
 unused-local-component reproductions pass, genuine links are still
@@ -151,6 +169,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Run 109's canary attribution corrected offline (on the branch, `a0cbc473`; nothing merged, deployed, built or paid)
+
+- Codex reproduced it: the continuation counted the request's earlier jobs
+  (9, not 4) and left run 107's publish last (the wait pointed backward).
+  The later read also missed jobs with no reply shown.
+- Corrected in the canary only: the request's jobs read just before Send are
+  the baseline, and this press's activity is what came after. That one
+  attribution now feeds charges, publishes and the wait target.
+  Duplicates, refunds, unrelated activity and late charges are still told.
+- Run 109 replayed offline: 4 credits and the chain verified. Its original
+  red verdict is kept as printed. Red check, sweep 13 of 13, full suite 9918
+  of 9918.
 
 ## 2026-10-08 — The TikTok continuation: run 108 (free) answerable, run 109 resumed the right part and published the link; 4 credits (nothing merged, deployed or built)
 
