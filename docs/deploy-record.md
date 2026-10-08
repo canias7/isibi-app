@@ -1477,7 +1477,17 @@ only run that push started, `completed` / `success`, the job **3m11s**
 - **runtime-confirmed by the owner's free press, run 106** (23:35 UTC): both
   readers answered `9d6bda8afc4e`, a cold container `335396c8c0e0fbcb`,
   queued jobs and the runner on, every zero-cost confirmation passed, nothing
-  charged (balance 40, last row 401, no job open).
+  charged (balance 40, last row 401, no job open);
+- **the live check, the owner's paid press, run 107** (`lv-combined` on
+  `fold-lane-bakery`, 23:38–23:59 UTC, its preflight answering `9d6bda8afc4e`
+  and `335396c8c0e0fbcb` again) **failed**: message 2's step asked its
+  question 7 minutes after the send, past the press's 6-minute bound, so
+  message 3 was not sent and no footer gained the TikTok link. Verified live:
+  the Allergens page and its menu link (order held, all eight progress checks,
+  the closed tab and the fresh session), the Order heading, the site otherwise
+  unchanged, the money. **25 credits** (40 → 15, rows 402–407, row 407 after
+  the press stopped). Not pressed again; the question left unanswered
+  (`docs/history/2026-10-07-combined-release.md` §4).
 
 ## The served-file check, driven end to end on deploy 2139
 

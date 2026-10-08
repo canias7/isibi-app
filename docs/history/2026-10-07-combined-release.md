@@ -58,3 +58,114 @@ runner on; every zero-cost confirmation passed (the async shape on
 the free job terminal); `CANARY_SPEND is not 1 — stopping before the paid
 edit. Nothing was charged.` Read after it (23:36:32): balance 40, last row
 401, no open job. The paid `lv-combined` press is next, the owner's.
+
+## 4. The paid live check: run 107 FAILED two gates (no question inside message 2's bound; no TikTok link); 25 credits
+
+**The press**: the owner's, run 107 (37703443424), `lv-combined` on
+`fold-lane-bakery`, from `main` at `9d6bda8a`, 23:38:51–23:59:09 UTC. Its
+preflight answered `9d6bda8afc4e` and `335396c8c0e0fbcb` again; every free
+check passed; the balance was 40. **Not pressed again, under the owner's
+rule.** Evidence: the run's artifact `canary-evidence` (id 11519546184, 38
+files, the screenshots among them; the session cannot download artifacts, so
+they are not copied here).
+
+### 4.1 What was verified (from the press's own readings, the site and the ledger)
+
+**Message 1** (the Allergens page and its menu link; tab closed, a fresh session):
+- routed `addon` (3 credits); the router named the order (the link after the
+  page) and held the link back as its own part;
+- part 0, the add-on (job `e46a3cca…`, 13 credits): `/allergens` added,
+  served 200, headings *Allergen notice · A notice about our loaves · One
+  kitchen, every loaf · In short*; the nine other pages' menus each gained
+  one link to `/allergens`, keeping every item; published `ourh30` at
+  23:49:11;
+- part 1, the link (route job `5a93543a…`, 3 credits → the add-on step,
+  which handed it over at no charge → the menu step, job `65767a36…`, cost
+  0): **"Nothing needed changing: “Allergens” is already in the menu on every
+  page that has one"** — the add-on's own run had already put the link in
+  (its trace's `menu-links:ok`);
+- **dependency order held**: part 1 stayed blocked until part 0 was done
+  (588 s), on every reading, the card's included;
+- **progress and the closed tab: all eight checks passed** — the first line
+  live in the sending tab 150 s after the send (*"I've worked out that I'll
+  add a new Allergens page. I'll design it next."*), the tab closed, the
+  requests list alone read three times, a fresh session signed in afresh
+  found the request and followed it to its end, every line and reply on
+  screen; the model's own lines through the build (*"I've designed the
+  Allergens page…"*, *"I've written the Allergens page and added a link to it
+  in the menu. I'm publishing…"*);
+- both parts' replies the model's own and on screen.
+
+**Message 2** (the Order heading and the TikTok footer link):
+- routed `edit`/`text` (1 credit), the TikTok link held back as its own part;
+- part 0, the heading (job `08b84314…`, 2 credits): `/order` now reads
+  **"Choose your loaf and a collection time"**, served; published `f821gr`
+  at 23:57:30. Its publish waited 221 s for a container;
+- part 1, the link: routed only at 23:57:55 (after part 0's publish), so the
+  press's 6-minute bound for message 2 (23:52:16 + 6 min) had passed; **the
+  press stopped at 23:58:19: no question shown — message 3 not sent**. On the
+  server the request went on: routed `addon` (3 credits, row 407, 23:58:28),
+  handed by the add-on step to the menu step at no charge, which **asked
+  "What’s the full address of your TikTok profile?" at 23:59:18** (job
+  `becdd472…`, cost 0). **The request is waiting on that question; it was
+  left unanswered** (an answer would be a further paid action).
+
+**The site after** (`01791417187002-f821gr`): every stored page byte for byte
+as before apart from the named changes; every component as it was; the four
+tables, their rules, columns and row counts as they were; no other page
+added or removed; the description unchanged; **no footer gained a TikTok
+link**.
+
+**The money**: 40 → 15, **25 credits**, ledger rows 402–407:
+
+| Row | What | Credits |
+|---|---|---|
+| 402 | message 1's routing | 3 |
+| 403 | the Allergens add-on (`e46a3cca…`) | 13 |
+| 404 | the link part's routing (`5a93543a…`) | 3 |
+| 405 | message 2's routing | 1 |
+| 406 | the heading (`08b84314…`) | 2 |
+| 407 | the TikTok part's routing (`bd79395e…`), after the press stopped | 3 |
+
+The press's own money check passed for what it saw (22 = routing 4 + jobs 18,
+the balance's move exactly); row 407 came 9 s after it stopped. Narration
+added no charge: 8 calls, $0.02245 of the platform's own (2.8 credits'
+worth, absorbed). Within the 38 stopping threshold and the 40 cap.
+
+### 4.2 The verdict, check by check
+
+**Failed** (5): every message sent (2 of 3); message 2's reply on screen
+(still being written when judged — it was written: *"⚠️ The heading on the
+Order page now reads “Choose your loaf and a collection time”. Adding a link
+to your TikTok in the footer was not tried yet…"*); message 2 ending on the
+step's question (the question came 7 min after the send, 1 min past the
+bound); message 3 sent; every footer gaining the TikTok link. **Passed**:
+everything else — the release on the live site, message 1 end to end
+(mixed request, order, eight progress checks, the closed tab, replies), the
+heading, the site otherwise unchanged, the money.
+
+### 4.3 What stays unverified
+
+- **Clarification end to end**: the question was asked by the real step, but
+  no answer was sent, so *an answer resumes the waiting part* and the TikTok
+  link's placement are not shown live.
+- Model behaviour generally: one sample each; how often the router holds a
+  part back, or the add-on adds the menu link itself, is not measured.
+
+### 4.4 Findings (backlog; not fixed in this round)
+
+1. **The press's bound for message 2 was too short for this path**: the link
+   part runs only after the heading part's publish, which waited 221 s for a
+   container; the question came at 7 min against a 6-minute bound. A timing
+   flaw in the prepared scenario, not a product failure; the product asked
+   the question.
+2. **Message 1's reply misstates the link**: it says the menu link *"was not
+   tried this time … will be done separately"*, while the add-on's own run had
+   already added it (its own progress line said so, and the menu step then
+   found it there). The reply was written before part 1 ran and spoke of the
+   part, not of the site.
+3. **A part already satisfied, or handed over, still pays its routing**: the
+   link part paid 3 for a routing call that sent it to the add-on step,
+   which handed it on, where nothing was needed; the TikTok part paid 3 the
+   same way. Routing `addon` for a menu or footer link is the router's answer
+   (model behaviour), and the hand-over is free, but the 3 credits are spent.

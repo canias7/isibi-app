@@ -20,6 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Run 107's three findings** (2026-10-07, `lv-combined` on deploy 2188):
+  the press's 6-minute bound for message 2 was shorter than its path (the
+  question came at 7 min); message 1's reply said the menu link was not tried
+  while the add-on had already added it; a part already satisfied or handed
+  over still pays its 3-credit routing; in full below.
 - **The site build's Chromium install can stall in apt** (2026-10-07, run
   37674861320 on `570adb45`): four jobs reached their 20-minute limit while
   `npx playwright install --with-deps chromium` waited on Ubuntu's
@@ -914,6 +919,23 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **RUN 107'S THREE FINDINGS (2026-10-07, `lv-combined`, deploy 2188;
+  `docs/history/2026-10-07-combined-release.md` §4.4).**
+  - **The scenario's bound for message 2 is too short**: its link part runs
+    only after the heading part's publish (221 s waiting for a container
+    there), so the step's question came 7 minutes after the send against a
+    6-minute bound; the press stopped and message 3 was never sent. A fix to
+    the scenario's bounds (and the 30-minute sum) is the owner's call; no
+    rerun without their word.
+  - **A reply can misstate a part the same job already did**: message 1's
+    add-on reply said the menu link *"was not tried this time"*, though the
+    add-on's own run added it (`menu-links:ok`, its progress line saying so)
+    and the menu step then found it present.
+  - **Routing is charged for a part that needs nothing**: the link part (3)
+    and the TikTok part (3) were each routed `addon`, handed over free to the
+    menu step; for the link nothing was needed. The routing answer is the
+    model's; the charge is real.
 
 - **THE SITE BUILD'S CHROMIUM INSTALL CAN STALL IN APT (2026-10-07, run
   37674861320 on `570adb45`).**

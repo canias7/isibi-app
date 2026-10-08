@@ -1,59 +1,72 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-07, deploy 2188 released on your approval; your two presses next)
+## Current handoff — read this first (2026-10-08, deploy 2188 live and runtime-confirmed; the paid check, run 107, failed two gates; 25 credits)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**Your two presses now** (the session's dispatch answered `403 Resource not
-accessible by integration` at 23:25:15 UTC and was not retried). *Actions →
-edit canary → Run workflow*, boxes by description, every other box as it is:
-1. **Done — run 106, green** (23:35 UTC: both readers `9d6bda8afc4e`, a cold
-   container `335396c8c0e0fbcb`, nothing charged). Was: **the free runtime check, first.** "Use workflow from": `main`; "Run the ONE
-   paid edit as well (yes/no)": `no`; "Refuse to spend unless the Worker
-   reports this deploy sha …": `9d6bda8a`; "Refuse to spend unless a cold
-   container reports this image id (exact) …": `335396c8c0e0fbcb`. It passes
-   when both readers answer `9d6bda8a`, a cold container `335396c8c0e0fbcb`,
-   and nothing is charged.
-2. **Then, only once 1 is green, the paid press, once.** "Use workflow from":
-   `main`; "Run the ONE paid edit as well (yes/no)": `yes`; "RUN A NAMED
-   SCENARIO IN A REAL BROWSER …": `lv-combined`; "The site to edit …":
-   `fold-lane-bakery`; the deploy sha box `9d6bda8a`; the image box
-   `335396c8c0e0fbcb`. It sends nothing unless the balance is between 38 and
-   40 (it is 40), stops before message 2 or 3 once it has spent 38, and is not
-   to be pressed again if it fails.
+**Where it stands**
+- **Released and runtime-confirmed**: `main` `bcc22295` → **`9d6bda8a`** (36
+  commits, one fast-forward, 23:04:49 UTC); **deploy 2188** (run
+  37700151308) built the image **`335396c8c0e0fbcb`** once, as predicted,
+  rolled from `5f946c22d42a1b10` at 23:07:59; `chat.js` served byte for byte
+  as merged (939,255 bytes, `dfa07592…`); **your free press, run 106**: both
+  readers `9d6bda8afc4e`, a cold container `335396c8c0e0fbcb`, nothing
+  charged. The preflight had passed in full, and **no product file changed
+  since the reviewed `092ff48a`**.
+- **The paid check, your press run 107 (`lv-combined`), FAILED two gates and
+  was not pressed again**: message 2's TikTok step asked its question
+  (*"What’s the full address of your TikTok profile?"*) at 23:59:18, **7
+  minutes after the send, past the press's 6-minute bound**, so the press had
+  stopped, message 3 (the answer) was never sent, and **no footer has the
+  TikTok link**. The request is waiting on that question, unanswered.
+- **Money**: **25 credits**, 40 → **15** (ledger rows 402–407; row 407, the
+  TikTok part's routing, came 9 s after the press stopped). Within the 38
+  threshold and the 40 cap. No funds added.
+- **The demo changes stay**: `/allergens` and its menu link on every page,
+  and the Order heading, published at `01791417187002-f821gr`.
 
-**State now**
-- **Released on your word, deployed and runtime-confirmed (run 106)**: `main`
-  `bcc22295` → **`9d6bda8a`** (36 commits, one fast-forward, 23:04:49 UTC);
-  **deploy 2188** (run 37700151308) green, the image **built
-  `335396c8c0e0fbcb`** as predicted and rolled from `5f946c22d42a1b10` at
-  23:07:59; `chat.js` served byte for byte as merged (939,255 bytes,
-  `dfa07592…`); progress on; the image window over at 23:25. Every preflight
-  check passed, and **no product file changed since the reviewed
-  `092ff48a`** (only the canary's dispatch form, docs, tests and canary
-  scripts). `docs/history/2026-10-07-combined-release.md`.
-- **The verification gate is green**: your re-run of run 37674861320
-  (attempt 2) passed every job, and `all checks` read four shard reports,
-  every section once and the candidate's inputs (the next section).
-- **The reviewed commit is `092ff48a`.** Codex passed 90 assertions of its
-  own against the provisioner and the project search there: uncertain
-  creation, delayed visibility, repeated retries, eventual adoption, reuse
-  and incomplete pagination. The fixes stand as reviewed: neither
-  `site-provision.mjs` nor `site-db.mjs` has changed since.
-- **The funds are in**: raised from 10 to exactly 40 at your request at
-  22:06:15 UTC. Read back at 22:06:32: 40, the last row still 401, no job
-  open; the same at 22:41.
-- **Nothing was spent** (no model called, no paid run).
-- **The release plan was approved** (`docs/investigations/combined-release-plan.md`):
-  the merge and the deploy are done; the free check and the paid press are
-  your presses (above). Nothing is spent yet.
-- **This round's commits**: `b791dec0` (the canary's combined release check
-  and the order check reading a fresh-session message's card, with the plan
-  and its tests), `43c5b635` (the records, the plan and the handoff) and
-  these records (the green gate and the funds). The record:
-  `docs/history/2026-10-07-combined-release-prep.md`.
+**Verified live (run 107)**
+- **Mixed request and dependency order** (message 1): the Allergens page from
+  the add-on step, its menu link as a second part held until the page was
+  done; on every reading, no part started before the part it needs.
+- **Model-written progress and the closed tab**: all eight checks — a line
+  live 150 s after the send in the sending tab, the tab closed, the request
+  read from the list alone, a fresh session signed in afresh following it to
+  its end with every line and reply on screen.
+- **Final results**: `/allergens` served (*Allergen notice … One kitchen,
+  every loaf*); every menu gained one `/allergens` link keeping its items;
+  `/order` reads *"Choose your loaf and a collection time"*; every other page,
+  component and table byte for byte as before.
+- **Replies**: message 1's two parts and message 2's heading each have the
+  model's own reply (message 2's was still being written when the press
+  judged it).
+- **Charges**: the press's own money check passed (22 = routing 4 + jobs 18);
+  narration added none (8 calls, $0.02245 absorbed).
+
+**Not verified (unshown or model behaviour)**
+- **Clarification end to end**: the step really asked, but no answer was
+  sent, so an answer resuming the part and the TikTok link's placement are
+  unshown live.
+- How often the router splits these parts, or the add-on adds the menu link
+  itself: one sample each.
+
+**Findings** (backlog; `docs/history/2026-10-07-combined-release.md` §4.4)
+1. The scenario's 6-minute bound for message 2 is shorter than its path (the
+   link runs after the heading's publish, which waited 221 s for a
+   container). A scenario flaw, not a product failure.
+2. Message 1's reply said the menu link *"was not tried this time"*, though
+   the add-on had already added it.
+3. A part already satisfied or handed over still pays its routing (3 credits
+   for the link part, 3 for the TikTok part).
+
+**Yours to decide**
+- Whether to answer the waiting TikTok question in the app (a paid step,
+  about 1–3 credits) or leave it; and whether a corrected scenario (longer
+  bound for message 2) is ever run again. Nothing is pressed without your
+  word.
+- **Next, on your word: the first-Build audit.**
 
 **The gate, exactly**
 - **Attempt 1** (the push of `570adb45`, 19:29–19:50 UTC) was incomplete:
@@ -200,6 +213,17 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Run 107, your paid `lv-combined` press: failed two gates (the question came after message 2's bound; no TikTok link); everything else verified live; 25 credits
+
+- Deploy 2188 (`9d6bda8a`, image `335396c8c0e0fbcb`) runtime-confirmed by run
+  106. Run 107: the Allergens page and its menu link (order, all eight
+  progress checks, the closed tab), the Order heading and the money verified
+  live; the TikTok step asked for the address 7 minutes after message 2,
+  past the 6-minute bound, so the answer was never sent and no footer has
+  the link. 40 → 15. Not pressed again; the question is left waiting.
+- Three findings in the backlog: the scenario's bound, a reply misstating
+  the already-added menu link, routing charged for parts that needed nothing.
 
 ## 2026-10-07 — Deploy 2188: the combined release merged and deployed on your approval (`9d6bda8a`, image `335396c8c0e0fbcb`); the free check and the paid press are yours
 
