@@ -194,8 +194,21 @@ export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote
  */
 export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "design-timeout", "held-unread", "generate-failed", "compile-failed"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null } = {}) {
+/**
+ * WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
+ * batch): each extra design call made (`malformed:repair`, `truncated:repair`,
+ * `transient:again`) and how it ended. Only these readings pass; anything else
+ * is not a fact.
+ */
+export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
+const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
+
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null } = {}) {
   const out = {};
+  if (design && typeof design === "object" && DESIGN_OUTCOMES.includes(design.outcome)) {
+    const tried = (Array.isArray(design.attempts) ? design.attempts : []).filter((a) => DESIGN_ATTEMPT_READINGS.includes(a));
+    if (tried.length) out.design = { outcome: design.outcome, attempts: tried };
+  }
   // WHY THE BUILD STOPPED, and what it cost, from the route's own reading of
   // the ledger (`cost`, `short`) — never a guess.
   if (failure && typeof failure === "object" && BUILD_FAILURE_KINDS.includes(failure.kind)) {

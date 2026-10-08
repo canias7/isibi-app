@@ -696,6 +696,8 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // sentence covers it rather than a second one drifting beside it.
     const e = new Error("schema truncated at max_tokens");
     e.truncated = true;
+    e.partial = known;
+    e.usage = usage;
     throw e;
   }
   const fault = faults[0];
@@ -710,5 +712,7 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     if (fault.detail) e.detail = fault.detail;
     throw e;
   }
-  return { input: null, shape, usage };
+  // WHAT THE AGENTS DID ANSWER (2026-10-08, the ninth batch): kept so a
+  // corrective attempt is shown it, never asked to redo the parts that worked.
+  return { input: null, shape, usage, partial: known };
 }

@@ -102,6 +102,14 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
       seen.tools.push(tool);
       if (tool === "design_schema") {
         seen.designer.push(JSON.stringify(b.messages || ""));
+        // A SEQUENCE OF ANSWERS (2026-10-08, the ninth batch): `design` as a
+        // function of the call's number and request answers each call itself.
+        if (typeof design === "function") {
+          const a = await design(seen.designer.length - 1, b);
+          if (a instanceof Response) return a;
+          const ct = a.input ? [{ type: "tool_use", id: "t1", name: "design_schema", input: a.input }] : [{ type: "text", text: a.text || "Here is a design." }];
+          return json({ stop_reason: a.stop || (a.input ? "tool_use" : "end_turn"), content: ct, usage: a.usage || usage });
+        }
         const content = design.input
           ? [{ type: "tool_use", id: "t1", name: "design_schema", input: design.input }]
           : [{ type: "text", text: design.text || "Here is a design." }];

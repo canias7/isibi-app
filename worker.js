@@ -44,6 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
+import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -242,7 +243,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
@@ -4404,12 +4405,20 @@ function designRequest(brief, model, current = null, files = [], frontendOnly = 
   return req;
 }
 
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false) {
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false, repair = null) {
   // The request is built FIRST and the usage below is stamped from `req.model`,
   // so what we bill and what we sent cannot disagree — the same by-construction
   // discipline as pricing from one table instead of two. `designRequest` is the
   // one builder; the context panel weighs the very same object.
-  const req = designRequest(brief, model, current, files, frontendOnly);
+  // A CORRECTIVE ATTEMPT (2026-10-08, the ninth batch) is the same request —
+  // the same brief, answers and files — with what was wrong appended, and the
+  // shared question field beside the tool's own, every field optional so a
+  // question can stand alone. It is validated exactly as the first answer is.
+  const req = designRequest(repair && repair.note ? brief + repair.note : brief, model, current, files, frontendOnly);
+  if (repair && repair.ask) {
+    const t = withQuestion(req.tools[0]);
+    req.tools = [{ ...t, input_schema: { ...t.input_schema, required: [] } }];
+  }
   // Provider decided in ONE place — see callBuilderModel, which also carries the
   // status and detail onto the error so the caller can say WHICH failure this
   // was. The builder's main path has gone down twice behind one unchanging "the
@@ -4454,6 +4463,12 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   if (j.stop_reason === "max_tokens") {
     const e = new Error("schema truncated at max_tokens");
     e.truncated = true;
+    // WHAT IT HAD WRITTEN AND WHAT IT COST (the ninth batch): the repair is
+    // shown the first and the ledger settles the second.
+    const cut = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+    if (cut && cut.input && typeof cut.input === "object") e.partial = cut.input;
+    const u0 = (j && j.usage) || {};
+    e.usage = { in: u0.input_tokens || 0, out: u0.output_tokens || 0, cacheRead: u0.cache_read_input_tokens || 0, cacheWrite: u0.cache_creation_input_tokens || 0, model: req.model };
     throw e;
   }
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
@@ -4500,6 +4515,80 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   };
 }
 
+
+/** Where a first build's design attempts are kept, beside its job. */
+const designAttemptsKey = (id) => "jobs/" + id + ".design.json";
+
+/**
+ * A FIRST BUILD'S DESIGN, RECOVERED (2026-10-08, the ninth batch). Given the
+ * designer's ending (`dz`, or `err` when it threw), decides with
+ * `designFailure` what it was and, while `mayRetry` allows, makes the next call
+ * through the single-call designer that every mode shares:
+ *   - a malformed or cut-off answer: one corrective attempt, told the
+ *     validation failures and shown what it already wrote (`repairNote`), with
+ *     the shared question field beside the tool;
+ *   - a busy provider or a dropped connection: the same request once more;
+ *   - an account refusal, a request the provider rejects, our own time
+ *     ceiling: nothing, since no attempt would help.
+ * EACH ATTEMPT IS RECORDED BEFORE IT IS MADE, beside the job
+ * (`jobs/<id>.design.json`), so a redelivered job counts the attempts an
+ * earlier delivery made and never repeats them; an attempt that cannot be
+ * recorded is not made. Answers `{ ok, dz }` when the design is usable,
+ * `{ question }` when the corrective attempt asked them something, otherwise
+ * `{ ok: false, failure, why, err }` — and always `attempts` and `usage`, the
+ * usage of every call made (the first included), summed for the ledger.
+ */
+export async function recoverDesign(env, { dz = null, err = null, jobId = null, budget = null, brief = "", model, files = [] } = {}) {
+  let list = [];
+  let recorded = true;
+  if (jobId && env.SITES_BUCKET) {
+    try {
+      const o = await env.SITES_BUCKET.get(designAttemptsKey(jobId));
+      const v = o ? JSON.parse(await o.text()) : null;
+      list = v && Array.isArray(v.attempts) ? v.attempts.filter((a) => a && typeof a.retry === "string") : [];
+    } catch (e) { console.error("design: could not read the attempts kept for", jobId, String((e && e.message) || e)); recorded = false; }
+  }
+  let usage = (dz && dz.usage) || (err && err.usage) || null;
+  let cur = { dz, err };
+  for (let step = 0; step < DESIGN_REPAIR_MAX + DESIGN_RETRY_MAX + 1; step++) {
+    const e = cur.err;
+    const f = designFailure({
+      answer: cur.dz, error: e,
+      upstream: e ? upstreamKind(e.detail, e.status) : null,
+      status: e && e.status, timeout: e ? isCallTimeout(e) : false,
+    });
+    if (f.kind === "ok") return { ok: true, dz: cur.dz, attempts: list, usage };
+    const may = !recorded ? { ok: false, why: "attempts-unreadable" }
+      : mayRetry(f, list, { remainingMs: budget && typeof budget.remainingMs === "function" ? budget.remainingMs() : null });
+    if (!may.ok) return { ok: false, failure: f, why: may.why, err: e, attempts: list, usage };
+    const entry = { retry: f.retry, kind: f.kind, why: f.why, at: new Date().toISOString() };
+    if (jobId && env.SITES_BUCKET) {
+      try { await env.SITES_BUCKET.put(designAttemptsKey(jobId), JSON.stringify({ v: 1, attempts: [...list, entry] })); }
+      catch (we) {
+        console.error("design: could not record the next attempt for", jobId, "— not making it", String((we && we.message) || we));
+        return { ok: false, failure: f, why: "attempt-unrecorded", err: e, attempts: list, usage };
+      }
+    }
+    list = [...list, entry];
+    const partial = (cur.dz && (cur.dz.input || cur.dz.partial)) || (e && e.partial) || null;
+    console.log("design: recovering a", f.kind, "design (" + f.why + ") with", f.retry === "repair" ? "a corrective attempt" : "one more try");
+    try {
+      const next = f.retry === "repair"
+        ? await designSiteSchema(env, brief, model, null, files, budget, true, { note: repairNote(f, partial), ask: true })
+        : await designSiteSchema(env, brief, model, null, files, budget, true);
+      usage = addUsage(usage, next && next.usage);
+      if (f.retry === "repair") {
+        const o = repairOutcome(next);
+        if (o.kind === "question") return { ok: false, question: o.question, attempts: list, usage };
+      }
+      cur = { dz: next, err: null };
+    } catch (ne) {
+      usage = addUsage(usage, ne && ne.usage);
+      cur = { dz: null, err: ne };
+    }
+  }
+  return { ok: false, failure: { kind: "malformed", missing: ["design"] }, why: "attempts-used", err: cur.err, attempts: list, usage };
+}
 
 /**
  * THE SAME DESIGN, ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10, owner:
@@ -18338,7 +18427,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...(rContext ? { context: rContext } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
           // The same ordinary stop the inline answer names (the eighth batch).
-          failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }) }) || undefined,
+          failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }),
+          design: design && design.designRecovery }) || undefined,
     };
     out = packResult({
       status: 200,
@@ -18968,6 +19058,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // should not quietly become a price change) and the measurement is what
       // made the decision possible.
       let schemaUsage = null;
+      // A FIRST BUILD'S DESIGN RECOVERY (the ninth batch): what was tried, and every design call's usage summed.
+      let designRecovery = null;
+      let designRepairUsage = null;
       // WHY the designer's answer was empty, kept for the refusal below — which
       // cannot otherwise tell "no tool call" from "declared nothing" from "would
       // not parse". Shape only, never content.
@@ -19280,11 +19373,46 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // `firstBuild` IS THE SEVENTH ARGUMENT AND IT IS THE ONLY CALLER THAT
           // EVER PASSES IT — see `designSiteSchema`, where the default is false
           // so the two edit lanes keep the whole tool by saying nothing.
-          const dz = useGraph
-            ? await designSiteGraph(env, designBrief, models.design, attached.blocks, budget, designGraph, firstBuild)
-            : useWaves
-            ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild)
-            : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
+          // ── AND A DESIGN THAT CAME BACK WRONG IS RECOVERED, NOT ABANDONED ──
+          // (2026-10-08, the ninth batch). On a first build every designer —
+          // the single call, the waves, the graph — hands its ending to
+          // `recoverDesign`: the model corrects its own malformed or cut-off
+          // answer once, a busy provider is asked once more, a decision only
+          // the customer can make is asked of them, and the same build goes on
+          // when the design is repaired. A revise keeps its single path.
+          let dz = null;
+          let dzErr = null;
+          try {
+            dz = useGraph
+              ? await designSiteGraph(env, designBrief, models.design, attached.blocks, budget, designGraph, firstBuild)
+              : useWaves
+              ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild)
+              : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
+          } catch (e) { if (!firstBuild) throw e; dzErr = e; }
+          if (firstBuild) {
+            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks });
+            designRecovery = rec.attempts.length ? { attempts: rec.attempts.map((a) => a.kind + ":" + a.retry), outcome: rec.ok ? "repaired" : rec.question ? "question" : "exhausted", ...(rec.why ? { why: rec.why } : {}) } : null;
+            designRepairUsage = rec.usage;
+            try { tr.at("design-recovery", designRecovery || { attempts: 0 }); } catch { /* a trace never costs a build */ }
+            if (rec.question) {
+              // A DECISION THAT IS THEIRS: asked in the designer's own words,
+              // through the first build's existing question round. Nothing is
+              // built and the deposit goes back in full.
+              await giveBack(debitRef("deposit"), "design", SITE_BUILD_FEE);
+              return Response.json({
+                ok: false, stage: "design", intent: "clarify", question: rec.question,
+                cost: owed(), refundShort: refundShort || undefined,
+                designRecovery,
+              }, { status: 200 });
+            }
+            if (!rec.ok) {
+              const e = rec.err || new Error("the design answer is unusable: " + ((rec.failure && rec.failure.missing) || ["design"]).join(", "));
+              if (!rec.err) e.unusable = (rec.failure && rec.failure.missing) || ["design"];
+              e.recovery = designRecovery;
+              throw e;
+            }
+            dz = rec.dz;
+          }
           // LIFTED AT THE DOOR, before anything reads it. The tool asks for the
           // five backend fields nested under `backend`; every reader below —
           // `designed.tables`, `designed.seed`, the addon lane's filter, the
@@ -19292,7 +19420,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // `normalizeSchema` lifts too, so the `body.schema` path is covered
           // independently; this hop is for the RAW reads that never go through it.
           designed = liftBackend(dz && dz.input);
-          schemaUsage = (dz && dz.usage) || null;
+          // EVERY DESIGN CALL MADE IS THE ONE THE LEDGER SETTLES: the first
+          // answer and any repair, summed — never the repaired one alone, and
+          // never a completed call charged twice.
+          schemaUsage = (firstBuild && designRepairUsage) ? designRepairUsage : ((dz && dz.usage) || null);
           // A FIRST BUILD WITH NO USABLE DESIGN STOPS HERE (2026-10-08, the
           // first-Build audit's H4), before the seed top-up, the settlement,
           // provisioning and the page writer. No tool call, unparseable
@@ -19474,7 +19605,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             msg: e && e.unusable
               ? "The designer didn't send back a usable plan for this site, so nothing was built and the deposit was returned. Try again in a moment."
               : e && e.truncated
-              ? "That brief needs more room than the designer had — try describing fewer things to store."
+              // NOT "DESCRIBE FEWER THINGS" (2026-10-08, the ninth batch): a
+              // valid request is never the customer's to shrink. The designer
+              // was asked to write it again, complete and tighter, first.
+              ? "The designer couldn't fit a complete plan for this site in one answer, so nothing was built and the deposit was returned. Your request is fine as it is."
               // OUR CEILING, NOT THEIR OUTAGE, and it must not read as one. A
               // timeout has no HTTP response, so without asking it fell through
               // to "the designer is busy" — blaming the provider for a bound of
@@ -19522,9 +19656,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             billing: kind.billing || undefined,
             truncated: !!(e && e.truncated),
             unusable: (e && e.unusable) || undefined,
+            // WHAT RECOVERY TRIED FIRST (the ninth batch), so a stop after a
+            // corrective attempt or a second try is told as one.
+            designRecovery: designRecovery || undefined,
           });
           if (!dKind) return Response.json(dBody, { status: 503 });
-          dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort } });
+          dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort }, design: designRecovery });
           return Response.json(await narrateBuild(env, dBody, { picker: models.picker, request: brief, slug: namedSlug || "" }), { status: 503 });
         }
         // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
@@ -20453,6 +20590,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // consumer that finishes the build can hand the spine's translation
             // the same picker's models (run 38, 2026-09-04).
             picker: models.picker,
+            // WHAT THE DESIGN'S RECOVERY DID (the ninth batch), so the answer
+            // the queued build finishes with tells a corrected design too.
+            designRecovery: designRecovery || undefined,
             // THE THEME OFF THE MERGED LOOK (2026-08-27) — required of a first
             // build's designer, stored-unless-named on a revise, and validated
             // by `FIELD_KEEPS.theme` before it could land in `merged`. The
@@ -21242,7 +21382,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         buildFacts: buildFacts({
           images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
+          // A design corrected on the way (the ninth batch), told as done.
+          design: designRecovery,
         }) || undefined,
+        designRecovery: designRecovery || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));
       })(), bHeld.parts);
 }

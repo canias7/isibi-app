@@ -9372,6 +9372,21 @@ const ROUTE_EDIT_LAYERS = ['data', 'text', 'look', 'page', 'rules', 'picture', '
 // and `[null, {}]` as two buttons answering "null" and "[object Object]"
 // (owner, 2026-09-24). An answer past the four drawn is checked too: an
 // unusable one dropped there would be a malformed field read as absent.
+// ── A QUESTION THE DESIGNER ASKED ON A FIRST BUILD (2026-10-08, the ninth
+// batch) ─────────────────────────────────────────────────────────────────────
+// When the designer's corrective attempt finds a decision only they can make,
+// the build answers `intent: 'clarify'` at `stage: 'design'` with the model's
+// own words and up to four answers — none is allowed, since a typed answer is
+// always taken. Nothing is coerced: words that are not text, or any answer
+// that is not, make it no question at all.
+function designQuestion(d) {
+  const q = d && d.question;
+  const words = (v) => typeof v === 'string' && v.trim() !== '';
+  if (!d || d.intent !== 'clarify' || d.stage !== 'design' || !q || !words(q.text)) return null;
+  const opts = Array.isArray(q.options) ? q.options : [];
+  if (!opts.every(words)) return null;
+  return { text: q.text, options: opts.slice(0, 4) };
+}
 function routeQuestion(d) {
   const q = d && d.question;
   const words = (v) => typeof v === 'string' && v.trim() !== '';
@@ -13595,6 +13610,25 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       // a project that forgets it sends the next message as a fresh first build
       // against a name it already owns and gets a 409 it cannot explain.
       else firedJob = d.job;
+    }
+    // ── THE DESIGNER ASKED THEM SOMETHING (the ninth batch) ────────────────
+    // The same round a router's first-build question opens: the brief, the
+    // answers so far and the files kept on the site, the question on the
+    // thread, and their answer runs this build again with it. Nothing was
+    // built, and the deposit went back.
+    const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;
+    if (dq) {
+      siteBusy = false;
+      siteBuildStop();
+      const s0 = siteById(origin);
+      if (!s0) return;
+      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
+      s0.msgs.push({ r: 'a', t: dq.text, q: dq.text, opts: dq.options });
+      s0.updatedAt = Date.now();
+      sitesSave();
+      scheduleCreditRefresh();
+      if (siteOpenId === origin) renderSites();
+      return;
     }
     // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
     // From the final reply's own `deferred`, which the route adds to every

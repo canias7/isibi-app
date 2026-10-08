@@ -1330,14 +1330,30 @@ export function buildReplyFacts(bf) {
   for (const pg of Array.isArray(bf.salvaged) ? bf.salvaged : []) {
     F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; the rest of the site is live.");
   }
+  // WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
+  // batch), from the attempts actually made — never a promise of one.
+  const dg = bf.design;
+  if (dg && typeof dg === "object" && Array.isArray(dg.attempts) && dg.attempts.length) {
+    const said = {
+      "malformed:repair": "the designer's first plan came back incomplete, and it was asked to correct it",
+      "truncated:repair": "the designer's first plan ran out of room before it was complete, and it was asked to write it again, complete and tighter",
+      "transient:again": "the design service did not answer the first time, and it was asked again",
+    };
+    const told = dg.attempts.filter((a) => Object.hasOwn(said, a)).map((a) => said[a]);
+    if (told.length) {
+      const what = told.join("; then ");
+      if (dg.outcome === "repaired") F.add("note", "While planning their site, " + what + ". That worked: the build went on with everything they asked for, and nothing was dropped.");
+      else if (dg.outcome === "exhausted") F.add("not-done", "While planning their site, " + what + "; that did not produce a usable plan either. Their request itself was fine and does not need to be shortened.");
+    }
+  }
   // WHY AN INLINE BUILD STOPPED (2026-10-08, the eighth batch), with what it
   // cost, by the route's own ledger reading.
   const fl = bf.failure;
   if (fl && typeof fl === "object") {
     const why = {
       "design-unusable": "The designer did not send back a usable plan for this site, so nothing was built",
-      "design-truncated": "The brief asked for more things to store than the designer had room to plan in one answer, so nothing was built; describing fewer things to store would fit",
-      "design-timeout": "The design step took longer than one build is allowed, so nothing was built; a shorter description would be quicker",
+      "design-truncated": "The designer could not fit a complete plan for everything they asked for in one answer, so nothing was built; their request is fine as it is and does not need to be shortened",
+      "design-timeout": "The design step took longer than one build is allowed, so nothing was built",
       "held-unread": "The part of their message left for later could not be separated from the part to build now, so nothing was changed; sending the changes one at a time would work",
       "generate-failed": "Their database is live, but writing the pages did not work this time, so the site shows its data model for now; sending it again retries",
       "compile-failed": "The pages were written but did not compile, so the site shows its data model for now; sending it again retries",

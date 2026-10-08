@@ -76,7 +76,7 @@ export function replyAnswer(reply, seen, init) {
   return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "r1", name: "write_reply", input: { reply, covers: [...new Set(ids)] } }] });
 }
 
-export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null } = {}) {
+export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [] } = {}) {
   b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
   let claimedSite = false;
   const real = globalThis.fetch;
@@ -102,6 +102,10 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
       // `design: null` — a designer that answered no plan, so the build ends
       // before it fires, on its own terminal answer.
       if (bd.tool_choice && bd.tool_choice.name === "design_schema") {
+        // EACH DESIGN CALL ANSWERED BY THE CASE (the ninth batch), in order,
+        // and every request kept so a case can read what the designer was told.
+        designs.push(bd);
+        if (typeof onDesign === "function") return onDesign(designs.length - 1, bd);
         if (design === null) return json({ stop_reason: "end_turn", content: [{ type: "text", text: "Here is a design." }], usage: { input_tokens: 100, output_tokens: 50 } });
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: design }], usage: { input_tokens: 100, output_tokens: 50 } });
       }
