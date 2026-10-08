@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the fourth Build correction batch in `148cb1e4`)
+## Current handoff — read this first (2026-10-08, Build content preservation in `8b5c8024`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,94 +9,100 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
-  this round moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`, now ending in
-  **`148cb1e4`** (this batch) and its records. Nothing merged, deployed or
-  built; no paid call; no live retest; no SQL applied.
-- **Codex passed `41731e86`'s four reproductions offline**: staging versus
-  publication, concurrent outcome writes, queued billing through
-  `build_debit`, and recovery pagination (equal timestamps, 60 pending, a
-  multi-day outage). All kept unchanged.
+  moved money.
+- **On the branch, unmerged**: everything since `9d6bda8a`, ending in
+  - **`148cb1e4`**: the fourth recovery batch;
+  - **`8b5c8024`**: this content batch, plus its records.
+- Nothing merged, deployed or built; no paid call; no live retest; no SQL
+  applied.
 
-**This batch (`148cb1e4`)**: the two lifecycle defects Codex found, fixed
-together. The full record is `docs/history/2026-10-08-build-batch-4.md`.
-- **The protocol survives the consumed envelope.**
-  - The queue consumer deletes the job envelope, which holds the customer's
-    session, before it runs the build. Recovery used to read the "fenced"
-    flag from that deleted envelope.
-  - The flag now lives in its own record with no credential in it. It is
-    written once, by the producer and again by the consumer just before the
-    delete. The container runs the same consumer, and a resume reuses the
-    job id.
-  - An older envelope, or a record that couldn't be written, stays
-    **unknown** — never guessed.
-- **Money and the customer's answer are recorded apart.**
-  - Before, the "settled" mark was written before the answer, so a failed
-    answer was never repaired.
-  - Now the settlement record holds enough to rebuild the answer, and the
-    answer is retried every tick until it is stored.
-  - After a restart, the refunded amount is read from the ledger's own
-    totals, so the customer sees the true amount, not zero.
-  - The build's own newer answer is never overwritten.
+**The recovery batch (`148cb1e4`) is unchanged since the last handoff.**
+- What it holds:
+  - the protocol record that survives the consumed envelope;
+  - money and the customer's answer recorded apart, with the answer retried
+    until it is stored at the true amount.
+- Its tests: 12 lifecycle cases. Billing is mocked, and `build_debit`'s
+  transaction is checked only as SQL text.
+- Its measurements: sweep 11 of 11; CI green (unit 37759979279, site build
+  37759979264).
+- The record is `docs/history/2026-10-08-build-batch-4.md`.
+
+**This batch (`8b5c8024`): the customer's words and pictures are kept,
+never cut.** Page and component maximums stay 1 and 15. Every timeout,
+provider bound, security control and spending safeguard is unchanged. The
+record is `docs/history/2026-10-08-build-content.md`.
+
+- **Briefs and typed answers.**
+  - A first build's message used to be cut to 2,000 characters in the page.
+    A typed answer to a question was cut to 200, and the server cut the
+    brief again at 5,000 and 4,000.
+  - Now each goes whole, up to the one-message size (16,000) and the
+    one-request size (48,000 in all).
+  - Past those sizes, nothing is sent or charged. The customer is told the
+    numbers, and their words go back in the box. In the build route the
+    refusal comes before the deposit and before any model.
+- **Photos**: the plan no longer drops pictures past two.
+  - The customer's own photographs are all stored and placed.
+  - How many pictures are bought is still decided by the real limits: the
+    picture cap, the balance and the time.
+- **Sections and actions**: kept whole, with no count or length cut.
+  - The page is still written by at most 8 section writers.
+  - Any sections past 8 are written together in the last one, so nothing
+    is dropped and no extra calls are made.
 
 **Tests actually run**
-- **`test/build-recovery-lifecycle.test.mjs`, 12 cases, through the real
-  lifecycle.**
-  - The real producer envelope is consumed by the real queue consumer,
-    stopped where an evicted worker stops.
-  - The site is staged or published with the real helpers, the job is lost,
-    recovery runs repeatedly, and the stored customer answer is read back.
-  - Outcomes covered: published, proven not-published, unknown, an older
-    envelope, a missing record, and the record being write-once.
-  - Failures covered: the answer write failing after the refund (Codex's
-    injection), and crashes before the settlement record, before the
-    delivery record and before the pending clean-up. Also a newer answer of
-    the build's own, and a short refund finished later.
-- **Before, on `41731e86`'s code: 8 of 11 fail.** The 3 that pass are
-  controls. The 12th case was added after the sweep.
-- **The billing in these tests is mocked.** The `credit_reverse` stand-in
-  answers as the applied SQL does. `build_debit`'s row lock is checked only
-  as SQL text; no Postgres transaction is run anywhere.
-- **The earlier concurrency and pagination suites pass unchanged.**
-- **Mutation sweep**: **11 of 11 killed, the comment-only control survived**
-  (`scripts/mutants/build-batch-p-2026-10-08.json`). The one first-pass
-  survivor, the write-once record, got its own test and was killed.
-- **Full suite** on `148cb1e4`: **`10014 / 10014 / 0 / 0`** locally.
-- **Required CI on `148cb1e4`: green.** Unit tests run 37759979279,
-  `10014 / 9992 / 0 / 22` (the totals match; CI skips 22). Site build run
-  37759979264, all 8 jobs green.
+- **`test/build-content-preservation.test.mjs`, 8 cases**, through the real
+  build route, the real routing route and the real plan code (model answers
+  supplied, nothing paid).
+- **`test/build-content-browser.test.mjs`, 3 cases in real Chromium.** I
+  showed you two screenshots: the too-long refusal, and a long answer sent.
+- **Before, on `3357b115`'s code: 10 of 11 fail.** The one that passes is a
+  control: the stored photos were never cut; the plan was.
+- **Mutation sweep: 14 of 14 killed, the comment-only control survived.**
+- **Full suite** on `8b5c8024`: **`10025 / 10025 / 0 / 0`** locally.
+- **Required CI on `8b5c8024`: green.**
+  - Unit tests run 37764268221: `10025 / 10000 / 0 / 25`. The totals match.
+    CI skips 25, because it has no browser for the three new Chromium
+    cases.
+  - Site build run 37764268178: 8 of 8 green.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`8b18b5eea7548730`** (198 inputs).
+**`13b224d2661e1ac0`** (198 inputs).
 
-**Remaining gaps**
-- **The billing race remains in production** until `build_debit.sql` is
-  applied together with this code. The transaction is verified only as
+**Remaining limitations**
+- **The page writer is offered only the photos the budget can buy.**
+  Requested pictures beyond that are not yet named in what the customer is
+  told.
+- **Still cut silently**: purpose (400 characters), picture descriptions
+  (240), research facts (2,500) and linked-page text (4,000). Links past two
+  are ignored.
+- **Not yet done**: a section whose writer failed is still published empty
+  with nothing said (P2), and `behavior` is still unread at build time (P7).
+  P8–P11 are untouched.
+- **The browser's refusal says "beside your site"** even before a site
+  exists. That is the existing wording, left for you.
+- **Build replies are still composed in code** from the build's facts, not
+  model-written (an existing limitation). This batch added no new canned
   text.
-- A job filed and consumed before the protocol record existed — or whose
-  record couldn't be written at either end — stays unknown when its outcome
-  needs the flag.
-- A crash between a successful activation and its record stays unknown
-  until review.
-- The scan's first run starts one day back.
-- Settlement records from the earlier unmerged code lack `delivered`. They
-  were never deployed, so none exist.
-- Protocol, fence, settlement and cursor objects are never deleted.
-- `credit_reverse`'s gateway binding is still a prefix.
-- The first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
+- **From the recovery batch**:
+  - the billing race remains in production until `build_debit.sql` is
+    applied with this code;
+  - an older job, or one whose protocol record failed, stays unknown;
+  - recovery objects are never deleted;
+  - the first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
 
-**Next, as you set it**: the Build content-preservation work — photos,
-briefs, clarification answers, sections and actions — keeping 1 page and 15
-components, and reviewing the other limits one at a time. Then
-parallel-task execution, later.
+**Next, as you set it**: parallel-task execution, later.
 
 **Yours to decide**
-- The review of `148cb1e4`.
+- The review of `148cb1e4` and `8b5c8024`.
 - Whether to apply `build_debit.sql`.
+- The refusal wording.
+- Which of the remaining limits (P2, P3's purpose and descriptions,
+  P5–P11) to take next.
 - Any release: one merge, one image build, its own runtime check.
 
-**Links**: `docs/history/2026-10-08-build-batch-4.md` (this round),
-`docs/history/2026-10-08-build-batch-3.md`,
+**Links**: `docs/history/2026-10-08-build-content.md` (this round),
+`docs/history/2026-10-08-build-batch-4.md`,
 `docs/investigations/build-limits-2026-10-08.md`.
 
 ## How you like things done
@@ -104,6 +110,38 @@ parallel-task execution, later.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-08 — Build keeps the customer's words and pictures (on the branch, `8b5c8024`; nothing merged, deployed, built or paid)
+
+A first build used to throw words away without saying so:
+- the message after 2,000 characters;
+- a typed answer after 200;
+- the brief again after 5,000 on the server;
+- pictures past the second;
+- sections past 8, and actions past 3.
+
+Now all of it is kept, up to one clear size (16,000 characters a message,
+48,000 a request). Past that, nothing is sent or charged, the customer is
+told the numbers, and the words go back in the box. One page and 15
+components stay as you set them.
+
+What was run:
+- 11 new tests, 3 of them in a real browser, with screenshots shown to you;
+- the same tests on the old code: 10 of 11 fail, and the one that passes is
+  a control;
+- sweep: 14 of 14 killed;
+- suite: `10025 / 10025 / 0 / 0`;
+- CI green: unit `10025 / 10000 / 0 / 25`, site build 8 of 8.
+
+Still open:
+- photos beyond what the budget buys are not yet named to the customer;
+- a few smaller cuts remain (purpose, picture descriptions, research,
+  linked pages);
+- P2 and P7 are not done.
+
+The record is `docs/history/2026-10-08-build-content.md`.
 
 ---
 

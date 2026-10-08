@@ -96,3 +96,15 @@ provider bound, security control and spending safeguard.
   limitation); no new canned narration was added.
 - **`MAX_CLARIFY`** (3 question/answer pairs) stays: the conversation asks at
   most three, and the composer cannot send a fourth.
+
+## Measured
+
+- **Commit**: `8b5c8024`.
+- **Full suite** on `8b5c8024`: `10025 / 10025 / 0 / 0` locally.
+- **Required CI on `8b5c8024`**:
+  - unit tests run 37764268221: `10025 / 10000 / 0 / 25`. The totals match;
+    CI skips 25, the 22 from before plus the three browser cases, because
+    CI has no Chromium.
+  - site build run 37764268178: 8 of 8 green.
+- **The next image, predicted** (not built): `13b224d2661e1ac0`, 198 inputs.
+  The prompts the container reads changed.
