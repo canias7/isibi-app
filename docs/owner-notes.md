@@ -1,72 +1,108 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, deploy 2188 live and runtime-confirmed; the paid check, run 107, failed two gates; 25 credits)
+## Current handoff — read this first (2026-10-08, run 107's follow-up: one correction batch on the branch; the TikTok continuation prepared, not sent)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Released and runtime-confirmed**: `main` `bcc22295` → **`9d6bda8a`** (36
-  commits, one fast-forward, 23:04:49 UTC); **deploy 2188** (run
-  37700151308) built the image **`335396c8c0e0fbcb`** once, as predicted,
-  rolled from `5f946c22d42a1b10` at 23:07:59; `chat.js` served byte for byte
-  as merged (939,255 bytes, `dfa07592…`); **your free press, run 106**: both
-  readers `9d6bda8afc4e`, a cold container `335396c8c0e0fbcb`, nothing
-  charged. The preflight had passed in full, and **no product file changed
-  since the reviewed `092ff48a`**.
-- **The paid check, your press run 107 (`lv-combined`), FAILED two gates and
-  was not pressed again**: message 2's TikTok step asked its question
-  (*"What’s the full address of your TikTok profile?"*) at 23:59:18, **7
-  minutes after the send, past the press's 6-minute bound**, so the press had
-  stopped, message 3 (the answer) was never sent, and **no footer has the
-  TikTok link**. The request is waiting on that question, unanswered.
-- **Money**: **25 credits**, 40 → **15** (ledger rows 402–407; row 407, the
-  TikTok part's routing, came 9 s after the press stopped). Within the 38
-  threshold and the 40 cap. No funds added.
-- **The demo changes stay**: `/allergens` and its menu link on every page,
-  and the Order heading, published at `01791417187002-f821gr`.
+- **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`,
+  runtime-confirmed by run 106). **Run 107's verdict stands: failed.** The
+  demo changes stay (`/allergens`, its menu links, the Order heading, at
+  `01791417187002-f821gr`). Balance **15**.
+- **This batch is on the branch** (`2f2b9ace` and these records): nothing merged,
+  deployed or built, no model called, nothing paid, nothing sent.
+- **The TikTok request is still waiting, and answerable until about 23:59 UTC
+  today (2026-10-08)**: its question was asked at 23:59:18 UTC yesterday, and a
+  part waits a day before it expires.
 
-**Verified live (run 107)**
-- **Mixed request and dependency order** (message 1): the Allergens page from
-  the add-on step, its menu link as a second part held until the page was
-  done; on every reading, no part started before the part it needs.
-- **Model-written progress and the closed tab**: all eight checks — a line
-  live 150 s after the send in the sending tab, the tab closed, the request
-  read from the list alone, a fresh session signed in afresh following it to
-  its end with every line and reply on screen.
-- **Final results**: `/allergens` served (*Allergen notice … One kitchen,
-  every loaf*); every menu gained one `/allergens` link keeping its items;
-  `/order` reads *"Choose your loaf and a collection time"*; every other page,
-  component and table byte for byte as before.
-- **Replies**: message 1's two parts and message 2's heading each have the
-  model's own reply (message 2's was still being written when the press
-  judged it).
-- **Charges**: the press's own money check passed (22 = routing 4 + jobs 18);
-  narration added none (8 calls, $0.02245 absorbed).
+**What this batch did** (`docs/history/2026-10-08-run107-followup.md`)
+1. **Run 107's failures, by cause**: nine failing check lines in five groups,
+   all from **one cause**. Message 2's 6-minute bound was shorter than its real
+   path: the TikTok part ran only after the heading's publish, which waited
+   221 s for a container, so the question came at **7 min 2 s**. The product
+   asked it. **Unverified, separately: clarification end to end** (an answer
+   resuming the part, the link placed).
+2. **Timing from the measured path**:
+   - each `lv-combined` message now carries its path from run 107's job rows,
+     with every container wait counted at the longest measured (262 s);
+   - message 2's bound is 10 min (was 6), message 3's 8 (was 7);
+   - the overall limit stays explicit: `lv-combined` has its own press limit
+     of 36 min and its own workflow timeout of 55, the same quarter-hour to
+     spare; every other press keeps 30 and 45;
+   - budget 38 and cap 40 unchanged.
+3. **The reply: not run is not absent, for every kind of part**:
+   - the add-on's answer now carries the menu links its own step put in and the
+     published pages still hold (`linked`), and its facts say them;
+   - a later part of the same request is told as *not run yet, which says
+     nothing about whether the site already has it*;
+   - the rule saying held work is "not tried" now applies only where nothing
+     will run it, and a new rule says a queued or waiting status is never
+     evidence the site lacks something;
+   - the wording stays the model's: no canned sentence, and no rule names a
+     menu, link or footer.
+4. **Accounting after observation stops**:
+   - run 107: **snapshot 22** (rows 402–406), **later 3** (row 407, the
+     TikTok routing, 9 s after the press stopped), **25 so far, NOT FINAL**,
+     since the request still waits and an answer would charge more;
+   - the canary now reads the ledger again after one explicit 60 s wait, and
+     says "settled" only when every request it made has ended.
+5. **The extra routing, investigated, nothing changed**:
+   - every part after the first gets its own routing call (3 each in run 107,
+     almost uncached);
+   - both links were routed to the add-on step and handed to the menu step for
+     free;
+   - for the menu link, the menu step then found the link already there and
+     charged nothing;
+   - **needed**: routing a part that depends on an earlier one, after it;
+   - **avoidable**: the TikTok part's separate routing call, since it depended
+     on nothing, but routing every part in one call is a router change, recorded
+     as an option only; also the platform's own add-on picker call on each
+     misrouted link;
+   - no pricing change, no keyword routing.
+6. **The continuation, prepared, not sent**: `lv-tiktok-answer`.
+   - One message, `lv-combined`'s own answer word for word.
+   - It is sent only when exactly one question is waiting on the site, and it
+     must resume exactly that part.
+   - It checks only the TikTok footer link, so nothing completed is repeated.
+   - **About 2–5 credits** (routing 1–3, the footer link 1–2). Budget 6, hard
+     cap 15.
 
-**Not verified (unshown or model behaviour)**
-- **Clarification end to end**: the step really asked, but no answer was
-  sent, so an answer resuming the part and the TikTok link's placement are
-  unshown live.
-- How often the router splits these parts, or the add-on adds the menu link
-  itself: one sample each.
+**Your presses for the continuation** (*Actions → edit canary*, "Use workflow
+from": **`claude/help-needed-ehlwlj`**, where the scenario lives; every other
+box as it is):
+1. **Free check** (whether it is still resumable):
+   - "Run the ONE paid edit as well (yes/no)": `no`
+   - "RUN A NAMED SCENARIO …": `lv-tiktok-answer`
+   - "The site to edit …": `fold-lane-bakery`
+   - It prints *"waiting, and answerable: part 1 of request 475d4ff7… asks …"*,
+     or why not.
+2. **The paid answer, only on your word, before about 23:59 UTC today**: the
+   same, with `yes`, and the deploy sha box `9d6bda8a`, the image box
+   `335396c8c0e0fbcb`.
 
-**Findings** (backlog; `docs/history/2026-10-07-combined-release.md` §4.4)
-1. The scenario's 6-minute bound for message 2 is shorter than its path (the
-   link runs after the heading's publish, which waited 221 s for a
-   container). A scenario flaw, not a product failure.
-2. Message 1's reply said the menu link *"was not tried this time"*, though
-   the add-on had already added it.
-3. A part already satisfied or handed over still pays its routing (3 credits
-   for the link part, 3 for the TikTok part).
+Both run against deploy 2188, not this batch's reply fix, which is not
+deployed.
+
+**Tests actually run**:
+- the new cases: 7 for the held parts, 4 for the later accounting, 6 for the
+  continuation;
+- **red check** on the code before the batch: 5 of the 7 held-part cases fail
+  (the helper case and the outside-a-request control pass); the canary files
+  fail on loading;
+- **sweep**: 20 of 20 killed, the comment-only control survived (one survivor
+  on the first pass, the container-wait rule, closed by a test and re-run);
+- **full suite**: **9902 tests, 9902 pass, 0 fail, 0 skipped (on 2f2b9ace's code)**.
+
+**The next image, predicted** (for a later release, not built): **335396c8c0e0fbcb → 8ed15df4698bd1a5 (196 inputs; three differ: worker.js, builder/site-addon.mjs, builder/site-reply.mjs)**.
 
 **Yours to decide**
-- Whether to answer the waiting TikTok question in the app (a paid step,
-  about 1–3 credits) or leave it; and whether a corrected scenario (longer
-  bound for message 2) is ever run again. Nothing is pressed without your
-  word.
-- **Next, on your word: the first-Build audit.**
+- **The continuation's free check, then whether to send the paid answer**
+  (before about 23:59 UTC today, or the question expires).
+- **Releasing this batch** (one merge, one image build) when you choose.
+- **Next, on your word: the first-Build audit**, then the cross-path
+  parallel-execution design, after the audit.
 
 **The gate, exactly**
 - **Attempt 1** (the push of `570adb45`, 19:29–19:50 UTC) was incomplete:
@@ -213,6 +249,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Run 107's follow-up: the timing from the real path, "not run is not absent" in the replies, the later money, the continuation prepared (on the branch, `2f2b9ace`; nothing merged, deployed, built, paid or sent)
+
+- Run 107's verdict stands. Its failures came from one cause, message 2's
+  bound shorter than its path (the question came at 7 min 2 s). Clarification
+  end to end is still unverified.
+- `lv-combined`'s bounds now come from the measured path, with an explicit own
+  press limit (36 min) and workflow timeout (55).
+- Replies: the add-on now reports the menu links it really put in, and a part
+  still to come is never called missing or not tried, for any kind of part.
+- Accounting: run 107 is 22 + 3 = 25 so far, not final while the TikTok
+  request waits; the canary now reads later charges and says when nothing is
+  final.
+- The extra routing is investigated and recorded; nothing changed.
+- `lv-tiktok-answer` is prepared: about 2–5 credits, answerable until about
+  23:59 UTC today. Your free check and paid press are in the handoff.
 
 ## 2026-10-08 — Run 107, your paid `lv-combined` press: failed two gates (the question came after message 2's bound; no TikTok link); everything else verified live; 25 credits
 

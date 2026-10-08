@@ -21,10 +21,9 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - **Run 107's three findings** (2026-10-07, `lv-combined` on deploy 2188):
-  the press's 6-minute bound for message 2 was shorter than its path (the
-  question came at 7 min); message 1's reply said the menu link was not tried
-  while the add-on had already added it; a part already satisfied or handed
-  over still pays its 3-credit routing; in full below.
+  the bound and the reply are **fixed on the branch** (2026-10-08, not
+  deployed); the 3-credit routing of every later part is **investigated, still
+  open** as a router option (route every part in one call); in full below.
 - **The site build's Chromium install can stall in apt** (2026-10-07, run
   37674861320 on `570adb45`): four jobs reached their 20-minute limit while
   `npx playwright install --with-deps chromium` waited on Ubuntu's
@@ -936,6 +935,10 @@ here; take a closed one out of both.**
     and the TikTok part (3) were each routed `addon`, handed over free to the
     menu step; for the link nothing was needed. The routing answer is the
     model's; the charge is real.
+  - **2026-10-08**: the bound and the reply fixed on the branch, and the
+    routing investigated (`docs/history/2026-10-08-run107-followup.md` §2, §3,
+    §5). Open: routing every part in one call, and caching the part-level
+    routing prompt (512 of about 8,600 tokens cached in run 107).
 
 - **THE SITE BUILD'S CHROMIUM INSTALL CAN STALL IN APT (2026-10-07, run
   37674861320 on `570adb45`).**
