@@ -81,7 +81,11 @@ Both of Codex's reproductions were told as kept menu links:
   comment-only control survived.
 - **The 74 related test files**: 2576 of 2576. **Full suite**: **9909
   tests, 9909 pass, 0 fail, 0 skipped**.
-- Unit CI on the push: below once read.
+- **Required CI green**: unit tests run 37717552475 on `9ad6c1dd` (the code
+  plus records), **9909 tests, 9887 pass, 0 fail, 22 skipped** (CI skips the
+  22 browser cases; the total matches the local run); site build run
+  37717471670 on `2506e43b`, all eight jobs green. The unit run on
+  `2506e43b` itself was cancelled by the records push.
 
 **The next image, predicted** (not built): `335396c8c0e0fbcb` →
 **`5a2203f8e324f2ac`** (197 inputs; the new module is the extra one).
