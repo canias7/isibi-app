@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, Codex's review of c288078d: a links key written as null or undefined clears the menu; the continuation kept separate)
+## Current handoff — read this first (2026-10-08, the menu-clearing round closed; the TikTok continuation approved, waiting for your two presses)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,15 +8,37 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
-  **Run 107's verdict stands: failed.** The demo changes stay. Balance **15**.
+  **Run 107's verdict stands: failed.** Balance **15** (read at 03:00 UTC;
+  last ledger row 407; no job open).
 - **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`,
-  `2506e43b`, then **`eaa516e7` (this round's code)**, and records. Nothing
-  merged, deployed or built, no model called, nothing paid, nothing sent.
-  Run 107 is not repeated.
-- **The TikTok request is untouched**: still waiting until about 23:59 UTC
-  today (2026-10-08), when it expires.
+  `2506e43b`, `eaa516e7`, and records. Nothing merged, deployed or built.
+- **The correction round is closed.** Codex's focused review of `50f4ef44`
+  passed all 16 checks, and you closed the round. Its limits stay
+  documented below.
+- **The continuation is approved** (one free preflight, then exactly one
+  paid answer). The session's dispatch answered **403** once and was not
+  retried, so both presses are yours (the boxes are below). This is
+  recorded apart from run 107. It verifies nothing about run 107's unsent
+  third message or the unreleased reply correction.
 
-**What Codex confirmed on `c288078d`**: the false-conditional and
+**Press 1, the free preflight** (*Actions → edit canary → Run workflow*):
+- "Use workflow from": `claude/help-needed-ehlwlj`
+- "Run the ONE paid edit as well (yes/no)": `no`
+- "RUN A NAMED SCENARIO IN A REAL BROWSER …": `lv-tiktok-answer`
+- "The site to edit …": `fold-lane-bakery`
+- "Refuse to spend unless the Worker reports this deploy sha …": `9d6bda8a`
+- "Refuse to spend unless a cold container reports this image id …":
+  `335396c8c0e0fbcb`
+- Every other box blank. It must print *"waiting, and answerable: part 1 of
+  request 475d4ff7… asks …"*, or the exact reason not to send.
+
+**Press 2, the one paid answer**: only after press 1 reads answerable. The
+same boxes, with the paid box `yes`. The guard checks the request, the part,
+the question words, its id and the expiry window on the server and in the
+browser again immediately before Send. If it refuses, nothing is sent and
+nothing else is tried.
+
+**The closed correction round, for reference.** What Codex confirmed on `c288078d`: the false-conditional and
 unused-local-component reproductions pass, genuine links are still
 recognised, dynamic conditions stay not known, and CI is green.
 
@@ -81,26 +103,9 @@ written as null or undefined", so the clearing spread was skipped.
 **The next image, predicted** (not built): `335396c8c0e0fbcb` →
 **`59059c19e7c883fd`** (197 inputs).
 
-**The continuation, kept separate and ready against deploy 2188**
-(`lv-tiktok-answer`; the identity guard on request, part, question and id,
-and the expiry guard, unchanged). It checks the clarification on the
-existing deployment and does not need these reply changes released. Nothing
-is pressed or sent.
-- **About 2–5 credits**: budget 6, hard cap 15. It must be answered before
-  about 23:59 UTC today; the guard refuses within 10 minutes of that.
-- **Free check, once you approve** (*Actions → edit canary*, "Use workflow
-  from": `claude/help-needed-ehlwlj`):
-  - "Run the ONE paid edit as well (yes/no)": `no`
-  - "RUN A NAMED SCENARIO …": `lv-tiktok-answer`
-  - "The site to edit …": `fold-lane-bakery`
-  - It prints *"waiting, and answerable: part 1 of request 475d4ff7… asks …"*,
-    or the exact reason not to send.
-- **Paid answer, only on your word**: the same, with `yes`, the deploy sha box
-  `9d6bda8a` and the image box `335396c8c0e0fbcb`.
-
 **Yours to decide**
-- The continuation: the free check, then on your word the paid answer, before
-  about 23:59 UTC today.
+- The two presses above, before about 23:59 UTC today (about 21 hours left
+  at 03:00 UTC).
 - Releasing the branch (one merge, one image build) when you choose.
 - **The order stays**: finish the current Edit/Add-on verification, then
   audit the first Build, then plan dependency-based parallel execution.
@@ -123,6 +128,17 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The menu-clearing round closed; the TikTok continuation approved (nothing pressed yet; nothing merged, deployed or built)
+
+- Codex's review of `50f4ef44` passed all 16 checks, and you closed the round.
+  The reader's limits stay documented.
+- You approved one free preflight and exactly one paid `lv-tiktok-answer` on
+  deploy 2188. Read first: balance 15, last ledger row 407, no job open, and
+  the question about 21 hours from expiry.
+- The session's dispatch answered 403 once (not retried). The two presses
+  are yours, with the boxes in the handoff.
+- This is recorded apart from run 107, which stays failed.
 
 ## 2026-10-08 — Codex's review of c288078d: a links key written as null or undefined clears the menu (on the branch, `eaa516e7`; nothing merged, deployed, built, paid or sent)
 
