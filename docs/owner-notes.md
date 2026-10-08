@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, Codex's review of 7fc7056d: menu links only from what the page renders, read by a real parser; the continuation kept separate)
+## Current handoff — read this first (2026-10-08, Codex's review of c288078d: a links key written as null or undefined clears the menu; the continuation kept separate)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,90 +9,79 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
   **Run 107's verdict stands: failed.** The demo changes stay. Balance **15**.
-- **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`, then
-  **`2506e43b` (this round)**, and records. Nothing merged, deployed or
-  built, no model called, nothing paid, nothing sent. Run 107 is not
-  repeated.
+- **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`,
+  `2506e43b`, then **`eaa516e7` (this round's code)**, and records. Nothing
+  merged, deployed or built, no model called, nothing paid, nothing sent.
+  Run 107 is not repeated.
 - **The TikTok request is untouched**: still waiting until about 23:59 UTC
   today (2026-10-08), when it expires.
 
-**What Codex confirmed on `7fc7056d`**: the commented-out array and the
-unused object now pass, genuine links are kept, and an unresolved import
-stays not known.
+**What Codex confirmed on `c288078d`**: the false-conditional and
+unused-local-component reproductions pass, genuine links are still
+recognised, dynamic conditions stay not known, and CI is green.
 
-**The gap, reproduced**: the reader took "reachable by name" for "rendered".
-Both of Codex's reproductions were told as kept menu links:
-- `false && <SiteChrome links={[…Allergens…]}/>` beside a Home-only menu;
-- a local `OldMenu` holding the link, declared in the page but never
-  rendered.
+**The gap, reproduced on `c288078d`**: four forms each gave the false fact
+*"The menu on / now links to /allergens."*:
+- `<SiteChrome links={[…Allergens…]} {...{links:null}}/>`, and the same with
+  `undefined`;
+- `const props = {...base, ...{links:null}}` rendered as
+  `<SiteChrome {...props}/>`, and the same with `undefined`.
 
-**The correction (`2506e43b`, `builder/rendered-menus.mjs`)**
-- **A real parser, not a handwritten one.** The page is read by the
-  TypeScript parser the compile step and the photo and layout rungs already
-  use (`tweakParser()`), handed in by the Worker. The old scanner is
-  deleted. With no parser (a job run inline in the Worker) or a page with a
-  syntax error, every link is told as **not known**.
-- **What it can establish, precisely.** A menu is certain only when it is
-  reached from the route's component (or the default export) along these
-  paths:
-  - the component's one `return`;
-  - the children of an HTML tag or of an imported component (the one
-    assumption: that the kit's shells render their children);
-  - a `const` holding JSX;
-  - a component of the same file rendered as a tag, into its one `return`;
-  - `true &&` and literal `true`/`false` conditions.
-- **Certainly not rendered**: anything inside a declaration nothing
-  references, and an arm a literal condition never takes.
-- **Everything else is not known, never a link and never not one**: a real
-  condition (`open && …`), a second `return`, `.map` callbacks, JSX in a
-  prop, a component called as a function, the children of a component
-  declared in the page, and a menu that is a component's own prop.
-- **The bindings followed for `links`** are as before, now read off the
-  tree: inline, a `const`, `NAME.links`, `{...NAME}` and object spreads.
-  The last one written wins. Imports, parameters, calls, names declared
-  twice and mutated bindings are not known.
-- **Unchanged**: `navSlots` and every navigation edit; the reply's facts and
-  rules; the wording, which stays the model's. Nothing is written for the
-  two examples.
-- **The image's Worker tree now carries the new module** (one Dockerfile
-  line). Without it every container launch would have been refused, and the
-  existing Worker-tree guard fails when the line is missing.
+The cause: the reader used one value both for "key not written" and for "key
+written as null or undefined", so the clearing spread was skipped.
+
+**The correction (`eaa516e7`, `builder/rendered-menus.mjs`)**
+- Presence is tracked apart from the value, in source order, across JSX
+  attributes and spreads and across an object's own spreads:
+  - a key written as `null` or `undefined` (or an empty array) clears the
+    earlier menu;
+  - a spread that does not write `links` leaves it;
+  - a later genuine array wins over an earlier clearing;
+  - an unreadable spread makes it not known.
+- **Unchanged**: the navigation editor, the reply's facts and rules, and the
+  model-written wording.
 
 **Tests actually run this round**
-- **HELD 12, 17 cases, each through the helper and the real reply facts**:
-  - both reproductions (not told);
-  - conditions: `true &&` (told); a literal false (the other arm told); a
-    state condition beside a menu, a state condition choosing between two,
-    and an early return (not known);
-  - nested declarations and invocation: a nested component rendered as a
-    tag, and a top-level one (told); one called as a function, one handed
-    in a prop, and one whose menu is its prop (not known);
-  - a JSX `const` rendered (told) and one never rendered (not told);
-  - a callback, and a local component's children (not known);
-  - an imported component's children (told);
-  - no parser (not known).
-- **Kept**: HELD 9's six controls, HELD 10's 17 shapes, HELD 11's corpus
-  check. On the corpus, 300 menu pages read as sure and match the editor
-  exactly; 16 are not known (2 more than before: two salon pages that
-  render their menu from two `return`s).
-- **Red check against `7fc7056d`**: HELD 12 fails at the first reproduction
-  and HELD 8 on the hand-off line; the rest pass.
-- **Sweep** (`scripts/mutants/codex-7fc7056d.json`): 21 of 21 killed, and the
-  comment-only control survived.
-- **The 74 related test files**: 2576 of 2576. **Full suite**: **9909
-  tests, 9909 pass, 0 fail, 0 skipped**.
-- **Required CI green**: unit tests run 37717552475 on `9ad6c1dd` (the code
-  plus records), **9909 tests, 9887 pass, 0 fail, 22 skipped** (CI skips the
-  22 browser cases; the total matches the local run); site build run
-  37717471670 on `2506e43b`, all eight jobs green. The unit run on
-  `2506e43b` itself was cancelled by the records push.
+- **HELD 13, 24 cases, each through `renderedMenus`, `menuLinksKept` and
+  `addonReplyFacts`**:
+  - Codex's four as written: not known, never kept;
+  - the four beside a Home menu: not told;
+  - direct clearing attributes, a shorthand `null` and empty arrays: not
+    told;
+  - unrelated spreads and a spread of `null`: kept;
+  - reversed order: the later genuine array wins;
+  - an unresolved final spread (a parameter, an import): not known;
+  - a missing member, spreads that never write `links`, and a conditional
+    explicit `null`: no menu, and not unknown.
+- **Kept passing**: the conditional, unused-component and genuine-menu
+  controls (HELD 9–12) and the corpus check (324 pages read; 300 sure and
+  exact; 16 not known).
+- **Red check on `c288078d`**: HELD 13 fails at Codex's first case.
+- **Sweep** (`scripts/mutants/codex-c288078d.json`): 12 of 12 killed, and the
+  comment-only control survived. The 3 first-pass survivors were closed by
+  the three "no menu, not unknown" cases.
+- **The 74 related test files**: 2577 of 2577. **Full suite**: **9910
+  tests, 9910 pass, 0 fail, 0 skipped**.
+- Unit CI on the push: below once read.
+
+**Limits that remain** (the reader's bounds):
+- A page whose only menu is cleared is told as not known, not as having no
+  menu.
+- These are all not known: a second `return`, a real condition, a callback,
+  JSX in a prop, a component called as a function, and a local component's
+  children.
+- An imported component's children are assumed rendered.
+- Mutation is seen only within the file.
+- With no parser (a job run inline in the Worker), every link is not known.
 
 **The next image, predicted** (not built): `335396c8c0e0fbcb` →
-**`5a2203f8e324f2ac`** (197 inputs; the new module is the extra one).
+**`59059c19e7c883fd`** (197 inputs).
 
 **The continuation, kept separate and ready against deploy 2188**
-(`lv-tiktok-answer`). It checks the clarification on the existing deployment
-and does not need these reply changes released. Nothing is pressed or sent.
+(`lv-tiktok-answer`; the identity guard on request, part, question and id,
+and the expiry guard, unchanged). It checks the clarification on the
+existing deployment and does not need these reply changes released. Nothing
+is pressed or sent.
 - **About 2–5 credits**: budget 6, hard cap 15. It must be answered before
   about 23:59 UTC today; the guard refuses within 10 minutes of that.
 - **Free check, once you approve** (*Actions → edit canary*, "Use workflow
@@ -109,7 +98,8 @@ and does not need these reply changes released. Nothing is pressed or sent.
 - The continuation: the free check, then on your word the paid answer, before
   about 23:59 UTC today.
 - Releasing the branch (one merge, one image build) when you choose.
-- **Next: the first-Build audit**, then the parallel-execution planning.
+- **The order stays**: finish the current Edit/Add-on verification, then
+  audit the first Build, then plan dependency-based parallel execution.
 
 **Still open** (`docs/backlog.md`): run 107's findings; the BG11 load flake;
 the site build's Chromium install stall (seen once); the provisioning and undo
@@ -117,7 +107,7 @@ items carried from earlier rounds. An uncertain database creation can still
 need your manual settlement (the note under
 `source/<slug>/neon-unrecorded/`).
 
-**Links**: `docs/history/2026-10-08-run107-followup.md` (§10 is this round),
+**Links**: `docs/history/2026-10-08-run107-followup.md` (§11 is this round),
 `docs/history/2026-10-07-combined-release.md`, `docs/backlog.md`.
 
 ---
@@ -129,6 +119,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Codex's review of c288078d: a links key written as null or undefined clears the menu (on the branch, `eaa516e7`; nothing merged, deployed, built, paid or sent)
+
+- Reproduced: a later `{...{links:null}}` or `{...{links:undefined}}` spread,
+  in JSX or inside an object, was skipped. The earlier menu survived it, and
+  the reply said the menu links to /allergens.
+- Corrected: whether a key is written is tracked apart from its value, in
+  order. A clearing value clears, a spread without `links` keeps the menu,
+  and an unreadable spread is told as not known. The navigation editor and
+  the wording are unchanged.
+- Checks: 24 new cases through the reply facts; earlier controls and corpus
+  unchanged; red check on `c288078d`; sweep 12 of 12; full suite 9910 of
+  9910.
 
 ## 2026-10-08 — Codex's review of 7fc7056d: menu links only from what the page renders, read by a real parser (on the branch, `2506e43b`; nothing merged, deployed, built, paid or sent)
 
