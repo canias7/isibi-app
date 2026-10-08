@@ -545,7 +545,7 @@ test("junk in never throws", () => {
   for (const v of [null, undefined, "nope", [], [null, 7, {}, []]]) {
     assert.doesNotThrow(() => attachments(v));
   }
-  assert.deepEqual(attachments(null), { blocks: [], texts: [], skipped: [], converted: [] });
+  assert.deepEqual(attachments(null), { blocks: [], texts: [], skipped: [], converted: [], named: [] });
 });
 
 test("one bad attachment does not lose the good ones", () => {

@@ -50,10 +50,13 @@ const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), 
 test("the RPC wall: every admitted RPC is bound to the job's own row, site or owner; the mint is replaced only when the marker was sent", () => {
   for (const [fn, binds] of Object.entries(SB_RPCS)) {
     if (binds.p_id !== "id") continue;
-    const ok = sbDecision(JOB, "POST", "/rest/v1/rpc/" + fn, "", JSON.stringify({ p_id: JOB.id, p_owner: "c_x", p_mint: SB_MARKER }), MINT);
+    // A BUILD'S DEBIT binds its account and one exact ref as well, so it is
+    // asked with both; the rest of each row's case is the same.
+    const extra = fn === "build_debit" ? { p_uid: JOB.uid, p_ref: "build:" + JOB.id + ":pages" } : {};
+    const ok = sbDecision(JOB, "POST", "/rest/v1/rpc/" + fn, "", JSON.stringify({ p_id: JOB.id, p_owner: "c_x", ...extra, p_mint: SB_MARKER }), MINT);
     assert.equal(ok.ok, true, fn + " refused its own row: " + JSON.stringify(ok));
-    assert.deepEqual(JSON.parse(ok.body), { p_id: JOB.id, p_owner: "c_x", p_mint: MINT }, fn + ": the mint was not replaced, or the body was changed");
-    const foreign = sbDecision(JOB, "POST", "/rest/v1/rpc/" + fn, "", JSON.stringify({ p_id: "j_other00000001", p_mint: SB_MARKER }), MINT);
+    assert.deepEqual(JSON.parse(ok.body), { p_id: JOB.id, p_owner: "c_x", ...extra, p_mint: MINT }, fn + ": the mint was not replaced, or the body was changed");
+    const foreign = sbDecision(JOB, "POST", "/rest/v1/rpc/" + fn, "", JSON.stringify({ p_id: "j_other00000001", ...extra, p_mint: SB_MARKER }), MINT);
     assert.deepEqual(foreign, { ok: false, why: "bind:p_id" }, fn + " admitted another job's row");
     const none = sbDecision(JOB, "POST", "/rest/v1/rpc/" + fn, "", JSON.stringify({ p_mint: SB_MARKER }), MINT);
     assert.equal(none.ok, false, fn + " admitted a call naming no row");
@@ -512,11 +515,10 @@ test("the vault refuses the marker as key material: a v1 row cannot be opened in
 // ── 6. the lists, held to the code ──────────────────────────────────────────
 
 /** The RPCs the Worker calls only from its own side: the cron, the routes, the enqueue. */
-// `build_debit` (2026-10-08, the first-Build audit's H2, proposed SQL not yet
-// applied): the Worker's own, asked only when the ledger refuses an expired
-// bearer. Not admitted to the wall — a container-run build meeting an expired
-// bearer fails its debit exactly as it did before (recorded as a limitation).
-const WORKER_ONLY_RPCS = ["edit_create", "edit_sweep_lost", "edit_sweep_stale", "edit_get", "edit_cancel", "rebuild_claim", "deploy_gate_set", "deploy_gate_clear", "edit_phase_stats", "build_debit"];
+// `build_debit` is no longer here (2026-10-08, Codex's review of `b4300a07`):
+// the wall admits it, bound to the job's own id, account and refs, so a
+// container-run build whose bearer expired can still settle.
+const WORKER_ONLY_RPCS = ["edit_create", "edit_sweep_lost", "edit_sweep_stale", "edit_get", "edit_cancel", "rebuild_claim", "deploy_gate_set", "deploy_gate_clear", "edit_phase_stats"];
 
 test("every RPC the wall admits is one the Worker calls, and every RPC the Worker calls through the helper is admitted or named as the Worker's own", () => {
   const src = noComments(WORKER);

@@ -26,7 +26,13 @@ export function buildBucket(entries = {}) {
   return {
     store,
     async get(k) { const v = store.get(k); return v === undefined ? null : obj(k, v); },
-    async put(k, v) { store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : String(v)); return { key: k, etag: "e-" + k }; },
+    // R2'S CREATE-ONLY CONDITION, honoured: `etagDoesNotMatch: "*"` writes only
+    // when the key is absent and answers null otherwise (the build fence).
+    async put(k, v, opts) {
+      if (opts && opts.onlyIf && opts.onlyIf.etagDoesNotMatch === "*" && store.has(k)) return null;
+      store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : String(v));
+      return { key: k, etag: "e-" + k };
+    },
     async delete(k) { store.delete(k); },
     async list({ prefix = "" } = {}) { return { objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((k) => ({ key: k, size: 1 })), truncated: false }; },
     async head(k) { return store.has(k) ? { key: k, size: 1 } : null; },

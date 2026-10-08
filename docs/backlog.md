@@ -27,17 +27,26 @@ here; take a closed one out of both.**
   `docs/history/2026-10-08-build-batch.md`. **Still open**: M2–M6, M8–M12,
   L1–L9 and L11–L12 as the audit lists them, and the batch's own limits
   below.
-- **The build batch's limits** (2026-10-08):
+- **The build batch's limits** (2026-10-08, updated by the second batch):
   - `supabase/proposed/build_debit.sql` must be applied (your word) before
-    an expired bearer's build can be billed;
-  - a container-run build is not admitted to `build_debit` at the gateway;
-  - a build that publishes after it was reconciled lost, with a live bearer,
-    charges its pages after the refund;
-  - a later edit within the window reads as the lost build's publish;
-  - an unknown outcome past the one-day window moves nothing;
+    an expired bearer's build can be billed; the gateway now admits it for a
+    container-run build, bound to the job's own id, account and three refs;
+  - the bearer path's job-state check is a read before the debit, not one
+    transaction: a row that turns lost between the two, or a debit that
+    lands after recovery's refund, is not caught (the applied `build_debit`
+    checks the row in the same statement);
+  - a row marked lost after its publish and before its pages debit leaves
+    the pages uncharged (the customer is favoured);
+  - a job filed before the fence existed, with a later version that names
+    no job, stays pending (unknown) and is retried every tick; nothing
+    settles it but evidence, so it waits for review;
+  - `credit_reverse`'s gateway binding is still a prefix (`build:<id>…`),
+    not the three exact refs;
+  - the fence objects (`jobs/<id>.fence.json`) are never deleted;
   - the reply cannot see whether the writer placed a customer's photograph;
-  - a real model's use of `attached` is unmeasured;
-  - a lost pages-debit answer on a charged stage reads as nothing taken.
+  - a real model's use of `attached` (now an id) is unmeasured;
+  - the Build limits proposals P1–P11 await your review
+    (`docs/investigations/build-limits-2026-10-08.md`).
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run
   107's publish last (the wait pointed backward). **Fixed on the branch in

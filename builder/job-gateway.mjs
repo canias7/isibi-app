@@ -131,7 +131,17 @@ export const SB_RPCS = {
   edit_phase_write: { p_id: "id" },
   deploy_gate_read: {},
   credit_reverse: { p_target: "uid", p_ref: "build-ref" },
+  // A BUILD'S OWN DEBIT, for the container-run build whose customer's bearer
+  // has expired (2026-10-08, Codex's review of `b4300a07`; the function is
+  // the proposed `supabase/proposed/build_debit.sql`, not applied). Bound three
+  // ways: the job's own id, the job's own account, and EXACTLY one of the
+  // job's own three refs — never a prefix. The function itself refuses a row
+  // that is not a live build of that account.
+  build_debit: { p_id: "id", p_uid: "uid", p_ref: "build-step-ref" },
 };
+
+/** The three refs a build may debit under, exactly. */
+export const BUILD_STEP_REFS = (id) => ["deposit", "settle", "pages"].map((step) => "build:" + id + ":" + step);
 
 /**
  * THE TABLES A JOB MAY TOUCH, per method. `filter` names the query parameter
@@ -150,6 +160,11 @@ export const SB_TABLES = {
   site_functions: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", owner_id: "uid" } } },
   site_builds: { POST: { rows: { slug: "slug" } } },
   credits: { GET: { filter: { user_id: "uid" } } },
+  // A LOST PAGES-DEBIT ANSWER, READ BACK BY REF (2026-10-08, Codex's review
+  // of `b4300a07`): the job's own account and exactly one of its own three
+  // build refs, so a container-run build can tell "debited" from "unknown"
+  // and can read nothing of any other job or account.
+  credit_events: { GET: { filter: { uid: "uid", ref: "build-step-ref" } } },
 };
 
 /** The request headers forwarded to Supabase, and the response headers handed back. */
@@ -195,6 +210,10 @@ export function sbDecision(who, method, path, search, text, mint) {
     if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, why: "body" };
     for (const [arg, word] of Object.entries(SB_RPCS[fn])) {
       const v = body[arg];
+      if (word === "build-step-ref") {
+        if (typeof v !== "string" || !who.id || !BUILD_STEP_REFS(who.id).includes(v)) return { ok: false, why: "bind:" + arg };
+        continue;
+      }
       if (word === "build-ref") {
         if (typeof v !== "string" || !v.startsWith("build:" + who.id)) return { ok: false, why: "bind:" + arg };
         continue;
@@ -219,6 +238,11 @@ export function sbDecision(who, method, path, search, text, mint) {
   if (!rule) return { ok: false, why: "method" };
   for (const [param, word] of Object.entries(rule.filter || {})) {
     if (who.pre === true && word === "slug") return { ok: false, why: "filter:" + param };
+    if (word === "build-step-ref") {
+      const v = params.get(param);
+      if (typeof v !== "string" || !v.startsWith("eq.") || !who.id || !BUILD_STEP_REFS(who.id).includes(v.slice(3))) return { ok: false, why: "filter:" + param };
+      continue;
+    }
     if (params.get(param) !== "eq." + boundValue(who, word)) return { ok: false, why: "filter:" + param };
   }
   if (m === "GET" || m === "HEAD" || m === "DELETE") return { ok: true, body: undefined };

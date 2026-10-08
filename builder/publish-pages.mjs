@@ -796,6 +796,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // over, once in credits and once in trust — so a free attempt says so, and a
   // charged one says what it was charged for rather than leaving them to notice.
   const FREE = "You weren't charged for this attempt.";
+  // THE LEDGER'S ANSWER WAS LOST AND COULD NOT BE READ BACK BY REF (2026-10-08,
+  // Codex's review of `b4300a07`): neither "charged" nor "not charged" is true,
+  // so neither is said.
+  const CHARGE_UNKNOWN = "I couldn't confirm what this attempt charged; it's being checked against your account.";
   // TWO PAID SENTENCES, BECAUSE ONE OF THEM WAS A LIE ON A REAL BUILD. Seen
   // live 2026-08-10: `stage: validate`, `the generator called the tool with no
   // pages in it`, under a message reading "the pages were written, they just
@@ -1144,7 +1148,13 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
         // older caller would start reporting free builds.
         took = typeof got === "number" ? Math.max(0, got) : c;
       }
-    } catch { took = 0; /* never fail a build over the ledger */ }
+    } catch (e) {
+      // NEVER FAIL A BUILD OVER THE LEDGER — and never read a lost answer as
+      // nothing taken. The dep reconciles by ref first; one it still cannot
+      // settle says `chargeUnknown`, and the reply carries that, not a zero.
+      took = 0;
+      if (e && e.chargeUnknown === true) out.chargeUnknown = true;
+    }
     out.cost += took;
     // `charged` is about the LEDGER, not about the intent. A build that billed
     // 21 and collected 0 must not tell the customer it used their credits.
@@ -1157,6 +1167,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // so this asks the same object the same question: did any page arrive at all.
     // True on `home`, `typecheck` and `published`, which all have pages by then.
     const wrote = !!(gen && gen.input && Array.isArray(gen.input.pages) && gen.input.pages.length);
+    if (out.chargeUnknown === true && !(took > 0)) return CHARGE_UNKNOWN;
     return took > 0 ? (wrote ? PAID : PAID_NOTHING) : FREE;
   };
 

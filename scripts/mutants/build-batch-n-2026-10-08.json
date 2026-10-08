@@ -1,0 +1,284 @@
+[
+{
+"label": "N1: ids follow the handed-over position, not the request's",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "named.push({ id: attachmentId(i), index: i, name: fullNameOf(a) || name, kind: \"image\",",
+"to": "named.push({ id: attachmentId(named.length), index: i, name: fullNameOf(a) || name, kind: \"image\","
+},
+{
+"label": "N1: bytes read from the wrong index",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "    const a = items[f.index];",
+"to": "    const a = items[out.size];"
+},
+{
+"label": "N1: a shared name resolves to the first file",
+"files": [
+"builder/attached-photos.mjs"
+],
+"from": "  if (byName.length > 1) return { ok: false, reason: \"more than one attached file has that name\" };",
+"to": "  if (byName.length > 1) return { ok: true, file: byName[0] };"
+},
+{
+"label": "N1: names cut to 80 again",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "const fullNameOf = (a) => String((a && a.name) || \"\").trim().slice(0, 300);",
+"to": "const fullNameOf = (a) => String((a && a.name) || \"\").trim().slice(0, 80);"
+},
+{
+"label": "N1: placement ignores the ids it was told",
+"files": [
+"worker.js"
+],
+"from": "{ named: attached.named }",
+"to": "{ named: [] }"
+},
+{
+"label": "N1: resume store drops the ids",
+"files": [
+"worker.js"
+],
+"from": "JSON.stringify({ v: 2, blocks: held, named: Array.isArray(buildArgs && buildArgs.attachmentIds) ? buildArgs.attachmentIds : [] })",
+"to": "JSON.stringify({ v: 2, blocks: held, named: [] })"
+},
+{
+"label": "N2: a later pointer counts by time",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (pointer && id && pointer.job === id) return",
+"to": "  if (pointer && id && (pointer.job === id || pointer.job)) return"
+},
+{
+"label": "N2: the fence's recorded publish ignored",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (typeof f.published === \"string\" && f.published) return",
+"to": "  if (false) return"
+},
+{
+"label": "N2: a manifest naming the job ignored",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (mine) return { outcome: \"published\"",
+"to": "  if (false) return { outcome: \"published\""
+},
+{
+"label": "N2: a publish in flight refunded",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (f.owner === \"publish\" && f.failed !== true) return { outcome: \"unknown\", why: \"publish-in-flight\" };",
+"to": ""
+},
+{
+"label": "N2: an unattributed version decides as not-published",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (unattributed) return { outcome: \"unknown\", why: \"unattributed-version\" };",
+"to": ""
+},
+{
+"label": "N2: fencedJob ignored",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (fencedJob === true) return",
+"to": "  if (false) return"
+},
+{
+"label": "N2: an unreadable fence decides",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  if (f.owner !== \"recovery\" && f.owner !== \"publish\") return { outcome: \"unknown\", why: \"fence-unread\" };",
+"to": ""
+},
+{
+"label": "N2: jobs not marked fenced",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "at: Number(at) || 0, fenced: true };",
+"to": "at: Number(at) || 0 };"
+},
+{
+"label": "N2: recovery does not claim the fence",
+"files": [
+"worker.js"
+],
+"from": "    const fence = await claimBuildFence(env, id, \"recovery\");",
+"to": "    const fence = { owner: \"recovery\", mine: true };"
+},
+{
+"label": "N2: unknown not kept pending",
+"files": [
+"worker.js"
+],
+"from": "if (v.outcome === \"unknown\") { seen.unknown++; await keepPending(v.why);",
+"to": "if (v.outcome === \"unknown\") { seen.unknown++;"
+},
+{
+"label": "N2: pending ids never read back",
+"files": [
+"worker.js"
+],
+"from": "  const older = pendingIds.filter((x) => !known.has(x));",
+"to": "  const older = [];"
+},
+{
+"label": "N2: a settled build stays pending",
+"files": [
+"worker.js"
+],
+"from": "      else await env.SITES_BUCKET.delete(pendingKey(id));",
+"to": "      else {}"
+},
+{
+"label": "N2: fencedJob never read",
+"files": [
+"worker.js"
+],
+"from": "fencedJob = !!(o && (readJob(JSON.parse(await o.text())) || {}).fenced === true);",
+"to": "fencedJob = false;"
+},
+{
+"label": "N2: the gate ignores a dead row",
+"files": [
+"worker.js"
+],
+"from": "  if (st.alive === false) throw Object.assign(new Error(\"the build was recovered as lost (\" + st.why + \"), so it is not published\"), { recovered: true });",
+"to": ""
+},
+{
+"label": "N2: the gate ignores recovery's claim",
+"files": [
+"worker.js"
+],
+"from": "  if (f.owner !== \"publish\") throw Object.assign(",
+"to": "  if (false) throw Object.assign("
+},
+{
+"label": "N2: the build does not pass the gate",
+"files": [
+"worker.js"
+],
+"from": "      const fenced = await buildPublishGate(env, jobId);",
+"to": "      const fenced = false;"
+},
+{
+"label": "N2: a recovery fence lets a debit through",
+"files": [
+"worker.js"
+],
+"from": "    if (f && f.by === \"recovery\") return { alive: false, why: \"recovered\" };",
+"to": ""
+},
+{
+"label": "N2: dead states charge",
+"files": [
+"worker.js"
+],
+"from": "  if (BUILD_DEAD_STATES.has(String(row.state))) return",
+"to": "  if (false) return"
+},
+{
+"label": "N2: an unread row charges",
+"files": [
+"worker.js"
+],
+"from": "  if (!Array.isArray(rows)) return { alive: null, why: \"unread\" };",
+"to": "  if (!Array.isArray(rows)) return { alive: true, why: \"unread\" };"
+},
+{
+"label": "N2: a failure erases a recorded publish",
+"files": [
+"worker.js"
+],
+"from": "    if (v && typeof v.published === \"string\" && v.published) return;\n",
+"to": ""
+},
+{
+"label": "N2: a found debit reads as unknown",
+"files": [
+"worker.js"
+],
+"from": "    if (back && back.found) return { ok: true, taken: back.taken, exempt: false, repeat: false };",
+"to": ""
+},
+{
+"label": "N2: not found reads as nothing charged",
+"files": [
+"worker.js"
+],
+"from": "    const err = new Error(\"the pages debit's answer was lost and the ledger did not confirm it: \" + String((e && e.message) || e));\n    err.chargeUnknown = true;\n    throw err;",
+"to": "    return { ok: true, taken: 0, exempt: false, repeat: false };"
+},
+{
+"label": "N2: chargeUnknown not carried",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "      if (e && e.chargeUnknown === true) out.chargeUnknown = true;",
+"to": ""
+},
+{
+"label": "N2: build_debit ref by prefix",
+"files": [
+"builder/job-gateway.mjs"
+],
+"from": "        if (typeof v !== \"string\" || !who.id || !BUILD_STEP_REFS(who.id).includes(v)) return { ok: false, why: \"bind:\" + arg };",
+"to": "        if (typeof v !== \"string\" || !v.startsWith(\"build:\" + who.id)) return { ok: false, why: \"bind:\" + arg };"
+},
+{
+"label": "N2: build_debit account unbound",
+"files": [
+"builder/job-gateway.mjs"
+],
+"from": "  build_debit: { p_id: \"id\", p_uid: \"uid\", p_ref: \"build-step-ref\" },",
+"to": "  build_debit: { p_id: \"id\", p_ref: \"build-step-ref\" },"
+},
+{
+"label": "N2: ledger read ref unbound",
+"files": [
+"builder/job-gateway.mjs"
+],
+"from": "  credit_events: { GET: { filter: { uid: \"uid\", ref: \"build-step-ref\" } } },",
+"to": "  credit_events: { GET: { filter: { uid: \"uid\" } } },"
+},
+{
+"label": "N2: the consumer overwrites recovery's answer",
+"files": [
+"worker.js"
+],
+"from": "    if (await recoveryOwns(env, id)) console.log(\"build queue: recovery owns job\"",
+"to": "    if (false) console.log(\"build queue: recovery owns job\""
+},
+{
+"label": "control: a comment in worker.js",
+"files": [
+"worker.js"
+],
+"from": "/** The row states after which a build may neither publish nor charge. */",
+"to": "/** The row states after which a build may neither publish nor charge (control). */",
+"control": true
+},
+{
+"label": "control: a comment in build-lease",
+"files": [
+"builder/build-lease.mjs"
+],
+"from": "  // A JOB FILED BY FENCED CODE claims the fence before it activates, so when",
+"to": "  // A JOB FILED BY FENCED CODE (control) claims the fence before it activates, so when",
+"control": true
+}
+]

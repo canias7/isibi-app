@@ -137,8 +137,12 @@ export function newJobId(fill) {
  * reliable — new failure modes bought in exchange for not keeping something we
  * were already sent.
  */
+// `fenced` (2026-10-08, Codex's review of `b4300a07`): every job written by
+// this code claims the build fence before it activates, so recovery that wins
+// the fence knows such a job never published. A job without it was filed by
+// older code that published unfenced, and recovery stays careful with it.
 export function packJob({ url, auth, body, uid, at }) {
-  return { v: JOB_VERSION, url: String(url || ""), auth: String(auth || ""), body: String(body || ""), uid: String(uid || ""), at: Number(at) || 0 };
+  return { v: JOB_VERSION, url: String(url || ""), auth: String(auth || ""), body: String(body || ""), uid: String(uid || ""), at: Number(at) || 0, fenced: true };
 }
 
 /**
@@ -154,7 +158,7 @@ export function readJob(raw) {
   if (typeof raw.url !== "string" || !raw.url) return null;
   if (typeof raw.body !== "string" || !raw.body) return null;
   if (typeof raw.auth !== "string") return null;
-  return { url: raw.url, auth: raw.auth, body: raw.body, uid: typeof raw.uid === "string" ? raw.uid : "", at: Number(raw.at) || 0 };
+  return { url: raw.url, auth: raw.auth, body: raw.body, uid: typeof raw.uid === "string" ? raw.uid : "", at: Number(raw.at) || 0, fenced: raw.fenced === true };
 }
 
 /**

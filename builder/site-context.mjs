@@ -530,6 +530,18 @@ const DOC_URL = /^data:(application\/pdf);base64,([A-Za-z0-9+/=]+)$/;
 
 const nameOf = (a, i) => String((a && a.name) || "").trim().slice(0, 80) || ("attachment " + (i + 1));
 
+/**
+ * AN ATTACHED FILE'S IDENTITY (2026-10-08, Codex's review of `b4300a07`):
+ * its position in the request, `attachment-<n>`, minted here — the one place
+ * that decides which files the model is given — and carried by every later
+ * step instead of the name. A name is display: two uploads can share one, or
+ * share a long prefix, and the model-visible label used to be the name cut to
+ * 80 characters, so naming the second file stored the first file's bytes.
+ */
+export const attachmentId = (i) => "attachment-" + (Number(i) + 1);
+/** The name as the customer gave it, for display, bounded only against abuse. */
+const fullNameOf = (a) => String((a && a.name) || "").trim().slice(0, 300);
+
 // THE KIND OF FILE, FROM WHATEVER THE CALLER TOLD US ABOUT IT. Used only to
 // pick one of a fixed set of sentences — the raw media type is never echoed
 // anywhere, so a caller-controlled string cannot reach the customer.
@@ -641,6 +653,8 @@ export function attachments(list) {
   // what we did with your file — and it is the one that stops a truncation
   // being a silent degradation.
   const converted = [];
+  // Every file the model is given, by its identity (`attachmentId`), in order.
+  const named = [];
   let total = 0;
   let textTotal = 0;
   const items = Array.isArray(list) ? list : [];
@@ -672,6 +686,7 @@ export function attachments(list) {
       if (textTotal + kept.length > TEXT_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
       textTotal += kept.length;
       texts.push({ name, text: kept });
+      named.push({ id: attachmentId(i), index: i, name: fullNameOf(a) || name, kind: "text" });
       // TRUNCATION IS REPORTED, not silent. The composer accepts a text file up
       // to 400 KiB and this keeps 120,000 characters of it, so a long price list
       // arrives with most of it gone — used, but not in the form it was sent,
@@ -692,6 +707,7 @@ export function attachments(list) {
       if (total + s.length > BLOCK_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
       total += s.length;
       blocks.push({ type: "image", source: { type: "base64", media_type: img[1], data: img[2] } });
+      named.push({ id: attachmentId(i), index: i, name: fullNameOf(a) || name, kind: "image", ...(a && a.frameOf ? { still: true } : {}) });
       if (a && a.frameOf) converted.push({ name: String(a.frameOf).slice(0, 80), as: "a still frame" });
       continue;
     }
@@ -702,6 +718,7 @@ export function attachments(list) {
       if (total + s.length > BLOCK_TOTAL) { skipped.push({ name, reason: "there wasn't room for it" }); continue; }
       total += s.length;
       blocks.push({ type: "document", source: { type: "base64", media_type: doc[1], data: doc[2] } });
+      named.push({ id: attachmentId(i), index: i, name: fullNameOf(a) || name, kind: "document" });
       continue;
     }
 
@@ -722,5 +739,5 @@ export function attachments(list) {
       reason: "we only look at the first " + MAX_SCAN + " attachments",
     });
   }
-  return { blocks, texts, skipped, converted };
+  return { blocks, texts, skipped, converted, named };
 }

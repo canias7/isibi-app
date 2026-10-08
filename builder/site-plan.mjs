@@ -1080,8 +1080,9 @@ export const IMAGES_FIELD = {
       attached: {
         type: "string",
         description:
-          "ONLY when the customer asked for a picture THEY ATTACHED to be shown here: that file's name, exactly as " +
-          "the list of attached files gives it. Their own photograph is then published as it is and nothing is " +
+          "ONLY when the customer asked for a picture THEY ATTACHED to be shown here: that file's ID (for example " +
+          "attachment-2), exactly as the list of attached files gives it — never its name, which two files can share. " +
+          "Their own photograph is then published as it is and nothing is " +
           "drawn or bought — `describe` becomes its alt text, so say what it shows. Leave it out for anything " +
           "attached only as reference (a sketch, a screenshot of a site they like, a menu to read) and for every " +
           "picture you want drawn.",

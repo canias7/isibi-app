@@ -35,7 +35,7 @@ import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
-import { placeAttachedPhotos, attachedFilesNote, attachedNames, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
+import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
@@ -583,6 +583,20 @@ export function buildLedger(env, { auth = "", uid = "", jobId = "" } = {}) {
       catch (e) { if (trusted) return readCreditsFor(env, uid); throw e; }
     },
     debit: async (amount, ref, reason = "debit", partial = false) => {
+      // THE JOB MUST STILL BE ALIVE, WHICHEVER PATH CHARGES (2026-10-08,
+      // Codex's review of `b4300a07`: the bearer path skipped the job-state
+      // check `build_debit` makes). A build recovered as lost, failed or
+      // cancelled is charged nothing by a worker that outlived it; a state that
+      // cannot be read charges nothing either. Both throw before the ledger is
+      // touched, so what was taken is known: nothing.
+      if (jobId && env.SUPABASE_SERVICE_KEY) {
+        const st = await buildJobAlive(env, jobId);
+        if (st.alive !== true) {
+          const err = new Error(st.alive === false ? "the build job is " + st.why + "; nothing was charged" : "the build job's state could not be read; nothing was charged");
+          err.jobState = st.alive === false ? st.why : "unread";
+          throw err;
+        }
+      }
       let refused = null;
       try { return await debitCredits(auth, amount, ref, reason, partial); }
       catch (e) {
@@ -13179,7 +13193,11 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null }) {
+  // `attachmentIds` IS CARRIED, NOT READ HERE (2026-10-08): the ids the plan's
+  // `attached` entries already name, on the build's args so the resume record
+  // and its kept files keep them for a refire. Named so the key is accounted for.
+  void attachmentIds;
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -13948,7 +13966,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           kit: JSON.stringify(kitList(kitBuilt)),
         },
         manifest: {
-          parent: bParent, job: null,
+          parent: bParent, job: jobId && isResumeId(jobId) ? jobId : null,
           // WHAT THE BUILD WAS, not what the site is called: a revise is named
           // by the change the customer asked for, in their own words.
           label: versionLabel({ revise, changeNote, brand }),
@@ -13961,6 +13979,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // parts into the editable locations. A pointer that cannot be read is
       // activated over unconditionally: a build holds the slug's claim, so no
       // second holder is racing it here.
+      // A BUILD RECOVERED AS LOST DOES NOT PUBLISH LATE (2026-10-08, Codex's
+      // review of `b4300a07`). Right before activating, a job's build checks it
+      // is still alive and claims its outcome; a recovery that already claimed
+      // it, or a row already lost, failed or cancelled, stops this publish —
+      // and with no publish there is no pages charge. A duplicate delivery of
+      // the same job finds its own claim and goes on; the pointer's own etag
+      // still decides between two of them.
+      const fenced = await buildPublishGate(env, jobId);
       let before = null;
       try { before = await readPointer(buildDeps(env), slug); }
       catch (e) { console.error("pointer unreadable, activating over it:", slug, e && e.message); before = null; }
@@ -13969,7 +13995,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // mid-build — the resumed-build collector — hands one in, and it is
         // asked with no await between it and the conditional write.
         assertLease,
-        slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: null,
+        // THE BUILD'S OWN JOB ON THE POINTER (2026-10-08, Codex's review of
+        // `b4300a07`), so what published can be attributed to it by evidence —
+        // a lost build's recovery reads this, never a timestamp.
+        slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: jobId && isResumeId(jobId) ? jobId : null,
         expectEtag: before ? before.etag : null,
         // THE POINTER AS IT WAS, so an activation whose script never landed can
         // put it back rather than leaving the site pointing at a version
@@ -14002,7 +14031,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         },
       });
       _pointerCache.delete(slug);
-      if (!act || act.ok !== true) throw new Error("the build could not be activated: " + String((act && act.error) || "activate"));
+      if (!act || act.ok !== true) {
+        if (fenced) await markPublishFailed(env, jobId);
+        throw new Error("the build could not be activated: " + String((act && act.error) || "activate"));
+      }
+      if (fenced) await markPublished(env, jobId, bVersion);
       try { await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
       return staged.files;
@@ -14019,7 +14052,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // duplicate delivery — the ledger's answer rides to `publishPages`, which
     // reads `taken` for `cost` and carries `exempt` on the reply. A job stored
     // before the ref existed falls back to the collect it always made.
-    useCredits: (n) => billRef ? buildLedger(env, { auth, uid, jobId }).debit(n, billRef + ":pages", "debit", true) : collectCredits(auth, n),
+    useCredits: (n) => billRef ? debitPagesReconciled(env, { auth, uid, jobId }, n, billRef + ":pages") : collectCredits(auth, n),
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
@@ -14910,7 +14943,11 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // bucket lifecycle rule on that prefix rather than code here, because a
   // sweeper would have to guess when a wait has given up.
   try {
-    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
+    // RECOVERY'S ANSWER IS NOT OVERWRITTEN by a worker that outlived it
+    // (2026-10-08, Codex's review of `b4300a07`): once recovery owns the
+    // outcome, what the customer reads is what recovery settled.
+    if (await recoveryOwns(env, id)) console.log("build queue: recovery owns job", id, "— its late answer is not written");
+    else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
   } catch (e) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
   }
@@ -15190,6 +15227,142 @@ async function closeStaleJob(env, x) {
 // doors: the consumer, the moment its refund answers `needs-review`; the sweep
 // tick, over every row under review; and the owner's route, dry or applied.
 
+/** The row states after which a build may neither publish nor charge. */
+const BUILD_DEAD_STATES = new Set(["lost", "failed", "cancelled"]);
+
+/**
+ * IS THIS BUILD JOB STILL ALLOWED TO PUBLISH AND CHARGE? (2026-10-08, Codex's
+ * review of `b4300a07`.) `{ alive: true }` for a live row, or for no row at
+ * all (a build filed without one runs as it always did); `{ alive: false,
+ * why }` for a row that is lost, failed or cancelled, or whose recovery has
+ * already claimed its outcome; `{ alive: null }` when that cannot be read.
+ */
+export async function buildJobAlive(env, id) {
+  if (!isResumeId(id)) return { alive: true, why: "no-job" };
+  try {
+    const o = env.SITES_BUCKET ? await env.SITES_BUCKET.get(fenceKey(id)) : null;
+    const f = o ? JSON.parse(await o.text()) : null;
+    if (f && f.by === "recovery") return { alive: false, why: "recovered" };
+  } catch { /* the row decides below */ }
+  const rows = await readEditRows(env, "id=eq." + id, 1);
+  if (!Array.isArray(rows)) return { alive: null, why: "unread" };
+  const row = rows[0];
+  if (!row) return { alive: true, why: "no-row" };
+  if (BUILD_DEAD_STATES.has(String(row.state))) return { alive: false, why: String(row.state) };
+  return { alive: true, why: String(row.state || "") };
+}
+
+/**
+ * WHO OWNS A BUILD'S OUTCOME — its publish, or its recovery (2026-10-08,
+ * Codex's review of `b4300a07`). One object per job, created only if absent
+ * (R2's `etagDoesNotMatch: "*"`): the build claims it as `publish` right
+ * before it activates, recovery claims it as `recovery` before it decides.
+ * Whoever wrote it first owns the outcome, so a late worker cannot publish
+ * after recovery decided, and recovery cannot refund a build that reached its
+ * publish. Answers `{ owner, mine, failed }`; `owner: null` when unreadable.
+ */
+const fenceKey = (id) => "jobs/" + id + ".fence.json";
+export async function claimBuildFence(env, id, by) {
+  try {
+    const put = await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ by, at: new Date().toISOString() }), { onlyIf: { etagDoesNotMatch: "*" } });
+    if (put) return { owner: by, mine: true, failed: false, published: "" };
+    const o = await env.SITES_BUCKET.get(fenceKey(id));
+    const v = o ? JSON.parse(await o.text()) : null;
+    const owner = v && (v.by === "publish" || v.by === "recovery") ? v.by : null;
+    return { owner, mine: owner === by, failed: !!(v && v.failed === true), published: v && typeof v.published === "string" ? v.published : "" };
+  } catch (e) {
+    console.error("build fence: could not claim", id, by, String((e && e.message) || e));
+    return { owner: null, mine: false, failed: false, published: "" };
+  }
+}
+
+/**
+ * A publish that activated, recorded on the job's own fence: the version it
+ * put live. Durable where the pointer and the version list are not — a later
+ * edit moves the pointer, and a version list is pruned to two.
+ */
+export async function markPublished(env, id, version) {
+  try { await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ by: "publish", published: version, at: new Date().toISOString() })); }
+  catch (e) { console.error("build fence: could not record the publish of", id, String((e && e.message) || e)); }
+}
+
+/**
+ * THE LAST CHECK BEFORE A BUILD ACTIVATES (2026-10-08, Codex's review of
+ * `b4300a07`): a job's build is still alive and claims its outcome as
+ * `publish`. Throws, with `recovered: true` when recovery owns it, when the
+ * row is lost, failed or cancelled, when recovery claimed first, or when the
+ * claim cannot be made; answers whether this publish is fenced (a build with
+ * no job id runs as it always did). A duplicate delivery of the same job finds
+ * its own claim and goes on.
+ */
+export async function buildPublishGate(env, jobId) {
+  if (!(jobId && isResumeId(jobId) && env.SITES_BUCKET)) return false;
+  const st = await buildJobAlive(env, jobId);
+  if (st.alive === false) throw Object.assign(new Error("the build was recovered as lost (" + st.why + "), so it is not published"), { recovered: true });
+  const f = await claimBuildFence(env, jobId, "publish");
+  if (f.owner !== "publish") throw Object.assign(new Error(f.owner === "recovery" ? "the build was recovered as lost, so it is not published" : "the build's publish could not be claimed, so it is not published"), { recovered: f.owner === "recovery" });
+  return true;
+}
+
+/** Has recovery claimed this job's outcome? Never throws; unreadable reads as no. */
+async function recoveryOwns(env, id) {
+  try {
+    if (!isResumeId(id) || !env.SITES_BUCKET) return false;
+    const o = await env.SITES_BUCKET.get(fenceKey(id));
+    const v = o ? JSON.parse(await o.text()) : null;
+    return !!(v && v.by === "recovery");
+  } catch { return false; }
+}
+
+/** A publish that claimed the fence and then did not activate, said so for recovery. */
+export async function markPublishFailed(env, id) {
+  // A DUPLICATE DELIVERY'S FAILURE NEVER ERASES THE FIRST ONE'S PUBLISH: the
+  // version already recorded is the evidence recovery reads.
+  try {
+    const o = await env.SITES_BUCKET.get(fenceKey(id));
+    const v = o ? JSON.parse(await o.text()) : null;
+    if (v && typeof v.published === "string" && v.published) return;
+  } catch { return; /* unreadable: leave it; recovery reads "in flight" as unknown and asks again */ }
+  try { await env.SITES_BUCKET.put(fenceKey(id), JSON.stringify({ by: "publish", failed: true, at: new Date().toISOString() })); }
+  catch (e) { console.error("build fence: could not mark a failed publish for", id, String((e && e.message) || e)); }
+}
+
+/**
+ * WHAT A REF REALLY DEBITED, READ BACK FROM THE LEDGER (2026-10-08, the lost
+ * pages-debit answer): `{ found: true, taken }` when a debit row is there,
+ * `{ found: false }` when the read answered and none is, `null` when it could
+ * not be read. A row not found yet may still land, so a caller reads "not
+ * found" as unknown, never as nothing charged.
+ */
+async function ledgerDebitByRef(env, uid, ref) {
+  if (!env.SUPABASE_SERVICE_KEY || !uid || !ref) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?uid=eq.${encodeURIComponent(uid)}&ref=eq.${encodeURIComponent(ref)}&delta=lt.0&select=delta,reason`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return null;
+    const taken = rows.reduce((n, x) => n + Math.max(0, -Number(x && x.delta) || 0), 0);
+    return rows.length ? { found: true, taken } : { found: false };
+  } catch { return null; }
+}
+
+/**
+ * The pages debit, with a lost answer reconciled by ref: a debit row found is
+ * what was taken; anything else is `chargeUnknown`, never zero. A refusal on
+ * the job's state is known — nothing was charged — and passes as it is.
+ */
+export async function debitPagesReconciled(env, who, amount, ref) {
+  try { return await buildLedger(env, who).debit(amount, ref, "debit", true); }
+  catch (e) {
+    if (e && e.jobState) throw e;
+    const back = await ledgerDebitByRef(env, who.uid, ref);
+    if (back && back.found) return { ok: true, taken: back.taken, exempt: false, repeat: false };
+    const err = new Error("the pages debit's answer was lost and the ledger did not confirm it: " + String((e && e.message) || e));
+    err.chargeUnknown = true;
+    throw err;
+  }
+}
+
 /**
  * WHOSE QUEUED BUILD THIS IS, FROM ITS ROW (2026-10-08, the first-Build
  * audit's H2): the row's uid, read with the service key, when it is a build
@@ -15227,51 +15400,88 @@ async function buildJobOwner(env, id, uid) {
  * the row's neutral sentence at both readers.
  */
 const LOST_BUILD_WINDOW_MS = 24 * 3600 * 1000;
+// UNRESOLVED RECOVERY STAYS FINDABLE (2026-10-08, Codex's review of
+// `b4300a07`): a lost build whose outcome is unknown, or whose refund fell
+// short, is listed here until it settles, and every tick retries it — the
+// one-day window only decides which NEW lost rows are picked up.
+const RECOVERY_PENDING = "recovery/pending/";
+const pendingKey = (id) => RECOVERY_PENDING + id;
 export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return { checked: 0 };
   const since = new Date(now - LOST_BUILD_WINDOW_MS).toISOString();
-  let rows = null;
+  const cols = "id,uid,slug,op,state,created_at,updated_at";
+  const read = async (q) => {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${q}&select=${cols}`, { headers: svcHeaders(env) });
+      const v = r.ok ? await r.json() : null;
+      return Array.isArray(v) ? v : null;
+    } catch (e) { console.error("lost builds: could not read edit_jobs", String((e && e.message) || e)); return null; }
+  };
+  const fresh = await read(`op=eq.${BUILD_OP}&state=eq.lost&updated_at=gt.${encodeURIComponent(since)}&order=updated_at.asc&limit=20`);
+  let pendingIds = [];
   try {
-    const q = `op=eq.${BUILD_OP}&state=eq.lost&updated_at=gt.${encodeURIComponent(since)}&select=id,uid,slug,op,state,created_at,updated_at&order=updated_at.asc&limit=20`;
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${q}`, { headers: svcHeaders(env) });
-    rows = r.ok ? await r.json() : null;
-  } catch (e) { console.error("lost builds: could not read edit_jobs", String((e && e.message) || e)); }
-  if (!Array.isArray(rows)) return { checked: 0, unread: true };
-  const seen = { checked: 0, published: 0, refunded: 0, unknown: 0, settled: 0 };
+    const l = await env.SITES_BUCKET.list({ prefix: RECOVERY_PENDING, limit: 50 });
+    pendingIds = ((l && l.objects) || []).map((o) => String(o.key || "").slice(RECOVERY_PENDING.length)).filter(isResumeId);
+  } catch (e) { console.error("lost builds: could not list the pending recoveries", String((e && e.message) || e)); }
+  const known = new Set((fresh || []).map((x) => x && x.id));
+  const older = pendingIds.filter((x) => !known.has(x));
+  const back = older.length ? await read(`op=eq.${BUILD_OP}&id=in.(${older.join(",")})`) : [];
+  if (!Array.isArray(fresh) && !Array.isArray(back)) return { checked: 0, unread: true };
+  const rows = [...(fresh || []), ...(back || [])];
+  const seen = { checked: 0, published: 0, refunded: 0, unknown: 0, settled: 0, pending: 0 };
   for (const row of rows) {
     const id = String((row && row.id) || "");
     const uid = String((row && row.uid) || "");
-    if (!isResumeId(id) || !uid) continue;
+    if (!isResumeId(id) || !uid || String(row.state) !== "lost") continue;
     seen.checked++;
     const markKey = "jobs/" + id + ".lost.json";
     let mark = null;
     try { const o = await env.SITES_BUCKET.get(markKey); mark = o ? JSON.parse(await o.text()) : null; } catch { mark = null; }
-    if (mark && mark.settled === true) { seen.settled++; continue; }
+    if (mark && mark.settled === true) {
+      seen.settled++;
+      try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* listed again next tick, settled again */ }
+      continue;
+    }
+    // RECOVERY CLAIMS THE OUTCOME FIRST, so a worker that outlived the lease
+    // cannot publish after this decides — it finds the claim and stops.
+    const fence = await claimBuildFence(env, id, "recovery");
     const slug = isRowSlug(row.slug) ? row.slug : "";
-    let pointer;
+    let pointer, builds = null;
     if (slug) {
       try { pointer = await readPointer(buildDeps(env), slug); } catch { pointer = undefined; }
+      try { builds = await listBuilds(buildDeps(env), slug); } catch { builds = null; }
     }
-    const v = lostBuildVerdict({ row, pointer });
-    if (v.outcome === "unknown") { seen.unknown++; console.log("lost builds:", id, "unknown —", v.why); continue; }
+    // WAS THIS JOB FILED BY CODE THAT FENCES ITS PUBLISH? Its own record
+    // says (`fenced`); a record that cannot be read leaves recovery careful.
+    let fencedJob = false;
+    try { const o = await env.SITES_BUCKET.get(jobKey(id)); fencedJob = !!(o && (readJob(JSON.parse(await o.text())) || {}).fenced === true); } catch { fencedJob = false; }
+    const v = lostBuildVerdict({ row, pointer, builds, fence, fencedJob });
+    const keepPending = async (why) => {
+      seen.pending++;
+      try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString() })); }
+      catch (e) { console.error("lost builds: could not list", id, "as pending", String((e && e.message) || e)); }
+    };
+    if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why); console.log("lost builds:", id, "unknown —", v.why); continue; }
     let returned = Number((mark && mark.returned) || 0) || 0;
     let short = false;
     if (v.outcome === "not-published") {
-      const back = await refundBuildByRef(env, uid, "build:" + id, "lost");
-      returned += Number(back.returned) || 0;
-      short = !!back.short;
-      seen.refunded += Number(back.returned) || 0;
+      const r = await refundBuildByRef(env, uid, "build:" + id, "lost");
+      returned += Number(r.returned) || 0;
+      short = !!r.short;
+      seen.refunded += Number(r.returned) || 0;
     } else seen.published++;
     const msg = lostBuildMessage({ outcome: v.outcome, slug, returned, short });
     const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
     const body = v.outcome === "published"
-      ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", notes: msg, msg }
+      ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", version: v.version || undefined, notes: msg, msg }
       : slug
         ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
         : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
     try {
       await env.SITES_BUCKET.put(markKey, JSON.stringify({ outcome: v.outcome, why: v.why, returned, settled: !short, at: new Date(now).toISOString() }));
       await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({ status: slug || v.outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) })));
+      if (short) await keepPending("refund-short");
+      else await env.SITES_BUCKET.delete(pendingKey(id));
     } catch (e) { console.error("lost builds: could not write the answer for", id, String((e && e.message) || e)); }
     console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
   }
@@ -17363,11 +17573,15 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // pages again and must see what the customer sent. One that cannot be read
   // back is marked on the trace rather than run as though nothing was sent.
   let refireFiles = [];
+  let refireIds = null;
   if (decision.act === "refire" && Number(design.attachmentsSent) > 0) {
     try {
       const o = Number(design.attachmentsHeld) > 0 ? await env.SITES_BUCKET.get(attachmentsKey(id)) : null;
       const v = o ? JSON.parse(await o.text()) : null;
+      // A list is a record kept before ids were (the blocks alone); an object
+      // carries the blocks and the ids they were planned under.
       if (Array.isArray(v)) refireFiles = v;
+      else if (v && typeof v === "object" && Array.isArray(v.blocks)) { refireFiles = v.blocks; refireIds = Array.isArray(v.named) ? v.named : []; }
     } catch (e) { console.error("build resume: could not read back the attachments for", id, String((e && e.message) || e)); }
     try { tr.at("attachments", { sent: Number(design.attachmentsSent), back: refireFiles.length }); } catch { /* a trace must never break a build */ }
   }
@@ -17375,6 +17589,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     pages = await buildAndPublishPages(env, {
       ...design,
       attachments: refireFiles,
+      ...(refireIds ? { attachmentIds: refireIds } : {}),
       // THE RECORD'S OWN ID, explicitly (stage 2c): the fire needs it to tell
       // the container which row's lease it holds, and the stored design
       // deliberately does not carry a copy.
@@ -17631,7 +17846,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   try { await env.SITES_BUCKET.delete(resumeKey(id)); } catch { /* a stranded record is a few kilobytes; NOTHING sweeps `jobs/` */ }
   try { await env.SITES_BUCKET.delete(attachmentsKey(id)); } catch { /* the files kept for a refire go with their record */ }
   try {
-    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
+    if (await recoveryOwns(env, id)) console.log("build resume: recovery owns job", id, "— its late answer is not written");
+    else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
   } catch (e) {
     console.error("build resume: could not write the result for", id, String((e && e.message) || e));
   }
@@ -18058,12 +18274,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
         ? contextBrief(brief, { pages: linked, files: attached.texts })
         : brief;
-      // AND THE ATTACHED FILES BY NAME, for the designer alone (2026-10-08,
-      // H6): the blocks carry no names, and a designer asked to tie a picture
-      // to a file has to be able to say which. Only files that really reached
-      // the model are listed.
-      const designBrief = briefWithLinks + attachedFilesNote(attachedNames(body.images)
-        .filter((f) => !attached.skipped.some((k) => k && k.name === f.name)));
+      // AND THE ATTACHED FILES BY ID, for the designer alone (2026-10-08, H6;
+      // ids since Codex's review of `b4300a07`): the blocks carry no names, a
+      // designer asked to tie a picture to a file has to be able to say which,
+      // and a name — shared, or cut to a common prefix — cannot. The list is
+      // the one `attachments()` built from what really reached the model.
+      const designBrief = briefWithLinks + attachedFilesNote(attached.named);
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null, seedUsage = null, seedTopUp = null;
@@ -19265,7 +19481,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // file the store refused, is told in the reply rather than bought.
       let ownPhotos = { placed: [], missing: [] };
       if (Array.isArray(merged.images) && merged.images.some((e) => e && typeof e.attached === "string" && !e.src)) {
-        ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes));
+        ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes), { named: attached.named });
         merged.images = ownPhotos.images;
         if (ownPhotos.placed.length || ownPhotos.missing.length) tr.at("ownphotos", { placed: ownPhotos.placed.length, missing: ownPhotos.missing.length });
       }
@@ -19551,6 +19767,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             changeNote: brief,
             siteDescription,
             attachments: attached.blocks,
+            // AND WHICH FILE EACH BLOCK IS, by id (Codex's review of `b4300a07`),
+            // so what a resume keeps carries the same identities the plan used.
+            attachmentIds: attached.named,
             priorUsage: (researched && researched.usage) || null,
             model: models.pages,
             // AND THE PICKER IT WAS RESOLVED FROM, stored with the design so the
@@ -19754,7 +19973,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         const held = Array.isArray(_drop) ? _drop : [];
         let attachmentsHeld = 0;
         if (held.length) {
-          try { await env.SITES_BUCKET.put(attachmentsKey(jobId), JSON.stringify(held)); attachmentsHeld = held.length; }
+          try { await env.SITES_BUCKET.put(attachmentsKey(jobId), JSON.stringify({ v: 2, blocks: held, named: Array.isArray(buildArgs && buildArgs.attachmentIds) ? buildArgs.attachmentIds : [] })); attachmentsHeld = held.length; }
           catch (e) { console.error("build: could not keep the attachments for a refire of", slug, String((e && e.message) || e)); }
         }
         try {
@@ -20318,6 +20537,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // "placeholders are free". A caller cannot infer it from `cost`, since a
         // free pages call and a cheap one both leave the schema charge behind.
         charged: pages.charged,
+        // THE PAGES DEBIT'S ANSWER WAS LOST AND THE LEDGER DID NOT CONFIRM IT
+        // (2026-10-08): `cost` then leaves the pages out because they are
+        // unknown, not because they were free. It is the server's flag, so no
+        // reader takes the zero for "nothing charged". Omitted otherwise.
+        chargeUnknown: pages.chargeUnknown === true ? true : undefined,
         // The PAGES call's four token kinds. It is metered on exactly these and
         // reported only the credit total, so the expensive call was the one
         // whose cache behaviour could not be seen.

@@ -438,7 +438,8 @@ test("both publish paths mint the version before the compile, send it in the pay
   // On the build path a failed stage or activation THROWS out of the publish
   // dep: `publishPages` reads that as our failure, structurally uncharged.
   assert.match(build, /if \(!staged \|\| staged\.ok !== true\) throw new Error\("the build could not be staged: "/, "a failed stage does not fail the build");
-  assert.match(build, /if \(!act \|\| act\.ok !== true\) throw new Error\("the build could not be activated: "/, "a failed activation does not fail the build");
+  // A fenced build records its failed activation for recovery first (2026-10-08).
+  assert.match(build, /if \(!act \|\| act\.ok !== true\) \{\s*if \(fenced\) await markPublishFailed\(env, jobId\);\s*throw new Error\("the build could not be activated: "/, "a failed activation does not fail the build");
   const bActivateIdx = build.indexOf("await activateBuild(buildDeps(env), {");
   assert.ok(build.indexOf("_pointerCache.delete(slug);", bActivateIdx) > bActivateIdx, "the build path does not clear the pointer cache after activating");
   // No writer of the live prefix is left anywhere in the publish code.

@@ -80,7 +80,10 @@ test("a job round-trips, and anything that is not one is refused", () => {
   const j = packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer tok", body: '{"brief":"a barber"}', uid: "u-1", at: 1234 });
   assert.equal(j.v, JOB_VERSION);
   const back = readJob(j);
-  assert.deepEqual(back, { url: "https://gofarther.dev/api/site/react-build", auth: "Bearer tok", body: '{"brief":"a barber"}', uid: "u-1", at: 1234 });
+  // `fenced` (2026-10-08): every job written now says it claims the build
+  // fence before it activates; a job without it reads back as unfenced.
+  assert.deepEqual(back, { url: "https://gofarther.dev/api/site/react-build", auth: "Bearer tok", body: '{"brief":"a barber"}', uid: "u-1", at: 1234, fenced: true });
+  assert.equal(readJob({ ...j, fenced: undefined }).fenced, false, "an older job read back as fenced");
   // A VERSION BUMP REFUSES RATHER THAN REINTERPRETS. The fields a wrong reading
   // would misplace are the auth token and the body.
   assert.equal(readJob({ ...j, v: JOB_VERSION + 1 }), null);

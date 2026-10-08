@@ -263,32 +263,55 @@ export function genBound(record, token, genId) {
 
 /**
  * WHAT A LOST BUILD ACTUALLY LEFT BEHIND (2026-10-08, the first-Build audit's
- * H1). A row the sweep marked `lost` says only that its lease ran out; the
- * build may have published before it died, or published afterwards (the
- * container's own build is not fenced by the lease). So before any refund or
- * sentence, the published state is read:
+ * H1; by evidence since Codex's review of `b4300a07`). A row the sweep marked
+ * `lost` says only that its lease ran out. Publication is attributed to THIS
+ * build only by something that names it — never by when a pointer moved,
+ * which a later, unrelated edit does too:
  *
- *   published      the site's pointer was activated after this build began —
- *                  the site is live, and what the build charged stands
- *   not-published  the build never had an address, or the address has no
- *                  pointer, or the pointer is older than the build — nothing
- *                  of this attempt is live, and what it charged comes back
- *   unknown        the pointer could not be read, or a time could not be — no
- *                  money moves and no sentence is written; the next sweep asks
- *                  again
+ *   - the job's own fence records the version it put live (`published`), the
+ *     one record a later edit and version pruning cannot erase;
+ *   - the live pointer names the job;
+ *   - a version manifest names the job.
  *
- * `pointer` is the three-state read: `undefined` could not be read, `null`
- * the site has none, an object the pointer.
+ * Outcomes:
+ *   published      one of those names this job
+ *   not-published  no address; no pointer; or none names it and nothing is
+ *                  ambiguous — a publish that claimed the fence and failed, or
+ *                  never claimed it (recovery now owns it, so none can follow)
+ *   unknown        a read failed; a publish claimed the fence and left no
+ *                  record yet (it may be activating); or a version written
+ *                  since the build began names no job at all (a version from
+ *                  before builds recorded theirs) — timestamps only ever make
+ *                  an outcome UNKNOWN here, never decide it
+ *
+ * `pointer`: `undefined` unread, `null` none, else the pointer. `builds`:
+ * `null` unread, else `listBuilds`' list. `fence`: `claimBuildFence`'s answer
+ * for recovery's claim, `owner: null` when it could not be read.
+ * `fencedJob`: the job's own record says it was filed by code that claims the
+ * fence before activating — then a version that names no job (an inline edit,
+ * a restore) cannot be this build's, and is not even ambiguous.
  */
-export function lostBuildVerdict({ row, pointer } = {}) {
+export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = false } = {}) {
   const r = row && typeof row === "object" ? row : {};
+  const id = typeof r.id === "string" ? r.id : "";
   if (!isRowSlug(r.slug)) return { outcome: "not-published", why: "no-address" };
+  const f = fence && typeof fence === "object" ? fence : { owner: null };
+  if (f.owner !== "recovery" && f.owner !== "publish") return { outcome: "unknown", why: "fence-unread" };
+  if (typeof f.published === "string" && f.published) return { outcome: "published", why: "fence-names-version", version: f.published };
   if (pointer === undefined) return { outcome: "unknown", why: "pointer-unread" };
-  if (pointer === null) return { outcome: "not-published", why: "no-pointer" };
+  if (pointer && id && pointer.job === id) return { outcome: "published", why: "pointer-names-job", version: pointer.version };
+  if (!Array.isArray(builds)) return pointer === null ? { outcome: "not-published", why: "no-pointer" } : { outcome: "unknown", why: "builds-unread" };
+  const mine = id ? builds.find((b) => b && b.job === id) : null;
+  if (mine) return { outcome: "published", why: "version-names-job", version: mine.id };
+  if (f.owner === "publish" && f.failed !== true) return { outcome: "unknown", why: "publish-in-flight" };
+  // A JOB FILED BY FENCED CODE claims the fence before it activates, so when
+  // recovery holds the fence, or the publish recorded that its activation
+  // failed, this job put nothing live — whatever else moved the site since.
+  if (fencedJob === true) return { outcome: "not-published", why: f.owner === "recovery" ? "fence-held-by-recovery" : "publish-failed" };
   const began = Date.parse(String(r.created_at || ""));
-  const at = Date.parse(String((pointer && pointer.activatedAt) || ""));
-  if (!Number.isFinite(began) || !Number.isFinite(at)) return { outcome: "unknown", why: "no-time" };
-  return at >= began ? { outcome: "published", why: "pointer-after" } : { outcome: "not-published", why: "pointer-before" };
+  const unattributed = builds.some((b) => b && (b.job === null || b.job === undefined) && (!Number.isFinite(began) || Number(b.at) >= began));
+  if (unattributed) return { outcome: "unknown", why: "unattributed-version" };
+  return { outcome: "not-published", why: pointer === null ? "no-pointer" : "no-version-of-job" };
 }
 
 /** The sentences a reconciled lost build answers with, chosen by its outcome. */

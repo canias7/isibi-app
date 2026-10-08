@@ -683,6 +683,21 @@ test("a failed charge never fails the build, and never claims to have charged", 
   assert.ok(out.billed > 0, "what the work cost is still reported");
 });
 
+test("a pages debit whose answer was lost and could not be confirmed reports the charge as UNKNOWN, never as nothing charged (2026-10-08)", async () => {
+  // The Worker's dep reads the ledger back by ref first; one it still cannot
+  // settle throws with `chargeUnknown`. The published site stays published,
+  // `cost` leaves the pages out, and the flag says why.
+  const { deps, calls } = harness({ useCredits: async () => { throw Object.assign(new Error("lost"), { chargeUnknown: true }); } });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(out.page, "app");
+  assert.equal(calls.publish.length, 1);
+  assert.equal(out.chargeUnknown, true, "a lost answer was read as nothing charged");
+  assert.equal(out.charged, false);
+  // CONTROL: an ordinary outage that says nothing about the ledger keeps the old reading.
+  const plain = harness({ useCredits: async () => { throw new Error("rpc down"); } });
+  assert.equal((await publishPages(plain.deps, { spec: SPEC, slug: "cafe" })).chargeUnknown, undefined);
+});
+
 test("a SHORT ledger collects what it can, and reports that rather than the bill", async () => {
   // THE CRITICAL BUG. `use_credits` is a gate, not a till: a bill larger than
   // the balance debits ZERO and answers -1 without throwing. `settle` awaited it
@@ -1824,9 +1839,12 @@ test("every after-the-fact settle goes through collectCredits, not useCredits", 
   // the ref existed still collects. The router is unchanged. The property is
   // the same: a settle after the work COLLECTS, it never merely asks.
   // THROUGH THE BUILD'S LEDGER (2026-10-08, H2), still partial and still under
-  // the build's ref: the bearer first, the job's identity when it is refused.
-  assert.match(src, /useCredits: \(n\) => billRef \? buildLedger\(env, \{ auth, uid, jobId \}\)\.debit\(n, billRef \+ ":pages", "debit", true\) : collectCredits\(auth, n\)/,
+  // the build's ref: the bearer first, the job's identity when it is refused —
+  // and a lost answer read back by ref (`debitPagesReconciled`, which debits
+  // through `buildLedger(...).debit(amount, ref, "debit", true)`).
+  assert.match(src, /useCredits: \(n\) => billRef \? debitPagesReconciled\(env, \{ auth, uid, jobId \}, n, billRef \+ ":pages"\) : collectCredits\(auth, n\)/,
     "publishPages' dep still only asks");
+  assert.match(src, /try \{ return await buildLedger\(env, who\)\.debit\(amount, ref, "debit", true\); \}/, "the pages debit no longer collects partially");
   assert.match(src, /noteDebit\(debitRef\("settle"\), await ledger\.debit\(settle, debitRef\("settle"\), "debit", true\)\)/,
     "the schema settlement still only asks");
   assert.match(src, /rCost = await collectCredits\(auth, rCost\)/, "the router still only asks");

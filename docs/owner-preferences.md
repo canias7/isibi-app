@@ -1143,3 +1143,17 @@
   words are never dressed up with a fixed prefix ("I'll …" + their words).
   Where the model's sentence is not there, their words are shown exactly as
   they wrote them.
+
+## What you've asked for since (2026-10-08)
+
+- **Build keeps one page and fifteen components; every other limit is
+  reviewed on its own** (2026-10-08): *"preserve Build's existing maximum
+  page count and maximum selected-component count, currently 1 and 15.
+  Review the other limits individually; this is not permission to remove
+  every timeout, provider constraint, security control or spending
+  safeguard."* So `MAX_PAGES` (1) and `MAX_COMPONENTS` (15) stay. Any other
+  Build limit changes only after its own review, and only with your word,
+  sorting arbitrary content restrictions from real operational constraints.
+  Timeouts, provider bounds, security controls and spending safeguards are
+  not loosened because a limit review exists. The inventory and proposals
+  are `docs/investigations/build-limits-2026-10-08.md`.
