@@ -90,7 +90,7 @@ overcharged)**:
 
 The run 109 replay and the chain controls are unchanged and pass. Red check
 on `c856f1f4` (both reproductions print as reported); sweep 12 of 12; canary
-files 517 of 517; full suite **9919 of 9919**. Unit CI: below once read.
+files 517 of 517; full suite **9919 of 9919**. Unit CI green: run 37725278048 on `5a55b5bb` (`e2dc4039` plus records), 9919 tests, 9897 pass, 0 fail, 22 skipped (the totals match). Only scripts, tests and docs changed, so no site build ran and no image moves.
 
 **The first-Build audit is done; nothing is fixed yet**
 (`docs/investigations/first-build-audit-2026-10-08.md`). It found 30
