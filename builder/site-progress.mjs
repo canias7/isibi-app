@@ -77,6 +77,7 @@
 import { TERMINAL_STATES } from "./edit-job.mjs";
 import { pathOf } from "./site-reply.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
+import { prepState } from "./request.mjs";
 
 /** The switch: `PROGRESS_REPLIES` = "on". Anything else records nothing, writes nothing and changes no answer. */
 export function progressOn(env) {
@@ -1027,7 +1028,10 @@ export function otherParts(rec, request) {
     if (!p || typeof p !== "object" || !Number.isInteger(p.n) || p.n === rec.request.part) continue;
     const words = (typeof p.shown === "string" && p.shown.trim()) ? p.shown : typeof p.words === "string" ? p.words : "";
     if (!words.trim() || !Object.hasOwn(PART_STATE, p.status)) continue;
-    out.push({ n: p.n, words, state: PART_STATE[p.status] });
+    // A PART BEING PREPARED BESIDE THIS ONE (2026-10-08) is in progress, as
+    // its card says — never finished until its own job applied it.
+    // The record's own reading (`prepState`), freshness included.
+    out.push({ n: p.n, words, state: prepState(p) ? "doing" : PART_STATE[p.status] });
   }
   return out;
 }

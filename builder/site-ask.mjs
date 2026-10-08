@@ -1,4 +1,5 @@
 
+import { readTargets } from "./request-plan.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { isXaiModel } from "./model-xai.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";// Telling a question from an instruction — and answering the question.
@@ -929,6 +930,40 @@ const DEPENDS_ON = {
   },
 };
 
+// ── WHAT EACH CHANGE TOUCHES, SAID BY THE MODEL (2026-10-08, the parallel-
+// tasks batch) ──────────────────────────────────────────────────────────────
+//
+// Owner: *"The model should identify the requested tasks, their targets and
+// dependencies using the full message, files and earlier answers; code should
+// validate and enforce that plan."* Changes that touch nothing in common may
+// be prepared side by side; two that reach the same page, the same shared
+// part of the site or the same table are applied one after the other, however
+// unrelated their wording sounds. The vocabulary is the site's own resources,
+// read and checked by `readTargets` (builder/request-plan.mjs); a change with
+// nothing readable is taken to touch the whole site.
+const TARGETS = {
+  type: "array",
+  description:
+    "WHAT EACH CHANGE TOUCHES, numbered as in dependsOn (0 the change your answer makes, 1 the first entry of " +
+    "alsoAsked, and so on). For each change, `writes` lists what it changes and `reads` what it only refers to " +
+    "without changing (a link points at a page; a row belongs to a table). Use only these, with this site's own " +
+    "page paths and table names: page:/path (an existing page's content), new-page:/path (a page this change " +
+    "creates), menu (the site's shared navigation), header, footer, theme (colours, fonts and the site-wide look), " +
+    "identity (the site's name, description, logo or icon), data:table (a table's rows or columns), new-data:table " +
+    "(a table this change creates), component:Name, new-component:Name, and site when a change can reach anything. " +
+    "Name every shared part a change reaches, even when its words do not mention it. Leave a change out only when " +
+    "you cannot tell what it touches.",
+  items: {
+    type: "object",
+    properties: {
+      change: { type: "integer", description: "The change's number." },
+      writes: { type: "array", items: { type: "string" }, description: "What it changes." },
+      reads: { type: "array", items: { type: "string" }, description: "What it refers to without changing." },
+    },
+    required: ["change", "writes"],
+  },
+};
+
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -939,6 +974,7 @@ export const LIVE_ASK_TOOL = {
       intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() },
       alsoAsked: liveAlsoAsked(),
       dependsOn: DEPENDS_ON,
+      targets: TARGETS,
       question: {
         type: "object",
         description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
@@ -1671,6 +1707,37 @@ export function normalizePagePath(raw) {
  * byte-identical to what it was before this existed.
  */
 export function readAlso(input, trace = null) {
+  const parts = readAlsoParts(input, trace);
+  const n = parts.alsoAsked === undefined ? 0 : (Array.isArray(parts.alsoAsked) ? parts.alsoAsked.length : 1);
+  const tg = readChangeTargets(input, n, trace);
+  return tg.length ? { ...parts, targets: tg } : parts;
+}
+
+/**
+ * WHAT EACH CHANGE TOUCHES (`TARGETS`), read through the one checker
+ * (`readTargets`): `[{ change, writes, reads }]` for changes numbered 0 to
+ * `held`, only what reads. A change outside the numbers is dropped and said
+ * (`targets-out`); nothing is coerced. `[]` when none was named.
+ */
+export function readChangeTargets(input, held, trace = null) {
+  const mark = noteTo(trace);
+  const v = input ? input.targets : undefined;
+  if (!given(v)) return [];
+  if (!Array.isArray(v)) { mark("targets-unread"); return []; }
+  const top = Number.isInteger(held) && held > 0 ? held : 0;
+  const by = readTargets(v);
+  const out = [];
+  for (const [k, t] of Object.entries(by)) {
+    const change = Number(k);
+    if (change > top) { mark("targets-out"); continue; }
+    if (t.writes.length || t.reads.length) out.push({ change, writes: t.writes, reads: t.reads });
+  }
+  out.sort((a, b) => a.change - b.change);
+  if (out.length) mark("targets-named");
+  return out;
+}
+
+function readAlsoParts(input, trace = null) {
   const mark = noteTo(trace);
   const v = input ? input.alsoAsked : undefined;
   // A STRING IS ONE PART (the shape every answer had until 2026-10-03, and

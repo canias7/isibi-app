@@ -52,6 +52,7 @@ import { heldList, heldParts, wordsIn, readContext, EDIT_LAYERS } from "./site-a
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { outcomeOf } from "./site-reply.mjs";
+import { readTargets, inferNeeds, applyOrder, clearToPrepare } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -140,6 +141,27 @@ export function readJobKey(k) {
 
 /** A job that ended with no answer at all is filed once more (D5), its money already back. */
 export const RETRIES = 1;
+
+// ── PREPARATION (2026-10-08, the parallel-tasks batch) ──────────────────────
+//
+// The site's lock lets one job write at a time, and it stays that way: writes
+// are applied one after another against the site as it then is. What may run
+// beside them is a part's PREPARATION — its routing and its step's model calls
+// (and a picture the step buys), made in the Worker with nothing written to
+// the site, every answer recorded. When the part's own job runs, under the
+// lock, each call whose request is exactly what was prepared is answered from
+// the record, and any other is made then: a part whose inputs another part
+// changed is planned again against the current site, never applied from a
+// stale one. The job bills what its step used, prepared or not, once, as
+// every job does; a preparation never touches the ledger.
+/** Parts of one request prepared at once, at most. */
+export const PREP_MAX_LIVE = 3;
+/** Preparations one part may start for one step of it: the first, and one after a preparation that went quiet. */
+export const PREP_TRIES = 2;
+/** How long a preparation that has not answered is waited for before its part runs without it (or it is tried again). */
+export const PREP_FRESH_MS = 10 * 60 * 1000;
+/** The edit steps whose work, before their publish, writes nothing but what a preparation may: their model calls and the pictures they buy. */
+export const PREP_LAYERS = Object.freeze(["text", "nav", "picture"]);
 /** Hand-overs one part may make before the full rewrite is the only way left: an edit's, the add-on's, and one more. */
 export const HOPS_MAX = 3;
 
@@ -244,7 +266,22 @@ function newPart(n, words, { at = 0, source = "router", parent = null, needs = [
     route, phase, resume: null, askRound: null,
     seq: 0, retries: 0, hops: 0, jobs: [],
     status: "ready", why: null, question: null, outcome: null, done: null,
+    // WHAT IT TOUCHES, as the model named it (`readTargets`), and its
+    // PREPARATION (2026-10-08, the parallel-tasks batch): null until either.
+    targets: null, prep: null,
   };
+}
+
+/** One change's named targets merged into a part's (`{ writes, reads }`), each kept once. */
+function addTargets(part, t) {
+  if (!part || !t || typeof t !== "object") return;
+  const cur = part.targets && typeof part.targets === "object" ? part.targets : { writes: [], reads: [] };
+  for (const k of ["writes", "reads"]) {
+    const list = Array.isArray(cur[k]) ? cur[k].slice() : [];
+    for (const x of Array.isArray(t[k]) ? t[k] : []) if (!list.includes(x)) list.push(x);
+    cur[k] = list;
+  }
+  part.targets = cur;
 }
 
 /** What a routing answer says the part it routed should run with. */
@@ -327,6 +364,17 @@ export function planParts(message, routed, { putOff = [] } = {}) {
       if (Number.isInteger(it) && it !== me && !parts[me].needs.includes(it)) parts[me].needs.push(it);
     }
   }
+  // WHAT EACH PART TOUCHES, as the model numbered the changes (2026-10-08),
+  // through the same folding: a held part inside another is that part.
+  const named = readTargets(routed && routed.targets);
+  for (const [c, t] of Object.entries(named)) {
+    const me = numberOf[Number(c)];
+    if (Number.isInteger(me)) addTargets(parts[me], t);
+  }
+  // AND THE WAITING THE MODEL DID NOT SAY: a part that refers to something
+  // another part creates waits for it, whichever order the words came in
+  // (`inferNeeds` — creation only, never a cycle with what the model said).
+  inferNeeds(parts);
   // THE ANSWERED PART WAITS WHEN IT NEEDS ANOTHER, and is routed again when its
   // turn comes, on its own words: the answer that chose its route was made
   // before the part it needs existed.
@@ -382,7 +430,7 @@ function refuseCycles(parts) {
  * `sibling` (a routing job's held part that the part itself needs first) is
  * not carved from it but added beside it, with the part waiting for it.
  */
-export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [] } = {}) {
+export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], targets = null } = {}) {
   const parent = rec.parts[parentN];
   if (!parent) return [];
   const made = [];
@@ -411,6 +459,14 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [] }
       if (Number.isInteger(it) && it !== me && !rec.parts[me].needs.includes(it)) rec.parts[me].needs.push(it);
     }
   }
+  // WHAT EACH NEW PART TOUCHES, numbered as the words were (0 the parent).
+  if (targets && typeof targets === "object") {
+    for (const [c, t] of Object.entries(targets)) {
+      const me = numberOf[Number(c)];
+      if (Number.isInteger(me)) addTargets(rec.parts[me], t);
+    }
+  }
+  inferNeeds(rec.parts);
   refuseCycles(rec.parts);
   return made;
 }
@@ -538,7 +594,7 @@ export function readRoute(ans) {
   if (b.intent === "clarify") { const ask = askOf({ ...(plain(b.question) ? b.question : {}), ...(plain(b.questionFor) ? b.questionFor : {}) }); return ask ? { act: "clarify", ask } : { act: "unknown" }; }
   if (b.intent === "ask") return { act: "answer", answer: typeof b.answer === "string" ? b.answer : "" };
   if (b.intent === "edit" || b.intent === "addon") {
-    return { act: "route", route: routeOf(b), alsoAsked: heldList(b.alsoAsked) || [], dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn : [] };
+    return { act: "route", route: routeOf(b), alsoAsked: heldList(b.alsoAsked) || [], dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn : [], targets: readTargets(b.targets) };
   }
   if (b.intent === "build") return { act: "rewrite", why: "rebuild" };
   return { act: "unknown" };
@@ -860,9 +916,11 @@ function settle(rec, p, job, row, now) {
     if (read.act === "route") {
       p.route = { ...read.route, hops: 0 };
       p.phase = "run";
+      // WHAT ITS OWN ROUTING SAID IT TOUCHES (change 0), beside what it was accepted with.
+      if (read.targets && read.targets[0]) addTargets(p, read.targets[0]);
       if (read.alsoAsked.length) {
         const needsFirst = read.dependsOn.filter((d) => d.change === 0).flatMap((d) => d.after);
-        const made = carveParts(rec, p.n, read.alsoAsked, { dependsOn: read.dependsOn.filter((d) => d.change !== 0), sibling: needsFirst });
+        const made = carveParts(rec, p.n, read.alsoAsked, { dependsOn: read.dependsOn.filter((d) => d.change !== 0), sibling: needsFirst, targets: read.targets });
         // THE PART NEEDS A PART IT HELD BACK FIRST: it waits for it, and is
         // routed again when its turn comes.
         const before = needsFirst.map((i) => made[i - 1]).filter(Number.isInteger);
@@ -1047,7 +1105,18 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     const j = currentJob(pending);
     file = { n: pending.n, key: j.key, kind: j.kind, op: j.op };
   } else if (!live && !rec.stop) {
-    const next = rec.parts.filter((p) => p.status === "ready").sort((a, b) => a.at - b.at || a.n - b.n)[0];
+    // THE NEXT WRITE (2026-10-08): in the order the parts must be applied —
+    // after what each needs, otherwise the message's order — a part whose
+    // preparation found a question first (its job asks at once, at no new
+    // model cost, and what does not need it goes on), and never a part whose
+    // preparation is still running while another part is ready: its job would
+    // make the same calls a second time. When every ready part is being
+    // prepared, nothing is filed; the preparation's end moves the request on.
+    const order = applyOrder(rec.parts);
+    const ready = order.map((m) => rec.parts[m]).filter((p) => p && p.status === "ready");
+    const asks = ready.filter((p) => prepFor(p) && p.prep.state === "done" && p.prep.outcome === "ask");
+    const free = ready.filter((p) => !preparing(p, now));
+    const next = asks[0] || free[0] || null;
     if (next) {
       const kind = next.phase === "run" && next.route ? "run" : "route";
       const op = kind === "route" ? ROUTE_OP : (next.route.op === "addon" ? "addon" : "edit");
@@ -1058,9 +1127,75 @@ export function nextStep(record, rows = {}, now = Date.now()) {
       file = { n: next.n, key, kind, op };
     }
   }
+  // WHAT IS PREPARED NOW: every ready part not being written, whose
+  // preparation has not been made for the step it is on, that no earlier part
+  // still to be applied conflicts with (`clearToPrepare`), up to
+  // `PREP_MAX_LIVE` at once. Claimed here, on the same write as the step, so
+  // two drivers at once prepare it once; a redelivered preparation finds its
+  // claim already answered and makes no call.
+  const prepare = [];
+  if (!rec.stop) {
+    let running = rec.parts.filter((p) => preparing(p, now)).length;
+    const ended = (q) => PART_TERMINAL.includes(q.status);
+    for (const m of applyOrder(rec.parts)) {
+      if (running >= PREP_MAX_LIVE) break;
+      const p = rec.parts[m];
+      if (!p || p.status !== "ready" || currentJob(p) || !preparable(p) || !wantsPrep(p, now)) continue;
+      if (!clearToPrepare(rec.parts, p.n, ended)) continue;
+      const again = prepFor(p) ? (Number(p.prep.tries) || 0) : 0;
+      p.prep = { seq: (Number(p.prep && p.prep.seq) || 0) + 1, for: p.seq, phase: p.phase, tries: again + 1, state: "attempting", at: now };
+      prepare.push({ n: p.n, seq: p.prep.seq });
+      running++;
+    }
+  }
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
-  return { record: settleState(rec, now), file };
+  return { record: settleState(rec, now), file, prepare };
+}
+
+/** Is this part's preparation for the step it is on now (no job filed for it since)? */
+const prepFor = (p) => !!p.prep && p.prep.for === p.seq && p.prep.phase === p.phase;
+/** Is a preparation running for this part that may still answer? */
+function preparing(p, now) {
+  return prepFor(p) && p.prep.state === "attempting" && Number.isFinite(p.prep.at) && now - p.prep.at < PREP_FRESH_MS;
+}
+/** Is there a preparation worth starting: none for this step yet, or one that went quiet with a try left? */
+function wantsPrep(p, now) {
+  if (!prepFor(p)) return true;
+  if (p.prep.state !== "attempting") return false;
+  return !preparing(p, now) && (Number(p.prep.tries) || 0) < PREP_TRIES;
+}
+/** Can this part's next step be prepared: its routing, or an edit step whose work before its publish writes nothing to the site. */
+function preparable(p) {
+  if (p.phase === "route") return true;
+  if (p.phase !== "run" || !p.route) return false;
+  return p.route.op !== "addon" && PREP_LAYERS.includes(p.route.layer);
+}
+
+/**
+ * A PREPARATION'S OUTCOME, kept on its part — only when the claim it answers
+ * is still the part's own (`seq`, still attempting): a late answer for a step
+ * the part has moved past, or for a claim since taken again, is dropped.
+ * `outcome` is what it reached: `ready` (the step's work done, at its
+ * publish), `ask` (the step asked the customer something), `routed` (routing
+ * only — the step it chose is not one a preparation runs), `stopped` (the step
+ * ended on its own without changing anything), or `error`.
+ */
+export function notePrepared(record, n, seq, { ok = false, outcome = "error", key = null, calls = 0, images = 0, now = Date.now() } = {}) {
+  const rec = clone(record);
+  const p = rec.parts[n];
+  if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "attempting") return { record: rec, kept: false };
+  p.prep = { ...p.prep, state: ok ? "done" : "failed", outcome: String(outcome || "error"), key: typeof key === "string" ? key : null, calls: Number(calls) || 0, images: Number(images) || 0, endedAt: now };
+  rec.updatedAt = now;
+  rec.rev = (Number(rec.rev) || 0) + 1;
+  return { record: rec, kept: true };
+}
+
+/** What the page and the progress writer read of a part's preparation: `preparing`, `prepared`, or nothing. */
+export function prepState(p, now = Date.now()) {
+  if (!p || !["ready", "blocked", "queued"].includes(p.status) || !prepFor(p)) return "";
+  if (p.prep.state === "attempting") return now - p.prep.at < PREP_FRESH_MS ? "preparing" : "";
+  return p.prep.state === "done" && p.prep.outcome === "ready" ? "prepared" : "";
 }
 
 /** The request's own state, from its parts. */
@@ -1250,9 +1385,24 @@ export function askedPart(record, questionId) {
 
 /** What every model call of a part is shown beside its words (`partBlock`): the message, and what came before. */
 export function partOf(rec, n) {
+  // WHAT THE PARTS IT NEEDS DID (2026-10-08, the parallel-tasks batch): the
+  // parts it waits for, all the way down, and the part it was carved from —
+  // never a part it does not need. An independent part's step is the same
+  // whichever finished first, so what it is shown cannot depend on that, and
+  // a preparation made before another part ended is still the one its job runs.
+  const need = new Set();
+  const walk = (m) => {
+    const q = rec.parts[m];
+    if (!q || need.has(m)) return;
+    need.add(m);
+    for (const x of q.needs) walk(x);
+    if (Number.isInteger(q.parent)) walk(q.parent);
+  };
+  const me = rec.parts[n];
+  if (me) { for (const x of me.needs) walk(x); if (Number.isInteger(me.parent)) walk(me.parent); }
   return {
     key: rec.key, part: n, original: rec.message,
-    done: rec.parts.filter((q) => q.n !== n && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
+    done: rec.parts.filter((q) => q.n !== n && need.has(q.n) && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
     context: rec.context,
   };
 }
@@ -1392,6 +1542,10 @@ export function requestView(rec, { progress = null, said = null } = {}) {
     routedUnsaid: !saidByPart0 && Number.isInteger(rec.routedCost) && rec.routedCost > 0 ? rec.routedCost : 0,
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
+      // BEING PREPARED, OR PREPARED AND WAITING ITS TURN TO BE APPLIED
+      // (2026-10-08): its work has started; it is never done until its own
+      // job has applied it and said so.
+      ...((st) => (st ? { prep: st } : {}))(prepState(p)),
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
       ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),
       // THE APPROVED REWRITE'S BUILD, which no job poll reads (`/api/site/build/<id>` does).
