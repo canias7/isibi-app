@@ -467,3 +467,43 @@ test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06,
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
 });
+
+test("PARALLEL — a part prepared beside another part's job is shown in progress on the card, never finished: 'Working on it alongside' while its preparation runs, 'Ready, applying next' once it is ready, and its own state once its job runs (2026-10-08)", { skip: SKIP, timeout: 120000 }, async () => {
+  const PIC = "Make a new picture of our sourdough for the gallery";
+  const TIK = "Change the TikTok link to tiktok.com/@foldlane";
+  const SAID_PIC = { planned: "I'll make a new sourdough picture for the gallery.", doing: "I'm making a new sourdough picture for your gallery.", waiting: "I need your answer before I make the sourdough picture.", unconfirmed: "I tried to add the sourdough picture, but I can't tell yet whether it went through.", done: "I've put a new sourdough picture in your gallery.", partial: "I've done part of the sourdough picture, but not all of it.", notdone: "I couldn't add the sourdough picture." };
+  const SAID_TIK = { planned: "I'll change your TikTok link.", doing: "I'm updating your TikTok link now.", waiting: "I need your answer before I change the TikTok link.", unconfirmed: "I tried to change your TikTok link, but I can't tell yet whether it went through.", done: "I've changed your TikTok link to @foldlane.", partial: "I've changed part of the TikTok link, but not all of it.", notdone: "I couldn't change your TikTok link." };
+  let stage = 0;
+  const view = () => ({
+    key: KEY, state: stage === 3 ? "done" : "running", ended: stage === 3, stop: false, at: Date.now() - 60000, updatedAt: Date.now(), routedUnsaid: 0,
+    parts: [
+      { n: 0, words: TIK, status: stage >= 2 ? "done" : "started", ids: [JOB], jobs: stage >= 2 ? [JOB] : [], charged: 0, route: "text", said: SAID_TIK },
+      { n: 1, words: PIC, status: stage === 3 ? "done" : stage === 2 ? "started" : "ready", ids: stage >= 2 ? [SOLO] : [], jobs: stage === 3 ? [SOLO] : [], charged: 0, route: "picture", said: SAID_PIC, prep: stage === 0 ? "preparing" : stage === 1 ? "prepared" : "" },
+    ],
+  });
+  const S = { requests: () => [view()], view, polls: {
+    [JOB]: () => (stage >= 2 ? { final: true, body: { ...EDIT_ANSWER, reply: "✅ Your TikTok link now goes to @foldlane." } } : { body: { ok: true, status: "editing" } }),
+    [SOLO]: () => (stage === 3 ? { final: true, body: { ok: true, layer: "picture", changed: ["src/routes/gallery.tsx"], files: 1, cost: 3, reply: "✅ A new sourdough picture is in your gallery.", replySource: "model" } } : { body: { ok: true, status: "editing" } }),
+  } };
+  const app = await openApp(S);
+  try {
+    const { page } = app;
+    const statusOf = (i) => page.$$eval(".st-req-part .st-req-status", (els, j) => (els[j] ? els[j].textContent : null), i);
+    await page.waitForFunction(() => document.querySelectorAll(".st-req-part").length === 2, null, { timeout: 20000 });
+    await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part .st-req-status")].some((e) => e.textContent === "Working on it alongside"), null, { timeout: 20000 });
+    assert.deepEqual(await titles(page), [SAID_TIK.doing, SAID_PIC.doing], "a part being prepared is not named by its in-progress line");
+    await shot(page, "parallel-preparing.png");
+    stage = 1;
+    await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part .st-req-status")].some((e) => e.textContent === "Ready, applying next"), null, { timeout: 20000 });
+    assert.notEqual(await statusOf(1), "Done");
+    assert.deepEqual(await titles(page), [SAID_TIK.doing, SAID_PIC.doing], "a prepared part is shown as finished before its job applied it");
+    await shot(page, "parallel-prepared.png");
+    stage = 2;
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_TIK.done, { timeout: 30000 });
+    assert.doesNotMatch(String(await statusOf(1)), /alongside|applying next/, "the preparation chip stayed once the part's own job ran");
+    stage = 3;
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words, .st-req-done .st-req-words")].some((e) => e.textContent === t), SAID_PIC.done, { timeout: 30000 });
+    await shot(page, "parallel-done.png");
+    assert.deepEqual(app.errors, []);
+  } finally { await closeApp(app); }
+});

@@ -45,6 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
+import { recorder, replayer, readPrepared, prepKey, jobPrepKey } from "./builder/prepared.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -259,7 +260,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, notePrepared, readRoute, PREP_LAYERS, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -1545,6 +1546,9 @@ export default {
         // A PROGRESS LINE TO WRITE (2026-10-06): a running job's, by its one
         // writer — no site lock, the job's row only read, nothing run again.
         const progressTask = readProgressTask(message && message.body);
+        // A PART'S PREPARATION (2026-10-08): its model calls, made beside the
+        // jobs — no site lock, no job row, nothing written to the site.
+        const prepTask = readPrepTask(message && message.body);
         if (edit) {
           // ── THE CLAIM COMES FIRST, HERE, BEFORE ANY CONTAINER IS ASKED ──────
           //
@@ -1570,6 +1574,9 @@ export default {
           } else if (!claim || claim.claimed !== true) {
             console.log("edit queue: not claimed", edit.id, String((claim && claim.error) || "rpc"));
           } else {
+            // ITS PART'S PREPARATION, PUT WHERE THE JOB CAN READ IT (2026-10-08),
+            // before it runs here or in the site's container.
+            await stagePrepared(env, edit.id);
             // THE LEASE IS RENEWED WHILE THE FIRE WAITS FOR ROOM (up to
             // JOB_FIRE_MS), so a slow container cannot let it lapse under the
             // sweep; cleared before the inline run, which beats for itself.
@@ -1640,6 +1647,8 @@ export default {
           await runReplyTask(env, replyTask);
         } else if (progressTask) {
           await runProgressTask(env, progressTask);
+        } else if (prepTask) {
+          await runRequestPrep(env, ctx, prepTask);
         } else {
           const kind = message && message.body && message.body.kind;
           console.error("build queue: no handler for message", JSON.stringify(kind || null));
@@ -5683,6 +5692,33 @@ async function editRpc(env, fn, args) {
  * `null` FOR A SYNCHRONOUS EDIT, and every use of it is optional-chained. With
  * the flag off nothing here runs and the route behaves exactly as it did.
  */
+/**
+ * A PART'S PREPARATION, AS THE ROUTES SEE A JOB (2026-10-08, the parallel-tasks
+ * batch): the same surface `makeJobCtx` gives a queued job — so the routing and
+ * edit routes run exactly as a job replays them — with nothing behind it that
+ * touches the job table or the ledger. `prepare` is what the routes read: the
+ * publish stops before the site is written (`reached` counts it), nothing is
+ * charged, no question is kept, and every model call and picture goes through
+ * the recorder (`rec`). No lease, no heartbeat: it holds no lock, and the
+ * part's own job, which does, makes every write.
+ */
+function makePrepCtx({ id, budget, uid = "", slug = "" }) {
+  const rec = recorder();
+  return {
+    id, owner: "prep:" + id, budget, trace: null, uid, slug, progress: null,
+    prepare: true, rec, reached: 0,
+    cancelled: () => false, beats: () => 0, reserves: () => 0, noteReserve() {},
+    refused: () => 0, refusals: () => [], noteRefusal() {},
+    async beat() { return { ok: true }; },
+    gate: (phase) => (budget && budget.expired() ? { go: false, why: "budget" } : { go: true, phase }),
+  };
+}
+
+/** A job's model transport: recorded under a preparation, answered from its staged preparation under a job, unchanged otherwise. */
+const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec.wrap(send) : job && job.replay ? job.replay.wrap(send) : send);
+/** The same for a picture bought for a description. */
+const jobImage = (job, generate) => (job && job.prepare === true && job.rec ? job.rec.image(generate) : job && job.replay ? job.replay.image(generate) : generate);
+
 function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progress = null }) {
   let cancelled = false;
   let beats = 0;
@@ -16736,6 +16772,145 @@ async function offerRequestQuestions(env, rec, etag) {
   return { rec: cur, etag: tag };
 }
 
+// ── A PART'S PREPARATION (2026-10-08, the parallel-tasks batch) ─────────────
+//
+// Owner: *"independent tasks run concurrently, and tasks wait only when they
+// need another task's result or would conflict with its changes … Keep
+// publication coordinated while allowing independent preparation and model
+// calls to overlap."* A part `nextStep` claims for preparation is sent as its
+// own queue message (`PREP_KIND`) — the existing queue, beside the jobs, the
+// replies and the progress lines — and run here, in the Worker, with no job
+// row and no lock: its routing and its step are replayed through the very
+// routes its job will replay, under a preparation's context (`makePrepCtx`),
+// every model call and picture recorded. Its record is kept under the request
+// (`prepKey`) and noted on the part, on the claim it answers. Then the request
+// is moved on: a part whose preparation found a question goes first.
+
+export const PREP_KIND = "request-prep";
+/** A preparation's queue message read back: `{ slug, key, n, seq }`, or null. Never coerced. */
+export function readPrepTask(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.kind !== PREP_KIND) return null;
+  if (typeof body.slug !== "string" || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(body.slug) || !isRequestKey(body.key)) return null;
+  if (!Number.isInteger(body.n) || body.n < 0 || !Number.isInteger(body.seq) || body.seq < 1) return null;
+  return { slug: body.slug, key: body.key, n: body.n, seq: body.seq };
+}
+/** How long a preparation may run, at most: inside the queue consumer's own minutes, with room to record it. */
+const PREP_RUN_MS = 8 * 60 * 1000;
+
+/** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
+async function replayPrepared(env, ctx, rec, url, body) {
+  const secret = newReplaySecret((b) => crypto.getRandomValues(b));
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug });
+  const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
+  EDIT_JOBS.set(secret, prep);
+  let res;
+  try { res = await handleRequest(req, env, ctx); } finally { EDIT_JOBS.delete(secret); }
+  let out = null;
+  try { out = await res.json(); } catch { out = null; }
+  return { status: res.status, body: out, prep };
+}
+
+/**
+ * PREPARE ONE PART: its routing when it has none yet, then — when the routing
+ * (or the route it already had) chose a step whose work before its publish
+ * writes nothing to the site — that step. Answers what it reached, and keeps
+ * every recorded call and picture under the request. Never throws.
+ */
+async function runRequestPrep(env, ctx, task) {
+  const { slug, key, n, seq } = task;
+  try {
+    const { rec } = await loadRequest(env, slug, key);
+    const p = rec && rec.parts[n];
+    // THE CLAIM IS THE ONE THIS MESSAGE IS FOR, OR NOTHING RUNS: a delivery
+    // again of an answered or re-taken claim, or a request stopped, makes no call.
+    if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "attempting" || rec.stop || rec.ended) return;
+    const kept = { v: 1 };
+    let outcome = "error";
+    let work = rec;
+    if (p.phase === "route") {
+      const { url, body } = jobBody(rec, n, "route", key + "-prep" + seq);
+      const r = await replayPrepared(env, ctx, rec, url, body);
+      kept.route = { calls: r.prep.rec.calls, images: [] };
+      const read = readRoute({ status: r.status, body: r.body });
+      if (read.act === "clarify") outcome = "ask";
+      else if (read.act !== "route") outcome = read.act === "failed" ? "error" : "stopped";
+      else if (read.route.op === "addon" || !PREP_LAYERS.includes(read.route.layer)) outcome = "routed";
+      else {
+        // THE STEP ITS ROUTING CHOSE, prepared as its run job will send it.
+        work = JSON.parse(JSON.stringify(rec));
+        Object.assign(work.parts[n], { route: { ...read.route, hops: 0 }, phase: "run" });
+        outcome = "run";
+      }
+    } else outcome = "run";
+    if (outcome === "run") {
+      const { url, body } = jobBody(work, n, "run", key + "-prep" + seq);
+      const r = await replayPrepared(env, ctx, rec, url, body);
+      kept.run = { calls: r.prep.rec.calls, images: r.prep.rec.images };
+      const b = r.body || {};
+      outcome = r.prep.reached > 0 ? "ready"
+        : (b.error === "clarify" || (b.ask && typeof b.ask === "object")) ? "ask"
+        : r.status >= 500 ? "error" : "stopped";
+    }
+    const calls = (kept.route ? kept.route.calls.length : 0) + (kept.run ? kept.run.calls.length : 0);
+    const images = kept.run ? kept.run.images.length : 0;
+    const pk = prepKey(slug, key, n, seq);
+    let stored = false;
+    try { await env.SITES_BUCKET.put(pk, JSON.stringify(kept), { httpMetadata: { contentType: "application/json" } }); stored = true; }
+    catch (e) { console.error("request prep: could not keep", slug, key, n, errorClassForLog(e)); }
+    for (let round = 0; round < 6; round++) {
+      const at = await loadRequest(env, slug, key);
+      if (!at.rec) return;
+      const { record, kept: ok } = notePrepared(at.rec, n, seq, { ok: stored && outcome !== "error", outcome, key: stored ? pk : null, calls, images });
+      if (!ok) break;
+      if (await saveRequestRecord(env, record, at.etag)) break;
+    }
+    console.log("request prep:", slug, key, "part", n, outcome, calls, "calls", images, "pictures");
+  } catch (e) {
+    console.error("request prep:", slug, key, n, errorClassForLog(e));
+  }
+  await advanceRequest(env, ctx, slug, key, "prep");
+}
+
+/**
+ * A JOB'S SHARE OF ITS PART'S PREPARATION, put under the job's own id before
+ * it runs (`jobPrepKey`), so the job reads it wherever it runs — the Worker or
+ * the site's container, whose gateway lets a job read only its own objects. A
+ * routing job gets the routing's calls; a run job the step's. Best effort: a
+ * job with nothing staged makes its calls, as any job does.
+ */
+async function stagePrepared(env, id) {
+  try {
+    const o = await env.SITES_BUCKET.get(editJobKey(id));
+    if (!o) return;
+    const job = readEditJob(JSON.parse(await o.text()));
+    if (!job) return;
+    let b = null;
+    try { b = JSON.parse(String(job.body || "")); } catch { b = null; }
+    const want = readRequestOf(b && b.request);
+    if (!want) return;
+    const { rec } = await loadRequest(env, job.slug, want.key);
+    const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
+    if (!p || !p.prep || p.prep.state !== "done" || typeof p.prep.key !== "string") return;
+    const po = await env.SITES_BUCKET.get(p.prep.key);
+    if (!po) return;
+    const v = JSON.parse(await po.text());
+    const share = /\/api\/site\/route(?![\w/-])/.test(String(job.url || "")) ? v.route : v.run;
+    if (!share) return;
+    const staged = readPrepared(share);
+    if (!staged.calls.length && !staged.images.length) return;
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
+  } catch (e) { console.error("edit queue: prepared answers not staged for", id, errorClassForLog(e)); }
+}
+
+/** Send each claimed preparation as its own queue message; one the queue refuses is claimed again once it goes quiet. */
+async function sendRequestPreps(env, rec, prepare) {
+  for (const t of Array.isArray(prepare) ? prepare : []) {
+    try { await env.BUILD_QUEUE.send({ kind: PREP_KIND, slug: rec.slug, key: rec.key, n: t.n, seq: t.seq }); }
+    catch (e) { console.error("request prep: could not send", rec.slug, rec.key, t.n, errorClassForLog(e)); }
+  }
+}
+
 /**
  * MOVE ONE REQUEST ON: read it, read its live jobs' rows, take one step
  * (`nextStep`), write it back on its etag, file the job that step chose, and
@@ -16769,10 +16944,10 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         if (wantsEvidence(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
         rows[id] = row;
       }
-      const { record, file } = nextStep(base, rows, Date.now());
+      const { record, file, prepare } = nextStep(base, rows, Date.now());
       // NOTHING MOVED, NOTHING WRITTEN: a look from the page or the sweep at a
       // request whose job is still running costs a read, never a write.
-      const same = !file && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
+      const same = !file && !(prepare && prepare.length) && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
       let tag = same ? etag : await saveRequestRecord(env, record, etag);
       if (!tag) continue;
       let cur = same ? rec : record;
@@ -16784,6 +16959,8 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         catch (e) { console.error("progress: request tasks", slug, errorClassForLog(e)); }
       }
       let again = false;
+      // THE PREPARATIONS THIS STEP CLAIMED, sent once their claim is written.
+      if (!same && prepare && prepare.length) await sendRequestPreps(env, record, prepare);
       if (file) {
         const q = await fileRequestJob(env, cur, file);
         if (q.ok && q.job) {
@@ -17512,6 +17689,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug, progress });
     beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
+    // ITS PART'S PREPARATION, WHEN ONE WAS STAGED FOR IT (2026-10-08): calls
+    // whose request is exactly one prepared are answered from it; any other is
+    // made now. Read wherever the job runs — the key is the job's own.
+    try {
+      const po = await env.SITES_BUCKET.get(jobPrepKey(id));
+      if (po) { const staged = readPrepared(await po.text()); if (staged.calls.length || staged.images.length) jctx.replay = replayer(staged); }
+    } catch (e) { console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e)); }
 
     const req = replayEditRequest({ url: job.url, body: job.body, marker: packReplayMarker(id, job.secret) });
     // THE JOB CONTEXT REACHES THE HANDLER THROUGH THE REQUEST, not a global.
@@ -24441,7 +24625,7 @@ async function handleRequest(request, env, ctx) {
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
         // one reader of provider errors, not two (Lane 1b).
-        { send: quickSend(env), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
+        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
         {
           message: rb.message,
           site: rDigest.site,
@@ -24516,6 +24700,30 @@ async function handleRequest(request, env, ctx) {
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
+      // ── A PREPARATION ENDS HERE (2026-10-08, the parallel-tasks batch) ────
+      // A part's routing made beside another part's job: the model's answer is
+      // recorded by the transport, and nothing else happens — no question is
+      // kept, nothing is charged, no reply is written. The part's own routing
+      // job, under the site's lock, runs this same call again, is answered from
+      // the record when its request is unchanged, and does all of that then.
+      if (rJob && rJob.prepare === true) {
+        const prepQuestion = routed.intent === "clarify" ? routed.question : undefined;
+        return Response.json({
+          ok: true, prepared: true, failed: routed.failed === true ? true : undefined,
+          intent: routed.intent,
+          layer: routed.intent === "edit" ? routed.layer : undefined,
+          page: routed.intent === "edit" ? routed.page : undefined,
+          remove: routed.intent === "edit" && routed.remove === true ? true : undefined,
+          rename: routed.intent === "edit" && typeof routed.rename === "string" ? routed.rename : undefined,
+          tab: routed.intent === "edit" && routed.tab === true ? true : undefined,
+          alsoAsked: (typeof routed.alsoAsked === "string" && routed.alsoAsked) ||
+            (Array.isArray(routed.alsoAsked) && routed.alsoAsked.length && routed.alsoAsked.every((x) => typeof x === "string" && x) ? routed.alsoAsked : undefined) || undefined,
+          dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
+          targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
+          handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
+          question: prepQuestion,
+        });
+      }
       // ── AND SETTLED AFTER IT, BEFORE ANYTHING IS CHARGED (2026-10-02) ─────
       //
       // The router said whether the message answers the waiting question
@@ -24825,6 +25033,10 @@ async function handleRequest(request, env, ctx) {
         // WHICH HELD PART NEEDS WHICH (2026-10-03, `readDepends`): for the
         // request's plan; absent when the router named none.
         dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
+        // WHAT EACH CHANGE TOUCHES (2026-10-08, `readChangeTargets`): for the
+        // request's plan — which parts may be prepared side by side, and which
+        // reach the same thing and go one after the other. Absent when none.
+        targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
         // A PART'S QUESTION, as its request's step needs it to offer it again.
         questionFor: rQuestionFor,
       };
@@ -25643,6 +25855,9 @@ async function handleRequest(request, env, ctx) {
         // find nothing on exactly the path where the timings matter most — the
         // one that threw. Both are captured before the trace is let go.
         let editTraceJob = "";
+        // A PREPARATION (2026-10-08) keeps no trace row and no phase timing:
+        // those are its part's own job's, which runs the step for real.
+        let editTracePrep = false;
         let editTraceEvents = null;
         try {
           let r;
@@ -25810,6 +26025,7 @@ async function handleRequest(request, env, ctx) {
             const eJob = (eReplay && eReplay.replay) || null;
             if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
+            if (eJob && eJob.prepare === true) editTracePrep = true;
             eReplyOut.job = !!eJob;
             // A PART OF A LONGER REQUEST (2026-10-03): the message it came from
             // and what the parts before it did, shown to every model call here
@@ -25866,7 +26082,7 @@ async function handleRequest(request, env, ctx) {
             // repeated-question threshold and the total-answer limit; at either,
             // the question goes to the customer and nothing beside it is done
             // (2026-10-03, the owner's third review).
-            const eQuick = (what = "") => clarifyTransport(quickSend(env, what, eJob && eJob.budget), {
+            const eQuick = (what = "") => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => eCtx,
               all: () => eCtxAll || [],
               part: ePartShown,
@@ -26322,6 +26538,10 @@ async function handleRequest(request, env, ctx) {
             // this change alone; renaming one property costs nothing.
             let cssCtx = null;
             const publishStep = async (e, args) => {
+              // A PREPARATION STOPS HERE (2026-10-08): the step's work is done
+              // and recorded; nothing is compiled, staged or published, and the
+              // part's own job — under the site's lock — makes the write.
+              if (eJob && eJob.prepare === true) { eJob.reached = (Number(eJob.reached) || 0) + 1; return { ok: false, error: "prepared", ours: true, detail: "prepared" }; }
               if (Array.isArray(args && args.pages) && args.pages.length) eSrc = args.pages;
               // `renamed` ACCUMULATES rather than replaces: two rungs can each
               // rename something, and the spine takes one map. A later key wins,
@@ -26463,6 +26683,8 @@ async function handleRequest(request, env, ctx) {
             // give the earlier ones back. Under a job the row is the record.
             const syncLedger = { refusals: [], taken: 0 };
             const eCharge = async (usage, ...more) => {
+              // NOTHING IS CHARGED FOR A PREPARATION: its job bills what it uses.
+              if (eJob && eJob.prepare === true) return 0;
               const parts = billParts(usage, ...more).filter((p) => {
                 // THE ROUTING CALL IS BILLED ONCE PER MESSAGE, not once per
                 // rung. `pick_lanes` runs before any layer is chosen, and every
@@ -28331,12 +28553,14 @@ async function handleRequest(request, env, ctx) {
                 // The owner's upload library, named the way they see it.
                 library: async () => (await siteUploadList(env, ownerSlug))
                   .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
-                  .filter((f) => f.name),
+                  // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
+                  // owner's library (2026-10-08): it is placed by this job.
+                  .filter((f) => f.name && !(eJob && eJob.replay && eJob.replay.hides(f.url))),
                 // ONE PHOTOGRAPH AT A TIME, priced against the real balance
                 // before each. Checked per picture rather than once up front
                 // because each one is ~19 credits: a batch that can afford two
                 // of three must buy the two, and the third is reported.
-                generate: async (describe) => {
+                generate: jobImage(eJob, async (describe) => {
                   if (!imagesAffordable(1, { balance, usd: SITE_PHOTO_USD })) return null;
                   const { url: made } = await makeSitePhoto(env, ownerSlug, describe);
                   // Only a photograph that really landed costs anything, so the
@@ -28344,7 +28568,7 @@ async function handleRequest(request, env, ctx) {
                   // the same rule the build path's `made` count follows.
                   if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
                   return made;
-                },
+                }),
                 // THE PAGE READER A REMOVAL IS CHECKED WITH, injected and asked
                 // for only when an answer takes a photograph off. The container
                 // resolves it; a Worker bundle does not, and there a removal is
@@ -37106,6 +37330,8 @@ async function handleRequest(request, env, ctx) {
           // `traceRow` and stored behind the service key; the reply below is
           // byte-identical to what it has always been apart from `cid`, which
           // is ours and names nothing.
+          // A PREPARATION (2026-10-08) keeps no trace: its job traces the step when it runs.
+          if (editTracePrep) editTrace = null;
           if (editTrace) { editTraceEvents = editTrace.events(); flushEditTrace(env, ctx, editTrace, { ok: false, error: e }); editTrace = null; }
           return Response.json({
             error: "Something went wrong reaching your site's data.", kind, why,
@@ -37133,6 +37359,7 @@ async function handleRequest(request, env, ctx) {
           // failing phase from the events — the phase that reported `fail`, or
           // the last one still open — which is a better answer than a boolean
           // this block would have to guess at.
+          if (editTracePrep) editTrace = null;
           if (editTrace) { editTraceEvents = editTrace.events(); flushEditTrace(env, ctx, editTrace, { ok: !editTraceEvents.some((x) => x.s === "fail") }); }
           // ── WHAT EVERY PHASE ACTUALLY TOOK ──────────────────────────────
           //

@@ -10463,6 +10463,13 @@ const SITE_REQ_STATUS = {
   'not-run': 'Not run', cancelled: 'Stopped', 'needs-rewrite': 'Needs a full rewrite', expired: 'Question expired', refused: 'Not run',
   approval: 'Needs your go-ahead',
 };
+// A PART BEING WORKED ON BESIDE ANOTHER (2026-10-08, the parallel-tasks batch):
+// its model work is running, or done and waiting its turn to be applied. Its
+// line is the model's "doing" line — never "done" until its own job applied it.
+const SITE_REQ_PREP = {
+  preparing: 'Working on it alongside',
+  prepared: 'Ready, applying next',
+};
 // WHAT A STOPPED OR FAILED PART LEFT STANDING (2026-10-07, the view's `left`):
 // its label says so, and its line is the one for that state — never "Stopped"
 // and the not-done line over a part whose table went in.
@@ -10484,6 +10491,8 @@ function siteRequestHTML(m, site) {
     if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
     const left = (status === 'cancelled' || status === 'failed') && typeof p.left === 'string' && Object.hasOwn(SITE_REQ_LEFT, p.left) ? SITE_REQ_LEFT[p.left] : null;
     if (left) label = left[status];
+    const prep = (status === 'blocked' || status === 'ready' || status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
+    if (prep) label = SITE_REQ_PREP[prep];
     // ITS GO-AHEAD, while it waits for one; gone while a press is in flight.
     const pressing = (st.approving || []).includes(p.n);
     const rewrite = status === 'approval'
@@ -10493,7 +10502,7 @@ function siteRequestHTML(m, site) {
     // label stays the fixed status; the lines are the model's words.
     // AND IT IS NAMED BY THE MODEL'S OWN LINE FOR ITS STATE, once written; by
     // its words, as they are, until then.
-    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
+    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   const stop = !v.ended && !v.stop

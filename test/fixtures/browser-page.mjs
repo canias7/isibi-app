@@ -53,6 +53,8 @@ const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "da
 const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approval:");
 // …AND THOSE OF A STOPPED OR FAILED PART THAT LEFT SOMETHING STANDING (2026-10-07).
 const REQ_LEFT = cutStatement("\nconst SITE_REQ_LEFT = {", "\n};\n", "unconfirmed");
+// …AND OF A PART PREPARED BESIDE ANOTHER PART'S JOB (2026-10-08, the parallel-tasks batch).
+const REQ_PREP = cutStatement("\nconst SITE_REQ_PREP = {", "\n};\n", "prepared:");
 // WHICH OF A TASK'S LINES EACH OF THOSE STATUSES SHOWS (2026-10-06).
 const REQ_SAID = cutStatement("\nconst SITE_SAID_FOR = {", "\n};\n", "notdone");
 
@@ -139,6 +141,7 @@ const SRC = [
   KEYS,
   REQ_STATUS,
   REQ_LEFT,
+  REQ_PREP,
   REQ_SAID,
   "function wireThread(thread, site) {" + CLICKS + "}",
   "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",

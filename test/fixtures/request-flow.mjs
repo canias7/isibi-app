@@ -57,7 +57,11 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // answer, as `progressWith` is the progress writer's.
 // `progress` (2026-10-06): `PROGRESS_REPLIES` on, and `progressWith` the
 // progress writer's own pace, faults or answer, as `replyWith` is the reply's.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false } = {}) {
+// `images` (2026-10-08, the parallel-tasks batch): the image service stood in —
+// a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
+// each call kept in `imageLog` (its prompt and when), optionally held by
+// `imageWith` (a slow picture) so a case can show what runs beside it.
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -438,11 +442,21 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const neonFaults = [];
   // ── THE WIRE ──────────────────────────────────────────────────────────────
   const real = globalThis.fetch;
+  const imageLog = [];
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, ...new Array(64).fill(0x41)]);
   const fetchStub = async (input, init) => {
     const url = String((input && input.url) || input || "");
     const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
     let args = {};
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
+    if (images && url.startsWith("https://fal.run/")) {
+      const entry = { prompt: String(args.prompt || ""), at: now() };
+      imageLog.push(entry);
+      if (typeof imageWith === "function") await imageWith(entry, imageLog.length - 1);
+      entry.end = now();
+      return resp({ images: [{ url: "https://img.test/p" + imageLog.length + ".jpg" }] });
+    }
+    if (images && url.startsWith("https://img.test/")) return new Response(JPEG, { status: 200, headers: { "content-type": "image/jpeg" } });
     const m = url.match(/\/rest\/v1\/rpc\/([a-z_]+)/);
     if (m) {
       const fn = m[1];
@@ -571,6 +585,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       },
     },
     ...dispatchEnv(),
+    ...(images ? { FAL_KEY: "fal-test" } : {}),
   };
   const realNow = Date.now;
   const realSetInterval = globalThis.setInterval;
@@ -604,7 +619,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     return fn();
   }
   const P = {
-    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, tasksLog, hung, filed,
+    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, tasksLog, hung, filed, imageLog,
     now, run,
     /** Move the clock: leases, the question's day, the sweeps' windows. */
     advance(ms) { clock += ms; },
