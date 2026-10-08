@@ -1,0 +1,178 @@
+[
+{
+"label": "delivery: interim is not classified",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "  if (body.stage === \"resuming\") return \"interim\";\n",
+"to": ""
+},
+{
+"label": "delivery: interim counted as delivered",
+"files": [
+"worker.js"
+],
+"from": "    if (kind === \"terminal\") return { ok: true, as: \"build\" };",
+"to": "    if (kind === \"terminal\" || kind === \"interim\") return { ok: true, as: \"build\" };"
+},
+{
+"label": "delivery: write without its condition",
+"files": [
+"worker.js"
+],
+"from": "    try { put = await env.SITES_BUCKET.put(resultKey(id), packed, { onlyIf }); }",
+"to": "    try { put = await env.SITES_BUCKET.put(resultKey(id), packed); }"
+},
+{
+"label": "delivery: refused write read as stored",
+"files": [
+"worker.js"
+],
+"from": "    if (put) {\n      if (kind === \"interim\")",
+"to": "    if (true) {\n      if (kind === \"interim\")"
+},
+{
+"label": "consumer: interim written over an answer",
+"files": [
+"worker.js"
+],
+"from": "const put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out), { onlyIf: { etagDoesNotMatch: \"*\" } });",
+"to": "const put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));"
+},
+{
+"label": "delivery: deliveredAs not recorded",
+"files": [
+"worker.js"
+],
+"from": "JSON.stringify({ ...settled, delivered: true, deliveredAs: done.as })",
+"to": "JSON.stringify({ ...settled, delivered: true, deliveredAs: \"recovery\" })"
+},
+{
+"label": "plan: purpose cut at 400",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "const MAX_PURPOSE = Number.POSITIVE_INFINITY;",
+"to": "const MAX_PURPOSE = 400;"
+},
+{
+"label": "plan: section cut at the input budget",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "const MAX_SECTION = Number.POSITIVE_INFINITY;",
+"to": "const MAX_SECTION = 16000;"
+},
+{
+"label": "plan: action cut at the input budget",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "  const action = lines(p.action, { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });",
+"to": "  const action = lines(p.action, { cap: 16000, max: Number.POSITIVE_INFINITY });"
+},
+{
+"label": "plan: description cut at 240",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "    const describe = str(s.describe, Number.POSITIVE_INFINITY);",
+"to": "    const describe = str(s.describe, 240);"
+},
+{
+"label": "images: prompt cut at 240",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    shots: usable.slice(0, lim),",
+"to": "    shots: usable.slice(0, lim).map((t) => ({ ...t, prompt: t.prompt.slice(0, 240) })),"
+},
+{
+"label": "images: directive token cut at 240",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "      const describe = String(s.describe).replace(/\\s+/g, \" \").trim();",
+"to": "      const describe = String(s.describe).replace(/\\s+/g, \" \").trim().slice(0, 240);"
+},
+{
+"label": "research: facts cut at 2,500",
+"files": [
+"worker.js"
+],
+"from": "  return { facts: facts.trim(), sources: uniq, usage, searches: usage.searches };",
+"to": "  return { facts: facts.trim().slice(0, 2500), sources: uniq, usage, searches: usage.searches };"
+},
+{
+"label": "links: allowance ignored",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "    const keep = Math.min(got.text.length, room);",
+"to": "    const keep = got.text.length;"
+},
+{
+"label": "links: kept fact dropped",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "    if (keep < got.text.length) page.kept = keep;",
+"to": ""
+},
+{
+"label": "links: unopened links dropped",
+"files": [
+"builder/site-context.mjs"
+],
+"from": "  for (const url of all.slice(urls.length)) {",
+"to": "  for (const url of []) {"
+},
+{
+"label": "links: one quota unit per brief",
+"files": [
+"worker.js"
+],
+"from": "          if (!(await useQuota(request, \"sitelinks\", 60))) {",
+"to": "          if (!(readMetered.spent = readMetered.spent || await useQuota(request, \"sitelinks\", 60))) {"
+},
+{
+"label": "pictures: not offered not carried by the worker",
+"files": [
+"worker.js"
+],
+"from": "        .then((bought) => imgNotOffered.length && bought && typeof bought === \"object\" ? { ...bought, notOffered: imgNotOffered } : bought);",
+"to": "        .then((bought) => bought);"
+},
+{
+"label": "pictures: not offered dropped by publish",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "      if (r && Array.isArray(r.notOffered) && r.notOffered.length) {",
+"to": "      if (false) {"
+},
+{
+"label": "bands: unwritten not recorded",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "  if (gen && Array.isArray(gen.refused) && gen.refused.length) {\n    out.unwritten",
+"to": "  if (false) {\n    out.unwritten"
+},
+{
+"label": "bands: note not in the answer",
+"files": [
+"builder/build-answer.mjs"
+],
+"from": "  if (unwritten) out.unwrittenNote = unwritten;",
+"to": ""
+},
+{
+"label": "CONTROL: comment only",
+"files": [
+"worker.js"
+],
+"from": "    // REFUSED: something else wrote between the read and the write. Read it",
+"to": "    // REFUSED: something else wrote between the read and the write. Read  it"
+}
+]

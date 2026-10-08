@@ -163,6 +163,10 @@ export function pageNotes(pages) {
   // itself, so the customer hears which page stayed and why.
   const kept = typeof p.keptNote === "string" && p.keptNote ? p.keptNote : "";
   if (kept) out.keptNote = kept;
+  // A SECTION NO WRITER COULD WRITE (2026-10-08, P2): composed by
+  // `publishPages` from the band fan-out's own refusals.
+  const unwritten = typeof p.unwrittenNote === "string" && p.unwrittenNote ? p.unwrittenNote : "";
+  if (unwritten) out.unwrittenNote = unwritten;
   return out;
 }
 
@@ -170,4 +174,4 @@ export function pageNotes(pages) {
  * The note fields this composes, named so a guard can compare both answers
  * without keeping its own list.
  */
-export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote"];
+export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote", "unwrittenNote"];

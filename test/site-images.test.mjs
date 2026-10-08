@@ -16,7 +16,7 @@ import {
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
   budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
   photoUrls, keptImages, imageRefs, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, MAX_KEEP_URLS,
-  isPictureUrl,
+  isPictureUrl, shotKey,
 } from "../builder/site-images.mjs";
 import { uploadUrl, UPLOAD_URL_PATH, IMAGE_EXTS, UPLOAD_EXTS } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -156,9 +156,13 @@ test("the hard cap holds even when the caller asks for more", () => {
   assert.equal(planImages([page("a.tsx", src)], 50).shots.length, IMAGE_CAP);
 });
 
-test("a very long description is clipped before it is sent", () => {
-  const r = planImages([page("a.tsx", '"@@IMG:' + "x".repeat(2000) + '@@"')], 1);
-  assert.equal(r.shots[0].prompt.length, MAX_PROMPT_CHARS);
+test("a long description is sent WHOLE (2026-10-08: the 240 cut was no provider bound) — and its key and prompt keep every word", () => {
+  const long = "a loaf on a board by the window, ".repeat(60).trim();
+  const r = planImages([page("a.tsx", '"@@IMG:' + long + '@@"')], 1);
+  assert.ok(long.length > MAX_PROMPT_CHARS);
+  assert.equal(r.shots[0].prompt, long);
+  assert.equal(shotKey(long), long);
+  assert.ok(imagePrompt(long).startsWith(long + ". "));
 });
 
 /* -------------------------------------------------------------- applying */

@@ -13644,6 +13644,9 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
         // W3): the home page, or one another page still links to. It stays,
         // and this says which and why.
         (d && typeof d.keptNote === 'string') ? d.keptNote.trim() : '',
+        // A SECTION NO WRITER COULD WRITE (2026-10-08): it is published as an
+        // empty part, and this names it in the customer's own plan words.
+        (d && typeof d.unwrittenNote === 'string') ? d.unwrittenNote.trim() : '',
         // AND WHAT THE FINISHED PAGES ACTUALLY LOOK LIKE. The one check in the
         // whole build path that opens the site in a browser — every other one is
         // textual, so a page that renders blank, throws on load or paints text

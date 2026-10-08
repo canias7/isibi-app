@@ -49,13 +49,29 @@ here; take a closed one out of both.**
     deleted;
   - the reply cannot see whether the writer placed a customer's photograph;
   - a real model's use of `attached` (an id) is unmeasured;
-  - the Build limits proposals: P1, P4, the brief and answers, sections and
-    actions are done (the content-preservation batch); P2, P3's purpose and
-    image-description cuts, P5–P11 and the writer offered only the photos
-    the budget allows still await review
-    (`docs/investigations/build-limits-2026-10-08.md`);
+  - the Build limits proposals: P1, P2, P3's purpose and description cuts,
+    P4, the brief and answers, sections and actions, research facts,
+    linked-page text and the pictures past the budget are done (the two
+    content batches). The add-on's own 240 description cut (`site-add.mjs`),
+    P5's link count of 2 (kept as an abuse bound, links past it named), and
+    P6–P11 remain (`docs/investigations/build-limits-2026-10-08.md`);
+  - the build's notes (images, context, unwritten sections, salvage) are
+    still composed by code, not by the model;
+  - a recovered build whose final answer arrives after recovery delivered
+    keeps the build's answer, which does not mention recovery's refund (the
+    fifth batch);
   - the browser's size refusal says "beside your site" even before a site
     exists (existing wording, unchanged).
+- **An oversized pasted message as a complete .txt attachment** (2026-10-08,
+  the owner's reminder, for later; `docs/owner-preferences.md`):
+  - text past the composer's real one-message policy becomes a .txt
+    attachment holding the complete original;
+  - it keeps the request's or answer's meaning and the attachments already
+    there;
+  - routing and every downstream model receive the file's contents;
+  - attaching it hides no other cut.
+  Not started; today such text is refused with its numbers and the words
+  are given back in the box.
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run
   107's publish last (the wait pointed backward). **Fixed on the branch in

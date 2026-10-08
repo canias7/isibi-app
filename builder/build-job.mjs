@@ -235,6 +235,34 @@ export function readResult(raw) {
 }
 
 /**
+ * WHAT KIND OF ANSWER A STORED RESULT IS (2026-10-08, Codex's review of
+ * `deb1fee5`: a stored "still building" 202 was taken for a final answer and
+ * recovery's outcome was never delivered). Exactly one of:
+ *
+ *   "interim"     the build is still going (`stage: "resuming"`, the 202 a
+ *                 fired build answers) and says nothing of how it ends; never delivery of an
+ *                 outcome, and never kept over one
+ *   "recovery"    recovery's own answer (`lost: true`)
+ *   "terminal"    the build's own final answer — authoritative
+ *   "unreadable"  not a result we can read; it proves no outcome
+ *
+ * Takes the stored object as parsed JSON (`packResult`'s shape).
+ */
+export function resultKind(raw) {
+  const r = readResult(raw);
+  if (!r) return "unreadable";
+  let body = null;
+  try { body = JSON.parse(r.body); } catch { body = null; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "unreadable";
+  if (body.lost === true) return "recovery";
+  // THE SAME TEST AS THE ROW'S OWN (`buildOutcome`'s "resuming"), widened to
+  // any status: a fired build's answer is `stage: "resuming"`; a 202 without
+  // it is an answered build there, and is here.
+  if (body.stage === "resuming") return "interim";
+  return "terminal";
+}
+
+/**
  * WHAT THE CONSUMER WILL ACT ON. Everything else is acknowledged and logged —
  * see the handler — so this only has to say yes to the shape we produce.
  */

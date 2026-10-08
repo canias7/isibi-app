@@ -56,9 +56,7 @@ import { UI_COMPONENTS } from "./ui-components.mjs";
 // number here would let the designer write a sentence this file accepts and the
 // buying path silently truncates — the customer's picture described one way and
 // bought another. `site-images.mjs` imports NOTHING, so this adds no cycle.
-import { MAX_PROMPT_CHARS as MAX_IMAGE_PROMPT } from "./site-images.mjs";
 import { UPLOAD_URL_PATH } from "../site-uploads.mjs";
-import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 
 
 /**
@@ -306,10 +304,14 @@ export const MAX_SECTIONS = 8;
 // number of BANDS the page writer runs (one model call each), not a number of
 // sections kept: every section line is kept, whole, and `bandsOf` writes the
 // ones past it together in the last band — the same calls, nothing dropped.
-// A line, and an action, are bounded only by the input budget one message
-// may carry, which the designer's own output ceiling holds far below.
-const MAX_PURPOSE = 400;
-const MAX_SECTION = MAX_INPUT_CHARS;
+// AND NOT EVEN THE INPUT BUDGET (2026-10-08, Codex's review of `deb1fee5`: a
+// section or an action past 16,000 characters still lost its tail here). That
+// budget is the policy for what a CUSTOMER may send; these fields are the
+// DESIGNER's own output, bounded by its output ceiling, and cutting them is a
+// silent loss of what it planned. So purpose, sections and actions are kept
+// whole; what bounds them is the model, not a slice.
+const MAX_PURPOSE = Number.POSITIVE_INFINITY;
+const MAX_SECTION = Number.POSITIVE_INFINITY;
 const MAX_ROLE = 200;
 // A NAME IS A NAV LABEL, NOT A SENTENCE. `MAX_ROLE` stays beside it because a
 // plan stored before 2026-08-24 carries a whole clause under `role` and
@@ -507,7 +509,10 @@ function pageImages(v, pages) {
     if (!s || typeof s !== "object" || Array.isArray(s)) continue;
     const page = str(s.page, 80).toLowerCase();
     if (!known.has(page)) continue;
-    const describe = str(s.describe, MAX_IMAGE_PROMPT);
+    // WHOLE (2026-10-08): the build path carries a description from the plan
+    // to the purchase uncut — see `MAX_PROMPT_CHARS` for why it no longer
+    // applies here.
+    const describe = str(s.describe, Number.POSITIVE_INFINITY);
     if (!describe) continue;
     // THE CUSTOMER'S OWN PICTURE (2026-10-08, H6). `attached` is the designer
     // naming a file the customer attached and asked to have shown; `src` is
@@ -562,7 +567,7 @@ export function normalizePlan(input) {
   // page set on a revise.
   const shape = pageShapes(p.shape, pages);
   if (shape.length) out.shape = shape;
-  const action = lines(p.action, { cap: MAX_INPUT_CHARS, max: Number.POSITIVE_INFINITY });
+  const action = lines(p.action, { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
   if (action.length) out.action = action;
   const components = lines(p.components, { cap: 60, max: MAX_COMPONENTS });
   if (components.length) out.components = components;

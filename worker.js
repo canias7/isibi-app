@@ -44,7 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
-import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -167,7 +167,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -4780,7 +4780,10 @@ export async function siteWebResearch(env, brief, queries) {
   // Usage is returned even when nothing came back: tokens were spent whether or
   // not the answer was useful, and reporting zero would hide a search that ran
   // and found nothing.
-  return { facts: facts.trim().slice(0, 2500), sources: uniq, usage, searches: usage.searches };
+  // THE FACTS WHOLE (2026-10-08, the content-preservation batch). They were
+  // cut at 2,500 characters with nothing said; what bounds them now is the
+  // research model's own output — at most four rounds of 1,200 tokens each.
+  return { facts: facts.trim(), sources: uniq, usage, searches: usage.searches };
 }
 
 // The pages themselves. Same tool-use shape as designSiteSchema directly above:
@@ -13333,6 +13336,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // still contains the words, and dropping the bound still leaves `imgBudget`
   // mentioned one clause away. See `imageBrief`, which is driven.
   const imgBrief = imageBrief(plan, imgBudget);
+  const imgNotOffered = imagesNotOffered(plan, imgBudget, notOfferedWhy({ revise, priorPages, slug, plan }));
   // WHAT THE SITE IS SERVING RIGHT NOW, for the one decision in `salvagePlan`:
   // a page that already works is never replaced with the "not finished yet"
   // stub. `priorPages` is the stored source of the LAST successful publish and
@@ -13686,7 +13690,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // the honest reading of "this invocation did not make the call"; the
       // collector supplies the truth it does have (see `runResumedSiteBuild`).
       try { if (genPath.via) mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); else mark?.("img"); } catch { /* a trace must never break a build */ }
-      return buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget });
+      // AND THE PICTURES NO WRITER WAS OFFERED (2026-10-08, the content-
+      // preservation batch): the designer's list past `imgBudget`, named with
+      // the rule that stopped them, so the answer accounts for every one.
+      return buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget })
+        .then((bought) => imgNotOffered.length && bought && typeof bought === "object" ? { ...bought, notOffered: imgNotOffered } : bought);
     },
     compile: async (pages, builtParts) => {
       // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
@@ -14985,6 +14993,15 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // (2026-10-08, Codex's review of `b4300a07`): once recovery owns the
     // outcome, what the customer reads is what recovery settled.
     if (await recoveryOwns(env, id)) console.log("build queue: recovery owns job", id, "— its late answer is not written");
+    // A "STILL BUILDING" ANSWER NEVER TAKES AN ANSWER'S PLACE (2026-10-08,
+    // Codex's review of `deb1fee5`): it is written only into an empty slot,
+    // so one that lost the race with recovery's (or the resume's final)
+    // answer leaves that answer where it is. A final answer is written as
+    // before and replaces an interim one.
+    else if (resultKind(out) === "interim") {
+      const put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out), { onlyIf: { etagDoesNotMatch: "*" } });
+      if (!put) console.log("build queue: an answer is already stored for job", id, "— the \"still building\" answer is not written over it");
+    }
     else await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(out));
   } catch (e) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
@@ -15619,8 +15636,8 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     if (mark && mark.settled === true) {
       if (mark.delivered !== true) {
         const done = await deliverLostAnswer(env, { id, uid, mark, now });
-        if (!done) { await keepPending("answer-undelivered"); continue; }
-        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, delivered: true })); }
+        if (!done.ok) { await keepPending("answer-undelivered"); continue; }
+        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, delivered: true, deliveredAs: done.as })); }
         catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
       }
       seen.settled++;
@@ -15665,8 +15682,8 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     }
     const done = await deliverLostAnswer(env, { id, uid, mark: settled, now });
     if (short) { await keepPending("refund-short"); continue; }
-    if (!done) { await keepPending("answer-undelivered"); continue; }
-    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true })); }
+    if (!done.ok) { await keepPending("answer-undelivered"); continue; }
+    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true, deliveredAs: done.as })); }
     catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
     try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* the next tick finds it settled and delivered */ }
     console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
@@ -15697,19 +15714,26 @@ async function refundLostBuild(env, uid, billRef) {
 /**
  * THE CUSTOMER'S ANSWER FOR A RECOVERED BUILD, BUILT FROM THE SETTLEMENT
  * RECORD ALONE (so a later tick can store it again with nothing else) and
- * stored where the build's own would be. An answer already there that is the
- * BUILD'S OWN (not a recovery answer) is newer and authoritative: it is left
- * as it is and counts as delivered. Answers true once an answer is stored.
+ * stored where the build's own would be.
+ *
+ * WHAT IS ALREADY THERE DECIDES, BY KIND (`resultKind`; 2026-10-08, Codex's
+ * review of `deb1fee5`):
+ *   terminal    the build's own final answer: authoritative, left as it is,
+ *               and delivery is done — `{ ok: true, as: "build" }`
+ *   interim     a "still building" 202: it says nothing of how the build
+ *               ended, so it is REPLACED — it never counted as delivery
+ *   recovery    recovery's own earlier answer (a short refund, say): replaced
+ *   unreadable  proves no outcome: replaced
+ *   nothing     written
+ *
+ * EVERY WRITE IS CONDITIONAL on what was read (the etag it had, or absence),
+ * so a final answer landing between the read and the write is never
+ * overwritten: the write is refused, the slot is read again and judged again.
+ * Answers `{ ok: true, as: "recovery" }` once recovery's answer is stored,
+ * `{ ok: false }` when it could not be (a failed read or write, or still
+ * contended after a few tries) — the row then stays pending.
  */
 async function deliverLostAnswer(env, { id, uid, mark, now }) {
-  try {
-    const cur = await env.SITES_BUCKET.get(resultKey(id));
-    if (cur) {
-      let body = null;
-      try { const r = readResult(JSON.parse(await cur.text())); body = r && typeof r.body === "string" ? JSON.parse(r.body) : null; } catch { body = null; }
-      if (body && body.lost !== true) return true;
-    }
-  } catch (e) { console.error("lost builds: could not read the stored answer for", id, String((e && e.message) || e)); return false; }
   const { outcome, slug = "", version = "", returned = 0, short = false } = mark || {};
   const msg = lostBuildMessage({ outcome, slug, returned, short });
   const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
@@ -15718,10 +15742,29 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
     : slug
       ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
       : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
-  try {
-    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) })));
-    return true;
-  } catch (e) { console.error("lost builds: could not store the answer for", id, String((e && e.message) || e)); return false; }
+  const packed = JSON.stringify(packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) }));
+  for (let i = 0; i < 6; i++) {
+    let cur = null;
+    let kind = "nothing";
+    try {
+      cur = await env.SITES_BUCKET.get(resultKey(id));
+      if (cur) { let raw = null; try { raw = JSON.parse(await cur.text()); } catch { raw = null; } kind = resultKind(raw); }
+    } catch (e) { console.error("lost builds: could not read the stored answer for", id, String((e && e.message) || e)); return { ok: false }; }
+    if (kind === "terminal") return { ok: true, as: "build" };
+    const onlyIf = cur && typeof cur.etag === "string" ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" };
+    if (cur && typeof cur.etag !== "string") { console.error("lost builds: the stored answer for", id, "has no etag; not replaced"); return { ok: false }; }
+    let put;
+    try { put = await env.SITES_BUCKET.put(resultKey(id), packed, { onlyIf }); }
+    catch (e) { console.error("lost builds: could not store the answer for", id, String((e && e.message) || e)); return { ok: false }; }
+    if (put) {
+      if (kind === "interim") console.log("lost builds:", id, "— a \"still building\" answer replaced by the recovered outcome");
+      return { ok: true, as: "recovery" };
+    }
+    // REFUSED: something else wrote between the read and the write. Read it
+    // again and judge what is there now.
+  }
+  console.error("lost builds: the answer slot for", id, "is still contended after 6 tries; kept pending");
+  return { ok: false };
 }
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
@@ -18517,15 +18560,18 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // and `contextSummary` already reports an unread link honestly, so a
       // customer whose link was skipped is told. `useQuota` fails open if the
       // ledger is unreachable, which is the behaviour every other caller has.
+      // METERED PER LINK OPENED (2026-10-08): each fetch spends one of the
+      // bucket, so the bound holds per fetch rather than per brief, and a
+      // link the quota refuses is named back like any other unread link.
       let linked = [];
       if (brief) {
-        if (await useQuota(request, "sitelinks", 60)) {
-          try { linked = await readLinkedPages(brief, { readUrl: siteReadUrl }); }
-          catch (e) { console.error("link read failed:", e && e.message); linked = []; }
-          if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
-        } else {
-          console.warn("site link read over quota:", bu.id);
-        }
+        const readMetered = async (u) => {
+          if (!(await useQuota(request, "sitelinks", 60))) { console.warn("site link read over quota:", bu.id); return { ok: false, quota: true }; }
+          return siteReadUrl(u);
+        };
+        try { linked = await readLinkedPages(brief, { readUrl: readMetered }); }
+        catch (e) { console.error("link read failed:", e && e.message); linked = []; }
+        if (linked.length) tr.at("links", { n: linked.length, ok: linked.filter((p) => p.ok).length });
       }
       // What the DESIGNER sees. Page generation gets this plus the researched
       // facts, which do not exist yet.

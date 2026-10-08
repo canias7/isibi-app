@@ -1053,7 +1053,17 @@ export function imagesAffordable(planned, { balance = 0, reserve = 0, usd = 0.15
  */
 export const IMAGE_TOKEN = /@@IMG:([\s\S]*?)@@/g;
 
-/** Longest description we will send. Past this it is a page, not a prompt. */
+/**
+ * THE ADD-ON'S OWN DESCRIPTION CUT, AND NOTHING ELSE'S SINCE 2026-10-08.
+ *
+ * It was the build path's too: the designer's picture description was cut to
+ * it in the plan, in the token, in the alt text and in the prompt, with
+ * nothing said. None of that was a provider bound — the image model takes a
+ * far longer prompt — so the build path now carries a description whole, from
+ * the plan to the purchase (the content-preservation batch; owner: keep the
+ * requirements). `site-add.mjs` still cuts its own entries here; that path is
+ * recorded in the backlog, not changed in this batch.
+ */
 export const MAX_PROMPT_CHARS = 240;
 
 /** Where a part is written, and the one place that path is spelled for a lint. */
@@ -1147,7 +1157,7 @@ export function parseImageTokens(pages) {
  */
 export function shotKey(describe) {
   return String(describe == null ? "" : describe)
-    .replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS).trim();
+    .replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -1167,7 +1177,7 @@ export function planImages(pages, budget) {
   const all = parseImageTokens(pages);
   const usable = all.filter((t) => t.prompt.length > 0);
   return {
-    shots: usable.slice(0, lim).map((t) => ({ ...t, prompt: t.prompt.slice(0, MAX_PROMPT_CHARS) })),
+    shots: usable.slice(0, lim),
     overflow: usable.length - Math.min(usable.length, lim),
     empty: all.length - usable.length,
   };
@@ -1183,7 +1193,7 @@ export function planImages(pages, budget) {
  * serves every box the model puts it in.
  */
 export function imagePrompt(raw) {
-  const s = String(raw || "").replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS);
+  const s = String(raw || "").replace(/\s+/g, " ").trim();
   if (!s) return null;
   return s + ". A photograph for a real small-business website: natural light, realistic, " +
     "sharply focused, unstaged. No text, no lettering, no signage, no logo, no watermark, no border, no collage.";
@@ -1409,7 +1419,7 @@ export function imageDirective(n) {
     // H6). Said first and apart from the bought ones: a src is copied, never
     // a prompt, and it is the one picture on the site nobody may swap.
     const ownLines = own.map((s) => {
-      const alt = String(s.describe).replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS).replace(/"/g, "'");
+      const alt = String(s.describe).replace(/\s+/g, " ").trim().replace(/"/g, "'");
       return `  ${String(s.page || "/").trim() || "/"} — <SafeImage src="${s.src}" alt="${alt}" />`;
     });
     const ownPart = ownLines.length
@@ -1431,7 +1441,7 @@ export function imageDirective(n) {
     const byPage = new Map();
     for (const s of shots) {
       const page = String(s.page || "/").trim() || "/";
-      const describe = String(s.describe).replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS);
+      const describe = String(s.describe).replace(/\s+/g, " ").trim();
       if (!byPage.has(page)) byPage.set(page, []);
       byPage.get(page).push(describe);
     }
@@ -1578,6 +1588,60 @@ export function imageDirective(n) {
  * a site that has no photographs and never asked for any.
  */
 export function imageNote(images) {
+  const base = imageNoteBase(images);
+  const extra = notOfferedNote(images && images.notOffered);
+  return base && extra ? base + " " + extra : base || extra;
+}
+
+/**
+ * PICTURES THE SITE ASKED FOR THAT NO WRITER WAS EVER OFFERED (2026-10-08, the
+ * content-preservation batch): the designer's list past what one build buys.
+ * Each is named by what it shows, with the reason — the per-build cap, a
+ * working tool (which buys none), or a site that already has its photographs
+ * (a rewrite keeps them rather than buying new ones). "" when there are none.
+ */
+export function notOfferedNote(list) {
+  const all = Array.isArray(list) ? list.filter((s) => s && typeof s.describe === "string" && s.describe.trim()) : [];
+  if (!all.length) return "";
+  const said = (xs) => xs.map((s) => "“" + s.describe.trim() + "”").join(", ");
+  const by = (w) => all.filter((s) => s.why === w);
+  const out = [];
+  const cap = by("cap");
+  if (cap.length) {
+    out.push((cap.length === 1 ? "One more picture was asked for than" : cap.length + " more pictures were asked for than") +
+      " one build makes (at most " + IMAGE_CAP + "): " + said(cap) + ". " + (cap.length === 1 ? "It isn't" : "They aren't") +
+      " on the page — ask for " + (cap.length === 1 ? "it" : "them") + " next and I'll add " + (cap.length === 1 ? "it" : "them") + ".");
+  }
+  const kept = by("kept");
+  if (kept.length) out.push("The site already has its photographs, so I kept them rather than buying new ones for " + said(kept) + ".");
+  const tool = by("tool");
+  if (tool.length) out.push("A working tool gets no photographs, so " + said(tool) + (tool.length === 1 ? " wasn't" : " weren't") + " made.");
+  const other = all.filter((s) => s.why !== "cap" && s.why !== "kept" && s.why !== "tool");
+  if (other.length) out.push(said(other) + (other.length === 1 ? " wasn't" : " weren't") + " made in this build.");
+  return out.join(" ");
+}
+
+/**
+ * The entries of the designer's list that are BOUGHT pictures past `budget`
+ * — the ones `imageBrief` does not offer the page writer — each with `why`.
+ * The customer's own photographs are never among them.
+ */
+export function imagesNotOffered(plan, budget, why = "cap") {
+  const p = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+  const list = p && Array.isArray(p.images) ? p.images : [];
+  const n = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(budget)) || 0));
+  return list.filter((s) => s && typeof s === "object" && !ownShot(s) && String(s.describe || "").trim())
+    .slice(n).map((s) => ({ page: String(s.page || "/"), describe: String(s.describe).trim(), why }));
+}
+
+/** Why a build's picture budget stops where it does: "kept", "tool" or "cap" — the three rules `budgetFor` applies. */
+export function notOfferedWhy({ revise, priorPages, slug, plan } = {}) {
+  if (revise && hasBoughtPhotos(priorPages, slug)) return "kept";
+  if (plan && plan.kind === "tool") return "tool";
+  return "cap";
+}
+
+function imageNoteBase(images) {
   const i = images || {};
   const made = Math.max(0, Number(i.made) || 0);
   const planned = Math.max(0, Number(i.planned) || 0);

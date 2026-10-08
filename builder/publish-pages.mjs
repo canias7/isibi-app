@@ -665,6 +665,25 @@ export function salvageNote(stubbed) {
 }
 
 /**
+ * THE PARTS OF THE PAGE NO WRITER COULD WRITE, as one sentence (2026-10-08,
+ * the content-preservation batch's P2). A band whose writer answered nothing,
+ * or answered code that failed its checks, is published as an empty component
+ * (`bandStub` renders nothing) — the page compiles, and the section the
+ * customer planned is simply absent. Until now nothing said so. Each is named
+ * by its plan line, which is the customer's own words for that section
+ * (several merged ones included, when the last band carried them). "" when
+ * every band was written.
+ */
+export function unwrittenNote(unwritten) {
+  const list = (Array.isArray(unwritten) ? unwritten : []).map((u) => String((u && u.section) || "").trim()).filter(Boolean);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return (one ? "One part of the page couldn't be written, so it's left out for now: " : list.length + " parts of the page couldn't be written, so they're left out for now: ") +
+    list.map((l) => "“" + l + "”").join("; ") + ". The rest of the page is there — ask for " + (one ? "it" : "them") +
+    " again and I'll write " + (one ? "it" : "them") + ".";
+}
+
+/**
  * brief + schema → route files → compile → published dist.
  *
  * Best-effort by design: it runs AFTER the database has been provisioned and the
@@ -1192,6 +1211,16 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // still carries what it wrote — the refusal returns, but `out.problems` is the
   // only record of a badly-named component and this keeps the two in one place.
   sitePartsForBuild = v.parts || [];
+  // THE SECTIONS NO WRITER COULD WRITE (2026-10-08, P2): the band fan-out
+  // reports each band it stubbed as `refused`, with its plan line; carried as
+  // a fact and as the sentence the answer shows.
+  if (gen && Array.isArray(gen.refused) && gen.refused.length) {
+    out.unwritten = gen.refused
+      .filter((r) => r && typeof r === "object")
+      .map((r) => ({ section: String(r.line || r.name || ""), why: Array.isArray(r.why) ? r.why.map(String) : [] }));
+    const said = unwrittenNote(out.unwritten);
+    if (said) out.unwrittenNote = said;
+  }
   if (revising) {
     const askedOff = gen && gen.input && Array.isArray(gen.input.remove) ? gen.input.remove : [];
     const revised = mergeRevisedPages(priorPages, v.pages, askedOff);
@@ -1386,6 +1415,14 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       // listing keeps the credit sentence, which is the honest answer when we
       // could not look.
       if (r && r.full === true) out.images.full = true;
+      // THE PICTURES NO WRITER WAS OFFERED ride through by name (2026-10-08),
+      // for the same reason `full` and `empty` do: `imageNote` reads this
+      // object, and a list it never sees is a request nobody is told about.
+      if (r && Array.isArray(r.notOffered) && r.notOffered.length) {
+        out.images.notOffered = r.notOffered
+          .filter((x) => x && typeof x.describe === "string")
+          .map((x) => ({ page: String(x.page || "/"), describe: x.describe, why: String(x.why || "cap") }));
+      }
       const undescribed = Math.max(0, Number(r && r.empty) || 0);
       if (undescribed) out.images.empty = undescribed;
       if (r && r.error) out.images.error = String(r.error).slice(0, 200);

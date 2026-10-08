@@ -166,10 +166,14 @@ test("an unrecognised entity is left alone rather than mangled", () => {
   assert.match(p.text, /&nosuchentity;/);
 });
 
-test("the text is capped", () => {
+test("a page's text is kept whole and says how long it was; a caller's own max still bounds it (2026-10-08: the 4,000 cut is gone)", () => {
   const big = "<html><body>" + "<p>word word word</p>".repeat(5000) + "</body></html>";
-  assert.ok(pageText(big).text.length <= 4000);
-  assert.ok(pageText(big, { max: 100 }).text.length <= 100);
+  const whole = pageText(big);
+  assert.ok(whole.text.length > 4000, "the old per-page cut is back");
+  assert.equal(whole.chars, whole.text.length);
+  const cut = pageText(big, { max: 100 });
+  assert.ok(cut.text.length <= 100);
+  assert.equal(cut.chars, whole.chars);
 });
 
 test("junk in gives empty out, never a throw", () => {

@@ -247,3 +247,23 @@ this inventory has changed.
   - the writer being offered only the photographs the budget allows,
     without naming the rest.
 - **Kept by the owner**: 1 page and 15 components.
+
+## Taken in the fifth batch (2026-10-08)
+
+The record is `docs/history/2026-10-08-build-batch-5.md`.
+
+- **Done**:
+  - **P2**: failed sections are named.
+  - **P3's purpose and description cuts**: gone on the build path.
+  - **Generated sections and actions**: no longer cut at the input budget.
+  - **Research facts**: whole.
+  - **Linked-page text**: under one shared allowance (16,000), with exact
+    facts.
+  - **Links past two**: named.
+  - **Pictures past what one build buys**: named with their rule.
+- **Kept, reviewed**: the link count of 2. It is an abuse and resource bound
+  (each link is a fetch of up to 1.5 MB and 12 s from our address), now
+  metered per link and never silent.
+- **Still open**:
+  - P6 to P11;
+  - the add-on's own 240 description cut.

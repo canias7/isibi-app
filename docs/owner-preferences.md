@@ -1157,3 +1157,20 @@
   Timeouts, provider bounds, security controls and spending safeguards are
   not loosened because a limit review exists. The inventory and proposals
   are `docs/investigations/build-limits-2026-10-08.md`.
+- **An oversized pasted message becomes a .txt attachment holding the
+  whole original text — for later** (2026-10-08, recorded, not built):
+  *"oversized pasted chat text should become a .txt attachment containing
+  the complete original text, with the threshold checked against the actual
+  composer policy. That future flow must preserve the request or
+  clarification meaning and existing attachments, and ensure routing and
+  downstream models receive the file's contents; merely attaching a file
+  must not conceal another truncation."* So, when it is built:
+  - the threshold is the composer's real policy (today `MAX_INPUT_CHARS`,
+    16,000), checked, not a new number;
+  - the file holds the complete original text;
+  - the message keeps its meaning, whether a request or an answer to a
+    question;
+  - the attachments already there stay;
+  - the router and every downstream model are given the file's contents;
+  - an attachment never hides a cut somewhere else.
+  The backlog carries it.

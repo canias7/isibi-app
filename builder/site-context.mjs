@@ -32,10 +32,30 @@
 // built to stop — and a build that quietly ignored the link looks identical to
 // one that honoured it.
 
-/** At most this many links are read out of one brief. */
+import { MAX_INPUT_CHARS } from "./input-budget.mjs";
+
+/**
+ * At most this many links are OPENED out of one brief — a resource and abuse
+ * bound, not a content one: each is a fetch of up to 1.5 MB and 12 s of
+ * wall-clock from our address, on a route an account can call repeatedly.
+ * Every link past it is NAMED back to the customer (`readLinkedPages` returns
+ * it as not opened, with the reason), never silently ignored (2026-10-08).
+ */
 export const MAX_URLS = 2;
-/** Readable text kept per page. ~1,000 tokens — enough to describe a site. */
-export const MAX_PAGE_CHARS = 4000;
+/**
+ * WHAT THE LINKED PAGES MAY CARRY IN ALL (2026-10-08, the content-preservation
+ * batch; owner: keep the requirements, use real aggregate constraints, and say
+ * precisely what could not be done). One message's worth — what the customer
+ * could have pasted in themselves — shared across the pages in the order they
+ * were written. It was 4,000 per page, cut silently; now a page's text is kept
+ * whole until the shared allowance runs out, and a page cut by it says how
+ * much it kept of how much (`kept`, `chars`), for the sentence the customer
+ * reads. The allowance matters beyond the designer: this text rides in the
+ * brief every page writer is sent, so it is paid for once per writer.
+ */
+export const MAX_LINKED_CHARS = MAX_INPUT_CHARS;
+/** @deprecated the per-page cut is gone; kept so older imports still resolve. */
+export const MAX_PAGE_CHARS = MAX_LINKED_CHARS;
 /** Searches one research call may run. Each is billed. */
 export const MAX_QUERIES = 3;
 
@@ -166,7 +186,7 @@ const attr = (tag, name) => {
  * rather than throwing: the caller reports "could not read it", which is a
  * better answer than a failed build.
  */
-export function pageText(html, { max = MAX_PAGE_CHARS } = {}) {
+export function pageText(html, { max = Number.POSITIVE_INFINITY } = {}) {
   const src = String(html || "");
   const head = { title: "", description: "", text: "" };
   if (!src) return head;
@@ -215,6 +235,8 @@ export function pageText(html, { max = MAX_PAGE_CHARS } = {}) {
     .trim();
 
   head.text = text.slice(0, max);
+  // HOW MUCH THERE WAS, so a caller that keeps less can say how much less.
+  head.chars = text.length;
   return head;
 }
 
@@ -228,12 +250,18 @@ export function pageText(html, { max = MAX_PAGE_CHARS } = {}) {
  * Each result carries `ok` and, when it is false, a `reason` in words the person
  * who pasted the link can act on.
  */
-export async function readLinkedPages(brief, deps, { max = MAX_URLS, maxChars = MAX_PAGE_CHARS } = {}) {
-  const urls = extractUrls(brief, max);
+export async function readLinkedPages(brief, deps, { max = MAX_URLS, maxChars = MAX_LINKED_CHARS } = {}) {
+  const all = extractUrls(brief, Number.POSITIVE_INFINITY);
+  const urls = all.slice(0, max);
   const pages = [];
+  let room = Math.max(0, Math.floor(Number(maxChars)) || 0);
   for (const url of urls) {
     let res = null;
     try { res = await deps.readUrl(url); } catch (e) { res = { ok: false, error: e && e.message }; }
+    if (res && res.quota === true) {
+      pages.push({ url, ok: false, reason: "you've had a lot of links read today" });
+      continue;
+    }
     if (!res || !res.ok) {
       // 403 and 401 are the common ones and they are not the same story as a
       // typo, so they get their own sentence. Somebody whose own site is behind
@@ -253,7 +281,7 @@ export async function readLinkedPages(brief, deps, { max = MAX_URLS, maxChars = 
       pages.push({ url, ok: false, reason: "that link isn't a web page" });
       continue;
     }
-    const got = pageText(res.body, { max: maxChars });
+    const got = pageText(res.body);
     if (!got.text && !got.title && !got.description) {
       // A page that renders entirely from JavaScript has a real 200 and no
       // words in it. Saying "it blocked us" there would be wrong, and saying
@@ -261,7 +289,17 @@ export async function readLinkedPages(brief, deps, { max = MAX_URLS, maxChars = 
       pages.push({ url, ok: false, reason: "there was no readable text on it" });
       continue;
     }
-    pages.push({ url, ok: true, ...got });
+    // THE SHARED ALLOWANCE, in the order the links were written: kept whole
+    // while it lasts, and a page it cuts carries how much it kept.
+    const keep = Math.min(got.text.length, room);
+    room -= keep;
+    const page = { url, ok: true, title: got.title, description: got.description, text: got.text.slice(0, keep), chars: got.chars };
+    if (keep < got.text.length) page.kept = keep;
+    pages.push(page);
+  }
+  // EVERY LINK PAST THE OPENING BOUND IS NAMED, never dropped in silence.
+  for (const url of all.slice(urls.length)) {
+    pages.push({ url, ok: false, unopened: true, reason: "one build opens at most " + max + " links" });
   }
   return pages;
 }
@@ -342,7 +380,11 @@ export function contextBrief(brief, { pages = [], facts = "", sources = [], file
  * it reports the failures as plainly as the successes.
  */
 export function contextSummary({ pages = [], facts = "", sources = [], searches = 0, skipped = [], converted = [], searchWanted = false } = {}) {
-  const read = pages.filter((p) => p && p.ok).map((p) => ({ url: p.url, title: p.title || "" }));
+  const read = pages.filter((p) => p && p.ok).map((p) => ({
+    url: p.url, title: p.title || "",
+    // A PAGE THE SHARED ALLOWANCE CUT says how much it kept of how much.
+    ...(Number.isFinite(p.kept) ? { kept: p.kept, chars: p.chars } : {}),
+  }));
   const failed = pages.filter((p) => p && !p.ok).map((p) => ({ url: p.url, reason: p.reason || "we couldn't read it" }));
   const out = { read, failed, searched: !!searches, searches: searches || 0 };
   // RESEARCH THAT PRODUCED NO FACTS IS A FAILURE, however many searches ran.
@@ -390,6 +432,12 @@ export function contextSentence(summary) {
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u); } };
   const bits = [];
   if (summary.read && summary.read.length) bits.push("Read " + summary.read.map((p) => host(p.url)).join(" and ") + ".");
+  const cut = (summary.read || []).filter((p) => p && Number.isFinite(p.kept));
+  if (cut.length) {
+    const n = (x) => Number(x).toLocaleString("en-US");
+    bits.push(cut.map((p) => "Used only the first " + n(p.kept) + " of " + n(p.chars) + " characters of " + host(p.url)).join("; ") +
+      " — the linked pages carry at most " + n(MAX_LINKED_CHARS) + " in all.");
+  }
   if (summary.failed && summary.failed.length) {
     bits.push(summary.failed.map((p) => "Couldn't read " + host(p.url) + " — " + p.reason).join("; ") +
       ", so I built from your description instead.");
