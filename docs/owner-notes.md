@@ -62,7 +62,11 @@ written as null or undefined", so the clearing spread was skipped.
   the three "no menu, not unknown" cases.
 - **The 74 related test files**: 2577 of 2577. **Full suite**: **9910
   tests, 9910 pass, 0 fail, 0 skipped**.
-- Unit CI on the push: below once read.
+- **Required CI green**: unit tests run 37719339907 on `277d3e29` (`eaa516e7`
+  plus records), **9910 tests, 9888 pass, 0 fail, 22 skipped** (CI skips the
+  22 browser cases; the total matches the local run); site build run
+  37719267974 on `eaa516e7`, all eight jobs green. The unit run on
+  `eaa516e7` itself was cancelled by the records push.
 
 **Limits that remain** (the reader's bounds):
 - A page whose only menu is cleared is told as not known, not as having no
