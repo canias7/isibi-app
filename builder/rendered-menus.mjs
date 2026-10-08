@@ -63,12 +63,22 @@ export function renderedMenus(source, parse) {
 
 const MAX_DEPTH = 24;
 
-function readTree(file, SK, each) {
+/**
+ * THE RENDER ANALYSIS, SHARED (2026-10-08, the eighth Build batch): what a
+ * file's entry component renders, CERTAIN / MAYBE / DEAD per opening element,
+ * by exactly the rules above. `entry` is null for a route file (the route's
+ * component, then the default export), or `{ name }` for a component another
+ * file imports — "default" for its default export, else the exported binding.
+ * The menus reader below and the pictures reader (`rendered-pictures.mjs`)
+ * both read this; neither keeps a second copy of the rules.
+ */
+export function analyseRender(file, SK, each, entry = null) {
   const FUNCS = new Set([SK.FunctionDeclaration, SK.FunctionExpression, SK.ArrowFunction, SK.MethodDeclaration, SK.GetAccessor, SK.SetAccessor, SK.Constructor]);
   const JSX = new Set([SK.JsxElement, SK.JsxSelfClosingElement, SK.JsxFragment]);
   const decls = new Map(); // name -> [{ kind, node }]
   const refs = new Map(); // name -> [Identifier]
-  const bearing = []; // opening elements that can set `links`
+  const opens = []; // every opening element, in source order
+  const literals = []; // every string-bearing node (literals, template pieces, JSX text)
   const routeCalls = [];
   const add = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
   const declare = (name, kind, node) => {
@@ -99,7 +109,11 @@ function readTree(file, SK, each) {
       case SK.CatchClause: if (n.variableDeclaration) declare(n.variableDeclaration.name, "param", n); break;
       case SK.JsxSelfClosingElement:
       case SK.JsxOpeningElement:
-        if (n.attributes.properties.some((a) => a.kind === SK.JsxSpreadAttribute || (a.kind === SK.JsxAttribute && nameOf(a.name) === "links"))) bearing.push(n);
+        opens.push(n);
+        break;
+      case SK.StringLiteral: case SK.NoSubstitutionTemplateLiteral: case SK.TemplateHead:
+      case SK.TemplateMiddle: case SK.TemplateTail: case SK.JsxText:
+        literals.push(n);
         break;
       case SK.CallExpression:
         if (n.expression.kind === SK.CallExpression && n.expression.expression.kind === SK.Identifier &&
@@ -271,23 +285,34 @@ function readTree(file, SK, each) {
   };
 
   // THE ROUTE'S COMPONENT, THEN THE DEFAULT EXPORT.
-  const entry = (v) => {
+  const entry_ = (v) => {
     const e = strip(v);
     if (!e) return;
     if (e.kind === SK.ArrowFunction || e.kind === SK.FunctionExpression) return renderFn(e, "certain", 0);
     if (e.kind === SK.Identifier) { const fn = localFunction(e.text); if (fn) return renderFn(fn, "certain", 0); }
     // Anything else: what it renders is not read here, so its elements stay maybe.
   };
-  for (const c of routeCalls) {
-    const o = strip(c.arguments[0]);
-    if (!o || o.kind !== SK.ObjectLiteralExpression) continue;
-    for (const pr of o.properties) {
-      if (pr.kind === SK.PropertyAssignment && nameOf(pr.name) === "component") entry(pr.initializer);
-      else if (pr.kind === SK.ShorthandPropertyAssignment && pr.name.text === "component") entry(pr.name);
+  const wanted = entry && typeof entry.name === "string" ? entry.name : null;
+  if (!wanted) {
+    for (const c of routeCalls) {
+      const o = strip(c.arguments[0]);
+      if (!o || o.kind !== SK.ObjectLiteralExpression) continue;
+      for (const pr of o.properties) {
+        if (pr.kind === SK.PropertyAssignment && nameOf(pr.name) === "component") entry_(pr.initializer);
+        else if (pr.kind === SK.ShorthandPropertyAssignment && pr.name.text === "component") entry_(pr.name);
+      }
     }
   }
   for (const st of file.statements) {
-    if (st.kind === SK.ExportAssignment && !st.isExportEquals) entry(st.expression);
+    if (wanted && wanted !== "default") {
+      // A NAMED EXPORT: `export function NAME`, or `export const NAME = …`.
+      if (st.kind === SK.FunctionDeclaration && st.name && st.name.text === wanted && hasModifier(st, SK.ExportKeyword, SK)) renderFn(st, "certain", 0);
+      else if (st.kind === SK.VariableStatement && hasModifier(st, SK.ExportKeyword, SK)) {
+        for (const d of st.declarationList.declarations) if (d.name.kind === SK.Identifier && d.name.text === wanted) entry_(d.name);
+      }
+      continue;
+    }
+    if (st.kind === SK.ExportAssignment && !st.isExportEquals) entry_(st.expression);
     else if (st.kind === SK.FunctionDeclaration && hasModifier(st, SK.ExportKeyword, SK) && hasModifier(st, SK.DefaultKeyword, SK)) renderFn(st, "certain", 0);
   }
 
@@ -303,6 +328,25 @@ function readTree(file, SK, each) {
     }
     return false;
   };
+
+  // A NODE NOTHING RENDERS: an element the analysis found dead, or anything
+  // inside a declaration nothing in the file names.
+  const deadNode = (n) => {
+    for (let a = n; a && a.kind !== SK.SourceFile; a = a.parent) {
+      if ((a.kind === SK.JsxSelfClosingElement || a.kind === SK.JsxOpeningElement) && state.get(a) === "dead") return true;
+      if (a.kind === SK.JsxElement && a.openingElement && state.get(a.openingElement) === "dead") return true;
+    }
+    return unreferenced(n);
+  };
+  const stateOf = (open) => state.get(open) || (unreferenced(open) ? "dead" : "maybe");
+  return { opens, literals, state, viaBody, stateOf, deadNode, unreferenced, single, strip, decls, refs, mutated, isImported };
+}
+
+function readTree(file, SK, each) {
+  const A = analyseRender(file, SK, each, null);
+  const { state, viaBody, single, decls, mutated, unreferenced } = A;
+  const strip = A.strip;
+  const bearing = A.opens.filter((n) => n.attributes.properties.some((a) => a.kind === SK.JsxSpreadAttribute || (a.kind === SK.JsxAttribute && nameOf(a.name) === "links")));
 
   // ── WHAT EACH ELEMENT'S `links` IS ───────────────────────────────────────
   // PRESENCE IS NOT A VALUE (2026-10-08, Codex's review of c288078d). ABSENT is
@@ -410,14 +454,14 @@ function readTree(file, SK, each) {
 }
 
 /** A property or attribute name as text, or null when it is computed. */
-function nameOf(n) {
+export function nameOf(n) {
   if (!n) return null;
   if (typeof n.text === "string" && n.kind !== undefined && !n.expression) return n.text;
   if (n.namespace && n.name) return n.namespace.text + ":" + n.name.text;
   return null;
 }
 
-function hasModifier(node, kind) {
+export function hasModifier(node, kind) {
   return !!(node && node.modifiers && node.modifiers.some((m) => m.kind === kind));
 }
 

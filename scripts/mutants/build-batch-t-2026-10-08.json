@@ -1,0 +1,178 @@
+[
+{
+"label": "narration: merge ignores stored",
+"files": [
+"worker.js"
+],
+"from": "    const n = newerNarration(cur && cur.narration, next && next.narration);",
+"to": "    const n = next && next.narration;"
+},
+{
+"label": "narration: reuse ignores key",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "  if (kept && kept.key === key) {\n    if (finished(kept)) return { act: \"reuse\", narration: kept };",
+"to": "  if (kept) {\n    if (finished(kept)) return { act: \"reuse\", narration: kept };"
+},
+{
+"label": "narration: uncertain claim calls again",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    if (kept.state === \"attempting\") return { act: \"hold\", why: \"attempt-uncertain\" };",
+"to": "    if (kept.state === \"attempting\") return { act: \"call\" };"
+},
+{
+"label": "narration: no claim before calling",
+"files": [
+"worker.js"
+],
+"from": "    const c = await claimNarration(env, id, claim);",
+"to": "    const c = { ok: true };"
+},
+{
+"label": "narration: claim not conditional",
+"files": [
+"worker.js"
+],
+"from": "    try { put = await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur, narration: claim }), { onlyIf: { etagMatches: o.etag } }); }",
+"to": "    try { put = await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur, narration: claim })); }"
+},
+{
+"label": "narration: hold drops delivered text",
+"files": [
+"worker.js"
+],
+"from": "    told = shown ? withReplyText(body, shown) : { ...body, replyState: \"unavailable\", replyWhy: plan.why };",
+"to": "    told = { ...body, replyState: \"unavailable\", replyWhy: plan.why };"
+},
+{
+"label": "narration: key order-dependent",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "Object.keys(v).sort().map(",
+"to": "Object.keys(v).map("
+},
+{
+"label": "pictures: render evidence ignored",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    return { ...p, stage: seen === \"yes\" ? \"published\" : seen === \"no\" ? \"not-shown\" : \"unconfirmed\" };",
+"to": "    return { ...p, stage: \"published\" };"
+},
+{
+"label": "pictures: unknown told as shown",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "seen === \"no\" ? \"not-shown\" : \"unconfirmed\" };",
+"to": "seen === \"no\" ? \"not-shown\" : \"published\" };"
+},
+{
+"label": "pictures: imports not followed",
+"files": [
+"builder/rendered-pictures.mjs"
+],
+"from": "        queue.push({ id: to.id, entry: { name: to.name }, mode: m });",
+"to": "        void to;"
+},
+{
+"label": "pictures: maybe treated certain",
+"files": [
+"builder/rendered-pictures.mjs"
+],
+"from": "      const m = mode === \"certain\" && st === \"certain\" ? \"certain\" : \"maybe\";",
+"to": "      const m = \"certain\";"
+},
+{
+"label": "pictures: dead literals counted live",
+"files": [
+"builder/rendered-pictures.mjs"
+],
+"from": "        if (text.includes(u) && !A.deadNode(n)) { live = true; break; }",
+"to": "        if (text.includes(u)) { live = true; break; }"
+},
+{
+"label": "pictures: parser not injected",
+"files": [
+"worker.js"
+],
+"from": "    parser: tweakParser,\n    // Throws on failure, and the route logs it.",
+"to": "    parser: null,\n    // Throws on failure, and the route logs it."
+},
+{
+"label": "pictures: publish stage without render read",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "      try { shown = picturesShown(urls, { pages, parts: partsNow, parse }); } catch { shown = null; }",
+"to": "      shown = new Map(urls.map((u) => [u, \"yes\"]));"
+},
+{
+"label": "failure: design stop not narrated",
+"files": [
+"worker.js"
+],
+"from": "          return Response.json(await narrateBuild(env, dBody, { picker: models.picker, request: brief, slug: namedSlug || \"\" }), { status: 503 });",
+"to": "          return Response.json(dBody, { status: 503 });"
+},
+{
+"label": "failure: outage given a fact",
+"files": [
+"worker.js"
+],
+"from": "          const dKind = kind.billing ? null : e && e.unusable",
+"to": "          const dKind = kind.billing ? \"design-unusable\" : e && e.unusable"
+},
+{
+"label": "failure: inline fact dropped",
+"files": [
+"worker.js"
+],
+"from": "          failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),",
+"to": "          failure: null,"
+},
+{
+"label": "failure: reply facts omit it",
+"files": [
+"builder/site-reply.mjs"
+],
+"from": "      F.add(\"not-done\", why[fl.kind] + \".\");",
+"to": "      void why;"
+},
+{
+"label": "chat: failure view skipped on error",
+"files": [
+"public/chat.js"
+],
+"from": "    } else if (buildFailureView(d)) {",
+"to": "    } else if (false) {"
+},
+{
+"label": "chat: refusal hides told lines",
+"files": [
+"public/chat.js"
+],
+"from": "      endTold('⚡ ' + ((d && d.msg)",
+"to": "      end('⚡ ' + ((d && d.msg)"
+},
+{
+"label": "chat: cost label dropped when narrated",
+"files": [
+"public/chat.js"
+],
+"from": "  const rest = model ? [...told.filter((l) => l !== model), failureCostLine(f)] : told;",
+"to": "  const rest = model ? told.filter((l) => l !== model) : told;"
+},
+{
+"label": "CONTROL: comment only",
+"files": [
+"worker.js"
+],
+"from": " * THE ONE WAY A BUILD'S ANSWER SLOT IS WRITTEN",
+"to": " * THE ONE  WAY A BUILD'S ANSWER SLOT IS WRITTEN"
+}
+]

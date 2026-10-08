@@ -1672,20 +1672,30 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
 }
 
 /**
- * WHERE EACH MADE PICTURE GOT TO (2026-10-08, the seventh batch). A bought
- * picture is stored; that is not proof it appeared on the live site. Each
- * `made` entry gains `stage`, from the FINAL sources (after salvage) and
- * whether the publish completed:
- *   published      its address is in the final source, and the site went live
- *   in-source      its address is in the final source, and nothing went live
- *                  (compilation failed, salvage did not rescue it, or the
- *                  publish was refused or threw)
- *   stored         its address is in no final source (a stubbed page, a
- *                  placeholder, or never written in)
+ * WHERE EACH MADE PICTURE GOT TO (2026-10-08, the seventh batch; grounded in
+ * what the published pages render in the eighth). A bought picture is stored;
+ * an address in a source file is not a picture on a page. Each `made` entry
+ * gains `stage`, from the FINAL sources (after salvage), whether the publish
+ * completed, and `shown` — what the published routes render, read by
+ * `picturesShown` (`rendered-pictures.mjs`), a Map of address to
+ * "yes" | "no" | "unknown":
+ *   published    the site went live, and a published route certainly renders
+ *                the picture ("yes")
+ *   unconfirmed  the site went live with the address in its files, and
+ *                whether any page shows it could not be established
+ *                ("unknown", or no reading at all — no parser, say)
+ *   not-shown    the site went live with the address in its files, and no
+ *                published page renders it ("no": a component nothing
+ *                imports, one salvage cut off, a comment, an unused string)
+ *   in-source    the address is in the final source, and nothing went live
+ *                (compilation failed, salvage did not rescue it, or the
+ *                publish was refused or threw)
+ *   stored       the address is in no final source (a stubbed page, a
+ *                placeholder, or never written in)
  * A made entry with no address is left `stored`: nothing can show it placed.
  * Other entries are returned unchanged.
  */
-export function pictureStages(pictures, { sources = [], published = false } = {}) {
+export function pictureStages(pictures, { sources = [], published = false, shown = null } = {}) {
   if (!Array.isArray(pictures)) return pictures;
   const text = (Array.isArray(sources) ? sources : [])
     .map((x) => (typeof x === "string" ? x : x && typeof x.source === "string" ? x.source : ""))
@@ -1693,7 +1703,10 @@ export function pictureStages(pictures, { sources = [], published = false } = {}
   return pictures.map((p) => {
     if (!p || p.status !== "made") return p;
     const placed = typeof p.url === "string" && p.url !== "" && text.includes(p.url);
-    return { ...p, stage: placed ? (published === true ? "published" : "in-source") : "stored" };
+    if (!placed) return { ...p, stage: "stored" };
+    if (published !== true) return { ...p, stage: "in-source" };
+    const seen = shown instanceof Map ? shown.get(p.url) : undefined;
+    return { ...p, stage: seen === "yes" ? "published" : seen === "no" ? "not-shown" : "unconfirmed" };
   });
 }
 

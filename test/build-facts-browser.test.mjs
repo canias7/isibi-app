@@ -113,7 +113,7 @@ test("with the writer unavailable: one fixed outage line, then the recorded fact
     await send(page, "Harbour Loaf. Like https://a.example https://b.example https://c.example");
     await page.waitForTimeout(800);
     const t = await threadText(page);
-    for (const want of [/I couldn't write up this build's details just now\. What was recorded:/, /Pictures made and published: “a loaf on the counter”/, /Pictures tried, not returned: “the ovens at dawn”/, /Pictures not offered \(at most 6 per build\): “the Saturday queue”/,
+    for (const want of [/I couldn't write up this build's details just now\. What was recorded:/, /Pictures made and shown on a published page: “a loaf on the counter”/, /Pictures tried, not returned: “the ovens at dawn”/, /Pictures not offered \(at most 6 per build\): “the Saturday queue”/,
       /Link used: a\.example/, /Link partly used: b\.example \(first 11000 of 14000 characters\)/, /Link not opened: c\.example/, /Section left out: “the price list for every loaf”/, /Refund: 6 credits returned\./]) assert.match(t, want);
     assert.doesNotMatch(t, /OLD CONTEXT SENTENCE|OLD IMAGES SENTENCE/);
     if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build-facts-unavailable.png") }); }
@@ -195,5 +195,87 @@ test("7 CONTROL: an error response with no facts and no narration — only the f
     const t = await threadText(page);
     assert.ok(t.includes("That didn't come together — nothing was charged."));
     assert.doesNotMatch(t, /What was recorded|couldn't write up|Refund:/);
+  } finally { await browser.close(); }
+});
+
+// ── THE EIGHTH BATCH: ordinary inline failures told, outages fixed, pictures by render ──
+
+const DESIGN_STOP = { ok: false, stage: "design", cost: 0, msg: "CANNED DESIGNER SENTENCE", unusable: true,
+  buildFacts: { failure: { kind: "design-unusable", cost: 0, short: false } } };
+
+test("8: an ordinary inline failure on the ERROR branch, narrated — the model's account leads, the canned sentence is not shown, the cost label is", { skip: SKIP }, async () => {
+  const told = "The designer didn't give me a plan I could build from, so nothing was built and nothing was charged.";
+  const { page, browser, errors } = await openApp(newSite(), { ...DESIGN_STOP, reply: told, replySource: "model" }, 503);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.ok(t.includes("⚠️ " + told), "the model's account does not lead: " + t.slice(-600));
+    assert.doesNotMatch(t, /CANNED DESIGNER SENTENCE/);
+    assert.match(t, /Cost: nothing charged\./);
+    assert.doesNotMatch(t, /builder is busy|temporarily unavailable/, "an ordinary stop was shown as an outage");
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build8-design-told.png") }); }
+    assert.deepEqual(errors.filter((e) => !/localStorage/.test(e)), []);
+  } finally { await browser.close(); }
+});
+
+test("8: the same stop with the writer UNAVAILABLE — a plain state line, the outage note and the recorded labels; still no canned explanation", { skip: SKIP }, async () => {
+  const { page, browser } = await openApp(newSite(), { ...DESIGN_STOP, replyState: "unavailable", replyWhy: "send" }, 503);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.match(t, /The build didn’t finish\./);
+    assert.match(t, /I couldn't write up this build's details just now/);
+    assert.match(t, /Build stopped: the designer’s plan was unusable/);
+    assert.match(t, /Cost: nothing charged\./);
+    assert.doesNotMatch(t, /CANNED DESIGNER SENTENCE/);
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build8-design-unavailable.png") }); }
+  } finally { await browser.close(); }
+});
+
+test("8: an ordinary stop on the SUCCESS branch (a placeholder build, 200) — told the same way, not as a built site", { skip: SKIP }, async () => {
+  const told = "I couldn't write the pages this time; your site shows a simple placeholder for now. Send it again to retry.";
+  const body = { ok: true, slug: "harbour-loaf", url: "/s/harbour-loaf/", page: "placeholder", cost: 12, notes: "CANNED PAGES SENTENCE", reply: told, replySource: "model",
+    buildFacts: { failure: { kind: "generate-failed", cost: 12, short: false } } };
+  const { page, browser } = await openApp(newSite(), body, 200);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.ok(t.includes("⚠️ " + told), t.slice(-600));
+    assert.doesNotMatch(t, /CANNED PAGES SENTENCE|✅ Built/);
+    assert.match(t, /Cost: 12 credits\./);
+  } finally { await browser.close(); }
+});
+
+test("8: a fixed REFUSAL (402) carrying a refund keeps its own sentence and shows the refund beside it", { skip: SKIP }, async () => {
+  const body = { ok: false, error: "not enough credits", need: "credits", cost: 20, msg: "A build needs about 20 credits and you have 3.",
+    settlement: { recovered: true, outcome: "not-published", refunded: 2, short: false } };
+  const { page, browser } = await openApp(newSite(), body, 402);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.match(t, /⚡ A build needs about 20 credits and you have 3\./);
+    assert.match(t, /Refund: 2 credits returned\./);
+  } finally { await browser.close(); }
+});
+
+test("8: the picture labels follow the same outcome the writer is told — shown, unconfirmed, not shown", { skip: SKIP }, async () => {
+  const pictures = [
+    { page: "/", describe: "the loaf", status: "made", stage: "published", url: "/u/1.jpg" },
+    { page: "/", describe: "the ovens", status: "made", stage: "unconfirmed", url: "/u/2.jpg" },
+    { page: "/", describe: "the queue", status: "made", stage: "not-shown", url: "/u/3.jpg" },
+  ];
+  const { page, browser } = await openApp(newSite(), { ...BUILT, buildFacts: { pictures }, replyState: "unavailable", replyWhy: "send" });
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.match(t, /Pictures made and shown on a published page: “the loaf”/);
+    assert.match(t, /Pictures made, in the published files, not confirmed on a page: “the ovens”/);
+    assert.match(t, /Pictures made, in the files, not shown on any page: “the queue”/);
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build8-picture-labels.png") }); }
   } finally { await browser.close(); }
 });

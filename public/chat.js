@@ -9289,9 +9289,12 @@ function buildFactLines(f) {
   };
   // Made pictures by where they got to (2026-10-08): only a published one is on the site.
   const madeAt = (pred, label) => { const xs = pics.filter((x) => x && x.status === 'made' && pred(x.stage)); if (xs.length) out.push(label + ': ' + xs.map(q).join(', ')); };
-  madeAt((st) => st === 'published', 'Pictures made and published');
+  // The same five outcomes the reply writer is told (builder/site-reply.mjs).
+  madeAt((st) => st === 'published', 'Pictures made and shown on a published page');
+  madeAt((st) => st === 'unconfirmed', 'Pictures made, in the published files, not confirmed on a page');
+  madeAt((st) => st === 'not-shown', 'Pictures made, in the files, not shown on any page');
   madeAt((st) => st === 'in-source', 'Pictures made, in the pages, not published');
-  madeAt((st) => st !== 'published' && st !== 'in-source', 'Pictures made and stored, not on the site');
+  madeAt((st) => !['published', 'unconfirmed', 'not-shown', 'in-source'].includes(st), 'Pictures made and stored, not on the site');
   group('own', 'Your own photos, handed to the page writer');
   group('failed', 'Pictures tried, not returned');
   group('not-attempted', 'Pictures not tried', { library: 'image library full', time: 'out of time', budget: 'credits left' });
@@ -9308,7 +9311,32 @@ function buildFactLines(f) {
   if (f.research) out.push('Web lookup: ' + (f.research.found ? 'used' : 'found nothing usable'));
   for (const u of Array.isArray(f.unwritten) ? f.unwritten : []) if (u && u.section) out.push('Section left out: “' + u.section + '”');
   for (const p of Array.isArray(f.salvaged) ? f.salvaged : []) out.push('Page showing a stand-in: ' + String(p).replace(/\.tsx$/i, ''));
+  // WHY AN INLINE BUILD STOPPED, AND WHAT IT COST (2026-10-08): terse labels
+  // over the same `failure` fact the reply writer is told.
+  const fl = f.failure;
+  const flWhy = { 'design-unusable': 'the designer’s plan was unusable', 'design-truncated': 'the brief needed more room than the designer had', 'design-timeout': 'the design step ran past the build’s time limit', 'held-unread': 'the part left for later couldn’t be separated', 'generate-failed': 'the pages couldn’t be written this time', 'compile-failed': 'the pages didn’t compile' };
+  if (fl && flWhy[fl.kind]) {
+    out.push('Build stopped: ' + flWhy[fl.kind]);
+    out.push(failureCostLine(fl));
+  }
   return out;
+}
+// THE MONEY ON AN ORDINARY STOP: deterministic accounting, shown whether or
+// not the reply writer told the rest.
+function failureCostLine(fl) {
+  return fl.short ? 'Refund: still being returned.' : Number(fl.cost) > 0 ? 'Cost: ' + Number(fl.cost) + ' credit' + (Number(fl.cost) === 1 ? '' : 's') + '.' : 'Cost: nothing charged.';
+}
+// AN ORDINARY INLINE FAILURE (2026-10-08, the eighth batch), on whichever
+// branch its answer arrives: the reply writer's account leads when there is
+// one, and otherwise a plain state line — never the canned explanation the
+// facts replace. The recorded facts and the money go in the note.
+function buildFailureView(d) {
+  const f = d && d.buildFacts && d.buildFacts.failure;
+  if (!f) return null;
+  const model = (typeof EditPoll !== 'undefined' && EditPoll.modelReply) ? EditPoll.modelReply(d) : '';
+  const told = buildToldLines(d) || [];
+  const rest = model ? [...told.filter((l) => l !== model), failureCostLine(f)] : told;
+  return { lead: '⚠️ ' + (model || 'The build didn’t finish.'), note: rest.filter(Boolean).join('\n') };
 }
 
 function siteFinishBuild(origin, reply, build, note, why) {
@@ -13585,6 +13613,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     // page names it from what the hand-over carried.
     const heldSaid = { deferred: heldOwn.deferred, putOff: h.putOff };
     const end = (said) => finish(said + alsoTail(heldSaid, false));
+    // A FIXED MESSAGE STAYS THE MESSAGE (an outage, a refusal), and whatever
+    // the answer carries — narration, recorded facts, the refund — is shown
+    // beside it in the note, the same on every error branch (2026-10-08).
+    const endTold = (said) => {
+      const t = buildToldLines(d);
+      if (t) siteFinishBuild(origin, said + alsoTail(heldSaid, false), undefined, t.join('\n'), buildWhy(d));
+      else end(said);
+    };
     // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
     // 2026-08-08). The reply used to end "(✦21 used)" on every build.
     //
@@ -13748,7 +13784,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       const reply = firedJob
         ? '⏳ ' + ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
         : (built ? '✅ ' : '⚠️ ') + (said || canned);
-      siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
+      const fv = !firedJob && !built ? buildFailureView(d) : null;
+      if (fv) siteFinishBuild(origin, fv.lead + alsoTail(heldSaid, false), build, fv.note || noteShown, buildWhy(d));
+      else siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
+    } else if (buildFailureView(d)) {
+      // AN ORDINARY FAILURE carries its own account (2026-10-08): told, not canned.
+      siteErr = buildErrOutcome(origin, d);
+      const fv = buildFailureView(d);
+      siteFinishBuild(origin, fv.lead + alsoTail(heldSaid, false), undefined, fv.note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       // THE SERVER'S OWN SENTENCE WINS, because on the picker-floor refusal it
       // names the FREE way out and this one does not. `buildFloor` answers with
@@ -13757,12 +13800,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       // "is not the only way out and is the less useful one". That message was
       // composed and discarded here, so somebody on Opus with 30 credits was
       // sent to buy more instead of flipping a control back.
-      end('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
+      endTold('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
     } else if (d && d.need === 'rebuild') {
       end('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
     } else if (r.status === 429) { end('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
     else if (r.status === 501) { end('⚠️ The build engine isn’t switched on yet — check back soon.'); }
-    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; end(buildDownMsg(d)); }
+    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; endTold(buildDownMsg(d)); }
     else {
       siteErr = buildErrOutcome(origin, d);
       // THE SERVER'S SENTENCE STILL WINS where it wrote one; the fallback no
@@ -13773,9 +13816,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       // batch): a failed resume's or recovery's narration, or its recorded
       // facts and refund, in the same note a finished build's go in. The
       // fixed failure sentence above stays the message.
-      const failTold = buildToldLines(d);
-      if (failTold) siteFinishBuild(origin, failSaid + alsoTail(heldSaid, false), undefined, failTold.join('\n'), buildWhy(d));
-      else end(failSaid);
+      endTold(failSaid);
     }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {

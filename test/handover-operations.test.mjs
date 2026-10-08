@@ -118,6 +118,8 @@ const SRC = [
   cut("function buildToldLines("),
   cut("function settlementLine("),
   cut("function buildFactLines("),
+  cut("function buildFailureView("),
+  cut("function failureCostLine("),
   cutLine("const ST_PHASE_ORDER ="),
 ].join("\n");
 

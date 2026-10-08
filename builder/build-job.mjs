@@ -347,6 +347,77 @@ export function withSettlement(stored, facts) {
 }
 
 /**
+ * WHICH FACTS AN EXPLANATION EXPLAINS (2026-10-08, the eighth batch: Codex
+ * kept a pages refund unavailable across two real recovery passes, both
+ * recorded the same return of 4 and `short`, and the second pass dropped the
+ * saved narration and paid the reply model again for an identical request).
+ * A short, stable fingerprint of a build's facts (keys sorted, so the same
+ * facts always give the same key): an explanation is reused only for the
+ * facts it was written for, and a genuinely changed amount or outcome gets a
+ * new one. Null when there are no facts.
+ */
+export function narrationKey(facts) {
+  if (!facts || typeof facts !== "object") return null;
+  const stable = (v) => (Array.isArray(v) ? "[" + v.map(stable).join(",") + "]"
+    : v && typeof v === "object" ? "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stable(v[k])).join(",") + "}"
+      : JSON.stringify(v === undefined ? null : v));
+  const text = stable(facts);
+  let a = 0x811c9dc5, b = 0x01000193 ^ text.length;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x5bd1e995) >>> 0;
+  }
+  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+}
+
+/**
+ * WHAT RECOVERY MAY DO ABOUT AN EXPLANATION, given the one kept on the
+ * settlement record (`narration`) and the key of the facts it would now
+ * explain. One retry contract for every pass, overlapping or not:
+ *   reuse  the kept explanation is for these facts and finished — its text,
+ *          or that the writer could not answer — so it is delivered again
+ *   hold   an attempt for these facts was claimed and its outcome is not
+ *          known (a pass still running, or one whose result could not be
+ *          saved): never paid for again; the facts go out on their own
+ *   call   no finished or claimed attempt for these facts (none at all, one
+ *          for different facts, or one never attempted because the switch was
+ *          off): the writer may be asked, after the attempt is claimed
+ * `factsUnread` (the kept context could not be read this pass): the facts
+ * cannot be fingerprinted, so nothing new is asked — a finished explanation
+ * of the same settlement is reused, anything else is held.
+ */
+export function narrationPlan(n, key, { settlementKey = null, factsUnread = false } = {}) {
+  const kept = n && typeof n === "object" && !Array.isArray(n) ? n : null;
+  const finished = (x) => x && (x.state === "written" || x.state === "unavailable");
+  if (factsUnread) {
+    if (kept && finished(kept) && settlementKey && kept.settlementKey === settlementKey) return { act: "reuse", narration: kept };
+    return { act: "hold", why: "facts-unread" };
+  }
+  if (!key) return { act: "none" };
+  if (kept && kept.key === key) {
+    if (finished(kept)) return { act: "reuse", narration: kept };
+    if (kept.state === "attempting") return { act: "hold", why: "attempt-uncertain" };
+  }
+  return { act: "call" };
+}
+
+/**
+ * OF TWO EXPLANATION RECORDS, THE ONE TO KEEP when two writers of the
+ * settlement record meet: the later attempt (`at`), and at the same moment a
+ * finished one over a claim. A record with no explanation keeps the other's.
+ */
+export function newerNarration(a, b) {
+  const ok = (x) => x && typeof x === "object" && !Array.isArray(x);
+  if (!ok(a)) return ok(b) ? b : null;
+  if (!ok(b)) return a;
+  const ta = Date.parse(a.at || "") || 0, tb = Date.parse(b.at || "") || 0;
+  if (ta !== tb) return ta > tb ? a : b;
+  const done = (x) => x.state === "written" || x.state === "unavailable";
+  return done(b) && !done(a) ? b : a;
+}
+
+/**
  * ONE DELIVERY RULE FOR EVERY WRITER OF A BUILD'S ANSWER SLOT (2026-10-08,
  * Codex's review of `366dc581`: the resume's unconditional final write
  * replaced recovery's answer and its refund, in the ordering the previous

@@ -281,6 +281,8 @@ const SRC = [
   cut("function buildToldLines("),
   cut("function settlementLine("),
   cut("function buildFactLines("),
+  cut("function buildFailureView("),
+  cut("function failureCostLine("),
   // A SITE'S TABLE LIST, IN ORDER (2026-10-05): the clock every routing call
   // and addition is put in order by, and the two that keep the list by it.
   cutLine("const siteTablesOrder ="),

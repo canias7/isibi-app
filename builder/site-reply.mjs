@@ -1280,13 +1280,17 @@ export function buildReplyFacts(bf) {
   const of = (st) => pics.filter((x) => x.status === st);
   const named = (xs) => xs.map((x) => quote(x.describe) + (x.page && x.page !== "/" ? " (on " + x.page + ")" : "")).join("; ");
   // MADE IS SPLIT BY WHERE THE PICTURE GOT TO (2026-10-08, the seventh
-  // batch): a purchased picture is not proof it is on the live site. Only
-  // `published` (in the final source of a completed publish) says so.
+  // batch; grounded in what the published pages render in the eighth): a
+  // purchased picture is not proof it is on the live site, and neither is its
+  // address in a file. Only `published` (a published route certainly renders
+  // it) says it is on the site; `unconfirmed` keeps visibility open.
   const made = of("made");
   const madeAt = (stage) => made.filter((x) => x.stage === stage);
-  if (madeAt("published").length) F.add("changed", "Photographs made and published on the site: " + named(madeAt("published")));
+  if (madeAt("published").length) F.add("changed", "Photographs made and shown on a published page: " + named(madeAt("published")));
+  if (madeAt("unconfirmed").length) F.add("note", "Photographs made and included in the published site's files; whether a page shows them could not be confirmed, so do not say they are on the site: " + named(madeAt("unconfirmed")));
+  if (madeAt("not-shown").length) F.add("not-done", "Photographs made and in the site's files, but no published page shows them, so they are not on the site: " + named(madeAt("not-shown")));
   if (madeAt("in-source").length) F.add("not-done", "Photographs made and written into the pages, but the site did not go live with them, so they are not on the site yet: " + named(madeAt("in-source")));
-  const stored = made.filter((x) => x.stage !== "published" && x.stage !== "in-source");
+  const stored = made.filter((x) => !["published", "unconfirmed", "not-shown", "in-source"].includes(x.stage));
   if (stored.length) F.add("not-done", "Photographs made and stored, but not on any page that was published, so they are not on the site: " + named(stored));
   if (of("own").length) F.add("note", "Their own photographs, which they supplied, were handed to the page writer to use: " + named(of("own")) + ". Whether each was placed is not recorded.");
   if (of("failed").length) F.add("not-done", "Photographs tried and not made (the image service answered without them), so their frames are empty placeholders: " + named(of("failed")));
@@ -1325,6 +1329,25 @@ export function buildReplyFacts(bf) {
   }
   for (const pg of Array.isArray(bf.salvaged) ? bf.salvaged : []) {
     F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; the rest of the site is live.");
+  }
+  // WHY AN INLINE BUILD STOPPED (2026-10-08, the eighth batch), with what it
+  // cost, by the route's own ledger reading.
+  const fl = bf.failure;
+  if (fl && typeof fl === "object") {
+    const why = {
+      "design-unusable": "The designer did not send back a usable plan for this site, so nothing was built",
+      "design-truncated": "The brief asked for more things to store than the designer had room to plan in one answer, so nothing was built; describing fewer things to store would fit",
+      "design-timeout": "The design step took longer than one build is allowed, so nothing was built; a shorter description would be quicker",
+      "held-unread": "The part of their message left for later could not be separated from the part to build now, so nothing was changed; sending the changes one at a time would work",
+      "generate-failed": "Their database is live, but writing the pages did not work this time, so the site shows its data model for now; sending it again retries",
+      "compile-failed": "The pages were written but did not compile, so the site shows its data model for now; sending it again retries",
+    };
+    if (why[fl.kind]) {
+      F.add("not-done", why[fl.kind] + ".");
+      F.add("note", fl.short ? "Returning what this build charged has not fully gone through yet; it is being retried."
+        : Number(fl.cost) > 0 ? "This build cost " + Number(fl.cost) + " credits."
+          : "Nothing was charged for this build.");
+    }
   }
   const st = bf.settlement;
   if (st && typeof st === "object") {

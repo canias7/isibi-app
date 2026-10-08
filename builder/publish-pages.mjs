@@ -29,6 +29,9 @@ import { SEED_MODEL, SEED_MAX_TOKENS } from "./site-seed.mjs";
 // The made pictures' stage from the final sources and the publish (2026-10-08).
 // `site-images.mjs` imports nothing of this module, so this adds no cycle.
 import { pictureStages } from "./site-images.mjs";
+// What the published routes render (2026-10-08, the eighth batch): the same
+// render analysis the menus use. Neither module imports this one.
+import { picturesShown } from "./rendered-pictures.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -1428,9 +1431,22 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // every exit after the purchase from the pages as they finally stand (after
   // salvage) and whether the publish completed. A purchased picture is stored;
   // only a completed publish of a source that holds it puts it on the site.
-  const stagePictures = (published) => {
+  // AND WHETHER A PUBLISHED PAGE SHOWS IT (the eighth batch), from the routes
+  // as published and the components they actually render — never from the
+  // address merely being in a file. `deps.parser` is the injected TypeScript
+  // reader (`tweakParser`); without one every published picture is
+  // "unconfirmed", the narrower fact the evidence supports.
+  const stagePictures = async (published) => {
     if (!out.images || !Array.isArray(out.images.pictures)) return;
-    out.images.pictures = pictureStages(out.images.pictures, { sources: [...pages, ...(Array.isArray(v.parts) ? v.parts : [])], published });
+    const partsNow = Array.isArray(v.parts) ? v.parts : [];
+    let shown = null;
+    if (published === true) {
+      const urls = out.images.pictures.filter((x) => x && x.status === "made" && typeof x.url === "string").map((x) => x.url);
+      let parse = null;
+      try { parse = typeof deps.parser === "function" ? await deps.parser() : null; } catch { parse = null; }
+      try { shown = picturesShown(urls, { pages, parts: partsNow, parse }); } catch { shown = null; }
+    }
+    out.images.pictures = pictureStages(out.images.pictures, { sources: [...pages, ...partsNow], published, shown });
   };
 
   /**
@@ -1669,7 +1685,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       ? "Our build service had no room to compile the pages, so the site is showing its data model for now — send it again in a few minutes."
       : "The pages didn't compile, so the site is showing its data model for now — send it again to retry.",
       await settle(built.stage)].filter(Boolean).join(" ");
-    stagePictures(false);
+    await stagePictures(false);
     return out;
   }
 
@@ -1699,13 +1715,13 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   } catch (e) {
     // A REFUSED OR FAILED PUBLISH puts nothing live: the pictures it carried
     // are reported where they got to, on the error the caller receives.
-    stagePictures(false);
+    try { await stagePictures(false); } catch { /* the facts never cost the throw */ }
     try { if (e && typeof e === "object" && out.images) e.images = out.images; } catch { /* the facts never cost the throw */ }
     throw e;
   }
   out.publishMs = Date.now() - tPub;
   out.page = "app";
-  stagePictures(true);
+  await stagePictures(true);
   // SAY WHICH PAGE DID NOT MAKE IT. A visitor finding the stub by clicking the
   // header would otherwise be the first anybody hears of it, and the owner is the
   // one who can ask for it again.

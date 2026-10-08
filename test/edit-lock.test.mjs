@@ -130,6 +130,12 @@ const SRC = [
   cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
+  // Every error branch shows what its answer carries (2026-10-08, the eighth batch).
+  cut("function buildToldLines("),
+  cut("function settlementLine("),
+  cut("function buildFactLines("),
+  cut("function failureCostLine("),
+  cut("function buildFailureView("),
   cutLine("const ST_PHASE_ORDER ="),
 ].join("\n");
 

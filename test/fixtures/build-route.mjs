@@ -65,13 +65,15 @@ export function buildBucket(entries = {}, hooks = {}) {
  * overrides any RPC answer by name (a function gets the args). Returns what
  * the route answered and everything it was seen doing.
  */
-export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {} } = {}) {
+export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     const method = String((init && init.method) || "GET").toUpperCase();
+    // A CASE'S OWN ANSWER FIRST (2026-10-08): the reply writer, say.
+    if (typeof onFetch === "function") { const r = await onFetch(url, init); if (r) return r; }
     if (url.includes("/auth/v1/user")) return json(BUILD_USER);
     const m = url.match(/\/rest\/v1\/rpc\/(\w+)/);
     if (m) {

@@ -183,8 +183,24 @@ export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote
  * writer tells it (`buildReplyFacts`), and when it cannot, the page shows a
  * fixed outage line with these facts kept. Null when there is nothing.
  */
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null } = {}) {
+/**
+ * THE ORDINARY WAYS AN INLINE BUILD STOPS (2026-10-08, the eighth batch): the
+ * ones a customer is told about in ordinary words, not a technical outage.
+ * The designer's answer unusable or past its room, the build's own time
+ * ceiling, a held part that could not be separated, the page writer's
+ * failure, and pages that did not compile. Outages (the provider busy or out
+ * of balance, no room in the container, a database that could not be made)
+ * keep their fixed messages and never enter here.
+ */
+export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "design-timeout", "held-unread", "generate-failed", "compile-failed"];
+
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null } = {}) {
   const out = {};
+  // WHY THE BUILD STOPPED, and what it cost, from the route's own reading of
+  // the ledger (`cost`, `short`) — never a guess.
+  if (failure && typeof failure === "object" && BUILD_FAILURE_KINDS.includes(failure.kind)) {
+    out.failure = { kind: failure.kind, cost: Math.max(0, Number(failure.cost) || 0), short: failure.short === true };
+  }
   const pictures = images && Array.isArray(images.pictures) ? images.pictures : [];
   if (pictures.length) out.pictures = pictures;
   if (context && Array.isArray(context.sources) && context.sources.length) out.sources = context.sources;

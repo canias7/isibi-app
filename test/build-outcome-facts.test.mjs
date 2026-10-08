@@ -151,7 +151,7 @@ test("reply facts: every recorded state becomes its own fact for the writer — 
     settlement: { outcome: "not-published", refunded: 6, short: false },
   }).facts;
   const text = f.map((x) => x.text).join("\n");
-  for (const want of [/made and published on the site: “a”/, /tried and not made[^\n]*“b”/, /never tried, because the build ran out of time[^\n]*“c”/, /did not put on the page[^\n]*“d”/, /never offered[^\n]*at most 6[^\n]*“e”/, /whether any of them was made is not known: “g”/, /Their own photographs[^\n]*“h”/,
+  for (const want of [/made and shown on a published page: “a”/, /tried and not made[^\n]*“b”/, /never tried, because the build ran out of time[^\n]*“c”/, /did not put on the page[^\n]*“d”/, /never offered[^\n]*at most 6[^\n]*“e”/, /whether any of them was made is not known: “g”/, /Their own photographs[^\n]*“h”/,
     /u\.example was read and its text used in full/, /p\.example was read, but only the first 10 of its 20/, /r\.example could not be read \(it blocked us\)/, /o\.example was not opened/, /web lookup was tried and found nothing/, /left out for now[^\n]*“the price list”/, /“menu” did not compile/, /\(6 credits\) has been returned/]) {
     assert.match(text, want);
   }

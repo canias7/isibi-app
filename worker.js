@@ -44,7 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
-import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -2925,10 +2925,15 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     await shots;
   } else if (plan_.wait === "race") {
     let cutoff = false;
+    // THE CUTOFF'S OWN TIMER IS CLEARED once the race is decided (2026-10-08):
+    // left running it held the isolate (and a test's process) for the whole
+    // allowance after the pictures had already come back.
+    let cutTimer = null;
     await Promise.race([
       shots,
-      new Promise((r) => setTimeout(() => { cutoff = true; r(); }, plan_.ms)),
+      new Promise((r) => { cutTimer = setTimeout(() => { cutoff = true; r(); }, plan_.ms); }),
     ]);
+    clearTimeout(cutTimer);
     // THE STILL-RUNNING SHOTS ARE NEITHER AWAITED NOR CANCELLED. Each is already
     // bounded by its own signal and each writes into `urls` on its own, so
     // letting them settle costs nothing and one may still land before the publish
@@ -6545,6 +6550,21 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
 }
 
 /**
+ * AN INLINE BUILD'S ORDINARY STOP, from its own outcome (2026-10-08, the
+ * eighth batch): the page writer failing, or pages that did not compile. Null
+ * for a published site and for every outage — the provider out of balance, no
+ * room in the container, live pages that could not be confirmed — which keep
+ * their fixed messages.
+ */
+function inlineFailure(pages, { cost = 0, short = false } = {}) {
+  if (!pages || pages.page !== "placeholder") return null;
+  if (pages.billing || pages.room || pages.sourceUnknown) return null;
+  if (pages.stage === "generate") return { kind: "generate-failed", cost, short };
+  if (pages.stage === "typecheck" || pages.stage === "build") return { kind: "compile-failed", cost, short };
+  return null;
+}
+
+/**
  * THE CUSTOMER'S OWN WORDS out of a stored brief: `contextBrief` appends the
  * linked pages, attached files and looked-up facts under their own headings,
  * and the reply writer is told what they asked for, not what was read for
@@ -6559,13 +6579,29 @@ function ownWords(brief) {
 
 /** A queued build's context facts, as its first invocation kept them; null when there are none or they cannot be read. */
 async function keptContextFacts(env, id) {
+  return (await readKeptContext(env, id)).facts;
+}
+
+/**
+ * THE SAME READ, TELLING ABSENT FROM UNREADABLE (2026-10-08, the eighth
+ * batch): `{ state: "ok" | "none" | "unread", facts }`. Recovery fingerprints
+ * the facts an explanation is for, and a context that could not be read this
+ * pass must not look like facts that changed — that would pay for a new
+ * explanation of the same build.
+ */
+async function readKeptContext(env, id) {
   try {
-    if (!id || !isJobId(id) || !env.SITES_BUCKET) return null;
+    if (!id || !isJobId(id) || !env.SITES_BUCKET) return { state: "none", facts: null };
     const o = await env.SITES_BUCKET.get(contextKey(id));
-    if (!o) return null;
+    if (!o) return { state: "none", facts: null };
     const v = JSON.parse(await o.text());
-    return v && typeof v === "object" && Array.isArray(v.sources) ? { sources: v.sources, ...(v.research ? { research: v.research } : {}) } : null;
-  } catch (e) { console.error("build: could not read the kept context facts for", id, String((e && e.message) || e)); return null; }
+    return v && typeof v === "object" && Array.isArray(v.sources)
+      ? { state: "ok", facts: { sources: v.sources, ...(v.research ? { research: v.research } : {}) } }
+      : { state: "none", facts: null };
+  } catch (e) {
+    console.error("build: could not read the kept context facts for", id, String((e && e.message) || e));
+    return { state: "unread", facts: null };
+  }
 }
 
 /** The answer with its reply on it, or the answer exactly as it was. */
@@ -13477,6 +13513,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   try { const p = await readPointer(buildDeps(env), slug); bParent = p ? p.version : ""; }
   catch (e) { console.error("pointer unreadable before build:", slug, e && e.message); bParent = ""; }
   const out = await publishPages({
+    // THE PAGE READER the published pictures are checked with (2026-10-08, the
+    // eighth batch): whether a published route renders each bought picture.
+    // A Worker bundle resolves none, and then every published picture is told
+    // as unconfirmed rather than as on the site.
+    parser: tweakParser,
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
     generate: async () => {
@@ -15722,7 +15763,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       if (mark.delivered !== true) {
         const done = await deliverLostAnswer(env, { id, uid, mark, now });
         if (!done.ok) { await keepPending("answer-undelivered"); continue; }
-        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as })); }
+        try { await putSettlementMark(env, markKey, { ...mark, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as }); }
         catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
       } else {
         // DELIVERED IS NOT THE END WHILE AN ANSWER COULD HAVE BEEN WRITTEN
@@ -15766,8 +15807,12 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       short = r.short;
       seen.refunded += returned;
     } else seen.published++;
+    // THE EXPLANATION SURVIVES THE REWRITE (the eighth batch): a short
+    // refund's record is written again on every pass, and `putSettlementMark`
+    // carries the explanation the record holds AT THE WRITE — read then, not
+    // from this pass's earlier view, which another pass may have overtaken.
     const settled = { outcome: v.outcome, why: v.why, version: v.version || "", slug, returned, short, settled: !short, delivered: false, at: new Date(now).toISOString() };
-    try { await env.SITES_BUCKET.put(markKey, JSON.stringify(settled)); }
+    try { await putSettlementMark(env, markKey, settled); }
     catch (e) {
       // THE REFUND IS IDEMPOTENT BY (ref, reason), so a record that did not
       // land is made again next tick at no cost to anyone.
@@ -15778,7 +15823,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     const done = await deliverLostAnswer(env, { id, uid, mark: settled, now });
     if (short) { await keepPending("refund-short"); continue; }
     if (!done.ok) { await keepPending("answer-undelivered"); continue; }
-    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as })); }
+    try { await putSettlementMark(env, markKey, { ...settled, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as }); }
     catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
     try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* the next tick finds it settled and delivered */ }
     console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
@@ -15866,6 +15911,83 @@ async function storeBuildResult(env, id, out, role, who = "build", { facts: give
 }
 
 /**
+ * EVERY WRITE OF A LOST BUILD'S SETTLEMENT RECORD KEEPS ITS EXPLANATION
+ * (2026-10-08, the eighth batch). The record is rewritten on every pass while
+ * a refund is short, and each pass built it fresh, so the explanation saved
+ * by the pass before was dropped and the reply model paid again. Now each
+ * write reads the record, keeps the newer explanation of the two
+ * (`newerNarration`), and puts conditionally on what it read, deciding again
+ * when another pass got in between. Throws when it cannot write, as the
+ * single put it replaces did.
+ */
+async function putSettlementMark(env, key, next) {
+  for (let i = 0; i < 6; i++) {
+    let o = null, cur = null;
+    try { o = await env.SITES_BUCKET.get(key); cur = o ? JSON.parse(await o.text()) : null; }
+    catch (e) { throw new Error("the settlement record could not be read before writing it: " + String((e && e.message) || e)); }
+    const n = newerNarration(cur && cur.narration, next && next.narration);
+    const merged = { ...next };
+    if (n) merged.narration = n; else delete merged.narration;
+    const put = await env.SITES_BUCKET.put(key, JSON.stringify(merged), { onlyIf: o ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" } });
+    if (put) return merged;
+  }
+  throw new Error("the settlement record is still contended after 6 tries");
+}
+
+/** The explanation kept on a lost build's settlement record: `{ ok, narration }`, `ok: false` when it cannot be read. */
+async function readKeptNarration(env, id) {
+  try {
+    const o = await env.SITES_BUCKET.get("jobs/" + id + ".lost.json");
+    if (!o) return { ok: true, narration: null };
+    const m = JSON.parse(await o.text());
+    return { ok: true, narration: m && m.narration && typeof m.narration === "object" ? m.narration : null };
+  } catch { return { ok: false, narration: null }; }
+}
+
+/**
+ * CLAIM THE ONE ATTEMPT BEFORE PAYING FOR IT: the record gains
+ * `narration: { state: "attempting", key, … }`, written conditionally on what
+ * was read. An overlapping pass that claimed first wins and this one is told
+ * what it found (`seen`); a claim that cannot be written is not made, and
+ * nothing is paid for (`ok: false`). Once claimed, a pass whose result is
+ * never saved leaves the claim standing, and later passes hold.
+ */
+async function claimNarration(env, id, claim) {
+  const key = "jobs/" + id + ".lost.json";
+  for (let i = 0; i < 4; i++) {
+    let o = null, cur = null;
+    try { o = await env.SITES_BUCKET.get(key); cur = o ? JSON.parse(await o.text()) : null; }
+    catch { return { ok: false }; }
+    if (!o || !cur) return { ok: false };
+    const plan = narrationPlan(cur.narration, claim.key, { settlementKey: claim.settlementKey });
+    if (plan.act !== "call") return { ok: false, seen: cur.narration };
+    let put = null;
+    try { put = await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur, narration: claim }), { onlyIf: { etagMatches: o.etag } }); }
+    catch { return { ok: false }; }
+    if (put) return { ok: true };
+  }
+  return { ok: false };
+}
+
+/** Save an attempt's outcome over its own claim (never over a newer one); false when it could not be saved. */
+async function saveNarration(env, id, done) {
+  const key = "jobs/" + id + ".lost.json";
+  for (let i = 0; i < 4; i++) {
+    let o = null, cur = null;
+    try { o = await env.SITES_BUCKET.get(key); cur = o ? JSON.parse(await o.text()) : null; }
+    catch { return false; }
+    if (!o || !cur) return false;
+    const n = cur.narration;
+    if (n && (n.key !== done.key || n.at !== done.at || n.state !== "attempting")) return false;
+    let put = null;
+    try { put = await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur, narration: done }), { onlyIf: { etagMatches: o.etag } }); }
+    catch { return false; }
+    if (put) return true;
+  }
+  return false;
+}
+
+/**
  * THE CUSTOMER'S ANSWER FOR A RECOVERED BUILD, BUILT FROM THE SETTLEMENT
  * RECORD ALONE (so a later tick can store it again with nothing else) and
  * stored where the build's own would be.
@@ -15899,30 +16021,67 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
   // THE FACTS TRAVEL WITH RECOVERY'S ANSWER TOO (2026-10-08, the sixth
   // batch): which links the lost build read, kept when it handed over, and
   // what recovery settled — so a lost build is never silent about either.
-  const kept = await keptContextFacts(env, id);
+  const ctx = await readKeptContext(env, id);
+  const kept = ctx.facts;
   const facts = buildFacts({ context: kept, settlement: settlementFacts(mark) });
   if (kept) body.context = kept;
   if (facts) body.buildFacts = facts;
-  // NARRATED ONCE (2026-10-08, the seventh batch): recovery's answer is told
-  // by the same reply writer as a finished build's, from the same facts. The
-  // outcome of that one attempt — the text, or why there is none — is kept on
-  // the settlement record (`narration`), so a tick that retries delivery
-  // reuses it and never pays for the same explanation twice. The fixed
-  // `msg` and the accounting stay on the answer either way.
-  let narration = mark && mark.narration && typeof mark.narration === "object" ? mark.narration : null;
+  // NARRATED ONCE PER SET OF FACTS (the seventh batch; one retry contract in
+  // the eighth). Recovery's answer is told by the same reply writer as a
+  // finished build's, from the same facts. The explanation is kept on the
+  // settlement record with the fingerprint of the facts it explains
+  // (`narrationKey`), and `narrationPlan` decides each pass:
+  //   - reuse it while the facts are unchanged (a short refund retried with
+  //     the same return), text or "the writer could not answer" alike;
+  //   - ask again only when the amount or outcome genuinely changed;
+  //   - never pay when an earlier attempt's outcome is unknown — a pass still
+  //     running, a claim whose result was never saved, the record or the
+  //     context unreadable — the facts then go out on their own.
+  // An attempt is CLAIMED on the record (conditionally) before the call. The
+  // fixed `msg` and the accounting stay on the answer either way.
+  const key = narrationKey(facts);
+  const settlementKey = narrationKey(settlementFacts(mark));
+  const at = new Date(now || Date.now()).toISOString();
+  const kn = await readKeptNarration(env, id);
+  let plan = !kn.ok ? { act: "hold", why: "record-unread" } : narrationPlan(kn.narration, key, { settlementKey, factsUnread: ctx.state === "unread" });
+  let narration = null;
   let told = body;
-  if (narration) told = narration.state === "written" && typeof narration.text === "string" ? withReplyText(body, narration.text) : { ...body, replyState: narration.state, ...(narration.why ? { replyWhy: narration.why } : {}) };
-  else if (facts) {
-    let design = null;
-    try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
-    told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
-    narration = told.replySource === "model" && typeof told.reply === "string"
-      ? { state: "written", text: told.reply }
-      : told.replyState ? { state: told.replyState, ...(told.replyWhy ? { why: told.replyWhy } : {}) } : null;
-    if (narration) {
-      try { await env.SITES_BUCKET.put("jobs/" + id + ".lost.json", JSON.stringify({ ...mark, narration })); }
-      catch (e) { console.error("lost builds: could not keep the narration for", id, "— it is still delivered with this answer", String((e && e.message) || e)); }
-    }
+  if (plan.act === "call" && !repliesOn(env)) {
+    told = await narrateBuild(env, body, {});
+    narration = told.replyState ? { state: told.replyState, ...(told.replyWhy ? { why: told.replyWhy } : {}), key, settlementKey, at } : null;
+    plan = { act: "done" };
+  } else if (plan.act === "call") {
+    const claim = { state: "attempting", key, settlementKey, at };
+    const c = await claimNarration(env, id, claim);
+    if (!c.ok) plan = c.seen ? narrationPlan(c.seen, key, { settlementKey }) : { act: "hold", why: "attempt-unrecorded" };
+    if (plan.act === "call" && c.ok) {
+      let design = null;
+      try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
+      told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
+      const result = told.replySource === "model" && typeof told.reply === "string"
+        ? { state: "written", text: told.reply }
+        : { state: told.replyState || "unavailable", ...(told.replyWhy ? { why: told.replyWhy } : {}) };
+      narration = { ...result, key, settlementKey, at };
+      if (!(await saveNarration(env, id, narration))) console.error("lost builds: could not keep the narration for", id, "— it is still delivered with this answer, and its claim stands so no later pass pays again");
+      plan = { act: "done" };
+    } else if (plan.act === "call") plan = { act: "hold", why: "attempt-unrecorded" };
+  }
+  if (plan.act === "reuse") {
+    const n = plan.narration;
+    told = n.state === "written" && typeof n.text === "string" ? withReplyText(body, n.text) : { ...body, replyState: n.state, ...(n.why ? { replyWhy: n.why } : {}) };
+  } else if (plan.act === "hold") {
+    // AN EXPLANATION ALREADY DELIVERED FOR THESE SAME FACTS is kept: the pass
+    // whose save failed still stored its answer with the text, and a hold must
+    // not replace it with the facts alone. Read from the slot, matched by the
+    // facts' own fingerprint; anything else is the facts alone, said plainly.
+    let shown = null;
+    try {
+      const o = await env.SITES_BUCKET.get(resultKey(id));
+      const r = o ? readResult(JSON.parse(await o.text())) : null;
+      const b = r ? JSON.parse(r.body) : null;
+      if (b && b.replySource === "model" && typeof b.reply === "string" && key && narrationKey(b.buildFacts) === key) shown = b.reply;
+    } catch { shown = null; }
+    told = shown ? withReplyText(body, shown) : { ...body, replyState: "unavailable", replyWhy: plan.why };
   }
   const packed = packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(told) });
   // The facts come from the record recovery holds in hand, never a second read.
@@ -18177,7 +18336,9 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // reads after a 202, and it names the parts as the inline reply would.
         ...resumeHeld(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged }) || undefined,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
+          // The same ordinary stop the inline answer names (the eighth batch).
+          failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }) }) || undefined,
     };
     out = packResult({
       status: 200,
@@ -18652,10 +18813,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // the message whole. The parts taken out are what the reply names.
       const bLater = buildHeld(body);
       if (!bLater.ok) {
-        return Response.json({
+        // AN ORDINARY STOP, told from its fact by the reply writer (the eighth batch).
+        const hBody = {
           ok: false, error: "held-unread", cost: 0,
           msg: "I couldn't separate the part of your message I was leaving for later from the part to change now, so I haven't changed anything. Send the changes one at a time and I'll make each.",
-        }, { status: 422 });
+          buildFacts: buildFacts({ failure: { kind: "held-unread", cost: 0 } }),
+        };
+        return Response.json(await narrateBuild(env, hBody, { picker: String(body.picker || ""), request: String(body.brief || ""), slug: namedSlug || "" }), { status: 422 });
       }
       bHeld.parts = bLater.held.slice();
       // WHY IT CAME HERE, AND WHICH PAGE IT IS ABOUT (2026-10-02, W24): the
@@ -19300,7 +19464,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // outage of the builder's main path is indistinguishable from a busy
           // minute. This one hid for three merges behind exactly that.
           const kind = upstreamKind(e && e.detail, e && e.status);
-          return Response.json({
+          // AN ORDINARY STOP OR AN OUTAGE (2026-10-08, the eighth batch). The
+          // designer's answer unusable, past its room, or past the build's own
+          // time ceiling is told by the reply writer from the facts; the
+          // provider busy or out of balance keeps its fixed outage message.
+          const dKind = kind.billing ? null : e && e.unusable ? "design-unusable" : e && e.truncated ? "design-truncated" : isCallTimeout(e) ? "design-timeout" : null;
+          const dBody = ({
             ok: false,
             msg: e && e.unusable
               ? "The designer didn't send back a usable plan for this site, so nothing was built and the deposit was returned. Try again in a moment."
@@ -19353,7 +19522,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             billing: kind.billing || undefined,
             truncated: !!(e && e.truncated),
             unusable: (e && e.unusable) || undefined,
-          }, { status: 503 });
+          });
+          if (!dKind) return Response.json(dBody, { status: 503 });
+          dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort } });
+          return Response.json(await narrateBuild(env, dBody, { picker: models.picker, request: brief, slug: namedSlug || "" }), { status: 503 });
         }
         // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
         // the one refusal below, after the ownership lookup. It used to be
@@ -21063,7 +21235,14 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // now be priced from two different rows, and this is the field that says
         // which is which.
         models: { picker: models.picker, design: models.design, pages: models.pages },
-        buildFacts: buildFacts({ images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged }) || undefined,
+        // AND WHY IT STOPPED, when it stopped in an ordinary way (2026-10-08,
+        // the eighth batch): the page writer failed, or the pages did not
+        // compile. An outage (the provider out of balance, no room to
+        // compile, the live pages unconfirmed) keeps its fixed sentence.
+        buildFacts: buildFacts({
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
+          failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
+        }) || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));
       })(), bHeld.parts);
 }

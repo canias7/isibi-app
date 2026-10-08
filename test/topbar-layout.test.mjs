@@ -303,7 +303,9 @@ test("the server's own message reaches the customer", () => {
   // and makes no request at all, so there is no second 503 to keep in step.
   // RE-ANCHORED 2026-10-02 (the audit's W7): through `end`, the rewrite's
   // finish that adds what was put off.
-  assert.equal((src.match(/\b(?:finish|end)\(buildDownMsg\(d\)\)/g) || []).length, 1,
+  // RE-ANCHORED 2026-10-08 (the eighth batch): through `endTold`, which ends
+  // with the same message and shows any facts the answer carries beside it.
+  assert.equal((src.match(/\b(?:finish|end|endTold)\(buildDownMsg\(d\)\)/g) || []).length, 1,
     "the React send path no longer cans its own 503 message");
   assert.match(src, /const end = \(said\) => finish\(said \+ alsoTail\(heldSaid, false\)\);/, "the rewrite's failures no longer end through its own finish");
   // And the canned sentence is no longer written at a call site.

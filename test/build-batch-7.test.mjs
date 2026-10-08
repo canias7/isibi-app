@@ -36,6 +36,7 @@ import { buildFacts } from "../builder/build-answer.mjs";
 import { publishPages } from "../builder/publish-pages.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
 import { PUBLISH_RESERVE_MS } from "../builder/build-budget.mjs";
+import { tweakParser } from "../builder/site-tweak.mjs";
 
 const SLUG = GOOD_DESIGN.slug;
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
@@ -229,7 +230,7 @@ const boughtBoth = (pages) => withPictureFacts(Promise.resolve({
   attempted: [shotKey("a loaf on the counter"), shotKey("the menu board")], notTried: [], refused: [], unresolved: [],
 }), { plan: PLAN, budget: 6 });
 const gen = (pages) => async () => ({ input: { pages, notes: "" }, usage: { in: 1, out: 1, cacheRead: 0, cacheWrite: 0 } });
-const base = (over) => ({ compile: async () => ({ ok: true, files: { "index.html": { t: "<built>" } } }), publish: async () => {}, readCredits: async () => 500, useCredits: async (n) => n, ...over });
+const base = (over) => ({ parser: tweakParser, compile: async () => ({ ok: true, files: { "index.html": { t: "<built>" } } }), publish: async () => {}, readCredits: async () => 500, useCredits: async (n) => n, ...over });
 const stageOf = (out) => Object.fromEntries(out.images.pictures.map((x) => [x.describe, x.status + "/" + (x.stage || "-")]));
 const told = (out) => buildReplyFacts(buildFacts({ images: out.images })).facts.map((f) => f.text || f).join("\n");
 
@@ -245,7 +246,7 @@ test("2 (Codex's reproduction): a successful purchase, then compilation FAILS �
   assert.equal(published, 0);
   assert.equal(stageOf(out)["a loaf on the counter"], "made/in-source");
   const said = told(out);
-  assert.doesNotMatch(said, /put on the site|published on the site/, "a picture that never went live was told as on the site:\n" + said);
+  assert.doesNotMatch(said, /put on the site|published on the site|shown on a published page/, "a picture that never went live was told as on the site:\n" + said);
   assert.match(said, /did not go live with them[^\n]*a loaf on the counter/);
 });
 
@@ -260,7 +261,7 @@ test("2: SALVAGE stubs the page holding one picture and publishes the rest — t
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.deepEqual(stageOf(out), { "a loaf on the counter": "made/published", "the menu board": "made/stored" });
   const said = told(out);
-  assert.match(said, /published on the site: “a loaf on the counter”/);
+  assert.match(said, /shown on a published page: “a loaf on the counter”/);
   assert.match(said, /not on any page that was published[^\n]*the menu board/);
 });
 
@@ -272,19 +273,23 @@ test("2: the PUBLISH is refused after a clean compile — the error carries the 
   assert.ok(thrown, "the refused publish did not throw");
   assert.ok(thrown.images, "the refused publish dropped the picture facts");
   assert.equal(thrown.images.pictures.find((x) => x.describe === "a loaf on the counter").stage, "in-source");
-  assert.doesNotMatch(buildReplyFacts(buildFacts({ images: thrown.images })).facts.map((f) => f.text || f).join("\n"), /published on the site/);
+  assert.doesNotMatch(buildReplyFacts(buildFacts({ images: thrown.images })).facts.map((f) => f.text || f).join("\n"), /published on the site|shown on a published page/);
 });
 
 test("2 CONTROL: a clean compile and publish — the picture is published and told as on the site", async () => {
   const out = await publishPages(base({ generate: gen([HOME]), images: boughtBoth }), { spec: { tables: [] }, slug: "harbour-loaf" });
   assert.equal(out.page, "app");
   assert.equal(stageOf(out)["a loaf on the counter"], "made/published");
-  assert.match(told(out), /published on the site: “a loaf on the counter”/);
+  assert.match(told(out), /shown on a published page: “a loaf on the counter”/);
 });
 
 test("2: pictureStages is exact — a made picture with no address, or one in no final source, is stored; other entries are untouched", () => {
   const pics = [{ describe: "a", status: "made", url: "/u/a.jpg" }, { describe: "b", status: "made" }, { describe: "c", status: "failed" }];
-  assert.deepEqual(pictureStages(pics, { sources: ['<img src="/u/a.jpg">'], published: true }).map((x) => x.stage), ["published", "stored", undefined]);
+  const yes = new Map([["/u/a.jpg", "yes"]]);
+  assert.deepEqual(pictureStages(pics, { sources: ['<img src="/u/a.jpg">'], published: true, shown: yes }).map((x) => x.stage), ["published", "stored", undefined]);
+  // The eighth batch: no render reading, or "unknown", is unconfirmed; "no" is not shown.
+  assert.deepEqual(pictureStages(pics, { sources: ['<img src="/u/a.jpg">'], published: true }).map((x) => x.stage), ["unconfirmed", "stored", undefined]);
+  assert.deepEqual(pictureStages(pics, { sources: ['<img src="/u/a.jpg">'], published: true, shown: new Map([["/u/a.jpg", "no"]]) }).map((x) => x.stage), ["not-shown", "stored", undefined]);
   assert.deepEqual(pictureStages(pics, { sources: ['<img src="/u/a.jpg">'], published: false }).map((x) => x.stage), ["in-source", "stored", undefined]);
   assert.deepEqual(pictureStages(pics, { sources: [], published: true }).map((x) => x.stage), ["stored", "stored", undefined]);
 });
