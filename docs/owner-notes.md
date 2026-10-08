@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the sixth Build batch in `04f94e9e`)
+## Current handoff — read this first (2026-10-08, the seventh Build batch in `f3221a9a`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,97 +11,101 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`, ending in
-  **`04f94e9e`** (this batch) and its records. Before it, the fifth batch
-  (`6e27ddd4`).
-- Nothing merged, deployed or built; no paid call; no live retest; no SQL
+  **`f3221a9a`** (this batch) and its records. Before it, the sixth batch
+  (`04f94e9e`, records `1a294654`).
+- Nothing merged, deployed or built. No paid call, no paid retest, no SQL
   applied.
-- **Codex passed all 20 of the fifth batch's focused tests** on
-  `366dc581`; those fixes are kept.
+- **Codex passed 49 focused tests on `1a294654` and confirmed CI green.**
+  Those passes are kept: all 49 still pass, among the full suite.
+- The limits of 1 page and 15 components are unchanged.
 
-**This batch: four gaps, closed together.** The record is
-`docs/history/2026-10-08-build-batch-6.md`.
-- **One delivery rule for every writer of a build's answer.**
-  - Codex showed it: the resume, released after recovery finished, wrote
-    over recovery's answer and erased the 6-credit refund.
-  - Now every writer reads the slot and recovery's settlement record, and
-    applies one shared rule. It writes only if nothing changed under it,
-    and otherwise decides again.
-  - The writers are the queue consumer, the resume, recovery, and the
-    busy, stale and stop answers.
-  - The build's own final answer decides what was published. Recovery's
-    record decides the money. In either order, the customer's answer ends
-    with both.
-- **What the build read survives the handover.**
-  - A queued build with three links used to finish with no word about
-    them.
-  - Now the first half keeps the facts: each link as used, partly used,
-    unread or never opened, and the web lookup.
-  - The resume, a failed resume and recovery all carry them; a refire uses
-    the same job and reads the same facts.
-- **Picture facts survive a failed purchase.**
-  - Which pictures were planned, and why the rest were never offered, are
-    kept even if the purchase throws.
-  - A picture whose outcome is unknown says so; it is never guessed as made
-    or failed.
-  - The states are: made, failed, not tried, not placed, not offered, your
-    own, and unknown.
-- **The build's explanations are written by the reply model, from those
-  facts.**
-  - That covers pictures, links, sections left out, and pages shown as
-    stand-ins.
-  - If the model can't write it, the customer sees one fixed "couldn't
-    write up the details" line followed by the recorded facts — nothing
-    invented, nothing lost.
-  - The fixed sentences I added last batch are withdrawn.
-  - The refund line is deterministic accounting.
+**This batch: three gaps, closed together.** The record is
+`docs/history/2026-10-08-build-batch-7.md`.
+- **A refund can no longer be erased by a failed read.**
+  - What Codex showed:
+    - the resume was held, and recovery refunded 6 meanwhile;
+    - the settlement record's read was then failed during the resume's
+      retry;
+    - the final answer dropped the refund, nothing was left to reconcile,
+      and later ticks never fixed it.
+  - Now an unreadable record is kept apart from an absent one. The writer
+    keeps the facts the answer already carries and lists the build as
+    pending.
+  - Recovery's next tick then repairs a final answer that lacks the facts.
+    It only ever adds them. It never refunds again, and never reruns the
+    build, a picture purchase or a debit.
+- **"Photographs put on the site" now needs proof that they are on the
+  site.**
+  - What Codex showed: a picture bought and then a compile failure was still
+    told as on the site.
+  - Each bought picture now says where it got to:
+    - stored;
+    - written into the pages but not published (compile failure, a refused
+      publish);
+    - published.
+  - That holds through compilation failure, salvage (a stubbed page's
+    picture is not on the site), a refused publish and success.
+  - A picture still being made when the build stopped waiting is "not
+    known", never "the image service failed".
+- **The explanation is written on every path, and shown even when the build
+  failed.**
+  - Recovery's answer and a failed resume's answer are now told by the reply
+    model from their facts.
+  - Recovery keeps its one attempt, so retrying delivery never pays for the
+    same explanation twice.
+  - With the switch off, the page says "What was recorded about this build"
+    rather than claiming the writer failed.
+  - The chat now shows the narration, or the facts and the refund, on an
+    error response too.
+  - The fixed outage messages and the refund labels are unchanged.
 
 **Tests actually run**
-- **Delivery**, through the real producer, consumer and resume, with the
-  browser closed:
-  - Codex's order and the opposite order;
-  - recovery claiming first (control);
-  - a final answer stored before recovery;
-  - the queue consumer's own final answer racing recovery, both ways;
-  - later ticks move no money and change nothing.
-- **`test/build-outcome-facts.test.mjs`, 12 cases**:
-  - three links through the real resume and through recovery;
-  - an unread link;
-  - no links (control);
-  - the reply model on (its account) and down (unavailable, facts kept);
-  - every fact state;
-  - a purchase that throws and one that returns;
-  - the inline route.
-- **3 browser cases in real Chromium**; screenshots shown to you.
-- **Before, on `366dc581`'s code: 15 of 26 fail.** The 11 that pass are
-  controls or the fifth batch's already-fixed cases.
-- **Mutation sweep: 19 of 19 killed, the comment-only control survived.**
-- **Full suite** on `04f94e9e`: **`10065 / 10065 / 0 / 0`** locally.
-- **Required CI on `04f94e9e`: green.**
-  - Unit tests run 37778846275: `10065 / 10037 / 0 / 28`. The totals
-    match; CI skips the browser cases.
-  - Site build run 37778846271: 8 of 8 green.
+- **`test/build-batch-7.test.mjs`, 16 cases**, through the real producer,
+  consumer, resume and recovery, `publishPages`, and the Worker's own
+  purchase code:
+  - Codex's two reproductions, exactly;
+  - a collected answer with the record unreadable;
+  - the record still unreadable on the next tick;
+  - salvage;
+  - a refused publish;
+  - one picture bought, one refused and one still running at the cutoff;
+  - recovery narrated once, then a retried delivery;
+  - the writer down;
+  - the switch off;
+  - a failed resume narrated;
+  - controls for each.
+- **4 new browser cases in real Chromium**, through the page's failure
+  branch: narrated, unavailable, never attempted, and a control.
+  Screenshots shown to you.
+- **Before, on `1a294654`'s code: 19 of 23 fail.** The 4 that pass are
+  controls.
+- **Mutation sweep: 21 of 21 killed, the comment-only control survived.**
+- **Full suite** on `f3221a9a`: **`10085 / 10085 / 0 / 0`** locally.
+- **Required CI on `f3221a9a`: green.**
+  - Unit tests run 37784973579: `10085 / 10053 / 0 / 32`. The totals
+    match; CI skips the browser cases (4 of them new).
+  - Site build run 37784973566: 8 of 8 jobs green.
 
 **Mocked versus live**
 - Every model answer in these tests is a stand-in: the designer, the page
-  writer and the reply writer.
-- The ledger is a stand-in, not the real database. `build_debit` is still
-  verified only as SQL text.
-- Storage is a Map that honours R2's conditions.
-- No real reply call was made, so the quality and cost of the narration are
-  unmeasured.
+  writer, the reply writer, and the image service.
+- The ledger is a stand-in, not the real database.
+- Storage is a Map that honours R2's conditions. Read failures are injected
+  one key at a time.
+- No real reply call was made. The quality and cost of narration on
+  builds, recovery and failed resumes are unmeasured.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`f3c7f6235ff045af`** (198 inputs).
+**`47b0d2fd2274633a`** (198 inputs; the picture modules are image inputs, so it moved from the sixth batch's `f3c7f6235ff045af`).
 
 **Remaining gaps**
-- **Narration with a real model is unmeasured**: its wording quality and
-  its cost per build (one unbilled reply call).
-- **A final answer written while the settlement record couldn't be read**
-  lacks the refund. Recovery doesn't revisit an answer once its delivery is
-  recorded.
-- **Recovery's own answer is not narrated**: it is a fixed state message
-  plus the facts.
-- **The outage line and the fact labels are fixed page text**, by design.
+- **Narration with a real model is unmeasured**: wording and cost per
+  build, per recovery and per failed resume.
+- **A recovery narration that could not be saved** (its record write
+  failed) may be asked again on a later retry.
+- **An inline build's own failure exits are not narrated.** They are fixed
+  messages, as before.
+- **A pending repair waits until recovery can read the build's row.**
 - **Still open from earlier batches**:
   - the add-on's 240-character description cut;
   - the link count of 2;
@@ -109,23 +113,23 @@ is in git; the dated entries further down are the full story.*
   - P6–P11, and the first audit's M2–M6, M8–M12, L1–L9 and L11–L12;
   - the billing race in production until `build_debit.sql` is applied;
   - older jobs without a protocol record stay unknown;
-  - recovery objects are never deleted.
-- **A flaky browser test**: `canary-reopen-browser` failed once under the
-  full suite's load and passes alone (backlog-worthy, not caused here).
+  - recovery objects are never deleted;
+  - `canary-reopen-browser` is flaky under the full suite's load.
 
 **Recorded for later (unchanged)**: an oversized pasted message becomes a
 complete .txt attachment (`owner-preferences.md`, backlog).
 
-**Next, as you set it**: parallel-task execution, after your review.
+**Next, as you set it**: parallel-task execution, once this batch is
+reviewed.
 
 **Yours to decide**
-- The review of `04f94e9e` (and the earlier unmerged batches).
+- The review of `f3221a9a` (and the earlier unmerged batches).
 - Whether to apply `build_debit.sql`.
 - Any release: one merge, one image build, its own runtime check, and a
-  first real measurement of the build narration.
+  first real measurement of the narration.
 
-**Links**: `docs/history/2026-10-08-build-batch-6.md` (this round),
-`docs/history/2026-10-08-build-batch-5.md`,
+**Links**: `docs/history/2026-10-08-build-batch-7.md` (this round),
+`docs/history/2026-10-08-build-batch-6.md`,
 `docs/investigations/build-limits-2026-10-08.md`.
 
 ## How you like things done
@@ -133,6 +137,34 @@ complete .txt attachment (`owner-preferences.md`, backlog).
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-08 — The seventh Build batch: refunds survive failed reads, pictures told by where they got to, explanations on every path (on the branch, `f3221a9a`; nothing merged, deployed, built or paid)
+
+Codex found three more gaps after passing the sixth batch's tests.
+- **A failed read could erase a refund.** If the settlement record couldn't
+  be read at the wrong moment, the final answer lost the refund for good.
+  Now the facts already known are kept, the build is listed pending, and
+  recovery fills the facts back in on its next pass. It never refunds or
+  rebuilds again.
+- **A bought picture was told as on the site even when nothing was
+  published.** Now each picture says whether it is stored, in the pages but
+  not live, or published. A picture still being made at the cutoff is
+  unknown, not failed.
+- **Recovery and failed builds weren't explained by the reply model, and
+  the chat hid facts on errors.** Now both are narrated (once for
+  recovery), the page shows the facts on an error too, and a switched-off
+  writer is not called a failure.
+
+What was run:
+- 20 new tests, 19 of 23 failing on the old code;
+- sweep: 21 of 21 killed;
+- suite: `10085 / 10085 / 0 / 0`;
+- CI green (unit `10085 / 10053 / 0 / 32`, site build 8 of 8).
+
+All model answers in the tests are stand-ins. The record is
+`docs/history/2026-10-08-build-batch-7.md`.
 
 ---
 

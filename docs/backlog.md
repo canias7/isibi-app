@@ -56,12 +56,16 @@ here; take a closed one out of both.**
     P5's link count of 2 (kept as an abuse bound, links past it named), and
     P6–P11 remain (`docs/investigations/build-limits-2026-10-08.md`);
   - the build's explanations (pictures, links, unwritten sections, stand-in
-    pages) are told by the reply writer since the sixth batch; its real-model
-    quality and per-build cost are unmeasured, recovery's own answer is not
-    narrated, and the outage line and fact labels are fixed page text;
-  - a final answer written when the settlement record could not be read
-    lacks the refund, and recovery does not revisit it once delivery is
-    recorded (the sixth batch);
+    pages, settlement) are told by the reply writer since the sixth batch,
+    and on recovery's answer and a failed resume's since the seventh; the
+    real-model quality and the cost per build, per recovery and per failed
+    resume are unmeasured. An inline build's own failure exits are not
+    narrated. A recovery narration whose record write failed may be asked
+    again on a later delivery retry. The outage line and the fact labels are
+    fixed page text;
+  - a final answer written while the settlement record cannot be read is
+    repaired by recovery's next tick (the seventh batch), but only once the
+    build's row can be read; until then it stays pending;
   - the browser's size refusal says "beside your site" even before a site
     exists (existing wording, unchanged).
 - **An oversized pasted message as a complete .txt attachment** (2026-10-08,
