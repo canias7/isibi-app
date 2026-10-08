@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the continuation's later charges reconciled in `e2dc4039`; the first-Build audit's confirmed gaps for your choice)
+## Current handoff — read this first (2026-10-08, the first Build correction batch in `c7aaf1e5`; the continuation's accounting closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,191 +8,111 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
-  `335396c8c0e0fbcb`), unchanged. **Balance 11** (read at 03:21:27 UTC; last
-  ledger row 409; no job open).
-- **On the branch, unmerged**: `2f2b9ace`, `1537c518`, `d24ab456`,
-  `2506e43b`, `eaa516e7`, and records. Nothing merged, deployed or built.
-- **The menu-clearing correction round is closed** (Codex passed `50f4ef44`
-  on all 16 checks). Its limits stay documented below.
+  `335396c8c0e0fbcb`), unchanged. **Balance 11** (last ledger row 409; no job
+  open; not read again this round, which moved no money).
+- **On the branch, unmerged**: everything since `9d6bda8a`, now ending in
+  `c7aaf1e5` (this batch's code and tests) and its records. Nothing merged,
+  deployed or built; no paid call; no live retest.
+- **The continuation's accounting round is closed.** Codex reviewed
+  `8ac4a235`, passed 11 focused checks and confirmed CI green.
 
-**The continuation, recorded apart from run 107** (which stays failed).
-- **Run 108, the free preflight** (run id 37721002723, 03:04–03:08 UTC, from
-  `ea431f1c`): green. It read the question waiting and answerable on deploy
-  `9d6bda8afc4e` and image `335396c8c0e0fbcb`. Nothing was sent; the balance
-  stayed 15.
-- **Run 109, the one paid answer** (run id 37721625850, 03:12–03:20 UTC,
-  from `0c8a2f42`):
-  - the guard re-read the named question immediately before Send, then sent
-    *"It's tiktok.com/@harbourloaf"* once;
-  - **the right part resumed**: request `475d4ff7…` part 1. The add-on step
-    handed it to the menu step, and the request ended with both parts done;
-  - **the link published** (`09n7s1`, 03:17:45 UTC) on all 10 pages with a
-    footer, read by the canary and again by me on the public site.
-    `/starter`, the unfinished placeholder, has no footer;
-  - **earlier work kept**: every stored page is byte for byte as before
-    apart from the new link, and run 107's Order heading is still served.
-    No page was added or removed, the tables are unchanged and every page
-    answers 200;
-  - **replies match**: the model's own, on screen, *"✅ I’ve added a TikTok
-    link to the footer’s social links on 10 pages."*. 0 console or page
-    errors;
-  - **money, 4 credits** (estimate 2–5): routing −3 (row 408) and the
-    footer job −1 (row 409). That is 15 → 11, no later row after 7 minutes,
-    no duplicate, no open job.
-- **Why run 109 shows red** (its original verdict, kept as printed): "this
-  press's own charges add up" summed 3 + 6 = 9. It counted run 107's two
-  charged jobs on the same request as this press's, and run 107's publish
-  left last pointed the wait backward. The caller did fetch the later rows;
-  the later verdict short-circuited on the invalid snapshot (corrected
-  wording; the earlier note said the read was skipped).
-- **Corrected in the canary, `a0cbc473`** (Codex's review of `64148e83`, no
-  product code):
-  - the request's jobs at the gate before Send are the baseline, and this
-    press's activity is what the request gained after it;
-  - the same attribution feeds the charges, the publishes and the wait
-    target (the end of the chain);
-  - an earlier job charged again fails the money;
-  - the later read uses every job (`parts[].ids`) and this press's own
-    routing refs, and keeps its rows when the snapshot fails.
-- **Tests**: 8 new cases (`test/canary-continuation.test.mjs`).
-  - **Run 109 replayed offline** from its transcribed evidence: live 9 and
-    `parent-mismatch` reproduced as printed; corrected, **4 credits**
-    (routing 3 + footer job 1, nothing else), one publish `09n7s1`, the
-    chain verified, the later read settled at 4.
-  - **Checks**: red check 7 of 8 failing on `64148e83`'s code (the clean
-    chain is the control); sweep 13 of 13; canary files 508 of 508; full
-    suite **9918 of 9918**. Unit CI green: run 37723761994 on `5ff16a6f`, 9918 tests, 9896 pass, 0 fail, 22 skipped (the totals match). Only scripts, tests and docs changed, so no site build ran and no image moves.
-- **Not verified by this**:
-  - run 107's unsent third message as its own press (run 107 stays failed);
-  - the unreleased reply corrections (`2506e43b`, `eaa516e7`, not deployed);
-  - progress lines during the answer's job (the press read the replies).
-
-**Remaining release gaps**:
-- The branch's reply-evidence corrections are unreleased, so the next image
-  `59059c19e7c883fd` is predicted, not built. A release needs your word, one
-  merge, one image build and its own runtime check.
-- The canary's continuation attribution is fixed on the branch
-  (`a0cbc473`) and shown offline only. No continuation press has run on it.
-- Run 107's open findings (routing every part in one call, prompt caching)
-  stay in the backlog.
-
-**The later charges, reconciled (`e2dc4039`, Codex's review of
-`c856f1f4`; canary only, synthetic checks, no claim that production
-overcharged)**:
-- an earlier job's refund is an adjustment, not a duplicate;
-- an extra debit on a settled job (Codex's footer case: total 5, settled) is
-  now `unexpected`, total 4, not reconciled;
-- rows the snapshot counted count once;
-- each job is read again and reconciled by `jobCharges`;
-- unreadable or unsettled records are unverified;
-- "request ended" and "charges reconciled" are separate, and settled needs
-  both.
-
-The run 109 replay and the chain controls are unchanged and pass. Red check
-on `c856f1f4` (both reproductions print as reported); sweep 12 of 12; canary
-files 517 of 517; full suite **9919 of 9919**. Unit CI green: run 37725278048 on `5a55b5bb` (`e2dc4039` plus records), 9919 tests, 9897 pass, 0 fail, 22 skipped (the totals match). Only scripts, tests and docs changed, so no site build ran and no image moves.
-
-**The first-Build audit is done; nothing is fixed yet**
-(`docs/investigations/first-build-audit-2026-10-08.md`). It found 30
-confirmed gaps: 6 high, 12 medium, 12 low. The high ones:
-- **H1** a build swept `lost` keeps its design charge, and its message can
-  be false;
-- **H2** the customer's access token is used for ledger calls long after
-  the request (an expired token means an uncollected settle, a false "not
-  enough credits", or a site published free);
-- **H3** the customer's attachments become the design's photo list (no
-  photographs, or a data URL stored in the settings);
-- **H4** a first build with no usable design still builds and charges;
-- **H5** a failed source save is masked, so the next edit can undo a revise;
-- **H6** an attached photo is shown to the model but never stored or placed.
-
-Also: salvage can never fire (M1), and stale docs (CLAUDE.md's `buildFloor`,
-the salvage backlog cause).
-
-**Next, in order**: your choice of the first implementation batch from the
-audit, then dependency-based parallel-execution planning.
-
-**The closed correction round, for reference.** What Codex confirmed on `c288078d`: the false-conditional and
-unused-local-component reproductions pass, genuine links are still
-recognised, dynamic conditions stay not known, and CI is green.
-
-**The gap, reproduced on `c288078d`**: four forms each gave the false fact
-*"The menu on / now links to /allergens."*:
-- `<SiteChrome links={[…Allergens…]} {...{links:null}}/>`, and the same with
-  `undefined`;
-- `const props = {...base, ...{links:null}}` rendered as
-  `<SiteChrome {...props}/>`, and the same with `undefined`.
-
-The cause: the reader used one value both for "key not written" and for "key
-written as null or undefined", so the clearing spread was skipped.
-
-**The correction (`eaa516e7`, `builder/rendered-menus.mjs`)**
-- Presence is tracked apart from the value, in source order, across JSX
-  attributes and spreads and across an object's own spreads:
-  - a key written as `null` or `undefined` (or an empty array) clears the
-    earlier menu;
-  - a spread that does not write `links` leaves it;
-  - a later genuine array wins over an earlier clearing;
-  - an unreadable spread makes it not known.
-- **Unchanged**: the navigation editor, the reply's facts and rules, and the
-  model-written wording.
+**The first Build correction batch (`c7aaf1e5`): H1–H6, M7, L10 and M1**
+The full record is `docs/history/2026-10-08-build-batch.md`. Each finding was
+first reproduced through its route or shared boundary, with supplied model
+answers and controlled failures, and the reproductions are committed
+(`test/build-audit-batch.test.mjs`, 39 cases).
+- **H1, lost builds.** Qualified first: the row's sentence said "You weren't
+  charged for the pages" — true of the pages, silent about the deposit and
+  the design call already taken; it never said nothing was charged.
+  - A lost build is now reconciled from the pointer and the ledger before any
+    refund or sentence: reversed by ref when nothing published; kept when the
+    site went live; untouched, with nothing written, when the pointer cannot
+    be read.
+  - Repeated recovery cannot double-charge (it never debits) or over-refund
+    (`credit_reverse` is bounded and idempotent; a marker keeps the settled
+    answer).
+  - The row's own sentence makes no money claim now.
+- **H2, the expiring token.** A queued build whose bearer expired runs as its
+  row's own account, vouched for by the lease holder (the row read with the
+  service key, matched to the account the job was filed with). The ledger
+  still asks the bearer first, and uses `build_debit` only when the bearer is
+  refused. **`supabase/proposed/build_debit.sql` is not applied — it needs
+  your word.** Until then an expired bearer's debit fails as before, and the
+  build gives back what it took by ref.
+- **H4, missing design output.** A first build with no name, purpose or page
+  stops right after the design call and gives the deposit back, before
+  seeding, provisioning and generation. A valid frontend-only design with no
+  tables still builds.
+- **H3, H6, M7, attachments and photographs.**
+  - The request's attachments are never stored as the photograph plan (H3).
+  - The designer is told the files by name. When it ties a picture to one,
+    that file is stored as an owner upload and handed to the page writer by
+    its url, never bought. A reference image is never stored; a name that
+    matches nothing is told (H6).
+  - A refire reads the attached files back from beside the resume record
+    (M7).
+- **H5, editable source.** The marker moves only when source, parts and kit
+  all saved. A version keeps its kit. Every reader that goes on to publish —
+  the revise anchor, the platform rebuild, the text editor and "Back online"
+  — reads the checked source and stops, or says so, when it is not the live
+  version's.
+- **M1, salvage.** It follows the container's real contract: a bundler
+  failure citing one of the build's own pages. Infrastructure failures cite
+  none and are never stubbed; the missing section is told.
+- **L10.** Debits whose answer was lost are reversed by ref, and a reversal
+  that cannot be made reads as short.
 
 **Tests actually run this round**
-- **HELD 13, 24 cases, each through `renderedMenus`, `menuLinksKept` and
-  `addonReplyFacts`**:
-  - Codex's four as written: not known, never kept;
-  - the four beside a Home menu: not told;
-  - direct clearing attributes, a shorthand `null` and empty arrays: not
-    told;
-  - unrelated spreads and a spread of `null`: kept;
-  - reversed order: the later genuine array wins;
-  - an unresolved final spread (a parameter, an import): not known;
-  - a missing member, spreads that never write `links`, and a conditional
-    explicit `null`: no menu, and not unknown.
-- **Kept passing**: the conditional, unused-component and genuine-menu
-  controls (HELD 9–12) and the corpus check (324 pages read; 300 sure and
-  exact; 16 not known).
-- **Red check on `c288078d`**: HELD 13 fails at Codex's first case.
-- **Sweep** (`scripts/mutants/codex-c288078d.json`): 12 of 12 killed, and the
-  comment-only control survived. The 3 first-pass survivors were closed by
-  the three "no menu, not unknown" cases.
-- **The 74 related test files**: 2577 of 2577. **Full suite**: **9910
-  tests, 9910 pass, 0 fail, 0 skipped**.
-- **Required CI green**: unit tests run 37719339907 on `277d3e29` (`eaa516e7`
-  plus records), **9910 tests, 9888 pass, 0 fail, 22 skipped** (CI skips the
-  22 browser cases; the total matches the local run); site build run
-  37719267974 on `eaa516e7`, all eight jobs green. The unit run on
-  `eaa516e7` itself was cancelled by the records push.
+- **Red check**: the batch file over `8ac4a235`'s code — **36 of 39 fail**;
+  the 3 that pass are exactly the controls.
+- **Mutation sweep**: **33 of 33 killed, 2 comment-only controls survived**
+  (`scripts/mutants/build-batch-2026-10-08.json`). The one first-pass
+  survivor was an equivalent check, removed, and its replacement mutant was
+  killed.
+- **Full suite** on `c7aaf1e5`: **9959 of 9959** locally (`9959 / 9959 / 0 / 0`).
+- **Existing guards**: 52 failed first. Real regressions were found and
+  fixed (a balance read, live-token billing, the Dockerfile's worker tree).
+  Pins on the old spellings were re-anchored with reasons in place, and the
+  one case asserting the salvage defect was converted.
+- **Required CI green on `c7aaf1e5`**: unit tests run 37730110015 (`9959 / 9937 / 0 / 22` — the totals match; CI skips 22), and site build run 37730110049, all 8 jobs green.
 
-**Limits that remain** (the reader's bounds):
-- A page whose only menu is cleared is told as not known, not as having no
-  menu.
-- These are all not known: a second `return`, a real condition, a callback,
-  JSX in a prop, a component called as a function, and a local component's
-  children.
-- An imported component's children are assumed rendered.
-- Mutation is seen only within the file.
-- With no parser (a job run inline in the Worker), every link is not known.
+**The next image, predicted** (not built): `335396c8c0e0fbcb` (production) →
+**`f39e59b4bdb7ec77`** (198 inputs; the branch's previous prediction was
+`59059c19e7c883fd`, 197). The new input is `builder/attached-photos.mjs`.
 
-**The next image, predicted** (not built): `335396c8c0e0fbcb` →
-**`59059c19e7c883fd`** (197 inputs).
+**Release limitations** (in full in the history and the backlog)
+- `build_debit` must be applied before an expired bearer's build can be
+  billed; a container-run build is not admitted to it at the gateway.
+- A build that publishes after it was reconciled lost, with a live bearer,
+  charges its pages after the refund.
+- A later edit to the same site within the window reads as the lost build's
+  publish.
+- An unknown outcome past the one-day window moves nothing.
+- The reply cannot see whether the writer placed a customer's photograph.
+- A real model's use of `attached` is unmeasured (no paid call).
+- A lost pages-debit answer on a charged stage reads as nothing taken.
+- The build's replies are still composed in code from the outcome's facts;
+  model-written build replies are not in this batch.
+
+**Remaining audit items**: M2–M6, M8–M12, L1–L9 and L11–L12, as
+`docs/investigations/first-build-audit-2026-10-08.md` lists them. That file
+now records the reviewed commit (`e2dc4039`, product code identical at
+`8ac4a235`), the corrected `site-builds.mjs` path and H1's qualification.
 
 **Yours to decide**
-- Your review of runs 108 and 109 (the presses are done; no rerun).
-- Releasing the branch (one merge, one image build) when you choose.
-- **The order stays**: finish the current Edit/Add-on verification, then
-  audit the first Build, then plan dependency-based parallel execution.
+- Whether to apply `supabase/proposed/build_debit.sql`.
+- The review of `c7aaf1e5`, then any release (one merge, one image build,
+  its own runtime check).
+- Next in order, as you set it: dependency-based planning for parallel
+  execution (not started; no product parallel-execution change made here).
 
-**Still open** (`docs/backlog.md`): run 107's findings; the canary's continuation accounting (run 109); the BG11 load flake;
-the site build's Chromium install stall (seen once); the provisioning and undo
-items carried from earlier rounds. An uncertain database creation can still
-need your manual settlement (the note under
-`source/<slug>/neon-unrecorded/`).
+**Still open** (`docs/backlog.md`): the audit's remaining items and this
+batch's limits; run 107's findings (routing every part in one call, prompt
+caching); the BG11 load flake.
 
-**Links**: `docs/history/2026-10-08-run107-followup.md` (§12 is the continuation, §11 the closed round),
-`docs/history/2026-10-07-combined-release.md`, `docs/backlog.md`.
-
----
+**Links**: `docs/history/2026-10-08-build-batch.md` (this round),
+`docs/history/2026-10-08-run107-followup.md` (the closed continuation
+rounds), `docs/investigations/first-build-audit-2026-10-08.md`.
 
 ## How you like things done
 
@@ -201,6 +121,34 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The first Build correction batch: H1–H6, M7, L10, M1 (on the branch, `c7aaf1e5`; nothing merged, deployed, built or paid)
+
+You closed the continuation's accounting (Codex passed `8ac4a235` on 11
+checks, CI green) and asked for the first Build batch. Each finding was
+reproduced first through its route, with supplied model answers, and those
+reproductions are committed; the audit now names the reviewed commit,
+`site-builds.mjs`'s real path and H1's exact words.
+- **Lost builds** are checked against what was published and what was
+  charged before anything is refunded or said, and doing it twice changes
+  nothing.
+- **A build whose sign-in expired** runs as its own account, vouched for by
+  the job's row. Billing it that way needs the proposed `build_debit` SQL,
+  which is yours to apply.
+- **A first build with no usable design** stops straight after the design
+  call and gives the deposit back. A design with no database still builds.
+- **Attachments are never the photo plan.** A photo the customer asked to
+  show is stored as theirs and placed by its address, a reference image is
+  never stored, and a retried build still has the files.
+- **A failed save never marks old files as current**, and anything that
+  publishes reads the live version or stops and says so.
+- **One page that does not bundle costs that page, not the site.** Outages
+  are never treated as a bad page.
+- **Charges whose answer was lost are given back by reference.**
+
+Checks: red 36 of 39 on the old code (the 3 controls pass), sweep 33 of 33,
+full suite 9959 of 9959, unit CI and site build green on `c7aaf1e5`. Next image predicted
+`f39e59b4bdb7ec77`. The record is `docs/history/2026-10-08-build-batch.md`.
 
 ## 2026-10-08 — The continuation's later charges reconciled; the first-Build audit (on the branch, `e2dc4039`; nothing merged, deployed, built or paid)
 

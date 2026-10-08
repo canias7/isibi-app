@@ -21,8 +21,23 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - **The first-Build audit's confirmed gaps** (2026-10-08): 6 high, 12 medium
-  and 12 low, in `docs/investigations/first-build-audit-2026-10-08.md`. None
-  is fixed; the owner chooses the first batch.
+  and 12 low, in `docs/investigations/first-build-audit-2026-10-08.md`.
+  **H1–H6, M7, L10 and M1 are corrected on the branch** (2026-10-08, the
+  first batch; not merged, not deployed), awaiting your review:
+  `docs/history/2026-10-08-build-batch.md`. **Still open**: M2–M6, M8–M12,
+  L1–L9 and L11–L12 as the audit lists them, and the batch's own limits
+  below.
+- **The build batch's limits** (2026-10-08):
+  - `supabase/proposed/build_debit.sql` must be applied (your word) before
+    an expired bearer's build can be billed;
+  - a container-run build is not admitted to `build_debit` at the gateway;
+  - a build that publishes after it was reconciled lost, with a live bearer,
+    charges its pages after the refund;
+  - a later edit within the window reads as the lost build's publish;
+  - an unknown outcome past the one-day window moves nothing;
+  - the reply cannot see whether the writer placed a customer's photograph;
+  - a real model's use of `attached` is unmeasured;
+  - a lost pages-debit answer on a charged stage reads as nothing taken.
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run
   107's publish last (the wait pointed backward). **Fixed on the branch in
