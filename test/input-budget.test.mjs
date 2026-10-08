@@ -53,9 +53,10 @@ test("THE TWO NUMBERS: one message is 16,000 characters and one request carries 
   assert.equal(MAX_CARRIED_CHARS, 48000);
   assert.ok(LONG.length > 2000 && LONG.length < MAX_INPUT_CHARS, "the test message is not past the old cut and inside the policy: " + LONG.length);
   assert.ok(MAX_CARRIED_CHARS >= 3 * MAX_INPUT_CHARS, "a request at the bound would have no room for its answers");
-  // AN ANSWER IS ONE MESSAGE, and a first build's own bound is untouched.
+  // AN ANSWER IS ONE MESSAGE, and since 2026-10-08 (the content-preservation
+  // batch) a first build's message is one message too — no longer 2,000.
   assert.equal(MAX_ANSWER_CHARS, MAX_INPUT_CHARS);
-  assert.equal(MAX_MESSAGE, 2000, "a first build's bound moved: the build is unchanged");
+  assert.equal(MAX_MESSAGE, MAX_INPUT_CHARS, "a first build's message is cut to a bound of its own again");
 });
 
 test("WHY THESE NUMBERS — each constraint the rationale cites is read from the code that sets it, and the arithmetic holds", () => {
@@ -135,7 +136,9 @@ test("EVERY STEP'S MODEL REQUEST CARRIES THE WHOLE MESSAGE — its last words, p
   }
   // A FIRST BUILD IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS.
   const build = text(askRequest({ message: LONG, site: {}, hasSite: false }));
-  assert.ok(build.includes(LONG.slice(0, MAX_MESSAGE)) && !build.includes(END), "a first build's message is no longer cut to its own bound");
+  // A FIRST BUILD'S MESSAGE IS WHOLE TOO since 2026-10-08 (the content-
+  // preservation batch): its last words reach the model that asks the questions.
+  assert.ok(build.includes(END), "a first build's message is cut before the model that acts on it");
 });
 
 test("ROOM TO COPY THE CUSTOMER'S WORDS BACK: the router's and the picker's ceilings grow with the message; a first build's is unchanged", () => {

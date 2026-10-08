@@ -72,7 +72,11 @@ export const ASK_MAX_TOKENS = 700;
  * the size policy (`MAX_INPUT_CHARS` in input-budget.mjs), refused beyond it
  * and never cut.
  */
-export const MAX_MESSAGE = 2000;
+// THE ONE-MESSAGE POLICY FOR A FIRST BUILD TOO (2026-10-08, the content-
+// preservation batch): the questions are asked of the whole message, which the
+// route already refuses past `MAX_INPUT_CHARS` — never of a 2,000-character
+// prefix.
+export const MAX_MESSAGE = MAX_INPUT_CHARS;
 
 /**
  * HOW MANY QUESTIONS A FIRST BUILD MAY ASK, ENFORCED IN CODE.

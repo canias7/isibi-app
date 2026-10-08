@@ -824,7 +824,9 @@ test("the BUILD route folds the answers in, and does it in one place", () => {
   // argument grew a comment explaining that a non-string is no longer coerced
   // (the `String(["a","b"])` class, which the two readers beside it already
   // refused), and `body.qa` on the next line fell out of range.
-  const callEnd = w.indexOf("\n      ).slice(", i);
+  // THE CALL ENDS WITHOUT A CUT since 2026-10-08 (the content-preservation
+  // batch): it closed with `.slice(0, 5000)`.
+  const callEnd = w.indexOf("\n      );", i);
   assert.ok(callEnd > i, "the clarifiedBrief call was reshaped — rescope this");
   assert.match(w.slice(i, callEnd), /body\.qa/, "the answers never reach it");
   // ONE implementation. The composer cannot import the module, so a copy there
@@ -1971,7 +1973,7 @@ test("it is bounded ON THE SCREEN — one more sentence, not a second brief — 
   // (One message of the size policy, 2026-10-03; it was 2,000.)
   assert.deepEqual(readAlso({ alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), {});
   assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_INPUT_CHARS) }).alsoAsked.length, MAX_INPUT_CHARS);
-  assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE + 1) }).alsoAsked.length, MAX_MESSAGE + 1, "a part past the old 2,000 was dropped");
+  assert.equal(readAlso({ alsoAsked: "x".repeat(2001) }).alsoAsked.length, 2001, "a part past the old 2,000 was dropped");
   // THE SCREEN'S BOUND is this constant, read off the browser's own composer.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   const open = chat.indexOf("\nfunction alsoTail(");

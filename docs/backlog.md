@@ -49,9 +49,13 @@ here; take a closed one out of both.**
     deleted;
   - the reply cannot see whether the writer placed a customer's photograph;
   - a real model's use of `attached` (an id) is unmeasured;
-  - the Build limits proposals await your review, with P3–P5 revised to
-    keep requirements rather than truncate
-    (`docs/investigations/build-limits-2026-10-08.md`).
+  - the Build limits proposals: P1, P4, the brief and answers, sections and
+    actions are done (the content-preservation batch); P2, P3's purpose and
+    image-description cuts, P5–P11 and the writer offered only the photos
+    the budget allows still await review
+    (`docs/investigations/build-limits-2026-10-08.md`);
+  - the browser's size refusal says "beside your site" even before a site
+    exists (existing wording, unchanged).
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run
   107's publish last (the wait pointed backward). **Fixed on the branch in

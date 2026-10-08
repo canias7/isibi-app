@@ -1,0 +1,123 @@
+[
+{
+"label": "photos: the cut at two restored",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "    out.push({ page, describe, ...(attached ? { attached } : {}), ...(src ? { src } : {}) });\n  }",
+"to": "    out.push({ page, describe, ...(attached ? { attached } : {}), ...(src ? { src } : {}) });\n    if (out.length >= 2) break;\n  }"
+},
+{
+"label": "sections: count cap restored",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "    const sections = lines(s.sections, { cap: MAX_SECTION, max: Number.POSITIVE_INFINITY });",
+"to": "    const sections = lines(s.sections, { cap: MAX_SECTION, max: MAX_SECTIONS });"
+},
+{
+"label": "sections: 120-char cut restored",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "const MAX_SECTION = MAX_INPUT_CHARS;",
+"to": "const MAX_SECTION = 120;"
+},
+{
+"label": "actions: caps restored",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "  const action = lines(p.action, { cap: MAX_INPUT_CHARS, max: Number.POSITIVE_INFINITY });",
+"to": "  const action = lines(p.action, { cap: 80, max: MAX_ACTION });"
+},
+{
+"label": "bands: extras sliced off",
+"files": [
+"builder/page-bands.mjs"
+],
+"from": "  return [...all.slice(0, MAX_BANDS - 1), all.slice(MAX_BANDS - 1).join(\" \u2014 then \u2014 \")];",
+"to": "  return all.slice(0, MAX_BANDS);"
+},
+{
+"label": "bands: more writers than the band count",
+"files": [
+"builder/page-bands.mjs"
+],
+"from": "  if (all.length <= MAX_BANDS) return all;",
+"to": "  return all;"
+},
+{
+"label": "brief: build reads the rewrite's 4,000",
+"files": [
+"worker.js"
+],
+"from": "  return heldParts(hit && hit[0] === \"brief\" ? asked : asked.slice(0, REWRITE_MAX_CHARS), body && body.alsoAsked);",
+"to": "  return heldParts(asked.slice(0, REWRITE_MAX_CHARS), body && body.alsoAsked);"
+},
+{
+"label": "brief: no refusal past the policy",
+"files": [
+"worker.js"
+],
+"from": "        if (longest > MAX_INPUT_CHARS || brief.length > MAX_CARRIED_CHARS) {",
+"to": "        if (false) {"
+},
+{
+"label": "brief: answers not checked",
+"files": [
+"worker.js"
+],
+"from": "        const parts = [String(bLater.run || \"\"), ...(Array.isArray(body.qa) ? body.qa : []).map((p) => String((p && p.a) || \"\"))];",
+"to": "        const parts = [String(bLater.run || \"\")];"
+},
+{
+"label": "ask route: first build excluded again",
+"files": [
+"worker.js"
+],
+"from": "      if (rb && typeof rb.message === \"string\" && rb.message.trim().length > MAX_INPUT_CHARS) {",
+"to": "      if (rb && rb.firstBuild !== true && typeof rb.message === \"string\" && rb.message.trim().length > MAX_INPUT_CHARS) {"
+},
+{
+"label": "clarify model: 2,000 prefix restored",
+"files": [
+"builder/site-ask.mjs"
+],
+"from": "export const MAX_MESSAGE = MAX_INPUT_CHARS;",
+"to": "export const MAX_MESSAGE = 2000;"
+},
+{
+"label": "composer: first build cut at 2,000",
+"files": [
+"public/chat.js"
+],
+"from": "  const t = String(text || '').trim();\n  const firstBuild",
+"to": "  const t = String(text || '').trim().slice(0, 2000);\n  const firstBuild"
+},
+{
+"label": "composer: no policy check for a first build",
+"files": [
+"public/chat.js"
+],
+"from": "  if (siteTooLong(siteOpenId, t, leaveDraft, site.clarify || site.ask ? 'answer' : 'message')) return;",
+"to": "  if (site.slug && siteTooLong(siteOpenId, t, leaveDraft, site.clarify || site.ask ? 'answer' : 'message')) return;"
+},
+{
+"label": "composer: answer cut at 200",
+"files": [
+"public/chat.js"
+],
+"from": "  // size policy is checked where it is typed (`siteSend`).\n  const said = String(label || '').trim();",
+"to": "  // size policy is checked where it is typed (`siteSend`).\n  const said = String(label || '').trim().slice(0, 200);"
+},
+{
+"label": "control: a comment",
+"files": [
+"builder/site-plan.mjs"
+],
+"from": "// WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (2026-10-08, the content-",
+"to": "// WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (control) (2026-10-08, the content-",
+"control": true
+}
+]

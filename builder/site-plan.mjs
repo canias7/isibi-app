@@ -58,6 +58,7 @@ import { UI_COMPONENTS } from "./ui-components.mjs";
 // bought another. `site-images.mjs` imports NOTHING, so this adds no cycle.
 import { MAX_PROMPT_CHARS as MAX_IMAGE_PROMPT } from "./site-images.mjs";
 import { UPLOAD_URL_PATH } from "../site-uploads.mjs";
+import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 
 
 /**
@@ -260,6 +261,9 @@ export const COMPONENT_MENU = (() => {
 // would silently delete pages off a live multi-page site on its owner's next
 // unrelated edit. New builds are one page because the PLAN is one page.
 export const MAX_PAGES = 1;
+// NOT A CAP ON WHAT IS KEPT ANY MORE (2026-10-08, the content-preservation
+// batch): every action the customer named is kept, whole. Exported for the
+// tool text and the records, which say what the old bound was.
 export const MAX_ACTION = 3;
 // 24 UNTIL 2026-08-24 ("so the model chooses how many it needs, and the cap is
 // 50"), 50 UNTIL 2026-08-28, THEN 8-15 FOR ONE AFTERNOON, AND THE OWNER TOOK
@@ -296,8 +300,16 @@ export const MAX_COMPONENTS = 15;
  * ever absorbs.
  */
 export const MAX_SECTIONS = 8;
+// WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (2026-10-08, the content-
+// preservation batch; owner: keep the requirements within the real
+// constraints, never truncate and warn afterwards). `MAX_SECTIONS` is now the
+// number of BANDS the page writer runs (one model call each), not a number of
+// sections kept: every section line is kept, whole, and `bandsOf` writes the
+// ones past it together in the last band — the same calls, nothing dropped.
+// A line, and an action, are bounded only by the input budget one message
+// may carry, which the designer's own output ceiling holds far below.
 const MAX_PURPOSE = 400;
-const MAX_SECTION = 120;
+const MAX_SECTION = MAX_INPUT_CHARS;
 const MAX_ROLE = 200;
 // A NAME IS A NAV LABEL, NOT A SENTENCE. `MAX_ROLE` stays beside it because a
 // plan stored before 2026-08-24 carries a whole clause under `role` and
@@ -446,7 +458,7 @@ function pageShapes(v, pages) {
     if (!s || typeof s !== "object" || Array.isArray(s)) continue;
     const path = str(s.path, 80).toLowerCase();
     if (!known.has(path) || seen.has(path)) continue;
-    const sections = lines(s.sections, { cap: MAX_SECTION, max: MAX_SECTIONS });
+    const sections = lines(s.sections, { cap: MAX_SECTION, max: Number.POSITIVE_INFINITY });
     // AN ENTRY WITH NO USABLE BAND IS NOT AN ARRANGEMENT. Kept, it prints a page
     // heading with nothing under it, which says less than the page's own role
     // line already did and reads as an arrangement we lost.
@@ -480,10 +492,12 @@ function pageShapes(v, pages) {
  *   `imagesAffordable`, so this one is free to say what the site wants and let
  *   the money answer separately — the distinction `imageNote` exists to report.
  *
- * CAPPED AT `MAX_PAGES * 2` RATHER THAN AT `IMAGE_CAP`, deliberately. This is
- * what the site ASKED for and the budget is what it GOT, and collapsing the two
- * here would make "this site has no photographs" and "it wanted twelve"
- * indistinguishable — which is the exact thing `overflow` is carried for.
+ * NOT CAPPED (2026-10-08, the content-preservation batch). It was cut at
+ * `MAX_PAGES * 2` — two — before anything counted it, so a customer's third
+ * attached photograph, or a third picture they asked for, vanished with no
+ * note. This is what the site ASKED for; what it GETS is decided downstream by
+ * the real constraints — `IMAGE_CAP`, the balance and the time budget — and the
+ * customer's own photographs cost nothing and are never cut (`imageBrief`).
  */
 function pageImages(v, pages) {
   if (!Array.isArray(v)) return [];
@@ -503,7 +517,6 @@ function pageImages(v, pages) {
     const attached = str(s.attached, 80);
     const src = typeof s.src === "string" && UPLOAD_URL_PATH.test(s.src) ? s.src : "";
     out.push({ page, describe, ...(attached ? { attached } : {}), ...(src ? { src } : {}) });
-    if (out.length >= MAX_PAGES * 2) break;
   }
   return out;
 }
@@ -549,7 +562,7 @@ export function normalizePlan(input) {
   // page set on a revise.
   const shape = pageShapes(p.shape, pages);
   if (shape.length) out.shape = shape;
-  const action = lines(p.action, { cap: 80, max: MAX_ACTION });
+  const action = lines(p.action, { cap: MAX_INPUT_CHARS, max: Number.POSITIVE_INFINITY });
   if (action.length) out.action = action;
   const components = lines(p.components, { cap: 60, max: MAX_COMPONENTS });
   if (components.length) out.components = components;
@@ -914,7 +927,7 @@ export const SHAPE_FIELD = {
         type: "array",
         items: { type: "string" },
         description:
-          `The page TOP TO BOTTOM, one short line a band, in order — at most ${MAX_SECTIONS}. ` +
+          `The page TOP TO BOTTOM, one short line a band, in order. Usually no more than ${MAX_SECTIONS}: each of the first ${MAX_SECTIONS} is written by its own writer, and any past them are written together in the last band — never dropped. ` +
           "The first is what LEADS. Name the component that carries the band, say what goes in " +
           "it, and say HOW IT SITS — width, columns, place — in the layout words.",
       },

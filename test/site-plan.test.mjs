@@ -210,7 +210,7 @@ test("every axis is required, and the edit list is the same six", () => {
 
 /* ── normalizePlan: the caps are in code, not only in the descriptions ──── */
 
-test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP", () => {
+test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP — and what the customer asked for is not capped at all (2026-10-08)", () => {
   // This repo's standing distinction, and the reason `MAX_CLARIFY` is arithmetic
   // rather than a sentence. Every one of these is stated in a description AND
   // enforced here; a model that ignores the sentence still cannot exceed it.
@@ -225,8 +225,13 @@ test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP", () => {
     components: Array.from({ length: 200 }, (_, i) => "comp-" + i),
     pages: [{ path: "/", role: "home" }, ...Array.from({ length: 39 }, (_, i) => ({ path: "/p" + i, role: "role " + i }))],
   });
-  assert.equal(big.shape[0].sections.length, MAX_SECTIONS);
-  assert.equal(big.action.length, MAX_ACTION);
+  // THE CUSTOMER'S SECTIONS AND ACTIONS ARE KEPT, every one (the content-
+  // preservation batch): the page writer's band count is held in `bandsOf`,
+  // which writes the ones past it together, never by dropping them here.
+  assert.equal(big.shape[0].sections.length, 30, "sections the designer planned were dropped");
+  assert.ok(30 > MAX_SECTIONS && 20 > MAX_ACTION, "the fixture no longer exceeds the old bounds");
+  assert.equal(big.action.length, 20, "actions the customer named were dropped");
+  // THE OWNER'S TWO MAXIMUMS STAND: 15 components, 1 page.
   assert.equal(big.components.length, MAX_COMPONENTS);
   assert.equal(big.pages.length, MAX_PAGES);
 });

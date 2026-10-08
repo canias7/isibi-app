@@ -222,3 +222,28 @@ Under this approach the reply's facts report what the CONSTRAINT decided —
 images not bought for lack of credit, sections not written in time — not
 what an arbitrary number dropped. The wording stays model-written from those
 facts.
+
+## Taken so far (2026-10-08, the content-preservation batch)
+
+The record is `docs/history/2026-10-08-build-content.md`. Nothing else in
+this inventory has changed.
+
+- **Done**:
+  - **P1** (photos): the plan is no longer cut at two, and every requested
+    picture and the customer's own photographs are kept.
+  - **P4** (browser 2,000 and 200 cuts): replaced by the one-message policy,
+    refused and told with the words back in the box.
+  - **Brief** (server 5,000, and the build's 4,000 read): carried whole,
+    refused before the deposit past one message or one request.
+  - **Sections and actions**: kept whole. Sections past the band count are
+    written together in the last band.
+- **Still open, for review**:
+  - P2 (band stubs);
+  - P3's purpose and image-description cuts;
+  - P5 (facts and linked pages);
+  - P6 (links);
+  - P7 (`behavior`);
+  - P8 to P11;
+  - the writer being offered only the photographs the budget allows,
+    without naming the rest.
+- **Kept by the owner**: 1 page and 15 components.

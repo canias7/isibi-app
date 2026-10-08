@@ -18149,9 +18149,15 @@ function resumeHeld(record) {
 // `REWRITE_MAX_CHARS` (4,000), named in input-budget.mjs so the page can say so
 // before it sends a longer request here — a site's request may now be longer,
 // and none is rewritten from a shortened copy.
+// …EXCEPT A BUILD'S OWN BRIEF (2026-10-08, the content-preservation batch):
+// a first build's brief is read WHOLE, held to the one-message and one-request
+// policy where the route folds in its answers (and refused past it before the
+// deposit). Only a rewrite's `prompt` or `instruction` keeps the rewrite's read.
 function buildHeld(body) {
-  const asked = [body && body.brief, body && body.prompt, body && body.instruction].find((v) => typeof v === "string" && v.trim());
-  return heldParts(asked ? String(asked).trim().slice(0, REWRITE_MAX_CHARS) : "", body && body.alsoAsked);
+  const fields = [["brief", body && body.brief], ["prompt", body && body.prompt], ["instruction", body && body.instruction]];
+  const hit = fields.find(([, v]) => typeof v === "string" && v.trim());
+  const asked = hit ? String(hit[1]).trim() : "";
+  return heldParts(hit && hit[0] === "brief" ? asked : asked.slice(0, REWRITE_MAX_CHARS), body && body.alsoAsked);
 }
 
 async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null }) {
@@ -18434,7 +18440,25 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // designed from and charged for.
         bLater.run,
         body.qa,
-      ).slice(0, 5000);
+      );
+      // THE BRIEF AND ITS ANSWERS ARE CARRIED WHOLE (2026-10-08, the content-
+      // preservation batch). They were cut at 5,000 characters here without a
+      // word. Now each part is held to the one-message policy and the whole
+      // to what one request may carry (`input-budget.mjs`), and anything past
+      // it is refused HERE — before the deposit, before any model is asked —
+      // with the words left with the customer. Never designed from a prefix.
+      {
+        const parts = [String(bLater.run || ""), ...(Array.isArray(body.qa) ? body.qa : []).map((p) => String((p && p.a) || ""))];
+        const longest = parts.reduce((m, t) => Math.max(m, t.trim().length), 0);
+        if (longest > MAX_INPUT_CHARS || brief.length > MAX_CARRIED_CHARS) {
+          const n = longest > MAX_INPUT_CHARS ? longest : brief.length;
+          const max = longest > MAX_INPUT_CHARS ? MAX_INPUT_CHARS : MAX_CARRIED_CHARS;
+          return Response.json({
+            ok: false, stage: "brief", error: "brief-too-long", cost: 0, chars: n, max,
+            msg: "That brief is " + n.toLocaleString("en-GB") + " characters, more than one build can carry (" + max.toLocaleString("en-GB") + "), so I haven't started it and nothing was charged. Your words are still in the box: shorten them, and the build can go ahead.",
+          }, { status: 422 });
+        }
+      }
 
       // WHICH MODELS THIS BUILD RUNS ON — the composer's Builder picker, which
       // was sent on every build from the day it shipped and read here on none of
@@ -23668,9 +23692,11 @@ async function handleRequest(request, env, ctx) {
       // whole, and one past `MAX_INPUT_CHARS` is refused HERE — before any model
       // is asked, before anything is charged and before a waiting question is
       // read or closed, so the question stays exactly as it was and the page
-      // keeps the words in the box. An answer is said as an answer. A first
-      // build keeps its own bound, untouched.
-      if (rb && rb.hasSite === true && rb.firstBuild !== true && typeof rb.message === "string" && rb.message.trim().length > MAX_INPUT_CHARS) {
+      // keeps the words in the box. An answer is said as an answer.
+      // …AND A FIRST BUILD'S TOO (2026-10-08, the content-preservation batch):
+      // it kept a bound of its own and was cut to 2,000 characters on the way
+      // to the questions and the build. Now it is whole up to the same policy.
+      if (rb && typeof rb.message === "string" && rb.message.trim().length > MAX_INPUT_CHARS) {
         const n = rb.message.trim().length;
         const isAnswer = answerClaim(rb) !== undefined;
         return Response.json({

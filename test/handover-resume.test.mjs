@@ -85,7 +85,7 @@ test("the record keeps the parts put off, all or nothing, and one written before
   // longer message is kept whole, one past the bound is no part of any message.
   assert.deepEqual(round(["x".repeat(MAX_INPUT_CHARS + 1)]), [], "a part longer than any message (the record's bound is the hand-over's, below)");
   assert.deepEqual(round(["x".repeat(MAX_INPUT_CHARS)]), ["x".repeat(MAX_INPUT_CHARS)]);
-  assert.deepEqual(round(["x".repeat(MAX_MESSAGE + 1)]), ["x".repeat(MAX_MESSAGE + 1)], "a part past the old 2,000 was dropped from the record");
+  assert.deepEqual(round(["x".repeat(2001)]), ["x".repeat(2001)], "a part past the old 2,000 was dropped from the record");
   // AN OLDER RECORD — no field at all — still resumes, and names none.
   const old = packResume(BASE);
   delete old.deferred;

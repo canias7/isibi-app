@@ -13816,7 +13816,9 @@ document.addEventListener('keydown', (e) => {
 function siteAnswer(label, skip) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy || !site.clarify) return;
-  const said = String(label || '').trim().slice(0, 200);
+  // WHOLE (2026-10-08): a typed answer was cut to 200 characters here. The
+  // size policy is checked where it is typed (`siteSend`).
+  const said = String(label || '').trim();
   if (!skip && !said) return;
   // A SITE THAT EXISTS IS NEVER INTERVIEWED INTO A NEW ONE (2026-09-24). A round
   // on a record with an address is one a first-build question put there — the
@@ -14224,15 +14226,16 @@ function siteTooLong(origin, t, leaveDraft, what) {
 function siteSend(text, leaveDraft) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
-  // A FIRST BUILD KEEPS ITS OWN 2,000, AS IT ALWAYS HAS; a site that exists —
-  // a record with an address — sends its message whole up to the size policy
-  // and never shorter (2026-10-03, `siteTooLong` below). It was cut to 2,000
-  // here for everyone, and the thread then showed the cut copy as what they
-  // had said.
-  const raw = String(text || '').trim();
+  // EVERY MESSAGE IS SENT WHOLE UP TO THE SIZE POLICY AND NEVER SHORTER —
+  // a first build's and an answer's too since 2026-10-08 (the content-
+  // preservation batch). A first build was cut to 2,000 characters here and
+  // an answer to 200, and the thread then showed the cut copy as what they
+  // had said. Past the policy, the words go back in the box and nothing is
+  // sent (`siteTooLong`).
+  const t = String(text || '').trim();
   const firstBuild = !site.slug || !!site.clarify;
-  const t = firstBuild ? raw.slice(0, 2000) : raw;
   if (!t) return;
+  if (siteTooLong(siteOpenId, t, leaveDraft, site.clarify || site.ask ? 'answer' : 'message')) return;
   // A QUESTION IS ON SCREEN, so this is the answer to it. Typing instead of
   // clicking is normal — the options cover the likely answers, not every answer
   // — and routing a typed reply down the ordinary path would start a fresh
@@ -14241,7 +14244,6 @@ function siteSend(text, leaveDraft) {
   // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the message answers it, or —
   // the router decides — asks for something else and replaces it.
   if (site.ask) { siteAskReply(t, false, leaveDraft); return; }
-  if (!firstBuild && siteTooLong(siteOpenId, t, leaveDraft, 'message')) return;
   const isBuild = !sitePages(site).length;
   const active = siteActivePage(site);
   // UNDER ITS KEY (2026-10-05), which a request the server makes of it is

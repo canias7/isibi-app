@@ -100,10 +100,16 @@ export function bandsOf(shape, path) {
   if (!want || !Array.isArray(shape)) return [];
   const row = shape.find((s) => s && typeof s === "object" && !Array.isArray(s) && s.path === want);
   if (!row || !Array.isArray(row.sections)) return [];
-  return row.sections
+  const all = row.sections
     .filter((l) => typeof l === "string" && l.trim().length >= MIN_BAND_CHARS)
-    .slice(0, MAX_BANDS)
     .map((l) => l.trim());
+  // NOTHING THE DESIGNER PLANNED IS DROPPED (2026-10-08, the content-
+  // preservation batch). The page writer runs one call per band and at most
+  // `MAX_BANDS`; sections past that were sliced off. Now they are written
+  // together in the last band — the same number of calls, every section in
+  // the brief one writer reads.
+  if (all.length <= MAX_BANDS) return all;
+  return [...all.slice(0, MAX_BANDS - 1), all.slice(MAX_BANDS - 1).join(" — then — ")];
 }
 
 /**

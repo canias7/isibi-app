@@ -68,8 +68,9 @@
 // request that needs a rewrite is held back with the reason, never rewritten
 // from a shortened copy.
 //
-// THE FIRST BUILD IS UNTOUCHED: its message, its brief and its answers keep
-// their own bounds (`MAX_MESSAGE` in site-ask.mjs, `siteAnswer` in the page).
+// THE FIRST BUILD TOO, since 2026-10-08 (the content-preservation batch): its
+// message, its brief and its answers are carried whole up to these bounds and
+// refused past them — no longer cut to 2,000 and 200 characters.
 
 /** One message: a request, an answer, a question the builder asks, or one answer it offers. */
 export const MAX_INPUT_CHARS = 16000;
