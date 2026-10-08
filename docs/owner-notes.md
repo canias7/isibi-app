@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, Build content preservation in `8b5c8024`)
+## Current handoff — read this first (2026-10-08, the fifth Build batch in `6e27ddd4`)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,97 +11,125 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`, ending in
-  - **`148cb1e4`**: the fourth recovery batch;
-  - **`8b5c8024`**: this content batch, plus its records.
+  **`6e27ddd4`** (this batch) and its records. Before it:
+  - `8b5c8024`: the first content batch;
+  - `148cb1e4`: the fourth recovery batch.
 - Nothing merged, deployed or built; no paid call; no live retest; no SQL
   applied.
+- **Codex's passes on `deb1fee5` are kept**: the protocol record, the
+  answer retry with true refund totals, and the first content checks
+  (twelve sections, five long actions, seven pictures, overflow sections in
+  the last band, 1 page and 15 components).
 
-**The recovery batch (`148cb1e4`) is unchanged since the last handoff.**
-- What it holds:
-  - the protocol record that survives the consumed envelope;
-  - money and the customer's answer recorded apart, with the answer retried
-    until it is stored at the true amount.
-- Its tests: 12 lifecycle cases. Billing is mocked, and `build_debit`'s
-  transaction is checked only as SQL text.
-- Its measurements: sweep 11 of 11; CI green (unit 37759979279, site build
-  37759979264).
-- The record is `docs/history/2026-10-08-build-batch-4.md`.
+**This batch, part 1: a lost build's answer is delivered by what it is.**
+The record is `docs/history/2026-10-08-build-batch-5.md`.
+- **A "still building" reply is no longer taken for the outcome.**
+  - When the browser was closed, the queue consumer's 202 stayed stored.
+    Recovery took it for the build's final answer, marked the answer
+    delivered and stopped. Codex reproduced exactly that.
+  - Now every stored answer is judged by kind: still building, recovery's
+    own, the build's final one, or unreadable. Recovery replaces anything
+    but the build's own final answer.
+- **A final answer that lands mid-delivery is kept.**
+  - Delivery now writes only if the slot is still what it read. If
+    something else wrote in between, it reads again and decides again.
+  - The consumer's "still building" reply is written only into an empty
+    slot, so it can never land over an answer that is already there.
+- **No duplicate refunds** in any of these cases (checked against the
+  ledger stand-in's per-reference totals).
 
-**This batch (`8b5c8024`): the customer's words and pictures are kept,
-never cut.** Page and component maximums stay 1 and 15. Every timeout,
-provider bound, security control and spending safeguard is unchanged. The
-record is `docs/history/2026-10-08-build-content.md`.
-
-- **Briefs and typed answers.**
-  - A first build's message used to be cut to 2,000 characters in the page.
-    A typed answer to a question was cut to 200, and the server cut the
-    brief again at 5,000 and 4,000.
-  - Now each goes whole, up to the one-message size (16,000) and the
-    one-request size (48,000 in all).
-  - Past those sizes, nothing is sent or charged. The customer is told the
-    numbers, and their words go back in the box. In the build route the
-    refusal comes before the deposit and before any model.
-- **Photos**: the plan no longer drops pictures past two.
-  - The customer's own photographs are all stored and placed.
-  - How many pictures are bought is still decided by the real limits: the
-    picture cap, the balance and the time.
-- **Sections and actions**: kept whole, with no count or length cut.
-  - The page is still written by at most 8 section writers.
-  - Any sections past 8 are written together in the last one, so nothing
-    is dropped and no extra calls are made.
+**This batch, part 2: the rest of the content work.**
+- **Kept whole now**:
+  - purpose (was cut at 400);
+  - sections and actions (were still cut at 16,000, Codex's finding);
+  - picture descriptions, through the token, the alt text and the image
+    prompt (were cut at 240);
+  - research facts (were cut at 2,500).
+- **Linked pages** share one message's worth of text (16,000). A page cut
+  by that is told exactly: "Used only the first 11,000 of 14,000
+  characters of …".
+- **Links past two** are still not opened. That bound protects us from
+  being used as a fetch relay. Each unopened link is now named, and each
+  link opened spends one of the daily allowance.
+- **Pictures past what one build buys** (6) are named, with the reason.
+- **A section whose writer failed** is named in the plan's own words,
+  instead of quietly left empty.
+- **1 page and 15 components are unchanged.**
 
 **Tests actually run**
-- **`test/build-content-preservation.test.mjs`, 8 cases**, through the real
-  build route, the real routing route and the real plan code (model answers
-  supplied, nothing paid).
-- **`test/build-content-browser.test.mjs`, 3 cases in real Chromium.** I
-  showed you two screenshots: the too-long refusal, and a long answer sent.
-- **Before, on `3357b115`'s code: 10 of 11 fail.** The one that passes is a
-  control: the stored photos were never cut; the plan was.
-- **Mutation sweep: 14 of 14 killed, the comment-only control survived.**
-- **Full suite** on `8b5c8024`: **`10025 / 10025 / 0 / 0`** locally.
-- **Required CI on `8b5c8024`: green.**
-  - Unit tests run 37764268221: `10025 / 10000 / 0 / 25`. The totals match.
-    CI skips 25, because it has no browser for the three new Chromium
-    cases.
-  - Site build run 37764268178: 8 of 8 green.
+- **`test/build-result-delivery.test.mjs`, 9 cases, through the real
+  producer, consumer and resume.**
+  - The consumer stores its real 202 and the browser is closed.
+  - The real resume's final answer is released between delivery's read and
+    write.
+  - Writes are failed between steps, and recovery runs repeatedly.
+- **Before, on `deb1fee5`'s Worker: 7 of 9 fail.** The 2 that pass are
+  controls.
+- **`test/build-content-outcomes.test.mjs`, 11 cases.** They include a real
+  queued build that asked for nine pictures, published offline by the real
+  resume through the Worker, whose answer names pictures 7–9. A real band
+  fan-out with a failed writer has that section named.
+- **Before, on the old modules: 9 of the first 10 fail.** The one that
+  passes is a control.
+- **Billing is a stand-in, not a database.** `credit_reverse` answers as
+  the applied SQL does; no Postgres transaction runs. `build_debit` is
+  still checked only as SQL text.
+- **The screenshot** of the new notes in the chat (real Chromium, sentences
+  from the real code) was shown to you.
+- **Mutation sweep: 21 of 21 killed, the comment-only control survived.**
+- **Full suite** on `6e27ddd4`: **`10045 / 10045 / 0 / 0`** locally.
+- **Required CI on `6e27ddd4`: green.**
+  - Unit tests run 37769870814: `10045 / 10020 / 0 / 25`. The totals
+    match; CI skips 25 browser cases.
+  - Site build run 37769870801: 8 of 8 green.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`13b224d2661e1ac0`** (198 inputs).
+**`f395b40508182c86`** (198 inputs).
 
-**Remaining limitations**
-- **The page writer is offered only the photos the budget can buy.**
-  Requested pictures beyond that are not yet named in what the customer is
-  told.
-- **Still cut silently**: purpose (400 characters), picture descriptions
-  (240), research facts (2,500) and linked-page text (4,000). Links past two
-  are ignored.
-- **Not yet done**: a section whose writer failed is still published empty
-  with nothing said (P2), and `behavior` is still unread at build time (P7).
-  P8–P11 are untouched.
-- **The browser's refusal says "beside your site"** even before a site
-  exists. That is the existing wording, left for you.
-- **Build replies are still composed in code** from the build's facts, not
-  model-written (an existing limitation). This batch added no new canned
-  text.
-- **From the recovery batch**:
-  - the billing race remains in production until `build_debit.sql` is
+**Replies written by code, said plainly**: the build's notes are still
+composed by code, not by the model. That covers pictures, links, unwritten
+sections and salvage, and this batch added new sentences of that kind. The
+customer explanations that are model-written elsewhere are unchanged.
+
+**Remaining gaps**
+- **A final answer can arrive after recovery delivered.** That happens when
+  a worker checked "does recovery own this?" just before recovery claimed
+  it. The build's answer then replaces recovery's and doesn't mention the
+  refund. Narrow, but possible.
+- **A picture purchase that throws** loses the "not offered" list from the
+  answer.
+- **Long picture descriptions are unmeasured** against the image provider.
+  A refusal would read as the existing "couldn't make the photographs".
+- **The add-on still cuts descriptions at 240**; this batch changed only
+  the build path.
+- **Linked text costs more.** It now goes whole, up to 16,000 characters,
+  to every page writer, so a build with long linked pages costs more input.
+- **Still open**: P6–P11, and the first audit's M2–M6, M8–M12, L1–L9 and
+  L11–L12.
+- **From the recovery batches**:
+  - the billing race stays in production until `build_debit.sql` is
     applied with this code;
   - an older job, or one whose protocol record failed, stays unknown;
-  - recovery objects are never deleted;
-  - the first audit's M2–M6, M8–M12, L1–L9 and L11–L12 remain open.
+  - recovery objects are never deleted.
+
+**Recorded for later (your reminder)**: an oversized pasted message should
+become a .txt attachment holding the complete original. It must be checked
+against the composer's real policy, keep the message's meaning and the
+attachments already there, give routing and every downstream model the
+file's contents, and never hide another cut. It is in
+`owner-preferences.md` and the backlog; not started.
 
 **Next, as you set it**: parallel-task execution, later.
 
 **Yours to decide**
-- The review of `148cb1e4` and `8b5c8024`.
+- The review of `6e27ddd4` (and the earlier unmerged batches).
 - Whether to apply `build_debit.sql`.
-- The refusal wording.
-- Which of the remaining limits (P2, P3's purpose and descriptions,
-  P5–P11) to take next.
+- Whether the link count of 2 should change.
+- Which of P6–P11 comes next.
 - Any release: one merge, one image build, its own runtime check.
 
-**Links**: `docs/history/2026-10-08-build-content.md` (this round),
+**Links**: `docs/history/2026-10-08-build-batch-5.md` (this round),
+`docs/history/2026-10-08-build-content.md`,
 `docs/history/2026-10-08-build-batch-4.md`,
 `docs/investigations/build-limits-2026-10-08.md`.
 
@@ -110,6 +138,34 @@ record is `docs/history/2026-10-08-build-content.md`.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-08 — The fifth Build batch: a lost build's answer by what it is, and the rest of the content work (on the branch, `6e27ddd4`; nothing merged, deployed, built or paid)
+
+Codex found that a lost build's customer could be left reading "Your site is
+being written now" forever. Recovery took that interim reply for the final
+answer. It could also overwrite a final answer that arrived while it was
+writing.
+
+- **Now a "still building" reply is replaced by the real outcome.** A final
+  answer from the build itself is always kept, even if it lands mid-write.
+- **The rest of the build's content is kept**: the purpose, long sections
+  and actions, picture descriptions, research facts and linked pages, up to
+  one message's worth.
+- **Anything that still can't be done is named**: links not opened,
+  pictures past the six one build makes, and a section whose writer failed.
+
+What was run:
+- 20 new tests through the real job lifecycle and build code; most of them
+  fail on the old code;
+- sweep: 21 of 21 killed;
+- suite: `10045 / 10045 / 0 / 0`;
+- CI green.
+
+Your reminder about turning oversized pasted text into a .txt attachment is
+recorded for later. The record is
+`docs/history/2026-10-08-build-batch-5.md`.
 
 ---
 

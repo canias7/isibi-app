@@ -151,7 +151,16 @@ the screenshot was shown to the owner.
 
 - **Sweep**: 21 of 21 killed, and the comment-only control survived
   (`scripts/mutants/build-batch-q-2026-10-08.json`).
-- **Full suite**: see the handoff.
+- **Commit**: `6e27ddd4`.
+- **Full suite** on `6e27ddd4`: `10045 / 10045 / 0 / 0` locally. A first
+  run failed one source guard (`image-parts`' census reads the call as
+  `return buySitePhotos(env, {`). The call was put back in that shape, the
+  wiring mutant was re-swept (killed), and the suite was run again.
+- **Required CI on `6e27ddd4`**:
+  - unit tests run 37769870814: `10045 / 10020 / 0 / 25`. The totals match;
+    CI skips 25 browser cases.
+  - site build run 37769870801: 8 of 8 green.
+- **The next image, predicted** (not built): `f395b40508182c86`, 198 inputs.
 
 ## Remaining gaps
 
