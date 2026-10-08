@@ -34213,6 +34213,10 @@ async function handleRequest(request, env, ctx) {
             // ends up billing for a picture nobody got.
             if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
+            // THE PARSER THE MENU READER READS THE PUBLISHED PAGES WITH (2026-10-08,
+            // Codex's review of 7fc7056d): null in a runtime with none, where every
+            // link put in is told as not known.
+            const aMenuParse = await tweakParser();
             return Response.json({
               ok: true,
               // WHAT THIS TURN HELD BACK, for the reply's last sentence.
@@ -34250,7 +34254,7 @@ async function handleRequest(request, env, ctx) {
               // page whose menu cannot be read is `linkedUnsure`, never told
               // either way. Each absent when there were none.
               ...(() => {
-                const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked });
+                const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });
                 return { ...(aKept.kept.length ? { linked: aKept.kept } : {}), ...(aKept.unsure.length ? { linkedUnsure: aKept.unsure } : {}) };
               })(),
               // THE NEW WORDS AND THE SITE'S OWN PHOTOGRAPHS PLACED (2026-10-02),

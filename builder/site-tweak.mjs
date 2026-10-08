@@ -808,6 +808,11 @@ export async function tweakParser() {
     PARSER = (text) => ({
       file: ts.createSourceFile("page.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
       k: (n) => ts.SyntaxKind[n.kind],
+      // THE KINDS BY VALUE AND THE PARSER'S OWN WALK, for a reader that must
+      // compare kinds exactly (`SyntaxKind[n]` names some kinds by an alias,
+      // `FirstStatement` for a variable statement) and visit every child.
+      SK: ts.SyntaxKind,
+      each: (n, f) => ts.forEachChild(n, f),
       isJsx: (n) => J.has(n.kind),
       openOf: (n) => (n.kind === ts.SyntaxKind.JsxSelfClosingElement ? n : n.openingElement),
       tagOf: (n) => {

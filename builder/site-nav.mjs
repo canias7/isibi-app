@@ -38,6 +38,7 @@
 // outside the Worker and outside the container.
 
 import { routeOf } from "./site-addon.mjs";
+import { renderedMenus } from "./rendered-menus.mjs";
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
@@ -125,6 +126,9 @@ export function navSlots(pages) {
   return out;
 }
 
+// THE MENUS A PAGE RENDERS, read from its syntax tree (`rendered-menus.mjs`).
+export { renderedMenus };
+
 /**
  * THE MENU LINKS AN ADDITION'S OWN STEP PUT IN, AS THE PUBLISHED MENUS HOLD
  * THEM (2026-10-08, run 107; corrected the same day on Codex's review of
@@ -132,21 +136,24 @@ export function navSlots(pages) {
  * it gained (`linked`, from the menu writer's own report). An address is kept
  * only where a menu the page's final source RENDERS links it (`renderedMenus`,
  * below; corrected again on Codex's review of dd4b96d8, since an array of a
- * menu's shape in a comment or an unused object is not one). A comment, a
+ * menu's shape in a comment or an unused object is not one, and again on its
+ * review of 7fc7056d: code reachable by name is not navigation rendered, so the
+ * page is now read from its syntax tree by the injected parser, `parse`, which
+ * is `tweakParser()`; without one every address is `unsure`). A comment, a
  * string, a link in the page's body or an unused declaration names the address
  * without being in a rendered menu, and is never kept, as a link a later change
  * took back out is not. An address not found is `unsure`, never claimed either
  * way, where the page has no menu this can read or a binding that could set
  * one it cannot follow. `{ kept: [{ path, to }], unsure: [{ path, to }] }`.
  */
-export function menuLinksKept({ pages = [], linked = new Map() } = {}) {
+export function menuLinksKept({ pages = [], linked = new Map(), parse = null } = {}) {
   const now = new Map((Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => [p.path, p.source]));
   const kept = [], unsure = [];
   for (const [path, l] of linked instanceof Map ? linked : []) {
     const to = l && Array.isArray(l.to) ? [...new Set(l.to.filter((t) => typeof t === "string" && t.charAt(0) === "/"))] : [];
     if (typeof path !== "string" || !to.length) continue;
     const source = now.get(path);
-    const read = typeof source === "string" ? renderedMenus(source) : null;
+    const read = typeof source === "string" ? renderedMenus(source, parse) : null;
     if (!read) { unsure.push({ path, to }); continue; }
     const hrefs = new Set(read.menus.flat().map((i) => (i && typeof i.href === "string" ? i.href : "")).filter(Boolean));
     const inMenu = to.filter((t) => hrefs.has(t));
@@ -155,402 +162,6 @@ export function menuLinksKept({ pages = [], linked = new Map() } = {}) {
     if (rest.length && (read.unsure || !read.menus.length)) unsure.push({ path, to: rest });
   }
   return { kept, unsure };
-}
-
-/**
- * THE MENUS A PAGE REALLY RENDERS (2026-10-08, Codex's review of dd4b96d8).
- * `navSlots` finds every `links` array with labelled items, which is right for
- * an editor that must reach each one, and wrong as evidence: a commented-out
- * array, or an unused `OLD` object beside the `CHROME` the page renders, has
- * the same shape. This reads the page as code instead. Comments, strings and
- * the text between JSX tags are never code. An element counts only where the
- * page can render it: inside a top-level declaration reachable from what the
- * module exports. Its `links` is followed through the bindings this reader
- * supports (an inline array, a `const` array or object, `NAME.links`, a spread
- * `{...NAME}`, an object's own spread), attributes and keys taking the last
- * one written. Anything else that could set `links` (a parameter, an import, a
- * call, a binding written to after it is declared, a shape the scanner does
- * not know) leaves the page `unsure`, never a menu and never not one.
- * `{ menus: [[{ label, href }]], unsure }`, or null when the page cannot be
- * read at all.
- */
-export function renderedMenus(source) {
-  let mod;
-  try { mod = scanModule(String(source)); } catch { return null; }
-  const { tokens, tags, bare } = mod;
-  const stmts = statementsOf(tokens, bare.length);
-  const live = reachable(stmts, tokens, tags);
-  const decls = declarationsOf(tokens, bare);
-  const menus = [];
-  let unsure = false;
-  for (const tag of tags) {
-    const at = stmtAt(stmts, tag.at);
-    const s = at < 0 ? null : stmts[at];
-    const bears = tag.attrs.length > 0;
-    if (!bears) continue;
-    if (s && s.opaque) { unsure = true; continue; }
-    if (!s || !live.has(at)) continue;
-    let state = { kind: "none" };
-    for (const a of tag.attrs) {
-      const r = a.kind === "links" ? resolveValue(bare.slice(a.from, a.to), decls, bare, 0)
-        : a.kind === "links-text" ? { kind: "other" }
-        : linksOfObject(resolveValue(bare.slice(a.from, a.to), decls, bare, 0), decls, bare, 0);
-      if (r.kind !== "none") state = r;
-    }
-    if (state.kind === "unsure") unsure = true;
-    else if (state.kind === "array" && state.items.some((it) => it.label)) menus.push(state.items);
-  }
-  return { menus, unsure };
-}
-
-const WORD = /[A-Za-z_$]/;
-const WORD_REST = /[\w$]/;
-// Words after which the next `/` or `<` begins a value rather than an operator.
-const EXPR_WORDS = new Set(["return", "typeof", "case", "in", "of", "new", "delete", "void", "throw", "else", "yield", "await", "do", "instanceof", "default", "extends"]);
-
-/**
- * One pass over a module: its code tokens, the JSX elements it writes with the
- * attributes that can set `links`, and its text with every comment blanked.
- * Throws on anything it does not understand, which the caller reads as unsure.
- */
-function scanModule(src) {
-  const tokens = [], tags = [], comments = [];
-  let level = 0; // 0 only in the module's own top-level code
-  const push = (t, v, at, depth) => tokens.push({ t, v, at, top: level === 0 && depth === 0 });
-  const comment = (i) => {
-    const n = commentEnd(src, i);
-    if (n) comments.push([i, i + n]);
-    return n;
-  };
-  const string = (i) => {
-    const q = src[i];
-    for (let j = i + 1; j < src.length; j++) {
-      if (src[j] === "\\") { j++; continue; }
-      if (src[j] === q) return j + 1;
-      if (src[j] === "\n") throw new Error("string");
-    }
-    throw new Error("string");
-  };
-  const regex = (i) => {
-    let cls = false;
-    for (let j = i + 1; j < src.length; j++) {
-      const c = src[j];
-      if (c === "\\") { j++; continue; }
-      if (c === "\n") throw new Error("regex");
-      if (cls) { if (c === "]") cls = false; continue; }
-      if (c === "[") { cls = true; continue; }
-      if (c === "/") { j++; while (j < src.length && WORD_REST.test(src[j])) j++; return j; }
-    }
-    throw new Error("regex");
-  };
-  const template = (i) => {
-    for (let j = i + 1; j < src.length; j++) {
-      const c = src[j];
-      if (c === "\\") { j++; continue; }
-      if (c === "`") return j + 1;
-      if (c === "$" && src[j + 1] === "{") j = code(j + 2, "}");
-    }
-    throw new Error("template");
-  };
-  // JavaScript from `i` until the `stop` bracket at its own depth; returns
-  // that bracket's index (or the end of the module when there is no stop).
-  function code(i, stop) {
-    level += stop ? 1 : 0;
-    let depth = 0, prev = "start";
-    const valuePos = () => prev === "start" || prev === "op" || prev === "close-brace" || EXPR_WORDS.has(prev);
-    while (i < src.length) {
-      const c = src[i];
-      if (/\s/.test(c)) { i++; continue; }
-      const n = comment(i);
-      if (n) { i += n; continue; }
-      if (c === '"' || c === "'") { push("value", "", i, depth); i = string(i); prev = "value"; continue; }
-      if (c === "`") { push("value", "", i, depth); i = template(i); prev = "value"; continue; }
-      if (WORD.test(c)) {
-        let j = i + 1;
-        while (j < src.length && WORD_REST.test(src[j])) j++;
-        const w = src.slice(i, j);
-        push("word", w, i, depth);
-        prev = EXPR_WORDS.has(w) ? w : "value";
-        i = j; continue;
-      }
-      if (/[0-9]/.test(c)) { let j = i + 1; while (j < src.length && /[\w.]/.test(src[j])) j++; push("value", "", i, depth); i = j; prev = "value"; continue; }
-      if (c === "(" || c === "[" || c === "{") { push("punct", c, i, depth); depth++; i++; prev = "op"; continue; }
-      if (c === ")" || c === "]" || c === "}") {
-        if (!depth) {
-          if (c === stop) { level -= 1; return i; }
-          throw new Error("bracket");
-        }
-        depth--; push("punct", c, i, depth); i++; prev = c === "}" ? "close-brace" : "value"; continue;
-      }
-      if (c === "<" && valuePos() && /[A-Za-z>]/.test(src[i + 1] || "")) { push("value", "", i, depth); i = element(i); prev = "value"; continue; }
-      if (c === "/" && valuePos()) { push("value", "", i, depth); i = regex(i); prev = "value"; continue; }
-      if (c === "." && src[i + 1] === "." && src[i + 2] === ".") { push("punct", "...", i, depth); i += 3; prev = "op"; continue; }
-      push("punct", c, i, depth); i++; prev = "op";
-    }
-    if (stop || depth) throw new Error("unclosed");
-    return i;
-  }
-  const space = (i) => {
-    for (;;) {
-      while (i < src.length && /\s/.test(src[i])) i++;
-      const n = comment(i);
-      if (!n) return i;
-      i += n;
-    }
-  };
-  // A JSX element from its `<`; returns the index just past it.
-  function element(i) {
-    i++;
-    if (src[i] === ">") return children(i + 1, "");
-    let j = i;
-    while (j < src.length && /[\w$.:-]/.test(src[j])) j++;
-    const name = src.slice(i, j);
-    if (!name || !WORD.test(name)) throw new Error("tag");
-    const head = name.split(/[.:]/)[0];
-    tokens.push({ t: "word", v: head, at: i, top: false, tag: true });
-    const tag = { name, at: i, attrs: [] };
-    tags.push(tag);
-    i = j;
-    // A TYPE ARGUMENT, `<DataTable<Line>`: skipped, nested ones included.
-    if (src[i] === "<") {
-      let d = 0;
-      for (; i < src.length; i++) { if (src[i] === "<") d++; else if (src[i] === ">" && !--d) break; }
-      if (d) throw new Error("tag");
-      i++;
-    }
-    for (;;) {
-      i = space(i);
-      const c = src[i];
-      if (c === "/" && src[i + 1] === ">") return i + 2;
-      if (c === ">") return children(i + 1, name);
-      if (c === "{") {
-        const k = space(i + 1);
-        if (src.slice(k, k + 3) !== "...") throw new Error("attr");
-        const close = code(k + 3, "}");
-        tag.attrs.push({ kind: "spread", from: k + 3, to: close });
-        i = close + 1; continue;
-      }
-      if (c && WORD.test(c)) {
-        let e = i + 1;
-        while (e < src.length && /[\w$:-]/.test(src[e])) e++;
-        const attr = src.slice(i, e);
-        i = space(e);
-        if (src[i] !== "=") continue;
-        i = space(i + 1);
-        if (src[i] === '"' || src[i] === "'") {
-          const end = src.indexOf(src[i], i + 1);
-          if (end < 0) throw new Error("attr");
-          if (attr === "links") tag.attrs.push({ kind: "links-text" });
-          i = end + 1; continue;
-        }
-        if (src[i] === "{") {
-          const close = code(i + 1, "}");
-          if (attr === "links") tag.attrs.push({ kind: "links", from: i + 1, to: close });
-          i = close + 1; continue;
-        }
-        if (src[i] === "<") { if (attr === "links") tag.attrs.push({ kind: "links-text" }); i = element(i); continue; }
-        throw new Error("attr");
-      }
-      throw new Error("tag");
-    }
-  }
-  // An element's children up to its closing tag; returns the index past it.
-  function children(i, name) {
-    while (i < src.length) {
-      const c = src[i];
-      if (c === "{") { i = code(i + 1, "}") + 1; continue; }
-      if (c === "<") {
-        if (src[i + 1] === "/") {
-          const k = space(i + 2);
-          let e = k;
-          while (e < src.length && /[\w$.:-]/.test(src[e])) e++;
-          if (src.slice(k, e) !== name) throw new Error("close");
-          const g = space(e);
-          if (src[g] !== ">") throw new Error("close");
-          return g + 1;
-        }
-        i = element(i); continue;
-      }
-      i++;
-    }
-    throw new Error("children");
-  }
-  code(0, "");
-  let bare = src;
-  for (const [a, b] of comments) bare = bare.slice(0, a) + bare.slice(a, b).replace(/[^\n]/g, " ") + bare.slice(b);
-  return { tokens, tags, bare };
-}
-
-const STATEMENT_WORDS = new Set(["import", "export", "const", "let", "var", "function", "class", "type", "interface", "enum", "declare", "async"]);
-const LEADS = new Set(["export", "default", "declare", "async"]);
-
-/** The module's top-level statements: where each starts, what it declares, whether it is a root. */
-function statementsOf(tokens, end) {
-  const top = tokens.filter((t) => t.top);
-  const starts = [];
-  for (let k = 0; k < top.length; k++) {
-    const t = top[k], p = top[k - 1];
-    if (!p) { starts.push(k); continue; }
-    if (t.t !== "word" || !STATEMENT_WORDS.has(t.v)) continue;
-    if (p.t === "word" && LEADS.has(p.v)) continue;
-    if (p.t === "punct" && p.v !== ";" && p.v !== "}" && p.v !== ")" && p.v !== "]") continue;
-    if (p.t === "word" && EXPR_WORDS.has(p.v)) continue;
-    starts.push(k);
-  }
-  const out = [];
-  for (let n = 0; n < starts.length; n++) {
-    const seg = top.slice(starts[n], starts[n + 1] ?? top.length);
-    const from = seg[0].at, to = n + 1 < starts.length ? top[starts[n + 1]].at : end;
-    let k = 0, root = false;
-    while (k < seg.length && seg[k].t === "word" && LEADS.has(seg[k].v)) { if (seg[k].v === "export") root = true; k++; }
-    const head = seg[k] && seg[k].t === "word" ? seg[k].v : "";
-    const names = [];
-    let opaque = false, quiet = false;
-    if (head === "const" || head === "let" || head === "var") {
-      for (let m = k; m < seg.length; m++) {
-        const lead = seg[m].v === head && m === k ? true : seg[m].t === "punct" && seg[m].v === ",";
-        if (!lead) continue;
-        const nx = seg[m + 1];
-        if (nx && nx.t === "word") names.push(nx.v);
-        else opaque = true;
-      }
-    } else if (head === "function" || head === "class") {
-      const nx = seg[k + 1];
-      if (nx && nx.t === "word") names.push(nx.v); else root = true;
-    } else if (head === "import" || head === "type" || head === "interface" || head === "enum") {
-      quiet = true;
-    } else root = true;
-    out.push({ from, to, names, root: root && !quiet, opaque });
-  }
-  return out;
-}
-
-function stmtAt(stmts, at) {
-  for (let n = stmts.length - 1; n >= 0; n--) if (stmts[n].from <= at) return at < stmts[n].to ? n : -1;
-  return -1;
-}
-
-/** The statements the exported code reaches by name. */
-function reachable(stmts, tokens, tags) {
-  const byName = new Map();
-  stmts.forEach((s, n) => s.names.forEach((nm) => { if (!byName.has(nm)) byName.set(nm, []); byName.get(nm).push(n); }));
-  const refs = stmts.map(() => []);
-  tokens.forEach((t, k) => {
-    if (t.t !== "word") return;
-    const p = tokens[k - 1];
-    if (!t.tag && p && p.t === "punct" && p.v === ".") return;
-    const n = stmtAt(stmts, t.at);
-    if (n >= 0) refs[n].push(t.v);
-  });
-  const live = new Set(stmts.map((s, n) => (s.root ? n : -1)).filter((n) => n >= 0));
-  const queue = [...live];
-  while (queue.length) {
-    const n = queue.pop();
-    for (const nm of refs[n]) for (const m of byName.get(nm) || []) if (!live.has(m)) { live.add(m); queue.push(m); }
-  }
-  return live;
-}
-
-/**
- * Every binding the module makes, by name: a `const` with where its value
- * starts, and anything else (`let`, `var`, a function, a class, an import, a
- * name written to after it is declared) as a binding that cannot be followed.
- */
-function declarationsOf(tokens, bare) {
-  const out = new Map();
-  const add = (name, d) => { if (!out.has(name)) out.set(name, []); out.get(name).push(d); };
-  let inImport = false;
-  for (let k = 0; k < tokens.length; k++) {
-    const t = tokens[k];
-    if (t.t !== "word") { if (t.v === ";") inImport = false; continue; }
-    if (t.top && t.v === "import") { inImport = true; continue; }
-    if (inImport) { if (t.v === "from") inImport = false; else if (t.v !== "as" && t.v !== "type") add(t.v, { kind: "import" }); continue; }
-    if (t.v === "const" || t.v === "let" || t.v === "var") {
-      const nx = tokens[k + 1];
-      if (!nx || nx.t !== "word") continue;
-      let m = k + 2;
-      if (tokens[m] && tokens[m].v === ":") { const d = tokens[m].top; while (tokens[m] && !(tokens[m].v === "=" && tokens[m].top === d)) m++; }
-      const eq = tokens[m];
-      if (t.v !== "const" || !eq || eq.v !== "=") { add(nx.v, { kind: "other" }); continue; }
-      add(nx.v, { kind: "const", from: eq.at + 1 });
-      continue;
-    }
-    if (t.v === "function" || t.v === "class") { const nx = tokens[k + 1]; if (nx && nx.t === "word") add(nx.v, { kind: "other" }); continue; }
-    // WRITTEN TO AFTER IT IS DECLARED: `NAME =`, `NAME.links =`, `NAME.links.push(`.
-    const p = tokens[k - 1];
-    if (p && (p.v === "." || p.v === "const" || p.v === "let" || p.v === "var")) continue;
-    const rest = bare.slice(t.at + t.v.length, t.at + t.v.length + 80);
-    if (/^\s*(\.\s*links\s*)?(=(?![=>])|\.\s*(push|splice|unshift|pop|shift|reverse|sort|fill|copyWithin)\s*\()/.test(rest)) add(t.v, { kind: "other" });
-  }
-  return out;
-}
-
-/** What an expression is, as far as `links` goes: an array, an object, unsure or other. */
-function resolveValue(text, decls, bare, depth) {
-  if (depth > 8) return { kind: "unsure" };
-  let s = String(text).trim().replace(/\s+as\s+const\s*$/, "").trim();
-  while (s.startsWith("(") && s.endsWith(")") && closes(s, 0) === s.length - 1) s = s.slice(1, -1).trim();
-  if (s.startsWith("[") && closes(s, 0) === s.length - 1) {
-    const items = parseNavItems(s.slice(1, -1));
-    return items ? { kind: "array", items } : { kind: "unsure" };
-  }
-  if (s.startsWith("{") && closes(s, 0) === s.length - 1) return { kind: "object", body: s.slice(1, -1) };
-  let m = /^([A-Za-z_$][\w$]*)$/.exec(s);
-  if (m) return followName(m[1], decls, bare, depth);
-  m = /^([A-Za-z_$][\w$]*)\s*\.\s*links$/.exec(s);
-  if (m) return linksOfObject(followName(m[1], decls, bare, depth), decls, bare, depth);
-  if (/^(["'`]).*\1$/s.test(s) || /^-?\d/.test(s)) return { kind: "other" };
-  return { kind: "unsure" };
-}
-
-function followName(name, decls, bare, depth) {
-  const all = decls.get(name) || [];
-  if (all.length !== 1 || all[0].kind !== "const") return { kind: "unsure" };
-  const from = all[0].from;
-  let i = from;
-  while (i < bare.length && /\s/.test(bare[i])) i++;
-  const end = bare[i] === "[" || bare[i] === "{" || bare[i] === "(" ? closes(bare, i) : -1;
-  if (end < 0) {
-    const m = /^[A-Za-z_$][\w$]*(\s*\.\s*links)?(?=\s*(;|\n|$))/.exec(bare.slice(i));
-    return m ? resolveValue(m[0], decls, bare, depth + 1) : { kind: "unsure" };
-  }
-  return resolveValue(bare.slice(i, end + 1), decls, bare, depth + 1);
-}
-
-/** The `links` an object sets, last key or spread winning: none, array, unsure or other. */
-function linksOfObject(v, decls, bare, depth) {
-  if (v.kind === "unsure") return v;
-  if (v.kind !== "object") return { kind: "unsure" };
-  let state = { kind: "none" };
-  for (const raw of splitTop(v.body)) {
-    const part = raw.trim();
-    if (!part) continue;
-    if (part.startsWith("...")) {
-      const r = linksOfObject(resolveValue(part.slice(3), decls, bare, depth + 1), decls, bare, depth + 1);
-      if (r.kind !== "none") state = r;
-      continue;
-    }
-    if (part.startsWith("[")) { state = { kind: "unsure" }; continue; }
-    const m = /^(?:links|"links"|'links')\s*(:|$)/.exec(part);
-    if (!m) continue;
-    state = m[1] === ":" ? resolveValue(part.slice(m[0].length), decls, bare, depth + 1) : followName("links", decls, bare, depth + 1);
-  }
-  return state;
-}
-
-/** The index of the bracket closing the one at `from` in plain code (strings skipped), or -1. */
-function closes(s, from) {
-  const open = s[from], shut = { "[": "]", "{": "}", "(": ")" }[open];
-  if (!shut) return -1;
-  let depth = 0, quote = "";
-  for (let i = from; i < s.length; i++) {
-    const c = s[i];
-    if (quote) { if (c === "\\") { i++; continue; } if (c === quote) quote = ""; continue; }
-    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
-    if (c === "[" || c === "{" || c === "(") depth++;
-    else if (c === "]" || c === "}" || c === ")") { depth--; if (!depth) return c === shut ? i : -1; }
-  }
-  return -1;
 }
 
 /**

@@ -24,10 +24,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { addon, writtenPage, compiledPages } from "./fixtures/addon-route.mjs";
 import { menuLinksKept, renderedMenus, navSlots } from "../builder/site-nav.mjs";
+import { tweakParser } from "../builder/site-tweak.mjs";
 import path from "node:path";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { addonReplyFacts, editReplyFacts, requestReplyFacts, replyRequest } from "../builder/site-reply.mjs";
 
+// THE PARSER THE WORKER HANDS THE MENU READER, loaded as the Worker loads it.
+const PARSE = await tweakParser();
 const BAKERY = ["index", "order", "starter", "visit", "gallery"].map((f) => ({ path: f + ".tsx", source: fs.readFileSync(new URL("./fixtures/run47/" + f + ".before.tsx", import.meta.url), "utf8") }));
 const LINK_PART = "Put a link to the new Allergens page in the menu";
 const TIKTOK_PART = "add a link to our TikTok in the footer";
@@ -43,7 +46,7 @@ const page = (path, { menu = ["/", "/order"], body = "<p>Come in.</p>", extra = 
 });
 const ADDED = (paths) => new Map(paths.map((p) => [p, { source: "(after the link)", to: ["/allergens"] }]));
 const factsFor = (pages, paths) => {
-  const r = menuLinksKept({ pages, linked: ADDED(paths) });
+  const r = menuLinksKept({ pages, linked: ADDED(paths), parse: PARSE });
   const f = texts(addonReplyFacts({ ok: true, kinds: ["page"], added: ["allergens.tsx"], changed: paths, linked: r.kept, linkedUnsure: r.unsure, deferred: LINK_PART }, { inRequest: true }));
   return { r, f };
 };
@@ -168,7 +171,7 @@ test("HELD 8 — the Worker hands both readings to the reply: the menu links the
   // only pages whose menus it reads. So the hand-off is held here, landmark to
   // landmark, and the facts' side of it in HELD 1.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked });");
+  const at = src.indexOf("const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });");
   assert.ok(at > 0, "the Worker no longer reads the menus it published");
   const next = src.indexOf("})(),", at);
   const body = src.slice(at, next);
@@ -203,7 +206,7 @@ test("HELD 9 — the six controls: a rendered menu is told; a commented-out menu
     ["an unresolved binding", ROUTED("import { CHROME } from \"./shared\";\n", SHELL()), "unsure"],
   ];
   for (const [what, pg, want] of controls) {
-    const read = renderedMenus(pg.source);
+    const read = renderedMenus(pg.source, PARSE);
     assert.ok(read, what + ": the page could not be scanned");
     const { r, f } = factsFor([pg], ["index.tsx"]);
     if (want === "kept") {
@@ -263,8 +266,8 @@ test("HELD 10 — the bindings followed and those left unknown: inline, member a
     }
   }
   // A PAGE THE SCANNER CANNOT READ claims nothing either way.
-  assert.equal(renderedMenus("export default () => <SiteHeader links={[{ label: \"A\", href: \"/a\" }]} "), null);
-  assert.deepEqual(menuLinksKept({ pages: [{ path: "index.tsx", source: "export default () => <SiteHeader links={" + LINKED + "} " }], linked: ADDED(["index.tsx"]) }), { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] });
+  assert.equal(renderedMenus("export default () => <SiteHeader links={[{ label: \"A\", href: \"/a\" }]} ", PARSE), null);
+  assert.deepEqual(menuLinksKept({ pages: [{ path: "index.tsx", source: "export default () => <SiteHeader links={" + LINKED + "} " }], linked: ADDED(["index.tsx"]), parse: PARSE }), { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] });
 });
 
 test("HELD 11 — on every hand-written page in the corpus, the rendered menus are exactly the menus the editor finds: the reader never loses a real menu", () => {
@@ -272,15 +275,80 @@ test("HELD 11 — on every hand-written page in the corpus, the rendered menus a
   for (const d of fs.readdirSync(CORPUS_DIR)) for (const f of fs.readdirSync(path.join(CORPUS_DIR, d))) {
     if (!f.endsWith(".tsx")) continue;
     const source = fs.readFileSync(path.join(CORPUS_DIR, d, f), "utf8");
-    const read = renderedMenus(source);
+    const read = renderedMenus(source, PARSE);
     pages++;
     assert.ok(read, d + "/" + f + " could not be scanned");
     const mine = new Set(read.menus.map((m) => JSON.stringify(m)));
     const theirs = new Set(navSlots([{ path: f, source }]).map((s) => JSON.stringify(s.items)));
-    assert.deepEqual([...mine].sort(), [...theirs].sort(), d + "/" + f);
-    if (theirs.size) menus++;
-    if (read.unsure) unsure++;
+    // A PAGE READ AS SURE HAS EXACTLY THE EDITOR'S MENUS; one left unsure (a
+    // second return, a spread of a form field) never claims a menu beyond them.
+    if (read.unsure) { unsure++; assert.ok([...mine].every((m) => theirs.has(m)), d + "/" + f); }
+    else assert.deepEqual([...mine].sort(), [...theirs].sort(), d + "/" + f);
+    if (theirs.size && !read.unsure) menus++;
   }
-  assert.ok(pages >= 300 && menus >= 280, pages + " pages, " + menus + " with a menu");
+  assert.ok(pages >= 300 && menus >= 280, pages + " pages, " + menus + " with a menu read as sure");
   assert.ok(unsure <= 20, unsure + " pages told as not known");
+});
+
+// REACHABLE BY NAME IS NOT RENDERED (2026-10-08, Codex's review of 7fc7056d).
+// An element behind `false &&`, or inside a component declared in the page
+// and never rendered, was told as a kept menu link. The page is now read from
+// its syntax tree along the render paths `rendered-menus.mjs` names, and
+// anything off them that could carry a menu leaves the page not known.
+const PAGE = (body, decls = "") => ({
+  path: "index.tsx",
+  source: "import { SiteChrome } from \"@/components/ui/site-chrome\";\nimport { SiteHeader } from \"@/components/ui/site-header\";\nimport { useState } from \"react\";\n" + decls +
+    "export default function Page() {\n" + body + "\n}\n",
+});
+const HOME = "[{ label: \"Home\", href: \"/\" }]";
+const BOTH = "[{ label: \"Home\", href: \"/\" }, { label: \"Allergens\", href: \"/allergens\" }]";
+
+test("HELD 12 — conditions, nested declarations and invocation: only what the page renders is told; what may or may not render is not known", () => {
+  const cases = [
+    // CODEX'S TWO REPRODUCTIONS.
+    ["false && beside a Home-only menu", PAGE("  return <>{false && <SiteChrome links={[{label:\"Allergens\",href:\"/allergens\"}]}/>}<SiteChrome links={" + HOME + "} /></>;"), "absent"],
+    ["a local component declared and never rendered", PAGE("  function OldMenu() { return <SiteChrome links={" + BOTH + "} />; }\n  return <SiteChrome links={" + HOME + "} />;"), "absent"],
+    // CONDITIONS.
+    ["true && renders", PAGE("  return <>{true && <SiteChrome links={" + BOTH + "} />}</>;"), "kept"],
+    ["a literal false condition takes the other arm", PAGE("  return false ? <SiteChrome links={" + BOTH + "} /> : <SiteChrome links={" + HOME + "} />;"), "absent"],
+    ["a state condition beside a certain menu", PAGE("  const [open] = useState(false);\n  return <><SiteChrome links={" + HOME + "} />{open && <SiteHeader links={" + BOTH + "} />}</>;"), "unsure"],
+    ["a state condition choosing between two menus", PAGE("  const [open] = useState(false);\n  return open ? <SiteChrome links={" + BOTH + "} /> : <SiteChrome links={" + HOME + "} />;"), "unsure"],
+    ["an early return", PAGE("  const [done] = useState(false);\n  if (done) return <SiteChrome links={" + BOTH + "} />;\n  return <SiteChrome links={" + HOME + "} />;"), "unsure"],
+    // NESTED DECLARATIONS AND ACTUAL INVOCATION.
+    ["a nested component rendered as a tag", PAGE("  function Menu() { return <SiteChrome links={" + BOTH + "} />; }\n  return <main><Menu /></main>;"), "kept"],
+    ["a top-level component rendered as a tag", PAGE("  return <Menu />;", "const Menu = () => <SiteChrome links={" + BOTH + "} />;\n"), "kept"],
+    ["a nested component called, not rendered as a tag", PAGE("  function Menu() { return <SiteChrome links={" + BOTH + "} />; }\n  return <main><SiteChrome links={" + HOME + "} />{Menu()}</main>;"), "unsure"],
+    ["a nested component handed in a prop", PAGE("  function Menu() { return <SiteChrome links={" + BOTH + "} />; }\n  return <SiteHeader links={" + HOME + "} slot={<Menu />} />;"), "unsure"],
+    ["a component whose menu is its own prop", PAGE("  function Menu({ links }) { return <SiteHeader links={links} />; }\n  return <Menu links={" + BOTH + "} />;"), "unsure"],
+    ["a JSX const the page renders", PAGE("  const nav = <SiteHeader links={" + BOTH + "} />;\n  return <main>{nav}</main>;"), "kept"],
+    ["a JSX const the page never renders", PAGE("  const nav = <SiteHeader links={" + BOTH + "} />;\n  return <SiteHeader links={" + HOME + "} />;"), "absent"],
+    ["a menu inside a callback", PAGE("  return <main><SiteHeader links={" + HOME + "} />{[1].map((k) => <SiteChrome key={k} links={" + BOTH + "} />)}</main>;"), "unsure"],
+    ["the children of a component declared in the page", PAGE("  function Box({ children }) { return <div>{children}</div>; }\n  return <Box><SiteHeader links={" + BOTH + "} /></Box>;"), "unsure"],
+    ["the children of an imported component", PAGE("  return <SiteChrome links={" + HOME + "}><main><SiteHeader links={" + BOTH + "} /></main></SiteChrome>;"), "kept"],
+  ];
+  for (const [what, pg, want] of cases) {
+    const read = renderedMenus(pg.source, PARSE);
+    assert.ok(read, what + ": the page could not be read");
+    const { r, f } = factsFor([pg], ["index.tsx"]);
+    if (want === "kept") {
+      assert.ok(read.menus.some((m) => m.some((i) => i.href === "/allergens")) && !read.unsure, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [{ path: "index.tsx", to: ["/allergens"] }], unsure: [] }, what);
+      assert.ok(f.includes("changed: The menu on / now links to /allergens."), what + ": " + JSON.stringify(f));
+      assert.ok(!unknown(f), what);
+    } else if (want === "absent") {
+      assert.deepEqual(read, { menus: [[{ label: "Home", href: "/" }]], unsure: false }, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && !unknown(f), what + ": " + JSON.stringify(f));
+    } else {
+      assert.ok(read.unsure && !read.menus.some((m) => m.some((i) => i.href === "/allergens")), what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && unknown(f), what + ": " + JSON.stringify(f));
+    }
+  }
+  // BOTH REPRODUCTIONS STILL HAVE A MENU'S SHAPE to the editor's finder, which is unchanged.
+  for (const pg of [cases[0][1], cases[1][1]]) assert.ok(navSlots([pg]).some((s) => s.items.some((i) => i.href === "/allergens")), "the reproduction lost its shape");
+  // WITHOUT A PARSER (a job run inline in the Worker) nothing is claimed either way.
+  const genuine = cases[2][1];
+  assert.equal(renderedMenus(genuine.source), null);
+  assert.deepEqual(menuLinksKept({ pages: [genuine], linked: ADDED(["index.tsx"]) }), { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] });
 });
