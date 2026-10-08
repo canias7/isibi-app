@@ -1,0 +1,99 @@
+[
+{
+"label": "1: no protocol record before the envelope goes",
+"files": [
+"worker.js"
+],
+"from": "  await keepJobMeta(env, id, job.fenced === true);\n",
+"to": ""
+},
+{
+"label": "1: an older envelope recorded as fenced",
+"files": [
+"worker.js"
+],
+"from": "  await keepJobMeta(env, id, job.fenced === true);",
+"to": "  await keepJobMeta(env, id, true);"
+},
+{
+"label": "1: recovery reads only the (deleted) envelope",
+"files": [
+"worker.js"
+],
+"from": "    const o = await env.SITES_BUCKET.get(jobMetaKey(id));\n    if (o) { const m = readJobMeta(JSON.parse(await o.text())); return m ? m.fenced : null; }",
+"to": "    const o = null;\n    if (o) { const m = readJobMeta(JSON.parse(await o.text())); return m ? m.fenced : null; }"
+},
+{
+"label": "1: a missing record guessed fenced",
+"files": [
+"worker.js"
+],
+"from": "    return j ? j.fenced === true : null;\n  } catch { return null; }",
+"to": "    return j ? j.fenced === true : true;\n  } catch { return null; }"
+},
+{
+"label": "1: the record overwritten by a later writer",
+"files": [
+"worker.js"
+],
+"from": "    const put = await env.SITES_BUCKET.put(jobMetaKey(id), JSON.stringify(packJobMeta({ fenced })), { onlyIf: { etagDoesNotMatch: \"*\" } });",
+"to": "    const put = await env.SITES_BUCKET.put(jobMetaKey(id), JSON.stringify(packJobMeta({ fenced })));"
+},
+{
+"label": "2: settled-and-undelivered treated as done",
+"files": [
+"worker.js"
+],
+"from": "      if (mark.delivered !== true) {\n        const done = await deliverLostAnswer",
+"to": "      if (false) {\n        const done = await deliverLostAnswer"
+},
+{
+"label": "2: pending dropped when delivery fails",
+"files": [
+"worker.js"
+],
+"from": "    if (!done) { await keepPending(\"answer-undelivered\"); continue; }\n    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true })); }",
+"to": "    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true })); }"
+},
+{
+"label": "2: delivered recorded before the answer",
+"files": [
+"worker.js"
+],
+"from": "    const settled = { outcome: v.outcome, why: v.why, version: v.version || \"\", slug, returned, short, settled: !short, delivered: false, at: new Date(now).toISOString() };",
+"to": "    const settled = { outcome: v.outcome, why: v.why, version: v.version || \"\", slug, returned, short, settled: !short, delivered: true, at: new Date(now).toISOString() };"
+},
+{
+"label": "2: a repeated reversal counted as zero",
+"files": [
+"worker.js"
+],
+"from": "    if (r.ok) { returned += r.refunded + r.already; continue; }",
+"to": "    if (r.ok) { returned += r.refunded; continue; }"
+},
+{
+"label": "2: the build's own answer overwritten",
+"files": [
+"worker.js"
+],
+"from": "      if (body && body.lost !== true) return true;",
+"to": "      if (false) return true;"
+},
+{
+"label": "2: a failed settlement record still delivers",
+"files": [
+"worker.js"
+],
+"from": "      await keepPending(\"settlement-unrecorded\");\n      continue;",
+"to": "      await keepPending(\"settlement-unrecorded\");"
+},
+{
+"label": "control: a comment",
+"files": [
+"worker.js"
+],
+"from": "    // THE REFUND IS IDEMPOTENT BY (ref, reason), so a record that did not",
+"to": "    // THE REFUND IS IDEMPOTENT (control) BY (ref, reason), so a record that did not",
+"control": true
+}
+]

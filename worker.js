@@ -44,7 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
-import { JOB_KIND, BUILD_JOB_MS, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -14596,6 +14596,8 @@ async function enqueueSiteBuild(request, env, { auth }) {
   }
   try {
     await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url, auth, body, uid: bu.id, at: Date.now() })));
+    // THE PROTOCOL RECORD, beside the envelope and outliving it.
+    await keepJobMeta(env, id, true);
   } catch (e) {
     console.error("build queue: could not store the job, running it inline instead:", String((e && e.message) || e));
     // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
@@ -14733,6 +14735,11 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     console.error("build queue: job", id, "is missing or unreadable — nothing to run");
     return;
   }
+  // THE PROTOCOL RECORD BEFORE THE ENVELOPE GOES (2026-10-08, Codex's review
+  // of `41731e86`): recovery reads it long after this delete. From the
+  // envelope's own flag — an older envelope records `fenced: false`. A write
+  // that fails leaves recovery at "not known", never at a guess.
+  await keepJobMeta(env, id, job.fenced === true);
   try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
 
   // ── THE ROW (stage 2c): CLAIMED, BEATEN, AND HANDED ON AT THE FIRE ─────────
@@ -15308,6 +15315,38 @@ export async function claimBuildFence(env, id, by) {
 }
 
 /**
+ * The job's protocol record, written create-only (see `jobMetaKey`): never
+ * overwritten, so a later writer cannot change what the first one recorded.
+ * Answers true when it is there afterwards (written now or already), false
+ * when it could not be written.
+ */
+async function keepJobMeta(env, id, fenced) {
+  try {
+    if (!env.SITES_BUCKET || !isJobId(id)) return false;
+    const put = await env.SITES_BUCKET.put(jobMetaKey(id), JSON.stringify(packJobMeta({ fenced })), { onlyIf: { etagDoesNotMatch: "*" } });
+    if (put) return true;
+    return !!(await env.SITES_BUCKET.head(jobMetaKey(id)));
+  } catch (e) { console.error("build job: could not keep the protocol record for", id, String((e && e.message) || e)); return false; }
+}
+
+/**
+ * Was this job filed under the fenced protocol? true / false from its record;
+ * from the envelope when the record is absent and the envelope is still
+ * there (never consumed); null — NOT KNOWN — when neither can be read.
+ */
+async function jobFenced(env, id) {
+  try {
+    const o = await env.SITES_BUCKET.get(jobMetaKey(id));
+    if (o) { const m = readJobMeta(JSON.parse(await o.text())); return m ? m.fenced : null; }
+  } catch { return null; }
+  try {
+    const e = await env.SITES_BUCKET.get(jobKey(id));
+    const j = e ? readJob(JSON.parse(await e.text())) : null;
+    return j ? j.fenced === true : null;
+  } catch { return null; }
+}
+
+/**
  * THE FENCE MOVES ONE WAY, AND ONLY FROM WHAT IT SAYS NOW (2026-10-08,
  * Codex's review of `3308d51d`: a failure that read the fence, then a success
  * written, then the failure's write, erased the publish). Every outcome
@@ -15563,9 +15602,27 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     if (!isResumeId(id) || !uid || String(row.state) !== "lost") continue;
     seen.checked++;
     const markKey = "jobs/" + id + ".lost.json";
-    let mark = null;
-    try { const o = await env.SITES_BUCKET.get(markKey); mark = o ? JSON.parse(await o.text()) : null; } catch { mark = null; }
+    const keepPending = async (why) => {
+      seen.pending++;
+      try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString() })); }
+      catch (e) { console.error("lost builds: could not list", id, "as pending", String((e && e.message) || e)); }
+    };
+    // THE SETTLEMENT RECORD (2026-10-08, Codex's review of `41731e86`: a
+    // settled marker written before the answer let a failed answer write be
+    // forgotten). Money and the customer's answer are recorded apart:
+    //   settled    the refund is complete (or nothing was owed) — never redone
+    //   delivered  the answer is stored — until then every tick rebuilds it
+    //              from this record alone and stores it again
+    // An unreadable record is not "none": the row waits for the next tick.
+    const mark = await readObj(markKey);
+    if (mark === undefined) { await keepPending("mark-unread"); continue; }
     if (mark && mark.settled === true) {
+      if (mark.delivered !== true) {
+        const done = await deliverLostAnswer(env, { id, uid, mark, now });
+        if (!done) { await keepPending("answer-undelivered"); continue; }
+        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, delivered: true })); }
+        catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
+      }
       seen.settled++;
       try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* listed again next tick, settled again */ }
       continue;
@@ -15579,41 +15636,92 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       try { pointer = await readPointer(buildDeps(env), slug); } catch { pointer = undefined; }
       try { builds = await listBuilds(buildDeps(env), slug); } catch { builds = null; }
     }
-    // WAS THIS JOB FILED BY CODE THAT FENCES ITS PUBLISH? Its own record
-    // says (`fenced`); a record that cannot be read leaves recovery careful.
-    let fencedJob = false;
-    try { const o = await env.SITES_BUCKET.get(jobKey(id)); fencedJob = !!(o && (readJob(JSON.parse(await o.text())) || {}).fenced === true); } catch { fencedJob = false; }
+    // WAS THIS JOB FILED UNDER THE FENCED PROTOCOL? From its protocol record,
+    // which outlives the consumed envelope (`jobFenced`); not known — an older
+    // job, an unreadable record — stays not fenced, so the verdict keeps what
+    // it cannot prove unknown.
+    const fencedJob = (await jobFenced(env, id)) === true;
     const v = lostBuildVerdict({ row, pointer, builds, fence, fencedJob });
-    const keepPending = async (why) => {
-      seen.pending++;
-      try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString() })); }
-      catch (e) { console.error("lost builds: could not list", id, "as pending", String((e && e.message) || e)); }
-    };
     if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why); console.log("lost builds:", id, "unknown —", v.why); continue; }
-    let returned = Number((mark && mark.returned) || 0) || 0;
+    let returned = 0;
     let short = false;
     if (v.outcome === "not-published") {
-      const r = await refundBuildByRef(env, uid, "build:" + id, "lost");
-      returned += Number(r.returned) || 0;
-      short = !!r.short;
-      seen.refunded += Number(r.returned) || 0;
+      // WHAT CAME BACK, FROM THE LEDGER: each ref's reversals in total, so a
+      // pass after a crash reads the same amount instead of the zero a
+      // repeated reversal answers.
+      const r = await refundLostBuild(env, uid, "build:" + id);
+      returned = r.returned;
+      short = r.short;
+      seen.refunded += returned;
     } else seen.published++;
-    const msg = lostBuildMessage({ outcome: v.outcome, slug, returned, short });
-    const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
-    const body = v.outcome === "published"
-      ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", version: v.version || undefined, notes: msg, msg }
-      : slug
-        ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
-        : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
-    try {
-      await env.SITES_BUCKET.put(markKey, JSON.stringify({ outcome: v.outcome, why: v.why, returned, settled: !short, at: new Date(now).toISOString() }));
-      await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({ status: slug || v.outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) })));
-      if (short) await keepPending("refund-short");
-      else await env.SITES_BUCKET.delete(pendingKey(id));
-    } catch (e) { console.error("lost builds: could not write the answer for", id, String((e && e.message) || e)); }
+    const settled = { outcome: v.outcome, why: v.why, version: v.version || "", slug, returned, short, settled: !short, delivered: false, at: new Date(now).toISOString() };
+    try { await env.SITES_BUCKET.put(markKey, JSON.stringify(settled)); }
+    catch (e) {
+      // THE REFUND IS IDEMPOTENT BY (ref, reason), so a record that did not
+      // land is made again next tick at no cost to anyone.
+      console.error("lost builds: could not record the settlement for", id, String((e && e.message) || e));
+      await keepPending("settlement-unrecorded");
+      continue;
+    }
+    const done = await deliverLostAnswer(env, { id, uid, mark: settled, now });
+    if (short) { await keepPending("refund-short"); continue; }
+    if (!done) { await keepPending("answer-undelivered"); continue; }
+    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true })); }
+    catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
+    try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* the next tick finds it settled and delivered */ }
     console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
   }
   return seen;
+}
+
+/**
+ * A lost build's reversals, read as TOTALS from the ledger's own answers:
+ * per ref, what this pass gave back plus what earlier reversals already had
+ * (`refunded + already`). A pass repeated after a crash answers `repeat` with
+ * nothing new and the earlier amount in `already`, so the total it reports is
+ * the same as the first pass's — the customer's sentence never drops to zero.
+ */
+async function refundLostBuild(env, uid, billRef) {
+  let returned = 0;
+  let short = false;
+  for (const step of BUILD_DEBIT_STEPS) {
+    const ref = billRef + ":" + step;
+    const r = await reverseCredits(env, uid, ref, "lost", REVERSE_WHOLE);
+    if (r.ok) { returned += r.refunded + r.already; continue; }
+    short = true;
+    console.error("lost build reversal could not be made:", ref);
+  }
+  return { returned, short };
+}
+
+/**
+ * THE CUSTOMER'S ANSWER FOR A RECOVERED BUILD, BUILT FROM THE SETTLEMENT
+ * RECORD ALONE (so a later tick can store it again with nothing else) and
+ * stored where the build's own would be. An answer already there that is the
+ * BUILD'S OWN (not a recovery answer) is newer and authoritative: it is left
+ * as it is and counts as delivered. Answers true once an answer is stored.
+ */
+async function deliverLostAnswer(env, { id, uid, mark, now }) {
+  try {
+    const cur = await env.SITES_BUCKET.get(resultKey(id));
+    if (cur) {
+      let body = null;
+      try { const r = readResult(JSON.parse(await cur.text())); body = r && typeof r.body === "string" ? JSON.parse(r.body) : null; } catch { body = null; }
+      if (body && body.lost !== true) return true;
+    }
+  } catch (e) { console.error("lost builds: could not read the stored answer for", id, String((e && e.message) || e)); return false; }
+  const { outcome, slug = "", version = "", returned = 0, short = false } = mark || {};
+  const msg = lostBuildMessage({ outcome, slug, returned, short });
+  const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
+  const body = outcome === "published"
+    ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", version: version || undefined, notes: msg, msg }
+    : slug
+      ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
+      : { ok: false, lost: true, stage: "queue", job: id, refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, msg };
+  try {
+    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) })));
+    return true;
+  } catch (e) { console.error("lost builds: could not store the answer for", id, String((e && e.message) || e)); return false; }
 }
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
@@ -16624,6 +16732,7 @@ async function approveRequestPart(env, ctx, { slug, key, uid, n, auth }) {
   // is recorded without it.
   try {
     await env.SITES_BUCKET.put(jobKey(id), await rewriteJob(env, at.rec, n, auth));
+    await keepJobMeta(env, id, true);
   } catch (e) {
     console.error("request rewrite: could not store", id, errorClassForLog(e));
     return { status: 503, rec: at.rec };

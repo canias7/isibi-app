@@ -33,6 +33,9 @@ here; take a closed one out of both.**
     not in the debit's transaction, so a debit can still land after a row
     turns terminal. The Worker code that sends every queued-build debit
     through the function is on the branch; the two together close it;
+  - a job filed and consumed before the protocol record existed, or whose
+    record could not be written at either end, stays unknown when its
+    outcome needs the flag (the fourth batch);
   - a crash between a successful activation and its record stays unknown,
     listed and retried, until review (no live-script probe for builds);
   - a pre-fence job with a staged manifest or an unattributed version stays
@@ -42,7 +45,8 @@ here; take a closed one out of both.**
   - a row marked lost after its publish and before its pages debit leaves
     the pages uncharged (in the customer's favour);
   - `credit_reverse`'s gateway binding is still a prefix;
-  - fence, cursor and pending-cursor objects are never deleted;
+  - fence, cursor, pending-cursor, protocol and settlement objects are never
+    deleted;
   - the reply cannot see whether the writer placed a customer's photograph;
   - a real model's use of `attached` (an id) is unmeasured;
   - the Build limits proposals await your review, with P3–P5 revised to

@@ -104,6 +104,31 @@ export function jobKey(id) {
   return `${JOB_PREFIX}${id}.json`;
 }
 
+/**
+ * WHAT RECOVERY NEEDS TO KNOW ABOUT A JOB, KEPT APART FROM THE JOB ITSELF
+ * (2026-10-08, Codex's review of `41731e86`). The envelope (`jobKey`) holds
+ * the customer's session and is deleted the moment the consumer reads it —
+ * so a flag inside it (`fenced`) is gone by the time a lost build is
+ * recovered. This record holds no credential: only which protocol the job
+ * was filed under. It is written once, create-only, when the envelope is
+ * written and again (if absent) at the consumer before the envelope goes;
+ * never overwritten. Absent means "not known" — an older job, or a write
+ * that failed — and recovery treats that as unknown, never as fenced.
+ */
+export const JOB_META_VERSION = 1;
+export function jobMetaKey(id) {
+  if (!isJobId(id)) throw new Error("build-job: refusing to build a key from an id we did not mint");
+  return `${JOB_PREFIX}${id}.meta.json`;
+}
+export function packJobMeta({ fenced } = {}) {
+  return { v: JOB_META_VERSION, fenced: fenced === true };
+}
+/** `{ fenced }` from a stored record, or null for anything that is not one. */
+export function readJobMeta(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== JOB_META_VERSION || typeof raw.fenced !== "boolean") return null;
+  return { fenced: raw.fenced };
+}
+
 export function resultKey(id) {
   if (!isJobId(id)) throw new Error("build-job: refusing to build a key from an id we did not mint");
   return `${JOB_PREFIX}${id}.result.json`;
