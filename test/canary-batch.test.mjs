@@ -52,7 +52,8 @@ test("the batch is R1 to R5 in the plan's order, each a request scenario on the 
 });
 
 test("the workflow gives the batch and its continuation from R2 alone a longer limit that covers the worst case, and every other run keeps 45", () => {
-  const m = /timeout-minutes:\s*\$\{\{\s*\(github\.event\.inputs\.ui_scenario == '([^']+)' \|\| github\.event\.inputs\.ui_scenario == '([^']+)'\) && (\d+) \|\| (\d+)\s*\}\}/.exec(FLOW);
+  // The batch's two names first; a scenario with its own press limit (`pressMs`, lv-combined) may follow before the default.
+  const m = /timeout-minutes:\s*\$\{\{\s*\(github\.event\.inputs\.ui_scenario == '([^']+)' \|\| github\.event\.inputs\.ui_scenario == '([^']+)'\) && (\d+) \|\| (?:github\.event\.inputs\.ui_scenario == '[^']+' && \d+ \|\| )*(\d+)\s*\}\}/.exec(FLOW);
   assert.ok(m, "the workflow's limit is not the batch's expression");
   assert.deepEqual([m[1], m[2]], [BATCH_NAME, BATCH_FROM_R2_NAME]);
   const batchMin = Number(m[3]), otherMin = Number(m[4]);

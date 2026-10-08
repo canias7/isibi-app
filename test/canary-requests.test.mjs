@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
-  UI_SCENARIOS, readUiScenario, runUi, describeUi, stepBoundMs, UI_STEP_MS, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_AWAY_EVERY_MS, pageViewOf,
+  UI_SCENARIOS, readUiScenario, runUi, describeUi, stepBoundMs, UI_STEP_MS, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_AWAY_EVERY_MS, pageViewOf, pressLimitMs, UI_PRESS_LONG_MAX_MS,
   wallRefusal, blocksPost, requestWall, requestVerdict, questionShown, routingEvidence, chainOrdered, chainVerdict, routeCallsOf,
 } from "../scripts/canary-ui.mjs";
 import {
@@ -93,7 +93,7 @@ test("a message's own bound is capped, a press's bounds fit inside the workflow'
   for (const name of RQ) {
     const s = UI_SCENARIOS[name];
     const total = s.steps.reduce((t, x) => t + stepBoundMs(x), 0);
-    assert.ok(total <= UI_PRESS_MAX_MS, `${name}'s messages may run ${total / 60000} minutes`);
+    assert.ok(total <= pressLimitMs(s), `${name}'s messages may run ${total / 60000} minutes`);
     for (const [i, x] of s.steps.entries()) {
       if (x.ms !== undefined) assert.ok(Number.isFinite(x.ms) && x.ms > 0 && x.ms <= UI_STEP_MAX_MS, `${name} message ${i + 1}'s bound`);
       if (x.until !== undefined) {
@@ -111,8 +111,14 @@ test("a message's own bound is capped, a press's bounds fit inside the workflow'
   // (The request batch and its continuation from R2 have a longer limit of
   // their own, held in test/canary-batch.test.mjs; this is every other run's.)
   const flow = fs.readFileSync(ROOT + ".github/workflows/edit-canary.yml", "utf8");
-  const minutes = Number((/timeout-minutes:\s*\$\{\{\s*\(github\.event\.inputs\.ui_scenario == 'rq-batch' \|\| github\.event\.inputs\.ui_scenario == 'rq-batch-r2'\) && \d+ \|\| (\d+)\s*\}\}/.exec(flow) || [])[1]);
+  const minutes = Number((/timeout-minutes:\s*\$\{\{.* \|\| (\d+)\s*\}\}/.exec(flow) || [])[1]);
   assert.ok(minutes * 60_000 - UI_PRESS_MAX_MS >= 15 * 60_000, `the workflow allows ${minutes} minutes`);
+  // A SCENARIO WITH ITS OWN PRESS LIMIT has its own timeout, with the same quarter-hour to spare.
+  for (const [name, sc] of Object.entries(UI_SCENARIOS).filter(([, x]) => x.pressMs !== undefined)) {
+    const own = Number((new RegExp("ui_scenario == '" + name + "' && (\\d+)").exec(flow) || [])[1]);
+    assert.ok(own * 60_000 - pressLimitMs(sc) >= 15 * 60_000, `${name}: the workflow allows ${own} minutes for a ${pressLimitMs(sc) / 60000}-minute press`);
+    assert.ok(pressLimitMs(sc) <= UI_PRESS_LONG_MAX_MS);
+  }
   assert.equal(UI_STEP_MAX_MS, 30 * 60_000);
   assert.equal(UI_AWAY_EVERY_MS, 20_000);
   // THE DEFAULT, THE OWN AND THE CAP.

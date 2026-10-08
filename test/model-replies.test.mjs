@@ -264,7 +264,7 @@ test("ONE FORCED CALL: the reply tool, the rules, their site, their words and th
   assert.deepEqual(req.tool_choice, { type: "tool", name: "write_reply" });
   assert.deepEqual(req.tools, [REPLY_TOOL]);
   assert.equal(req.system[0].text, REPLY_SYSTEM);
-  for (const rule of [/Say only what the facts say/, /Explain every fact, and list its id in covers/, /Do not ask it yourself/, /left for later, say plainly that it was not tried/, /Never mention steps, tools, layers, files, code, models or error codes/, /language they wrote their message in/, /Never put a fact's id in the reply itself/]) {
+  for (const rule of [/Say only what the facts say/, /Explain every fact, and list its id in covers/, /Do not ask it yourself/, /left for later and that nothing will run on its own, say plainly that it was not tried/, /never evidence that their site lacks what it asks for/, /Never mention steps, tools, layers, files, code, models or error codes/, /language they wrote their message in/, /Never put a fact's id in the reply itself/]) {
     assert.match(REPLY_SYSTEM, rule);
   }
   const body = req.messages[0].content;

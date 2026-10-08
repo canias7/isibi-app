@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
-import { runUi, describeUi, UI_SCENARIOS, stepBoundMs, UI_PRESS_MAX_MS, UI_REPLY_FLOOR_MS } from "../scripts/canary-ui.mjs";
+import { runUi, describeUi, UI_SCENARIOS, stepBoundMs, UI_PRESS_MAX_MS, UI_REPLY_FLOOR_MS, pressLimitMs } from "../scripts/canary-ui.mjs";
 import { replyChecks, repliesOf, requestStepChecks } from "../scripts/canary-requests.mjs";
 import {
   replyStateOf, expectedTextOf, questionOf, jobAnswers, replyJobsOf, trackHeld, repliesNow, timedOut, watchedReplies, replyFailure, REPLY_STATES, keyOf,
@@ -615,7 +615,7 @@ test("THE WIRING: every message the server took on waits for its own replies bef
   assert.equal(UI_REPLY_FLOOR_MS, 60_000);
   for (const [name, s] of Object.entries(UI_SCENARIOS).filter(([, x]) => x.request === true)) {
     const total = s.steps.reduce((t, x) => t + stepBoundMs(x) + UI_REPLY_FLOOR_MS, 0);
-    assert.ok(total <= UI_PRESS_MAX_MS, `${name}'s messages and their reply floors may run ${total / 60000} minutes`);
+    assert.ok(total <= pressLimitMs(s), `${name}'s messages and their reply floors may run ${total / 60000} minutes`);
   }
   // THE VERDICT READS THE WATCH.
   const req = fs.readFileSync(ROOT + "scripts/canary-requests.mjs", "utf8");

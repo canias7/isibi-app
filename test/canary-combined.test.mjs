@@ -13,7 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  UI_SCENARIOS, readUiScenario, stepBoundMs, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_REPLY_FLOOR_MS, UI_FIRST_LINE_MS, UI_FRESH_AWAY_MS, blocksPost,
+  UI_SCENARIOS, readUiScenario, stepBoundMs, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_REPLY_FLOOR_MS, UI_FIRST_LINE_MS, UI_FRESH_AWAY_MS, blocksPost, pathNeedMs, pressLimitMs, UI_CONTAINER_WAIT_MS,
 } from "../scripts/canary-ui.mjs";
 import { progressChecks, requestBatchVerdict, replyChecks, coverageOf, COVERAGE } from "../scripts/canary-requests.mjs";
 import { rqApp, part, view, drive, SLUG } from "./fixtures/canary-rq-app.mjs";
@@ -50,7 +50,23 @@ test("lv-combined: on the bakery, in request mode, three messages word for word 
   assert.equal(LC.steps[2].away, undefined);
   // INSIDE ITS TIME: each message's bound, and all three with their reply floors, inside one press.
   for (const st of LC.steps) assert.ok(stepBoundMs(st) <= UI_STEP_MAX_MS);
-  assert.ok(LC.steps.reduce((t, x) => t + stepBoundMs(x) + UI_REPLY_FLOOR_MS, 0) <= UI_PRESS_MAX_MS);
+  assert.ok(LC.steps.reduce((t, x) => t + stepBoundMs(x) + UI_REPLY_FLOOR_MS, 0) <= pressLimitMs(LC));
+  assert.equal(pressLimitMs(LC), 36 * 60_000, "its own press limit is not the one its paths need");
+  // EACH BOUND COVERS ITS MEASURED PATH (run 107), every container wait at the longest measured.
+  for (const [i, st] of LC.steps.entries()) {
+    const need = pathNeedMs(st.path);
+    assert.ok(need !== null && need > 0, `message ${i + 1} names no measured path`);
+    assert.ok(stepBoundMs(st) >= need, `message ${i + 1}'s bound ${stepBoundMs(st) / 1000} s is shorter than its path, ${need / 1000} s`);
+  }
+  // THE BOUND RUN 107 PRESSED, against the path it really took: too short — the cause of its five failed checks.
+  assert.ok(6 * 60_000 < pathNeedMs(LC.steps[1].path), "the old bound would have covered message 2's path");
+  assert.ok(422_000 <= pathNeedMs(LC.steps[1].path), "message 2's path is shorter than the 422 s run 107 measured to its question");
+  // EVERY CONTAINER WAIT COUNTS THE LONGEST MEASURED (262 s), whatever one run happened to wait.
+  assert.equal(pathNeedMs([{ stage: "container", ms: 0, wait: true }]), UI_CONTAINER_WAIT_MS);
+  assert.equal(pathNeedMs([{ stage: "container", ms: 300_000, wait: true }]), 300_000);
+  assert.equal(pathNeedMs(LC.steps[1].path), 463_000, "message 2's path does not count its container wait at the longest measured");
+  assert.equal(pathNeedMs([{ stage: "x", ms: -1 }]), null);
+  assert.equal(pathNeedMs([]), null);
   // THE TWO WAITS FIT INSIDE MESSAGE 1'S OWN BOUND, with room for the work.
   assert.ok(UI_FIRST_LINE_MS + UI_FRESH_AWAY_MS < stepBoundMs(LC.steps[0]) / 2);
   // WHAT MUST LAND.
@@ -73,6 +89,8 @@ test("lv-combined: on the bakery, in request mode, three messages word for word 
 test("FRESH ON THE BAKERY: no other scenario asked for the Allergens page, a TikTok link or the Order heading", () => {
   for (const [k, sc] of Object.entries(UI_SCENARIOS)) {
     if (k === "lv-combined") continue;
+    // THE CONTINUATION (2026-10-08) sends only lv-combined's own answer, word for word, to the question run 107 left waiting.
+    if (k === "lv-tiktok-answer") { assert.deepEqual(sc.steps.map((x) => x.say), [M3]); continue; }
     for (const st of sc.steps || []) assert.ok(!/Allergen|TikTok|tiktok|Pick a loaf and a collection slot/.test(st.say || ""), `${k} already asked for this`);
   }
 });

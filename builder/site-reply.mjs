@@ -238,7 +238,8 @@ export const REPLY_SYSTEM =
   "one, even briefly. Never drop or blur one to keep the message short.\n" +
   "- When a fact says a question will be shown under your reply, lead into it in a few words. Do not ask it yourself, " +
   "do not repeat its words, and do not invent answers to choose from.\n" +
-  "- When a fact names a part of their request that was left for later, say plainly that it was not tried, in their own words.\n" +
+  "- When a fact names a part of their request that was left for later and that nothing will run on its own, say plainly that it was not tried, in their own words.\n" +
+  "- A part that is queued, waiting or still to come has only not run yet. That is never evidence that their site lacks what it asks for: never call it missing, not done or not tried. Say what was done, and that the part comes next.\n" +
   "- Describe their site the way they would: pages by their names or addresses, things by the words people see. Never " +
   "mention steps, tools, layers, files, code, models or error codes.\n" +
   "- Use their own words for things on their site where the facts quote them.\n" +
@@ -623,8 +624,13 @@ function heldFacts(F, body, done, inRequest = false) {
   const now = partsOf(body.deferred);
   const parts = now.concat(partsOf(body.putOff).filter((p) => !now.includes(p)));
   for (const p of parts) {
+    // NOT RUN IS NOT ABSENT (2026-10-08, run 107): a part of the same request
+    // that comes after this one has only not run yet. Its status says nothing
+    // about the site — this step may already have made some or all of it — so
+    // the fact says so, and what this step did stands in its own facts.
     F.add("pending", inRequest
-      ? "Not part of this step: it is its own part of the same request, done separately after this one without them sending it again: " + quote(p)
+      ? "Not part of this step: it is its own part of the same request, done separately after this one without them sending it again: " + quote(p) +
+        ". It has not run yet, which says nothing about whether the site already has what it asks for: what this step did may already cover some or all of it, and that part works from the site as it is when it runs."
       : (done ? "Left for later, so not tried this time (they can send it next): " : "Left for later, so not tried: ") + quote(p));
   }
 }
@@ -1047,6 +1053,21 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     if (removed.length) F.add("changed", "Removed " + listOf(removed) + ".");
     if (changed.length) F.add("changed", "Updated " + listOf(changed) + ".");
     restored.forEach((r, i) => F.add("changed", "On " + r.page + ", the only change is the link to " + listOf(r.to) + " in its menu; nothing else there needed to change for this.", "restored:" + i));
+    // EVERY OTHER MENU THIS ADDITION LINKED, FROM THE MENU WRITER'S OWN REPORT
+    // AND THE PUBLISHED SOURCE (`linked`, 2026-10-08, run 107): one fact for
+    // each set of addresses, naming every page whose menu now carries it.
+    {
+      const groups = new Map();
+      for (const l of Array.isArray(a.linked) ? a.linked : []) {
+        const at = l && typeof l === "object" ? pathOf(l.path) : "";
+        const to = paths(l && l.to);
+        if (!at || !to.length || linkedOnly.has(at)) continue;
+        const key = to.join("\n");
+        if (!groups.has(key)) groups.set(key, { to, at: [] });
+        if (!groups.get(key).at.includes(at)) groups.get(key).at.push(at);
+      }
+      [...groups.values()].forEach((g, i) => F.add("changed", "The menu on " + listOf(g.at) + " now links to " + listOf(g.to) + ".", "linked:" + i));
+    }
     const tables = strings(a.tables);
     if (tables.length) F.add("changed", "The site now stores " + listOf(tables) + ".");
     const fns = strings(a.functions);

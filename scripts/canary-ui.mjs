@@ -732,13 +732,90 @@ export const UI_SCENARIOS = Object.freeze({
         say: "Put a link to the new Allergens page in the menu, and add an Allergens page saying all our loaves are baked in one kitchen that also handles nuts, seeds and dairy, so we can't promise any loaf is free of them, and that anyone with an allergy should ask us at the counter.",
         away: "fresh",
         ms: 14 * 60_000,
+        // RUN 107'S OWN PATH, part after part (the server runs one job at a
+        // time): the routing and the add-on to its publish (`e46a3cca…`, 23:40:27
+        // to 23:49:35, its publish waiting 262 s for a container), then the
+        // link part's routing (58 s), the add-on step's hand-over (23 s) and
+        // the menu step (35 s). 707 s to its last reply.
+        path: Object.freeze([
+          Object.freeze({ stage: "routing", ms: 5_000 }),
+          Object.freeze({ stage: "add-on, before its publish", ms: 286_000 }),
+          Object.freeze({ stage: "container", ms: 262_000, wait: true }),
+          Object.freeze({ stage: "publish", ms: 0 }),
+          Object.freeze({ stage: "the link's routing", ms: 58_000 }),
+          Object.freeze({ stage: "hand-over", ms: 23_000 }),
+          Object.freeze({ stage: "menu step", ms: 35_000 }),
+        ]),
       }),
       Object.freeze({
         say: "Change the Order page heading 'Pick a loaf and a collection slot' to 'Choose your loaf and a collection time', and add a link to our TikTok in the footer.",
         until: "question",
-        ms: 6 * 60_000,
+        // WAS 6 MINUTES (run 107): the link's step runs only after the heading's
+        // publish, which waited 221 s for a container, so its question came
+        // 422 s after the send — past the bound, and message 3 was never sent.
+        ms: 10 * 60_000,
+        path: Object.freeze([
+          Object.freeze({ stage: "routing", ms: 3_000 }),
+          Object.freeze({ stage: "heading edit, before its publish", ms: 114_000 }),
+          Object.freeze({ stage: "container", ms: 221_000, wait: true }),
+          Object.freeze({ stage: "publish", ms: 0 }),
+          Object.freeze({ stage: "the link's routing", ms: 36_000 }),
+          Object.freeze({ stage: "hand-over", ms: 25_000 }),
+          Object.freeze({ stage: "menu step, to its question", ms: 23_000 }),
+        ]),
       }),
-      Object.freeze({ say: "It's tiktok.com/@harbourloaf", ms: 7 * 60_000 }),
+      Object.freeze({
+        say: "It's tiktok.com/@harbourloaf",
+        // WAS 7 MINUTES. Not yet run: the answer resumes the waiting part (run
+        // 99's R3 took its routing and the footer link in about a minute), then
+        // its publish, which may wait for a container like the two above.
+        ms: 8 * 60_000,
+        path: Object.freeze([
+          Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
+          Object.freeze({ stage: "menu step with the answer", ms: 35_000 }),
+          Object.freeze({ stage: "container", ms: 0, wait: true }),
+          Object.freeze({ stage: "publish", ms: 65_000 }),
+        ]),
+      }),
+    ]),
+    // ITS OWN PRESS LIMIT (2026-10-08): the three paths above, every container
+    // wait at the longest measured, and their reply floors need 35 minutes —
+    // more than the 30 every other press keeps — so it names its own, and the
+    // workflow gives this scenario its own timeout with the same quarter-hour
+    // to spare for the preflight and the reads.
+    pressMs: 36 * 60_000,
+  }),
+  // THE CONTINUATION OF RUN 107 (2026-10-08, prepared, not pressed). Its second
+  // request waits on the TikTok step's question — "What’s the full address of
+  // your TikTok profile?", asked at 23:59:18 UTC on 2026-10-07 — and a part
+  // waits a day (`WAIT_MS`), so it can be answered until about 23:59 UTC on
+  // 2026-10-08. One message, the answer, sent only if exactly that one question
+  // is waiting (`answer`); nothing completed is repeated. Budget 6 (the
+  // answer's routing 1–3 and the footer link 1–2); the hard cap is the
+  // balance it starts from, 15, so a top-up in between sends nothing.
+  "lv-tiktok-answer": Object.freeze({
+    site: "fold-lane-bakery", request: true,
+    budget: 6, fundsFirst: true, cap: 15, addon: true,
+    // ITS REQUEST'S FIRST PART FINISHED ON THE TEXT LAYER (the Order heading,
+    // run 107) and the wall reads every part, done ones too: without it, the
+    // wall would send the request's Stop and cancel the very part answered.
+    layers: Object.freeze(["text", "nav"]),
+    expect: Object.freeze({
+      social: Object.freeze({ network: "tiktok", host: "tiktok.com", path: "/@harbourloaf" }),
+    }),
+    covers: Object.freeze([]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "It's tiktok.com/@harbourloaf",
+        answer: true,
+        ms: 8 * 60_000,
+        path: Object.freeze([
+          Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
+          Object.freeze({ stage: "menu step with the answer", ms: 35_000 }),
+          Object.freeze({ stage: "container", ms: 0, wait: true }),
+          Object.freeze({ stage: "publish", ms: 65_000 }),
+        ]),
+      }),
     ]),
   }),
 });
@@ -765,6 +842,33 @@ export const UI_AWAY_EVERY_MS = 20_000;
 // bound still gives a reply written in the background a minute. A request
 // press's bounds and these floors together stay inside UI_PRESS_MAX_MS.
 export const UI_REPLY_FLOOR_MS = 60_000;
+// THE ONE WAIT BEFORE THE MONEY IS READ AGAIN, once the press has stopped
+// watching (`laterChargesVerdict`): run 107's late routing landed 9 s after.
+export const UI_LATER_READ_MS = 60_000;
+// THE LONGEST A PUBLISH HAS WAITED FOR ITS CONTAINER (run 107, 2026-10-07: the
+// add-on's publish, 262 s). A message's measured path (`path`) counts every
+// container wait at least this long, since any publish may meet a cold one.
+export const UI_CONTAINER_WAIT_MS = 262_000;
+// THE MOST A SCENARIO MAY NAME AS ITS OWN PRESS LIMIT (`pressMs`).
+export const UI_PRESS_LONG_MAX_MS = 40 * 60_000;
+
+/** What a message's measured path needs: every stage, and each container wait at least the longest measured. */
+export function pathNeedMs(path) {
+  if (!Array.isArray(path) || !path.length) return null;
+  let t = 0;
+  for (const st of path) {
+    const ms = st && Number.isFinite(st.ms) && st.ms >= 0 ? st.ms : null;
+    if (ms === null) return null;
+    t += st.wait === true ? Math.max(ms, UI_CONTAINER_WAIT_MS) : ms;
+  }
+  return t;
+}
+
+/** A scenario's press limit: its own `pressMs` within the long cap, or the common one. */
+export function pressLimitMs(s) {
+  const own = s && Number.isFinite(s.pressMs) && s.pressMs > 0 ? s.pressMs : null;
+  return own === null ? UI_PRESS_MAX_MS : Math.min(own, UI_PRESS_LONG_MAX_MS);
+}
 // A MESSAGE WHOSE TAB IS CLOSED ONCE ITS PROGRESS SHOWS (`away: "fresh"`,
 // 2026-10-06): how long the tab that sent it waits for a progress line before
 // it is closed anyway, and how long the request is then left with no page
@@ -854,8 +958,44 @@ export function routeCallOf(network) {
 export function requestKeyOf(network) {
   const route = routeCallOf(network);
   const res = route && route.res && typeof route.res === "object" ? route.res : null;
-  const k = res && res.request && typeof res.request === "object" ? res.request.key : "";
+  // AN ANSWER TO A REQUEST'S QUESTION names the request it resumed (`resumed`):
+  // the request it belongs to, followed like one the message opened.
+  const k = res && res.request && typeof res.request === "object" ? res.request.key
+    : res && res.resumed && typeof res.resumed === "object" ? res.resumed.key : "";
   return typeof k === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(k) ? k : "";
+}
+
+/**
+ * THE ONE QUESTION A CONTINUATION ANSWERS (`answer: true`, 2026-10-08): read
+ * for free off the requests list before anything is sent. Exactly one part of
+ * one request on the site must be waiting on a question; none, several, or an
+ * unread list, and nothing is sent. `{ why, waiting }`.
+ */
+export function waitingRefusal(listed) {
+  if (!listed || listed.status !== 200 || !listed.json || !Array.isArray(listed.json.requests)) {
+    return { why: `the requests list did not answer (${listed && Number.isFinite(listed.status) ? listed.status : "no answer"}), so the waiting question cannot be found`, waiting: null };
+  }
+  const found = [];
+  for (const q of listed.json.requests) {
+    for (const p of Array.isArray(q && q.parts) ? q.parts : []) {
+      if (p && p.status === "waiting" && p.question && typeof p.question.text === "string" && p.question.text.trim() && p.question.queued !== true) {
+        found.push({ key: q.key, part: p.n, text: p.question.text, words: typeof p.words === "string" ? p.words : "" });
+      }
+    }
+  }
+  if (found.length !== 1) return { why: found.length ? `${found.length} questions are waiting on the site, so which one this answers cannot be told` : "no question is waiting on the site (answered, cancelled or expired)", waiting: null };
+  return { why: "", waiting: found[0] };
+}
+
+/** Whether the answer resumed exactly the part that was waiting: its routing answer's `resumed`. */
+export function answerResumedVerdict(step) {
+  const w = step && step.answering;
+  if (!w) return { ok: false, why: "no waiting question was recorded before the answer" };
+  const route = routeCallOf(step.network);
+  const res = route && route.res && typeof route.res === "object" ? route.res : {};
+  const r = res.resumed && typeof res.resumed === "object" ? res.resumed : null;
+  if (!r) return { ok: false, why: "the answer's routing names no resumed part" + (res.intent ? ` (it answered ${JSON.stringify(res.intent)})` : "") };
+  return r.key === w.key && r.part === w.part ? { ok: true, why: "" } : { ok: false, why: `it resumed ${JSON.stringify(r)}, not part ${w.part} of request ${w.key}` };
 }
 
 /**
@@ -1435,6 +1575,56 @@ export function ownMoneySaid(m) {
     ? `${o.recorded} recorded under other refs (${o.rows.map((r) => `${r.ref.slice(0, 48)} ${r.delta}`).join(", ") || "none"}), ${o.unrecorded} recorded nowhere`
     : "the ledger between the balance reads could not be read";
   return `the balance moved ${m.spent}: ${m.own} this press's own, ${m.excess} other activity on the account meanwhile — ${told}`;
+}
+
+/**
+ * THE MONEY AFTER OBSERVATION STOPPED (2026-10-08, run 107). The own-charges
+ * check is a snapshot between the press's two balance reads; a request the
+ * press stopped watching goes on on the server, and its later routing and jobs
+ * are charged after it. Run 107's snapshot was 22, and the TikTok part's
+ * routing took 3 more nine seconds after it stopped, while its request waited
+ * on a question. This keeps the snapshot as it was, adds every later ledger
+ * row that is this press's — its requests' routing (`route:<slug>:<key>`) or
+ * any job its requests filed — and says whether any of its requests is still
+ * open, so the total is called final only when nothing more can be charged.
+ * Recorded, never a check: accounting, not a verdict.
+ */
+export function laterChargesVerdict({ snapshot, slug, keys, rows, list } = {}) {
+  const ks = (Array.isArray(keys) ? keys : []).filter((k) => typeof k === "string" && k);
+  if (!Number.isFinite(snapshot)) return { ok: false, why: "the snapshot of this press's own charges was not read", settled: false };
+  if (!ks.length) return { ok: true, snapshot, later: [], laterTotal: 0, total: snapshot, open: [], unknown: [], settled: true };
+  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return { ok: false, why: "the ledger after the press could not be read", snapshot, settled: false };
+  const views = list && list.ok === true && Array.isArray(list.requests) ? list.requests : null;
+  const jobIds = new Set();
+  const open = [], unknown = [];
+  for (const k of ks) {
+    const v = views ? views.find((q) => q && q.key === k) : null;
+    if (!v) { unknown.push(k); continue; }
+    if (v.ended !== true) open.push(k);
+    for (const p of Array.isArray(v.parts) ? v.parts : []) for (const j of Array.isArray(p && p.jobs) ? p.jobs : []) if (typeof j === "string" && j) jobIds.add(j);
+    for (const j of Array.isArray(v.jobs) ? v.jobs : []) if (typeof j === "string" && j) jobIds.add(j);
+  }
+  const refs = new Set(ks.map((k) => "route:" + slug + ":" + k));
+  const later = [];
+  let laterTotal = 0;
+  for (const r of rows.rows) {
+    const ref = r && typeof r.ref === "string" ? r.ref : "";
+    if (!refs.has(ref) && ![...jobIds].some((id) => ref.startsWith(id))) continue;
+    const d = Number(r.delta);
+    if (!Number.isFinite(d)) return { ok: false, why: `a later ledger row under ${ref} has no amount`, snapshot, settled: false };
+    later.push({ id: r.id, ref, delta: d, at: r.at });
+    laterTotal -= d;
+  }
+  return { ok: true, snapshot, later, laterTotal, total: snapshot + laterTotal, open, unknown, settled: open.length === 0 && unknown.length === 0 };
+}
+
+/** The later account, in one line for the log. */
+export function laterChargesSaid(v) {
+  if (!v || v.ok !== true) return "UNSETTLED: " + ((v && v.why) || "not read");
+  const rows = v.later.length ? v.later.map((r) => `row ${r.id} ${r.ref.slice(0, 48)} ${r.delta}`).join(", ") : "none";
+  const state = v.settled ? "settled: every request this press made has ended"
+    : `NOT FINAL: ${v.open.length ? v.open.length + " request(s) still open (" + v.open.join(", ") + "), so more can be charged" : ""}${v.unknown.length ? (v.open.length ? "; " : "") + v.unknown.length + " request(s) not found in the list" : ""}`;
+  return `snapshot ${v.snapshot}; later ${v.laterTotal} (${rows}); total so far ${v.total}; ${state}`;
 }
 
 /**
@@ -2898,6 +3088,17 @@ export async function runUi(opts) {
           stop("start", `the site is not where this test starts (${rec.rules.start.why}) — nothing was sent`);
           break;
         }
+      }
+      // A CONTINUATION ANSWERS THE ONE QUESTION ALREADY WAITING (`answer`), read
+      // off the requests list for free, or sends nothing. Read BEFORE the
+      // rehearsal's stop, so a free press (spend no) says whether the question
+      // is still waiting and resumable.
+      if (step.answer === true) {
+        const listed = typeof requestsNow === "function" ? await Promise.resolve().then(() => requestsNow()).catch(() => null) : null;
+        const w = waitingRefusal(listed);
+        r.answering = w.waiting;
+        if (w.why) { stop(`step ${n}`, `${w.why} — nothing is sent`); break; }
+        log(`  waiting, and answerable: part ${w.waiting.part} of request ${w.waiting.key} asks "${w.waiting.text}"`);
       }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);

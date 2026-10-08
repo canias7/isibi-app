@@ -63,7 +63,7 @@ import { routeCallOf } from "./canary-ui.mjs";
 import { chainOrdered } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
-import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict } from "./canary-ui.mjs";
+import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
 import { requestBatchVerdict } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
@@ -1341,6 +1341,23 @@ if (UI_ASK) {
       const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });
       requests.money = money;
       check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
+      // THE MONEY AFTER OBSERVATION STOPPED (2026-10-08, run 107): the check
+      // above is a snapshot; a request still open goes on charging. After one
+      // explicit wait, every later ledger row that is this press's is read and
+      // its requests' states with it, and the total is said final only when
+      // every request has ended (`laterChargesVerdict`). Recorded, never a check.
+      if (SPEND && bal.endAt) {
+        const keys = ui.steps.map((x) => (x && x.request && typeof x.request.key === "string" ? x.request.key : "")).filter(Boolean);
+        if (keys.length) {
+          await new Promise((res) => setTimeout(res, UI_LATER_READ_MS));
+          const laterRows = await ledgerRows(`uid=eq.${encodeURIComponent(UID)}&at=gt.${encodeURIComponent(bal.endAt)}`);
+          const listed = await requestsIo.list().catch(() => null);
+          const list = listed && listed.status === 200 && listed.json && Array.isArray(listed.json.requests) ? { ok: true, requests: listed.json.requests } : { ok: false };
+          const later = laterChargesVerdict({ snapshot: money.ok ? money.own : NaN, slug: CANARY, keys, rows: laterRows, list });
+          requests.moneyLater = { ...later, readAt: new Date().toISOString(), waitedMs: UI_LATER_READ_MS };
+          console.log(`\n  THE MONEY AFTER OBSERVATION STOPPED (read ${UI_LATER_READ_MS / 1000} s after): ${laterChargesSaid(later)}`);
+        }
+      }
       // NARRATION ADDS NO CHARGE (2026-10-06), for a press that judges progress:
       // nothing but this press's own routing and jobs moved the balance, and
       // every ledger row while it ran is theirs. The rows are written out with

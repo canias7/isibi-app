@@ -26,7 +26,7 @@
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
 import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
-import { requestKeyOf, routeCallOf, liveOnItsPart } from "./canary-ui.mjs";
+import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
@@ -167,6 +167,11 @@ export function requestStepChecks(step, scenario) {
     add(`message ${n}'s file rode the routing call byte for byte (sha256 ${String(step.file.sha256).slice(0, 16)}…)`, got === step.file.sha256, got || "no file on the routing call");
   }
   const key = requestKeyOf(net);
+  // A CONTINUATION'S ANSWER (`answer`, 2026-10-08): it resumed exactly the part that was waiting.
+  if (Object.hasOwn(step, "answering")) {
+    const v = answerResumedVerdict(step);
+    add(`message ${n} answered the question that was waiting and resumed exactly that part`, v.ok, v.why);
+  }
   const fin = finalOf(step);
   const parts = fin && Array.isArray(fin.parts) ? fin.parts : [];
   const wall = step.request && step.request.wall;
