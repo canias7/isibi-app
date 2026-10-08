@@ -20,6 +20,9 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **The first-Build audit's confirmed gaps** (2026-10-08): 6 high, 12 medium
+  and 12 low, in `docs/investigations/first-build-audit-2026-10-08.md`. None
+  is fixed; the owner chooses the first batch.
 - **The canary's attribution on a continued request** (2026-10-08, run 109):
   it counted run 107's jobs as its own (9 against a move of 4) and left run
   107's publish last (the wait pointed backward). **Fixed on the branch in
@@ -956,8 +959,12 @@ here; take a closed one out of both.**
     - duplicates under an earlier job are caught.
 
     Replayed offline from run 109's evidence: 4 credits, chain verified.
-    `docs/history/2026-10-08-run107-followup.md` §13. Open until your review;
-    no rerun.
+    `docs/history/2026-10-08-run107-followup.md` §13. Then, after Codex's
+    review of `c856f1f4`, the later charges are reconciled from the ledger
+    and each job's billing (`e2dc4039`, §14): a prior job's refund is an
+    adjustment; an extra debit on a settled job is unexpected; rows already
+    counted count once; unreadable records are unverified; ended and
+    reconciled are told apart. Open until your review; no rerun.
 
 - **RUN 107'S THREE FINDINGS (2026-10-07, `lv-combined`, deploy 2188;
   `docs/history/2026-10-07-combined-release.md` §4.4).**

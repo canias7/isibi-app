@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, run 109's canary attribution corrected offline in `a0cbc473`; the first-Build audit next)
+## Current handoff — read this first (2026-10-08, the continuation's later charges reconciled in `e2dc4039`; the first-Build audit's confirmed gaps for your choice)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -76,9 +76,41 @@ is in git; the dated entries further down are the full story.*
 - Run 107's open findings (routing every part in one call, prompt caching)
   stay in the backlog.
 
-**Next, in order**: the first-Build audit (from source, existing evidence and
-offline tests; confirmed gaps presented together before any fix), then
-dependency-based parallel-execution planning.
+**The later charges, reconciled (`e2dc4039`, Codex's review of
+`c856f1f4`; canary only, synthetic checks, no claim that production
+overcharged)**:
+- an earlier job's refund is an adjustment, not a duplicate;
+- an extra debit on a settled job (Codex's footer case: total 5, settled) is
+  now `unexpected`, total 4, not reconciled;
+- rows the snapshot counted count once;
+- each job is read again and reconciled by `jobCharges`;
+- unreadable or unsettled records are unverified;
+- "request ended" and "charges reconciled" are separate, and settled needs
+  both.
+
+The run 109 replay and the chain controls are unchanged and pass. Red check
+on `c856f1f4` (both reproductions print as reported); sweep 12 of 12; canary
+files 517 of 517; full suite **9919 of 9919**. Unit CI: below once read.
+
+**The first-Build audit is done; nothing is fixed yet**
+(`docs/investigations/first-build-audit-2026-10-08.md`). It found 30
+confirmed gaps: 6 high, 12 medium, 12 low. The high ones:
+- **H1** a build swept `lost` keeps its design charge, and its message can
+  be false;
+- **H2** the customer's access token is used for ledger calls long after
+  the request (an expired token means an uncollected settle, a false "not
+  enough credits", or a site published free);
+- **H3** the customer's attachments become the design's photo list (no
+  photographs, or a data URL stored in the settings);
+- **H4** a first build with no usable design still builds and charges;
+- **H5** a failed source save is masked, so the next edit can undo a revise;
+- **H6** an attached photo is shown to the model but never stored or placed.
+
+Also: salvage can never fire (M1), and stale docs (CLAUDE.md's `buildFloor`,
+the salvage backlog cause).
+
+**Next, in order**: your choice of the first implementation batch from the
+audit, then dependency-based parallel-execution planning.
 
 **The closed correction round, for reference.** What Codex confirmed on `c288078d`: the false-conditional and
 unused-local-component reproductions pass, genuine links are still
@@ -169,6 +201,15 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The continuation's later charges reconciled; the first-Build audit (on the branch, `e2dc4039`; nothing merged, deployed, built or paid)
+
+- The canary's later read now reconciles each charge against the ledger and
+  each job's own billing. A refund under an earlier job is an adjustment.
+  An extra debit on a settled job is unexpected and not added. Missing
+  evidence stays unverified. Synthetic checks only.
+- The first-Build audit is complete, read-only: 6 high, 12 medium and 12 low
+  confirmed gaps, presented together for your choice before any fix.
 
 ## 2026-10-08 — Run 109's canary attribution corrected offline (on the branch, `a0cbc473`; nothing merged, deployed, built or paid)
 
