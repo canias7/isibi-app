@@ -24,6 +24,11 @@ here; take a closed one out of both.**
   the bound and the reply are **fixed on the branch** (2026-10-08, not
   deployed); the 3-credit routing of every later part is **investigated, still
   open** as a router option (route every part in one call); in full below.
+- **BG11 in `test/reply-background.test.mjs` failed once under the full suite**
+  (2026-10-08, on `1537c518`'s code): *"a held reply never reached its
+  writer"* (2 !== 3). It passed 3 of 3 alone, 5 of 5 beside the heaviest reply
+  and request files, and on the full suite's second run. Load-dependent; this
+  round did not touch the file or the code it tests. Watch for a repeat.
 - **The site build's Chromium install can stall in apt** (2026-10-07, run
   37674861320 on `570adb45`): four jobs reached their 20-minute limit while
   `npx playwright install --with-deps chromium` waited on Ubuntu's

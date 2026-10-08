@@ -1,21 +1,62 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, run 107's follow-up: one correction batch on the branch; the TikTok continuation prepared, not sent)
+## Current handoff — read this first (2026-10-08, Codex's review of b3d2a409: both corrections made; the guarded continuation waits for your review)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`,
-  runtime-confirmed by run 106). **Run 107's verdict stands: failed.** The
-  demo changes stay (`/allergens`, its menu links, the Order heading, at
-  `01791417187002-f821gr`). Balance **15**.
-- **This batch is on the branch** (`2f2b9ace` and these records): nothing merged,
-  deployed or built, no model called, nothing paid, nothing sent.
-- **The TikTok request is still waiting, and answerable until about 23:59 UTC
-  today (2026-10-08)**: its question was asked at 23:59:18 UTC yesterday, and a
-  part waits a day before it expires.
+- **Production is deploy 2188** (`main` `9d6bda8a`, image `335396c8c0e0fbcb`).
+  **Run 107's verdict stands: failed.** The demo changes stay. Balance **15**.
+- **On the branch, unmerged**:
+  - `2f2b9ace`: the follow-up batch;
+  - `1537c518`: the two corrections from Codex's review of `b3d2a409`;
+  - these records.
+  Nothing merged, deployed or built, no model called, nothing paid, nothing
+  sent.
+- **The TikTok request is untouched.** It is still waiting, until about 23:59
+  UTC today (2026-10-08), when it expires. **The guarded continuation is
+  ready for your review**, and nothing is pressed without your approval.
+
+**Codex's review of `b3d2a409`: both reproductions confirmed, both corrected (`1537c518`)**
+1. **The menu-link evidence is now read from the menus themselves.**
+   - Reproduced on the old function: a comment-only mention of `/allergens`
+     and a body-only link were both reported as kept menu links.
+   - Now `menuLinksKept` (moved to `builder/site-nav.mjs`) reads each
+     published page's menus with the existing menu reader (`navSlots`), and
+     keeps an address only where a menu item links it.
+   - A comment, an unrelated string, a body link, or a link a later change
+     took out is never told as a menu link.
+   - **Uncertainty is kept**: a page whose menu cannot be read is
+     `linkedUnsure`, and the reply model is told it is *not known either way*.
+   - Tested through the reply-facts boundary: a genuine menu link, a comment,
+     an unrelated string, a body-only link, a link removed, and an unreadable
+     page. The real add-on route still passes (HELD 2).
+2. **The continuation answers only the question named by its caller.**
+   - Reproduced on the old function: it accepted an unrelated request whose
+     only question was *"What should the company be called?"*.
+   - Now the scenario names the request, the part, the question's words, its
+     id and when it was asked.
+   - The mechanism checks them in three places:
+     - on the requests list: the named request is not stopped or ended, the
+       named part is waiting with the named words and id, and the question is
+       not within 10 minutes of expiring;
+     - on the page: its own live question is the named one;
+     - **again immediately before the send**.
+   - **Afterwards** the answer must have resumed that part, and that part must
+     have moved on to done.
+   - The mechanism is generic: run 107's identifiers appear only in the
+     `lv-tiktok-answer` scenario's data, and a test holds that.
+   - No-send controls through the real `runUi`: an unrelated sole question, a
+     replaced question on the same part (other words, or the same words under
+     another id), an expired part, a question within its expiry margin, a
+     stopped request, the page's live question being another, the page showing
+     none, and a change between the first check and the send (answered
+     elsewhere, cancelled, expired, asked again).
+
+**Kept from the follow-up batch**: the timing from the measured path, and the
+later money (22 + 3 = 25, not final). Details below.
 
 **What this batch did** (`docs/history/2026-10-08-run107-followup.md`)
 1. **Run 107's failures, by cause**: nine failing check lines in five groups,
@@ -69,40 +110,52 @@ is in git; the dated entries further down are the full story.*
    - **About 2–5 credits** (routing 1–3, the footer link 1–2). Budget 6, hard
      cap 15.
 
-**Your presses for the continuation** (*Actions → edit canary*, "Use workflow
-from": **`claude/help-needed-ehlwlj`**, where the scenario lives; every other
-box as it is):
-1. **Free check** (whether it is still resumable):
-   - "Run the ONE paid edit as well (yes/no)": `no`
-   - "RUN A NAMED SCENARIO …": `lv-tiktok-answer`
-   - "The site to edit …": `fold-lane-bakery`
-   - It prints *"waiting, and answerable: part 1 of request 475d4ff7… asks …"*,
-     or why not.
-2. **The paid answer, only on your word, before about 23:59 UTC today**: the
-   same, with `yes`, and the deploy sha box `9d6bda8a`, the image box
-   `335396c8c0e0fbcb`.
+**The continuation, for your review** (`lv-tiktok-answer`; nothing pressed):
+- **About 2–5 credits**: budget 6, hard cap 15.
+- It must be answered before about 23:59 UTC today. The guard refuses within
+  10 minutes of that.
+- **Free check, once you approve** (*Actions → edit canary*, "Use workflow
+  from": `claude/help-needed-ehlwlj`):
+  - "Run the ONE paid edit as well (yes/no)": `no`
+  - "RUN A NAMED SCENARIO …": `lv-tiktok-answer`
+  - "The site to edit …": `fold-lane-bakery`
+  - It prints *"waiting, and answerable: part 1 of request 475d4ff7… asks …"*,
+    or the exact reason not to send.
+- **Paid answer, only on your word**: the same, with `yes`, the deploy sha box
+  `9d6bda8a` and the image box `335396c8c0e0fbcb`.
+- Both run against deploy 2188, not the branch's reply fixes.
 
-Both run against deploy 2188, not this batch's reply fix, which is not
-deployed.
+**Tests actually run this round**:
+- **Focused**: the held-part file, 8 cases, including the new hand-off guard;
+  the guard file, 8 cases; every canary test file, the reply tests, add-on
+  settle and the request flow together, 617 of 617 before the two survivors'
+  tests were added.
+- **Red check against `b3d2a409`**: HELD 1 fails there. The old functions
+  reproduce Codex's three findings: a comment-only mention and a body-only link
+  kept, and the unrelated sole question accepted with no refusal. The guard
+  file cannot load there.
+- **Sweep** (`scripts/mutants/codex-b3d2a409.json`): 18 of 18 killed, the
+  comment-only control survived. The first pass left two survivors: the
+  Worker's hand-off of unsure links, closed by a source guard because an
+  unreadable menu cannot be produced through the route; and another request
+  read afterwards, closed by a case where that request has its own done
+  part 1.
+- **Full suite**: first run 9905 tests, 9904 pass, **1 fail**. That was BG11
+  in `test/reply-background.test.mjs` (*"a held reply never reached its
+  writer"*, 2 !== 3), a file this round did not touch. It passed 3 of 3 alone
+  and 5 of 5 beside the heaviest reply and request files. **The second full
+  run: 9905, 9905 pass, 0 fail, 0 skipped.** It is recorded in the backlog as
+  a load-dependent flake.
 
-**Tests actually run**:
-- the new cases: 7 for the held parts, 4 for the later accounting, 6 for the
-  continuation;
-- **red check** on the code before the batch: 5 of the 7 held-part cases fail
-  (the helper case and the outside-a-request control pass); the canary files
-  fail on loading;
-- **sweep**: 20 of 20 killed, the comment-only control survived (one survivor
-  on the first pass, the container-wait rule, closed by a test and re-run);
-- **full suite**: **9902 tests, 9902 pass, 0 fail, 0 skipped (on 2f2b9ace's code)**.
-
-**The next image, predicted** (for a later release, not built): **335396c8c0e0fbcb → 8ed15df4698bd1a5 (196 inputs; three differ: worker.js, builder/site-addon.mjs, builder/site-reply.mjs)**.
+**The next image, predicted** (not built): `335396c8c0e0fbcb` →
+**`88dec7358f40e72e`** (196 inputs; `worker.js`, `builder/site-nav.mjs` and
+`builder/site-reply.mjs` differ).
 
 **Yours to decide**
-- **The continuation's free check, then whether to send the paid answer**
-  (before about 23:59 UTC today, or the question expires).
-- **Releasing this batch** (one merge, one image build) when you choose.
-- **Next, on your word: the first-Build audit**, then the cross-path
-  parallel-execution design, after the audit.
+- **Review the guarded continuation.** Then, if you approve, the free check,
+  and on your word the paid answer, before about 23:59 UTC today.
+- **Releasing the branch** (one merge, one image build) when you choose.
+- **Next: the first-Build audit**, then the parallel-execution planning.
 
 **The gate, exactly**
 - **Attempt 1** (the push of `570adb45`, 19:29–19:50 UTC) was incomplete:
@@ -249,6 +302,20 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — Codex's review of b3d2a409: menu links read from the menus; the continuation answers only the named question (on the branch, `1537c518`; nothing merged, deployed, built, paid or sent)
+
+- Both of Codex's reproductions are confirmed on the old functions, and both
+  are corrected.
+- **The reply's menu-link evidence** now comes from the published menus (the
+  menu reader), never from a quoted address anywhere in the page, and an
+  unreadable menu is told as not known.
+- **The continuation** needs the caller's request, part, question words and
+  id. They are checked on the list and on the page, again immediately before
+  sending, and afterwards. It covers eight no-send cases.
+- Full suite 9905 of 9905 on the second run. The first run had one unrelated
+  flake, BG11, now in the backlog.
+- The TikTok request is untouched; the continuation waits for your review.
 
 ## 2026-10-08 — Run 107's follow-up: the timing from the real path, "not run is not absent" in the replies, the later money, the continuation prepared (on the branch, `2f2b9ace`; nothing merged, deployed, built, paid or sent)
 
