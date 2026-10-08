@@ -352,3 +352,77 @@ test("HELD 12 — conditions, nested declarations and invocation: only what the 
   assert.equal(renderedMenus(genuine.source), null);
   assert.deepEqual(menuLinksKept({ pages: [genuine], linked: ADDED(["index.tsx"]) }), { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] });
 });
+
+// A KEY WRITTEN AS NULL OR UNDEFINED IS NOT A KEY LEFT OUT (2026-10-08,
+// Codex's review of c288078d). A later spread writing `links: null` or
+// `links: undefined` was read as writing nothing, so the earlier menu survived
+// it and the reply said the menu links to /allergens. Presence is now tracked
+// apart from the value, in source order, across JSX attributes and spreads and
+// across an object's own spreads.
+const ALLERGENS = "[{label:\"Allergens\",href:\"/allergens\"}]";
+const CLEARING = (decls, jsx) => ({
+  path: "index.tsx",
+  source: "import { SiteChrome } from \"@/components/ui/site-chrome\";\nimport { SiteHeader } from \"@/components/ui/site-header\";\nimport { extra } from \"./extra\";\n" + decls +
+    "export default function Page(props) {\n  return " + jsx + ";\n}\n",
+});
+const BASE = "const base = { links: " + ALLERGENS + " };\n";
+const WITH_HOME = (el) => "<>" + el + "<SiteHeader links={" + HOME + "} /></>";
+
+test("HELD 13 — an explicit null or undefined clears the menu before it; a spread without links keeps it; an unreadable last spread is not known", () => {
+  const cases = [
+    // CODEX'S FOUR, as written: the menu is cleared and no other menu is read, so not known.
+    ["a JSX spread clearing with null", CLEARING("", "<SiteChrome links={" + ALLERGENS + "} {...{links:null}}/>"), "nomenu"],
+    ["a JSX spread clearing with undefined", CLEARING("", "<SiteChrome links={" + ALLERGENS + "} {...{links:undefined}}/>"), "nomenu"],
+    ["an object spread clearing with null", CLEARING(BASE + "const props2 = { ...base, ...{ links: null } };\n", "<SiteChrome {...props2}/>"), "nomenu"],
+    ["an object spread clearing with undefined", CLEARING(BASE + "const props2 = { ...base, ...{ links: undefined } };\n", "<SiteChrome {...props2}/>"), "nomenu"],
+    // THE SAME FOUR BESIDE A HOME-ONLY MENU: not told, and not unknown.
+    ["null spread beside a Home menu", CLEARING("", WITH_HOME("<SiteChrome links={" + ALLERGENS + "} {...{links:null}}/>")), "absent"],
+    ["undefined spread beside a Home menu", CLEARING("", WITH_HOME("<SiteChrome links={" + ALLERGENS + "} {...{links:undefined}}/>")), "absent"],
+    ["null object spread beside a Home menu", CLEARING(BASE + "const props2 = { ...base, ...{ links: null } };\n", WITH_HOME("<SiteChrome {...props2}/>")), "absent"],
+    ["undefined object spread beside a Home menu", CLEARING(BASE + "const props2 = { ...base, ...{ links: undefined } };\n", WITH_HOME("<SiteChrome {...props2}/>")), "absent"],
+    // A CLEARING VALUE NAMED BY A CONST, and the direct attributes.
+    ["a shorthand key holding null", CLEARING("const links = null;\n", WITH_HOME("<SiteChrome links={" + ALLERGENS + "} {...{ links }}/>")), "absent"],
+    ["a direct links={null} after a spread", CLEARING(BASE, WITH_HOME("<SiteChrome {...base} links={null}/>")), "absent"],
+    ["a direct links={undefined} after a spread", CLEARING(BASE, WITH_HOME("<SiteChrome {...base} links={undefined}/>")), "absent"],
+    ["an empty array after the menu", CLEARING("", WITH_HOME("<SiteChrome links={" + ALLERGENS + "} {...{links:[]}}/>")), "absent"],
+    ["an empty array in an object spread", CLEARING(BASE + "const props2 = { ...base, links: [] };\n", WITH_HOME("<SiteChrome {...props2}/>")), "absent"],
+    // A SPREAD THAT DOES NOT WRITE links KEEPS IT.
+    ["an unrelated JSX spread after the menu", CLEARING("", "<SiteChrome links={" + ALLERGENS + "} {...{brand:\"Harbour Loaf\"}}/>"), "kept"],
+    ["an unrelated object spread after the menu", CLEARING(BASE + "const props2 = { ...base, ...{ brand: \"Harbour Loaf\" } };\n", "<SiteChrome {...props2}/>"), "kept"],
+    ["a spread of null after the menu", CLEARING("", "<SiteChrome links={" + ALLERGENS + "} {...null}/>"), "kept"],
+    // REVERSED: A LATER GENUINE ARRAY WINS.
+    ["a JSX clearing spread before the menu", CLEARING("", "<SiteChrome {...{links:null}} links={" + ALLERGENS + "}/>"), "kept"],
+    ["an object clearing spread before the menu", CLEARING(BASE + "const props2 = { ...{ links: undefined }, ...base };\n", "<SiteChrome {...props2}/>"), "kept"],
+    ["a direct null before the spread that writes the menu", CLEARING(BASE, "<SiteChrome links={null} {...base}/>"), "kept"],
+    // NOTHING WRITES links: no menu there, and nothing unknown about it.
+    ["a member the object does not have", CLEARING("const META = { brand: \"Harbour Loaf\" };\n", WITH_HOME("<SiteChrome links={META.links}/>")), "absent"],
+    ["an element whose spreads never write links", CLEARING("const META = { brand: \"Harbour Loaf\" };\n", WITH_HOME("<SiteChrome {...META} {...{ tone: \"warm\" }}/>")), "absent"],
+    ["a conditional element with an explicit null menu", CLEARING("", WITH_HOME("<>{props.open && <SiteChrome links={null}/>}</>")), "absent"],
+    // AN UNREADABLE LAST SPREAD: not known, neither there nor gone.
+    ["a JSX spread of a parameter after the menu", CLEARING("", WITH_HOME("<SiteChrome links={" + ALLERGENS + "} {...props}/>")), "unsure"],
+    ["an object spread of an import after the menu", CLEARING(BASE + "const props2 = { ...base, ...extra };\n", WITH_HOME("<SiteChrome {...props2}/>")), "unsure"],
+  ];
+  for (const [what, pg, want] of cases) {
+    const read = renderedMenus(pg.source, PARSE);
+    assert.ok(read, what + ": the page could not be read");
+    const { r, f } = factsFor([pg], ["index.tsx"]);
+    const holds = read.menus.some((m) => m.some((i) => i.href === "/allergens"));
+    if (want === "kept") {
+      assert.ok(holds && !read.unsure, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [{ path: "index.tsx", to: ["/allergens"] }], unsure: [] }, what);
+      assert.ok(f.includes("changed: The menu on / now links to /allergens."), what + ": " + JSON.stringify(f));
+    } else if (want === "absent") {
+      assert.deepEqual(read, { menus: [[{ label: "Home", href: "/" }]], unsure: false }, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && !unknown(f), what + ": " + JSON.stringify(f));
+    } else if (want === "nomenu") {
+      assert.deepEqual(read, { menus: [], unsure: false }, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && unknown(f), what + ": " + JSON.stringify(f));
+    } else {
+      assert.ok(read.unsure && !holds, what + ": " + JSON.stringify(read));
+      assert.deepEqual(r, { kept: [], unsure: [{ path: "index.tsx", to: ["/allergens"] }] }, what + ": " + JSON.stringify(r));
+      assert.ok(!told(f) && unknown(f), what + ": " + JSON.stringify(f));
+    }
+  }
+});

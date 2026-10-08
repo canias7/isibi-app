@@ -305,7 +305,12 @@ function readTree(file, SK, each) {
   };
 
   // ── WHAT EACH ELEMENT'S `links` IS ───────────────────────────────────────
-  const UNSURE = { kind: "unsure" }, NONE = { kind: "none" }, OTHER = { kind: "other" };
+  // PRESENCE IS NOT A VALUE (2026-10-08, Codex's review of c288078d). ABSENT is
+  // a key the object or element does not write, which leaves the earlier one
+  // standing; NONE is a key written as null or undefined, which overwrites it.
+  // Run together, `{...{ links: null }}` after a menu read as "no key" and the
+  // menu survived it.
+  const UNSURE = { kind: "unsure" }, NONE = { kind: "none" }, OTHER = { kind: "other" }, ABSENT = { kind: "absent" };
   const value = (e0, depth) => {
     const e = strip(e0);
     if (!e || depth > MAX_DEPTH) return UNSURE;
@@ -346,17 +351,21 @@ function readTree(file, SK, each) {
       case SK.PropertyAccessExpression: {
         const o = value(e.expression, depth + 1);
         if (o.kind !== "object") return o.kind === "unsure" ? UNSURE : UNSURE;
-        return prop(o, e.name.text, depth + 1);
+        const r = prop(o, e.name.text, depth + 1);
+        return r.kind === "absent" ? NONE : r;
       }
       default: return UNSURE;
     }
   };
+  // THE KEY'S LAST WRITE, IN SOURCE ORDER: a spread that writes it (even as
+  // null) overwrites, one that does not leaves it, one that cannot be read
+  // makes it unsure.
   const prop = (o, key, depth) => {
-    let st = NONE;
+    let st = ABSENT;
     for (const pr of o.node.properties) {
       if (pr.kind === SK.SpreadAssignment) {
         const v = value(pr.expression, depth + 1);
-        if (v.kind === "object") { const r = prop(v, key, depth + 1); if (r.kind !== "none") st = r; }
+        if (v.kind === "object") { const r = prop(v, key, depth + 1); if (r.kind !== "absent") st = r; }
         else if (v.kind === "unsure") st = UNSURE;
         continue;
       }
@@ -371,7 +380,7 @@ function readTree(file, SK, each) {
   };
   const asLinks = (v) => (v.kind === "array" || v.kind === "unsure" || v.kind === "none" ? v : OTHER);
   const linksOf = (open) => {
-    let st = NONE;
+    let st = ABSENT;
     for (const a of open.attributes.properties) {
       if (a.kind === SK.JsxAttribute && nameOf(a.name) === "links") {
         const init = a.initializer;
@@ -380,11 +389,11 @@ function readTree(file, SK, each) {
         else st = UNSURE;
       } else if (a.kind === SK.JsxSpreadAttribute) {
         const v = value(a.expression, 0);
-        const r = v.kind === "object" ? asLinks(prop(v, "links", 0)) : v.kind === "unsure" ? UNSURE : NONE;
-        if (r.kind !== "none") st = r;
+        const r = v.kind === "object" ? prop(v, "links", 0) : v.kind === "unsure" ? UNSURE : ABSENT;
+        if (r.kind !== "absent") st = asLinks(r);
       }
     }
-    return st;
+    return st.kind === "absent" ? NONE : st;
   };
 
   const menus = [];
