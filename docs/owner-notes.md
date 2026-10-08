@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, the eighth Build batch in `ae905c3e`, finishing the Build batch)
+## Current handoff — read this first (2026-10-08, the ninth Build batch in `241720dc`: a first Build's design recovered)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,138 +10,131 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`, ending in
-  **`ae905c3e`** (this pass) and its records. Before it:
-  - the seventh batch (`f3221a9a`, records `ff1fd469`);
-  - the sixth (`04f94e9e`).
+- **On the branch, unmerged**: everything since `9d6bda8a`, ending in this
+  pass and its records:
+  - `e19f5adf`, the recovery;
+  - `26f0080f`, the guards;
+  - `241720dc`, the tests that answer the sweep.
+  Before it: the eighth batch (`ae905c3e`, records `8180a7cf`) and the
+  earlier ones.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL
   applied.
-- **Codex passed all 65 focused tests on `ff1fd469` and confirmed CI green.**
-  Those fixes are kept; the tests still pass, among the full suite.
+- **Codex passed 84 focused tests on `8180a7cf`** and reproduced the gap this
+  pass closes. Those fixes are kept; the tests still pass, among the full
+  suite.
 - The limits of 1 page and 15 components, the spending safeguards and the
   .txt reminder are unchanged.
 
-**This pass: three gaps, closed together to finish the Build batch.** The
-record is `docs/history/2026-10-08-build-batch-8.md`.
-- **No paying twice for the same explanation while a refund is short.**
-  - What Codex showed: two recovery passes, both returning 4 credits and
-    still short, and the second paid the reply model again for the
-    identical explanation.
-  - The explanation is now kept across every rewrite of the settlement
-    record, tied to the facts it explains, and reused while they are the
-    same.
-  - When the amount or outcome really changes, a new one is written.
-  - Every attempt is claimed on the record before the call. Overlapping
-    passes, a save that failed or a record that couldn't be read never lead
-    to a second paid call.
-- **"On the site" now means a published page actually renders the picture.**
-  - What Codex showed: a photograph sat in a component no page uses, yet it
-    was told as on the site.
-  - The published pages are now read for what they actually render,
-    following the components they use.
-  - A picture in an unused component, one cut off by salvage, a comment or
-    an unused string is "not shown".
-  - Where that can't be established, it is "in the published files,
-    unconfirmed". That is the answer in production today, because the
-    Worker has no page reader.
-  - The reply model and the page labels use the same answer.
-- **Ordinary build failures are now explained by the reply model.**
-  - These are: the designer's answer unusable, too big or too slow; a part
-    left for later that couldn't be separated; the pages not written or not
-    compiled.
-  - Outages keep their fixed messages: the provider busy or out of
-    balance, no room, provisioning, and credits.
-  - Every error the page shows now also shows any explanation, facts or
-    refund it carries, beside the fixed sentence.
+**This pass: a first Build's design is recovered, not abandoned.** The record
+is `docs/history/2026-10-08-build-batch-9.md`.
+- **What Codex showed**: a first Build got an unusable design, made exactly
+  one design call, stopped, and never tried to correct it.
+- **What was reused, not rebuilt**:
+  - the first build's question round on the page;
+  - the shared question field every step's tool can carry;
+  - the existing reading of provider errors;
+  - the existing settlement.
+  The later page repairs are kept as they are.
+- **Now, what went wrong decides what happens next**:
+  - **the model's own mistake** (no tool call, missing parts) **or an
+    answer that ran out of room**: one corrective attempt. It gets the same
+    request, the exact validation failures and what it had already written,
+    with "keep every page, feature, table and requirement". The answer is
+    checked again. If it is usable, **the same build goes on**;
+  - **a busy provider or a dropped connection**: asked once more;
+  - **an account or billing refusal, a request the provider rejects, our own
+    time limit**: never retried. No attempt would help;
+  - **a decision only you (the customer) can make**: the model asks it in its
+    own words, through the existing question round. Nothing is built, and the
+    deposit is returned.
+- **Every designer mode is covered**: the single call, the waves and the
+  graph. The split designers now hand over what they had already worked out.
+- **No duplicates, even with the browser closed or the job redelivered**.
+  Each attempt is recorded beside the job before it is made. A redelivered
+  job never repeats one, and an attempt that cannot be recorded is not made.
+  A queued build's final answer still says the design was corrected.
+- **Money**:
+  - a repaired build settles every design call it actually made, once;
+  - a question or a final stop returns the deposit in full;
+  - at most two extra design calls per build.
+- **Told from what happened**: a corrected design is told as done, with
+  nothing dropped. A final stop names what was tried. **It no longer tells
+  anyone to "describe fewer things"**: a valid request is never theirs to
+  shrink.
 
 **Tests actually run**
-- **`test/build-batch-8.test.mjs`, 19 cases**:
-  - **1, through the real recovery**:
-    - Codex's two-pass reproduction (one call);
-    - a control where the facts change (a new explanation);
-    - overlapping passes;
-    - a save that failed;
-    - a claim that failed;
-    - a pass whose view went stale;
-    - two passes racing at the claim;
-    - the rule.
-  - **2, through `publishPages` with the real parser**:
-    - Codex's reproduction (not shown);
-    - a used component (shown);
-    - imported but not rendered;
-    - behind a condition;
-    - a comment;
-    - an unused string;
-    - salvage;
-    - no parser;
-    - a real queued build buying and publishing a picture through the
-      Worker (shown).
-  - **3, through the real inline route**:
-    - the designer unusable, narrated and with the writer down;
-    - an outage control;
-    - the page writer failing;
-    - every failure kind.
-- **5 new browser cases in real Chromium**, with screenshots shown to you.
-- **Before, on `ff1fd469`'s code: 21 of 28 fail.** The 7 that pass are
-  controls and the seventh batch's cases. The reproductions fail on the
-  defect itself.
-- **Mutation sweep: 21 of 21 killed, the comment-only control survived.**
-  The first pass left 4 survivors, each answered:
-  - two masked each other, so a redundant line was dropped and a
-    stale-view test added;
-  - one needed a claim race;
-  - one needed a real queued build buying a picture.
-- **Full suite** on `ae905c3e`: **`10109 / 10109 / 0 / 0`** locally.
-- **Required CI on `ae905c3e`: green.**
-  - Unit tests run 37799832496: `10109 / 10072 / 0 / 37`. The totals
-    match; CI skips the browser cases (5 of them new).
-  - Site build run 37799832581: 8 of 8 jobs green.
+- **`test/build-batch-9.test.mjs`, 22 cases, offline**:
+  - **Codex's reproduction**: one corrective call, the same first-build tool,
+    the build goes on, usage summed;
+  - a cut-off answer;
+  - a busy provider;
+  - account and rejected controls;
+  - a usable-design control;
+  - a question;
+  - still unusable (never a third call);
+  - the waves designer;
+  - the durable record: written before the call; a redelivery; an
+    unreadable or unwritable record; no time left; the bounds;
+  - **a queued build with the browser closed**: repaired, finished by the
+    resume with the fact, and its redelivery makes no second attempt.
+- **`test/design-question-browser.test.mjs`, 3 cases in real Chromium**, with
+  the screenshot shown to you. The designer's question opens the round, the
+  answer runs the same brief again, and a typed answer works with no buttons.
+- **Before, on `8180a7cf`'s code: 18 of 25 fail.** The 7 that pass are the
+  supplied pure module's 4 cases and 3 controls. The reproduction fails on
+  the defect itself: 1 designer call where 2 were expected.
+- **Mutation sweep: 31 of 31 killed, and the comment-only control survived.**
+  The first pass left 5 real survivors. All came from weak assertions, all
+  were answered, and one of them added the queued resume check.
+- **Full suite** on `26f0080f`: **`10133 / 10133 / 0 / 0`** locally. The first
+  run's 6 failures were guards that saw the new call site, mark and fields;
+  each is updated with its reason.
+- **Required CI on `241720dc`**: green. Unit tests run 37808492484: `10134 / 10094 / 0 / 40`. That total is the local `10133` on `26f0080f` plus the one case `241720dc` added; CI skips the browser cases, 3 of them new. Site build run 37808492447: 8 of 8 jobs green.
 
 **Mocked versus live**
-- Every model answer in these tests is a stand-in: the designer, the page
-  writer, the reply writer and the image service.
+- Every model answer in these tests is a stand-in: the designer, the split
+  agents and the reply writer.
 - The ledger is a stand-in; storage is a Map with R2's conditions.
-- The page reader is the real TypeScript parser under Node. A deployed
-  Worker has none, so live answers say "unconfirmed".
-- No real reply call was made: narration's quality and cost remain
-  unmeasured.
+- **No real designer has been asked to correct itself.** Its success rate,
+  cost and question wording are unmeasured.
 
 **The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`fbb1e9a1d0b70b11`** (199 inputs: the new `rendered-pictures.mjs` is copied into the image).
+**`18d409f0090515bd`** (200 inputs: the new `design-repair.mjs` is copied in).
 
-**Remaining gaps**
-- **Picture visibility in production stays "unconfirmed"** until the publish
-  runs where the page reader exists, or the reader is bundled.
-- **A claimed attempt whose outcome was never saved is never retried** for
-  the same facts. Those facts go out without a new explanation, keeping
-  any text already delivered.
-- **The picture reader is bounded**:
-  - it follows `-parts` imports and plain `src` values;
-  - backgrounds, computed addresses, props and lists read as unknown.
-- **Provisioning and schema failures keep their technical answers.**
-- **Still open from earlier batches**:
-  - the add-on's 240-character description cut;
-  - the link count of 2;
-  - P6–P11, and the first audit's open items;
-  - `build_debit.sql` not applied;
-  - recovery objects never deleted;
-  - `canary-reopen-browser` is flaky under load.
+**Where the same principle is still missing** (backlog, not started):
+- a revise's design;
+- the page writer's failed answer (the placeholder; you must send it again);
+- the seed top-up;
+- live progress during a first build's design;
+- a question's answer re-running the whole build;
+- the 150-second time floor, which is an estimate.
+
+**Still open from earlier batches**:
+- picture visibility "unconfirmed" in production;
+- a narration claim never retried;
+- the add-on's 240-character cut;
+- the link count of 2;
+- P6–P11;
+- `build_debit.sql` not applied;
+- recovery objects (now also design attempt records) never deleted;
+- `canary-reopen-browser` flaky under load.
 
 **Recorded for later (unchanged)**: an oversized pasted message becomes a
-complete .txt attachment (`owner-preferences.md`, backlog).
+complete .txt attachment.
 
 **Next, as you set it**: parallel-task execution, once this batch is
 reviewed.
 
 **Yours to decide**
-- The review of `ae905c3e` (and the earlier unmerged batches).
+- The review of `241720dc` (and the earlier unmerged batches).
+- Whether a revise's design and the page writer should get the same
+  recovery next.
 - Whether to apply `build_debit.sql`.
 - Any release: one merge, one image build, its own runtime check, and a
-  first real measurement of the narration.
+  first real measurement of a corrective design attempt.
 
-**Links**: `docs/history/2026-10-08-build-batch-8.md` (this round),
-`docs/history/2026-10-08-build-batch-7.md`,
-`docs/investigations/build-limits-2026-10-08.md`.
+**Links**: `docs/history/2026-10-08-build-batch-9.md` (this round),
+`docs/history/2026-10-08-build-batch-8.md`, `docs/backlog.md`.
 
 ## How you like things done
 
@@ -150,6 +143,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-08 — The ninth Build batch: a first Build's design recovered on the same job (on the branch, `241720dc`; nothing merged, deployed, built or paid)
+
+You asked for this batch to finish with recovery, not just better failure
+wording. Codex had reproduced a first Build that got an unusable design:
+one design call, then a stop, with no correction.
+
+- **What changed**:
+  - a first Build's design failure is now classified;
+  - the model's own mistakes and cut-off answers get one corrective attempt
+    with the real validation failures and what it wrote;
+  - a busy provider is asked once more;
+  - account, billing, rejected requests and our time limit are not retried;
+  - a decision only the customer can make is asked in the model's words
+    through the existing question round.
+  When repaired, the same build goes on.
+- **Durable**: each attempt is recorded beside the job before it is made, so
+  a redelivered job or a closed browser never duplicates one.
+- **Money**: a repaired build settles every design call once; a question or
+  a stop returns the deposit.
+- **Wording**: no message asks anyone to "describe fewer things" any more.
+- **Commits**: `e19f5adf`, `26f0080f`, `241720dc`, and the records.
+- **Results**:
+  - 25 focused cases, 3 of them in real Chromium; 18 of them fail on the old
+    code;
+  - sweep 31 of 31, with the control surviving;
+  - full suite `10133 / 10133 / 0 / 0`;
+  - required CI as in the handoff.
+- **Mocked versus live**: every model answer is a stand-in. No real
+  corrective attempt has been measured.
+- **Remaining**: a revise's design, the page writer, the seed top-up, live
+  build progress, and a question's answer re-running the whole build (all
+  in the backlog).
 
 ## 2026-10-08 — The eighth Build batch: one explanation per set of facts, pictures from what pages render, ordinary failures told (on the branch, `ae905c3e`; nothing merged, deployed, built or paid)
 

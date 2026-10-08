@@ -20,6 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Where the design-recovery principle is still missing** (2026-10-08, the
+  ninth batch): a revise's design, the page writer's failed answer, the seed
+  top-up, live progress during a first build's design, the question's answer
+  re-running the whole build, and an unmeasured real corrective attempt.
+  In full under Backlog below; `docs/history/2026-10-08-build-batch-9.md`.
 - **The first-Build audit's confirmed gaps** (2026-10-08): 6 high, 12 medium
   and 12 low, in `docs/investigations/first-build-audit-2026-10-08.md`.
   **H1–H6, M7, L10 and M1 are corrected on the branch** (2026-10-08, the
@@ -991,6 +996,28 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **WHERE THE DESIGN-RECOVERY PRINCIPLE IS STILL MISSING (2026-10-08, the
+  ninth Build batch; `docs/history/2026-10-08-build-batch-9.md`).** A first
+  build's design is now recovered on the same job (one corrective attempt,
+  one provider retry, attempts recorded before they are made). Not yet:
+  - **a revise's design** stops at its first unusable or cut-off answer. It
+    could use `recoverDesign`, but its tool carries the backend and its
+    failure costs differ;
+  - **the page writer** (`write_pages`): a failed or empty answer gives the
+    placeholder (`generate-failed`), and the customer must send it again.
+    There is no corrective attempt from the stored design; `repairPages`
+    covers only written pages that do not compile;
+  - **the seed top-up** (`topUpSeed`) is one call, never retried;
+  - **no live progress during a first build's design**: the progress
+    recorder serves edit and add-on jobs; the recovery leaves a trace mark
+    and facts in the final answer only;
+  - **the designer's question, once answered, re-runs the whole build** (a
+    new first design call; the earlier answer is not reused), through the
+    existing routing call;
+  - **the 150-second floor** is an estimate, and **a real model's corrective
+    attempt is unmeasured** (success rate, cost, question wording);
+  - **attempt records** (`jobs/<id>.design.json`) are never deleted.
 
 - **THE CANARY'S MONEY CHECK ON A CONTINUED REQUEST (2026-10-08, run 109,
   `lv-tiktok-answer`; `docs/history/2026-10-08-run107-followup.md` §12).**
