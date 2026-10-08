@@ -23,7 +23,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { GOOD_DESIGN, BRIEF, buildBucket } from "./fixtures/build-route.mjs";
 import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
-import { ledger, fireInterim } from "./fixtures/build-lifecycle.mjs";
+import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
+import { resultKey, readResult } from "../builder/build-job.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_RETRY_FLOOR_MS, REPAIR_SHOWN_CHARS } from "../builder/design-repair.mjs";
 import { buildFacts } from "../builder/build-answer.mjs";
 import { buildReplyFacts } from "../builder/site-reply.mjs";
@@ -103,10 +104,15 @@ test("pure: the facts — only real attempt readings pass; a repaired design is 
 
 test("Codex's reproduction: the first design is UNUSABLE (no tool call) — one corrective call told the failure, the design validates, and the SAME build goes on", async () => {
   const { driveBuild } = await import("./fixtures/build-route.mjs");
-  const r = await driveBuild({ body: BODY, design: (n) => (n === 0 ? { text: "Here is a design." } : { input: GOOD_DESIGN, usage: { input_tokens: 300, output_tokens: 70 } }) });
+  const sent = [];
+  const r = await driveBuild({ body: BODY, design: (n, b) => { sent.push(b); return n === 0 ? { text: "Here is a design." } : { input: GOOD_DESIGN, usage: { input_tokens: 300, output_tokens: 70 } }; } });
   assert.equal(r.seen.designer.length, 2, "exactly one corrective call");
   assert.ok(!isRepair(r.seen.designer[0]) && isRepair(r.seen.designer[1]));
   assert.match(r.seen.designer[1], /did not use the design tool/);
+  // THE SAME FIRST-BUILD TOOL, plus the question field: never the revise's
+  // whole tool with a backend in it.
+  const keys = (b) => Object.keys(b.tools[0].input_schema.properties).filter((k) => k !== "question").sort();
+  assert.deepEqual(keys(sent[1]), keys(sent[0]), "the corrective call was given a different designer tool");
   assert.notEqual(r.reply.stage, "design", "the build stopped at the design: " + JSON.stringify(r.reply).slice(0, 300));
   assert.equal(r.reply.slug, "harbour-loaf");
   assert.deepEqual(r.reply.designRecovery, { attempts: ["malformed:repair"], outcome: "repaired" });
@@ -118,11 +124,12 @@ test("Codex's reproduction: the first design is UNUSABLE (no tool call) — one 
 
 test("a design CUT OFF at its room is written again, shown what it had written and told to keep everything — repaired, same build", async () => {
   const { driveBuild } = await import("./fixtures/build-route.mjs");
-  const partial = { brand: "Harbour Loaf", slug: "harbour-loaf", pages: [{ path: "/", name: "Home" }] };
+  const partial = { brand: "Harbour Loaf", slug: "harbour-loaf", description: "QUAYSIDE-MARK-7 crusts", pages: [{ path: "/", name: "Home" }] };
   const r = await driveBuild({ body: BODY, design: (n) => (n === 0 ? { input: partial, stop: "max_tokens" } : { input: GOOD_DESIGN }) });
   assert.equal(r.seen.designer.length, 2);
   assert.match(r.seen.designer[1], /ran out of room/);
-  assert.match(r.seen.designer[1], /Harbour Loaf/, "the earlier answer was not shown back");
+  assert.match(r.seen.designer[1], /QUAYSIDE-MARK-7/, "the earlier answer was not shown back");
+  assert.doesNotMatch(r.seen.designer[0], /QUAYSIDE-MARK-7/, "OBSERVER: the marker was in the request already");
   assert.deepEqual(r.reply.designRecovery.attempts, ["truncated:repair"]);
   assert.equal(r.reply.slug, "harbour-loaf");
 });
@@ -200,7 +207,8 @@ test("THE SPLIT DESIGNER (waves): agents that leave a required part out end inco
   assert.ok(r.seen.designer.length > 2, "the waves did not run: " + r.seen.designer.length);
   assert.equal(repairs.length, 1);
   assert.match(repairs[0], /purpose/);
-  assert.match(repairs[0], /Harbour Loaf/, "what the agents wrote was not carried into the repair");
+  assert.match(repairs[0], /harbour-loaf/, "what the agents wrote was not carried into the repair");
+  assert.doesNotMatch(r.seen.designer[0], /harbour-loaf/, "OBSERVER: the slug was in the request already");
   assert.equal(r.reply.slug, "harbour-loaf");
   assert.deepEqual(r.reply.designRecovery.attempts, ["malformed:repair"]);
 });
@@ -277,6 +285,17 @@ test("durable: an UNREADABLE record, or one that cannot be WRITTEN, makes no att
   } finally { f.restore(); }
 });
 
+test("usage: a corrective call that is itself cut off still counts — its usage is summed with the first call's", async () => {
+  const { recoverDesign } = await W();
+  const f = stubFetch(() => json({ stop_reason: "max_tokens", content: [{ type: "tool_use", id: "t", name: "design_schema", input: { brand: "x" } }], usage: { input_tokens: 7, output_tokens: 9 } }));
+  try {
+    const rec = await recoverDesign(ENV(buildBucket()), { dz: unusable, jobId: "j7", brief: "b", model: "m" });
+    assert.equal(rec.ok, false);
+    assert.equal(rec.usage.in, 100 + 7);
+    assert.equal(rec.usage.out, 50 + 9);
+  } finally { f.restore(); }
+});
+
 test("time: with less left than a design needs, no further call is started", async () => {
   const { recoverDesign } = await W();
   const f = stubFetch(() => ok(GOOD_DESIGN));
@@ -310,6 +329,13 @@ test("THE QUEUED JOB (browser closed): the consumer repairs the design and fires
   assert.deepEqual(kept.attempts.map((a) => a.retry), ["repair"]);
   const resume = [...b.store.keys()].find((k) => /resume/.test(k));
   assert.ok(resume, "the build did not fire its generation: " + [...b.store.keys()].join(", "));
+  // THE BUILD FINISHES IN THE RESUME, and its final answer tells the corrected
+  // design: what the first invocation did rides on its record.
+  await finishResume(b, Q9, led, { credits: 400 });
+  const raw = b.store.get(resultKey(Q9));
+  assert.ok(raw, "the resume wrote no answer");
+  const fin = JSON.parse(readResult(JSON.parse(raw)).body);
+  assert.deepEqual(fin.buildFacts && fin.buildFacts.design, { outcome: "repaired", attempts: ["malformed:repair"] }, JSON.stringify(fin).slice(0, 300));
   // The same job delivered again: its first design is again unusable, and the
   // repair the record holds is not made a second time.
   const again = [];

@@ -12,7 +12,7 @@
 "files": [
 "worker.js"
 ],
-"from": "            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks });",
+"from": "            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks, frontendOnly: firstBuild });",
 "to": "            const rec = dzErr ? { ok: false, err: dzErr, attempts: [], usage: null } : { ok: true, dz, attempts: [], usage: dz && dz.usage };"
 },
 {
@@ -84,8 +84,8 @@
 "files": [
 "worker.js"
 ],
-"from": "        ? await designSiteSchema(env, brief, model, null, files, budget, true, { note: repairNote(f, partial), ask: true })",
-"to": "        ? await designSiteSchema(env, brief, model, null, files, budget, true)"
+"from": "f.retry === \"repair\" ? { note: repairNote(f, partial), ask: true } : null);",
+"to": "null);"
 },
 {
 "label": "recover: no partial shown",
@@ -238,5 +238,21 @@
 ],
 "from": "  const opts = Array.isArray(q.options) ? q.options : [];\n  if (!opts.every(words)) return null;",
 "to": "  const opts = Array.isArray(q.options) ? q.options : [];\n  if (opts.length < 2 || !opts.every(words)) return null;"
+},
+{
+"label": "recover: frontend flag lost",
+"files": [
+"worker.js"
+],
+"from": "      const next = await designSiteSchema(env, brief, model, null, files, budget, frontendOnly,",
+"to": "      const next = await designSiteSchema(env, brief, model, null, files, budget, false,"
+},
+{
+"label": "resume: recovery not kept",
+"files": [
+"worker.js"
+],
+"from": "        if (designRecovery) design.designRecovery = designRecovery;",
+"to": "        void designRecovery;"
 }
 ]
