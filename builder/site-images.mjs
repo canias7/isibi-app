@@ -1618,7 +1618,8 @@ export function imagesNotOffered(plan, budget, why = "cap") {
  *   own            the customer's own photograph (placement is not claimed)
  *   not-offered    past what one build buys, never offered to a writer (`why`)
  *   made           offered, written, and bought
- *   failed         offered, written, attempted, and not bought
+ *   failed         offered, written, attempted, and refused by the provider
+ *   unknown/still-pending  attempted, and not answered when the wait ended
  *   not-attempted  offered and written, but past what the purchase could
  *                  afford (`why`: library, time or budget)
  *   not-placed     offered, and the writer wrote no picture for it
@@ -1640,12 +1641,26 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
   const bought = ok ? keys(buy.bought) : new Set();
   const attempted = ok ? keys(buy.attempted) : new Set();
   const notTried = ok ? keys(buy.notTried) : new Set();
+  // EACH ATTEMPT'S OWN ENDING (2026-10-08, the seventh batch). A purchase that
+  // records `refused` and `unresolved` says which attempts the provider
+  // answered with no picture and which had not answered when the wait ended;
+  // an unresolved one is `unknown`, never `failed`. A record without the two
+  // lists (an older hook) keeps the sixth batch's reading.
+  const split = ok && Array.isArray(buy.refused) && Array.isArray(buy.unresolved);
+  const refused = split ? keys(buy.refused) : null;
+  const unresolved = split ? keys(buy.unresolved) : null;
+  const urlOf = new Map(ok && Array.isArray(buy.bought) ? buy.bought.filter((x) => x && typeof x.key === "string" && typeof x.url === "string").map((x) => [x.key, x.url]) : []);
   for (const s of offered) {
     const page = String(s.page || "/");
     const describe = String(s.describe).trim();
     const k = shotKey(describe);
     if (!ok) { out.push({ page, describe, status: "unknown", why: thrown ? "purchase-error" : "no-record" }); continue; }
-    if (bought.has(k)) out.push({ page, describe, status: "made" });
+    // MADE IS "GENERATED AND STORED", nothing more: whether the picture is in
+    // the page's source and whether that source went live are later facts,
+    // added by `pictureStages` from the final pages and the publish.
+    if (bought.has(k)) out.push({ page, describe, status: "made", stage: "stored", ...(urlOf.has(k) ? { url: urlOf.get(k) } : {}) });
+    else if (attempted.has(k) && split && unresolved.has(k)) out.push({ page, describe, status: "unknown", why: "still-pending" });
+    else if (attempted.has(k) && split && !refused.has(k)) out.push({ page, describe, status: "unknown", why: "no-record" });
     else if (attempted.has(k)) out.push({ page, describe, status: "failed" });
     else if (notTried.has(k)) out.push({ page, describe, status: "not-attempted", why: buy.full ? "library" : buy.slow ? "time" : "budget" });
     else out.push({ page, describe, status: "not-placed" });
@@ -1654,6 +1669,32 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
     if (s && typeof s.describe === "string") out.push({ page: String(s.page || "/"), describe: s.describe, status: "not-offered", why: String(s.why || "cap") });
   }
   return out;
+}
+
+/**
+ * WHERE EACH MADE PICTURE GOT TO (2026-10-08, the seventh batch). A bought
+ * picture is stored; that is not proof it appeared on the live site. Each
+ * `made` entry gains `stage`, from the FINAL sources (after salvage) and
+ * whether the publish completed:
+ *   published      its address is in the final source, and the site went live
+ *   in-source      its address is in the final source, and nothing went live
+ *                  (compilation failed, salvage did not rescue it, or the
+ *                  publish was refused or threw)
+ *   stored         its address is in no final source (a stubbed page, a
+ *                  placeholder, or never written in)
+ * A made entry with no address is left `stored`: nothing can show it placed.
+ * Other entries are returned unchanged.
+ */
+export function pictureStages(pictures, { sources = [], published = false } = {}) {
+  if (!Array.isArray(pictures)) return pictures;
+  const text = (Array.isArray(sources) ? sources : [])
+    .map((x) => (typeof x === "string" ? x : x && typeof x.source === "string" ? x.source : ""))
+    .join("\n");
+  return pictures.map((p) => {
+    if (!p || p.status !== "made") return p;
+    const placed = typeof p.url === "string" && p.url !== "" && text.includes(p.url);
+    return { ...p, stage: placed ? (published === true ? "published" : "in-source") : "stored" };
+  });
 }
 
 /**

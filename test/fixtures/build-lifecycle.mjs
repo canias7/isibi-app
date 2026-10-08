@@ -66,7 +66,7 @@ function linkAnswer(links, u) {
  * sent; otherwise the provider is down (503). Every request is recorded in
  * `seen` so a case can read what the writer was told.
  */
-function replyAnswer(reply, seen, init) {
+export function replyAnswer(reply, seen, init) {
   const bd = JSON.parse(String((init && init.body) || "{}"));
   if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
   const text = JSON.stringify(bd.messages || "");
@@ -122,7 +122,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
 }
 
 /** THE REAL RESUME of that build, finishing with a stored generation: it writes the build's own final answer. */
-export async function finishResume(b, id, led, { credits = null, source = null, reply = undefined, env: extraEnv = {}, seen = [] } = {}) {
+export async function finishResume(b, id, led, { credits = null, source = null, reply = undefined, env: extraEnv = {}, seen = [], over = null } = {}) {
   const rec = JSON.parse(b.store.get(resumeKey(id)));
   // THE GENERATION'S ANSWER: the plain shape the collector has always taken
   // (no page it can use — the build ends on its own refusal), or, with a
@@ -134,6 +134,8 @@ export async function finishResume(b, id, led, { credits = null, source = null, 
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
+    // A CASE'S OWN ANSWER FIRST (2026-10-08): a dispatch that fails, say.
+    if (typeof over === "function") { const r = await over(u, init); if (r) return r; }
     if (u.includes("/auth/v1/user")) return json(BUILD_USER);
     const m = u.match(/\/rest\/v1\/rpc\/(\w+)/);
     if (m) {

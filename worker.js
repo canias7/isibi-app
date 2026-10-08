@@ -44,7 +44,7 @@ import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
-import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
+import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
@@ -2847,6 +2847,11 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   });
   if (!plan.shots.length) return done(new Map(), { made: 0 });
   const urls = new Map();
+  // EACH SHOT'S OWN ENDING (2026-10-08, the seventh batch): one the provider
+  // refused, and one still running when the wait ended, are different facts —
+  // the second is not a failure, it is not known. `done` reports both.
+  const refusedTokens = new Set();
+  const settledTokens = new Set();
   let failed = "";
   const shots = Promise.all(plan.shots.map(async ({ token, prompt }) => {
     // THROUGH THE SHARED READER, which is what makes `makeSitePhoto`'s own
@@ -2857,12 +2862,15 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     // origin, so a second copy that forgets it is a stored XSS.
     try {
       const { url, error } = await makeSitePhoto(env, slug, prompt);
+      settledTokens.add(token);
       if (url) urls.set(token, url);
       // Kept, not thrown. The build carries on with a placeholder for this one,
       // and the reason reaches the response — a site quietly missing its
       // pictures looks exactly like a site that was never meant to have any.
-      else if (error) failed = error;
+      else { refusedTokens.add(token); if (error) failed = error; }
     } catch (e) {
+      settledTokens.add(token);
+      refusedTokens.add(token);
       // BELT AND BRACES, AND IT STAYS. `makeSitePhoto` does not throw today, so
       // this cannot fire — but it holds by a property of a function one edit away
       // from changing, and `Promise.all` REJECTS if any element does. That
@@ -2929,8 +2937,14 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   } else {
     failed = failed || "ran out of time before the pictures could be made";
   }
+  // A SNAPSHOT AT THE WAIT'S END: what the provider refused, and what had not
+  // answered yet — the second is reported as unresolved, never as refused.
+  const refused = plan.shots.filter((x) => refusedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
+  const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
   return done(urls, {
     made: urls.size,
+    refused,
+    unresolved,
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
   });
 }
@@ -6513,7 +6527,9 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
     if (!bf) return body;
     const read = buildReplyFacts(bf);
     if (read.skip || !read.facts.length) return body;
-    if (!repliesOn(env)) return { ...body, replyState: "unavailable", replyWhy: "off" };
+    // NEVER ATTEMPTED IS NOT FAILED (2026-10-08, the seventh batch): with the
+    // switch off no writer was asked, and the page must not say one failed.
+    if (!repliesOn(env)) return { ...body, replyState: "not-attempted", replyWhy: "off" };
     const out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
       facts: read.facts,
       context: replyContext({ request, site: { name, slug, pages: [] } }),
@@ -15672,9 +15688,22 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   for (const row of rows) {
     const id = String((row && row.id) || "");
     const uid = String((row && row.uid) || "");
-    if (!isResumeId(id) || !uid || String(row.state) !== "lost") continue;
-    seen.checked++;
+    if (!isResumeId(id) || !uid) continue;
     const markKey = "jobs/" + id + ".lost.json";
+    if (String(row.state) !== "lost") {
+      // LISTED BY A WRITER THAT COULD NOT READ THE SETTLEMENT RECORD (the
+      // seventh batch) on a build recovery never took as lost. No record means
+      // nothing was settled, so there is nothing to reconcile; a settled one
+      // is repaired below like any other; an unreadable one waits.
+      if (!older.includes(id)) continue;
+      const m = await readObj(markKey);
+      if (m === undefined) continue;
+      if (!m || m.settled !== true) { try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* listed again next tick */ } continue; }
+      const fixed = await storeBuildResult(env, id, null, "repair", "lost builds", { facts: settlementFacts(m) });
+      if (fixed.ok) { try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* listed again next tick */ } }
+      continue;
+    }
+    seen.checked++;
     const keepPending = async (why) => {
       seen.pending++;
       try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString() })); }
@@ -15693,8 +15722,18 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       if (mark.delivered !== true) {
         const done = await deliverLostAnswer(env, { id, uid, mark, now });
         if (!done.ok) { await keepPending("answer-undelivered"); continue; }
-        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, delivered: true, deliveredAs: done.as })); }
+        try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...mark, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as })); }
         catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
+      } else {
+        // DELIVERED IS NOT THE END WHILE AN ANSWER COULD HAVE BEEN WRITTEN
+        // WITHOUT THE RECORD (the seventh batch): a final answer stored while
+        // this record was unreadable may lack the facts. The repair only adds
+        // them to a terminal answer — it never refunds, never writes into an
+        // empty slot, never replaces recovery's own answer — and the row stays
+        // pending until it has looked.
+        const fixed = await storeBuildResult(env, id, null, "repair", "lost builds", { facts: settlementFacts(mark) });
+        if (!fixed.ok) { await keepPending("repair-unwritten"); continue; }
+        if (fixed.wrote) console.log("lost builds:", id, "— the settlement facts added to the build's own answer");
       }
       seen.settled++;
       try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* listed again next tick, settled again */ }
@@ -15739,7 +15778,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     const done = await deliverLostAnswer(env, { id, uid, mark: settled, now });
     if (short) { await keepPending("refund-short"); continue; }
     if (!done.ok) { await keepPending("answer-undelivered"); continue; }
-    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, delivered: true, deliveredAs: done.as })); }
+    try { await env.SITES_BUCKET.put(markKey, JSON.stringify({ ...settled, ...(done.narration ? { narration: done.narration } : {}), delivered: true, deliveredAs: done.as })); }
     catch (e) { console.error("lost builds: could not record the delivery for", id, String((e && e.message) || e)); await keepPending("delivery-unrecorded"); continue; }
     try { await env.SITES_BUCKET.delete(pendingKey(id)); } catch { /* the next tick finds it settled and delivered */ }
     console.log("lost builds:", id, v.outcome, v.why, "returned", returned, short ? "(short)" : "");
@@ -15784,26 +15823,46 @@ async function refundLostBuild(env, uid, billRef) {
  * adds the facts on its next pass, as it does to any final answer that lacks
  * them.
  */
-async function storeBuildResult(env, id, out, role, who = "build") {
+async function storeBuildResult(env, id, out, role, who = "build", { facts: given } = {}) {
+  let unread = false;
   for (let i = 0; i < 6; i++) {
     let cur = null, raw = null;
     try {
       cur = await env.SITES_BUCKET.get(resultKey(id));
       if (cur) { try { raw = JSON.parse(await cur.text()); } catch { raw = {}; } }
-    } catch (e) { console.error(who + ": could not read the answer slot for", id, String((e && e.message) || e)); return { ok: false }; }
+    } catch (e) { console.error(who + ": could not read the answer slot for", id, String((e && e.message) || e)); return { ok: false, ...(unread ? { unread } : {}) }; }
+    // UNREADABLE IS NOT ABSENT (2026-10-08, the seventh batch: Codex failed
+    // this read during the resume's retry, and the final answer, told "no
+    // settlement", erased a recorded refund of 6 while the record still said
+    // delivered). A caller that already holds the facts passes them. When the
+    // record cannot be read, the facts the slot (or recovery's own answer)
+    // already carries are kept — `knownSettlement` — and the build is listed
+    // as pending, so recovery's next tick reads the record again and repairs
+    // the answer (`nextResult`'s "repair"). Nothing is rerun or refunded.
     let facts = null;
-    try { const m = await env.SITES_BUCKET.get("jobs/" + id + ".lost.json"); facts = m ? settlementFacts(JSON.parse(await m.text())) : null; }
-    catch (e) { console.error(who + ": could not read the settlement record for", id, String((e && e.message) || e)); facts = null; }
+    if (given !== undefined) facts = given;
+    else {
+      try { const m = await env.SITES_BUCKET.get("jobs/" + id + ".lost.json"); facts = m ? settlementFacts(JSON.parse(await m.text())) : null; }
+      catch (e) {
+        console.error(who + ": could not read the settlement record for", id, "— keeping the facts the answer already carries", String((e && e.message) || e));
+        facts = knownSettlement(cur ? raw : null) || (role === "recovery" ? knownSettlement(out) : null);
+        if (!unread) {
+          unread = true;
+          try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why: "settlement-unread", at: new Date().toISOString() })); }
+          catch (pe) { console.error(who + ": could not list", id, "for a settlement check either", String((pe && pe.message) || pe)); }
+        }
+      }
+    }
     const { next, as } = nextResult(cur ? raw : null, out, role, facts);
-    if (!next) return { ok: true, as, wrote: false };
+    if (!next) return { ok: true, as, wrote: false, ...(unread ? { unread } : {}) };
     if (cur && typeof cur.etag !== "string") { console.error(who + ": the answer slot for", id, "has no etag; not written blind"); return { ok: false }; }
     let put;
     try { put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(next), { onlyIf: cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } }); }
-    catch (e) { console.error(who + ": could not write the answer for", id, String((e && e.message) || e)); return { ok: false }; }
-    if (put) return { ok: true, as, wrote: true };
+    catch (e) { console.error(who + ": could not write the answer for", id, String((e && e.message) || e)); return { ok: false, ...(unread ? { unread } : {}) }; }
+    if (put) return { ok: true, as, wrote: true, ...(unread ? { unread } : {}) };
   }
   console.error(who + ": the answer slot for", id, "is still contended after 6 tries");
-  return { ok: false };
+  return { ok: false, ...(unread ? { unread } : {}) };
 }
 
 /**
@@ -15844,10 +15903,32 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
   const facts = buildFacts({ context: kept, settlement: settlementFacts(mark) });
   if (kept) body.context = kept;
   if (facts) body.buildFacts = facts;
-  const packed = packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(body) });
-  const done = await storeBuildResult(env, id, packed, "recovery", "lost builds");
+  // NARRATED ONCE (2026-10-08, the seventh batch): recovery's answer is told
+  // by the same reply writer as a finished build's, from the same facts. The
+  // outcome of that one attempt — the text, or why there is none — is kept on
+  // the settlement record (`narration`), so a tick that retries delivery
+  // reuses it and never pays for the same explanation twice. The fixed
+  // `msg` and the accounting stay on the answer either way.
+  let narration = mark && mark.narration && typeof mark.narration === "object" ? mark.narration : null;
+  let told = body;
+  if (narration) told = narration.state === "written" && typeof narration.text === "string" ? withReplyText(body, narration.text) : { ...body, replyState: narration.state, ...(narration.why ? { replyWhy: narration.why } : {}) };
+  else if (facts) {
+    let design = null;
+    try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
+    told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
+    narration = told.replySource === "model" && typeof told.reply === "string"
+      ? { state: "written", text: told.reply }
+      : told.replyState ? { state: told.replyState, ...(told.replyWhy ? { why: told.replyWhy } : {}) } : null;
+    if (narration) {
+      try { await env.SITES_BUCKET.put("jobs/" + id + ".lost.json", JSON.stringify({ ...mark, narration })); }
+      catch (e) { console.error("lost builds: could not keep the narration for", id, "— it is still delivered with this answer", String((e && e.message) || e)); }
+    }
+  }
+  const packed = packResult({ status: slug || outcome === "published" ? 200 : 410, type: "application/json", uid, body: JSON.stringify(told) });
+  // The facts come from the record recovery holds in hand, never a second read.
+  const done = await storeBuildResult(env, id, packed, "recovery", "lost builds", { facts: settlementFacts(mark) });
   if (done.ok && done.wrote && done.as === "recovery") console.log("lost builds:", id, "— the recovered outcome stored");
-  return done.ok ? { ok: true, as: done.as } : { ok: false };
+  return done.ok ? { ok: true, as: done.as, ...(narration ? { narration } : {}) } : { ok: false, ...(narration ? { narration } : {}) };
 }
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
@@ -18184,10 +18265,23 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // AND ON A FAILURE TOO: the parts were put off, and nothing tried them.
         ...resumeHeld(claimed),
         // AND WHAT THE FIRST INVOCATION READ (2026-10-08, the sixth batch):
-        // a failed resume still owes the customer which links were used.
-        ...(await (async () => { const c = await keptContextFacts(env, id); const f = buildFacts({ context: c }); return c ? { context: c, ...(f ? { buildFacts: f } : {}) } : {}; })()),
+        // a failed resume still owes the customer which links were used —
+        // and (the seventh batch) where its pictures got to, when the
+        // failure was a publish that carried them (`e.images`).
+        ...(await (async () => {
+          const c = await keptContextFacts(env, id);
+          const f = buildFacts({ context: c, images: e && typeof e === "object" ? e.images : null });
+          return { ...(c ? { context: c } : {}), ...(f ? { buildFacts: f } : {}) };
+        })()),
       }),
     });
+    // TOLD BY THE REPLY WRITER TOO (2026-10-08, the seventh batch): a failed
+    // resume's facts are narrated like a finished one's. The fixed `error`
+    // and the accounting stay; when the writer cannot, `replyState` says so.
+    try {
+      const failed = JSON.parse(out.body);
+      if (failed && failed.buildFacts) out = { ...out, body: JSON.stringify(await narrateBuild(env, failed, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: (claimed && claimed.slug) || (design && design.slug) || "", background: true })) };
+    } catch (ne) { console.error("build resume: the failed answer's narration threw for", id, String((ne && ne.message) || ne)); }
   } finally {
     // THE ROW'S HEARTBEAT STOPS WITH THE WORK, on every exit — a refire's
     // early return included, whose lease has already moved to the new

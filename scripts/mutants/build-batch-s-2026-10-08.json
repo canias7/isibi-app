@@ -1,0 +1,178 @@
+[
+{
+"label": "settlement: unreadable read as absent (no known facts)",
+"files": [
+"worker.js"
+],
+"from": "        facts = knownSettlement(cur ? raw : null) || (role === \"recovery\" ? knownSettlement(out) : null);",
+"to": "        facts = null;"
+},
+{
+"label": "settlement: unreadable leaves nothing pending",
+"files": [
+"worker.js"
+],
+"from": "          try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why: \"settlement-unread\", at: new Date().toISOString() })); }",
+"to": "          try { void 0; }"
+},
+{
+"label": "settlement: no repair pass on a delivered row",
+"files": [
+"worker.js"
+],
+"from": "        const fixed = await storeBuildResult(env, id, null, \"repair\", \"lost builds\", { facts: settlementFacts(mark) });\n        if (!fixed.ok) { await keepPending(\"repair-unwritten\"); continue; }",
+"to": "        const fixed = { ok: true };"
+},
+{
+"label": "settlement: repair never writes",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    return { next: sameFacts(have, facts) ? null : withSettlement(cur, facts), as: \"build\" };\n  }\n  throw",
+"to": "    return { next: null, as: \"build\" };\n  }\n  throw"
+},
+{
+"label": "settlement: repair over recovery's answer",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "    if (kind !== \"terminal\" || !facts) return { next: null, as: kind === \"terminal\" ? \"build\" : kind };",
+"to": "    if (!facts || kind === \"nothing\") return { next: null, as: kind === \"terminal\" ? \"build\" : kind };"
+},
+{
+"label": "settlement: knownSettlement ignores buildFacts",
+"files": [
+"builder/build-job.mjs"
+],
+"from": "  if (body.buildFacts && ok(body.buildFacts.settlement)) return tidy(body.buildFacts.settlement);\n",
+"to": ""
+},
+{
+"label": "pictures: no stage on compile failure",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "    stagePictures(false);\n    return out;",
+"to": "    return out;"
+},
+{
+"label": "pictures: published regardless",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    return { ...p, stage: placed ? (published === true ? \"published\" : \"in-source\") : \"stored\" };",
+"to": "    return { ...p, stage: \"published\" };"
+},
+{
+"label": "pictures: source check skipped",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    const placed = typeof p.url === \"string\" && p.url !== \"\" && text.includes(p.url);",
+"to": "    const placed = true;"
+},
+{
+"label": "pictures: publish throw drops facts",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "    try { if (e && typeof e === \"object\" && out.images) e.images = out.images; } catch { /* the facts never cost the throw */ }",
+"to": "    void 0;"
+},
+{
+"label": "pictures: no stage on a completed publish",
+"files": [
+"builder/publish-pages.mjs"
+],
+"from": "  out.page = \"app\";\n  stagePictures(true);",
+"to": "  out.page = \"app\";"
+},
+{
+"label": "pictures: reply says made means on site",
+"files": [
+"builder/site-reply.mjs"
+],
+"from": "  if (madeAt(\"published\").length) F.add(\"changed\", \"Photographs made and published on the site: \" + named(madeAt(\"published\")));",
+"to": "  if (made.length) F.add(\"changed\", \"Photographs made and published on the site: \" + named(made));"
+},
+{
+"label": "unresolved: pending read as failed",
+"files": [
+"builder/site-images.mjs"
+],
+"from": "    else if (attempted.has(k) && split && unresolved.has(k)) out.push({ page, describe, status: \"unknown\", why: \"still-pending\" });\n",
+"to": ""
+},
+{
+"label": "unresolved: not reported by the purchase",
+"files": [
+"worker.js"
+],
+"from": "  const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));",
+"to": "  const unresolved = [];"
+},
+{
+"label": "unresolved: a refusal not recorded",
+"files": [
+"worker.js"
+],
+"from": "      else { refusedTokens.add(token); if (error) failed = error; }",
+"to": "      else { if (error) failed = error; }"
+},
+{
+"label": "narration: recovery not narrated",
+"files": [
+"worker.js"
+],
+"from": "    told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });",
+"to": "    told = body;"
+},
+{
+"label": "narration: recovery attempt not reused",
+"files": [
+"worker.js"
+],
+"from": "  let narration = mark && mark.narration && typeof mark.narration === \"object\" ? mark.narration : null;",
+"to": "  let narration = null;"
+},
+{
+"label": "narration: failed resume not narrated",
+"files": [
+"worker.js"
+],
+"from": "      if (failed && failed.buildFacts) out = { ...out, body: JSON.stringify(await narrateBuild(",
+"to": "      if (false) out = { ...out, body: JSON.stringify(await narrateBuild("
+},
+{
+"label": "narration: off reads as unavailable",
+"files": [
+"worker.js"
+],
+"from": "    if (!repliesOn(env)) return { ...body, replyState: \"not-attempted\", replyWhy: \"off\" };",
+"to": "    if (!repliesOn(env)) return { ...body, replyState: \"unavailable\", replyWhy: \"off\" };"
+},
+{
+"label": "chat: error branch drops facts",
+"files": [
+"public/chat.js"
+],
+"from": "      if (failTold) siteFinishBuild(",
+"to": "      if (false) siteFinishBuild("
+},
+{
+"label": "chat: not-attempted heading claims failure",
+"files": [
+"public/chat.js"
+],
+"from": "  const head = d.replyState === 'not-attempted' ? \"What was recorded about this build:\" : \"I couldn't write up this build's details just now. What was recorded:\";",
+"to": "  const head = \"I couldn't write up this build's details just now. What was recorded:\";"
+},
+{
+"label": "CONTROL: comment only",
+"files": [
+"worker.js"
+],
+"from": " * THE ONE WAY A BUILD'S ANSWER SLOT IS WRITTEN",
+"to": " * THE ONE  WAY A BUILD'S ANSWER SLOT IS WRITTEN"
+}
+]

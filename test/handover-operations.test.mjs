@@ -113,6 +113,11 @@ const SRC = [
   cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
+  // A FAILED BUILD ANSWER'S TOLD LINES (2026-10-08, the seventh batch): the
+  // failure branch reads them too.
+  cut("function buildToldLines("),
+  cut("function settlementLine("),
+  cut("function buildFactLines("),
   cutLine("const ST_PHASE_ORDER ="),
 ].join("\n");
 

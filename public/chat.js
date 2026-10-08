@@ -9263,7 +9263,11 @@ function buildToldLines(d) {
   if (!d.buildFacts) return money ? [money] : null;
   const lines = buildFactLines(d.buildFacts);
   if (!lines.length) return money ? [money] : null;
-  return ["I couldn't write up this build's details just now. What was recorded:", ...lines, money].filter(Boolean);
+  // NEVER ATTEMPTED IS NOT FAILED (2026-10-08): with no writer asked
+  // (`replyState: "not-attempted"`), the page lists the record under a plain
+  // heading and does not claim a writer failed.
+  const head = d.replyState === 'not-attempted' ? "What was recorded about this build:" : "I couldn't write up this build's details just now. What was recorded:";
+  return [head, ...lines, money].filter(Boolean);
 }
 function settlementLine(st) {
   if (!st || typeof st !== 'object') return '';
@@ -9283,13 +9287,17 @@ function buildFactLines(f) {
     const whys = Array.from(new Set(xs.map((x) => x.why || '')));
     for (const w of whys) out.push(label + ' (' + (by[w] || w || 'no reason recorded') + '): ' + xs.filter((x) => (x.why || '') === w).map(q).join(', '));
   };
-  group('made', 'Pictures made');
+  // Made pictures by where they got to (2026-10-08): only a published one is on the site.
+  const madeAt = (pred, label) => { const xs = pics.filter((x) => x && x.status === 'made' && pred(x.stage)); if (xs.length) out.push(label + ': ' + xs.map(q).join(', ')); };
+  madeAt((st) => st === 'published', 'Pictures made and published');
+  madeAt((st) => st === 'in-source', 'Pictures made, in the pages, not published');
+  madeAt((st) => st !== 'published' && st !== 'in-source', 'Pictures made and stored, not on the site');
   group('own', 'Your own photos, handed to the page writer');
   group('failed', 'Pictures tried, not returned');
   group('not-attempted', 'Pictures not tried', { library: 'image library full', time: 'out of time', budget: 'credits left' });
   group('not-placed', 'Pictures not placed by the page writer');
   group('not-offered', 'Pictures not offered', { cap: 'at most 6 per build', tool: 'a working tool gets none', kept: 'existing photographs kept' });
-  group('unknown', 'Pictures, outcome unknown (the purchase failed)');
+  group('unknown', 'Pictures, outcome unknown', { 'still-pending': 'still being made when the wait ended', 'purchase-error': 'the purchase failed', 'no-record': 'no record' });
   for (const x of Array.isArray(f.sources) ? f.sources : []) {
     if (!x || !x.url) continue;
     if (x.status === 'used') out.push('Link used: ' + host(x.url));
@@ -13760,7 +13768,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       // THE SERVER'S SENTENCE STILL WINS where it wrote one; the fallback no
       // longer asserts a charge it has not read. `buildCostWords` is appended
       // rather than baked in, so the one reading serves this and the card.
-      end('⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.')));
+      const failSaid = '⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.'));
+      // AND WHAT A FAILED ANSWER CARRIES IS SHOWN TOO (2026-10-08, the seventh
+      // batch): a failed resume's or recovery's narration, or its recorded
+      // facts and refund, in the same note a finished build's go in. The
+      // fixed failure sentence above stays the message.
+      const failTold = buildToldLines(d);
+      if (failTold) siteFinishBuild(origin, failSaid + alsoTail(heldSaid, false), undefined, failTold.join('\n'), buildWhy(d));
+      else end(failSaid);
     }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {

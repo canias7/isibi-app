@@ -1279,9 +1279,17 @@ export function buildReplyFacts(bf) {
   const pics = Array.isArray(bf.pictures) ? bf.pictures.filter((x) => x && typeof x.describe === "string") : [];
   const of = (st) => pics.filter((x) => x.status === st);
   const named = (xs) => xs.map((x) => quote(x.describe) + (x.page && x.page !== "/" ? " (on " + x.page + ")" : "")).join("; ");
-  if (of("made").length) F.add("changed", "Photographs made and put on the site: " + named(of("made")));
+  // MADE IS SPLIT BY WHERE THE PICTURE GOT TO (2026-10-08, the seventh
+  // batch): a purchased picture is not proof it is on the live site. Only
+  // `published` (in the final source of a completed publish) says so.
+  const made = of("made");
+  const madeAt = (stage) => made.filter((x) => x.stage === stage);
+  if (madeAt("published").length) F.add("changed", "Photographs made and published on the site: " + named(madeAt("published")));
+  if (madeAt("in-source").length) F.add("not-done", "Photographs made and written into the pages, but the site did not go live with them, so they are not on the site yet: " + named(madeAt("in-source")));
+  const stored = made.filter((x) => x.stage !== "published" && x.stage !== "in-source");
+  if (stored.length) F.add("not-done", "Photographs made and stored, but not on any page that was published, so they are not on the site: " + named(stored));
   if (of("own").length) F.add("note", "Their own photographs, which they supplied, were handed to the page writer to use: " + named(of("own")) + ". Whether each was placed is not recorded.");
-  if (of("failed").length) F.add("not-done", "Photographs tried and not made (the image service did not return them), so their frames are empty placeholders: " + named(of("failed")));
+  if (of("failed").length) F.add("not-done", "Photographs tried and not made (the image service answered without them), so their frames are empty placeholders: " + named(of("failed")));
   const why = { library: "their image library is full", time: "the build ran out of time before buying them", budget: "the credits left could not pay for them" };
   for (const w of ["library", "time", "budget"]) {
     const xs = of("not-attempted").filter((x) => x.why === w);
@@ -1295,7 +1303,10 @@ export function buildReplyFacts(bf) {
   }
   const odd = of("not-offered").filter((x) => !Object.hasOwn(offWhy, x.why));
   if (odd.length) F.add("not-done", "Pictures they asked for that were not made in this build: " + named(odd));
-  if (of("unknown").length) F.add("not-done", "Photographs that were being bought when the purchase failed; whether any of them was made is not known: " + named(of("unknown")));
+  const pending = of("unknown").filter((x) => x.why === "still-pending");
+  const unk = of("unknown").filter((x) => x.why !== "still-pending");
+  if (pending.length) F.add("not-done", "Photographs still being made when the build stopped waiting for them; whether the image service would have returned them is not known, and they are not on the site: " + named(pending));
+  if (unk.length) F.add("not-done", "Photographs that were being bought when the purchase failed; whether any of them was made is not known: " + named(unk));
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u); } };
   for (const x of Array.isArray(bf.sources) ? bf.sources : []) {
     if (!x || typeof x.url !== "string") continue;

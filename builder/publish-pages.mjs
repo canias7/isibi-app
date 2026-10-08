@@ -26,6 +26,9 @@ import { repairPages } from "./site-repair.mjs";
 // only `site-access.mjs`, a leaf, so this adds no cycle; and nothing in the
 // build container's import graph reaches this file, so the image is unaffected.
 import { SEED_MODEL, SEED_MAX_TOKENS } from "./site-seed.mjs";
+// The made pictures' stage from the final sources and the publish (2026-10-08).
+// `site-images.mjs` imports nothing of this module, so this adds no cycle.
+import { pictureStages } from "./site-images.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -1421,6 +1424,14 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   }
 
   let built = await compileWithRetry(pages);
+  // WHERE EACH BOUGHT PICTURE GOT TO (2026-10-08, the seventh batch), read at
+  // every exit after the purchase from the pages as they finally stand (after
+  // salvage) and whether the publish completed. A purchased picture is stored;
+  // only a completed publish of a source that holds it puts it on the site.
+  const stagePictures = (published) => {
+    if (!out.images || !Array.isArray(out.images.pictures)) return;
+    out.images.pictures = pictureStages(out.images.pictures, { sources: [...pages, ...(Array.isArray(v.parts) ? v.parts : [])], published });
+  };
 
   /**
    * ONE PAGE THAT DOES NOT COMPILE USED TO COST THE WHOLE SITE.
@@ -1658,6 +1669,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       ? "Our build service had no room to compile the pages, so the site is showing its data model for now — send it again in a few minutes."
       : "The pages didn't compile, so the site is showing its data model for now — send it again to retry.",
       await settle(built.stage)].filter(Boolean).join(" ");
+    stagePictures(false);
     return out;
   }
 
@@ -1682,9 +1694,18 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // one packaged from the stubbed page set — the same source as the files
   // beside it. Read from the first compile it would render a page whose source
   // was just refused.
-  await deps.publish(built.files, pages, built.worker);
+  try {
+    await deps.publish(built.files, pages, built.worker);
+  } catch (e) {
+    // A REFUSED OR FAILED PUBLISH puts nothing live: the pictures it carried
+    // are reported where they got to, on the error the caller receives.
+    stagePictures(false);
+    try { if (e && typeof e === "object" && out.images) e.images = out.images; } catch { /* the facts never cost the throw */ }
+    throw e;
+  }
   out.publishMs = Date.now() - tPub;
   out.page = "app";
+  stagePictures(true);
   // SAY WHICH PAGE DID NOT MAKE IT. A visitor finding the stub by clicking the
   // header would otherwise be the first anybody hears of it, and the owner is the
   // one who can ask for it again.

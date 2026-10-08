@@ -69,7 +69,8 @@ test("context: a queued build with three links, finished by the REAL RESUME — 
   assert.ok(partial.kept > 10000 && partial.kept < 14000, "the partial page's kept count is not what the allowance left: " + partial.kept);
   assert.equal(partial.allowance, 16000);
   assert.equal(used.kept, undefined);
-  assert.equal(a.replyState, "unavailable", "with the reply writer off, the answer must say so and keep the facts");
+  assert.equal(a.replyState, "not-attempted", "with the reply writer off, the answer must say no writer was asked (never that one failed) and keep the facts");
+  assert.equal(a.replyWhy, "off");
 });
 
 test("context: a link that could not be read stays UNREAD through the resume — never merged with unopened", async () => {
@@ -139,7 +140,7 @@ test("reply: the reply writer is DOWN — no reply is invented, the answer says 
 test("reply facts: every recorded state becomes its own fact for the writer — pictures, links, lookup, sections, stand-in pages, money — and nothing is shown as it is", () => {
   const f = buildReplyFacts({
     pictures: [
-      { describe: "a", status: "made" }, { describe: "b", status: "failed" }, { describe: "c", status: "not-attempted", why: "time" },
+      { describe: "a", status: "made", stage: "published", url: "/u/a.png" }, { describe: "b", status: "failed" }, { describe: "c", status: "not-attempted", why: "time" },
       { describe: "d", status: "not-placed" }, { describe: "e", status: "not-offered", why: "cap" }, { describe: "g", status: "unknown", why: "purchase-error" },
       { describe: "h", status: "own" },
     ],
@@ -150,7 +151,7 @@ test("reply facts: every recorded state becomes its own fact for the writer — 
     settlement: { outcome: "not-published", refunded: 6, short: false },
   }).facts;
   const text = f.map((x) => x.text).join("\n");
-  for (const want of [/made and put on the site: “a”/, /tried and not made[^\n]*“b”/, /never tried, because the build ran out of time[^\n]*“c”/, /did not put on the page[^\n]*“d”/, /never offered[^\n]*at most 6[^\n]*“e”/, /whether any of them was made is not known: “g”/, /Their own photographs[^\n]*“h”/,
+  for (const want of [/made and published on the site: “a”/, /tried and not made[^\n]*“b”/, /never tried, because the build ran out of time[^\n]*“c”/, /did not put on the page[^\n]*“d”/, /never offered[^\n]*at most 6[^\n]*“e”/, /whether any of them was made is not known: “g”/, /Their own photographs[^\n]*“h”/,
     /u\.example was read and its text used in full/, /p\.example was read, but only the first 10 of its 20/, /r\.example could not be read \(it blocked us\)/, /o\.example was not opened/, /web lookup was tried and found nothing/, /left out for now[^\n]*“the price list”/, /“menu” did not compile/, /\(6 credits\) has been returned/]) {
     assert.match(text, want);
   }

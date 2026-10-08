@@ -27,8 +27,8 @@ const ORIGIN = "https://gofarther.test";
 const SITE_ID = "site_1727000000000_fact01";
 const words = (n, tail) => ("Harbour Loaf bakes overnight sourdough in Leeds and wants a page people can order from. ".repeat(Math.ceil(n / 80))).slice(0, n - tail.length) + tail;
 
-async function openApp(site, answer = null) {
-  site = { ...site, __answer: answer };
+async function openApp(site, answer = null, status = 200) {
+  site = { ...site, __answer: answer, __status: status };
   const b = await chromium.launch({ executablePath: EXE });
   const ctx = await b.newContext({ viewport: { width: 1320, height: 900 } });
   await ctx.addInitScript((sd) => {
@@ -49,7 +49,7 @@ async function openApp(site, answer = null) {
       if (req.method() === "POST") { let b = null; try { b = JSON.parse(req.postData() || "null"); } catch { b = null; } posts.push({ path: p, body: b }); }
       // THE ROUTER, ANSWERED: a question stays a question; anything else is a build that ends here.
       if (p === "/api/site/route") return json(route, { ok: true, intent: "build", cost: 0 });
-      if (p === "/api/site/react-build" && site.__answer) return json(route, site.__answer);
+      if (p === "/api/site/react-build" && site.__answer) return json(route, site.__answer, site.__status || 200);
       if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
       if (p === "/api/site/list") return json(route, { ok: true, sites: [] });
       return json(route, { ok: false, error: "stopped here", msg: "stopped here" }, 503);
@@ -78,7 +78,7 @@ const threadText = (page) => page.evaluate(() => document.getElementById("stThre
 
 const FACTS = {
   pictures: [
-    { page: "/", describe: "a loaf on the counter", status: "made" },
+    { page: "/", describe: "a loaf on the counter", status: "made", stage: "published", url: "/uploads/x/loaf.png" },
     { page: "/", describe: "the ovens at dawn", status: "failed" },
     { page: "/", describe: "the Saturday queue", status: "not-offered", why: "cap" },
   ],
@@ -113,7 +113,7 @@ test("with the writer unavailable: one fixed outage line, then the recorded fact
     await send(page, "Harbour Loaf. Like https://a.example https://b.example https://c.example");
     await page.waitForTimeout(800);
     const t = await threadText(page);
-    for (const want of [/I couldn't write up this build's details just now\. What was recorded:/, /Pictures made: “a loaf on the counter”/, /Pictures tried, not returned: “the ovens at dawn”/, /Pictures not offered \(at most 6 per build\): “the Saturday queue”/,
+    for (const want of [/I couldn't write up this build's details just now\. What was recorded:/, /Pictures made and published: “a loaf on the counter”/, /Pictures tried, not returned: “the ovens at dawn”/, /Pictures not offered \(at most 6 per build\): “the Saturday queue”/,
       /Link used: a\.example/, /Link partly used: b\.example \(first 11000 of 14000 characters\)/, /Link not opened: c\.example/, /Section left out: “the price list for every loaf”/, /Refund: 6 credits returned\./]) assert.match(t, want);
     assert.doesNotMatch(t, /OLD CONTEXT SENTENCE|OLD IMAGES SENTENCE/);
     if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build-facts-unavailable.png") }); }
@@ -129,5 +129,71 @@ test("CONTROL: an answer with no facts and no reply keeps the old notes, unchang
     const t = await threadText(page);
     assert.match(t, /OLD CONTEXT SENTENCE/);
     assert.match(t, /OLD IMAGES SENTENCE/);
+  } finally { await browser.close(); }
+});
+
+// ── THE SEVENTH BATCH: what a FAILED answer carries is shown too ───────────
+//
+// `buildToldLines` ran only in the success branch, so a failed resume's or a
+// lost build's narration, facts and refund vanished from the chat whenever
+// the answer was an error response. Each case below is an error status the
+// page reads through its generic failure branch.
+
+const LOST = { ok: false, lost: true, stage: "queue", job: "j1", refunded: 6, cost: 0, msg: "That build was lost on our side, and the 6 credits it took have been returned.",
+  buildFacts: { sources: FACTS.sources, settlement: { recovered: true, outcome: "not-published", why: "fence", refunded: 6, short: false } } };
+
+test("7: a lost build's 410, NARRATED — the fixed failure sentence, then the model's account and the refund line", { skip: SKIP }, async () => {
+  const told = "Your build stopped before it went live, so I returned the 6 credits; I had read a.example in full and part of b.example.";
+  const { page, browser, errors } = await openApp(newSite(), { ...LOST, reply: told, replySource: "model" }, 410);
+  try {
+    await send(page, "Harbour Loaf. Like https://a.example https://b.example https://c.example");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.ok(t.includes("That build was lost on our side"), "the fixed failure sentence is gone: " + t.slice(-600));
+    assert.ok(t.includes(told), "the narration carried by the error response is not on the page: " + t.slice(-600));
+    assert.match(t, /Refund: 6 credits returned\./);
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build-failed-narrated.png") }); }
+    assert.deepEqual(errors.filter((e) => !/localStorage/.test(e)), []);
+  } finally { await browser.close(); }
+});
+
+test("7: a failed resume's 500 with the writer UNAVAILABLE — the outage line and the recorded facts", { skip: SKIP }, async () => {
+  const body = { ok: false, stage: "resume", error: "the build failed", cost: 0, msg: "The build failed and nothing was charged.", replyState: "unavailable", replyWhy: "send",
+    buildFacts: { pictures: [{ page: "/", describe: "a loaf on the counter", status: "made", stage: "in-source", url: "/u/a.jpg" }], sources: FACTS.sources } };
+  const { page, browser } = await openApp(newSite(), body, 500);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.ok(t.includes("The build failed and nothing was charged."));
+    assert.match(t, /I couldn't write up this build's details just now\. What was recorded:/);
+    assert.match(t, /Pictures made, in the pages, not published: “a loaf on the counter”/);
+    assert.match(t, /Link partly used: b\.example/);
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build-failed-unavailable.png") }); }
+  } finally { await browser.close(); }
+});
+
+test("7: narration NEVER ATTEMPTED (the switch off) — a plain heading, never a claim that the writer failed", { skip: SKIP }, async () => {
+  const { page, browser } = await openApp(newSite(), { ...LOST, replyState: "not-attempted", replyWhy: "off" }, 410);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.match(t, /What was recorded about this build:/);
+    assert.doesNotMatch(t, /couldn't write up/, "a writer that was never asked is said to have failed");
+    assert.match(t, /Link used: a\.example/);
+    assert.match(t, /Refund: 6 credits returned\./);
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "build-failed-not-attempted.png") }); }
+  } finally { await browser.close(); }
+});
+
+test("7 CONTROL: an error response with no facts and no narration — only the fixed failure sentence, as before", { skip: SKIP }, async () => {
+  const { page, browser } = await openApp(newSite(), { ok: false, error: "x", msg: "That didn't come together — nothing was charged." }, 500);
+  try {
+    await send(page, "Harbour Loaf.");
+    await page.waitForTimeout(800);
+    const t = await threadText(page);
+    assert.ok(t.includes("That didn't come together — nothing was charged."));
+    assert.doesNotMatch(t, /What was recorded|couldn't write up|Refund:/);
   } finally { await browser.close(); }
 });

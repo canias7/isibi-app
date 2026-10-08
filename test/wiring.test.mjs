@@ -1571,7 +1571,9 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   // …AND THE CALLER READS IT. Computed and dropped is the shape of a dead field.
   const buy = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
   assert.match(buy, /const \{ url, error \} = await makeSitePhoto\(/, "the per-shot reason is destructured away");
-  assert.match(buy, /else if \(error\) failed = error;/, "the reason is read and then not kept");
+  // (2026-10-08, the seventh batch) the refusal is also recorded as that
+  // shot's own ending, beside the reason.
+  assert.match(buy, /else \{ refusedTokens\.add\(token\); if \(error\) failed = error; \}/, "the reason is read and then not kept");
 });
 
 test("the translation calls are billed, and a refused language is reported", () => {

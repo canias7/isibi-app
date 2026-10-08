@@ -297,6 +297,34 @@ export function settlementFacts(mark) {
 const sameFacts = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
 
 /**
+ * THE SETTLEMENT FACTS AN ANSWER ALREADY CARRIES (2026-10-08, the seventh
+ * batch: Codex failed the settlement record's read during the resume's
+ * retry, and the final answer, told "no settlement", erased a recorded
+ * refund of 6). When the record cannot be read, what the slot already holds
+ * is still known: a terminal answer's `settlement`, or recovery's answer's
+ * `settlement` / `buildFacts.settlement` — or, on a recovery answer from
+ * before either existed, its own `recovered` / `refunded` / `refundShort`.
+ * Null when the answer carries none of them. Never a guess: an answer that
+ * says nothing about money yields nothing.
+ */
+export function knownSettlement(stored) {
+  const r = readResult(stored);
+  if (!r) return null;
+  let body;
+  try { body = JSON.parse(r.body); } catch { return null; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const ok = (f) => f && typeof f === "object" && !Array.isArray(f) && (f.outcome === "published" || f.outcome === "not-published");
+  const tidy = (f) => ({ recovered: true, outcome: f.outcome, why: typeof f.why === "string" ? f.why : "", refunded: Math.max(0, Number(f.refunded) || 0), short: f.short === true });
+  if (ok(body.settlement)) return tidy(body.settlement);
+  if (body.buildFacts && ok(body.buildFacts.settlement)) return tidy(body.buildFacts.settlement);
+  if (body.lost === true) {
+    if (body.recovered === true) return { recovered: true, outcome: "published", why: "", refunded: 0, short: false };
+    if (Number.isFinite(Number(body.refunded))) return { recovered: true, outcome: "not-published", why: "", refunded: Math.max(0, Number(body.refunded) || 0), short: body.refundShort === true };
+  }
+  return null;
+}
+
+/**
  * A stored answer with the settlement facts on it: the body keeps every field
  * the writer gave it, and gains `settlement` (and, for a build that did not
  * publish, the `refunded` / `refundShort` the chat already reads). The facts
@@ -358,6 +386,18 @@ export function nextResult(cur, incoming, role, facts = null) {
     }
     if (kind === "recovery" && cur && sameFacts(cur, incoming)) return { next: null, as: "recovery" };
     return { next: incoming, as: "recovery" };
+  }
+  // REPAIR (2026-10-08, the seventh batch): recovery revisiting a settled,
+  // delivered build whose answer may have been written while the settlement
+  // record could not be read. It brings no answer of its own: a terminal
+  // answer lacking the recorded facts gains them; anything else — an empty
+  // (collected) slot, recovery's own answer, an interim or unreadable one —
+  // is left exactly as it is. It never refunds and never reruns anything.
+  if (role === "repair") {
+    if (kind !== "terminal" || !facts) return { next: null, as: kind === "terminal" ? "build" : kind };
+    let have = null;
+    try { have = JSON.parse(readResult(cur).body).settlement || null; } catch { have = null; }
+    return { next: sameFacts(have, facts) ? null : withSettlement(cur, facts), as: "build" };
   }
   throw new Error("nextResult: unknown role " + String(role));
 }
