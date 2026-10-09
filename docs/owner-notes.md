@@ -14,7 +14,8 @@ is in git; the dated entries further down are the full story.*
   - this is where the preparation code is live (`docs/deploy-record.md`).
 - **The branch** `claude/help-needed-ehlwlj` is `main` plus:
   - press A's scenario and its records (`ab94386f` to `ac24aece`);
-  - this round's correction **`f058eed1`**, and its records.
+  - this round's correction **`f058eed1`**, and **`a220fd54`** (fresh
+    targets and records), with the CI stamp on top.
 
   This round is **not merged, deployed or built**.
 - **Run 113** (press A, `lv-parallel`, run 37947640646, 14:54–15:10 UTC,
@@ -92,7 +93,11 @@ is in git; the dated entries further down are the full story.*
   survived were killed by two added cases.
 - **Full suite** on the change: **`10288 / 10288 / 0 / 0`**. The doc tests
   are 32 / 32.
-- **CI on `f058eed1`**: (stamped in the records commit below once read).
+- **CI**:
+  - unit tests green on `f058eed1` (run 37980784282) and on `a220fd54`,
+    the fresh targets and records (run 37981812521), each `10288 / 10247 /
+    0 / 41`;
+  - site build green on `f058eed1` (run 37980784380).
 - **The image**: `f058eed1` predicts **`9236fe341b77544d`** (204 inputs).
   `worker.js` and `builder/request.mjs` changed; nothing under `public/`
   did.
