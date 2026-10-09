@@ -680,8 +680,12 @@ test("THE DESIGNER'S OWN PICTURES REACH THE PAGE WRITER", () => {
 // `buySitePhotos` AND in `makeSitePhoto`, which claims in its own header to be the
 // one copy — false from the day it was written. There is one now, and these guards
 // read it rather than a window that happened to contain it.
+// (2026-10-09, round 4) the chain is three stages — `askSitePhoto`,
+// `storeSitePhoto`, `makeSitePhoto` — read together, from the first to the
+// last.
 const photoChain = () => {
-  const at = worker.indexOf("async function makeSitePhoto");
+  const at = worker.indexOf("async function askSitePhoto");
+  assert.ok(at > 0 && worker.indexOf("async function makeSitePhoto") > at, "the photo stages moved — rescope these guards");
   const fn = worker.slice(at, worker.indexOf("\nasync function buySitePhotos", at));
   assert.ok(fn.length > 400, "makeSitePhoto moved — rescope these guards");
   return fn;
@@ -1530,9 +1534,19 @@ test("there is ONE generate → sniff → hash → put chain, and buySitePhotos 
   // by the check written to prevent it. What must not be duplicated is the chain
   // that handles bytes an IMAGE MODEL sent, so that is what is counted.
   const code = worker.replace(/^[ \t]*\/\/.*$/gm, "");
-  const gens = [...code.matchAll(/= await genSitePhoto\(/g)];
+  // (2026-10-09, round 4) the chain is staged: one call to the image model
+  // (`askSitePhoto`), and one place that takes the bytes it made
+  // (`storeSitePhoto`, which sniffs them) — called by `makeSitePhoto` and by
+  // the purchase that finishes a picture already made.
+  const asks = [...code.matchAll(/fetch\(`https:\/\/fal\.run\//g)];
+  assert.equal(asks.length, 1, `${asks.length} places call the image model`);
+  const gens = [...code.matchAll(/= await askSitePhoto\(/g)];
   assert.equal(gens.length, 1,
-    `${gens.length} places take an image model's bytes — the sniff is the only thing between one of those and a stored XSS, and it can drift between copies`);
+    `${gens.length} places take an image model's answer — the sniff is the only thing between one of those and a stored XSS, and it can drift between copies`);
+  const stores = [...code.matchAll(/await storeSitePhoto\(/g)];
+  assert.equal(stores.length, 2, `${stores.length} places store a made photograph (makeSitePhoto and finishGenerated)`);
+  const st = code.slice(code.indexOf("async function storeSitePhoto"), code.indexOf("async function makeSitePhoto"));
+  assert.match(st, /const kind = sniffImage\(bytes\);\s*if \(!kind\) return/, "the made bytes are stored unsniffed");
 
   // …and the caller reaches it, rather than having grown its own again.
   const fn = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
@@ -1554,19 +1568,20 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   // reaches `out.images.error` and rides the build response, and TWO mutations
   // proved nothing held it: dropping the reason from a refusal, and destructuring
   // only `url` at the call site, both passed the whole suite.
-  const at = worker.indexOf("async function makeSitePhoto");
-  const fn = worker.slice(at, worker.indexOf("\nasync function buySitePhotos", at));
-  assert.ok(fn.length > 400, "makeSitePhoto moved — rescope this");
-
-  const exits = [...fn.matchAll(/return \{ url: null[^}]*\}/g)].map((m) => m[0]);
-  assert.ok(exits.length >= 4, `only ${exits.length} failure exits found — the scan stopped matching`);
-  const silent = exits.filter((e) => !/error:/.test(e));
-  // EXACTLY ONE IS SILENT, and it is the empty-prompt case: a token with no
-  // description was never going to become a picture, so reporting it would set
-  // `images.error` on builds where nothing failed.
-  assert.equal(silent.length, 1, "a failure exit reports no reason: " + silent.join(" | "));
-  assert.match(fn.slice(0, fn.indexOf(silent[0])), /imagePrompt\(prompt\)/,
+  // (2026-10-09, round 4) staged: every exit of the two stages that is not a
+  // success names its stage and carries a reason, and `makeSitePhoto` has one
+  // silent ending, the empty prompt.
+  const fn = photoChain();
+  const exits = [...fn.matchAll(/return \{ stage: "([a-z]+)"[^}]*\}/g)];
+  assert.ok(exits.length >= 8, `only ${exits.length} stage exits found — the scan stopped matching`);
+  const silent = exits.filter((e) => !["generated", "stored"].includes(e[1]) && !/error:/.test(e[0]));
+  assert.deepEqual(silent.map((e) => e[0]), [], "a failure exit reports no reason");
+  const mk = fn.slice(fn.indexOf("async function makeSitePhoto"));
+  const quiet = [...mk.matchAll(/told\(\{ stage: "([a-z]+)" \}\)/g)];
+  assert.deepEqual(quiet.map((m) => m[1]), ["empty"], "a silent ending other than the empty prompt");
+  assert.match(mk.slice(0, mk.indexOf('told({ stage: "empty" })')), /imagePrompt\(prompt\)/,
     "the one silent exit is not the empty-prompt case any more");
+  assert.match(mk, /error: scrubProvider\(/, "the reason is handed back unscrubbed");
 
   // …AND THE CALLER READS IT. Computed and dropped is the shape of a dead field.
   const buy = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
@@ -1577,6 +1592,14 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   const buyer = worker.slice(worker.indexOf("function purchaseBuyer("), worker.indexOf("\n}\n", worker.indexOf("function purchaseBuyer(")));
   assert.match(buyer, /made = await makeSitePhoto\(env, slug, dd, meta\)/, "the purchase buyer does not make the photograph through makeSitePhoto");
   assert.match(buyer, /made\.error \? \{ error: made\.error \}/, "the purchase buyer drops makeSitePhoto's reason");
+  // (2026-10-09, round 4) EVERY PURCHASE HANDS ITS HOOKS TO THE PHOTOGRAPH: the
+  // picture step's generator passes the purchase's `meta` through too, so a
+  // made picture's source is recorded and its ending reported wherever the
+  // purchase mechanism is used (picture step, add-on, build).
+  assert.match(worker, /await makeSitePhoto\(env, ownerSlug, describe, meta\)/, "the picture step drops the purchase's hooks");
+  const once = worker.slice(worker.indexOf("async function purchaseOnce("), worker.indexOf("function heldPurchase("));
+  assert.match(once, /generated: async \(source\) =>/, "purchaseOnce no longer records the made picture's source");
+  assert.match(once, /report: \(o\) =>/, "purchaseOnce no longer hears how the attempt ended");
   // (2026-10-08, the seventh batch) the refusal is also recorded as that
   // shot's own ending, beside the reason.
   assert.match(buy, /else \{ refusedTokens\.add\(token\); if \(error\) failed = error; \}/, "the reason is read and then not kept");

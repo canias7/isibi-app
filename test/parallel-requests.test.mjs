@@ -19,16 +19,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { platform, sendMessage, pump, deliver, settle, T, newKey } from "./fixtures/request-flow.mjs";
+import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { HOME, VISIT, page as pageSrc } from "./fixtures/live-ask.mjs";
 import { navSlots } from "../builder/site-nav.mjs";
 
+blockNetwork();
+
 const slugOf = (k) => "pr-" + k + "-" + Math.random().toString(16).slice(2, 8);
 async function withPlatform(opts, fn) {
   const compiler = installCompiler();
   const P = platform(opts);
-  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+  // (2026-10-09, round 4) the case ends once its background work settled
+  // with the stand-ins in place, and asked for nothing they were not set up for.
+  try { const out = await fn(P); await P.settle(); assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for"); return out; } finally { P.close(); compiler.uninstall(); }
 }
 const statuses = (rec) => rec.parts.map((p) => p.status);
 const jobLine = (P, key) => P.jobsOf(key).map((j) => j.op + ":" + j.state);
@@ -502,4 +507,8 @@ test("P8 BUILD — a first build's design runs as a graph through the real build
     if (!a || !b) continue;
     assert.ok(a[1].start >= b[1].end, after + " started before " + before + " had answered");
   }
+});
+
+test("NET — no request in this file left the machine", () => {
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

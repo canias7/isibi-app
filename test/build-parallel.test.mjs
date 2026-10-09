@@ -28,6 +28,9 @@ import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mj
 import { resultKey, readResult } from "../builder/build-job.mjs";
 import { resumeKey } from "../builder/build-resume.mjs";
 import { buildReplyFacts } from "../builder/site-reply.mjs";
+import { blockNetwork, unexpected, clearUnexpected } from "./fixtures/no-network.mjs";
+
+blockNetwork();
 
 const SLUG = GOOD_DESIGN.slug;
 let seq = 0;
@@ -216,4 +219,82 @@ test("BLD 5 — CONTROL: a balance that cannot cover the pages and the pictures 
   assert.equal(body.images.made, img.log.length);
 });
 
+/** Every upload write to ONE photograph's key fails `times` times (the first upload key written takes them all). */
+function failStoreOf(b, times) {
+  const put0 = b.put.bind(b);
+  let target = null;
+  const seen = { failed: 0 };
+  b.put = async (k, ...rest) => {
+    if (k.startsWith("uploads/" + SLUG + "/") && (target === null || target === k) && seen.failed < times) { target = k; seen.failed++; throw new Error("r2 unavailable"); }
+    return put0(k, ...rest);
+  };
+  return seen;
+}
+
+test("BLD 6 — MADE, NOT STORED, BESIDE THE PAGES (round 4): one photograph's store fails on every try of the photo task — its record keeps the made picture's source (`generated`), the build is handed on with nothing in flight, and the resume's image step stores THAT picture: four provider calls in all, every picture on the page, charged for four", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images();
+  const fault = failStoreOf(b, 3);
+  await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k" }, over: img.over });
+  assert.equal(fault.failed, 3, "the store did not fail as set up");
+  assert.equal(img.log.length, PICS.length, "provider calls beside the pages");
+  assert.equal(img.open(), 0);
+  const states = purchases(b, id).map((p) => p.state).sort();
+  assert.deepEqual(states, ["bought", "bought", "bought", "generated"], "a picture made and not stored was not kept as generated");
+  const gen = purchases(b, id).find((p) => p.state === "generated");
+  assert.match(gen.source, /^https:\/\/img\.test\/p\d\.jpg$/);
+  assert.equal(uploads(b).length, PICS.length - 1);
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k" }, source: pageOf(PICS), over: img.over });
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  // PROVIDER: no picture asked for twice. ASSET: the generated one stored by
+  // the image step. TASK: every picture made and published. ACCOUNTING: the
+  // bill counts the four shown.
+  assert.equal(img.log.length, PICS.length, "the image step asked for a new picture instead of storing the made one");
+  assert.equal(uploads(b).length, PICS.length);
+  assert.deepEqual(purchases(b, id).map((p) => p.state), PICS.map(() => "bought"));
+  assert.equal(new Set(urlsIn(published(b))).size, PICS.length);
+  for (const d of PICS) assert.equal(body.images.pictures.find((x) => x.describe === d).status, "made", d);
+  assert.equal(body.images.made, PICS.length);
+  assert.equal(body.images.unconfirmed, undefined);
+});
+
+test("BLD 7 — THE IMAGE STEP MEETS PURCHASES STILL IN FLIGHT (the recorded untested case): nothing bought beside the pages in the first run (balance held for the pages), the resume's photo task begins all four and they are held; the image step waits for each — none read as unknown, none bought a second time — and every picture is placed", async () => {
+  const b = buildBucket();
+  const id = newId();
+  let release;
+  const gateP = new Promise((ok) => { release = ok; });
+  const img = images({ hold: async () => { await gateP; } });
+  await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k" }, over: img.over, credits: 40 });
+  assert.equal(img.log.length, 0, "the first run bought beside the pages against a balance held for them");
+  // THE HOLD IS LIFTED ONLY ONCE THE IMAGE STEP IS WAITING: every purchase the
+  // resume's task began is in flight, and the build's image step has reached
+  // them (nothing else would be waiting on the image service).
+  const opened = (async () => {
+    const t0 = Date.now();
+    while (img.open() < PICS.length && Date.now() - t0 < 5000) await wait(5);
+    const seenOpen = img.open();
+    await wait(120);
+    release();
+    return seenOpen;
+  })();
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k" }, source: pageOf(PICS), over: img.over });
+  assert.equal(await opened, PICS.length, "the resume's photo task did not have all four in flight");
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  assert.equal(img.log.length, PICS.length, "a purchase in flight was bought a second time");
+  assert.equal(img.open(), 0);
+  assert.equal(body.images.unconfirmed, undefined, "a purchase in flight was read as unknown instead of waited for");
+  assert.equal(new Set(urlsIn(published(b))).size, PICS.length);
+  for (const d of PICS) assert.equal(body.images.pictures.find((x) => x.describe === d).status, "made", d);
+  assert.equal(body.images.made, PICS.length);
+  assert.deepEqual(purchases(b, id).map((p) => p.state), PICS.map(() => "bought"));
+});
+
+test("NET — no request in this file left the machine", () => {
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
+});
+
 void BRIEF;
+void clearUnexpected;

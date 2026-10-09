@@ -14,16 +14,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, T } from "./fixtures/request-flow.mjs";
+import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 
+blockNetwork();
+
 const slugOf = (k) => "pp-" + k + "-" + Math.random().toString(16).slice(2, 8);
 async function withPlatform(opts, fn) {
   const compiler = installCompiler();
   const P = platform(opts);
-  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+  // (2026-10-09, round 4) the case ends once its background work settled
+  // with the stand-ins in place, and asked for nothing they were not set up for.
+  try { const out = await fn(P); await P.settle(); assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for"); return out; } finally { P.close(); compiler.uninstall(); }
 }
 const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
 /** Every stored object of the site but a request's or a job's records, by its etag. */
@@ -276,4 +281,8 @@ test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the
       },
     },
   });
+});
+
+test("NET — no request in this file left the machine", () => {
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

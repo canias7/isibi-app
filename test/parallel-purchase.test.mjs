@@ -19,14 +19,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, tick, call, readWritten, T } from "./fixtures/request-flow.mjs";
+import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
+
+blockNetwork();
 
 const slugOf = (k) => "pu-" + k + "-" + Math.random().toString(16).slice(2, 8);
 async function withPlatform(opts, fn) {
   const compiler = installCompiler();
   const P = platform(opts);
-  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+  // (2026-10-09, round 4) the case ends once its background work settled
+  // with the stand-ins in place, and asked for nothing they were not set up for.
+  try { const out = await fn(P); await P.settle(); assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for"); return out; } finally { P.close(); compiler.uninstall(); }
 }
 const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
 const statuses = (rec) => rec.parts.map((p) => p.status);
@@ -233,7 +238,9 @@ test("PUR 6 — a purchase that landed and was stored but whose buyer died befor
     assert.equal(await deliver(P, takePrep(P)), "hung");
     P.recover();
     assert.equal(uploads(P).length, 1, "the photograph was stored before its buyer died");
-    assert.deepEqual(purchases(P).map((x) => x.state), ["buying"]);
+    // (2026-10-09, round 4) the record names the made picture's source before
+    // the store, so it reads `generated`, not `buying`.
+    assert.deepEqual(purchases(P).map((x) => x.state), ["generated"]);
     const before = calls(P, "choose_pictures").length;
     await deliver(P, await retake(P));
     assert.equal(P.record(r.key).parts[1].prep.outcome, "ready", JSON.stringify(P.record(r.key).parts[1].prep));
@@ -352,4 +359,8 @@ test("PUR 11 — the preparation's `buying` claim LANDS but its answer is lost: 
     assert.equal(uploads(P).length, 1);
     assert.equal(chargedOf(P, r.key, 1), 1);
   });
+});
+
+test("NET — no request in this file left the machine", () => {
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

@@ -22,6 +22,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer is supplied by the test
 // (`answers`, as `test/fixtures/live-ask.mjs` keys them): this shows what the
 // code does with an answer, never what a real model answers.
+import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
@@ -444,8 +445,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const neon = { calls: [], projects: [], project: null, db: "" };
   const neonFaults = [];
   // ── THE WIRE ──────────────────────────────────────────────────────────────
-  const real = globalThis.fetch;
   const imageLog = [];
+  const downloadLog = [];
+  const downloadFaults = [];
+  // EVERY ADDRESS THE STAND-INS WERE NOT SET UP TO ANSWER (round 4).
+  const unexpected = [];
   const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, ...new Array(64).fill(0x41)]);
   const fetchStub = async (input, init) => {
     const url = String((input && input.url) || input || "");
@@ -455,13 +459,20 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (images && url.startsWith("https://fal.run/")) {
       const entry = { prompt: String(args.prompt || ""), at: now() };
       imageLog.push(entry);
-      if (typeof imageWith === "function") await imageWith(entry, imageLog.length - 1);
+      // `imageWith` may hold the call, throw (a call whose answer was lost
+      // after it left), or answer for the service (a refusal, say).
+      const own = typeof imageWith === "function" ? await imageWith(entry, imageLog.length - 1) : null;
       entry.end = now();
+      if (own instanceof Response) return own;
       return resp({ images: [{ url: "https://img.test/p" + imageLog.length + ".jpg" }] });
     }
     // EACH PICTURE ITS OWN BYTES (2026-10-09, round 3), so each one bought is
     // stored as its own upload and a case can count what was stored.
     if (images && url.startsWith("https://img.test/")) {
+      // EVERY DOWNLOAD KEPT, AND ONE THAT FAILS (`failDownload`, round 4).
+      downloadLog.push(url);
+      const df = downloadFaults.findIndex((x) => x.match(url));
+      if (df >= 0) { const x = downloadFaults[df]; if (--x.times <= 0) downloadFaults.splice(df, 1); if (x.throws) throw new TypeError("connection reset"); return new Response("gone", { status: 503 }); }
       const n = Number((url.match(/\/p(\d+)\.jpg/) || [])[1]) || 0;
       const bytes = new Uint8Array(JPEG.length + 4);
       bytes.set(JPEG);
@@ -573,6 +584,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
     if (url.includes("/rest/v1/site_aliases")) return resp([]);
+    // THE CRON'S OTHER SWEEPS (round 4), answered as an account with none of
+    // their work waiting: scheduled functions, pending domains, the webhook
+    // queue, the rebuild queue — so a tick asks for nothing unexpected.
+    if (method === "GET" && /\/rest\/v1\/(site_functions|site_domains|webhook_queue|site_rebuild)\?/.test(url)) return resp([]);
+    if (method === "DELETE" && /\/rest\/v1\/webhook_queue\?/.test(url)) return new Response(null, { status: 204 });
     if (db && url.includes("neon.tech/sql")) {
       const own = db.answer(String(args.query || ""), Array.isArray(args.params) ? args.params : []);
       return own || resp({ command: "SELECT", rowCount: 0, rows: [], fields: [] });
@@ -580,6 +596,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (url.includes("/rest/v1/credits")) return resp([{ balance: credits.balance }]);
     if (url.includes("/v1/messages")) return model(args, (init && init.signal) || (input && input.signal) || null);
     if (isDispatchUpload(url)) return dispatchOk();
+    // NOT SET UP FOR (2026-10-09, round 4): answered 503 as before, and
+    // recorded, so a case can assert that nothing unexpected was asked for.
+    unexpected.push({ method, url });
+    noteUnexpected(method, url, "request-flow");
     return new Response("unavailable: " + method + " " + url, { status: 503 });
   };
   const env = {
@@ -615,7 +635,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const uninstall = () => {
     if (!installed) return;
     installed = false;
-    globalThis.fetch = real; Date.now = realNow; globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
+    // THE REAL WIRE IS NEVER PUT BACK (2026-10-09, round 4): work a case left
+    // running meets the blocking fetch, which refuses and records anything
+    // that would leave the machine.
+    globalThis.fetch = blockedFetch; Date.now = realNow; globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
   };
   // A CLOSED PLATFORM NEVER TAKES THE WIRE BACK (2026-10-07): a page a
   // finished case left following its last read called through `run` after
@@ -629,9 +652,33 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     install();
     return fn();
   }
+  // WORK STILL RUNNING (round 4): every invocation a helper started, kept
+  // until it ends, so a case can wait for it before the stand-ins go.
+  const inflight = new Set();
+  const track = (p) => { inflight.add(p); p.then(() => inflight.delete(p), () => inflight.delete(p)); return p; };
   const P = {
     slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, tasksLog, hung, filed, imageLog,
-    now, run,
+    now, run, track, unexpected, downloadLog,
+    /** The next `times` downloads of a made picture whose address `match(url)` accepts fail (503, or a lost connection with `throws`). */
+    failDownload(match, { times = 1, throws = false } = {}) { downloadFaults.push({ match, times, throws }); },
+    /**
+     * WAIT FOR THE WORK STILL RUNNING (round 4), then close: every invocation
+     * a helper started that can still end is waited for (`ms` of real time at
+     * most per round — one held on purpose, a crash, never ends) with the
+     * stand-ins in place. Answers how many were still running.
+     */
+    async settle({ ms = 1500, rounds = 5 } = {}) {
+      for (let i = 0; i < rounds && inflight.size; i++) {
+        const before = inflight.size;
+        let timer;
+        await Promise.race([Promise.allSettled([...inflight]), new Promise((ok) => { timer = setTimeout(ok, ms); })]);
+        clearTimeout(timer);
+        if (inflight.size >= before) break;
+      }
+      const left = inflight.size;
+      P.close();
+      return left;
+    },
     /** Move the clock: leases, the question's day, the sweeps' windows. */
     advance(ms) { clock += ms; },
     /** Neon as a provisioning site saw it: its calls, the projects made, the rows claimed (`provisions`). */
@@ -668,7 +715,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     hangSend() { sendHangs++; resetHung(); },
     /** Clear a crash: the next deliveries run normally. */
     recover() { resetHung(); },
-    /** The end of a case: no timer of a crashed or finished invocation outlives it, and the real wire is back. */
+    /** The end of a case: no timer of a crashed or finished invocation outlives it, and the blocking wire is in place (never the real one). */
     close() { closed = true; for (const t of timers) realClearInterval(t); timers.clear(); beatsOf.clear(); uninstall(); },
     /** Run every live interval once, now — a running job's heartbeat, which picks up a stop, as a long step would have had it. */
     async beatNow() { for (const f of [...beatsOf.values()]) { try { await f(); } catch { /* a heartbeat's own failure is the job's to read */ } } },
@@ -730,6 +777,7 @@ export async function sendMessage(P, { message, key = newKey(), images, ask, att
       await Promise.allSettled(ctx.pending);
       return { status: res.status, body: await res.json().catch(() => null), key };
     })();
+    P.track(go);
     // A CALL THAT CRASHED MID-WAY never answers: the browser saw nothing.
     return Promise.race([go, P.hung.promise.then((what) => ({ status: 0, body: null, key, hung: what }))]);
   });
@@ -759,6 +807,7 @@ export async function pump(P, { max = 40, twice = false, due = false } = {}) {
           await worker.queue({ messages: [{ body: m.body, ack() {}, retry() {} }] }, P.env, ctx);
           await Promise.allSettled(ctx.pending);
         })();
+        P.track(done);
         const which = await Promise.race([done.then(() => "done"), P.hung.promise.then(() => "hung")]);
         if (which === "hung") { done.catch(() => {}); }
       });
@@ -777,6 +826,7 @@ export async function deliver(P, m) {
       await worker.queue({ messages: [{ body: m.body, ack() {}, retry() {} }] }, P.env, ctx);
       await Promise.allSettled(ctx.pending);
     })();
+    P.track(done);
     const which = await Promise.race([done.then(() => "done"), P.hung.promise.then(() => "hung")]);
     if (which === "hung") done.catch(() => {});
     return which;
@@ -811,6 +861,7 @@ export async function tick(P) {
       for (let i = 0; i < 5 && ctx.pending.length; i++) { const p = ctx.pending.splice(0); await Promise.allSettled(p); }
       return {};
     })();
+    P.track(go);
     return Promise.race([go, P.hung.promise.then((what) => ({ hung: what }))]);
   });
 }
@@ -843,6 +894,7 @@ export async function call(P, method, path, body, auth = TOKEN) {
       await Promise.allSettled(ctx.pending);
       return { status: res.status, body: await res.json().catch(() => null), headers: res.headers };
     })();
+    P.track(go);
     return Promise.race([go, P.hung.promise.then((what) => ({ status: 0, body: null, hung: what }))]);
   });
 }

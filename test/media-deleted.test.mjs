@@ -324,9 +324,11 @@ test("the one fal path the builder keeps does not put the provider's name on the
   // to be there, and it has to be DRIVEN, because a regex nobody runs is a
   // claim. Driven against the sentence the throw really builds, not a made-up
   // one — derived from `genSitePhoto`'s own throw.
-  const throwLine = /throw new Error\("photo " \+ r\.status \+ " " \+ String\(\(d && d\.detail\) \|\| ""\)/;
+  // (2026-10-09, round 4) the call no longer throws: `askSitePhoto` answers a
+  // refusal carrying the same sentence, and `makeSitePhoto` still scrubs it.
+  const throwLine = /error: "photo " \+ r\.status \+ " " \+ String\(\(d && d\.detail\) \|\| ""\)/;
   assert.match(WORKER_CODE, throwLine,
-    "genSitePhoto no longer throws the provider's own `detail` — if that changed, re-derive the sentence below");
+    "askSitePhoto no longer carries the provider's own `detail` — if that changed, re-derive the sentence below");
   const at = WORKER_CODE.indexOf("async function makeSitePhoto(");
   assert.ok(at > 0, "makeSitePhoto is gone");
   const next = WORKER_CODE.slice(at + 1).match(/\n(?:\/\*\*|export default|(?:export )?(?:async )?(?:function|class|const|let) )/);

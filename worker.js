@@ -1072,7 +1072,7 @@ const CSP = [
   // workspace plays audio or video any more.
   //
   // THE BUILDER'S OWN fal CALL IS UNAFFECTED and this is the reason it can be:
-  // `genSitePhoto` runs SERVER-side and downloads the bytes into R2, so a
+  // `askSitePhoto` and `storeSitePhoto` run SERVER-side and download the bytes into R2, so a
   // photograph reaches a page as `/u/<slug>/<hash>.jpg` on the site's own
   // origin. The media side was the half that put a provider URL in front of a
   // browser; the builder never has.
@@ -1117,8 +1117,8 @@ const CSP = [
 // IT OUTLIVED ITS ONLY CALLER AND WAS REPOINTED RATHER THAN DELETED
 // (2026-09-12, the media side's stage 3). It guarded the director's brief
 // errors, and the director is gone; what is NOT gone is the one fal call the
-// builder still makes — `genSitePhoto` throws the provider's own `detail`
-// straight into an Error message, which `makeSitePhoto` puts on the wire as
+// builder still makes — `askSitePhoto` carries the provider's own `detail`
+// in a refusal's message (it threw it, before round 4), which `makeSitePhoto` puts on the wire as
 // `images.error`. That field has never been rendered (the customer reads
 // `imageNote`, which uses `error` only as a discriminator between four
 // identical-looking placeholder outcomes), so nothing was leaking; but the
@@ -2619,30 +2619,101 @@ async function recordJobOutcome(env, row, out) {
 // one — moving the sprite model would otherwise silently re-price every build.
 const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
 /**
- * One photograph for a generated site. Bytes, not base64.
+ * ASK THE IMAGE SERVICE FOR ONE PHOTOGRAPH, and say exactly what its answer
+ * shows (2026-10-09, round 4, after Codex's review). The provider's
+ * synchronous endpoint has no idempotency key and no lookup, so how a call
+ * ENDED is the only thing that says whether a picture was bought:
+ *
+ *   refused     the service answered that it made nothing (a 4xx other than a
+ *               timeout, or a 200 naming no image): nothing was made
+ *   unknown     the call left and no readable answer came back — a lost
+ *               connection, a timeout, a 5xx, a 200 that does not read. It
+ *               may have been made and paid for: never taken as "nothing"
+ *   generated   made: `source` is where the service holds it, which is kept
+ *               BEFORE anything else is tried, so a download or a store that
+ *               fails is retried on the same picture, never a new one
  *
  * JPEG at 2K rather than PNG at 1K: a 2K PNG is several megabytes for a picture
  * that is going to be scaled into a card, and nano-banana-pro bills 1K and 2K at
  * the same base rate — 4K is the tier that doubles — so the larger size is free.
- *
- * Throws on every failure. The caller turns that into a placeholder; there is
- * nothing sensible to return here, and an empty buffer would sail through the
- * upload path and store zero bytes under a hash of nothing.
+ * Never throws.
  */
-async function genSitePhoto(env, prompt) {
-  const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
-    method: "POST",
-    headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, aspect_ratio: IMAGE_ASPECT, resolution: "2K", output_format: "jpeg", num_images: 1 }),
-    signal: AbortSignal.timeout(120000),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error("photo " + r.status + " " + String((d && d.detail) || "").slice(0, 120));
-  const url = d.images && d.images[0] && d.images[0].url;
-  if (!url) throw new Error("photo returned no image");
-  const media = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  if (!media.ok) throw new Error("photo fetch " + media.status);
-  return new Uint8Array(await media.arrayBuffer());
+async function askSitePhoto(env, prompt) {
+  // NO KEY, NO CALL: refused before anything leaves, so nothing was made.
+  if (!env.FAL_KEY) return { stage: "refused", error: "photo service not configured" };
+  let r;
+  try {
+    r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
+      method: "POST",
+      headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, aspect_ratio: IMAGE_ASPECT, resolution: "2K", output_format: "jpeg", num_images: 1 }),
+      signal: AbortSignal.timeout(120000),
+    });
+  } catch (e) {
+    return { stage: "unknown", error: "photo request lost: " + String((e && e.name) || "error") };
+  }
+  let d = null;
+  try { d = await r.json(); } catch { d = null; }
+  if (!r.ok) {
+    // A TIMEOUT OR THE SERVICE'S OWN FAILURE may have come after the picture
+    // was made; any other refusal is the service saying it made nothing.
+    const stage = r.status >= 500 || r.status === 408 ? "unknown" : "refused";
+    return { stage, error: "photo " + r.status + " " + String((d && d.detail) || "").slice(0, 120) };
+  }
+  if (!d || typeof d !== "object") return { stage: "unknown", error: "photo answer unreadable" };
+  const source = d.images && d.images[0] && d.images[0].url;
+  if (typeof source !== "string" || !/^https:\/\//.test(source)) return { stage: "refused", error: "photo returned no image" };
+  return { stage: "generated", source };
+}
+
+/** How many times a made photograph's download, and then its store, are tried before that stage counts as failed. */
+const PHOTO_TRIES = 3;
+
+/**
+ * STORE A PHOTOGRAPH THE IMAGE SERVICE ALREADY MADE, from where it holds it:
+ * download, sniff, hash, put — each of the download and the put tried again
+ * on its own. Never asks for a new picture. Answers `{ stage: "stored", url }`,
+ * `{ stage: "download" | "store", error }` (the same picture can be tried
+ * again later), or `{ stage: "unusable", error }` (what was made is not a
+ * picture we may serve, or is too big).
+ *
+ * The sniff is the only thing standing between an image model's answer and an
+ * SVG served inline from our own origin, so it lives here, once, and every
+ * photograph an image model made goes through it.
+ */
+async function storeSitePhoto(env, slug, source, purchase = "") {
+  if (typeof source !== "string" || !/^https:\/\//.test(source)) return { stage: "unusable", error: "no source" };
+  let bytes = null, why = "";
+  for (let i = 0; i < PHOTO_TRIES && !bytes; i++) {
+    try {
+      const media = await fetch(source, { signal: AbortSignal.timeout(30000) });
+      if (!media.ok) { why = "photo fetch " + media.status; continue; }
+      bytes = new Uint8Array(await media.arrayBuffer());
+    } catch (e) { why = "photo fetch " + String((e && e.name) || "error"); }
+  }
+  if (!bytes) return { stage: "download", error: why || "photo fetch failed" };
+  // The same sniff the upload route runs, on bytes we did not choose either:
+  // what comes back is whatever the image model sent, and the stored
+  // content-type has to be the truth about it rather than what we asked for.
+  const kind = sniffImage(bytes);
+  if (!kind) return { stage: "unusable", error: "not a picture" };
+  if (bytes.length > MAX_UPLOAD_BYTES) return { stage: "unusable", error: "too big" };
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const name = uploadName(hex, kind.ext);
+  if (!name) return { stage: "unusable", error: "bad name" };
+  // TAGGED WITH THE LOGICAL PURCHASE IT ANSWERS (2026-10-09, round 3), when
+  // it answers one: a reader that finds the purchase still `buying` looks
+  // for this tag before calling its outcome unknown. The key is the picture's
+  // own hash, so a put tried again writes the same object.
+  const tag = typeof purchase === "string" && /^[0-9a-f]{24}$/.test(purchase) ? purchase : "";
+  for (let i = 0; i < PHOTO_TRIES; i++) {
+    try {
+      await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime }, ...(tag ? { customMetadata: { purchase: tag } } : {}) });
+      return { stage: "stored", url: uploadUrl(slug, name) };
+    } catch (e) { why = "photo store " + String((e && e.name) || "error"); }
+  }
+  return { stage: "store", error: why };
 }
 
 /**
@@ -2664,45 +2735,46 @@ async function genSitePhoto(env, prompt) {
  * One photograph, generated and stored under the site's own uploads.
  *
  * EXTRACTED SO THERE IS ONE COPY. The build path and the `picture` layer both
- * need generate → sniff → hash → put, and two copies of that drift: the sniff is
- * the only thing standing between an image model's answer and an SVG served
- * inline from our own origin, so a second copy that forgets it is a stored XSS.
+ * need generate → sniff → hash → put, and two copies of that drift.
  *
- * Returns the URL, or null. Never throws: a photograph that could not be made is
- * a slot left alone, not a failed edit.
+ * Answers `{ url }`, or `{ url: null, error, stage }` naming how far it got
+ * (`refused`, `unknown`, `download`, `store`, `unusable`). Never throws: a
+ * photograph that could not be made is a slot left alone, not a failed edit.
+ *
+ * WHEN IT ANSWERS A LOGICAL PURCHASE (`meta.purchase`, round 3) its stages are
+ * told to it as they happen (2026-10-09, round 4): `meta.generated(source)`
+ * is awaited the moment the service has made the picture, before the download
+ * — so the purchase record keeps where the made picture is, and a download or
+ * store that fails is finished later on that picture — and `meta.report(out)`
+ * hears the ending. A missing address is not proof that nothing was bought.
  */
 async function makeSitePhoto(env, slug, prompt, meta = null) {
+  const told = (o) => {
+    if (meta && typeof meta.report === "function") { try { meta.report(o); } catch { /* the caller's own note */ } }
+    if (o.url) return { url: o.url };
+    if (o.error) console.error("photo failed:", slug, o.stage, o.error);
+    // SCRUBBED, BECAUSE THIS CAN BE THE PROVIDER'S OWN SENTENCE. A refusal
+    // carries `"photo " + status + " " + d.detail`, and `detail` is written by
+    // fal — so this is the one place the provider's words enter data we hand
+    // back. The LOG above keeps them: it is ours to read, and a scrubbed log
+    // would make a provider outage harder to diagnose for no benefit.
+    return { url: null, stage: o.stage, ...(o.error ? { error: scrubProvider(String(o.error)).slice(0, 120) } : {}) };
+  };
   try {
     const p = imagePrompt(prompt);
     // AN EMPTY PROMPT IS SILENT, and that asymmetry is deliberate: a token with no
     // description was never going to become a picture, and reporting it would set
     // `images.error` on builds where nothing failed.
-    if (!p) return { url: null };
-    const bytes = await genSitePhoto(env, p);
-    // The same sniff the upload route runs, on bytes we did not choose either:
-    // what comes back is whatever the image model sent, and the stored
-    // content-type has to be the truth about it rather than what we asked for.
-    const kind = sniffImage(bytes);
-    if (!kind) return { url: null, error: "not a picture" };
-    if (bytes.length > MAX_UPLOAD_BYTES) return { url: null, error: "too big" };
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const name = uploadName(hex, kind.ext);
-    if (!name) return { url: null, error: "bad name" };
-    // TAGGED WITH THE LOGICAL PURCHASE IT ANSWERS (2026-10-09, round 3), when
-    // it answers one: a reader that finds the purchase still `buying` looks
-    // for this tag before calling its outcome unknown.
-    const purchase = meta && typeof meta.purchase === "string" && /^[0-9a-f]{24}$/.test(meta.purchase) ? meta.purchase : "";
-    await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime }, ...(purchase ? { customMetadata: { purchase } } : {}) });
-    return { url: uploadUrl(slug, name) };
+    if (!p) return told({ stage: "empty" });
+    const asked = await askSitePhoto(env, p);
+    if (asked.stage !== "generated") return told(asked);
+    if (meta && typeof meta.generated === "function") { try { await meta.generated(asked.source); } catch { /* the stored picture's tag still answers it */ } }
+    const purchase = meta && typeof meta.purchase === "string" ? meta.purchase : "";
+    return told(await storeSitePhoto(env, slug, asked.source, purchase));
   } catch (e) {
-    console.error("photo failed:", slug, e && e.message);
-    // SCRUBBED, BECAUSE THIS IS THE PROVIDER'S OWN SENTENCE. `genSitePhoto`
-    // throws `"photo " + status + " " + d.detail`, and `detail` is written by
-    // fal — so this is the one place the provider's words enter data we hand
-    // back. The LOG above keeps them: it is ours to read, and a scrubbed log
-    // would make a provider outage harder to diagnose for no benefit.
-    return { url: null, error: scrubProvider(String((e && e.message) || e)).slice(0, 120) };
+    // Nothing above throws; a throw here is ours, after the service may have
+    // been asked, so it is not taken as "nothing was made".
+    return told({ stage: "unknown", error: String((e && e.message) || e) });
   }
 }
 
@@ -16908,13 +16980,52 @@ async function purchasedPhoto(env, slug, id) {
 }
 
 /**
- * BUY ONE PICTURE ONCE. `generate(describe, { purchase })` makes the purchase
- * and answers its address or nothing. Answers `{ state: "bought", url,
- * reused }`, `{ state: "none" }`, or `{ state: "unknown", id, why }` — begun
- * by someone and not known to have ended (`unconfirmed`), or a record that
- * could not be read (`unreadable`) or does not read as one (`malformed`).
- * `mayBuy()` is asked again right before the purchase (a preparation's
- * ownership); false answers `{ state: "none", skipped: true }`, nothing begun.
+ * FINISH A PURCHASE THE IMAGE SERVICE ALREADY MADE (2026-10-09, round 4): a
+ * record that says `generated` names where the service holds the picture.
+ * Its stored photograph is looked for first (a store whose answer was lost);
+ * otherwise that same picture is downloaded and stored — never a new one
+ * asked for. Answers `{ url }` (recorded `bought`), `{ none: true }` (what
+ * was made cannot be served; recorded `none`), or `{ pending: true }` (not
+ * stored yet, or the library could not be read: the record stays
+ * `generated`, for the next reader to finish).
+ */
+async function finishGenerated(env, { slug, pk, id, got, rec, owner, now = () => Date.now() }) {
+  const found = await purchasedPhoto(env, slug, id);
+  let url = found || "";
+  if (!url) {
+    const s = await storeSitePhoto(env, slug, rec.source, id);
+    if (s.stage === "unusable") {
+      try { await env.SITES_BUCKET.put(pk, JSON.stringify({ ...got.v, state: "none", why: "unusable", by: owner, at: now() }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } }); } catch { /* read again next time */ }
+      return { none: true };
+    }
+    if (s.stage !== "stored") return { pending: true, stage: s.stage };
+    url = s.url;
+  }
+  try { await env.SITES_BUCKET.put(pk, JSON.stringify({ ...got.v, state: "bought", url, ...(found ? { found: true } : { stored: true }), by: owner, at: now() }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } }); }
+  catch { /* tagged: the next reader finds it the same way */ }
+  return { url };
+}
+
+/**
+ * BUY ONE PICTURE ONCE. `generate(describe, meta)` makes the purchase and
+ * answers its address or nothing; `meta` carries the purchase's id and two
+ * hooks `makeSitePhoto` calls (round 4): `generated(source)`, recorded before
+ * the download, and `report(out)`, how the attempt ended.
+ *
+ * Answers `{ state: "bought", url, reused }`, `{ state: "none" }`, or
+ * `{ state: "unknown", id, why }`: begun by someone and not known to have
+ * ended (`unconfirmed`); made by the image service and not stored yet
+ * (`store-pending`, finished by the next reader on the same picture); a
+ * record that could not be read (`unreadable`) or does not read as one
+ * (`malformed`). `mayBuy()` is asked again right before the purchase (a
+ * preparation's ownership); false answers `{ state: "none", skipped: true }`,
+ * nothing begun.
+ *
+ * A MISSING ADDRESS IS NOT PROOF THAT NOTHING WAS BOUGHT (Codex, round 4):
+ * only a refusal the image service answered, a description that was never
+ * sent, or a picture made and found unusable ends the purchase `none`. A
+ * call whose answer was lost leaves it `buying` (unknown); a picture made and
+ * not stored leaves it `generated`.
  */
 async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy = async () => true, now = () => Date.now() }) {
   const id = await purchaseId(slug, key, n, d, k);
@@ -16932,6 +17043,13 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
       const rec = got.malformed ? null : readPurchase(got.v);
       if (!rec || rec.id !== id) return { state: "unknown", id, why: "malformed" };
       if (rec.state === "bought") return { state: "bought", url: rec.url, reused: true, id };
+      if (rec.state === "generated") {
+        // MADE AND NOT STORED: finished on the same picture, never bought again.
+        const f = await finishGenerated(env, { slug, pk, id, got, rec, owner, now });
+        if (f.url) return { state: "bought", url: f.url, reused: true, id };
+        if (f.none) return { state: "none", id, why: "unusable" };
+        return { state: "unknown", id, why: "store-pending" };
+      }
       if (rec.state === "buying") {
         // BEGUN AND NEVER WRITTEN AGAIN: landed, if its photograph is stored.
         const url = await purchasedPhoto(env, slug, id);
@@ -16952,15 +17070,40 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
       return { state: "unknown", id, why: "unconfirmed" };
     }
     if (!put) continue; // another buyer wrote first: read what it wrote
-    let url = null;
-    try { url = await generate(d, { purchase: id }); } catch { url = null; }
-    const etag = put.etag || null;
+    let etag = put.etag || null;
+    let kept = false; // the made picture's source is on the record
+    let ended = null; // how `makeSitePhoto` said the attempt ended
+    const hooks = {
+      purchase: id,
+      generated: async (source) => {
+        if (typeof source !== "string" || !/^https:\/\//.test(source)) return;
+        const w = await write("generated", { source }, etag ? { etagMatches: etag } : undefined);
+        if (w) { etag = w.etag || null; kept = true; }
+      },
+      report: (o) => { ended = o && typeof o === "object" ? o : null; },
+    };
+    let url = null, threw = false;
+    try { url = await generate(d, hooks); } catch { threw = true; url = null; }
     if (typeof url === "string" && url) {
       try { await write("bought", { url }, etag ? { etagMatches: etag } : undefined); } catch { /* tagged: found by the next reader */ }
       return { state: "bought", url, reused: false, id };
     }
-    try { await write("none", {}, etag ? { etagMatches: etag } : undefined); } catch { /* left buying: the next reader finds nothing stored and holds it */ }
-    return { state: "none", id };
+    const stage = ended && typeof ended.stage === "string" ? ended.stage : threw ? "unknown" : "unasked";
+    if (stage === "download" || stage === "store") {
+      // MADE, NOT STORED. A store whose answer was lost may have landed: its
+      // tagged photograph is looked for before anything is called pending.
+      const found = await purchasedPhoto(env, slug, id);
+      if (found) {
+        try { await write("bought", { url: found, found: true }, etag ? { etagMatches: etag } : undefined); } catch { /* tagged */ }
+        return { state: "bought", url: found, reused: false, id };
+      }
+      return { state: "unknown", id, why: kept ? "store-pending" : "unconfirmed" };
+    }
+    if (stage === "unknown") return { state: "unknown", id, why: "unconfirmed" }; // left `buying`: the call may have been made and paid for
+    // REFUSED BY THE SERVICE, NEVER ASKED (an empty description, a balance that
+    // could not pay), OR MADE AND UNUSABLE: it ended with nothing.
+    try { await write("none", { why: stage }, etag ? { etagMatches: etag } : undefined); } catch { /* left buying: the next reader finds nothing stored and holds it */ }
+    return { state: "none", id, why: stage };
   }
   return { state: "unknown", id, why: "unconfirmed" };
 }
@@ -16972,17 +17115,23 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
  */
 function heldPurchase(unknown) {
   const held = unknown.map((u) => ({ id: u.id, d: String(u.d || "").slice(0, 300), why: u.why }));
+  // MADE AND NOT STORED YET (round 4) is said apart from a purchase whose
+  // outcome nobody knows: the picture exists and saving it is what is retried.
+  const saving = held.length > 0 && held.every((h) => h.why === "store-pending");
   return Response.json({
     ok: false, error: "purchase-unconfirmed", cost: 0, held,
-    msg: "I started buying " + (held.length === 1 ? "a picture" : held.length + " pictures") + " for this and can't tell yet whether the purchase went through, so I haven't bought it again or changed the page.",
+    msg: saving
+      ? "The picture" + (held.length === 1 ? " was" : "s were") + " made but I couldn't save " + (held.length === 1 ? "it" : "them") + " yet, so I'll keep trying to save the same " + (held.length === 1 ? "one" : "ones") + " — I haven't bought another or changed the page."
+      : "I started buying " + (held.length === 1 ? "a picture" : held.length + " pictures") + " for this and can't tell yet whether the purchase went through, so I haven't bought it again or changed the page.",
   }, { status: 409 });
 }
 
 /**
  * ARE THESE PURCHASES KNOWN NOW? Each one's record read again: bought, ended
  * or released is known; still `buying` is known only once its tagged
- * photograph is found (and then recorded as bought); a record that cannot be
- * read is not known.
+ * photograph is found (and then recorded as bought); `generated` (round 4) is
+ * finished on the picture the service already made, and known once stored; a
+ * record that cannot be read is not known.
  */
 async function purchasesKnown(env, slug, key, n, held) {
   if (!held.length) return false;
@@ -16992,6 +17141,11 @@ async function purchasesKnown(env, slug, key, n, held) {
     if (!got.ok || !got.obj || got.malformed) return false;
     const rec = readPurchase(got.v);
     if (!rec || rec.id !== h.id) return false;
+    if (rec.state === "generated") {
+      const f = await finishGenerated(env, { slug, pk, id: h.id, got, rec, owner: "driver" });
+      if (f.pending) return false;
+      continue;
+    }
     if (rec.state !== "buying") continue;
     const url = await purchasedPhoto(env, slug, h.id);
     if (!url) return false;
@@ -17017,7 +17171,9 @@ async function releaseHeldPurchases(env, ctx, { slug, key, uid, n }) {
     const got = await readJsonTried(env, pk);
     if (!got.ok) return { status: 503, rec: at.rec };
     const cur = got.obj && !got.malformed ? readPurchase(got.v) : null;
-    if (cur && cur.state !== "buying") continue;
+    // A PICTURE ALREADY MADE AND NOT STORED (`generated`, round 4) is released
+    // too, on the customer's word: they have chosen to buy it again.
+    if (cur && cur.state !== "buying" && cur.state !== "generated") continue;
     let put = null;
     try {
       put = await env.SITES_BUCKET.put(pk, JSON.stringify({ v: 1, id: h.id, d: h.d, slug, key, n, state: "released", by: "customer:" + uid, at: Date.now() }),

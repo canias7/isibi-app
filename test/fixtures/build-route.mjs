@@ -12,6 +12,7 @@
 // happened BEFORE that: what was charged and given back, what the designer
 // was told, what was stored.
 
+import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { dispatchEnv, isDispatchUpload, dispatchOk, installCompiler } from "./cf-containers.mjs";
 
@@ -72,7 +73,6 @@ export function buildBucket(entries = {}, hooks = {}) {
 export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
-  const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     const method = String((init && init.method) || "GET").toUpperCase();
@@ -123,6 +123,7 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);
+    noteUnexpected(method, url, "build-route");
     return new Response("not stubbed", { status: 503 });
   };
   const c = installCompiler();
@@ -133,12 +134,15 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
       method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer t" }, body: JSON.stringify({ picker: "sonnet", ...body }),
     });
     const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SUPABASE_SERVICE_KEY: "k", CREDITS_MINT_SECRET: "m", ...dispatchEnv(), SITE_BUILD_CONTAINER: {}, ...extraEnv };
-    const res = await worker.fetch(req, env, makeCtx());
+    const ctx = makeCtx();
+    const res = await worker.fetch(req, env, ctx);
     const reply = await res.json().catch(() => null);
+    // EVERY BACKGROUND TASK SETTLED WITH THE STAND-INS IN PLACE (round 4).
+    for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
     const cfgRaw = store.store.get("config/" + String((reply && reply.slug) || "harbour-loaf") + ".json");
     const config = cfgRaw ? JSON.parse(cfgRaw) : null;
     return { status: res.status, reply, store: store.store, config, seen };
-  } finally { globalThis.fetch = real; c.uninstall(); }
+  } finally { globalThis.fetch = blockedFetch; c.uninstall(); }
 }
 
 export const BRIEF = "Harbour Loaf, a bakery in Leeds. Order loaves for collection.";

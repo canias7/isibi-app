@@ -839,7 +839,7 @@ export async function addon(slug, instruction, opts) {
     // returns at its first line without one, so a fixture that leaves it out
     // never registers a job at all and every assertion about which jobs the
     // platform will run is vacuous.
-    const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", ...(c ? dispatchEnv() : {}) };
+    const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", FAL_KEY: "fal-test", ...(c ? dispatchEnv() : {}) };
     // THE TRACE IS FLUSHED ON `waitUntil`, so it has not been written when the
     // response returns. Awaiting the ctx's own pending list is what makes the
     // route's black box readable at all — without it `traces` is always empty,

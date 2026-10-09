@@ -13,6 +13,7 @@
 // Only the network is faked (GoTrue, the ledger RPCs, Anthropic, the
 // container); R2 is `buildBucket`.
 
+import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import { BUILD_USER, GOOD_DESIGN, BRIEF } from "./build-route.mjs";
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
@@ -79,7 +80,6 @@ export function replyAnswer(reply, seen, init) {
 export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [], env: extraEnv = {}, over = null, fire = null, credits = 400 } = {}) {
   b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
   let claimedSite = false;
-  const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
     // A CASE'S OWN ANSWER FIRST (2026-10-09, round 3): the image service, say.
@@ -115,6 +115,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
     }
     { const l = linkAnswer(links, u); if (l) return l; }
     if (u.includes("/rest/v1/")) return json([]);
+    noteUnexpected((init && init.method) || "GET", u, "build-lifecycle");
     return new Response("no", { status: 503 });
   };
   const q = queue();
@@ -126,8 +127,10 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
     // else the build does meanwhile.
     const held = typeof fire === "function" ? { idFromName: (n) => n, get: () => ({ fetch: async (...a) => { await fire(...a); return json({ ok: true, id: "gen-1" }); } }) } : container;
     await worker.queue({ messages: [{ body: { kind: JOB_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SITES_BUCKET: b, SITE_BUILD_CONTAINER: held, BUILD_QUEUE: q, ...extraEnv }, ctx);
-    await Promise.allSettled(ctx.pending);
-  } finally { globalThis.fetch = real; }
+    // EVERY BACKGROUND TASK SETTLED WITH THE STAND-INS IN PLACE (round 4),
+    // including any one of them started while the others ran.
+    for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
+  } finally { globalThis.fetch = blockedFetch; }
   return q;
 }
 
@@ -141,7 +144,6 @@ export async function finishResume(b, id, led, { credits = null, source = null, 
     ? { pages: [{ path: "index.tsx", source: "export default function I(){return null}" }] }
     : { stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source }], notes: "" } }] };
   b.store.set(genKey(rec.report), JSON.stringify({ state: "done", answer }));
-  const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
     // A CASE'S OWN ANSWER FIRST (2026-10-08): a dispatch that fails, say.
@@ -160,6 +162,7 @@ export async function finishResume(b, id, led, { credits = null, source = null, 
     if (u.includes("/v1/messages")) { const r = replyAnswer(reply, seen, init); if (r) return r; }
     if (isDispatchUpload(u)) return dispatchOk();
     if (u.includes("/rest/v1/")) return json([]);
+    noteUnexpected((init && init.method) || "GET", u, "build-lifecycle");
     return new Response("no", { status: 503 });
   };
   const c = installCompiler({ worker: true });
@@ -167,7 +170,9 @@ export async function finishResume(b, id, led, { credits = null, source = null, 
     const worker = await loadWorker();
     const ctx = makeCtx();
     await worker.queue({ messages: [{ body: { kind: RESUME_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ...dispatchEnv(), SITES_BUCKET: b, SITE_BUILD_CONTAINER: {}, BUILD_QUEUE: queue(), ...extraEnv }, ctx);
-    await Promise.allSettled(ctx.pending);
-  } finally { globalThis.fetch = real; c.uninstall(); }
+    // EVERY BACKGROUND TASK SETTLED WITH THE STAND-INS IN PLACE (round 4),
+    // including any one of them started while the others ran.
+    for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
+  } finally { globalThis.fetch = blockedFetch; c.uninstall(); }
 }
 

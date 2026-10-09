@@ -175,6 +175,10 @@ export const jobPrepKey = (id) => "jobs/prepared/" + id + ".json";
 //               Another reader never buys it: it looks for the stored picture
 //               the purchase tags with its id, and otherwise the outcome is
 //               UNKNOWN — held, never taken as permission to buy again
+//   generated   the image service made it (2026-10-09, round 4): where it
+//               holds the picture (`source`) is kept before the download, so a
+//               download or store that failed is finished later on THAT
+//               picture by whoever reads it next — never bought again
 //   bought      landed: reused by everyone after, with its address
 //   none        ended with no picture: it may be begun again
 //   released    the customer said, knowing it may cost, to buy it again
@@ -184,7 +188,7 @@ export const jobPrepKey = (id) => "jobs/prepared/" + id + ".json";
 /** Where one logical purchase is recorded: under the site's source, which a job may read and write wherever it runs. */
 export const purchaseKey = (slug, key, n, id) => "source/" + slug + "/purchases/" + key + "/p" + n + "-" + id + ".json";
 /** The states a purchase record may hold. */
-export const PURCHASE_STATES = Object.freeze(["buying", "bought", "none", "released"]);
+export const PURCHASE_STATES = Object.freeze(["buying", "generated", "bought", "none", "released"]);
 
 /** A purchase's id: the part, the description, and which purchase of that description it is (0, 1, …). */
 export async function purchaseId(slug, key, n, d, k) {
@@ -203,9 +207,11 @@ export function readPurchase(raw) {
   if (!v || typeof v !== "object" || Array.isArray(v) || v.v !== 1 || !PURCHASE_STATES.includes(v.state)) return null;
   if (typeof v.id !== "string" || !/^[0-9a-f]{24}$/.test(v.id)) return null;
   if (v.state === "bought" && !(typeof v.url === "string" && v.url)) return null;
+  if (v.state === "generated" && !(typeof v.source === "string" && /^https:\/\//.test(v.source))) return null;
   return {
     v: 1, id: v.id, state: v.state, d: typeof v.d === "string" ? v.d : "",
     by: typeof v.by === "string" ? v.by : "", at: Number.isFinite(v.at) ? v.at : 0,
     ...(v.state === "bought" ? { url: v.url } : {}),
+    ...(v.state === "generated" ? { source: v.source } : {}),
   };
 }

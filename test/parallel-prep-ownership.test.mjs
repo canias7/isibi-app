@@ -11,14 +11,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, pump, T } from "./fixtures/request-flow.mjs";
+import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
+
+blockNetwork();
 
 const slugOf = (k) => "po-" + k + "-" + Math.random().toString(16).slice(2, 8);
 async function withPlatform(opts, fn) {
   const compiler = installCompiler();
   const P = platform(opts);
-  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+  // (2026-10-09, round 4) the case ends once its background work settled
+  // with the stand-ins in place, and asked for nothing they were not set up for.
+  try { const out = await fn(P); await P.settle(); assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for"); return out; } finally { P.close(); compiler.uninstall(); }
 }
 const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
 const statuses = (rec) => rec.parts.map((p) => p.status);
@@ -197,4 +202,8 @@ test("OWN 5 — a LATE owner: the first attempt is held inside its purchase past
     await finish(P, r);
     assert.equal(P.imageLog.length, 1, "the photograph the late owner bought was bought again");
   });
+});
+
+test("NET — no request in this file left the machine", () => {
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });
