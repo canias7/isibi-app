@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 3: one purchase per picture whoever makes it, and a first Build's photographs beside its pages, ending in `17ce3f6f` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 4: how a picture's purchase ended, stage by stage, ending in `22efbd19` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,134 +11,146 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`. This round is:
-  - `dba60da6`, one logical purchase per picture (Codex's two reproductions);
-  - `2c4def8b`, a first Build's photographs as a task beside its pages, and
-    the page tweak's preparation case;
-  - `17ce3f6f`, two cases the sweep asked for;
+  - `ad98d5f3`: the staged purchase, the harness and the tests;
+  - `d9e627ac`: the harness's own tests;
+  - `22efbd19`: three cases the sweep asked for;
   - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
+- **Codex's aggregate local run of round 3 is not counted as passed.** It
+  was interrupted by its own approval review, which flagged possible access
+  to the outside image service.
 
-**1. Codex's two reproductions, closed** (`dba60da6`)
-- **What failed**:
-  - a retake that could not read its predecessor's record took that as "nothing happened" and bought again;
-  - a part's job bought a picture while the preparation's purchase was still out, and then the first purchase landed too.
-- **Now a part's picture is one logical purchase with one record**, under
-  the site's source. Every preparation attempt, every retake and the part's
-  applying job share it, wherever they run.
-  - It is begun by one conditional write (`buying`), then becomes `bought` or `none`.
-  - Each stored photograph is tagged with its purchase's id.
-  - A record still `buying` is resolved by finding that tagged photograph.
-- **An outcome nobody can tell is never bought again on a guess.** That covers a record still `buying` with nothing stored, a record that cannot be read after three tries, a malformed record, and a claim whose answer was lost.
-  - A preparation ends `uncertain`.
-  - A part's job **holds the part**: nothing published, nothing charged.
-  - The request records the part as the new status **`uncertain`**. What
-    needs it waits, and independent parts carry on.
-  - It moves on by itself when the purchase is found to have landed. Or you
-    press **"Buy the picture again (may cost again)"** on the card, which
-    releases it. Or it expires after a day, told as not done.
-  - Its line is the model's "unconfirmed" line, and its reply's facts say it
-    is on hold, not given up. Screenshot sent in the chat.
-- **An unreadable previous attempt record** is read again. If it still
-  cannot be read, the retake makes no call and buys nothing. The job reads it
-  again; if that fails too, the job makes its calls again (our cost), but
-  never a second purchase.
-- **The add-on step's photographs** use the same record. A retried add-on job
-  reuses what an earlier try bought. One whose outcome is unknown is left as
-  its frame and told, and the part ends partial.
-- **Provider idempotency/lookup**: the image service's endpoint offers
-  neither. The lookup that exists is our tag on the stored photograph. A
-  purchase the provider completed but we never stored stays unknown and is
-  held.
+**1. Codex's reproduction, closed** (`ad98d5f3`)
+- **What failed**: in the TikTok-plus-photo request, the next `uploads/`
+  write failed during the preparation. The image service had made the
+  picture, but `makeSitePhoto` answered no address and the purchase was
+  recorded `none`. The part's job then bought it again: two provider calls,
+  both tasks done.
+- **Now each stage is told apart**:
+  - **refused** (a 4xx other than a timeout, or no image in a 200): nothing
+    made, recorded `none`. Without an image key, nothing is sent at all;
+  - **unknown** (a lost connection, a timeout, a 5xx, an unreadable 200): left
+    `buying`, held, never bought again on a guess;
+  - **made**: the record becomes **`generated` with the picture's source
+    address**, written *before* the download;
+  - **download or store failed** (each tried three times): stays
+    `generated`. The next reader finishes it on that same picture: the
+    part's job, the driver's look on each step, or a resumed build's image
+    step;
+  - **a store whose answer was lost**: found by its purchase tag;
+  - **made but unusable** (not a picture, too big): `none`.
+- A part waiting on a made picture is held: nothing published or charged.
+  Its answer says the picture was made and is being saved. It moves on by
+  itself once the picture is stored. **Buy again** also releases a
+  `generated` record.
+- **Everywhere the purchase mechanism is used**: the picture step, the
+  add-on's photographs and a first build's photo task all go through the
+  same `purchaseOnce` and `makeSitePhoto`.
+- **Kept as it was**: the one-write claim (atomic ownership), the tag
+  lookup, your buy-again, and independent parts carrying on.
 
-**2. Which paths overlap now** (supplied answers only)
+**2. The harness**
+- The fixtures used to put the **real** `fetch` back when a case ended.
+  They now put back a **blocking** fetch: loopback, `data:` and `blob:` pass,
+  and anything else is refused and recorded.
+- Every stand-in's catch-all records what it was not set up for. The cron's
+  other sweeps are now answered explicitly.
+- A case ends only after its background work has settled
+  (`P.settle()`, with the stand-ins in place). The build fixtures settle
+  every background task.
+- The new file and the four parallel files block the network, assert that
+  nothing unexpected was asked for, and end with a check that nothing
+  reached the blocking fetch.
+
+**3. Which paths overlap now** (supplied answers only)
 
 | Path | Parallel work |
 |---|---|
-| Edit: text, menu, picture, look, data, rules | **full preparation** beside another task's job (round 2), now with one purchase per picture across preparation, retakes and the job |
-| Edit: page | **full preparation**: the page writer's rewrite and, **now tested**, the tweak (nothing written before its job, no rewrite asked for) |
-| Add-on, no new database; list entries | **full preparation**; its photographs bought by its job through the purchase record |
-| Add-on that needs a new database | preparation up to its design: **the provisioning boundary** (its page writer runs after provisioning, in its job) |
+| Edit: text, menu, picture, look, data, rules | full preparation beside another task's job; one purchase per picture across preparation, retakes and the job, now staged |
+| Edit: page | full preparation: the rewrite and the tweak |
+| Add-on, no new database; list entries | full preparation; its photographs bought by its job through the purchase record |
+| Add-on that needs a new database | preparation up to its design (the provisioning boundary) |
 | Edit: logo | routing only |
-| Build: design | **existing** designer concurrency (the design graph), unchanged |
-| Build: photographs | **new**: bought beside the page generation, joined at the image step, durable across resume and retry |
-| Build: provisioning, schema, seed, fonts, publish | sequential, as before |
-| Writes to one site | one at a time (the database's lock), unchanged |
+| Build: design | the existing design graph, unchanged |
+| **Build: photographs** | **overlap the page generation**, joined at the image step; a picture made beside the pages and not stored is finished there |
+| Build: provisioning, schema, seed, fonts, compile, render check, publish | **sequential** |
+| Writes to one site | one at a time, unchanged |
 
-**3. A first Build's photographs beside its pages** (`2c4def8b`)
-- They need only the design. Each description is the design's own, and the
-  page writer gets exactly those words as its tokens. So they are bought
-  **beside the page generation**, started right after the build reads the
-  balance, instead of after the pages are written.
-- Bounded by the design's budget and by the balance less a 60-credit reserve
-  for the pages.
-- Each is the build's logical purchase, keyed by the build's job, so a
-  resume or a retried run reuses it.
-- **Joined at the image step** (after the pages, before the compile):
-  - a token whose purchase is in flight waits for it;
-  - one already bought is reused;
-  - one the writer changed is bought then;
-  - one nobody can tell is left as the placeholder and told as unconfirmed.
-- **Nothing is handed on** — to the resume, the reply or the refund — while
-  a purchase the task began is in flight.
-- **Charged for what the page shows**: a photo bought beside the pages that
-  no page used is told as stored and not on the site. It is not in `made`,
-  which is what the bill counts (our cost).
-- The explanation is model-written from facts that name every picture's
-  outcome. The 1 page and 15 component limits are unchanged.
+Build overlaps its photographs with its page generation and nothing else.
+It is not "all Build tasks parallel".
 
 **Tests actually run** (supplied model answers and a stand-in image service,
 through the real routes, request driver, queue consumer, build consumer and
-resume)
-- `test/parallel-purchase.test.mjs`, **11 cases**:
-  - Codex's two reproductions (PUR 1, PUR 4);
-  - the previous attempt's record unreadable for good (PUR 2) or malformed (PUR 3);
-  - completion before the job starts (PUR 5);
-  - a stored photograph whose buyer died (PUR 6);
-  - a purchase that never answers, released by you, with the job's message delivered twice at once and a second press refused (PUR 7);
-  - a malformed purchase record (PUR 8) and expiry (PUR 9);
-  - the purchase record itself unreadable (PUR 10) and a lost claim answer (PUR 11).
-
-  Each asserts the provider's purchases, the stored photographs, the publishes and the step's charges separately.
-- `test/build-parallel.test.mjs`, **5 cases**:
-  - **BLD 1, the new overlap**: the image service is called while the page generation's fire is still out, and the resume reuses the photos;
-  - **BLD 2, order and nothing lost**: the hand-over waits for every purchase, and every picture and every requirement's section is on the published page;
-  - BLD 3, a retried run buys nothing;
-  - BLD 4, a landed purchase found by its tag and an unknown one held;
-  - BLD 5, the balance control.
-- The page tweak's preparation case; 2 unit cases; OWN 4 revised (the job
-  now holds instead of buying a second time).
-- **Red check** on `2045f915`: 17 of the 20 new or revised cases fail. Three
-  pass there and guard behaviour that already worked: PUR 5, BLD 5 and the
-  tweak case.
-- **Sweep: 29 of 29 killed, and the comment-only control survived.** The first round's two survivors became PUR 10 and PUR 11.
-- **Full suite**: **`10200 / 10199 / 1 / 0`** on `17ce3f6f` (base `10181`, plus 19 new cases). The one failure was a source guard in `test/wiring.test.mjs` that required the photograph loop's old destructuring; re-anchored to the purchase buyer, which now also asserts the buyer passes `makeSitePhoto`'s reason through (`wiring.test.mjs` 49 of 49 after).
-- **Required CI**: green on the final code. Unit tests on `90088b1e` (run 37872679403): `10200 / 10159 / 0 / 41`, whose total equals the local `10200` (CI skips the browser cases). The site build passed on both code commits, `dba60da6` (run 37870982729) and `2c4def8b` (run 37871797328); `90088b1e` touches only a test and documents. The unit runs on `dba60da6` and `2c4def8b` failed on the one wiring guard re-anchored in `90088b1e` (read from the `2c4def8b` log: 1 failure of 10198).
+resume). Each case checks four things separately: provider calls, asset
+recovery (stored photographs, downloads), task state, and what the customer
+was charged.
+- `test/purchase-outcomes.test.mjs`, 13 cases:
+  - **PO 1, Codex's reproduction**: one failed upload write. One provider
+    call, one stored photograph, both tasks done, the photo part charged
+    once.
+  - PO 2: storage failing on every try.
+  - PO 3: the download failing on every try.
+  - PO 4: storage acknowledgements lost.
+  - PO 5: made and not stored through the preparation and the job's first
+    try. Held, then finished by the driver with no buy-again.
+  - **PO 6, a transport error after submission**: held. The sweep does not
+    buy; your buy-again does, once.
+  - PO 7: a 500.
+  - PO 8: a refusal (the control: it may be bought again).
+  - PO 9: a stored photograph found by its tag with the source gone.
+  - PO 10: a made picture whose source is gone, released by buy-again.
+  - NET 1 and NET 2, the harness itself, and a network check.
+- `test/build-parallel.test.mjs`:
+  - BLD 6: a store failure beside the pages, finished at the image step.
+  - **BLD 7, the recorded untested case**: the image step meets four
+    purchases still in flight and waits for each. None is read as unknown,
+    none is bought twice, every picture is placed.
+  - BLD 8: no key, no call.
+  - A network check.
+- **Red check** on `f19e73f3`: 8 of 17 fail, each at its expected point.
+  BLD 7 passes there: the join already worked, and is now driven.
+- **Sweep**: 19 of 19 product mutants killed, and the comment-only control
+  survived. The first round's three survivors became PO 9, PO 10 and BLD 8.
+  - One harness mutant was left out on purpose: letting the blocking fetch
+    through would send a real request.
+- **Focused regressions**: 60 files, `1546 / 1546 / 0 / 0`.
+- **Full suite**: `10221 / 10221 / 0 / 0` on `22efbd19` (was 10200, plus 21
+  new cases).
+- **Required CI**: green.
+  - Unit tests on `22efbd19` (run 37876115564): `10221 / 10180 / 0 / 41`,
+    whose total equals the local count.
+  - Unit tests on `d9e627ac` (run 37875202176): `10218 / 10177 / 0 / 41`.
+  - Site build on `d9e627ac` (run 37875202126): green.
 - **The next image, predicted** (not built): `335396c8c0e0fbcb` →
-  **`3200859f5ffd7283`** (202 inputs).
+  **`62a50cbb752edcc7`** (202 inputs).
 
 **Remaining gaps** (backlog)
-- the image provider has no idempotency or lookup: a purchase it completed
-  but we never stored stays unknown and is held;
-- an add-on's unknown photograph ends its part partial (not held and
-  resumed);
-- a first Build orchestrates only its photographs: no provisioning, schema or
-  seed beside the page writer, and no live progress line during a build;
-- photos bought beside a build's pages that the writer did not use are our
-  cost;
-- an image step meeting a purchase still in flight is not driven by a case
-  (the hand-over order is);
-- writes stay one at a time per site;
-- no real-model or live run.
+- **A call whose answer never came back** stays unknown and held. The
+  image service's endpoint has no idempotency key or lookup.
+- **A made picture's source address can expire**; how long it stays
+  fetchable is not measured. If it expires first, the part waits for your
+  buy-again.
+- **A picture step or add-on that is not a request part** has no purchase
+  record. It gets the stage split and the retries, but a picture made and
+  not stored there is told as not made (not charged) and is not finished
+  later.
+- An add-on's unknown photograph still ends its part partial.
+- **Build overlaps only its photographs**, and has no live progress line
+  during a build.
+- The harness guard covers the request-flow and build fixtures and the files
+  named above. No audit of every test file that stubs `fetch` itself was
+  made.
+- No real-model, real image service or live run.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
-- Whether the image provider's queue endpoint (with request ids) is worth
-  adopting to narrow the unknown window; it would need a live check.
-- Whether a build's provisioning should run beside its page writer.
+- Whether the image service's queue endpoint (with request ids) is worth
+  adopting to narrow the unknown window. It would need a live check.
 - Any release: one merge, one image build, its own runtime check.
 
-**Links**: `docs/history/2026-10-09-parallel-round-3.md` (this round),
-`docs/request-flow.md`, `docs/backlog.md`.
+**Links**: `docs/history/2026-10-09-parallel-round-4.md` (this round),
+`docs/history/2026-10-09-parallel-round-3.md`, `docs/request-flow.md`,
+`docs/backlog.md`.
 
 ## How you like things done
 
@@ -147,6 +159,38 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 4: how a picture's purchase ended, stage by stage (on the branch, `22efbd19`; nothing merged, deployed, built or paid)
+
+You asked me to close the purchase-outcome gap Codex reproduced across
+Edit, Add-on and Build, and to make the test harness reject unexpected
+network requests.
+
+- **Purchases** (`ad98d5f3`, `22efbd19`):
+  - the image service's refusal, a lost answer, a picture made, a failed
+    download and a failed store are told apart;
+  - a made picture's source is kept on its purchase record before the
+    download, and a failed download or store is finished later on that
+    same picture, never bought again;
+  - a lost answer stays unknown and held;
+  - one shared mechanism serves the picture step, the add-on and a first
+    build.
+- **Harness** (`ad98d5f3`, `d9e627ac`):
+  - the real `fetch` is never put back;
+  - every unexpected request is recorded and asserted against;
+  - cases settle their background work before closing.
+- **Build**: the image step meeting purchases in flight is now driven
+  (BLD 7). Build overlaps only its photographs with its page generation.
+- **Results**:
+  - 21 new cases;
+  - red check: 8 of 17 fail on `f19e73f3`;
+  - sweep: 19 of 19 killed;
+  - focused regressions `1546 / 1546`;
+  - full suite `10221 / 10221`;
+  - CI green (`10221 / 10180 / 0 / 41`).
+- **Codex's interrupted round-3 run is not counted as passed.**
+- **Mocked versus live**: supplied answers and a stand-in image service only.
+- **Remaining**: in the handoff and in `docs/backlog.md`.
 
 ## 2026-10-09 — Parallel tasks round 3: one purchase per picture, and a first Build's photographs beside its pages (on the branch, `17ce3f6f`; nothing merged, deployed, built or paid)
 

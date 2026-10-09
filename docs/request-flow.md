@@ -67,6 +67,15 @@
   is held as `uncertain` — nothing published or charged, independent parts
   going on — until the purchase is found, the customer says to buy again
   (`POST /api/site/request/<slug>/<key>/buy-again`), or a day passes.
+- **How the purchase ended, stage by stage** (2026-10-09, round 4,
+  `docs/history/2026-10-09-parallel-round-4.md`). Only the image service's
+  refusal, a description never sent, or an unusable picture ends a purchase
+  `none`. A call whose answer was lost leaves it `buying` (unknown, held). A
+  picture the service made is recorded `generated` with its source before
+  the download, and a failed download or store is finished on that same
+  picture by the next reader (the job, the driver's look, a resumed build);
+  until then the part is held with `store-pending`, and the held answer says
+  the picture was made and is being saved.
 - **A part only the full rewrite can make waits for the customer's
   go-ahead on the request itself**, with its files kept. The go-ahead is
   written before anything depends on it, and the server files the existing

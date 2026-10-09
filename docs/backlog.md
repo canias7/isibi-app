@@ -20,13 +20,14 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **What parallel tasks do not cover yet** (2026-10-08, revised after round 3,
+- **What parallel tasks do not cover yet** (2026-10-08, revised after round 4,
   2026-10-09): writes one at a time per site, the image provider offers no
-  idempotency or lookup (an unknown purchase is held), an add-on's unknown
-  photograph ends its part partial, a first Build orchestrates only its
+  idempotency or lookup (a call whose answer was lost is held), an add-on's
+  unknown photograph ends its part partial, photos bought outside a request
+  part or a build have no purchase record, a first Build overlaps only its
   photographs, prepared or prefetched work no job uses is ours, targets
   depend on the model, no live evidence. In full under Backlog below;
-  `docs/history/2026-10-09-parallel-round-3.md`.
+  `docs/history/2026-10-09-parallel-round-4.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1004,19 +1005,31 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 3,
-  2026-10-09; `docs/history/2026-10-09-parallel-round-3.md` §8).** Closed in
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 4,
+  2026-10-09; `docs/history/2026-10-09-parallel-round-4.md` §8).** Closed in
   round 3: a retake reading an unreadable earlier record as "nothing
   happened", and a part's job buying while a preparation's purchase was out
   (one logical purchase per picture); the page tweak's preparation, now
-  tested; photographs in a first Build, now bought beside its pages. Not yet:
+  tested; photographs in a first Build, now bought beside its pages. Closed
+  in round 4: a picture made and not stored was recorded `none` and bought
+  again (Codex's reproduction) — the purchase now records the made
+  picture's source and finishes the download or store on that picture; and
+  an image step meeting a purchase in flight is now driven (BLD 7). Not yet:
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job; changing it is SQL and was not needed
     for model work to overlap;
   - **the image provider's own idempotency or lookup**: the synchronous
-    endpoint offers neither; a purchase it completed whose photograph we never
-    stored stays unknown, held, and is bought again only on the customer's
-    say-so;
+    endpoint offers neither. A call whose answer never came back (a lost
+    connection, a timeout, a 5xx) stays unknown, held, and is bought again
+    only on the customer's say-so. A picture the service did answer with is
+    no longer lost to a failed download or store (round 4), unless its source
+    address expires before a reader finishes it — how long the service keeps
+    it is not measured;
+  - **photographs bought outside the purchase mechanism**: a picture step
+    or add-on that is not a request part calls `makeSitePhoto` without a
+    purchase record (a build always has one, keyed by its job or version). They get the stage split and
+    the download and store retries, but a picture made and not stored there
+    is told as not made (not charged) and is not finished later;
   - **an add-on's photograph whose purchase is unknown** is left as its frame
     and told, and the part ends partial; it is not held and resumed as the
     picture step is;
@@ -1030,9 +1043,6 @@ here; take a closed one out of both.**
   - **wasted work is ours**: a prepared call or picture no job used, a
     photograph bought beside a build's pages that its writer did not use, and
     a job's repeated calls when an earlier attempt's record stays unreadable;
-  - **the join's wait on a purchase in flight** is exercised within one
-    invocation only through the hand-over order; an image step meeting an
-    in-flight purchase is not driven by a case;
   - **the input rules** (`stepInputs`) are a heuristic; correctness rests on
     the exact-request check and the purchase record;
   - **targets from the model**; **the constants** (`PREP_MAX_LIVE` 3,
