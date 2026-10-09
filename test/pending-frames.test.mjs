@@ -68,6 +68,8 @@ test("PF 3 — WHERE THE PLACE CANNOT BE SAFELY ESTABLISHED, NOTHING IS MARKED A
     text: [page("<p>" + T + "</p>"), "embedded"],
     child: [page('<p>{"' + T + '"}</p>'), "text"],
     key: [page("<SafeImage src={M['" + T + "']} />", "const M = { '" + T + "': 1 };\n"), "not-a-value"],
+    index: [page("<SafeImage src={M['" + T + "']} />", "const M = {};\n"), "not-a-value"],
+    type: [page("<SafeImage src={HERO} />", "type K = '" + T + "';\nconst HERO = '/u/x.jpg' as string;\n"), "not-a-value"],
     comment: [page('<SafeImage src="' + T + '" />', "// " + T + "\n"), "embedded"],
     unparsed: [page('<SafeImage src="' + T + '" '), "unparsed"],
   };

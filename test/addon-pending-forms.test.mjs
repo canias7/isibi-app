@@ -12,6 +12,7 @@
 //   - a photograph inside a shared component the addition wrote;
 //   - a token no frame can be safely found for: pending, never guessed;
 //   - a purchase still being made when the add-on's wait ends;
+//   - its claim still out then, with a frame (placed) and with none (never bought);
 //   - every message delivered twice;
 //   - a frame the customer changed before the placement;
 //   - the progress facts while the photograph waits.
@@ -201,9 +202,11 @@ function shortPhotoWait() {
   return () => { globalThis.setTimeout = real; };
 }
 
-test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addition publishes with the frame marked under the purchase's identity (kept before the wait), the part is held with the photograph told as still being made, the independent part finishes; when the call lands later, the next look places that photograph — one provider call, no new purchase, the addition not redone", { timeout: 30000 }, async () => {
+test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addition publishes with the frame marked under the purchase's identity (kept before the wait), the part is held with the photograph told as still being made, the independent part finishes; when the call lands later, the next look places that photograph — one provider call, no new purchase, the addition not redone", { timeout: 30000 }, async (t) => {
   let release;
   const gate = new Promise((ok) => { release = ok; });
+  // A TIMED-OUT CASE LETS THE HELD CALL GO, so the platform closes and the file ends.
+  t.signal.addEventListener("abort", () => release());
   let restore = null;
   await withPlatform({ slug: slugOf("late"), ...BASE({ imageWith: async () => { await gate; } }) }, async (P) => {
     restore = shortPhotoWait();
@@ -243,9 +246,10 @@ test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addi
   if (restore) restore();
 });
 
-test("APF 8 — THE WAIT ENDS BEFORE THE PURCHASE WAS EVEN CLAIMED (its record's first write still out): the frame is marked under the identity the buyer reported before any waiting; with no record nothing was begun, so the next look claims it in one conditional write, buys it once and places it; the original call, freed afterwards, finds that claim and buys nothing", { timeout: 30000 }, async () => {
+test("APF 8 — THE WAIT ENDS BEFORE THE PURCHASE WAS EVEN CLAIMED (its record's first write still out): the frame is marked under the identity the buyer reported before any waiting; with no record nothing was begun, so the next look claims it in one conditional write, buys it once and places it; the original call, freed afterwards, finds that claim and buys nothing", { timeout: 30000 }, async (t) => {
   let release;
   const stuck = new Promise((ok) => { release = ok; });
+  t.signal.addEventListener("abort", () => release());
   let restore = null;
   await withPlatform({ slug: slugOf("unclaimed"), ...BASE() }, async (P) => {
     // THE FIRST WRITE OF THE PURCHASE RECORD (its claim) is held until the case lets it go.
@@ -271,6 +275,46 @@ test("APF 8 — THE WAIT ENDS BEFORE THE PURCHASE WAS EVEN CLAIMED (its record's
     assert.equal(P.imageLog.length, 1, "the original call bought it a second time");
     assert.equal(uploads(P).length, 1);
     assert.equal(publishedOf(P, r.key, 1), 2);
+  });
+  if (restore) restore();
+  release();
+});
+
+test("APF 9 — NO SAFE FRAME AND THE CLAIM STILL OUT WHEN THE WAIT ENDS: with nothing to fill, the next look only READS the purchase — with no record it begins nothing, so nothing is bought for a frame that does not exist; the part ends partial with that reason, nothing published or charged for it", { timeout: 30000 }, async (t) => {
+  let release;
+  const stuck = new Promise((ok) => { release = ok; });
+  t.signal.addEventListener("abort", () => release());
+  let restore = null;
+  const frame = "<div style={{ backgroundImage: `url(" + TOKEN + ")` }} className=\"h-64\" />";
+  await withPlatform({ slug: slugOf("noframe-late"), ...BASE({ pages: { pages: [{ path: "src/routes/gallery.tsx", source: gallerySrc(frame) }] } }) }, async (P) => {
+    P.beforePut((k) => k.includes("/purchases/"), () => stuck);
+    restore = shortPhotoWait();
+    const r = await sendMessage(P, { message: MSG });
+    const s1 = await settle(P, r.key);
+    restore(); restore = null;
+    assert.deepEqual(statuses(s1.rec), ["done", "uncertain"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.notDone])));
+    const pend = s1.rec.parts[1].place.photos;
+    assert.deepEqual([pend.length, pend[0].why, pend[0].located], [1, "in-flight", false]);
+    assert.equal(purchases(P).length, 0, "the claim landed after all — the case is not the one it says");
+    const pageBefore = gallery(P);
+    await tick(P);
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "partial"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
+    const nd = s2.rec.parts[1].notDone.find((x) => x.what === BENCH);
+    assert.ok(nd && nd.why === "no-frame", JSON.stringify(s2.rec.parts[1].notDone));
+    assert.equal(P.imageLog.length, 0, "a photograph was bought for a frame that does not exist");
+    assert.equal(gallery(P), pageBefore, "the page was changed by a guess");
+    assert.equal(publishedOf(P, r.key, 1), 1, "a placement with nothing to place published");
+    const rs = runJobs(P, r.key, 1).map((j) => reserveOf(P, j.id).filter((x) => x > 0));
+    assert.deepEqual(rs.slice(1), [[]], "the unplaced photograph was charged: " + JSON.stringify(rs));
+    // THE ORIGINAL CALL, FREED NOW, IS THE ONE PURCHASE: it lands in the
+    // customer's images, and the page is not touched or published for it.
+    release();
+    for (let i = 0; i < 50 && !(purchases(P)[0] && purchases(P)[0].state === "bought"); i++) await new Promise((ok) => setTimeout(ok, 20));
+    assert.equal(P.imageLog.length, 1, "bought other than once");
+    assert.equal(uploads(P).length, 1);
+    assert.equal(gallery(P), pageBefore);
+    assert.equal(publishedOf(P, r.key, 1), 1);
   });
   if (restore) restore();
   release();

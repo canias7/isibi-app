@@ -1436,8 +1436,8 @@ export function fillPending(source, id, url, parse = null) {
   const edits = [];
   let changed = 0;
   for (let at = src.indexOf(mark); at >= 0; at = src.indexOf(mark, at + mark.length)) {
-    // A MARK INSIDE A STRING is text somebody typed, not a frame.
-    if (lits.some((n) => n.getStart(file) < at && n.end > at)) { changed++; continue; }
+    // ONLY AN EMPTY LITERAL RIGHT BEFORE THE MARK (whitespace between) is a
+    // frame; a mark typed inside a string has no literal ending before it.
     let lit = null;
     for (const n of lits) if (n.end <= at && /^\s*$/.test(src.slice(n.end, at)) && (!lit || n.end > lit.end)) lit = n;
     if (!lit || lit.text !== "") { changed++; continue; }
