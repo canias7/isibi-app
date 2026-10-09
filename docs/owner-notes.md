@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 6: an addition's photograph kept for its frame whatever the TSX and however late, ending in `36d431e2` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 7: photo recovery wherever the add-on runs, legacy posts as requests, the acceptance report, ending in `f7992fae` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,133 +11,124 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review
-  of `249eb4ae` (47 focused offline tests, all passed) is kept as it was;
-  the Build progress, the font and translation overlap and the seven-task
-  flow are untouched. This round is:
-  - `cd70e5e7`: frames found through the syntax tree, and late purchases
-    kept;
-  - `5f9a7134`: APF 8, a claim that never landed before the wait ended;
-  - `36d431e2`: the sweep's three asks (APF 9, two PF 3 cases, one dead
-    guard removed);
+  of `fd9c9a0d` (48 focused offline tests, all passed) is kept. The batch is
+  unchanged except for this round, and the purchase audit was not reopened.
+  This round:
+  - `f7992fae`: recovery wherever the job runs, legacy posts as requests, and
+    the tests;
   - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
 
-**1. Codex's reproduction, closed**
-- `src={"@@IMG:…@@"}` with the three upload writes failing used to end the
-  part **partial**, the purchase `generated` and no frame marked, because
-  `markPending` replaced one exact spelling.
-- **Now** the page's own parser (`tweakParser`, already used for menus)
-  finds every string literal whose **whole value** is the token:
-  - any quoting: `"…"`, `'…'`, `{"…"}`, a template literal;
-  - a kit element or a site component (`<Card image="…" />`);
-  - a value a shared component reads: a list entry, a variable, a fallback
-    (`a ?? "…"`). The component's own file is named by its real path.
-- Each frame becomes an empty string with the purchase's mark beside it, a
-  comment. It renders exactly as an unfilled frame.
-- **Never guessed**: a token inside a longer string (`url(…)`, a
-  concatenation), in text, as a key, in an element access or a type, beside
-  an occurrence the tree can't account for, in a file that doesn't parse,
-  or with no parser at all. The purchase stays **pending work with no
-  frame**, told so, and saved to your images when it lands.
-- **Every copy or none**: a repeated token is marked only if every copy is
-  a safe frame.
+**1. Where each path really runs** (read from the runner flags and the fire's rules)
+- **A request part and its placement** are queued jobs. Each is **fired into
+  the site's container** when the runner flags name the owner or site
+  (`JOB_RUNNER_EVERYONE`, default on). It runs **in the Worker** (`inline`)
+  only when the flags name nobody. A container that can't take it is retried
+  3 times and then stopped with nothing charged, never run quietly in the
+  Worker.
+- **The parser** loads in the container and never in the Worker's isolate.
+  So until now, a job kept in the Worker could not mark or place a frame.
+- **An addition posted straight to the add-on route** was a job of its own
+  with no purchase record. This happens when the page acts on a routing
+  answer the router didn't take on, when an edit hands its ask over, or from
+  an older page. **The synchronous add-on** runs in the Worker on your
+  connection.
 
-**2. The placement**
-- It fills a mark only while the literal before it is **still empty**. So:
-  - a frame you changed (your own picture in it) is kept, nothing is
-    bought for it, and nothing is published;
-  - a removed frame is told;
-  - with no frame, the purchase is **only read**, never begun.
-- One provider call per photograph, one publish, charged only for what is
-  placed.
+**2. The same recovery wherever the job runs**
+- The frame code moved into one module with no dependencies,
+  `builder/pending-frames.mjs`. The container's build service now serves it
+  at a `/frames` door.
+- A job in the container reads its frames itself. **A job in the Worker asks
+  the site's container**, the same container its compile already needs.
+- If the door doesn't answer, nothing is guessed:
+  - at marking, the photograph stays pending with no frame, is told, and is
+    saved to your images when it lands;
+  - at placement, the part is held and asked again, with nothing bought
+    again, nothing published, and a truthful sentence.
 
-**3. The timing gap, and its cause**
-- **The cause**: the add-on hands its job clock to the photograph wait,
-  which read only a build budget's `remainingMs()`. An edit job's clock
-  answers `remaining()`, so **the add-on always waited for every shot**. On
-  a finite Worker job a slow photograph could carry the job past its
-  deadline with the addition unpublished.
-- **Now** the wait reads either clock. An infinite clock (a container's)
-  still waits for every shot.
-- The buyer reports each shot's identity **before any waiting**. A shot
-  still out when the wait ends is marked under that identity
-  (`why: in-flight`), and the part is held. When it lands, the next look
-  places it: one provider call, no new purchase, the addition not redone.
-- A purchase whose claim never landed counts as nothing begun. The next
-  look claims it in one conditional write and buys it once. The original
-  call, freed later, finds that claim and buys nothing.
+**3. Legacy posts brought into the request flow**
+- With the request flow on, a post straight to the add-on route is now
+  **taken on as a one-part request**, through the router's own acceptance,
+  under the post's key. Its purchases are records, a waiting frame is placed
+  by the existing driver, and a duplicate post finds the same request. The
+  page follows it like any request.
+- **It stays a job of its own** with the flow off or with pictures attached.
+  Its purchases are now records keyed by that job, so a redelivery never buys
+  twice. Nothing places its frames later, and its reply says the frame was
+  left empty.
 
-**4. What you'd see**
-- The add-on's publish milestone keeps "publishing the additions" as its
-  own fact. Each waiting photograph is a separate fact: `next` ("not on the
-  page yet; goes in by itself once confirmed") or `notdone` (no frame; it
-  won't go in by itself). None says anything is published before it is.
-- The reply says whether the photograph was still being made or its
-  purchase can't be told, and whether it goes in by itself. Each placement
-  outcome has its own sentence: frame gone, frame changed, no safe frame,
-  couldn't be checked, saved to your images.
+**Tests actually run** (supplied model answers, a stand-in image service, the
+real build service spawned locally, the network blocked)
+- `test/addon-runtime-paths.test.mjs` (new), RT 1–8 and a network check:
+  - inline in the Worker with no parser, through the real `/frames` door;
+  - the door down at marking;
+  - the door down at placement and back;
+  - fired into the container;
+  - the legacy post as a request, plus its redelivery;
+  - the legacy post with the flow off;
+  - a post with pictures;
+  - the page following a request answer.
+  Each checks the final page, statuses, provider calls, publication and
+  accounting.
+- 18 existing page-filed cases now make their one page-filed post with the
+  flow off, the only way that job still exists. Their subject is unchanged.
+- **Red check** on `fd9c9a0d`, with `typescript` blocked to stand in for the
+  isolate: **5 of 5 behaviour cases fail**, and the already-working fired
+  path passes.
+- **Focused run**: the new file, both pending-photo files, `pending-frames`,
+  the seven-task batch and Build progress, all with the network blocked:
+  **`45 / 45 / 0 / 0`**.
+- **Sweep**: **12 of 12 product mutants killed**, and the control survived.
+- **Full suite**: **`10258 / 10258 / 0 / 0`** on `f7992fae` (was 10249).
+- **Required CI**: unit tests green on `f7992fae` (run 37894981092): `10258 / 10217 / 0 / 41`,
+  the same total as locally (CI skips 41). **Site build** (run 37894981062) is
+  **not green**. Shard 2 was cancelled at its 20-minute limit while its runner
+  was still installing Playwright's system packages: `apt-get` hung on a
+  package mirror from 06:43 until it was cancelled, before any test ran. The
+  other three `site-build.mjs` shards, the published-site, theme and
+  kit-and-generator checks all passed, and "all checks" failed only on the
+  cancelled shard. A session cannot re-run a workflow; it is yours to re-run.
+- **The next image, predicted** (not built): `335396c8c0e0fbcb` →
+  **`4f631d9c2e42064b`** (204 inputs). **The `/frames` door exists live only
+  after this image is built.**
 
-**Tests actually run** (supplied model answers, a stand-in image service,
-the network blocked)
-- `test/addon-pending-forms.test.mjs` (new), through the real Worker, queue,
-  driver and cron. Each case checks the final page, the task statuses,
-  provider calls, publication and accounting.
-  - APF 1: Codex's `src={"…"}`, plus single quotes and a template.
-  - APF 2: a shared component's list value.
-  - APF 3: no safe frame.
-  - APF 4: the wait ends mid-purchase, then completes.
-  - APF 5: every message delivered twice.
-  - APF 6: a frame changed before placement.
-  - APF 7: the progress facts.
-  - APF 8: a claim that never landed.
-  - APF 9: the same, with no frame, so it's never bought.
-  - A network check.
-- `test/pending-frames.test.mjs` (new), PF 1–4: every form marked and filled
-  with the real parser, every form that must stay unlocated, every fill
-  outcome.
-- Also: a `photoWait` case for the edit clock in `ship-anyway`; APH 1–5 and
-  two wiring guards moved to the new mark.
-- **Focused run**: these files plus the seven-task batch
-  (`parallel-batch`) and Build progress (`build-parallel`), all with the
-  network blocked: **`36 / 36 / 0 / 0`**.
-- **Red check** on `249eb4ae`:
-  - APF 1, 2, 3 and 5 end partial (APF 1 is Codex's reproduction);
-  - APF 4 hangs;
-  - APF 6 can't find your picture;
-  - APF 7 has no waiting fact;
-  - `pending-frames` can't load.
-  That is 7 of 7 integration cases failing, plus the unit file. APF 8 and
-  9 were written later.
-- **Sweep**: **19 of 19 product mutants killed**, and the control survived. The
-  first round's three survivors became APF 9 and two PF 3 cases, and one
-  unreachable guard was removed.
-- **Full suite**: **`10249 / 10249 / 0 / 0`** on `36d431e2` (was 10234).
-- **Required CI**: green on `36d431e2`: unit tests (run 37890100961) `10249 / 10208 / 0 / 41`, the same total as locally (CI skips 41); site build (run 37890101484) green.
-- **The next image, predicted** (not built): `335396c8c0e0fbcb` → **`dbaeecfe12cea870`** (202 inputs).
-
-**Not shown** (mocked, not live): a real page writer's TSX variety, the
-real image service, live timing, and a Worker job actually reaching its
-deadline.
-
-**Remaining acceptance blockers**
-- A token inside a longer string (a CSS `url(…)`, a concatenation) is never
-  placed automatically. It's told, and saved to your images.
-- A page-filed add-on job (not a request part) has no purchase record, so a
-  shot still out at its wait's end is told as unresolved.
-- On a Worker that can't load the parser, nothing is marked. Every waiting
-  photograph is pending with no frame, and told.
-- The image provider has no idempotency key or lookup.
-- No real-model, real image service or live run. **The add-on's wait now
-  ends on a finite job clock**, where before it waited for every shot. That
-  needs its own live look before any release.
+**Acceptance report**
+- **Supported (offline proof only)**:
+  - a request part or placement, in the container or in the Worker;
+  - a legacy post taken on as a request;
+  - every equivalent JSX form, shared components, late purchases,
+    redelivery, and changed or removed frames (rounds 5–6, kept).
+- **Genuine blockers**:
+  1. No live evidence at all, and the fired path's container side is
+     simulated in-process.
+  2. The door needs the new image. Until then, a job kept in the Worker
+     marks nothing: pending with no frame, told. Under the default flags none
+     runs there.
+  3. These are told and saved, never placed automatically:
+     - the synchronous add-on;
+     - a legacy job with the flow off or with pictures;
+     - a token inside a longer string;
+     - a door that is down when the addition marks.
+  4. The image provider has no idempotency.
+  5. The finite-clock wait still needs a live look.
+- **The smallest live validation**, after your merge, the image build and
+  the free runtime check:
+  - one paid add-on on `fold-lane-bakery` — "add a gallery page with one
+    photo of the workshop bench" — expected route `addon`;
+  - checked for: it ran in the container, one photograph bought and placed,
+    one publish, and its charge;
+  - about 3–13 credits, then the free restore.
+  The pending paths can't be forced live without fault injection, so they
+  stay offline-only proof.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
-- Any release: one merge, one image build, its own runtime check.
+- Any release: one merge, one image build, its own runtime check, then the
+  one paid add-on above.
 
-**Links**: `docs/history/2026-10-09-parallel-round-6.md` (this round),
-`docs/history/2026-10-09-parallel-round-5.md`, `docs/request-flow.md`,
-`docs/backlog.md`.
+**Links**: `docs/history/2026-10-09-parallel-round-7.md` (this round, with
+the execution table), `docs/history/2026-10-09-parallel-round-6.md`,
+`docs/request-flow.md`, `docs/backlog.md`.
 
 ## How you like things done
 
@@ -146,6 +137,35 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 7: photo recovery wherever the add-on runs, legacy posts as requests (on the branch, `f7992fae`; nothing merged, deployed, built or paid)
+
+You asked me to close the runtime and entry-point gaps Codex named and finish
+with an acceptance report.
+
+- **Traced from the code**: request parts and placements run in the site's
+  container when the runner flags name the owner or site (the default), and
+  in the Worker otherwise. A container that can't take one is stopped, never
+  run quietly in the Worker. The parser exists only in the container.
+- **A job kept in the Worker now asks the site's container to read its
+  frames** (`/frames`), using the same code, which has moved to a module with
+  no dependencies. If it can't be reached, nothing is guessed: pending with no
+  frame, or held and asked again.
+- **An addition posted straight to the add-on route** is now taken on as a
+  one-part request, so it gets purchase records, later placement and
+  duplicate safety. With the flow off or with pictures attached, it stays a
+  job of its own whose purchases are records keyed by that job.
+- Results:
+  - red check: 5 of 5 fail on `fd9c9a0d`;
+  - focused run: 45 of 45;
+  - sweep: 12 of 12 killed;
+  - suite: 10258 of 10258;
+  - unit CI: green;
+  - site build: one shard cancelled by a runner that hung installing
+    packages, before any test ran; yours to re-run.
+- The `/frames` door is live only after the next image (`4f631d9c2e42064b`,
+  predicted). Supplied model answers only; nothing live. Full record and
+  acceptance report: `docs/history/2026-10-09-parallel-round-7.md`.
 
 ## 2026-10-09 — Parallel tasks round 6: an addition's photograph kept for its frame, whatever the TSX and however late (on the branch, `36d431e2`; nothing merged, deployed, built or paid)
 

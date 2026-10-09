@@ -20,16 +20,17 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **What parallel tasks do not cover yet** (2026-10-08, revised after round 6,
+- **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; the image provider offers no
   idempotency or lookup (a call whose answer was lost is held); an add-on
-  photograph whose token sits inside a longer string, or a page with no
-  parser, is kept pending with no frame and never placed automatically;
-  photos bought outside a request part or a build have no purchase record; a first Build's provisioning, schema, seed, compile and
+  photograph whose token sits inside a longer string, a synchronous add-on,
+  or a legacy job with the flow off or with pictures is told and saved, never
+  placed automatically; the container's `/frames` door needs the new image;
+  photos bought outside the add-on, a request part or a build have no purchase record; a first Build's provisioning, schema, seed, compile and
   publish stay in order, and its live lines only come on the queued path; a
   page step waits behind any earlier page write; prepared or prefetched work
   no job uses is ours; targets depend on the model; no live evidence. In
-  full under Backlog below; `docs/history/2026-10-09-parallel-round-6.md`.
+  full under Backlog below; `docs/history/2026-10-09-parallel-round-7.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1007,8 +1008,8 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 6,
-  2026-10-09; `docs/history/2026-10-09-parallel-round-6.md` §8).** Closed in
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 7,
+  2026-10-09; `docs/history/2026-10-09-parallel-round-7.md` §5).** Closed in
   round 3: a retake reading an unreadable earlier record as "nothing
   happened", and a part's job buying while a preparation's purchase was out
   (one logical purchase per picture); the page tweak's preparation, now
@@ -1028,7 +1029,12 @@ here; take a closed one out of both.**
   value, a variable, a fallback) is marked through the page's parser, not one
   spelling (Codex's `src={"…"}` reproduction); and one still being made when
   the add-on's wait ended is pending work under the identity saved before
-  waiting (the wait also never read an edit job's clock). Not yet:
+  waiting (the wait also never read an edit job's clock). Closed in round 7:
+  a job the runner keeps in the Worker (no parser in its isolate) reads its
+  frames through the site's container (`/frames`, the same code); and an
+  addition posted straight to the add-on route is taken on as a one-part
+  request under the flow, so its purchases are records and its frames are
+  placed by the driver. Not yet:
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job; changing it is SQL and was not needed
     for model work to overlap;
@@ -1044,14 +1050,20 @@ here; take a closed one out of both.**
     purchase record (a build always has one, keyed by its job or version). They get the stage split and
     the download and store retries, but a picture made and not stored there
     is told as not made (not charged) and is not finished later;
+  - **the `/frames` door is in the new image only**: until it is built, a job
+    the runner keeps in the Worker marks nothing (pending with no frame,
+    told). Under the deploy's default (`JOB_RUNNER_EVERYONE on`) no supported
+    job runs there;
+  - **an add-on that stays outside the request flow**: the synchronous route,
+    and a legacy post with the flow off or carrying pictures. Its purchases
+    are records keyed by its job (or its post's key), but nothing places its
+    frames later; its reply says the frame was left empty;
   - **an add-on's photograph with no safe frame**: a token inside a longer
     string (a CSS `url(…)`, a concatenation), in text, as a key, in a file
     that does not parse, or on a Worker with no parser, is kept as pending
     work with no frame (`located: false`), told, and saved to the customer's
-    images when it lands — never placed by a guess. A page-filed add-on job
-    (not a request part) keeps no purchase record, so a shot still out at
-    its wait's end is told as unresolved. The finite-clock wait is shown
-    only offline;
+    images when it lands — never placed by a guess. The finite-clock wait is
+    shown only offline;
   - **an add-on that needs a new database** is prepared only up to its design
     (the provisioning boundary);
   - **the logo step** has no model call to prepare;

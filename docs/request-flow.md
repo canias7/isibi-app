@@ -94,6 +94,20 @@
   no picture is told in `notPlaced` and the part ends partial; with no
   frame to fill the purchase is only read, never begun; held past a day, the part ends
   partial (`photos-unconfirmed`), because the addition is live.
+- **Wherever the job runs** (round 7, `docs/history/2026-10-09-parallel-round-7.md`):
+  in the site's container a job reads frames with its own parser; a job the
+  runner keeps in the Worker (`inline`) asks the site's container
+  (`POST /frames`, `builder/pending-frames.mjs`, the same code). A door that
+  does not answer is never taken for an answer: at marking the purchase is
+  pending with no frame; at placement the part is held (`frames-unreachable`)
+  and asked again.
+- **An addition posted straight to the add-on route** (round 7) — the page
+  acting on a routing answer the router did not take on, an edit's
+  hand-over, an older page — is accepted as a one-part request
+  (`addonAsRequest`, through `acceptRequest`, under the post's key) and the
+  page follows it. With the flow off, no request key, or pictures in the
+  post, it stays a job of its own; its purchases are records keyed by that
+  job, and nothing places its frames later.
 - **An uncertain preparation's answers are reused** (round 5). A
   preparation that ended uncertain hands its own recorded routing and step
   answers to the part's jobs, with the earlier attempt's; only identical
