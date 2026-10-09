@@ -24,6 +24,7 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { HOME, VISIT, page as pageSrc } from "./fixtures/live-ask.mjs";
 import { navSlots } from "../builder/site-nav.mjs";
+import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 
 blockNetwork();
 
@@ -507,6 +508,110 @@ test("P8 BUILD — a first build's design runs as a graph through the real build
     if (!a || !b) continue;
     assert.ok(a[1].start >= b[1].end, after + " started before " + before + " had answered");
   }
+});
+
+// TWO MESSAGES, TWO REQUESTS, ONE PAGE (2026-10-09, the readiness review).
+// Every case above is one message. A customer can send a second message
+// while the first is still running; each is its own request with its own
+// driver, and a preparation checks only its own request's earlier parts. So
+// the second request's step can be prepared against a page the first request
+// is about to change. What must hold: the site's lock keeps the two
+// requests' writes one at a time; the stale preparation is never applied (its
+// request differs from the one the job makes, so the job asks again against
+// the page as the first request left it); both changes are kept; each job is
+// charged once and the preparation not at all.
+const XR_SPEC = { tables: [{ name: "loaves", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }], read: "public", write: "none" }] };
+const RYE = "make the Dark Rye £5.50";
+
+test("XR TWO REQUESTS, ONE PAGE — a second message's step prepared while the first message's job is still to change that page: the two requests' jobs never hold the site at once, the stale preparation is not applied (its job asks again and sees the first change), both changes are kept, each job charged once and the preparation never", async () => {
+  const P_ = { at: null };
+  // The first request's text call is held until released, so the second
+  // request's job is delivered while the first job holds the site.
+  let started = null; const inA = new Promise((ok) => { started = ok; });
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify(XR_SPEC) } });
+  const jobTextLeased = [];
+  await withPlatform({
+    slug: slugOf("xr"),
+    db,
+    answers: {
+      route: [
+        { intent: "edit", layer: "text", page: "/" },
+        { intent: "edit", layer: "data", alsoAsked: [HEADING], targets: [{ change: 0, writes: ["data:loaves"] }, { change: 1, writes: ["page:/"] }] },
+        { intent: "edit", layer: "text", page: "/" },
+      ],
+      write_row_changes: { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] },
+      [T.text]: (args) => {
+        const P = P_.at;
+        // How many jobs of this site hold its lock while this call is made.
+        jobTextLeased.push([...P.jobs.values()].filter((j) => j.slug === P.slug && j.lease_owner && !["queued", "done", "failed", "cancelled", "lost"].includes(j.state)).length);
+        const content = String(args.messages[0].content);
+        if (content.includes("WHAT THEY ASKED FOR\n" + HEADING)) return { edits: [{ id: lineId(args, "index.tsx", HEAD_FROM), to: HEAD_TO }] };
+        started();
+        return freed.then(() => ({ edits: [{ id: lineId(args, "index.tsx", HOME_LINE_FROM), to: HOME_LINE_TO }] }));
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    // THE FIRST MESSAGE: one change to the home page. Its job is filed, not run.
+    const a = await sendMessage(P, { message: OPEN_LINE + "." });
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.deepEqual(statuses(P.record(a.key)), ["queued"]);
+    const aJob = P.queue.filter((m) => m.body.kind !== "request-prep");
+    assert.equal(aJob.length, 1);
+    P.queue.splice(0);
+    // THE SECOND MESSAGE, sent while the first is still to run: a price, and
+    // a home heading change, whose page nothing earlier in ITS OWN request
+    // writes — so its step is prepared at once.
+    const b = await sendMessage(P, { message: RYE + ", and " + HEADING + "." });
+    assert.equal(b.status, 200, JSON.stringify(b.body));
+    assert.notEqual(b.key, a.key);
+    const prep = P.queue.filter((m) => m.body.kind === "request-prep");
+    assert.equal(prep.length, 1, "the second request's other part was not claimed for preparation");
+    P.queue.splice(P.queue.indexOf(prep[0]), 1);
+    await deliver(P, prep[0]);
+    assert.equal(P.record(b.key).parts[1].prep.outcome, "ready", "the step was not prepared");
+    assert.equal(P.page("index.tsx").includes(HEAD_TO), false, "the preparation wrote the page");
+    assert.equal(calls(P, T.text).length, 1, "the preparation made no text call");
+    // THE LOCK DECIDES: the first request's job runs and is held inside its
+    // model call; the second request's job, delivered meanwhile, is deferred
+    // by the site's lock and runs nothing.
+    const running = deliver(P, aJob[0]);
+    await inA;
+    const bJob = P.queue.filter((m) => m.body.kind !== "request-prep");
+    assert.equal(bJob.length, 1, "the second request's first job was not filed");
+    P.queue.splice(P.queue.indexOf(bJob[0]), 1);
+    await deliver(P, bJob[0]);
+    const bRow = P.jobsOf(b.key)[0];
+    assert.ok(bRow.deferrals >= 1, "the second request's job was not deferred while the first held the site: " + JSON.stringify({ state: bRow.state, deferrals: bRow.deferrals }));
+    assert.equal(Number(db.rows("loaves").find((r) => r.id === 2).price) === 5.5, false, "the second request's job ran while the first held the site");
+    release();
+    await running;
+    const ra = await settle(P, a.key);
+    const rb = await settle(P, b.key);
+    assert.deepEqual(statuses(ra.rec), ["done"], JSON.stringify(ra.rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(statuses(rb.rec), ["done", "done"], JSON.stringify(rb.rec.parts.map((p) => [p.status, p.why])));
+    // THE LOCK: no job's text call was made while another job of the site held it.
+    assert.ok(jobTextLeased.length >= 3, "the check saw too few calls: " + jobTextLeased.length);
+    assert.ok(jobTextLeased.every((n) => n <= 1), "two jobs held the site at once: " + JSON.stringify(jobTextLeased));
+    assert.ok(jobTextLeased.includes(1), "no text call was seen inside a job — the check saw nothing");
+    // THE STALE PREPARATION WAS NOT APPLIED: the heading's job asked again, and
+    // what it was shown carried the first request's change.
+    const heading = calls(P, T.text).filter((m) => String(m.text).includes("WHAT THEY ASKED FOR\n" + HEADING));
+    assert.equal(heading.length, 2, "the heading was not asked again after the page changed under it");
+    assert.equal(String(heading[0].text).includes(HOME_LINE_TO), false, "the preparation already saw the first change — not the case under test");
+    assert.ok(String(heading[1].text).includes(HOME_LINE_TO), "the heading's job was not shown the page as the first request left it");
+    // BOTH CHANGES KEPT on the shared page, and the price.
+    const home = P.page("index.tsx");
+    assert.ok(home.includes(HOME_LINE_TO) && home.includes(">" + HEAD_TO + "<"), home);
+    assert.ok(!home.includes(HOME_LINE_FROM));
+    assert.equal(Number(db.rows("loaves").find((r) => r.id === 2).price), 5.5, "the price was not changed");
+    // MONEY: one routing charge per message; each job reserved once; nothing
+    // charged under a job that was never filed.
+    for (const k of [a.key, b.key]) assert.equal(P.ledger.filter((e) => e.ref.startsWith("route:") && e.ref.endsWith(":" + k)).length, 1, "the routing charge for " + k);
+    for (const j of [...P.jobsOf(a.key), ...P.jobsOf(b.key)]) assert.ok(reserveOf(P, j.id).length <= 1, "a job reserved twice: " + j.id);
+    noPrepMoney(P, b.key);
+  });
 });
 
 test("NET — no request in this file left the machine", () => {
