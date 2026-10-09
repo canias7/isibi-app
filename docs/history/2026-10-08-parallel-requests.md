@@ -329,6 +329,14 @@ base's `10139` on `af80c83a`, measured in a worktree. The difference is 26:
 - 14 in `parallel-plan`;
 - 1 browser case.
 
+**Required CI**:
+- **Site build** on `a005c0df` (run 37862003118): green.
+- **Unit tests** on `a005c0df` (run 37862003046): `10165 / 10123 / 1 / 41`.
+  The one failure, `canary-tiktok-answer` GUARD 6, is a clock bomb older
+  than this batch: its fixture question expired at 2026-10-08 23:59 UTC.
+  `86deb541` gives it a controlled clock.
+- **Unit tests** on `86deb541` (run 37863441884): `10165 / 10124 / 0 / 41`.
+
 ## 7. Commits
 
 - `af80c83a`: the two carried recovery fixes (§1).
@@ -340,6 +348,7 @@ base's `10139` on `af80c83a`, measured in a worktree. The difference is 26:
   over.
 - `703eff67`: routing prepared beside any job, the step re-checked against
   its own route, and the driver-choice and money cases.
+- `86deb541`: the older canary test on a controlled clock (test only).
 - The records: this file, `docs/request-flow.md`, the backlog and
   owner-notes.
 

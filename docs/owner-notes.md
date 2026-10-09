@@ -115,7 +115,10 @@ is in git; the dated entries further down are the full story.*
   failure is `canary-tiktok-answer` GUARD 6, which is not from this batch:
   its fixture question expired at 2026-10-08 23:59 UTC, and the run started
   at 23:55. The case now runs on a controlled clock (its own commit, test
-  only); the CI reading after it is in the commit that follows.
+  only). **Unit tests on `86deb541` (run 37863441884): `10165 / 10124 / 0 /
+  41`, green.** That total equals the local `10165`; CI skips the browser
+  cases. The site build did not run again, because `86deb541` touches only
+  a test and a document; its last run is green on `a005c0df`.
 
 **Mocked versus live**
 - Every model answer and every picture purchase is a stand-in, and so are
