@@ -110,7 +110,12 @@ is in git; the dated entries further down are the full story.*
   - a prepared routing's step was not re-checked against its own route.
 - **Full suite on `703eff67`: `10165 / 10165 / 0 / 0`**, against the base's
   `10139`, measured in a worktree.
-- **Required CI**: pending at this writing; recorded in the next commit.
+- **Required CI on `a005c0df`**: the site build is green (run 37862003118).
+  Unit tests (run 37862003046) read `10165 / 10123 / 1 / 41`. The one
+  failure is `canary-tiktok-answer` GUARD 6, which is not from this batch:
+  its fixture question expired at 2026-10-08 23:59 UTC, and the run started
+  at 23:55. The case now runs on a controlled clock (its own commit, test
+  only); the CI reading after it is in the commit that follows.
 
 **Mocked versus live**
 - Every model answer and every picture purchase is a stand-in, and so are

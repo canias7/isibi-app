@@ -133,8 +133,14 @@ test("GUARD 5 — afterwards, the same identities: the routing resumed the named
 
 test("GUARD 6 — through the real runUi, nothing is sent: an unrelated sole question, a replaced question, expiry, cancellation, a page whose live question is another, and a change between the first check and the send", async () => {
   const run = (requestsNow, { liveAsk = LIVE_ASK, spend = true, now } = {}) => {
+    // A CONTROLLED CLOCK (2026-10-09), running forward from an hour after
+    // the question was asked, so waits still end. On the real clock the
+    // cases expired with the fixture's question (2026-10-08T23:59:18Z) and
+    // read "expires" where each expects its own reason. A case that names
+    // its own moment keeps it, as before.
     const realNow = Date.now;
-    if (now) Date.now = () => now;
+    const from = realNow();
+    Date.now = now ? () => now : () => SOON + (realNow() - from);
     return drive(rqApp({ liveAsk, send: () => ({ request: { key: KEY, views: [view(KEY, [part(1, "x", "done", { jobs: ["j1"] })], { ended: true })] } }) }), LT, { spend, balanceNow: async () => 15, requestsNow })
       .finally(() => { Date.now = realNow; });
   };
