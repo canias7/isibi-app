@@ -110,7 +110,13 @@ function partsOf(p, key) {
 async function filePage(P, d, instruction, idem) {
   const site = { slug: P.slug, name: "Harbour Loaf", react: true, pages: [{ path: "/" }, { path: "/visit" }], msgs: [] };
   const posted = browserBody(site, d, instruction);
-  const filed = await call(P, "POST", posted.url, { ...posted.body, idem });
+  // A PAGE-FILED JOB: with the request flow on, an addition posted straight to
+  // the route is taken on as a request (round 7), so the page's own post is made
+  // with it off for this one call, as the route files a job of its own then.
+  const was = P.env.REQUEST_FLOW;
+  if (d.intent === "addon") P.env.REQUEST_FLOW = "off";
+  let filed;
+  try { filed = await call(P, "POST", posted.url, { ...posted.body, idem }); } finally { P.env.REQUEST_FLOW = was; }
   assert.ok([200, 202].includes(filed.status), JSON.stringify(filed.body));
   assert.ok(filed.body && typeof filed.body.job === "string", "the page's post filed no job: " + JSON.stringify(filed.body));
   return filed.body.job;

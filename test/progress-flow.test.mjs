@@ -39,6 +39,18 @@ import { sweepJobObjects, JOB_RETENTION_MS } from "../builder/job-retention.mjs"
 import * as NU from "../scripts/narration-usage.mjs";
 import { progressKey, PROGRESS_LEASE_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_MS, PROGRESS_TRIES, PROGRESS_LINES_PER_TASK, TASK_STATES } from "../builder/site-progress.mjs";
 
+/**
+ * A PAGE-FILED ADD-ON: a job of its own, as the route files one with the request
+ * flow off (2026-10-09, round 7: with the flow on, an addition posted straight to
+ * the route is taken on as a one-part request instead — `addon-runtime-paths`).
+ * Only this one post runs with it off; everything else in the case keeps the flow.
+ */
+async function pageFiledPost(P, path, body) {
+  const was = P.env.REQUEST_FLOW;
+  P.env.REQUEST_FLOW = "off";
+  try { return await call(P, "POST", path, body); } finally { P.env.REQUEST_FLOW = was; }
+}
+
 const ADD = "add a gallery page";
 const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 // A GATE THAT IS NEVER REACHED FAILS ITS CASE rather than hang the run: a held
@@ -562,7 +574,7 @@ test("FIND — ANOTHER DEVICE FINDS A STANDALONE JOB: the requests list carries 
   const g = gate();
   await withPlatform({ slug: slugOf("find"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
     // THE PAGE-DRIVEN PATH: the add-on route filed directly, with the page's own key.
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
     assert.ok([200, 202].includes(filed.status), JSON.stringify(filed.body));
     const id = filed.body.job;
     const running = deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
@@ -610,7 +622,7 @@ test("FIND — ANOTHER DEVICE FINDS A STANDALONE JOB: the requests list carries 
 test("FIND 2 — A BUSY DAY: the list holds the twenty most recent standalone jobs, oldest first, so the job running now is never hidden behind older ones", async () => {
   const g = gate();
   await withPlatform({ slug: slugOf("busy"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
     assert.ok([200, 202].includes(filed.status), JSON.stringify(filed.body));
     const id = filed.body.job;
     const running = deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
@@ -856,7 +868,7 @@ test("NAMES 1 — A REQUEST'S PART IS NAMED BY THE MODEL'S OWN LINE: its accepta
 test("NAMES 2 — A PAGE-FILED JOB'S ONE TASK: its record opens with the customer's words and asks for a writer at once, which writes the task's lines before the milestone's line; the requests list and the job's poll carry them", async () => {
   const g = gate();
   await withPlatform({ slug: slugOf("names2"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "f".repeat(32) });
     const id = filed.body.job;
     const running = deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
     await g.reached;
@@ -900,7 +912,7 @@ test("NAMES 3 — THE CALL FOR THE LINES FAILS: the part keeps its words; it is 
 
 test("NAMES 4 — A JOB THAT ENDED BEFORE ITS TASK'S LINES WERE WRITTEN still gets them, its writer's message lost: the cron's sweep of ended jobs asks once the grace has passed, and the lines land on the closed record for its card to show finished", async () => {
   await withPlatform({ slug: slugOf("names4"), replies: true, progress: true, answers: plainAddon() }, async (P) => {
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "e".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "e".repeat(32) });
     const id = filed.body.job;
     await deliver(P, P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1)[0]);
     // THE WRITER'S MESSAGES, LOST.
@@ -962,7 +974,7 @@ test("NAMES 6 — THE OPENING ASKS AT ONCE: a page-filed job's record, opened wi
     P.env.SITE_SECRETS_KEY = "platform-secret";
     const gk = await gatewayKey("platform-secret");
     const exp = Math.floor(Date.now() / 1000) + 600;
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "d".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a gallery page please", picker: "sonnet", idem: "d".repeat(32) });
     const id = filed.body.job;
     // THE JOB'S OWN MESSAGE IS NOT DELIVERED: only its opening is written.
     P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1);
@@ -974,7 +986,7 @@ test("NAMES 6 — THE OPENING ASKS AT ONCE: a page-filed job's record, opened wi
     await deliver(P, takeTask(P));
     assert.deepEqual(P.progressOf(id).tasks, [{ n: 0, ...LINES("add a gallery page please") }]);
     // WITH NO TASK, nothing waits and no writer is asked.
-    const other = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: "add a menu page", picker: "sonnet", idem: "c".repeat(32) });
+    const other = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: "add a menu page", picker: "sonnet", idem: "c".repeat(32) });
     P.queue.splice(P.queue.findIndex((m) => m.body && m.body.kind === "site-edit"), 1);
     const tok2 = await signJobToken({ id: other.body.job, slug: P.slug, uid: USER.id, exp }, gk);
     await call(P, "POST", "/api/job/" + other.body.job + "/progress", { op: "begin", run: "c_run00043", kind: "addon", words: "add a menu page" }, "Bearer " + tok2);

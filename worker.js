@@ -169,7 +169,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, fillPending, hasPendingMark, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2779,13 +2779,79 @@ async function makeSitePhoto(env, slug, prompt, meta = null) {
   }
 }
 
+/**
+ * WHERE AN ADDITION'S FRAMES ARE READ (2026-10-09, parallel round 7). Marking
+ * and filling a frame needs the page's parser (`pending-frames.mjs`), which
+ * loads under Node — a job in the site's container — and never in the
+ * Worker's isolate. A job the runner flags keep in the Worker (`inline`), and
+ * the synchronous add-on, would otherwise mark nothing and place nothing. So:
+ *   local      this process has the parser: read here;
+ *   container  it has none: the site's own container reads them (`/frames`),
+ *              the same code its jobs run — the container every add-on and
+ *              placement already needs for its compile;
+ *   none       no container binding at all: nothing is marked or filled, and
+ *              each answer says why, never a guess.
+ * A container that cannot be reached, or answers in a shape that does not
+ * read, is never taken for an answer: a mark is `parser-unreachable` (the
+ * purchase pending with no frame) and a fill `unreachable` (the placement is
+ * held and asked again), never a frame filled on a guess.
+ */
+function localFrames(parse, where = parse ? "local" : "none") {
+  return {
+    where,
+    mark: async (pages, ids) => markPending(pages, ids, parse),
+    fill: async (source, id, url) => fillPending(source, id, url, parse),
+  };
+}
+const FRAMES_CALL_MS = 30000;
+async function framesFor(env, slug) {
+  const parse = await frameParser();
+  if (parse) return localFrames(parse);
+  if (!env || !env.SITE_BUILD_CONTAINER || !slug) return localFrames(null);
+  const ask = async (body) => {
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const deadline = Date.now() + FRAMES_CALL_MS;
+      const { answer, room } = await withRoom(async () => {
+        const r = await c.fetch(new Request("http://build/frames", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+          signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
+        }));
+        return { status: (r && r.status) || 0, text: await r.text().catch(() => "") };
+      }, { deadline, floorMs: 0 });
+      if (room || !answer || answer.status !== 200) return null;
+      const a = JSON.parse(answer.text);
+      return a && typeof a === "object" && a.ok === true ? a : null;
+    } catch (e) { console.error("frames: the container could not read them for", slug, errorClassForLog(e)); return null; }
+  };
+  const list = (v) => Array.isArray(v) && v.every((x) => x && typeof x === "object" && typeof x.token === "string" && typeof x.id === "string" && typeof x.file === "string");
+  return {
+    where: "container",
+    mark: async (pages, ids) => {
+      const want = Array.isArray(pages) ? pages : [];
+      if (!want.length || !(ids instanceof Map) || !ids.size) return markPending(want, ids, null);
+      const a = await ask({ op: "mark", pages: want, ids: [...ids] });
+      const ok = a && Array.isArray(a.pages) && a.pages.length === want.length && a.pages.every((p) => p && typeof p.source === "string") && list(a.marked) && list(a.unlocated);
+      if (ok) return { pages: a.pages, marked: a.marked, unlocated: a.unlocated };
+      const blind = markPending(want, ids, null);
+      return { ...blind, unlocated: blind.unlocated.map((u) => ({ ...u, why: "parser-unreachable" })) };
+    },
+    fill: async (source, id, url) => {
+      if (!hasPendingMark(source, id)) return fillPending(source, id, url, null);
+      const a = await ask({ op: "fill", source, id, url });
+      if (a && typeof a.source === "string" && Number.isInteger(a.filled) && Number.isInteger(a.changed)) return { source: a.source, filled: a.filled, changed: a.changed, ...(a.unverified === true ? { unverified: true } : {}) };
+      return { ...fillPending(source, id, url, null), unreachable: true };
+    },
+  };
+}
+
 // `parts` SITS BESIDE `pages` THE WHOLE WAY DOWN, because a band-split build
 // writes its sections as parts and a photograph planned into a band is written
 // into one of those files. Reading `pages` alone left the token in the source
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, parse = null }) {
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, frames = null }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -3074,8 +3140,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   // pending work: with the frames it was marked in, or — where no frame could
   // be safely found — with none (`located: false`) and why, never dropped.
   if (pend && pendIds.size) {
-    const mp = markPending(pages, pendIds, parse);
-    const mq = markPending(parts, pendIds, parse);
+    const fr = frames || localFrames(null);
+    const mp = await fr.mark(pages, pendIds);
+    const mq = await fr.mark(parts, pendIds);
     pages = mp.pages; parts = mq.pages;
     const marks = [...mp.marked, ...mq.marked];
     const lost = [...mp.unlocated, ...mq.unlocated];
@@ -17273,9 +17340,14 @@ function heldPurchase(unknown) {
   // MADE AND NOT STORED YET (round 4) is said apart from a purchase whose
   // outcome nobody knows: the picture exists and saving it is what is retried.
   const saving = held.length > 0 && held.every((h) => h.why === "store-pending");
+  // A FRAME THAT COULD NOT BE READ JUST NOW (round 7): the purchase is not in
+  // doubt, so the sentence does not say it is.
+  const reading = held.length > 0 && held.every((h) => h.why === "frames-unreachable");
   return Response.json({
     ok: false, error: "purchase-unconfirmed", cost: 0, held,
-    msg: saving
+    msg: reading
+      ? "I couldn't check the empty frame" + (held.length === 1 ? "" : "s") + " on your page just now, so I'll try putting the photograph" + (held.length === 1 ? "" : "s") + " in again shortly — nothing was bought again and the page wasn't changed."
+      : saving
       ? "The picture" + (held.length === 1 ? " was" : "s were") + " made but I couldn't save " + (held.length === 1 ? "it" : "them") + " yet, so I'll keep trying to save the same " + (held.length === 1 ? "one" : "ones") + " — I haven't bought another or changed the page."
       : "I started buying " + (held.length === 1 ? "a picture" : held.length + " pictures") + " for this and can't tell yet whether the purchase went through, so I haven't bought it again or changed the page.",
   }, { status: 409 });
@@ -17903,6 +17975,56 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
+}
+
+/**
+ * AN ADDITION POSTED STRAIGHT TO THE ADD-ON ROUTE, TAKEN ON AS A REQUEST
+ * (2026-10-09, parallel round 7). Such a post — the routing answer a page acts
+ * on when the router did not take the message on, an edit's hand-over, an older
+ * page — was a job of its own with no purchase record: a photograph still out
+ * when its wait ended was told as unresolved and never placed. Under
+ * `REQUEST_FLOW` it is accepted exactly as the router accepts one
+ * (`acceptRequest`), under the post's own key: one part, the add-on step, with
+ * the router's held parts and the hand-over it carried. Its purchases are then
+ * that part's records, a frame waiting on one is placed later by the existing
+ * driver, a duplicate post finds the same request, and reserves, refunds and
+ * the site lock are the part's job's own. No second scheduler.
+ *
+ * Not taken on — the job as before — where the flow cannot keep it whole: the
+ * flow off, no request key, a post that carries pictures (the request keeps
+ * none it was not sent), or a plan the acceptance will not read. Null then. A
+ * store that failed around the acceptance is said, never followed by a second
+ * filing: the record may have landed, and the sweep runs what landed.
+ */
+async function addonAsRequest(env, ctx, { uid, slug, ab }) {
+  if (!requestFlowOn(env) || !env.SITES_BUCKET || !ab || !isRequestKey(ab.idem) || ab.attached === true) return null;
+  const instruction = typeof ab.instruction === "string" ? ab.instruction : "";
+  if (!instruction.trim()) return null;
+  let prior = null;
+  try { prior = await loadRequest(env, slug, ab.idem); } catch { prior = null; }
+  if (prior && prior.rec) {
+    if (prior.rec.uid !== uid || !prior.rec.accepted) return null;
+    if (!prior.rec.ended && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(advanceRequest(env, ctx, slug, ab.idem, "duplicate"));
+    return Response.json({ ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true });
+  }
+  const resumed = Number.isInteger(ab.askRound) && ab.askRound > 0;
+  const out = {
+    ok: true, intent: "addon",
+    alsoAsked: Array.isArray(ab.alsoAsked) ? ab.alsoAsked : [],
+    ...(ab.handOver && typeof ab.handOver === "object" && !Array.isArray(ab.handOver) ? { handOver: ab.handOver } : {}),
+    ...(Number.isInteger(ab.routedCost) && ab.routedCost >= 0 ? { cost: ab.routedCost } : {}),
+  };
+  const rb = { message: instruction, picker: typeof ab.picker === "string" ? ab.picker : "", tz: typeof ab.tz === "string" ? ab.tz : "" };
+  const ask = resumed ? { answered: true, putOff: Array.isArray(ab.putOff) ? ab.putOff : [], context: Array.isArray(ab.context) ? ab.context : [] } : null;
+  let accepted = null;
+  try { accepted = await acceptRequest(env, ctx, { uid, rb, slug, key: ab.idem, out, ask, waiting: null, instruction }); }
+  catch (e) { console.error("addon request accept:", slug, errorClassForLog(e)); accepted = { failed: true }; }
+  if (!accepted) return null;
+  if (accepted.failed === true) {
+    return Response.json({ ok: false, error: "request-store", cost: 0,
+      msg: "I couldn't confirm that I saved this addition, so it may still go ahead on its own — check your site before sending it again." }, { status: 503 });
+  }
+  return Response.json(accepted);
 }
 
 /**
@@ -29367,7 +29489,9 @@ async function handleRequest(request, env, ctx) {
               // THE PAGE'S OWN PARSER (round 6): a frame is filled only where the
               // tree shows its mark still right after the empty literal the
               // addition left — never by a guess at where it went.
-              const plParse = await tweakParser();
+              // IN THE WORKER'S ISOLATE (an `inline` job, round 7) the site's own
+              // container reads them, with the same code (`framesFor`).
+              const plFrames = await framesFor(env, ownerSlug);
               const plHeld = [], plPlaced = [], plNot = [];
               const plPurchase = (pp, buyIt) => purchaseOnce(env, {
                 slug: ownerSlug, key: eJob.purchase.part.key, n: eJob.purchase.part.n, d: pp.d, k: pp.k, owner: "job:" + eJob.id,
@@ -29395,17 +29519,26 @@ async function handleRequest(request, env, ctx) {
                 if (!where.length) { await plNoFrame(pp, "frame-gone"); continue; }
                 // CHECKED BEFORE ANY PURCHASE: a frame changed after the addition
                 // (the customer's own picture in it, say) is left exactly as it is.
-                const dry = where.map((i) => fillPending(plFiles[i].source, pp.id, "/u/check.jpg", plParse));
+                const dry = [];
+                for (const i of where) dry.push(await plFrames.fill(plFiles[i].source, pp.id, "/u/check.jpg"));
+                // THE FRAMES COULD NOT BE READ JUST NOW (the container did not
+                // answer): held and asked again, never filled on a guess.
+                if (dry.some((r) => r.unreachable)) { plHeld.push({ id: pp.id, d: pp.d, why: "frames-unreachable" }); continue; }
                 if (dry.some((r) => r.unverified)) { await plNoFrame(pp, "unverified"); continue; }
                 if (!dry.some((r) => r.filled > 0)) { await plNoFrame(pp, "frame-changed"); continue; }
                 const out = await plPurchase(pp, true);
                 if (out.state === "unknown") { plHeld.push({ id: out.id, d: pp.d, why: out.why }); continue; }
                 if (out.state !== "bought") { plNot.push({ d: pp.d, why: "not-bought" }); continue; }
                 const into = [];
+                let lost = false;
                 for (const i of where) {
-                  const r = fillPending(plFiles[i].source, pp.id, out.url, plParse);
+                  const r = await plFrames.fill(plFiles[i].source, pp.id, out.url);
+                  if (r.unreachable) { lost = true; break; }
                   if (r.filled > 0) { plFiles[i] = { ...plFiles[i], source: r.source }; into.push(plFiles[i].path); }
                 }
+                // BOUGHT, AND ITS FRAMES NOT READABLE THIS MOMENT: held on that
+                // purchase, which the next look reuses — nothing bought again.
+                if (lost) { plHeld.push({ id: pp.id, d: pp.d, why: "frames-unreachable" }); continue; }
                 plPlaced.push({ d: pp.d, file: into[0], files: into });
               }
               if (plHeld.length) return heldPurchase(plHeld);
@@ -32482,6 +32615,15 @@ async function handleRequest(request, env, ctx) {
             const aPartShown = () => (aPart ? { original: aPart.original, done: aPart.done } : null);
             if (aPart) { aAskOut.requestKey = aPart.key; aAskOut.part = aPart.part; aReplyOut.inRequest = true; }
             if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
+              // AN ADDITION POSTED STRAIGHT TO THIS ROUTE (round 7) — the router's
+              // answer this page acted on when it did not take the message on, an
+              // edit that handed its ask here, an older page — joins the durable
+              // flow when it can: a one-part request, through the router's own
+              // acceptance, so its purchases are the part's records, a photograph
+              // still being made is placed into its frame later, and its money,
+              // ownership and key are the request's (`addonAsRequest`).
+              const aTaken = await addonAsRequest(env, ctx, { uid: ou.id, slug: ownerSlug, ab });
+              if (aTaken) return aTaken;
               return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id, op: "addon",
                 url: url.toString(), body: abRaw, idem: ab && ab.idem,
@@ -36101,7 +36243,16 @@ async function handleRequest(request, env, ctx) {
                   // A REQUEST PART'S PHOTOGRAPHS (2026-10-09, round 3) are its
                   // logical purchases: a retry of this job reuses what an
                   // earlier try bought and never buys one whose outcome is unknown.
-                  buy: aJob && aJob.purchase ? purchaseBuyer(env, { ...aJob.purchase.part, owner: "job:" + aJob.id }) : null,
+                  // AN ADDITION THAT STAYED A JOB OF ITS OWN (round 7: the flow off,
+                  // or a post with pictures) buys through records too, keyed by its
+                  // own job (or, on the synchronous path, by its post's key): a
+                  // redelivery or a takeover of that job reuses what it bought and
+                  // never buys one whose outcome is unknown. Nothing places its
+                  // frames later — no request holds it — and its reply says so.
+                  buy: aJob && aJob.purchase ? purchaseBuyer(env, { ...aJob.purchase.part, owner: "job:" + aJob.id })
+                    : aJob && aJob.prepare !== true && typeof aJob.id === "string" && aJob.id ? purchaseBuyer(env, { slug: ownerSlug, key: "job-" + aJob.id, n: 0, owner: "job:" + aJob.id })
+                    : !aJob && isRequestKey(ab && ab.idem) ? purchaseBuyer(env, { slug: ownerSlug, key: "post-" + ab.idem, n: 0, owner: "post:" + ab.idem })
+                    : null,
                   // A REQUEST PART'S FRAME WAITING ON A PURCHASE NOBODY CAN TELL
                   // (2026-10-09, round 5) is published marked, and the part is
                   // held on it: once the purchase is known, a placement step
@@ -36110,7 +36261,9 @@ async function handleRequest(request, env, ctx) {
                   // THE PAGE'S OWN PARSER finds each frame (round 6), whatever
                   // valid TSX the writer used; without one, a frame is never
                   // guessed at and its purchase stays pending with no frame.
-                  parse: aJob && aJob.purchase ? await tweakParser() : null,
+                  // IN THE WORKER'S ISOLATE (an `inline` job, round 7) the site's own
+                  // container reads them, with the same code (`framesFor`).
+                  frames: aJob && aJob.purchase ? await framesFor(env, ownerSlug) : null,
                 });
                 aPendingPhotos = Array.isArray(aPhotos.pending) ? aPhotos.pending : [];
                 const aMarked = new Set(aPendingPhotos.map((x) => x.key));

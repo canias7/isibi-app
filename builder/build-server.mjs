@@ -75,6 +75,7 @@ import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
 import { kitClosure } from "./kit-closure.mjs";
+import { markPending, fillPending, frameParser } from "./pending-frames.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -2233,6 +2234,40 @@ const server = http.createServer((req, res) => {
     return send(res, 200, { ok: true, state: "failed", ...job.fail, ms: job.ms });
   }
 
+  // ── AN ADDITION'S PHOTOGRAPH FRAMES, READ BY THE PARSER (2026-10-09, round 7) ──
+  //
+  // The Worker's isolate has no parser (`frameParser()` is null there), and a
+  // frame is never found by spelling. So an add-on or a placement that runs in
+  // the Worker asks this container, the one its own compile already needs, to
+  // mark or fill the frames with the SAME code the container's own jobs run
+  // (`pending-frames.mjs`). Quick, synchronous and side-effect free: no lane
+  // lock (it must not wait behind a build), no write, no model, no credit.
+  // `mark`: `{ pages, ids: [[token, id]] }` → `markPending`'s answer.
+  // `fill`: `{ source, id, url }` → `fillPending`'s answer. A container that
+  // cannot load the parser says so (`no-parser`); the caller then keeps the
+  // purchase pending with no frame, never guesses.
+  if (req.method === "POST" && req.url === "/frames") {
+    let fBody = "", fTooBig = false;
+    req.on("data", (c) => { fBody += c; if (fBody.length > MAX_BODY) { fTooBig = true; req.destroy(); } });
+    req.on("end", async () => {
+      if (fTooBig) return send(res, 413, { ok: false, error: "source too large" });
+      let payload; try { payload = JSON.parse(fBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
+      const parse = await frameParser();
+      if (!parse) return send(res, 200, { ok: false, error: "no-parser" });
+      try {
+        if (payload && payload.op === "mark" && Array.isArray(payload.pages) && Array.isArray(payload.ids)) {
+          const ids = new Map(payload.ids.filter((x) => Array.isArray(x) && x.length === 2 && typeof x[0] === "string" && typeof x[1] === "string"));
+          const out = markPending(payload.pages, ids, parse);
+          return send(res, 200, { ok: true, pages: out.pages, marked: out.marked, unlocated: out.unlocated });
+        }
+        if (payload && payload.op === "fill" && typeof payload.source === "string" && typeof payload.id === "string" && typeof payload.url === "string") {
+          return send(res, 200, { ok: true, ...fillPending(payload.source, payload.id, payload.url, parse) });
+        }
+      } catch (e) { return send(res, 200, { ok: false, error: "threw", kind: String((e && e.name) || "Error") }); }
+      return send(res, 400, { ok: false, error: "bad request" });
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/model") {
     let mBody = "", mTooBig = false;
     req.on("data", (c) => { mBody += c; if (mBody.length > MAX_MODEL_BODY) { mTooBig = true; req.destroy(); } });

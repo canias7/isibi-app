@@ -11933,6 +11933,11 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
     // everything it does, and `apiFetch` has already put the sign-in gate up.
     // The routing stop's own sentence.
     if (r.status === 401) { tell(addonOutcomeMsg('signed-out')); return; }
+    // ── THE SERVER TOOK THE ADDITION ON AS A REQUEST (2026-10-09, round 7) ──
+    // It finishes it itself, a photograph placed later included: this page
+    // follows the request as it follows one the router took on, and starts
+    // nothing else.
+    if (r.ok && siteRequestOf(a)) { told = true; return siteRequestStart(origin, a, imgs, idem); }
     // ── A QUEUED ADDON ANSWERS WITH A JOB, NOT AN OUTCOME (2026-09-03) ────
     //
     // Run 21: the first live addon was reset at 257.6s on the customer's

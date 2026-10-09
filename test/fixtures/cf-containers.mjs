@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, worker = true } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null } = {}) {
   const calls = [];
   COMPILER = {
     calls,
@@ -105,6 +105,14 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
       let body = {};
       try { body = JSON.parse(await req.text()); } catch { body = {}; }
       calls.push({ url, body });
+      // THE FRAMES DOOR (2026-10-09, round 7): `http://build/frames` also
+      // contains "/build", so it is told apart by its path first. Answered by
+      // the case's own handler (the real build service, in the case that
+      // drives it) or, with none, refused like any hop this does not stand in for.
+      if (new URL(url).pathname === "/frames") {
+        if (typeof frames === "function") return frames(body);
+        return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 503 });
+      }
       if (!url.includes("/build")) {
         // NOT THE HOP THIS STANDS IN FOR. Answered as a failure rather than a
         // plausible success: a stub that answers everything lets a test wander

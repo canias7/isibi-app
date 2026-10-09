@@ -27,6 +27,18 @@ import { page } from "./fixtures/browser-page.mjs";
 import { planParts, newRequest, nextStep, noteJobId, requestView, editJobOutcome, leftOfRow, wantsEvidence } from "../builder/request.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
 
+/**
+ * A PAGE-FILED ADD-ON: a job of its own, as the route files one with the request
+ * flow off (2026-10-09, round 7: with the flow on, an addition posted straight to
+ * the route is taken on as a one-part request instead — `addon-runtime-paths`).
+ * Only this one post runs with it off; everything else in the case keeps the flow.
+ */
+async function pageFiledPost(P, path, body) {
+  const was = P.env.REQUEST_FLOW;
+  P.env.REQUEST_FLOW = "off";
+  try { return await call(P, "POST", path, body); } finally { P.env.REQUEST_FLOW = was; }
+}
+
 const SIGNUP = "add a sign-up form that keeps the names of people who sign up";
 const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 const SIGNUPS = {
@@ -271,7 +283,7 @@ test("EVID 9 — A PAGE-FILED ADD-ON STOPPED WHILE ITS TABLE WAS MADE, ITS ANSWE
   };
   P.after("edit_refund", (args) => { const j = P.jobs.get(args.p_id); j.result = null; j.state = "cancelled"; }, (args) => args.p_id === id);
   try {
-    const filed = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: SIGNUP, picker: "sonnet", idem: "9".repeat(32) });
+    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: SIGNUP, picker: "sonnet", idem: "9".repeat(32) });
     assert.ok([200, 202].includes(filed.status), JSON.stringify(filed.body).slice(0, 300));
     id = filed.body.job;
     await pump(P, { max: 60 });
