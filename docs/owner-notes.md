@@ -10,8 +10,12 @@ is in git; the dated entries further down are the full story.*
 - `main` `0fd50fd2` → **`19b1628d`**, one green deploy run (20:28–20:31 UTC).
 - The image moved `6c9fc805fe4de0d8` → **`9236fe341b77544d`**, as predicted.
 - No asset changed.
-- **Deployed, not runtime-confirmed**: your free runtime press is next, after
-  about 20:51 UTC (`docs/deploy-record.md`).
+- **Runtime-confirmed by run 115** (21:07 UTC): the Worker answered
+  `19b1628df403`, a cold container answered `9236fe341b77544d`, and every free
+  check passed, with nothing charged. Run 114 (20:37) had been pressed inside
+  the image window and with a wrong sha I handed over; nothing was charged.
+- **Next**: raise the balance from 18 to between 20 and 30 (on your word),
+  then press A, `lv-parallel`.
 
 **Where it stood before the deploy**
 - **Production was deploy 2189**:
@@ -188,7 +192,7 @@ since. Add new ones there.
 
 ---
 
-## 2026-10-09 — Deploy 2190: the interval correction released (not yet runtime-confirmed)
+## 2026-10-09 — Deploy 2190: the interval correction released, runtime-confirmed by run 115
 
 On your word (*"merge and deploy"*):
 - `main` `0fd50fd2` → `19b1628d`, 9 commits;
@@ -197,7 +201,7 @@ On your word (*"merge and deploy"*):
 - no asset uploaded.
 
 Preflight clean: nothing in flight, no open job, rollback verified, CI green.
-Next: your free runtime press, after about 20:51 UTC.
+Runtime-confirmed by your free press, run 115 (21:07 UTC): the new sha and image, every free check passed, balance 18. Run 114 (20:37) came too early and carried a wrong sha from me; it charged nothing.
 
 ---
 

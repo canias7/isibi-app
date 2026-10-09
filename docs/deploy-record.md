@@ -1518,7 +1518,20 @@ only run that push started: `completed` / `success`, 20:28:22–20:31:41.
   - *"No updated asset files to upload"*, so no served-file check is owed;
   - Current Version ID `…ff9cd9d-959a-4de2-b93a-8cc435748be2`.
 - **The image window**: to about 20:51 UTC.
-- **Not yet runtime-confirmed.** The owner's free runtime press is to come.
+- **Run 114** (run 37988274955, 20:37 UTC) was pressed inside the image
+  window, and with a wrong sha handed over (`19b1628d6ae4`; my error). It
+  failed both checks: the Worker answered the right build, `19b1628df403`,
+  and a cold container still started the old `6c9fc805fe4de0d8`. Nothing was
+  charged.
+- **Runtime-confirmed by the owner's free press, run 115** (run 37991441144,
+  21:07 UTC, from `main`):
+  - both readers answered `19b1628df403` and agreed;
+  - a cold container answered `9236fe341b77544d`;
+  - async and the runner were on;
+  - `ALL FREE CHECKS PASSED`;
+  - balance 18, and nothing charged. The site was as read before:
+    `/order`'s heading *"Pick your loaf and a collection time"*, version
+    `01791558236422-ny0g8t`.
 
 **Deploy 2189 (2026-10-09) was predicted on both ends and built as
 predicted** (the owner's word: *"approve the release and press A's
