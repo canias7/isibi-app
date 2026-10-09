@@ -112,7 +112,7 @@ resume)
   tweak case.
 - **Sweep: 29 of 29 killed, and the comment-only control survived.** The first round's two survivors became PUR 10 and PUR 11.
 - **Full suite**: **`10200 / 10199 / 1 / 0`** on `17ce3f6f` (base `10181`, plus 19 new cases). The one failure was a source guard in `test/wiring.test.mjs` that required the photograph loop's old destructuring; re-anchored to the purchase buyer, which now also asserts the buyer passes `makeSitePhoto`'s reason through (`wiring.test.mjs` 49 of 49 after).
-- **Required CI**: read after the push; recorded in the next records commit.
+- **Required CI**: green on the final code. Unit tests on `90088b1e` (run 37872679403): `10200 / 10159 / 0 / 41`, whose total equals the local `10200` (CI skips the browser cases). The site build passed on both code commits, `dba60da6` (run 37870982729) and `2c4def8b` (run 37871797328); `90088b1e` touches only a test and documents. The unit runs on `dba60da6` and `2c4def8b` failed on the one wiring guard re-anchored in `90088b1e` (read from the `2c4def8b` log: 1 failure of 10198).
 - **The next image, predicted** (not built): `335396c8c0e0fbcb` →
   **`3200859f5ffd7283`** (202 inputs).
 
