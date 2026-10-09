@@ -1489,6 +1489,48 @@ only run that push started, `completed` / `success`, the job **3m11s**
   the press stopped). Not pressed again; the question left unanswered
   (`docs/history/2026-10-07-combined-release.md` §4).
 
+**Deploy 2189 (2026-10-09) was predicted on both ends and built as
+predicted** (the owner's word: *"approve the release and press A's
+preparation"*; the plan is `docs/investigations/multi-agent-readiness.md`
+§7).
+
+`main` `9d6bda8a` → `0fd50fd2`, a fast-forward of 93 commits:
+- the parallel-tasks rounds 1–9 and the readiness review;
+- the first-Build batches 1–9;
+- the run-107 follow-up and the menu-evidence corrections;
+- their records.
+
+It was pushed at 13:40:58 UTC. Run 37938596141, `push` on `0fd50fd2`, was
+the only run that push started: `completed` / `success`, 13:41:04–13:44:11.
+
+- **Before** (13:38–13:40 UTC):
+  - `main` an ancestor of the candidate;
+  - unit CI green on `0fd50fd2` itself (run 37937637159) and on `8109aab4`
+    (`10272 / 10231 / 0 / 41`). The site build is green on `58d3350b` (run
+    37926585858), and only tests and documents changed after it;
+  - nothing in flight, and no open or held edit job (`public.edit_jobs`);
+  - the rollback (`git revert --no-commit 9d6bda8a..0fd50fd2`) giving back
+    `9d6bda8a`'s tree;
+  - no skip-CI or smoke marker in the 93 messages;
+  - `chat.js` served as `9d6bda8a`'s (939,255 bytes, `dfa07592…`).
+- **The image**: `built isibi-app-sitebuildcontainer:6c9fc805fe4de0d8
+  (registry answered 404; 204 inputs off ./Dockerfile)` at 13:43:41, as
+  predicted (`335396c8c0e0fbcb` → `6c9fc805fe4de0d8`, 196 → 204 inputs).
+- **The drain**: `no live leases after 1s — deploying` (the 1 printed
+  masked).
+- **Wrangler**:
+  - 26 secrets;
+  - one asset uploaded (`+ /chat.js`), 85 already there;
+  - the container's `- …:335396c8c0e0fbcb` / `+ …:6c9fc805fe4de0d8`,
+    `SUCCESS Modified application` at **13:44:01Z**;
+  - `DEPLOY_ID` `0fd50fd2d05c29cc…`, Current Version ID `69545b2e-b468-…`.
+- **The served file**: `chat.js` byte-identical to `0fd50fd2`'s at 13:44:46
+  (955,178 bytes, `7a9d8498…`).
+- **The image window**: to about 14:04 UTC.
+- **The free runtime check is the owner's press**. Run 110 (13:31 UTC) was
+  pressed before the merge and read production as it was then (`9d6bda8afc4e`,
+  `335396c8c0e0fbcb`); it is not this check.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

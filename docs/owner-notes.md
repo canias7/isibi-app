@@ -7,8 +7,9 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2188** (`main` `9d6bda8a`, image
-  `335396c8c0e0fbcb`), unchanged. **Balance 11**, last read after run 109.
+- **Production is deploy 2189** (`main` `0fd50fd2`, image
+  `6c9fc805fe4de0d8`), deployed 2026-10-09 13:44 UTC and not yet
+  runtime-confirmed. **Balance 11**, last read after run 109.
   Nothing moved money.
 - **The attachment correction is closed** (`18d6aae1`, `58d3350b`, records
   `604d2415`). Codex confirmed it with 59 focused tests, their own mixed
@@ -154,6 +155,37 @@ proposal), `docs/history/2026-10-09-readiness-review.md`,
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — The release: deploy 2189, and press A prepared (deployed, not yet runtime-confirmed)
+
+On your word (*"approve the release and press A's preparation"*):
+- **Deploy 2189**: `main` `9d6bda8a` → `0fd50fd2`, 93 commits, one green
+  run (13:41–13:44 UTC).
+  - The image was built as predicted, `335396c8c0e0fbcb` →
+    `6c9fc805fe4de0d8`.
+  - The served `chat.js` is byte-identical to the merged file.
+  - The preflight was clean: nothing in flight, no open job, the rollback
+    verified, no skip-CI marker.
+  - **Deployed, not runtime-confirmed** until your free press reads
+    `0fd50fd2` and `6c9fc805fe4de0d8`. The image window runs to about
+    14:04 UTC.
+- **Press A prepared** (`ab94386f`, on the branch only):
+  - the `lv-parallel` scenario;
+  - the canary's trail keeping each part's preparation reading;
+  - the overlap verdict;
+  - four tests (one through the real driver); the sweep killed 5 of 5, and
+    the control survived.
+  - Full suite `10276 / 10276 / 0 / 0`.
+  - **The live footers already link Instagram, Facebook and TikTok**, so the
+    footer link in the press is YouTube (`youtube.com/@harbourloaf`).
+  - The focaccia is changed through the price part and **put back by the run
+    itself** (the conditional write of 4.5 only while it reads 4.6), so no
+    separate restore press is needed.
+  - **Browser closure is not in press A**: one message cannot both close its
+    tab and end on a question in the canary. It stays shown live by runs 106,
+    107 and 109, without preparation.
 
 ---
 

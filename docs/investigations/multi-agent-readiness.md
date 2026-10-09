@@ -1,7 +1,9 @@
 # Multi-agent readiness: what runs concurrently, what waits, what is unsupported, and the release proposal (2026-10-09)
 
-> **On the branch `claude/help-needed-ehlwlj`, not merged, deployed or
-> built.** No paid call, no model call, no container image build, no live
+> **Released as deploy 2189** (2026-10-09, `main` `0fd50fd2`, image
+> `6c9fc805fe4de0d8`, on the owner's word); press A prepared on the branch
+> (`ab94386f`). Written before the release, when it was not merged, deployed
+> or built. No paid call, no model call, no container image build, no live
 > database change. Production is deploy 2188 (`main` `9d6bda8a`, image
 > `335396c8c0e0fbcb`).
 
