@@ -344,6 +344,31 @@ balance it starts from.
 The heading and the footer link stay on the site (the demo rule), as with
 runs 107 and 109.
 
+### 7.3a Press A as pressed (run 113), and its correction (2026-10-09)
+
+- **Run 113** (run 37947640646, 14:54–15:10 UTC, on deploy 2189): the
+  **workflow run failed**. One canary check failed: the progress check had
+  no message sent with its tab closed to read.
+- **Shown live**: the three changes, the clarification while the price and
+  heading finished, the replies, and 12 credits reconciled to the ledger.
+- **Concurrency is unverified.** Pass item 2 above was judged by status
+  sampling (`preparing` or `prepared` beside `queued`), which Codex showed
+  passes with nothing running at once. Run 113's job rows are strictly
+  sequential, and no record shows when a preparation's step ran
+  (`docs/history/2026-10-09-run113.md`).
+- **Corrected on the branch** (`docs/history/2026-10-09-overlap-intervals.md`).
+  - **Item 2 is now judged by recorded intervals**: a part's prepared step
+    (its own interval and model calls) must intersect another part's job
+    execution (its progress record's opening to its close).
+  - **Routing alone, a queued job, sequential runs and missing records all
+    fail.**
+  - **Item 6**: the answer is sent with its tab closed and followed in a
+    fresh browser session, and the progress checks are restored.
+  - **The live row**: the focaccia's new price is **kept**. No automatic
+    restoration of demo data.
+  - The interval fields are product code (`builder/request.mjs`,
+    `worker.js`), so they need a deploy before a press can read them.
+
 ### 7.4 Optional presses, each on its own approval
 
 - **Press B: an add-on with a photograph** (round 7's check):

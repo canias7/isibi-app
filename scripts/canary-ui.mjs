@@ -147,10 +147,11 @@ const WALNUT_ROW = Object.freeze({
 // THE READINESS PRESS'S ROW (2026-10-09, `lv-parallel`): the same focaccia
 // change as D1 (id 6, 4.5 -> 4.6), against `loaves` as a visitor's read
 // answered it at 2026-10-09 13:42:54Z, read whole (`0-6/7`): R2's kept
-// Walnut Levain at 6.2 and the Rye & Caraway. PUT BACK by the run itself
-// (no `restore: false`): the conditional write of 4.5 only while it reads 4.6.
+// Walnut Levain at 6.2 and the Rye & Caraway. KEPT (`restore: false`, the
+// owner's demo-site rule; corrected after Codex's review of ac24aece): the run
+// makes no write of its own, and the next press reads its baseline afresh.
 const LOAVES_R2 = Object.freeze(LOAVES_NOW.map((r) => (r.id === 5 ? Object.freeze({ ...r, price: 6.2 }) : r)));
-const FOCACCIA_ROW = Object.freeze({ ...D1_ROW, record: LOAVES_R2 });
+const FOCACCIA_ROW = Object.freeze({ ...D1_ROW, restore: false, record: LOAVES_R2 });
 
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
@@ -846,7 +847,7 @@ export const UI_SCENARIOS = Object.freeze({
   // being worked out while another part's job ran. ABOUT 11-17: the message's
   // routing 3; part 0's hand-over 0 and menu step 1-2; part 1's routing 1-3
   // and data step 1; part 2's routing 1-3 and text step 2; the answer's
-  // routing 1. The focaccia is put back by the run (free).
+  // routing 1. The price is kept (the demo-site rule).
   "lv-parallel": Object.freeze({
     site: "fold-lane-bakery", request: true,
     budget: 20, fundsFirst: true, cap: 30, addon: true,
@@ -857,10 +858,10 @@ export const UI_SCENARIOS = Object.freeze({
         Object.freeze({ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }),
       ]),
       social: Object.freeze({ network: "youtube", host: "youtube.com", path: "/@harbourloaf" }),
-      // NO `progress` (run 113, 2026-10-09): that check reads a message sent
-      // with its tab closed (`away: "fresh"`), and this press ends its first
-      // message on a question instead, so it could only fail. The lines
-      // themselves are read from the narration usage the workflow prints.
+      // THE MODEL'S PROGRESS LINES, CHECKED (restored after Codex's review of
+      // ac24aece): read off the answer, sent with its tab closed once a line
+      // shows live and followed to its end in a fresh browser session.
+      progress: true,
       overlap: true,
     }),
     covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
@@ -879,6 +880,10 @@ export const UI_SCENARIOS = Object.freeze({
       }),
       Object.freeze({
         say: "It's youtube.com/@harbourloaf",
+        // SENT WITH ITS TAB CLOSED once a progress line shows live on the
+        // resumed part, and followed to its end in a fresh browser session
+        // (`away: "fresh"`): the browser-closed path, with the model's lines.
+        away: "fresh",
         // The price and the heading may still be applying (each its own job,
         // the heading's publish meeting a container), then the answer's step
         // and its publish.

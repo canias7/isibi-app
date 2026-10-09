@@ -249,26 +249,60 @@ export function relationsOf(step) {
 }
 
 /**
- * A PART WORKED OUT WHILE ANOTHER PART'S JOB RAN (2026-10-09, the readiness
- * press): some view the canary read shows one part `preparing` or `prepared`
- * (the request view's own reading of its preparation) while another part is
- * `queued` or `started`. Read only from the request's own route; a press whose
- * views carry no preparation reading at all says so, never a pass.
+ * SUBSTANTIVE PREPARATION OVERLAPPING ANOTHER PART'S ACTIVE EXECUTION
+ * (2026-10-09; corrected on Codex's review of ac24aece, which reproduced the
+ * first version passing "preparing" or "prepared" beside a merely queued job —
+ * neither shows two things running at once). Judged only on RECORDED
+ * INTERVALS in the request's own view, the last one the press read for the
+ * first message's request:
+ * - a part's preparation step (`prepRun.step`: from, to, and the model calls it
+ *   made) — the routing alone is not the step's work;
+ * - another part's run job's execution (`runs`: from its progress record's
+ *   opening to its close) — a queued job is not executing.
+ * They overlap when each began before the other ended (a touching edge is
+ * not overlap). A step that made no model call is not substantive. Open
+ * intervals and missing records are reported as missing evidence, never as a
+ * pass.
  */
-export function overlapVerdict(step) {
-  const trail = step && step.request && Array.isArray(step.request.trail) ? step.request.trail : [];
-  if (!trail.length) return { ok: false, seen: [], views: 0, why: "the request was never read while it ran" };
-  const seen = [];
-  for (const v of trail) {
-    const st = Array.isArray(v && v.parts) ? v.parts : [];
-    const prep = Array.isArray(v && v.prep) ? v.prep : [];
-    for (const [n, state] of prep) {
-      const running = st.filter(([m, s]) => m !== n && (s === "queued" || s === "started")).map(([m, s]) => `part ${m} ${s}`);
-      if (running.length && (state === "preparing" || state === "prepared")) seen.push(`at ${Math.round((v.ms || 0) / 1000)} s part ${n} was ${state} while ${running.join(", ")}`);
+export function overlapVerdict(steps) {
+  const list = arrOf(steps);
+  const first = list[0];
+  if (!first || first.sent !== true) return { ok: false, overlaps: [], routingOnly: [], why: "the first message was not sent" };
+  const key = first.request && typeof first.request.key === "string" ? first.request.key : "";
+  const finals = list.filter((x) => x && x.request && x.request.key === key && x.request.final && typeof x.request.final === "object").map((x) => x.request.final);
+  const view = finals.length ? finals[finals.length - 1] : null;
+  if (!key || !view) return { ok: false, overlaps: [], routingOnly: [], why: "missing evidence: the request's view was never read" };
+  const parts = arrOf(view.parts);
+  const fin = (v) => typeof v === "number" && Number.isFinite(v);
+  const preps = [], routes = [], runs = [];
+  let open = 0;
+  for (const p of parts) {
+    const pr = p && p.prepRun && typeof p.prepRun === "object" ? p.prepRun : null;
+    if (pr) {
+      const st = pr.step && typeof pr.step === "object" ? pr.step : null;
+      if (st && fin(st.from) && fin(st.to) && st.to >= st.from && Number.isInteger(st.calls) && st.calls > 0) preps.push({ part: p.n, from: st.from, to: st.to, calls: st.calls });
+      else if (fin(pr.from) && fin(pr.to) && pr.to >= pr.from) routes.push({ part: p.n, from: pr.from, to: pr.to, outcome: pr.outcome || "" });
+    }
+    for (const r of arrOf(p && p.runs)) {
+      if (!r || !fin(r.from)) continue;
+      if (!fin(r.to)) { open++; continue; }
+      if (r.to >= r.from) runs.push({ part: p.n, job: String(r.job || ""), from: r.from, to: r.to });
     }
   }
-  const any = trail.some((v) => Array.isArray(v && v.prep) && v.prep.length);
-  return { ok: seen.length > 0, seen: seen.slice(0, 5), views: trail.length, why: seen.length ? "" : any ? "a part was prepared, but never while another part's job was queued or running" : "no view showed any part being prepared" };
+  const meets = (a, b) => a.from < b.to && b.from < a.to;
+  const overlaps = [], routingOnly = [];
+  for (const s of preps) for (const r of runs) if (r.part !== s.part && meets(s, r)) overlaps.push({ prepPart: s.part, calls: s.calls, runPart: r.part, job: r.job, ms: Math.min(s.to, r.to) - Math.max(s.from, r.from) });
+  for (const s of routes) for (const r of runs) if (r.part !== s.part && meets(s, r)) routingOnly.push({ prepPart: s.part, runPart: r.part, job: r.job });
+  const sec = (ms) => Math.round(ms / 100) / 10;
+  let why = "";
+  if (!overlaps.length) {
+    if (!preps.length && !routes.length && !runs.length) why = "missing evidence: the view records no preparation and no job execution interval";
+    else if (!runs.length) why = `missing evidence: no other part's job execution interval was recorded${open ? ` (${open} still open)` : ""}`;
+    else if (!preps.length && routingOnly.length) why = `only a routing ran beside another part's job (part ${routingOnly[0].prepPart} beside part ${routingOnly[0].runPart}'s job); no step's work did`;
+    else if (!preps.length) why = "no part's preparation ran a step";
+    else why = "the prepared step's work did not overlap another part's job: it ran before that job started or after it ended";
+  }
+  return { ok: overlaps.length > 0, overlaps, routingOnly, runs: runs.length, preps: preps.length, why, said: overlaps.length ? `part ${overlaps[0].prepPart}'s prepared step (${overlaps[0].calls} model call(s)) overlapped part ${overlaps[0].runPart}'s job ${overlaps[0].job.slice(0, 8)} for ${sec(overlaps[0].ms)} s` : "" };
 }
 
 /**
@@ -958,11 +992,10 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug });
   checks.push(...o.checks);
   if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
-  // A PART WORKED OUT BESIDE ANOTHER'S JOB (2026-10-09), for a press that asks: the first message's request.
+  // SUBSTANTIVE PREPARATION BESIDE ANOTHER PART'S EXECUTION (2026-10-09), for a press that asks: the first message's request, by recorded intervals.
   if (spec && spec.expect && spec.expect.overlap === true) {
-    const first = (Array.isArray(steps) ? steps : [])[0];
-    const v = first && first.sent ? overlapVerdict(first) : { ok: false, why: "the first message was not sent" };
-    checks.push({ name: "message 1: a part was being worked out while another part's job was queued or running", ok: v.ok, why: v.ok ? v.seen[0] : v.why });
+    const v = overlapVerdict(steps);
+    checks.push({ name: "message 1: a part's prepared step ran while another part's job was executing, by their recorded intervals", ok: v.ok, why: v.ok ? v.said : v.why });
   }
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));

@@ -1316,7 +1316,7 @@ function preparable(p) {
  * only — the step it chose is not one a preparation runs), `stopped` (the step
  * ended on its own without changing anything), or `error`.
  */
-export function notePrepared(record, n, seq, { ok = false, outcome = "error", key = null, calls = 0, images = 0, owner = null, now = Date.now() } = {}) {
+export function notePrepared(record, n, seq, { ok = false, outcome = "error", key = null, calls = 0, images = 0, owner = null, now = Date.now(), step = null } = {}) {
   const rec = clone(record);
   const p = rec.parts[n];
   // ONLY THE OWNER OF THIS ATTEMPT (2026-10-09): taken by it (`running`, its
@@ -1324,6 +1324,12 @@ export function notePrepared(record, n, seq, { ok = false, outcome = "error", ke
   // whose attempt was since taken again, keeps nothing.
   if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "running" || typeof owner !== "string" || p.prep.owner !== owner) return { record: rec, kept: false };
   p.prep = { ...p.prep, state: ok ? "done" : "failed", outcome: String(outcome || "error"), key: typeof key === "string" ? key : null, calls: Number(calls) || 0, images: Number(images) || 0, endedAt: now };
+  // WHEN ITS STEP'S OWN WORK RAN (2026-10-09, the readiness correction): the
+  // step replayed after the routing, from its first instant to its last, and
+  // how many model calls it made. Absent when only the routing ran — which is
+  // not substantive preparation of the step.
+  const st = readPrepStep(step);
+  if (st) p.prep.step = st; else delete p.prep.step;
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
   return { record: rec, kept: true };
@@ -1343,6 +1349,31 @@ export function routedForPrep(record, n, read) {
   Object.assign(p, { route: { ...read.route, hops: 0 }, phase: "run" });
   if (read.targets && read.targets[0]) addTargets(p, read.targets[0]);
   return { work, ok: preparable(p) && clearToPrepare(work.parts, n, (q) => PART_TERMINAL.includes(q.status)) };
+}
+
+/** A preparation's step interval, read strictly: `{ from, to, calls }` with from <= to, or null. */
+export function readPrepStep(step) {
+  if (!step || typeof step !== "object") return null;
+  const { from, to, calls } = step;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from || !Number.isInteger(calls) || calls < 0) return null;
+  return { from, to, calls };
+}
+
+/**
+ * WHAT A PART'S LAST PREPARATION RAN, AND WHEN (2026-10-09, the readiness
+ * correction): its attempt from taken to answered, its outcome, and its
+ * step's own interval when the step ran — the evidence a reader needs to tell
+ * substantive preparation beside another part's job from a routing alone.
+ * Null when no attempt was taken.
+ */
+export function prepRunOf(p) {
+  const pr = p && p.prep;
+  if (!pr || !Number.isFinite(pr.startedAt)) return null;
+  return {
+    seq: pr.seq, from: pr.startedAt, to: Number.isFinite(pr.endedAt) ? pr.endedAt : null,
+    outcome: typeof pr.outcome === "string" ? pr.outcome : null,
+    step: readPrepStep(pr.step),
+  };
 }
 
 /** What the page and the progress writer read of a part's preparation: `preparing`, `prepared`, or nothing. */
@@ -1690,7 +1721,25 @@ function partProgress(p, progress) {
  * record at the look (`saidForRequest`): a part with none carries no `said`,
  * and the page names it by its words.
  */
-export function requestView(rec, { progress = null, said = null } = {}) {
+/**
+ * EACH RUN JOB'S EXECUTION, as its own progress record kept it (`runs`, by job
+ * id: `{ from, to }` — opened when the job began running, closed at its end; a
+ * `to` of null while it runs). Only what the record says: a job with none is
+ * left out, never given a guessed interval.
+ */
+function runsOf(p, runs) {
+  if (!runs || typeof runs !== "object") return [];
+  const out = [];
+  for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
+    if (!j || j.kind !== "run" || typeof j.id !== "string" || !Object.hasOwn(runs, j.id)) continue;
+    const r = runs[j.id];
+    if (!r || !Number.isFinite(r.from) || (r.to !== null && (!Number.isFinite(r.to) || r.to < r.from))) continue;
+    out.push({ job: j.id, from: r.from, to: r.to });
+  }
+  return out;
+}
+
+export function requestView(rec, { progress = null, said = null, runs = null } = {}) {
   // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
   // run carries it (`routedCost`) only when part 0 ran on the answer that
   // accepted the message and its job's reply was written; a part 0 routed
@@ -1706,6 +1755,11 @@ export function requestView(rec, { progress = null, said = null } = {}) {
       // (2026-10-08): its work has started; it is never done until its own
       // job has applied it and said so.
       ...((st) => (st ? { prep: st } : {}))(prepState(p)),
+      // WHEN ITS PREPARATION RAN, AND ITS JOBS (2026-10-09, the readiness
+      // correction): the evidence a reader judges overlap by — never a status
+      // sampled while it ran.
+      ...((pr) => (pr ? { prepRun: pr } : {}))(prepRunOf(p)),
+      ...((rs) => (rs.length ? { runs: rs } : {}))(runsOf(p, runs)),
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
       ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),
       // THE APPROVED REWRITE'S BUILD, which no job poll reads (`/api/site/build/<id>` does).

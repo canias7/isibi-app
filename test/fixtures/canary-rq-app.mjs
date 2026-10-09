@@ -160,6 +160,9 @@ export function rqApp(opt = {}) {
       evaluate: async (fn, arg) => {
         if (t.closed) throw new Error("Target page, context or browser has been closed");
         if (fn.name === "cardIdInPage") return `srv_${SLUG}`;
+        // THE SITE'S OWN LIST AS A VISITOR SEES IT (`shown`, 2026-10-09): a
+        // row press reads it in a context of its own, before and after.
+        if (fn.name === "shownListInPage") { calls.push(`tab ${t.id} shown ${arg}`); return opt.shown ? opt.shown(arg) : []; }
         if (fn.name === "markTabInPage") { t.mark = arg; return { mark: t.mark, origin: t.origin, path: "/projects" }; }
         if (fn.name === "tabMarkInPage") return { mark: t.mark, origin: t.origin, path: "/projects" };
         if (fn.name === "requestViewInPage") {

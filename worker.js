@@ -8060,6 +8060,28 @@ async function saidForRequest(env, rec) {
  * at the look and never written onto the request, so the driver's etag is
  * never fought for them. {} with progress off.
  */
+/**
+ * EACH RUN JOB'S EXECUTION INTERVAL, from its own progress record (2026-10-09,
+ * the readiness correction): `{ from: the record's opening, to: its close or
+ * null }`, by job id. The record is opened when the job begins running and
+ * closed at its end, so this is the job's active execution, never its filing.
+ * A job with no readable record is left out.
+ */
+async function runsForRequest(env, rec) {
+  const out = {};
+  if (!progressOn(env) || !rec || !Array.isArray(rec.parts)) return out;
+  for (const p of rec.parts) {
+    for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
+      if (!j || j.kind !== "run" || !isJobId(j.id) || Object.hasOwn(out, j.id)) continue;
+      const got = await progressRecordAt(env, j.id);
+      const r = got.rec;
+      if (!r || r.uid !== rec.uid || !Number.isFinite(r.at)) continue;
+      out[j.id] = { from: r.at, to: r.closed && Number.isFinite(r.closed.at) ? r.closed.at : null };
+    }
+  }
+  return out;
+}
+
 async function progressForRequest(env, rec) {
   const out = {};
   if (!progressOn(env) || !rec || !Array.isArray(rec.parts)) return out;
@@ -17688,6 +17710,7 @@ async function runRequestPrep(env, ctx, task) {
     const p = rec.parts[n];
     let outcome = "error";
     let work = rec;
+    let stepAt = null, stepEnd = null;
     if (prevUnreadable) {
       // WHAT THE ATTEMPT BEFORE DID CANNOT BE READ: this attempt makes no call
       // and buys nothing. It ends `uncertain`, naming that attempt, and the
@@ -17711,7 +17734,12 @@ async function runRequestPrep(env, ctx, task) {
       if (outcome === "run") {
         const { url, body } = jobBody(work, n, "run", key + "-prep" + seq);
         const runPhase = A.phase("run");
+        // THE STEP'S OWN INTERVAL (2026-10-09, the readiness correction): kept
+        // on the part with the outcome, so a reader can tell the step's work
+        // from the routing's and lay it beside another part's job.
+        stepAt = Date.now();
         const r = await replayPrepared(env, ctx, rec, url, body, runPhase);
+        stepEnd = Date.now();
         // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
         A.live.run.images = runPhase.images.slice();
         const b = r.body || {};
@@ -17732,7 +17760,8 @@ async function runRequestPrep(env, ctx, task) {
       const at = await loadRequest(env, slug, key);
       if (!at.rec) return;
       const ok = stored && outcome !== "error" && outcome !== "uncertain";
-      const { record, kept: mine } = notePrepared(at.rec, n, seq, { ok, outcome, key: stored ? A.pk : null, calls, images, owner });
+      const step = stepAt !== null && stepEnd !== null ? { from: stepAt, to: stepEnd, calls: kept.run.calls.length } : null;
+      const { record, kept: mine } = notePrepared(at.rec, n, seq, { ok, outcome, key: stored ? A.pk : null, calls, images, owner, step });
       // NOT OURS ANY MORE (taken again after our time ran out): a later
       // attempt's result is never replaced by this one.
       if (!mine) break;
@@ -26296,7 +26325,7 @@ async function handleRequest(request, env, ctx) {
             if (!at || at.slug !== qSlug) continue;
             let found = null;
             try { found = await loadRequest(env, qSlug, at.key); } catch { found = null; }
-            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec), said: await saidForRequest(env, found.rec) }));
+            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec), said: await saidForRequest(env, found.rec), runs: await runsForRequest(env, found.rec) }));
           }
           views.sort((a, b) => a.at - b.at);
           // AND THIS OWNER'S STANDALONE JOBS ON THE SITE (2026-10-06), each with
@@ -26326,7 +26355,7 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec) }) };
+        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec) }) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });
