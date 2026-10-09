@@ -17008,11 +17008,16 @@ async function settleRequestMarker(env, rec) {
  * URL is not a file this can keep, and is left out (the logo step says what it
  * did with the ones it got).
  */
+/** One attachment as a request keeps it: its data URL's type and base64, or null when it does not read as one. */
+function attachmentData(a) {
+  const data = typeof a === "string" ? a : a && typeof a.data === "string" ? a.data : "";
+  return /^data:([a-z0-9.+\-]+\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(data);
+}
+
 async function storeRequestFiles(env, slug, key, images, attempt) {
   const out = [];
   for (const [i, a] of (Array.isArray(images) ? images : []).slice(0, MAX_ATTACHMENTS).entries()) {
-    const data = typeof a === "string" ? a : a && typeof a.data === "string" ? a.data : "";
-    const m = /^data:([a-z0-9.+\-]+\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(data);
+    const m = attachmentData(a);
     if (!m) continue;
     let bytes;
     try { bytes = Uint8Array.from(atob(m[2].replace(/\s+/g, "")), (c) => c.charCodeAt(0)); } catch { continue; }
@@ -17991,15 +17996,25 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
  * the site lock are the part's job's own. No second scheduler.
  *
  * Not taken on — the job as before — where the flow cannot keep it whole: the
- * flow off, no request key, a post that carries pictures (the request keeps
- * none it was not sent), or a plan the acceptance will not read. Null then. A
+ * flow off, no request key, files that would not all be kept (round 8), or a
+ * plan the acceptance will not read. Null then. A
  * store that failed around the acceptance is said, never followed by a second
  * filing: the record may have landed, and the sweep runs what landed.
  */
 async function addonAsRequest(env, ctx, { uid, slug, ab }) {
-  if (!requestFlowOn(env) || !env.SITES_BUCKET || !ab || !isRequestKey(ab.idem) || ab.attached === true) return null;
+  if (!requestFlowOn(env) || !env.SITES_BUCKET || !ab || !isRequestKey(ab.idem)) return null;
   const instruction = typeof ab.instruction === "string" ? ab.instruction : "";
   if (!instruction.trim()) return null;
+  // ITS FILES (round 8): the post's own attachments are kept with the request
+  // exactly as the router's acceptance keeps a message's (`storeRequestFiles`),
+  // so a question, a hand-over and every later job of the request has them, with
+  // no page open. A post whose files would not all be kept — more than one
+  // request carries, or one that does not read — is never taken on as a request
+  // that lost some: it stays a job, as before. A post that says files came
+  // with it and carries none (an older page) is taken on with that fact kept
+  // (`attached`), and the add-on step is told the files did not arrive.
+  const sent = Array.isArray(ab.images) ? ab.images : [];
+  if (sent.length > MAX_ATTACHMENTS || sent.some((a) => !attachmentData(a))) return null;
   let prior = null;
   try { prior = await loadRequest(env, slug, ab.idem); } catch { prior = null; }
   if (prior && prior.rec) {
@@ -18014,7 +18029,10 @@ async function addonAsRequest(env, ctx, { uid, slug, ab }) {
     ...(ab.handOver && typeof ab.handOver === "object" && !Array.isArray(ab.handOver) ? { handOver: ab.handOver } : {}),
     ...(Number.isInteger(ab.routedCost) && ab.routedCost >= 0 ? { cost: ab.routedCost } : {}),
   };
-  const rb = { message: instruction, picker: typeof ab.picker === "string" ? ab.picker : "", tz: typeof ab.tz === "string" ? ab.tz : "" };
+  const rb = {
+    message: instruction, picker: typeof ab.picker === "string" ? ab.picker : "", tz: typeof ab.tz === "string" ? ab.tz : "",
+    ...(sent.length ? { images: sent } : {}), attached: ab.attached === true || sent.length > 0,
+  };
   const ask = resumed ? { answered: true, putOff: Array.isArray(ab.putOff) ? ab.putOff : [], context: Array.isArray(ab.context) ? ab.context : [] } : null;
   let accepted = null;
   try { accepted = await acceptRequest(env, ctx, { uid, rb, slug, key: ab.idem, out, ask, waiting: null, instruction }); }
@@ -33268,7 +33286,11 @@ async function handleRequest(request, env, ctx) {
               // second table and a feature with nothing behind it. The same
               // note the designers read, so both halves of the step see one
               // description of the site rather than two that can disagree.
-              { message: aInstruction, current: siteNote(aSite), model: aModels.quick, handOver: handOverLine(aHand) },
+              // FILES THE CUSTOMER SAID THEY SENT AND THAT NEVER ARRIVED (round 8):
+              // told to the picker, which may ask for them (its question field)
+              // when what they asked for depends on them. An answer that brings
+              // them joins the request's files.
+              { message: aInstruction, current: siteNote(aSite), model: aModels.quick, handOver: handOverLine(aHand), filesMissing: !!(aPart && ab && ab.filesMissing === true) },
             );
             aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });
             // EVERY USAGE ON ONE BILL: the picker's and each add's, priced

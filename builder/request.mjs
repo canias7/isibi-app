@@ -1609,6 +1609,9 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
         askRound, putOff, context,
         routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
         attached: rec.files.length || rec.attached ? true : undefined,
+        // FILES IT WAS SAID TO CARRY AND NEVER GOT (round 8): the add-on step is
+        // told, and may ask for them; an answer's files join the request's.
+        filesMissing: rec.attached && !rec.files.length ? true : undefined,
         request,
       },
     };

@@ -922,6 +922,8 @@ export function browserBody(site, d, instruction, imgs = []) {
     editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
     EditPoll: { ...realEditPoll, newIdemKey: () => "idem-from-the-page-000", outcomeMessage: (s) => "outcome:" + s },
     buildPicker: "sonnet", browserTimeZone: () => "Europe/London",
+    // THE PAGE'S OWN FILE LIMIT, read from public/chat.js rather than restated.
+    SITE_MAX_FILES: Number((/const SITE_MAX_FILES = (\d+)/.exec(CHAT) || [])[1]),
     apiFetch: (url, init) => { sentPosts.push({ url, init }); return new Promise(() => {}); },
   });
   vm.runInContext([cut("editAsk"), cut("editAskDone"), cut("siteEdit"), cut("siteAddon")].join("\n"), ctx);

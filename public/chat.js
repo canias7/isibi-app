@@ -11926,7 +11926,10 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
       // WHAT READING THE MESSAGE COST (2026-10-03), so a reply the Worker
       // writes can state it as `wholeRequestNote` does; never billed from.
       routedCost: d && Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
-      attached: Array.isArray(imgs) && imgs.length ? true : undefined }),
+      attached: Array.isArray(imgs) && imgs.length ? true : undefined,
+      // AND THE FILES THEMSELVES (2026-10-09, round 8), as the routing call sends
+      // them, so a server that takes this addition on keeps them with the request.
+      images: Array.isArray(imgs) && imgs.length ? imgs.slice(0, SITE_MAX_FILES) : undefined }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     // SIGNED OUT DECIDES ALONE, and before the body: the route answers 401 above

@@ -383,13 +383,16 @@ test("RT 6 — THE LEGACY ENTRY WITH THE FLOW OFF: the post stays a job of its o
   });
 });
 
-test("RT 7 — A LEGACY POST THAT CARRIES PICTURES STAYS A JOB OF ITS OWN: the request keeps no pictures it was not sent, so the post is never taken on as a request that would lose them — it answers with its job, as before", async () => {
+test("RT 7 — A LEGACY POST WHOSE PICTURES WOULD NOT ALL BE KEPT STAYS A JOB OF ITS OWN (round 8: a post with pictures is taken on with its files, `addon-attachments`): more files than one request carries is never a request that lost some — it answers with its job, as before", async () => {
   await withPlatform({ slug: slugOf("attached"), ...BASE() }, async (P) => {
     const idem = key32();
-    const a = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true });
+    const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const four = [1, 2, 3, 4].map((n) => ({ name: "p" + n + ".png", data: PNG }));
+    const a = await call(P, "POST", "/api/site/" + P.slug + "/addon", { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true, images: four });
     assert.equal(a.status, 202, JSON.stringify(a.body));
     assert.ok(typeof a.body.job === "string" && a.body.job && !a.body.request, JSON.stringify(a.body));
-    assert.equal(P.record(idem), null, "a request was saved for a post with pictures");
+    assert.equal(P.record(idem), null, "a request was saved that could not keep every file");
+    assert.deepEqual([...P.objects.keys()].filter((k) => k.includes("/files/")), []);
     await pump(P);
   });
 });

@@ -1524,7 +1524,7 @@ const PICK_SYSTEM =
 // `handOver` IS ONE LINE SAYING WHY ANOTHER STEP SENT THIS HERE (2026-10-02,
 // the whole-router audit's W24) — `handOverLine` in hand-over.mjs, composed only
 // from fixed lists — or "" when the message came straight from the router.
-export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "" }) {
+export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "", filesMissing = false }) {
   const tool = pickTool(kinds);
   return {
     model,
@@ -1543,6 +1543,10 @@ export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = 
     messages: [{ role: "user", content:
       (current ? "Their site as it stands:\n" + current + "\n\n" : "") +
       (typeof handOver === "string" && handOver.trim() ? "How this reached the add-on step:\n" + handOver.trim() + "\n\n" : "") +
+      // FILES THEY SENT THAT NEVER ARRIVED (2026-10-09, round 8): an older page
+      // said files came with this message and sent none. Said as a fact; the
+      // picker decides whether what they asked for needs them.
+      (filesMissing === true ? "Their files:\nThey sent this message with files attached, but none of the files reached the builder. If what they ask for depends on those files, name none and ask them to attach the files again (`question`); otherwise go on.\n\n" : "") +
       "Their message:\n" + String(message || "") }],
   };
 }
@@ -1610,12 +1614,12 @@ export function addUsage(reply, model) {
  * A THROW IS NOT A FALLBACK TO EVERYTHING: if this call cannot be made the
  * honest answer is no kinds, and the caller reports the outage at no charge.
  */
-export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "" } = {}) {
+export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "", filesMissing = false } = {}) {
   const text = String(message || "").trim();
   if (!text) return { kinds: [], usage: null, failed: false };
   let reply;
   try {
-    reply = await deps.send(pickRequest({ message: text, kinds, current, model, handOver }));
+    reply = await deps.send(pickRequest({ message: text, kinds, current, model, handOver, filesMissing }));
   } catch (e) {
     return { kinds: [], usage: null, failed: true, error: e };
   }
