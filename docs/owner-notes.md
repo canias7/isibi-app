@@ -111,7 +111,7 @@ resume)
   pass there and guard behaviour that already worked: PUR 5, BLD 5 and the
   tweak case.
 - **Sweep: 29 of 29 killed, and the comment-only control survived.** The first round's two survivors became PUR 10 and PUR 11.
-- **Full suite**: running on `17ce3f6f`; recorded in the next records commit.
+- **Full suite**: **`10200 / 10199 / 1 / 0`** on `17ce3f6f` (base `10181`, plus 19 new cases). The one failure was a source guard in `test/wiring.test.mjs` that required the photograph loop's old destructuring; re-anchored to the purchase buyer, which now also asserts the buyer passes `makeSitePhoto`'s reason through (`wiring.test.mjs` 49 of 49 after).
 - **Required CI**: read after the push; recorded in the next records commit.
 - **The next image, predicted** (not built): `335396c8c0e0fbcb` →
   **`3200859f5ffd7283`** (202 inputs).
@@ -164,7 +164,7 @@ You asked me to close the two purchase failures Codex reproduced, and to build t
   - 19 new cases;
   - red check: 17 of 20 fail on the base;
   - sweep: 29 of 29 killed;
-  - full suite: in the next records commit.
+  - full suite `10200` cases, one source guard re-anchored.
 - **Mocked versus live**: supplied answers and a stand-in image service only.
 - **Remaining**: in the handoff and in `docs/backlog.md`.
 

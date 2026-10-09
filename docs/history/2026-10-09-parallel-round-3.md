@@ -170,7 +170,7 @@ rule, so that is not a preparation defect.
   - 2 unit cases in `test/parallel-plan.test.mjs`.
 - **Red check** on `2045f915`: 17 of the 20 new or revised cases fail (all eleven PUR cases but PUR 5, BLD 1–4, OWN 4, the two unit cases). Three pass there and guard what already worked: PUR 5 (OWN 5's order), BLD 5 (the balance control) and the page tweak's preparation.
 - **Sweep**: 29 mutants over `worker.js`, `builder/request.mjs`, `builder/prepared.mjs`, `builder/publish-pages.mjs`, `builder/site-images.mjs` and `builder/site-reply.mjs`: 27 killed in the first round; the two survivors (a purchase record that cannot be read taken as absent; a lost claim answer taken as permission) led to PUR 10 and PUR 11 (`17ce3f6f`), and a second round killed both. **29 of 29 killed; the comment-only control survived.**
-- **Full suite**: recorded in the owner-notes handoff.
+- **Full suite**: **`10200 / 10199 / 1 / 0`** on `17ce3f6f` (base `10181`, plus 19 new cases). The one failure was a source guard in `test/wiring.test.mjs` that required the photograph loop's old destructuring; re-anchored to the purchase buyer, which now also asserts the buyer passes `makeSitePhoto`'s reason through (`wiring.test.mjs` 49 of 49 after).
 - **Required CI**: recorded in the owner-notes handoff.
 - **Image** (predicted, not built): production `335396c8c0e0fbcb` → `3200859f5ffd7283` (202 inputs).
 

@@ -1570,7 +1570,13 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
 
   // …AND THE CALLER READS IT. Computed and dropped is the shape of a dead field.
   const buy = worker.slice(worker.indexOf("async function buySitePhotos"), worker.indexOf("// Resolve @@SPRITE"));
-  assert.match(buy, /const \{ url, error \} = await makeSitePhoto\(/, "the per-shot reason is destructured away");
+  // THROUGH A LOGICAL PURCHASE OR STRAIGHT TO THE IMAGE SERVICE (2026-10-09,
+  // round 3): either way the reason is destructured, and the purchase buyer
+  // hands `makeSitePhoto`'s own reason through.
+  assert.match(buy, /const \{ url, error, unknown \} = buy \? await buy\(prompt\) : await makeSitePhoto\(/, "the per-shot reason is destructured away");
+  const buyer = worker.slice(worker.indexOf("function purchaseBuyer("), worker.indexOf("\n}\n", worker.indexOf("function purchaseBuyer(")));
+  assert.match(buyer, /made = await makeSitePhoto\(env, slug, dd, meta\)/, "the purchase buyer does not make the photograph through makeSitePhoto");
+  assert.match(buyer, /made\.error \? \{ error: made\.error \}/, "the purchase buyer drops makeSitePhoto's reason");
   // (2026-10-08, the seventh batch) the refusal is also recorded as that
   // shot's own ending, beside the reason.
   assert.match(buy, /else \{ refusedTokens\.add\(token\); if \(error\) failed = error; \}/, "the reason is read and then not kept");
