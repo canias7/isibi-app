@@ -20,11 +20,13 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **What parallel tasks do not cover yet** (2026-10-08, the parallel-tasks
-  batch): writes one at a time per site (the database's lock), only
-  routings and the text, menu and picture steps prepared, prepared work a
-  job does not use is ours, targets depend on the model, no live evidence.
-  In full under Backlog below; `docs/history/2026-10-08-parallel-requests.md`.
+- **What parallel tasks do not cover yet** (2026-10-08, revised 2026-10-09
+  after round 2): writes one at a time per site (the database's lock), the
+  logo step and a first Build's tasks not orchestrated, an add-on with a new
+  database prepared only to its design, prepared work a job does not use is
+  ours, an `uncertain` purchase that never landed is bought again (ours),
+  targets depend on the model, no live evidence. In full under Backlog
+  below; `docs/history/2026-10-09-parallel-round-2.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1002,25 +1004,35 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, the parallel-tasks
-  batch; `docs/history/2026-10-08-parallel-requests.md` §9).** Parts of one
-  message are prepared beside the running job and applied one at a time.
-  Not yet:
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised 2026-10-09;
+  `docs/history/2026-10-09-parallel-round-2.md` §8).** Parts of one message
+  are prepared beside the running job, each by one owner, and applied one at
+  a time. Closed on 2026-10-09: the duplicate preparation of one message
+  delivered twice at once; preparing the look, page, data, rules and add-on
+  steps (up to their first write); a progress line for a prepared task. Not
+  yet:
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job, so applies stay serialized; changing
-    it is SQL;
-  - **preparing the look, page, logo, data, rules and add-on steps**: they
-    write as they go, so only their routing is prepared; they would need
-    their writes staged apart from the site;
-  - **wasted preparation**: a call or a picture a preparation made that no
-    job used (its request changed) is our cost, and a prepared picture is
-    bought before its part is applied;
+    it is SQL and was not needed for model work to overlap;
+  - **an add-on that needs a new database** is prepared only up to its
+    design; its page writer runs in its job after provisioning;
+  - **the logo step** has no model call to prepare;
+  - **a first Build**: no general task orchestration beyond the existing
+    design graph; a message mixing a build with edits is not a request of
+    this flow;
+  - **the page tweak** (as opposed to the page writer's rewrite) is stopped
+    after its publish step, but no supplied-answer test reaches it;
+  - **wasted preparation**: a call or a picture no job used (its request
+    changed) is our cost, and a prepared picture is bought before its part
+    is applied;
+  - **an `uncertain` purchase that never lands** is bought again by the
+    part's own job: two purchases from the image service (ours), one charge
+    to the customer. There is no provider-side idempotency to check against;
+  - **the input rules** (`stepInputs`) are a heuristic against wasted
+    preparation; correctness rests on the exact-request check;
   - **targets from the model**: a part with none named is the whole site, so
     nothing is prepared beside it; whether real models name useful targets
     is unmeasured;
-  - **a progress milestone for the preparation itself** (the card and the
-    task lines show it as in progress);
-  - **a message mixing a build with edits** is not a request of this flow;
   - **the constants** (`PREP_MAX_LIVE` 3, `PREP_TRIES` 2, `PREP_FRESH_MS`
     10 min, `PREP_RUN_MS` 8 min) are estimates;
   - **no real-model or live run**; supplied answers only.

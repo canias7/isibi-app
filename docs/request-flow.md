@@ -38,16 +38,26 @@
   sweeps and reconcile apply unchanged, and **one job of a request runs at a
   time**, against the site as the part before left it.
 - **Other parts are prepared beside it** (2026-10-08, the parallel-tasks
-  batch; `docs/history/2026-10-08-parallel-requests.md`). Up to three parts'
-  routings, and their text, menu or picture steps, run in the Worker with
-  nothing written, nothing charged and no question kept; their model calls
-  and pictures are recorded. The part's own job is answered from the record
-  only for a call whose request is byte for byte the one prepared, and
-  makes any other call against the site as it is then. The router names
-  each change's targets; code adds what each step is known to write, waits
-  a part that refers to something another part creates, and prepares a
-  part only when no earlier unfinished part writes what its step reads or
-  conflicts with what it writes.
+  batch; widened 2026-10-09, `docs/history/2026-10-09-parallel-round-2.md`).
+  Up to three parts' routings, and their text, menu, picture, look, page,
+  data, rules or add-on steps up to the step's first write, run in the
+  Worker with nothing written, nothing charged and no question kept; their
+  model calls and pictures are recorded. The part's own job is answered from
+  the record only for a call whose request is byte for byte the one
+  prepared, and makes any other call against the site as it is then. The
+  router names each change's targets; code adds what each step is known to
+  write and read, waits a part that refers to something another part
+  creates, and prepares a part only when no earlier unfinished part writes
+  what its step reads or conflicts with what it writes.
+- **One owner per preparation** (2026-10-09). A consumer takes a sent
+  preparation (`attempting` → `running`, with its owner token) in one write
+  of the request record on its etag before any call; a second delivery finds
+  it taken and does nothing. Only that owner's outcome is kept. Every call
+  and every purchase note (`buying` before, `bought` or `none` after) goes to
+  the attempt's own file as it happens. An attempt is taken again after 10
+  minutes from when it was taken; the new attempt reuses the old one's calls
+  and pictures, and ends `uncertain`, with no call, when a purchase's outcome
+  is unknown; the part's job then uses whatever that purchase landed.
 - **A part only the full rewrite can make waits for the customer's
   go-ahead on the request itself**, with its files kept. The go-ahead is
   written before anything depends on it, and the server files the existing
@@ -506,11 +516,15 @@ executed).
 
 ## Limits, as built
 
-- **Preparation beside the running job (2026-10-08)**: writes stay one at a
-  time per site (the database's `site_busy`); only routings and the text,
-  menu and picture steps are prepared; a prepared call or picture no job
-  uses is ours; with no targets named a part is the whole site and nothing
-  is prepared beside it. In full: `docs/history/2026-10-08-parallel-requests.md` §9.
+- **Preparation beside the running job (2026-10-08, widened 2026-10-09)**:
+  writes stay one at a time per site (the database's `site_busy`); the logo
+  step has nothing to prepare; an add-on that needs a new database is
+  prepared only up to its design; a first Build has no orchestration beyond
+  its existing design graph; a prepared call or picture no job uses is
+  ours, and so is a second purchase after an `uncertain` one that never
+  landed; with no targets named a part is the whole site and nothing is
+  prepared beside it. In full:
+  `docs/history/2026-10-09-parallel-round-2.md` §8.
 
 - **Supplied model answers only.** No real-model evidence: not for the
   add-on picker's `scopes`, the router's relations, or any reply.
