@@ -14,8 +14,15 @@ is in git; the dated entries further down are the full story.*
   `19b1628df403`, a cold container answered `9236fe341b77544d`, and every free
   check passed, with nothing charged. Run 114 (20:37) had been pressed inside
   the image window and with a wrong sha I handed over; nothing was charged.
-- **Next**: raise the balance from 18 to between 20 and 30 (on your word),
-  then press A, `lv-parallel`.
+- **Run 116** (22:26 UTC, press A) stopped at its funds check: the balance
+  (18) was below the budget of 20. Nothing was sent or charged, and the
+  focaccia read 4.5 on both readers and £4.50 on `/order`.
+- **Funds**: 1000 credits added at your request (*"Just add 1000 credits to
+  that account"*), 18 → **1018** at 22:31 UTC. Read back at once: 1018, the
+  last ledger row still 416, no job open.
+- **Press A's hard cap is 30**, so at 1018 it refuses before sending (*"the
+  balance is above this press's hard cap"*). The next step is your choice on
+  that cap.
 
 **Where it stood before the deploy**
 - **Production was deploy 2189**:
@@ -189,6 +196,18 @@ is in git; the dated entries further down are the full story.*
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — Run 116 stopped by its funds check; 1000 credits added at your request
+
+- **Run 116** (run 37999210083, 22:26 UTC, `lv-parallel` from `main`)
+  stopped before sending: the balance was 18, below the budget of 20.
+  Nothing was charged, and the focaccia read 4.5 everywhere.
+- **Funds**: at your request, 1000 credits were added to the building
+  account, 18 → **1018** (22:31 UTC). Read back: 1018, last ledger row 416,
+  no job open.
+- **Press A's hard cap (30) now refuses it** at this balance.
 
 ---
 
