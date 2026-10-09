@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 5: pending add-on photos, Build's ready inputs, Build's live lines, a seven-task batch, ending in `be9803a0` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 6: an addition's photograph kept for its frame whatever the TSX and however late, ending in `36d431e2` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,150 +10,133 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review of
-  `bc35a9b6` (61 focused tests, all passed) is kept as it was; the purchase
-  audit was not restarted. This round is:
-  - `b4fe40cb`: add-on photographs waiting on a purchase;
-  - `458080fb`: a first Build's fonts and translations beside its
-    photographs;
-  - `b59ba99b`: a first Build's live lines;
-  - `8410e6a2`: an uncertain preparation's answers reused, and the
-    seven-task batch;
-  - `8753a065`: three guards re-anchored, and BLD 12;
-  - `be9803a0`: APH 5, which the sweep asked for;
+- **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review
+  of `249eb4ae` (47 focused offline tests, all passed) is kept as it was;
+  the Build progress, the font and translation overlap and the seven-task
+  flow are untouched. This round is:
+  - `cd70e5e7`: frames found through the syntax tree, and late purchases
+    kept;
+  - `5f9a7134`: APF 8, a claim that never landed before the wait ended;
+  - `36d431e2`: the sweep's three asks (APF 9, two PF 3 cases, one dead
+    guard removed);
   - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
 
-**1. Add-on photographs waiting on a purchase** (`b4fe40cb`)
-- **Before**: a photograph whose purchase could not be told left an empty
-  frame and ended the part partial, for good.
-- **Now**:
-  - the page is published with that frame **marked** with the purchase;
-  - the part is **held**, not ended, and the independent parts carry on;
-  - once the purchase is known, a **placement step** fills exactly that
-    frame and publishes once. It never redoes the addition, never buys
-    blindly and never needs the message sent again;
-  - a frame removed meanwhile, or a purchase with no picture, is told and
-    the part ends partial;
-  - held past a day, the part ends partial, because the addition is live.
-- The card reads **"Added — photo still being confirmed"** (screenshot sent
-  in the chat).
+**1. Codex's reproduction, closed**
+- `src={"@@IMG:…@@"}` with the three upload writes failing used to end the
+  part **partial**, the purchase `generated` and no frame marked, because
+  `markPending` replaced one exact spelling.
+- **Now** the page's own parser (`tweakParser`, already used for menus)
+  finds every string literal whose **whole value** is the token:
+  - any quoting: `"…"`, `'…'`, `{"…"}`, a template literal;
+  - a kit element or a site component (`<Card image="…" />`);
+  - a value a shared component reads: a list entry, a variable, a fallback
+    (`a ?? "…"`). The component's own file is named by its real path.
+- Each frame becomes an empty string with the purchase's mark beside it, a
+  comment. It renders exactly as an unfilled frame.
+- **Never guessed**: a token inside a longer string (`url(…)`, a
+  concatenation), in text, as a key, in an element access or a type, beside
+  an occurrence the tree can't account for, in a file that doesn't parse,
+  or with no parser at all. The purchase stays **pending work with no
+  frame**, told so, and saved to your images when it lands.
+- **Every copy or none**: a repeated token is marked only if every copy is
+  a safe frame.
 
-**2. Build: what depends on what** (`458080fb`)
-- Read from the code: photographs need only the design; fonts only the CSS;
-  translations only the written pages' words.
-- **Fonts and translations now start at the image step, beside the
-  photographs.** The compile uses those answers. The first run (which never
-  compiles) fetches no fonts.
-- **Stays in order**: provisioning → schema → seed, the look merge, the
-  compile, the render check and the publish. The design graph is the
-  existing one, not counted as new. The one-page and fifteen-component
-  maxima are unchanged.
+**2. The placement**
+- It fills a mark only while the literal before it is **still empty**. So:
+  - a frame you changed (your own picture in it) is kept, nothing is
+    bought for it, and nothing is published;
+  - a removed frame is told;
+  - with no frame, the purchase is **only read**, never begun.
+- One provider call per photograph, one publish, charged only for what is
+  placed.
 
-**3. Build: live lines written by the model** (`b59ba99b`)
-- A first build keeps its own progress record. **Each step its trace really
-  records** becomes facts the existing writer puts into words, including
-  "waiting for N photographs still being bought" and "recovered a
-  photograph instead of buying it again".
-- **No fact calls preparation published**: each says "not published yet"
-  or "before it is published".
-- The resume takes the record over and closes it at the end. The progress
-  sweep covers build jobs. The poll hands the lines to the stage panel
-  (screenshot sent in the chat).
+**3. The timing gap, and its cause**
+- **The cause**: the add-on hands its job clock to the photograph wait,
+  which read only a build budget's `remainingMs()`. An edit job's clock
+  answers `remaining()`, so **the add-on always waited for every shot**. On
+  a finite Worker job a slow photograph could carry the job past its
+  deadline with the addition unpublished.
+- **Now** the wait reads either clock. An infinite clock (a container's)
+  still waits for every shot.
+- The buyer reports each shot's identity **before any waiting**. A shot
+  still out when the wait ends is marked under that identity
+  (`why: in-flight`), and the part is held. When it lands, the next look
+  places it: one provider call, no new purchase, the addition not redone.
+- A purchase whose claim never landed counts as nothing begun. The next
+  look claims it in one conditional write and buys it once. The original
+  call, freed later, finds that claim and buys nothing.
 
-**4. The seven-task batch** (`8410e6a2`)
-- One message, seven tasks (the limit is three preparations at once):
-  - a text change;
-  - a photograph whose store fails three times;
-  - a menu link named before the page it needs;
-  - a heading sharing the photograph's page;
-  - a photograph that asks a question;
-  - a page tweak;
-  - an addition.
-- Through the real Worker, queue, driver and cron, with no page open.
-- **Proved**:
-  - three preparations claimed and never more at once, and freed slots
-    refilled;
-  - the photograph bought and five tasks routed **while the first task's
-    job was inside its model call**;
-  - the waits that must stay (same page, every page, the page list);
-  - the menu link after its page;
-  - the failed store finished on the same picture;
-  - the question pausing only its task;
-  - **every change on the site**;
-  - eight routing calls (the message, six parts and the answer), one call
-    per step and two purchases;
-  - six publishes, the menu link satisfied with nothing published;
-  - no job charged twice.
-- A second case delivers every message twice and reaches the same end state.
-- **It found a real gap, now fixed**: a preparation ending uncertain (its
-  photograph made, not stored) had its routing and picture answers thrown
-  away, and the part's jobs asked both again. They are now reused.
+**4. What you'd see**
+- The add-on's publish milestone keeps "publishing the additions" as its
+  own fact. Each waiting photograph is a separate fact: `next` ("not on the
+  page yet; goes in by itself once confirmed") or `notdone` (no frame; it
+  won't go in by itself). None says anything is published before it is.
+- The reply says whether the photograph was still being made or its
+  purchase can't be told, and whether it goes in by itself. Each placement
+  outcome has its own sentence: frame gone, frame changed, no safe frame,
+  couldn't be checked, saved to your images.
 
-**What overlaps, what stays in order** (supplied answers only)
-
-| Path | Overlaps | Stays sequential |
-|---|---|---|
-| Edit: text, menu, picture, look, data, rules | full preparation beside another task's job | a step whose inputs an earlier, unapplied part writes |
-| Edit: page (tweak, rewrite) | full preparation when no earlier part writes a page | behind any earlier page write (its fallback writer sees every page) |
-| Add-on, no new database | full preparation; **an unknown photograph placed later into its marked frame** | its work behind earlier page changes; later routings behind an addition |
-| Add-on needing a new database | preparation up to its design | provisioning onward |
-| Edit: logo | routing only | its step |
-| Build: photographs | beside the page writing | — |
-| **Build: fonts, translations** | **beside the photographs** | — |
-| Build: provisioning, schema, seed, look merge, compile, render check, publish | — | **in order** |
-| Writes to one site | — | one at a time |
-
-**Tests actually run** (supplied model answers, a stand-in image service, the
-network blocked)
-- `test/addon-pending-photo.test.mjs`:
-  - APH 1: the store fails, then the picture is placed by itself.
-  - APH 2: the call's answer is lost; your buy-again places one new
-    photograph.
-  - APH 3: the frame is gone; the part ends partial.
-  - APH 4: held for a day; the part ends partial.
-  - APH 5: the purchase can't be read when the placement runs; held again.
+**Tests actually run** (supplied model answers, a stand-in image service,
+the network blocked)
+- `test/addon-pending-forms.test.mjs` (new), through the real Worker, queue,
+  driver and cron. Each case checks the final page, the task statuses,
+  provider calls, publication and accounting.
+  - APF 1: Codex's `src={"…"}`, plus single quotes and a template.
+  - APF 2: a shared component's list value.
+  - APF 3: no safe frame.
+  - APF 4: the wait ends mid-purchase, then completes.
+  - APF 5: every message delivered twice.
+  - APF 6: a frame changed before placement.
+  - APF 7: the progress facts.
+  - APF 8: a claim that never landed.
+  - APF 9: the same, with no frame, so it's never bought.
   - A network check.
-- `test/build-parallel.test.mjs`:
-  - BLD 9: fonts and the translation beside the photographs.
-  - BLD 10: model lines from real steps, the poll, the resume taking over,
-    the recovery said, nothing called published.
-  - BLD 11: the wait written while the purchases are held.
-  - BLD 12: a lost progress message found by the sweep.
-- `test/parallel-batch.test.mjs`: BATCH, BATCH 2 (redelivered) and a network
-  check.
-- **Red check** on `bc35a9b6`: **9 of 9 new behaviour cases fail** at their
-  expected points; BLD 1–8 and the network checks pass there.
-- **Sweep**: **20 of 20 product mutants killed**, and the control survived.
-  The first round's one survivor became APH 5.
-- **Full suite**: **`10234 / 10234 / 0 / 0`** on `be9803a0` (was 10221).
-- **Required CI**: green.
-  - Unit tests on `be9803a0` (run 37882218749): `10234 / 10193 / 0 / 41`.
-  - Site build on `8410e6a2` (run 37881463668): green.
-- **The next image, predicted** (not built): `335396c8c0e0fbcb` →
-  **`54baf083174f53a5`** (202 inputs).
+- `test/pending-frames.test.mjs` (new), PF 1–4: every form marked and filled
+  with the real parser, every form that must stay unlocated, every fill
+  outcome.
+- Also: a `photoWait` case for the edit clock in `ship-anyway`; APH 1–5 and
+  two wiring guards moved to the new mark.
+- **Focused run**: these files plus the seven-task batch
+  (`parallel-batch`) and Build progress (`build-parallel`), all with the
+  network blocked: **`36 / 36 / 0 / 0`**.
+- **Red check** on `249eb4ae`:
+  - APF 1, 2, 3 and 5 end partial (APF 1 is Codex's reproduction);
+  - APF 4 hangs;
+  - APF 6 can't find your picture;
+  - APF 7 has no waiting fact;
+  - `pending-frames` can't load.
+  That is 7 of 7 integration cases failing, plus the unit file. APF 8 and
+  9 were written later.
+- **Sweep**: **19 of 19 product mutants killed**, and the control survived. The
+  first round's three survivors became APF 9 and two PF 3 cases, and one
+  unreachable guard was removed.
+- **Full suite**: **`10249 / 10249 / 0 / 0`** on `36d431e2` (was 10234).
+- **Required CI**: green on `36d431e2`: unit tests (run 37890100961) `10249 / 10208 / 0 / 41`, the same total as locally (CI skips 41); site build (run 37890101484) green.
+- **The next image, predicted** (not built): `335396c8c0e0fbcb` → **`dbaeecfe12cea870`** (202 inputs).
 
-**Not shown** (mocked, not live): real models' answers or the quality of
-their lines, live timing and overlap, the real image service, and whether a
-real router names targets well enough for the waits.
+**Not shown** (mocked, not live): a real page writer's TSX variety, the
+real image service, live timing, and a Worker job actually reaching its
+deadline.
 
-**Remaining gaps** (backlog)
-- An add-on photograph still in flight when the add-on's own wait ended, or
-  one not in a `src="…"` attribute, is not marked for later.
-- Photographs bought outside a request part or a build have no purchase
-  record.
+**Remaining acceptance blockers**
+- A token inside a longer string (a CSS `url(…)`, a concatenation) is never
+  placed automatically. It's told, and saved to your images.
+- A page-filed add-on job (not a request part) has no purchase record, so a
+  shot still out at its wait's end is told as unresolved.
+- On a Worker that can't load the parser, nothing is marked. Every waiting
+  photograph is pending with no frame, and told.
 - The image provider has no idempotency key or lookup.
-- A page step waits behind any earlier page write.
-- Build lines are written only on the queued path, with the default quick
-  model.
-- No real-model, real image service or live run.
+- No real-model, real image service or live run. **The add-on's wait now
+  ends on a finite job clock**, where before it waited for every shot. That
+  needs its own live look before any release.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
 - Any release: one merge, one image build, its own runtime check.
 
-**Links**: `docs/history/2026-10-09-parallel-round-5.md` (this round),
-`docs/history/2026-10-09-parallel-round-4.md`, `docs/request-flow.md`,
+**Links**: `docs/history/2026-10-09-parallel-round-6.md` (this round),
+`docs/history/2026-10-09-parallel-round-5.md`, `docs/request-flow.md`,
 `docs/backlog.md`.
 
 ## How you like things done
@@ -163,6 +146,32 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 6: an addition's photograph kept for its frame, whatever the TSX and however late (on the branch, `36d431e2`; nothing merged, deployed, built or paid)
+
+You asked me to close the remaining add-on photograph recovery gaps
+together, after Codex reproduced one with `src={"…"}`.
+
+- **The frame is found through the page's own parser**, not one spelling.
+  This covers any quoting, a component's prop, and a shared component's
+  value. Where it can't be safely found, nothing is guessed: the photograph
+  stays pending work with no frame, is told, and is saved to your images
+  when it lands.
+- **A photograph still being made when the add-on's wait ends** is kept as
+  pending work under the identity saved before waiting. It goes into its
+  frame later, without buying again or redoing the addition.
+- **The cause of the timing gap**: the add-on's wait never read an edit
+  job's clock, so it always waited for every photograph.
+- **A frame you changed or removed meanwhile is never overwritten.**
+- Results:
+  - red check: 7 of 7 integration cases fail on `249eb4ae`;
+  - focused run: 36 of 36, with the seven-task and Build-progress files,
+    network blocked;
+  - sweep: 19 of 19 killed;
+  - suite: 10249 of 10249;
+  - CI: green.
+- Supplied model answers only; nothing live. Full record:
+  `docs/history/2026-10-09-parallel-round-6.md`.
 
 ## 2026-10-09 — Parallel tasks round 5: pending add-on photos, Build's ready inputs, Build's live lines, a seven-task batch (on the branch, `be9803a0`; nothing merged, deployed, built or paid)
 

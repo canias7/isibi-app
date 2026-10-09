@@ -77,14 +77,22 @@
   until then the part is held with `store-pending`, and the held answer says
   the picture was made and is being saved.
 - **An addition's photograph waiting on its purchase** (2026-10-09, round 5,
-  `docs/history/2026-10-09-parallel-round-5.md`). The addition publishes
-  with that frame marked (`src="" data-pending-photo="<purchase id>"`) and
-  answers `pendingPhotos`; the part is held `uncertain` (`photos-pending`)
+  `docs/history/2026-10-09-parallel-round-5.md`, and round 6). The frame is
+  found through the page's parser: any string literal whose whole value is
+  the token, in any quoting, on any element or component, or a value a
+  shared component reads. It becomes `"" /*pending-photo:<purchase id>*/`
+  (braced when it was a bare attribute). A token the tree cannot place
+  safely is pending with no frame (`located: false`), never guessed. A shot
+  still being made when the add-on's wait ends is pending under the identity
+  the buyer saved before waiting (`why: in-flight`). The addition publishes
+  and answers `pendingPhotos`; the part is held `uncertain` (`photos-pending`)
   with `published: true` and what is left to place. Once the purchase is
   known, the part runs a placement step (a picture job carrying `place`):
-  each photograph into exactly its marked frame, one publish, charged by the
-  count placed. A frame gone or a purchase with no picture is told in
-  `notPlaced` and the part ends partial; held past a day, the part ends
+  each photograph into exactly its marked frame, filled only while the
+  literal before the mark is still empty, one publish, charged by the count
+  placed. A frame gone or changed, no frame, no parser, or a purchase with
+  no picture is told in `notPlaced` and the part ends partial; with no
+  frame to fill the purchase is only read, never begun; held past a day, the part ends
   partial (`photos-unconfirmed`), because the addition is live.
 - **An uncertain preparation's answers are reused** (round 5). A
   preparation that ended uncertain hands its own recorded routing and step
