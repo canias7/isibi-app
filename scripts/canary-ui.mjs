@@ -851,7 +851,10 @@ export const UI_SCENARIOS = Object.freeze({
   // routing 1. The price is kept (the demo-site rule).
   "lv-parallel": Object.freeze({
     site: "fold-lane-bakery", request: true,
-    budget: 20, fundsFirst: true, cap: 30, addon: true,
+    // THE HARD CAP, 1018 (2026-10-09, the owner's choice after adding 1000
+    // credits): the account holds 1018, and the press still stops at its
+    // budget of 20.
+    budget: 20, fundsFirst: true, cap: 1018, addon: true,
     layers: Object.freeze(["text", "data", "nav"]),
     row: FOCACCIA_ROW,
     expect: Object.freeze({

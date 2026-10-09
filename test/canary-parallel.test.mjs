@@ -38,7 +38,8 @@ test("lv-parallel: on the bakery, in request mode, two messages word for word â€
   // and is no more than the cap.
   assert.equal(LP.budget, 20);
   assert.equal(LP.fundsFirst, true);
-  assert.ok(LP.cap >= LP.budget && LP.cap <= 30, "cap " + LP.cap);
+  // THE HARD CAP: 1018, the owner's choice once the account held 1018 (2026-10-09).
+  assert.equal(LP.cap, 1018);
   // WALLS: the footer link's add-on hand-over to the menu step, the price's
   // data step and the heading's text step â€” nothing that rewrites a page.
   assert.equal(LP.addon, true);

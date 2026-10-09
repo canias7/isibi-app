@@ -20,9 +20,13 @@ is in git; the dated entries further down are the full story.*
 - **Funds**: 1000 credits added at your request (*"Just add 1000 credits to
   that account"*), 18 → **1018** at 22:31 UTC. Read back at once: 1018, the
   last ledger row still 416, no job open.
-- **Press A's hard cap is 30**, so at 1018 it refuses before sending (*"the
-  balance is above this press's hard cap"*). The next step is your choice on
-  that cap.
+- **Press A's hard cap is now 1018**, your choice. It was 30, which would
+  have refused at this balance. The change is on the branch only, so press
+  from the branch.
+- **What still bounds it**: the budget of 20 is checked before each message
+  is sent. A request the server has taken on runs to its end whatever it
+  costs. So the first message's request is bounded by nothing but the
+  balance; it is estimated at 11–17, and run 113 took 12.
 
 **Where it stood before the deploy**
 - **Production was deploy 2189**:
@@ -207,7 +211,8 @@ since. Add new ones there.
 - **Funds**: at your request, 1000 credits were added to the building
   account, 18 → **1018** (22:31 UTC). Read back: 1018, last ledger row 416,
   no job open.
-- **Press A's hard cap (30) now refuses it** at this balance.
+- **Press A's hard cap**: raised from 30 to 1018 at your choice, on the
+  branch, so it accepts this balance. Its budget of 20 still stops it.
 
 ---
 
