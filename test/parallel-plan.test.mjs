@@ -259,3 +259,16 @@ test("routedForPrep: the step a prepared routing chose is held back when the par
   assert.ok(w.targets.writes.includes("component:siteheader"));
   assert.equal(rec.parts[1].phase, "route", "the record itself was changed");
 });
+
+test("the progress writer is told what a task being prepared has actually reached — worked out or being worked out, and not on the site yet — never that it is done", async () => {
+  const { otherParts, progressContext, openRecord } = await import("../builder/site-progress.mjs");
+  const now = Date.now();
+  const rec = openRecord({ job: "a".repeat(32), run: "run-1", uid: "u", slug: "fold-lane", words: "change the TikTok link", op: "edit", pages: ["/"], at: 1, request: { key: PKEY, part: 0 } });
+  assert.ok(rec && rec.request, "no progress record");
+  const req = (prep) => ({ uid: "u", parts: [{ n: 0, words: "change the TikTok link", status: "started", seq: 1, phase: "run" }, { n: 1, words: "add a gallery page", status: "ready", seq: 1, phase: "run", prep }] });
+  const said = (prep) => progressContext(rec, { others: otherParts(rec, req(prep)) });
+  assert.match(said({ seq: 1, for: 1, phase: "run", state: "running", owner: "o", startedAt: now, at: now }), /“add a gallery page” \(being worked out alongside this one; nothing of it is on the site yet\)/);
+  assert.match(said({ seq: 1, for: 1, phase: "run", state: "done", outcome: "ready", at: now }), /“add a gallery page” \(worked out and waiting its turn to go on the site; not on the site yet\)/);
+  assert.match(said(null), /“add a gallery page” \(not started yet\)/, "CONTROL: a task with no preparation");
+  assert.doesNotMatch(said({ seq: 1, for: 1, phase: "run", state: "done", outcome: "ready", at: now }), /add a gallery page” \(finished/);
+});

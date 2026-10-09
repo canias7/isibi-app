@@ -450,7 +450,10 @@ test("the data and rules rungs reserve through `before`, answer `unbilled` befor
   for (const [who, run, cost] of [["data", "runDataEdit(", "dCost"], ["rules", "runRulesEdit(", "rCost"]]) {
     const start = at(route, run, who + " call");
     const call = route.slice(start, start + 900);
-    assert.match(call, new RegExp("before: async \\(usage\\) => \\{ " + cost + " = await eCharge\\(usage\\); " + cost.replace("Cost", "Billed") + " = true; return !\\(eCharges\\.refused\\(\\) > 0\\); \\}"),
+    // RE-ANCHORED 2026-10-09 (the parallel-tasks batch): a preparation's stop
+    // may come first in the hook — it counts the stop and answers false, so
+    // nothing is reserved and nothing is written; the reserve is unchanged.
+    assert.match(call, new RegExp("before: async \\(usage\\) => \\{ (?:if \\(isPrep\\) \\{ eJob\\.reached = \\(Number\\(eJob\\.reached\\) \\|\\| 0\\) \\+ 1; return false; \\} )?" + cost + " = await eCharge\\(usage\\); " + cost.replace("Cost", "Billed") + " = true; return !\\(eCharges\\.refused\\(\\) > 0\\); \\}"),
       who + ": the module is not handed a `before` that reserves and reads the route's refusals");
     // THE HOOK RESERVES, AND THE HOOK ALONE. A refusal answers before a write
     // and, on every later reply, the recorded charge is reported rather than a

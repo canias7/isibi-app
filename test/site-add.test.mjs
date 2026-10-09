@@ -375,7 +375,9 @@ test("every field the edit path refuses to create has a kind here, and the route
   // and went red on 2026-09-13 for an honest extra argument — the coverage
   // record — reporting the keep as gone when it had only grown. The property is
   // the ORDER: kept, then the decline may return.
-  const keep = b.indexOf("await saveAddonAnswer(env, ownerSlug, {", runAt);
+  // RE-ANCHORED 2026-10-09: the keep goes through `aKeepAnswer`, which saves
+  // exactly as before except under a preparation, which keeps nothing.
+  const keep = b.indexOf("await aKeepAnswer(env, ownerSlug, {", runAt);
   const decline = b.indexOf('error: "declined"', runAt);
   assert.ok(keep > runAt && decline > keep, "the designers' replies are not kept before the decline returns");
   // AND THE DEVELOPER RECORD GOES WITH THEM (owner, 2026-09-13): the counts,

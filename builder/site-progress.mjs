@@ -991,7 +991,7 @@ export function progressContext(rec, { others = [] } = {}) {
   // of its own, finished or still to come, that this update must not take for
   // its own — read off the request when the line is written (`otherParts`).
   const rest = (Array.isArray(others) ? others : []).filter((o) => o && typeof o.words === "string" && o.words.trim() && Object.hasOwn(STATE_SAID, o.state));
-  if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + STATE_SAID[o.state] + ")").join("\n"));
+  if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + (Object.hasOwn(PREP_SAID, o.prep) ? PREP_SAID[o.prep] : STATE_SAID[o.state]) + ")").join("\n"));
   if (rec && rec.lines.length) lines.push("WHAT YOUR EARLIER UPDATES SAID, IN ORDER:\n" + rec.lines.map((l) => "- " + flat(l.text)).join("\n"));
   return lines.join("\n\n");
 }
@@ -1016,6 +1016,16 @@ const STATE_SAID = Object.freeze({
 });
 
 /**
+ * A PART BEING PREPARED BESIDE THIS ONE (2026-10-09), as the writer is told
+ * it: what has actually happened to it — worked out, or being worked out —
+ * and that none of it is on the site yet, so no line says it is done.
+ */
+const PREP_SAID = Object.freeze({
+  preparing: "being worked out alongside this one; nothing of it is on the site yet",
+  prepared: "worked out and waiting its turn to go on the site; not on the site yet",
+});
+
+/**
  * THE OTHER PARTS OF A JOB'S REQUEST, from the request record as it stands:
  * each part but the job's own, in the customer's words as its card shows them
  * (`shown`, then `words`), with its state (`PART_STATE`). [] when the job is
@@ -1031,7 +1041,8 @@ export function otherParts(rec, request) {
     // A PART BEING PREPARED BESIDE THIS ONE (2026-10-08) is in progress, as
     // its card says — never finished until its own job applied it.
     // The record's own reading (`prepState`), freshness included.
-    out.push({ n: p.n, words, state: prepState(p) ? "doing" : PART_STATE[p.status] });
+    const prep = prepState(p);
+    out.push({ n: p.n, words, state: prep ? "doing" : PART_STATE[p.status], ...(prep ? { prep } : {}) });
   }
   return out;
 }
