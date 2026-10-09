@@ -169,7 +169,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -13674,7 +13674,19 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   let bParent = "";
   try { const p = await readPointer(buildDeps(env), slug); bParent = p ? p.version : ""; }
   catch (e) { console.error("pointer unreadable before build:", slug, e && e.message); bParent = ""; }
+  // THE BUILD'S PHOTOGRAPH TASK (2026-10-09, round 3): started beside the
+  // page generation (`prefetch`), joined at `images`, and every purchase it
+  // began settled before this function hands the build on — so a build that
+  // walks away to wait for its container leaves no purchase in flight.
+  const photoKey = "build-" + String(jobId || "inline-" + bVersion).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  const photoOwner = "build:" + String(jobId || bVersion).slice(0, 64);
+  let photoTask = null;
   const out = await publishPages({
+    prefetch: ({ balance }) => {
+      if (photoTask || !Array.isArray(imgBrief)) return;
+      photoTask = startBuildPhotos(env, { slug, brief: imgBrief, balance, key: photoKey, owner: photoOwner });
+      try { mark?.("photos-alongside", { started: photoTask.started }); } catch { /* a trace must never break a build */ }
+    },
     // THE PAGE READER the published pictures are checked with (2026-10-08, the
     // eighth batch): whether a published route renders each bought picture.
     // A Worker bundle resolves none, and then every published picture is told
@@ -13974,7 +13986,20 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // the rule that stopped them, so the answer accounts for every one.
       // THE PICTURE FACTS EITHER WAY IT ENDS (`withPictureFacts`, 2026-10-08,
       // the sixth batch): a throw keeps what was known before it.
-      return withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget }), { plan, budget: imgBudget, notOffered: imgNotOffered });
+      // JOINED WITH THE PHOTOGRAPH TASK (2026-10-09, round 3): every token is
+      // the build's logical purchase — one in flight is waited for, one bought
+      // is reused, one the writer changed is bought now — and a picture the
+      // task bought that no page wrote is told as stored (`alongside`), never
+      // as placed, and is not in `made`, which is what the bill counts.
+      return withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget, buy: purchaseBuyer(env, { slug, key: photoKey, n: 0, owner: photoOwner, pending: photoTask ? photoTask.pending : null }) })
+        .then(async (r) => {
+          if (!photoTask || !r || typeof r !== "object") return r;
+          const done = await photoTask.settled;
+          const placed = new Set((Array.isArray(r.bought) ? r.bought : []).map((x) => x && x.url));
+          const alongside = done.filter((x) => typeof x.url === "string" && x.url && !placed.has(x.url)).map((x) => ({ key: x.d, url: x.url, alongside: true }));
+          try { mark?.("photos-joined", { started: photoTask.started, used: done.filter((x) => x.url && placed.has(x.url)).length, unused: alongside.length }); } catch { /* a trace must never break a build */ }
+          return alongside.length ? { ...r, bought: [...(r.bought || []), ...alongside], alongside: alongside.length } : r;
+        }), { plan, budget: imgBudget, notOffered: imgNotOffered });
     },
     compile: async (pages, builtParts) => {
       // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
@@ -14379,6 +14404,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // keeps every page it did not return and the components those pages import,
   // and takes a page off only when it names it in `remove`.
   }, { spec, slug, priorUsage, livePages, priorPages, priorParts });
+  // EVERY PURCHASE THE PHOTOGRAPH TASK BEGAN HAS ENDED before the build is
+  // handed on — to its resume, its reply or its refund — and each is recorded
+  // as the build's logical purchase, which the resume reads.
+  if (photoTask) { try { await photoTask.settled; } catch { /* each is recorded on its own */ } }
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   // AND WHETHER THE SITE IS SERVED BY ITS OWN SCRIPT.
   //
@@ -17023,18 +17052,56 @@ async function partPurchases(env, { slug, key, n }) {
  * ended. `key` and `n` name whose purchases they are — a request part's, or a
  * build's (`n` 0).
  */
-function purchaseBuyer(env, { slug, key, n, owner }) {
+function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
   const seen = new Map();
   return async (prompt) => {
     const d = String(prompt || "");
     const k = seen.get(d) || 0;
     seen.set(d, k + 1);
+    // THE SAME PURCHASE STILL IN FLIGHT IN THIS INVOCATION (a build's photo
+    // task, begun beside its pages): waited for, never begun a second time.
+    if (pending && pending.has(d + "\n" + k)) { try { await pending.get(d + "\n" + k); } catch { /* read on its record below */ } }
     let made = { url: null };
     const out = await purchaseOnce(env, { slug, key, n, d, k, owner, generate: async (dd, meta) => { made = await makeSitePhoto(env, slug, dd, meta); return made.url; } });
     if (out.state === "unknown") return { url: null, unknown: true };
     if (out.state === "bought") return { url: out.url };
     return { url: null, ...(made.error ? { error: made.error } : {}) };
   };
+}
+
+/** What a build's photo task holds back for its page generation: a first build's measured cost tops out near 45 credits, so this leaves room for it. */
+const BUILD_PHOTOS_RESERVE = 60;
+/**
+ * A FIRST BUILD'S PHOTOGRAPHS AS A TASK OF THEIR OWN (2026-10-09, round 3).
+ * They need only the design — each one's description is the design's own,
+ * and the page writer is handed exactly those words as its tokens — so they
+ * are bought beside the page generation instead of after it. Each is the
+ * build's logical purchase (`key`, part 0): durable across a resume or a
+ * retry, never bought twice. The image step joins them (`pending`): a token
+ * whose purchase is in flight waits for it; one the writer changed is bought
+ * then; one bought here and never written is told as stored, not on the site,
+ * and is not charged (the bill counts what the pages show).
+ *
+ * Bounded as the image step is: the design's budget, the library's room, and
+ * the balance less a reserve for the pages themselves. Answers `{ pending,
+ * settled, started }`; `settled` resolves to each purchase's ending.
+ */
+function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null }) {
+  const pending = new Map();
+  const list = Array.isArray(brief) ? brief.filter((s) => s && typeof s === "object" && !ownShot(s) && shotKey(s.describe)) : [];
+  let n = imagesAffordable(list.length, { balance, reserve: BUILD_PHOTOS_RESERVE, usd: SITE_PHOTO_USD });
+  if (Number.isInteger(room)) n = Math.min(n, Math.max(0, room));
+  const buyer = purchaseBuyer(env, { slug, key, n: 0, owner });
+  const seen = new Map();
+  const results = [];
+  for (const s of list.slice(0, Math.max(0, n))) {
+    const d = shotKey(s.describe);
+    const k = seen.get(d) || 0;
+    seen.set(d, k + 1);
+    const p = buyer(d).then((r) => { results.push({ d, ...r }); return r; }, () => { results.push({ d, url: null, error: "threw" }); return { url: null }; });
+    pending.set(d + "\n" + k, p);
+  }
+  return { pending, started: pending.size, results, settled: Promise.allSettled([...pending.values()]).then(() => results) };
 }
 
 /**

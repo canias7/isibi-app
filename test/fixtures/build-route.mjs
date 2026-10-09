@@ -32,6 +32,7 @@ const json = (v, s = 200) => new Response(JSON.stringify(v), { status: s, header
 export function buildBucket(entries = {}, hooks = {}) {
   const store = new Map(Object.entries(entries));
   const etags = new Map();
+  const meta = new Map();
   let n = 0;
   const tag = (k) => { if (!etags.has(k)) etags.set(k, "e" + (++n)); return etags.get(k); };
   const obj = (k, v) => ({ key: k, etag: tag(k), text: async () => v, json: async () => JSON.parse(v), arrayBuffer: async () => new TextEncoder().encode(v).buffer });
@@ -45,15 +46,18 @@ export function buildBucket(entries = {}, hooks = {}) {
       if (c && typeof c.etagMatches === "string" && (!store.has(k) || tag(k) !== c.etagMatches)) return null;
       store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : String(v));
       etags.set(k, "e" + (++n));
+      // ITS CUSTOM METADATA KEPT, as R2 keeps it (2026-10-09, round 3).
+      if (opts && opts.customMetadata) meta.set(k, opts.customMetadata); else meta.delete(k);
       return { key: k, etag: etags.get(k) };
     },
-    async delete(k) { store.delete(k); etags.delete(k); },
-    async list({ prefix = "", limit = 1000, cursor } = {}) {
+    async delete(k) { store.delete(k); etags.delete(k); meta.delete(k); },
+    async list({ prefix = "", limit = 1000, cursor, include } = {}) {
       const keys = [...store.keys()].filter((k) => k.startsWith(prefix)).sort();
       const from = cursor ? Number(cursor) || 0 : 0;
       const page = keys.slice(from, from + limit);
       const truncated = from + limit < keys.length;
-      return { objects: page.map((k) => ({ key: k, size: 1 })), truncated, ...(truncated ? { cursor: String(from + limit) } : {}) };
+      const withMeta = Array.isArray(include) && include.includes("customMetadata");
+      return { objects: page.map((k) => ({ key: k, size: 1, ...(withMeta && meta.has(k) ? { customMetadata: meta.get(k) } : {}) })), truncated, ...(truncated ? { cursor: String(from + limit) } : {}) };
     },
     async head(k) { return store.has(k) ? { key: k, size: 1 } : null; },
   };

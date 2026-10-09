@@ -776,6 +776,13 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     return out;
   }
 
+  // THE BUILD'S INDEPENDENT WORK, STARTED BESIDE THE PAGES (2026-10-09, round
+  // 3): the photographs the design already describes need nothing the page
+  // writer produces, so the caller starts them now, against the balance just
+  // read, and joins them at `images` below. Best effort: one that cannot start
+  // leaves the pictures to `images`, as before.
+  if (typeof deps.prefetch === "function") { try { deps.prefetch({ balance }); } catch { /* bought at `images` instead */ } }
+
   // BILLED ON WHAT THE CALL CONSUMED, UNLESS THE FAILURE WAS OURS — owner's call
   // 2026-08-08. This is the third position this line has held and the reasoning
   // for each is worth keeping, because the two earlier ones were each right
@@ -1401,6 +1408,12 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       // listing keeps the credit sentence, which is the honest answer when we
       // could not look.
       if (r && r.full === true) out.images.full = true;
+      // AND, ONLY WHEN THEY SAY SOMETHING (2026-10-09, round 3): pictures the
+      // build's photograph task bought that no page wrote (`alongside` — stored,
+      // not on the site, not in `made`), and tokens whose purchase nobody can
+      // tell was made (`unconfirmed` — left as the placeholder, never bought again).
+      if (r && Number.isInteger(r.alongside) && r.alongside > 0) out.images.alongside = r.alongside;
+      if (r && Array.isArray(r.unconfirmed) && r.unconfirmed.length) out.images.unconfirmed = r.unconfirmed.filter((x) => typeof x === "string");
       // THE PICTURES NO WRITER WAS OFFERED ride through by name (2026-10-08),
       // for the same reason `full` and `empty` do: `imageNote` reads this
       // object, and a list it never sees is a request nobody is told about.

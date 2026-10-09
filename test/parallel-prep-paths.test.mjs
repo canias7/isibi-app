@@ -237,3 +237,43 @@ test("REVALIDATED — a prepared page rewrite is NOT applied when the site chang
     },
   });
 });
+
+// ── THE PAGE TWEAK (2026-10-09, round 3: the recorded gap) ──────────────────
+
+/** The file a page tweak (`write_tweak`) is shown: its prompt carries it after "THE FILE (". */
+function shownFile(args) {
+  const content = String((args && args.messages && args.messages[0] && args.messages[0].content) || "");
+  const at = content.indexOf("\n\nTHE FILE (");
+  if (at < 0) return null;
+  const rest = content.slice(at + "\n\nTHE FILE (".length);
+  const close = rest.indexOf(")\n");
+  return { path: rest.slice(0, close), source: rest.slice(close + 2) };
+}
+
+test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the page's words kept, so not the page writer's rewrite) while a stored row's change is being chosen: nothing of the site written before its job, no rewrite ever asked for, and the tweak's answer applied once by the job", async () => {
+  const WORDS = "make the heading on the Visit page bigger";
+  const BIG = '<h1 className="text-5xl">Come to the bakery</h1>';
+  const db = loavesDb();
+  const shown = [];
+  await overlapCase({
+    slug: slugOf("tweak"), db, first: { kind: "data" },
+    other: {
+      words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+    },
+    check: {
+      before: (P) => {
+        assert.ok(!P.page("visit.tsx").includes(BIG), "the preparation wrote the page");
+        assert.equal(calls(P, T.tweak).length, 1, "the tweak was not made while the other task's job ran");
+        assert.equal(calls(P, T.pages).length, 0, "the preparation fell through to the page writer's rewrite");
+      },
+      after: (P) => {
+        assert.ok(P.page("visit.tsx").includes(BIG), "the page was not changed by its job");
+        assert.equal((P.page("visit.tsx").match(/text-5xl/g) || []).length, 1, "the tweak was applied twice");
+        assert.ok(P.page("visit.tsx").includes("We are on Harbour Street."), "the page's words were not kept");
+        assert.equal(calls(P, T.pages).length, 0, "an unintended rewrite was asked for");
+        assert.ok(shown.length >= 1 && shown.every((p) => /visit/.test(String(p))), "the tweak was shown another page: " + JSON.stringify(shown));
+      },
+    },
+  });
+});

@@ -1312,7 +1312,9 @@ export function buildReplyFacts(bf) {
   const odd = of("not-offered").filter((x) => !Object.hasOwn(offWhy, x.why));
   if (odd.length) F.add("not-done", "Pictures they asked for that were not made in this build: " + named(odd));
   const pending = of("unknown").filter((x) => x.why === "still-pending");
-  const unk = of("unknown").filter((x) => x.why !== "still-pending");
+  const unconfirmed = of("unknown").filter((x) => x.why === "purchase-unconfirmed");
+  const unk = of("unknown").filter((x) => x.why !== "still-pending" && x.why !== "purchase-unconfirmed");
+  if (unconfirmed.length) F.add("not-done", "Photographs whose purchase began earlier in this build and could not be confirmed either way; they were not bought a second time, so their places show the placeholder for now: " + named(unconfirmed));
   if (pending.length) F.add("not-done", "Photographs still being made when the build stopped waiting for them; whether the image service would have returned them is not known, and they are not on the site: " + named(pending));
   if (unk.length) F.add("not-done", "Photographs that were being bought when the purchase failed; whether any of them was made is not known: " + named(unk));
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u); } };

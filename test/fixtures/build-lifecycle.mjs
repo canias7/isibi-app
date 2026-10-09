@@ -76,20 +76,22 @@ export function replyAnswer(reply, seen, init) {
   return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "r1", name: "write_reply", input: { reply, covers: [...new Set(ids)] } }] });
 }
 
-export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [] } = {}) {
+export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [], env: extraEnv = {}, over = null, fire = null, credits = 400 } = {}) {
   b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
   let claimedSite = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
+    // A CASE'S OWN ANSWER FIRST (2026-10-09, round 3): the image service, say.
+    if (typeof over === "function") { const r = await over(u, init); if (r) return r; }
     if (u.includes("/auth/v1/user")) return json(BUILD_USER);
     const m = u.match(/\/rest\/v1\/rpc\/(\w+)/);
     if (m) {
       const args = JSON.parse(String((init && init.body) || "{}"));
       if (m[1] === "edit_claim") return json({ ok: true, claimed: true, state: "claimed", billing: "external", uid: BUILD_USER.id, slug: "build:x", needs_review: false });
-      if (m[1] === "build_debit") return json({ ok: true, taken: 2, balance: 400, repeat: false });
+      if (m[1] === "build_debit") return json({ ok: true, taken: 2, balance: credits, repeat: false });
       if (m[1] === "credit_reverse") return json(led.answer(args));
-      if (m[1] === "get_credits") return json(400);
+      if (m[1] === "get_credits") return json(credits);
       if (m[1] === "use_quota") return json(true);
       return json({ ok: true });
     }
@@ -119,7 +121,11 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
   try {
     const worker = await loadWorker();
     const ctx = makeCtx();
-    await worker.queue({ messages: [{ body: { kind: JOB_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SITES_BUCKET: b, SITE_BUILD_CONTAINER: container, BUILD_QUEUE: q }, ctx);
+    // THE GENERATION'S FIRE, HELD BY THE CASE (`fire`, 2026-10-09, round 3): the
+    // container accepting the page writer's call, while the case watches what
+    // else the build does meanwhile.
+    const held = typeof fire === "function" ? { idFromName: (n) => n, get: () => ({ fetch: async (...a) => { await fire(...a); return json({ ok: true, id: "gen-1" }); } }) } : container;
+    await worker.queue({ messages: [{ body: { kind: JOB_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SITES_BUCKET: b, SITE_BUILD_CONTAINER: held, BUILD_QUEUE: q, ...extraEnv }, ctx);
     await Promise.allSettled(ctx.pending);
   } finally { globalThis.fetch = real; }
   return q;

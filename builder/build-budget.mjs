@@ -301,6 +301,11 @@ export function budgetStage(steps) {
     // survives — the database is live, the schema applied, the look merged — and
     // the pages do not exist yet, which is exactly what "generate" says.
     fired: "generate",
+    // THE BUILD'S PHOTOGRAPH TASK STARTED BESIDE THE PAGES (2026-10-09, round
+    // 3): the pages are being written, not yet there — "generate" is true.
+    "photos-alongside": "generate",
+    // …AND JOINED AT THE IMAGE STEP, where the pages exist.
+    "photos-joined": "publish",
     // From here the pages exist, so the note stops saying they were not written.
     img: "publish", compile: "publish", container: "publish", og: "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.

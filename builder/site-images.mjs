@@ -1649,6 +1649,9 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
   const split = ok && Array.isArray(buy.refused) && Array.isArray(buy.unresolved);
   const refused = split ? keys(buy.refused) : null;
   const unresolved = split ? keys(buy.unresolved) : null;
+  // A PURCHASE BEGUN EARLIER AND NEVER KNOWN TO HAVE ENDED (2026-10-09, round
+  // 3): not bought again, its spot left as the placeholder.
+  const unconfirmed = ok ? keys(buy.unconfirmed) : new Set();
   const urlOf = new Map(ok && Array.isArray(buy.bought) ? buy.bought.filter((x) => x && typeof x.key === "string" && typeof x.url === "string").map((x) => [x.key, x.url]) : []);
   for (const s of offered) {
     const page = String(s.page || "/");
@@ -1659,6 +1662,7 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
     // the page's source and whether that source went live are later facts,
     // added by `pictureStages` from the final pages and the publish.
     if (bought.has(k)) out.push({ page, describe, status: "made", stage: "stored", ...(urlOf.has(k) ? { url: urlOf.get(k) } : {}) });
+    else if (unconfirmed.has(k)) out.push({ page, describe, status: "unknown", why: "purchase-unconfirmed" });
     else if (attempted.has(k) && split && unresolved.has(k)) out.push({ page, describe, status: "unknown", why: "still-pending" });
     else if (attempted.has(k) && split && !refused.has(k)) out.push({ page, describe, status: "unknown", why: "no-record" });
     else if (attempted.has(k)) out.push({ page, describe, status: "failed" });
