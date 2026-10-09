@@ -30,7 +30,7 @@ import { resumeKey } from "../builder/build-resume.mjs";
 import { buildReplyFacts } from "../builder/site-reply.mjs";
 import { blockNetwork, unexpected, clearUnexpected, blockedFetch, noteUnexpected } from "./fixtures/no-network.mjs";
 import { BUILD_USER } from "./fixtures/build-route.mjs";
-import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { progressKey } from "../builder/site-progress.mjs";
 
 blockNetwork();
@@ -535,6 +535,38 @@ test("BLD 11 — WAITING FOR A DEPENDENCY, SAID WHILE IT WAITS (round 5): the re
   assert.equal(img.log.length, PICS.length);
   assert.ok(rec.closed);
   noPublishClaim(allFacts(rec));
+});
+
+test("BLD 12 — A BUILD'S PROGRESS MESSAGE LOST, FOUND BY THE SWEEP (round 5): the first run's milestones wait and the message that would have asked for their writer never arrives; once the ask's grace has passed, the two-minute progress sweep reads the build's running row and asks again, and the lines are written — with no page open", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images();
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  const q = await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on" }, over: both, credits: 40 });
+  // THE MESSAGE IS LOST, and the ask's grace runs out.
+  q.sent = q.sent.filter((m) => !(m && m.kind === "edit-progress"));
+  const rec = stand.recOf();
+  assert.ok(rec && rec.marks.length > 0 && rec.lines.length === 0, "the case needs milestones waiting with no line");
+  b.store.set(progressKey(id), JSON.stringify({ ...rec, asked: Date.now() - 60 * 60 * 1000 }));
+  // THE SWEEP: the job table lists the build as running.
+  const sq = taskQueue();
+  globalThis.fetch = async (input, init) => {
+    const u = String((input && input.url) || input || "");
+    if (u.includes("/rest/v1/edit_jobs?select=id,uid,op,state&op=in.(") && u.includes("state=not.in.")) return json([{ id, uid: BUILD_USER.id, op: "build", state: "running" }]);
+    if (u.includes("/rest/v1/edit_jobs?select=id,uid,op,state&op=in.(")) return json([]);
+    const r = await stand.over(u, init);
+    if (r) return r;
+    noteUnexpected((init && init.method) || "GET", u, "build-parallel");
+    return new Response("no", { status: 503 });
+  };
+  try {
+    const mod = await loadWorkerModule();
+    await mod.runProgressSweep({ ...PROGRESS_ENV, SITES_BUCKET: b, BUILD_QUEUE: sq });
+  } finally { globalThis.fetch = blockedFetch; }
+  assert.equal(sq.sent.filter((m) => m && m.kind === "edit-progress" && m.id === id).length, 1, "the sweep did not ask for the build's writer");
+  await deliverProgress(b, sq, stand);
+  assert.ok(stand.recOf().lines.length >= 1, "no line was written after the sweep's ask");
 });
 
 test("NET — no request in this file left the machine", () => {

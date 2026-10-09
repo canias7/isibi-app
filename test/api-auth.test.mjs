@@ -1155,10 +1155,21 @@ test("adding two pageCredits results really does overcharge", async () => {
 // Latent only while the image balance is empty; the day it is funded it is live
 // money going out with nothing coming back.
 test("the picture layer bills the photographs it bought", () => {
-  const i = WORKER_SRC.indexOf('ok: true, layer: "picture"');
+  // RE-ANCHORED 2026-10-09 (parallel round 5): the lane now has three success
+  // responses — the placement step's two (nothing placed; photographs placed)
+  // come first — so the step's own response is found by its message field,
+  // and the placement's bill is held to the same rule below.
+  const i = WORKER_SRC.indexOf('ok: true, layer: "picture", msg: pOut.msg');
   assert.ok(i > 0, "the picture success response was not found");
   const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("});", i));
   assert.match(block, /images: pOut\.made\.length/, "the photographs are not priced into the bill");
+  // THE PLACEMENT STEP BILLS WHAT IT PLACED, once, and nothing when it placed nothing.
+  const pl = WORKER_SRC.indexOf('ok: true, layer: "picture", placed: plPlaced.length');
+  assert.ok(pl > 0, "the placement response was not found");
+  const plBlock = WORKER_SRC.slice(pl, WORKER_SRC.indexOf("});", pl));
+  assert.match(plBlock, /cost: await eCharge\(\[\], \{ images: plPlaced\.length \}/, "the placed photographs are not billed by count");
+  const none = WORKER_SRC.indexOf('ok: true, layer: "picture", placed: 0');
+  assert.ok(none > 0 && /cost: 0/.test(WORKER_SRC.slice(none, WORKER_SRC.indexOf("\n", none))), "placing nothing is not free");
   // ANCHORED ON THE PROPERTY: both parts reach ONE `eCharge`. It pinned the
   // exact argument list and went red when the publish result joined it — the
   // third thing this lane legitimately bills, since the spine's translation
