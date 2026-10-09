@@ -19,10 +19,10 @@ import { ownMoneyVerdict, routeCallsOf } from "../scripts/canary-ui.mjs";
 import { rqApp, drive, view, part, RQ_KEY, SITE } from "./fixtures/canary-rq-app.mjs";
 
 const LP = UI_SCENARIOS["lv-parallel"];
-const M1 = "Add a link to our YouTube channel in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Choose your loaf and a collection time' to 'Pick your loaf and a collection time'.";
-const M2 = "It's youtube.com/@harbourloaf";
+const M1 = "Add a link to our LinkedIn page in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Pick your loaf and a collection time' to 'Choose a loaf and a time to collect it'.";
+const M2 = "It's linkedin.com/company/harbourloaf";
 
-test("lv-parallel: on the bakery, in request mode, two messages word for word — the footer link first (it asks), the price and the heading beside it — then the answer, sent with its tab closed and followed in a fresh session; inside its budget, cap, walls and time; the focaccia kept", () => {
+test("lv-parallel: on the bakery, in request mode, two messages word for word — the LinkedIn footer link first (it asks), the price and the heading beside it — then the answer, sent with its tab closed and followed in a fresh session; inside its budget, cap, walls and time; the focaccia kept", () => {
   assert.ok(LP, "no lv-parallel scenario");
   assert.equal(readUiScenario("lv-parallel", "fold-lane-bakery").ok, true);
   assert.equal(readUiScenario("lv-parallel", "fretwork-1").ok, false);
@@ -47,8 +47,9 @@ test("lv-parallel: on the bakery, in request mode, two messages word for word �
   assert.equal(LP.expect.overlap, true);
   // THE MODEL'S PROGRESS LINES, CHECKED (restored after Codex's review of ac24aece).
   assert.equal(LP.expect.progress, true);
-  assert.deepEqual(LP.expect.social, { network: "youtube", host: "youtube.com", path: "/@harbourloaf" });
-  assert.deepEqual(LP.expect.headings, [{ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }]);
+  // FRESH TARGETS: run 113 kept YouTube in every footer and its heading.
+  assert.deepEqual(LP.expect.social, { network: "linkedin", host: "linkedin.com", path: "/company/harbourloaf" });
+  assert.deepEqual(LP.expect.headings, [{ route: "/order", from: "Pick your loaf and a collection time", to: "Choose a loaf and a time to collect it" }]);
   assert.deepEqual([...LP.covers], ["several-parts", "step-question", "answer-resumes"]);
   // THE ROW: the focaccia, 4.5 -> 4.6, KEPT (`restore: false`, the demo-site
   // rule), against the table as read whole on 2026-10-09: seven rows, the
@@ -211,13 +212,13 @@ test("the press's verdict carries the interval check only when the scenario asks
 // check, the row kept — and its money, reconciled to the charges.
 
 const PK = RQ_KEY(9);
-const W0 = "Add a link to our YouTube channel in the footer";
+const W0 = "Add a link to our LinkedIn page in the footer";
 const W1 = "change the Sea Salt Focaccia's price to £4.60";
-const W2 = "change the Order page heading 'Choose your loaf and a collection time' to 'Pick your loaf and a collection time'";
+const W2 = "change the Order page heading 'Pick your loaf and a collection time' to 'Choose a loaf and a time to collect it'";
 const said = (what) => ({ planned: `I'll ${what}.`, doing: `I'm going to ${what} now.`, waiting: `I need an answer before I ${what}.`, unconfirmed: `I tried to ${what}.`, done: `I've managed to ${what}.`, partial: `I did part of: ${what}.`, notdone: `I couldn't ${what}.` });
-const S0 = said("add the YouTube link"), S1 = said("change the focaccia's price"), S2 = said("change the Order heading");
+const S0 = said("add the LinkedIn link"), S1 = said("change the focaccia's price"), S2 = said("change the Order heading");
 const LN = (n, text, ms) => ({ n, ms, text });
-const Y1 = "I'm adding your YouTube link to the footer on every page.";
+const Y1 = "I'm adding your LinkedIn link to the footer on every page.";
 // THE RECORDED INTERVALS (ms on one clock): the footer link's add-on job asked
 // [1000, 3000]; the price's job ran [3500, 9000]; the heading was prepared
 // [1200, 6000], its step [4000, 6000] with two model calls — inside the price's
@@ -225,7 +226,7 @@ const Y1 = "I'm adding your YouTube link to the footer on every page.";
 const PREP2 = { seq: 1, from: 1200, to: 6000, outcome: "ready", step: { from: 4000, to: 6000, calls: 2 } };
 const RUNS = { y1: [1000, 3000], p1: [3500, 9000], h1: [9100, 12000], y2: [13000, 15000] };
 const runsOf = (...jobs) => jobs.map((j) => ({ job: j, from: RUNS[j][0], to: RUNS[j][1] }));
-const ASK = { id: "q-yt", text: "What is the address of your YouTube channel?", options: [] };
+const ASK = { id: "q-li", text: "What is the address of your LinkedIn page?", options: [] };
 const P0 = (status, over = {}) => part(0, W0, status, { said: S0, ...over });
 const P1 = (status, over = {}) => part(1, W1, status, { said: S1, ...over });
 const P2 = (status, over = {}) => part(2, W2, status, { said: S2, ...over });
@@ -256,8 +257,8 @@ const M2_VIEWS = [
 const LP_REPLIES = {
   y1: { ok: false, clarify: { id: ASK.id, text: ASK.text } },
   p1: { ok: true, msg: "✅ Updated.", reply: "The Sea Salt Focaccia is now £4.60 on your Order page.", replySource: "model" },
-  h1: { ok: true, msg: "✅ Changed.", reply: "Your Order page heading now reads “Pick your loaf and a collection time”.", replySource: "model" },
-  y2: { ok: true, msg: "✅ Added.", reply: "Every page's footer now links to your YouTube channel.", replySource: "model" },
+  h1: { ok: true, msg: "✅ Changed.", reply: "Your Order page heading now reads “Choose a loaf and a time to collect it”.", replySource: "model" },
+  y2: { ok: true, msg: "✅ Added.", reply: "Every page's footer now links to your LinkedIn page.", replySource: "model" },
 };
 // THE BAKERY'S TABLE, as both readers serve it: the focaccia at 4.5 until the
 // price's job has run (here: once the message is sent), 4.6 after.

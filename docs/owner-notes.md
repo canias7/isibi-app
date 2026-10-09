@@ -1,156 +1,172 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, the multi-agent readiness review and the release proposal, ending in `8109aab4` and its records)
+## Current handoff — read this first (2026-10-09, Codex's review of `ac24aece`: overlap by recorded intervals, the browser-closed press, run 113 corrected)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2189** (`main` `0fd50fd2`, image
-  `6c9fc805fe4de0d8`), deployed 2026-10-09 13:44 UTC and
-  **runtime-confirmed by run 111** (14:19 UTC). **Press A ran as run 113**:
-  every product check passed, with overlap and clarification observed live;
-  12 credits; **balance 18** (`docs/history/2026-10-09-run113.md`). **Balance 11**, last read after run 109.
-  Nothing moved money.
-- **The attachment correction is closed** (`18d6aae1`, `58d3350b`, records
-  `604d2415`). Codex confirmed it with 59 focused tests, their own mixed
-  reproduction included, and CI is green. **The Add-on preserves attachments
-  but does not consume their image contents.**
-- **This round**: `8109aab4` (one new test, XR) and the records. No product
-  code changed.
-- Nothing merged, deployed or built. No paid call, no model call, no SQL.
+- **Production is deploy 2189**:
+  - `main` `0fd50fd2`, image `6c9fc805fe4de0d8`;
+  - deployed 2026-10-09 13:44 UTC, **runtime-confirmed by run 111** (14:19
+    UTC);
+  - this is where the preparation code is live (`docs/deploy-record.md`).
+- **The branch** `claude/help-needed-ehlwlj` is `main` plus:
+  - press A's scenario and its records (`ab94386f` to `ac24aece`);
+  - this round's correction **`f058eed1`**, and its records.
 
-**1. What runs concurrently** (in full:
-`docs/investigations/multi-agent-readiness.md` §2)
-- **Concurrent, Edit and Add-on**: up to three other parts of a request are
-  *prepared* beside the running job. Their model calls (and a picture step's
-  purchase) are made and recorded, with nothing written and nothing charged.
-  This covers:
-  - the text, menu, picture, look, page, data and rules steps;
-  - an add-on with no new database (picker, designers, page writer).
-  The job then reuses a recorded answer only when its request is byte for
-  byte the same.
-- **Concurrent, Build**: the design graph (existing), plus photographs beside
-  the page writing, and fonts and translations beside the photographs.
-- **Waits**:
-  - a part whose step reads what an earlier unapplied part writes (same page,
-    menus, page list, tables, pictures);
-  - a part that needs another's result, including one that refers to
-    something another part creates;
-  - any job while another holds the site.
-- **Sequential**:
-  - every write to one site (the database's lock);
-  - an add-on's provisioning onward;
-  - the logo step;
-  - a first Build's provisioning, schema, seed, compile, render check and
-    publish;
-  - the full rewrite after its go-ahead.
-- **Unsupported**:
-  - concurrent writes to one site;
-  - a message mixing a first Build with edits;
-  - preparation that sees another request's unapplied writes;
-  - **using attachment contents in an addition**.
-- **Build's limits**: 1 page and 15 components, unchanged since production.
+  This round is **not merged, deployed or built**.
+- **Run 113** (press A, `lv-parallel`, run 37947640646, 14:54–15:10 UTC,
+  from the branch at `01084a58`, against deploy 2189). **The workflow run
+  failed**, because one canary check failed. What it verified live:
+  - one request, every part `done`, at allowed routes, in order;
+  - the footer link asked for the YouTube address while the price and the
+    heading finished, and your answer resumed it;
+  - `/order`'s heading changed, every footer gained YouTube and kept its
+    links, and the focaccia went 4.5 → 4.6 on both readers and on the page;
+  - everything else byte for byte as before;
+  - every reply model-written and on screen;
+  - **12 credits** (routing 6, jobs 6), exactly the balance's move.
+- **Corrected: run 113's concurrency is unverified.** Its overlap check
+  sampled statuses (`preparing` beside `queued`), which shows nothing running
+  at once. Its job rows are strictly sequential, and no record shows when a
+  preparation's step ran (`docs/history/2026-10-09-run113.md`).
+- **The focaccia was put back to 4.5 by run 113 itself**, an automatic
+  restoration the scenario no longer makes. It reads 4.5 now (a visitor's
+  read at 15:12 UTC); the Walnut Levain reads 6.2.
+- **Balance, as read**:
+  1. 11 after run 109, and still 11 at run 112 (14:40 UTC, stopped by its
+     funds check);
+  2. raised to exactly 30 at your request (14:47:46 UTC, last ledger row
+     409);
+  3. **18 after run 113** (last row 416, no job open, read at 15:12 UTC).
 
-**2. The evidence, by requirement** (§3 of the review): every requirement you
-listed is covered offline by named tests:
-- independent overlap;
-- dependency ordering;
-- conflicting changes;
-- browser closure;
-- clarification while unrelated work continues;
-- retries and crash recovery;
-- stale prepared results;
-- duplicate submissions;
-- publishing;
-- charging;
-- model-written progress.
+  No balance change since.
 
-**Live evidence exists only for the sequential flow** (runs 101 and 105–109
-on deploy 2188): order, closed tab, clarification end to end, progress and
-charges. **No preparation code has run live.**
-
-**3. The one uncovered requirement, now tested**
-- **Two messages, two requests, one page.** A preparation checks only its own
-  request, so the second request's step can be prepared against a page the
-  first is about to change.
-- **XR** (`8109aab4`), through the real Worker and site lock, shows:
-  - the second request's job deferred while the first holds the site;
-  - the stale preparation not applied (the job asks again and sees the first
-    change);
-  - both changes kept, and each job charged once.
-- **It passes on the existing code**, so no blocker was found and no product
-  code changed.
-- **Sweep**: 2 of 2 product mutants killed, and the control survived.
+**This round (`f058eed1`), on Codex's review**
+1. **Overlap is judged by recorded intervals**
+   (`docs/history/2026-10-09-overlap-intervals.md`).
+   - A preparation now keeps its step's own interval and model calls
+     (`prep.step`). A job's execution is its progress record's own interval:
+     opened when the job begins running, closed at its end.
+   - The request view serves both (`prepRun`, `runs`).
+   - The verdict passes only when a prepared step that made a model call
+     intersects another part's closed job interval. These fail, each with
+     its reason: queued only, a preparation done before the job started,
+     sequential runs, routing only, a step with no call, a part's own job, an
+     open job, another request's view, and missing records.
+2. **`lv-parallel` restored and completed**:
+   - the answer is sent with its tab closed once a progress line shows
+     live, and is followed to its end in a fresh browser session;
+   - `expect.progress` is back;
+   - the row is kept (`restore: false`): no write, no probe, no automatic
+     restoration;
+   - **fresh targets**: run 113 kept YouTube and its heading, so the press
+     now asks for a LinkedIn footer link and moves the Order heading on from
+     *"Pick your loaf and a collection time"*. Read live (free GETs) before
+     the change: no footer links to LinkedIn.
+3. **Driven offline through the real canary driver**. The question is on
+   screen while the price's job runs, and message 1 ends on it once nothing
+   else runs. Then the answer goes with the tab closed and a fresh session
+   recovers every reply. The row shows its one change with no write. The
+   interval, progress and reply checks pass, and the money reconciles
+   (routing 3 + jobs 4 = 7). The same press with the heading prepared after
+   the price's job fails the interval check and nothing else.
+4. **Through the real Worker**:
+   - P1's gated overlap serves a step with one model call inside part 0's
+     run, and passes;
+   - the same message run one after the other is refused;
+   - a routing-only preparation inside a running job is refused as routing
+     only;
+   - progress off serves no runs.
 
 **Tests actually run**
-- **Focused** (15 files): **`232 / 232 / 0 / 0`**.
-- **Full suite** on `8109aab4`: **`10272 / 10272 / 0 / 0`**. The first run
-  had one intermittent real-browser failure (REOPEN 1, a preview timing
-  check), which passes 3 of 3 alone; it is in the backlog.
-- **CI on `8109aab4`**: unit tests green, `10272 / 10231 / 0 / 41` (run
-  37930813501). Site build green on `58d3350b` (run 37926585858); no product
-  file has changed since.
+- **Focused** (`canary-*`, `request-*`, `parallel-*`, `progress-*`,
+  `edit-canary*`): **`900 / 900 / 0 / 0`** before the last two cases were
+  added; the new files `canary-parallel` 10 / 10 and `parallel-intervals`
+  6 / 6.
+- **Red check**: over `ac24aece`'s code, every case of `canary-parallel`
+  fails, and the intervals file fails at import.
+- **Sweep**: 22 mutants killed, and the control survived. Two that first
+  survived were killed by two added cases.
+- **Full suite** on the change: **`10288 / 10288 / 0 / 0`**. The doc tests
+  are 32 / 32.
+- **CI on `f058eed1`**: (stamped in the records commit below once read).
+- **The image**: `f058eed1` predicts **`9236fe341b77544d`** (204 inputs).
+  `worker.js` and `builder/request.mjs` changed; nothing under `public/`
+  did.
 
-**4. The release-and-validation proposal** (§7 of the review)
-- **One fast-forward** `9d6bda8a` → the candidate (93 commits).
-- **One image build**: `335396c8c0e0fbcb` → **`6c9fc805fe4de0d8`** (204
-  inputs). No secret changes.
-- **Steps**:
-  1. preflight;
-  2. merge;
-  3. the served `chat.js` byte-compared;
-  4. the image window;
-  5. **your free runtime press** (the new sha and image).
-- **Press A, `lv-parallel`** on `fold-lane-bakery`, required:
-  - message 1: *"Add a link to our Instagram in the footer, make the focaccia
-    £4.60, and change the Order page heading 'Choose your loaf and a
-    collection time' to 'Pick your loaf and a collection time'."*;
-  - message 2: *"It's instagram.com/harbourloaf"*;
-  - **it settles live** whether the router's targets allow overlap,
-    overlap itself, and clarification while the other parts finish, with the
-    tab closed;
-  - **about 11–17 credits, budget 20**. The balance (11) must be raised
-    first;
-  - the focaccia price (a live row) is put back afterwards with the free
-    `4b-d1-restore`, unless you keep it;
-  - **nine pass criteria**: overlap observed, clarification, order, results,
-    closure, progress, money, publishing, and every part `done`. It stops on
-    a wall, the budget, or a failed or partial part. **No overlap observed is
-    a fail of that criterion.**
-  - **Its canary preparation is still to do** (free): the scenario, the
-    trail recording each part's preparation state, an overlap verdict and
-    their tests. It can follow the merge.
-- **Optional, each on its own word**:
-  - press B, an add-on with one photograph: about 22–34 credits, a
-    photograph being about 19;
-  - press C, one first Build: about 11–45 credits, plus about 19 per
-    photograph.
+**The bounded live follow-up** (nothing done; each step on your word)
+1. **Merge and deploy**:
+   - fast-forward `main` `0fd50fd2` → the branch head (one deploy run);
+   - the image `6c9fc805fe4de0d8` → `9236fe341b77544d`;
+   - preflight first: nothing in flight, no open job, the rollback verified;
+   - no served-file check is owed, because `public/` is unchanged.
+2. **The image window**, 15–20 minutes, then **your free runtime press**
+   (`edit-canary`):
+   - "Use workflow from": `main`;
+   - "Refuse to spend unless the Worker reports this deploy sha …": the new
+     `main` sha's first 12 characters;
+   - "Refuse to spend unless a cold container reports this image id …":
+     `9236fe341b77544d`;
+   - "The site to edit …": `fold-lane-bakery`;
+   - "Run the ONE paid edit as well (yes/no)": `no`;
+   - every other box blank.
+3. **Funds**: press A needs a balance **between 20 and 30** (it sends
+   nothing otherwise). The balance is **18**, so it must be raised first, on
+   your word.
+4. **Press A again** (`edit-canary`):
+   - "Use workflow from": the branch `claude/help-needed-ehlwlj` (or `main`
+     after the merge, the same canary);
+   - "RUN A NAMED SCENARIO IN A REAL BROWSER …": `lv-parallel`;
+   - "The site to edit …": `fold-lane-bakery`;
+   - "Run the ONE paid edit as well (yes/no)": `yes`;
+   - the two sha and image boxes as in step 2;
+   - every other box blank.
+
+   **The messages are fixed by the scenario**, re-pointed this round at
+   targets the site does not have yet. Read live before the change: every
+   footer links to Facebook, Instagram, TikTok and YouTube, none to
+   LinkedIn, and `/order`'s heading reads *"Pick your loaf and a collection
+   time"*. The messages:
+   - *"Add a link to our LinkedIn page in the footer, change the Sea Salt
+     Focaccia's price to £4.60, and change the Order page heading 'Pick your
+     loaf and a collection time' to 'Choose a loaf and a time to collect
+     it'."*;
+   - then *"It's linkedin.com/company/harbourloaf"*, sent with its tab
+     closed and followed in a fresh browser session.
+
+   **About 11–17 credits** (run 113 took 12). Budget 20, and the hard cap is
+   the balance it starts from. It changes, and **keeps**:
+   - the focaccia at £4.60;
+   - the Order heading;
+   - a LinkedIn link in every footer.
+
+   **Pass**:
+   - every press check;
+   - **the interval check**: a prepared step overlapping another part's
+     executing job, by the served intervals;
+   - **the progress checks** in the fresh session;
+   - the money reconciled.
+5. **Afterwards**: read the ledger, record the run, and take nothing back.
 
 **Remaining gaps**
-1. No preparation code has run live.
-2. Overlap depends on the router naming targets. With none, a part counts as
-   the whole site: safe, but nothing overlaps.
-3. Cross-request preparation can be wasted (our cost), never applied stale.
-4. Writes stay one at a time per site.
-5. The image provider has no idempotency key.
-6. Crash recovery, lost purchases and duplicate deliveries stay offline-only
-   proof.
-7. The Add-on does not consume attachment contents.
+1. **Concurrency has never been shown live**: run 113's is unverified, and
+   the interval check needs the deploy above before a press can read it.
+2. **Each rerun of `lv-parallel` needs fresh targets**, because what it
+   changes stays (the demo-site rule). Run 113 spent YouTube and the old
+   heading, so this round re-pointed it at LinkedIn and the current heading.
+3. **Whether a prepared answer is reused by its job** is still not readable
+   by a press.
+4. **The interval reads depend on `PROGRESS_REPLIES`** (on in production
+   since deploy 2186). With it off, the check reports missing evidence,
+   never a pass.
+5. Crash recovery, lost purchases and duplicate deliveries stay offline-only
+   proof. Writes stay one at a time per site. The image provider has no
+   idempotency key. The Add-on does not consume attachment contents.
 
-**Yours to decide**
-- The review, and whether to approve the release proposal.
-- If yes:
-  - the preparation of press A;
-  - the merge, then your runtime press;
-  - raising the balance for press A;
-  - B and C separately.
-
-**Links**: `docs/investigations/multi-agent-readiness.md` (the review and the
-proposal), `docs/history/2026-10-09-readiness-review.md`,
-`docs/history/2026-10-09-parallel-round-9.md`, `docs/request-flow.md`,
-`docs/backlog.md`.
+---
 
 ## How you like things done
 
@@ -160,13 +176,49 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-09 — Codex's review of `ac24aece`: overlap by recorded intervals; run 113's concurrency unverified
+
+- **What Codex found**:
+  - the overlap check passed on status sampling alone. Codex reproduced it
+    passing for *preparing beside queued* and *prepared beside queued*,
+    which shows nothing running at once;
+  - run 113's concurrency claim rested on that check;
+  - removing the failed progress check was not enough;
+  - the press restored demo data automatically;
+  - the handoff was stale.
+- **Run 113, corrected**:
+  - **the workflow run failed** (one canary check);
+  - **its concurrency is unverified**. The job rows run one after another
+    (price 14:56:27–14:57:56, heading 14:58:55–15:02:37, footer menu step
+    15:03:34–15:07:05), and no record shows when a preparation's step ran;
+  - the edits, the question and its answer, the replies and the 12 credits
+    stand.
+- **Fixed on the branch (`f058eed1`)**:
+  - a preparation keeps its step's own interval and model calls;
+  - the request view serves those and each job's execution interval, from
+    its progress record;
+  - the check now needs a prepared step with a model call overlapping
+    another part's running job. Queued only, sequential, routing only and
+    missing records all fail;
+  - `lv-parallel` sends its answer with the tab closed and follows it in a
+    fresh browser session, with the progress checks back, and keeps the
+    row;
+  - all of it is driven offline through the real canary driver and the
+    real Worker.
+- **Tests**: full suite `10288 / 10288 / 0 / 0`; 22 mutants killed.
+- **Nothing merged, deployed, built or charged.** No balance change, and no
+  database write. The image would move to `9236fe341b77544d`.
+
+---
+
 ## 2026-10-09 — Run 113: press A on deploy 2189, every product check passed (12 credits)
 
 Press A (`lv-parallel`), run 37947640646, 14:54–15:10 UTC. The full record is
 `docs/history/2026-10-09-run113.md`.
 - **The first live run of the preparation code.**
-  - A part was prepared while another part's job was queued: *"at 75 s part 1
-    was preparing while part 0 queued"*.
+  - ~~A part was prepared while another part's job was queued~~ —
+    **corrected after Codex's review: concurrency unverified** (a status
+    reading, not simultaneous execution; the job rows are sequential).
   - The footer link asked for the YouTube address while the price and the
     heading finished. Your answer resumed it, and YouTube went onto 10
     footers.

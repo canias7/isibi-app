@@ -366,6 +366,11 @@ runs 107 and 109.
     fresh browser session, and the progress checks are restored.
   - **The live row**: the focaccia's new price is **kept**. No automatic
     restoration of demo data.
+  - **Fresh targets**: run 113 kept YouTube and its heading, so the press now
+    asks for a LinkedIn footer link (answer *"It's
+    linkedin.com/company/harbourloaf"*). It also moves the Order heading from
+    *"Pick your loaf and a collection time"* to *"Choose a loaf and a time to
+    collect it"*.
   - The interval fields are product code (`builder/request.mjs`,
     `worker.js`), so they need a deploy before a press can read them.
 

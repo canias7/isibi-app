@@ -843,8 +843,9 @@ export const UI_SCENARIOS = Object.freeze({
   // with no address, asks for it; part 1, a price (a data step, which reads
   // only the tables), and part 2, a heading (a text step), are prepared beside
   // part 0's jobs and applied while it waits. The answer resumes part 0.
-  // `expect.overlap` judges, from the request's own view, that a part was
-  // being worked out while another part's job ran. ABOUT 11-17: the message's
+  // `expect.overlap` judges, from the recorded intervals the request's own
+  // view serves, that a part's prepared step ran while another part's job
+  // was executing (never a status sampled while they ran). ABOUT 11-17: the message's
   // routing 3; part 0's hand-over 0 and menu step 1-2; part 1's routing 1-3
   // and data step 1; part 2's routing 1-3 and text step 2; the answer's
   // routing 1. The price is kept (the demo-site rule).
@@ -855,9 +856,14 @@ export const UI_SCENARIOS = Object.freeze({
     row: FOCACCIA_ROW,
     expect: Object.freeze({
       headings: Object.freeze([
-        Object.freeze({ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }),
+        Object.freeze({ route: "/order", from: "Pick your loaf and a collection time", to: "Choose a loaf and a time to collect it" }),
       ]),
-      social: Object.freeze({ network: "youtube", host: "youtube.com", path: "/@harbourloaf" }),
+      // FRESH TARGETS (2026-10-09): run 113 kept YouTube in every footer and
+      // the Order heading it asked for; read live before this change, every
+      // footer links to Facebook, Instagram, TikTok and YouTube, none to
+      // LinkedIn, and /order's heading reads "Pick your loaf and a collection
+      // time".
+      social: Object.freeze({ network: "linkedin", host: "linkedin.com", path: "/company/harbourloaf" }),
       // THE MODEL'S PROGRESS LINES, CHECKED (restored after Codex's review of
       // ac24aece): read off the answer, sent with its tab closed once a line
       // shows live and followed to its end in a fresh browser session.
@@ -867,7 +873,7 @@ export const UI_SCENARIOS = Object.freeze({
     covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
     steps: Object.freeze([
       Object.freeze({
-        say: "Add a link to our YouTube channel in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Choose your loaf and a collection time' to 'Pick your loaf and a collection time'.",
+        say: "Add a link to our LinkedIn page in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Pick your loaf and a collection time' to 'Choose a loaf and a time to collect it'.",
         until: "question",
         ms: 10 * 60_000,
         // Part 0 first (one job at a time): run 107's TikTok part to its question.
@@ -879,7 +885,7 @@ export const UI_SCENARIOS = Object.freeze({
         ]),
       }),
       Object.freeze({
-        say: "It's youtube.com/@harbourloaf",
+        say: "It's linkedin.com/company/harbourloaf",
         // SENT WITH ITS TAB CLOSED once a progress line shows live on the
         // resumed part, and followed to its end in a fresh browser session
         // (`away: "fresh"`): the browser-closed path, with the model's lines.

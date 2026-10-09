@@ -69,6 +69,20 @@ another part's job was executing, by their recorded intervals"*.
 - `expect.progress` is restored.
 - The focaccia's row is `restore: false`, so the press writes no row. The
   workflow form says so.
+- **Fresh targets.** Run 113 kept YouTube in every footer and its Order
+  heading, so a rerun as written would ask for what is already there. Read
+  live (free GETs of `/` and `/order`) before the change: every footer links
+  to Facebook, Instagram, TikTok and YouTube, none to LinkedIn, and
+  `/order`'s heading reads *"Pick your loaf and a collection time"*. The
+  messages are now:
+  - *"Add a link to our LinkedIn page in the footer, change the Sea Salt
+    Focaccia's price to £4.60, and change the Order page heading 'Pick your
+    loaf and a collection time' to 'Choose a loaf and a time to collect
+    it'."*;
+  - then *"It's linkedin.com/company/harbourloaf"*.
+
+  LinkedIn is one of the menu step's own networks. The focaccia reads 4.5,
+  so its change is still fresh.
 
 ## Tests
 
