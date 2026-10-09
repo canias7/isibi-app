@@ -929,8 +929,12 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       // picture, nav, logo, rename, rules: the step wrote its own account,
       // because only it knows which picture, which links, which address.
       const own = said(e.msg);
-      F.add("changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, "")) : "The change was made.");
+      F.add(e.placed === 0 ? "nothing" : "changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, "")) : "The change was made.");
       if (layer === "rules") F.add("note", "It took effect at once; nothing needed rebuilding.");
+      // A WAITING FRAME THAT COULD NOT BE FILLED (2026-10-09, round 5).
+      (Array.isArray(e.notPlaced) ? e.notPlaced : []).forEach((x, i) => {
+        if (x && typeof x.d === "string") F.add("not-done", "The photograph " + quote(x.d) + " was not put on the page: " + (x.why === "frame-gone" ? "its empty frame is no longer there, so nothing was bought for it." : "it could not be bought, so its frame stays empty.") , "notPlaced:" + i);
+      });
     }
     outcomeFacts(F, e);
   } else {
@@ -1138,6 +1142,11 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     if (skipped.includes("frame")) F.add("not-done", "The new link, button or footer item is a separate step: asking for it on its own adds it to every page.");
     (Array.isArray(a.notAdded) ? a.notAdded : []).forEach((nA, i) => {
       if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name) : "one " + flat(nA.kind || "entry")) + ". The builder's own reason: " + quote(nA.msg), "notAdded:" + i);
+    });
+    // A FRAME WAITING ON ITS PHOTOGRAPH (2026-10-09, round 5): published empty
+    // and marked, filled later by itself — not done yet, and not given up.
+    (Array.isArray(a.pendingPhotos) ? a.pendingPhotos : []).forEach((pp, i) => {
+      if (pp && typeof pp.d === "string" && pp.d) F.add("not-done", "The photograph " + quote(pp.d) + " is not on the page yet: it was being bought and whether that purchase went through cannot be told yet, so it was not bought again. Its frame is on the published page, empty and kept for it; once the purchase is confirmed the photograph is put into that frame by itself, without redoing the addition, and nothing else needs to be asked for.", "pendingPhotos:" + i);
     });
     for (const k of (Array.isArray(a.kept) ? a.kept : [])) {
       if (!k || !k.path) continue;

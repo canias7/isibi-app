@@ -1588,7 +1588,7 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   // THROUGH A LOGICAL PURCHASE OR STRAIGHT TO THE IMAGE SERVICE (2026-10-09,
   // round 3): either way the reason is destructured, and the purchase buyer
   // hands `makeSitePhoto`'s own reason through.
-  assert.match(buy, /const \{ url, error, unknown \} = buy \? await buy\(prompt\) : await makeSitePhoto\(/, "the per-shot reason is destructured away");
+  assert.match(buy, /const \{ url, error, unknown, id, d, k, why \} = buy \? await buy\(prompt\) : await makeSitePhoto\(/, "the per-shot reason is destructured away");
   const buyer = worker.slice(worker.indexOf("function purchaseBuyer("), worker.indexOf("\n}\n", worker.indexOf("function purchaseBuyer(")));
   assert.match(buyer, /made = await makeSitePhoto\(env, slug, dd, meta\)/, "the purchase buyer does not make the photograph through makeSitePhoto");
   assert.match(buyer, /made\.error \? \{ error: made\.error \}/, "the purchase buyer drops makeSitePhoto's reason");

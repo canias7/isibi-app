@@ -10528,6 +10528,9 @@ function siteRequestHTML(m, site) {
     if (status === 'waiting' && p.question && p.question.queued === true) label = 'Has a question to ask next';
     if (status === 'expired' && p.why === 'unapproved') label = 'Go-ahead not given';
     if (status === 'expired' && p.why === 'purchase-unconfirmed') label = 'Picture purchase not confirmed';
+    // AN ADDITION ALREADY LIVE WHOSE PHOTO FRAMES WAIT (2026-10-09, round 5):
+    // added, never shown as nothing done; the photos follow by themselves.
+    if (status === 'uncertain' && p.published === true) label = 'Added — photo' + (p.waitingPhotos === 1 ? '' : 's') + ' still being confirmed';
     if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
     const left = (status === 'cancelled' || status === 'failed') && typeof p.left === 'string' && Object.hasOwn(SITE_REQ_LEFT, p.left) ? SITE_REQ_LEFT[p.left] : null;
     if (left) label = left[status];

@@ -1261,6 +1261,40 @@ export function applyImages(pages, urlByToken) {
 }
 
 /**
+ * A FRAME WHOSE PHOTOGRAPH IS STILL BEING CONFIRMED (2026-10-09, parallel round
+ * 5). An addition's purchase whose outcome nobody can tell yet is not bought
+ * again and its page is not held back: the frame is published empty, as any
+ * frame the step could not fill, and MARKED with the purchase it waits on, so
+ * a later step can fill exactly that frame with exactly that photograph once
+ * the purchase is known — without rewriting the page or redoing the addition.
+ *
+ * Only a token that is a whole double-quoted JSX attribute value (`src="…"`)
+ * can be marked, because the mark is an attribute beside it; a token anywhere
+ * else is swept as before, and the caller reports it as not marked. Answers
+ * the files with each marked token replaced by `src="" data-pending-photo="<id>"`
+ * and the tokens it marked, with the file each was in.
+ */
+export function markPending(pages, idByToken) {
+  const map = idByToken instanceof Map ? idByToken : new Map();
+  const marked = [];
+  const files = (Array.isArray(pages) ? pages : []).map((p) => {
+    let src = String((p && p.source) || "");
+    for (const [token, id] of map) {
+      if (typeof id !== "string" || !/^[0-9a-f]{24}$/.test(id)) continue;
+      const attr = 'src="' + token + '"';
+      if (!src.includes(attr)) continue;
+      src = src.split(attr).join(pendingAttr(id));
+      marked.push({ token, id, file: String((p && p.path) || "") });
+    }
+    return { ...p, source: src };
+  });
+  return { pages: files, marked };
+}
+
+/** The marked empty frame a pending photograph waits in. */
+export const pendingAttr = (id) => 'src="" data-pending-photo="' + id + '"';
+
+/**
  * What the page writer is shown: the designer's own pictures, or a bare count.
  *
  * A FUNCTION RATHER THAN TWO LINES AT THE CALL SITE, and a mutation sweep is

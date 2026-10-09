@@ -169,7 +169,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, pendingAttr, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2784,7 +2784,7 @@ async function makeSitePhoto(env, slug, prompt, meta = null) {
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null }) {
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -2883,8 +2883,15 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   // is index arithmetic, and index arithmetic is exactly how a fix of this shape
   // breaks again in silence — `imageSources` says so in as many words and is for
   // READING only.
+  // A FRAME WAITING ON A PURCHASE NOBODY CAN TELL YET (`pend`, 2026-10-09,
+  // round 5): marked with that purchase instead of swept, so the frame can be
+  // filled later with that photograph without redoing the work around it.
+  const pendIds = new Map();
+  const pendInfo = new Map();
+  let pendingOut = [];
   const done = (urls, rest) => ({
     pages: applyImages(pages, urls), parts: applyImages(parts, urls),
+    ...(pendingOut.length ? { pending: pendingOut } : {}),
     planned, budget: affordable, overflow: plan.overflow,
     // ── WHICH PICTURE WAS BOUGHT FOR WHICH REQUEST (2026-09-19) ─────────────
     //
@@ -2952,9 +2959,12 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
       // round 3): a picture already bought for the same purchase is reused,
       // and one begun and not known to have ended is not bought again
       // (`unknown`) — told as unconfirmed, never as refused.
-      const { url, error, unknown } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
+      const { url, error, unknown, id, d, k, why } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
       settledTokens.add(token);
-      if (unknown) unconfirmedTokens.add(token);
+      if (unknown) {
+        unconfirmedTokens.add(token);
+        if (typeof id === "string") { pendIds.set(token, id); pendInfo.set(token, { id, d: String(d || ""), k: Number.isInteger(k) ? k : 0, why: String(why || ""), key: shotKey(prompt) }); }
+      }
       else if (url) urls.set(token, url);
       // Kept, not thrown. The build carries on with a placeholder for this one,
       // and the reason reaches the response — a site quietly missing its
@@ -3039,6 +3049,13 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   const refused = plan.shots.filter((x) => refusedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
   const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
   const unconfirmed = plan.shots.filter((x) => unconfirmedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
+  // THE FRAMES WAITING ON THEIR PURCHASE, MARKED BEFORE THE SWEEP (`pend`).
+  if (pend && pendIds.size) {
+    const mp = markPending(pages, pendIds);
+    const mq = markPending(parts, pendIds);
+    pages = mp.pages; parts = mq.pages;
+    pendingOut = [...mp.marked, ...mq.marked].map((m) => ({ ...pendInfo.get(m.token), file: m.file }));
+  }
   return done(urls, {
     made: urls.size,
     refused,
@@ -17108,6 +17125,12 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
   return { state: "unknown", id, why: "unconfirmed" };
 }
 
+/** An addition's marked frames to fill, read strictly from a job's body (round 5): `{ id, d, k }` each. */
+function readPlace(v) {
+  return (Array.isArray(v) ? v : []).filter((x) => x && typeof x === "object" && typeof x.id === "string" && /^[0-9a-f]{24}$/.test(x.id) && typeof x.d === "string" && Number.isInteger(x.k) && x.k >= 0)
+    .slice(0, 12).map((x) => ({ id: x.id, d: x.d.slice(0, 300), k: x.k }));
+}
+
 /**
  * A PART HELD ON A PURCHASE NOBODY CAN TELL: its job's answer — nothing
  * published, nothing charged — naming each purchase (`held`), which the
@@ -17219,7 +17242,9 @@ function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
     if (pending && pending.has(d + "\n" + k)) { try { await pending.get(d + "\n" + k); } catch { /* read on its record below */ } }
     let made = { url: null };
     const out = await purchaseOnce(env, { slug, key, n, d, k, owner, generate: async (dd, meta) => { made = await makeSitePhoto(env, slug, dd, meta); return made.url; } });
-    if (out.state === "unknown") return { url: null, unknown: true };
+    // THE PURCHASE IT WAITS ON (2026-10-09, round 5): an addition marks the
+    // frame with it, so a later step fills exactly that frame.
+    if (out.state === "unknown") return { url: null, unknown: true, id: out.id, d, k, why: out.why };
     if (out.state === "bought") return { url: out.url };
     return { url: null, ...(made.error ? { error: made.error } : {}) };
   };
@@ -29153,6 +29178,65 @@ async function handleRequest(request, env, ctx) {
                 cost: await eCharge(nOut.usage, nPub), usage: nOut.usage,
               });
             }
+            if (eLayer === "picture" && eJob && eJob.purchase && Array.isArray(eb && eb.place) && eb.place.length) {
+              // ── AN ADDITION'S MARKED FRAMES, FILLED (2026-10-09, round 5) ──
+              //
+              // The addition published with frames whose purchase nobody could
+              // tell, each marked with that purchase (`markPending`). Now that
+              // every one is known, each frame is filled with its own purchase's
+              // photograph — reused when it landed, bought once when the
+              // customer released it — and nothing else on the site is touched.
+              // No model call: the frame, the description and the purchase are
+              // all already decided. Still unknown: held again, nothing published.
+              const place = readPlace(eb.place);
+              const plParts = await editParts();
+              let plFiles = (plParts.ok ? editableFiles(eSrc, plParts.parts) : eSrc).map((f) => ({ ...f }));
+              let plBalance = await readCreditsFor(env, eJob.uid).catch(() => 0);
+              const plHeld = [], plPlaced = [], plNot = [];
+              for (const pp of place) {
+                const mark = pendingAttr(pp.id);
+                const at = plFiles.findIndex((f) => String(f.source || "").includes(mark));
+                // THE FRAME IS GONE (a later edit took it): nothing is bought for it.
+                if (at < 0) { plNot.push({ d: pp.d, why: "frame-gone" }); continue; }
+                const out = await purchaseOnce(env, {
+                  slug: ownerSlug, key: eJob.purchase.part.key, n: eJob.purchase.part.n, d: pp.d, k: pp.k, owner: "job:" + eJob.id,
+                  generate: async (dd, meta) => {
+                    if (!imagesAffordable(1, { balance: plBalance, usd: SITE_PHOTO_USD })) return null;
+                    const { url: plUrl } = await makeSitePhoto(env, ownerSlug, dd, meta);
+                    if (plUrl) plBalance -= SITE_PHOTO_USD / CREDIT_USD;
+                    return plUrl;
+                  },
+                });
+                if (out.state === "unknown") { plHeld.push({ id: out.id, d: pp.d, why: out.why }); continue; }
+                if (out.state !== "bought") { plNot.push({ d: pp.d, why: "not-bought" }); continue; }
+                plFiles[at] = { ...plFiles[at], source: String(plFiles[at].source).split(mark).join('src="' + out.url + '"') };
+                plPlaced.push({ d: pp.d, file: plFiles[at].path });
+              }
+              if (plHeld.length) return heldPurchase(plHeld);
+              if (!plPlaced.length) {
+                return Response.json({ ok: true, layer: "picture", placed: 0, changed: 0, made: 0, notPlaced: plNot, cost: 0,
+                  msg: "I couldn't fill the empty photo frame" + (plNot.length === 1 ? "" : "s") + " from the addition, so nothing changed." });
+              }
+              const plSplit = plParts.ok ? splitEditable(plFiles) : { pages: plFiles };
+              const plPub = await publishStep(env, {
+                slug: ownerSlug, pages: plSplit.pages,
+                ...(plParts.ok ? { parts: plSplit.parts } : {}),
+                label: versionLabel({ revise: true, changeNote: "photographs placed" }),
+              });
+              if (!plPub.ok) {
+                return Response.json({ ok: false, error: "compile", cost: 0, msg: compileMsg(plPub, "Those photographs couldn't be placed, so your site is untouched."), detail: plPub.detail }, { status: 422 });
+              }
+              // EVERY PHOTOGRAPH PLACED IS CHARGED HERE, ONCE: the addition
+              // charged only the photographs it placed itself (`made`), never
+              // one whose purchase it could not tell.
+              return Response.json({
+                ok: true, layer: "picture", placed: plPlaced.length, made: plPlaced.length, changed: plPlaced.length,
+                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote,
+                notPlaced: plNot.length ? plNot : undefined,
+                msg: "I put " + (plPlaced.length === 1 ? "the photograph" : plPlaced.length + " photographs") + " into the frame" + (plPlaced.length === 1 ? "" : "s") + " the addition left waiting.",
+                cost: await eCharge([], { images: plPlaced.length }, plPub),
+              });
+            }
             if (eLayer === "picture") {
               // ── A PHOTOGRAPH ON A PAGE THAT ALREADY EXISTS ──────────────
               //
@@ -35803,6 +35887,8 @@ async function handleRequest(request, env, ctx) {
             // let a sweep write back over a file this change never touched.
             let aPhotos = null;
             let aPhotoCharged = 0;
+            // FRAMES PUBLISHED MARKED, WAITING ON THEIR PURCHASE (round 5).
+            let aPendingPhotos = [];
             // WHAT THE PICTURES COST, ONE EXPRESSION, TWO CONSUMERS: the job's
             // reserve below and the synchronous collect after the publish.
             // `made`, NEVER `planned` — a photograph that did not arrive costs
@@ -35820,9 +35906,16 @@ async function handleRequest(request, env, ctx) {
                   // logical purchases: a retry of this job reuses what an
                   // earlier try bought and never buys one whose outcome is unknown.
                   buy: aJob && aJob.purchase ? purchaseBuyer(env, { ...aJob.purchase.part, owner: "job:" + aJob.id }) : null,
+                  // A REQUEST PART'S FRAME WAITING ON A PURCHASE NOBODY CAN TELL
+                  // (2026-10-09, round 5) is published marked, and the part is
+                  // held on it: once the purchase is known, a placement step
+                  // fills that frame — the addition is never made again.
+                  pend: !!(aJob && aJob.purchase),
                 });
-                // ONE NOBODY CAN TELL is left as its frame and told, never bought again.
-                for (const d of aPhotos.unconfirmed || []) aNotAdded.push({ kind: "photo", name: String(d).slice(0, 120), why: "purchase-unconfirmed", msg: "A photograph for this was being bought and I can't tell whether that purchase went through, so I didn't buy it again; its frame is left empty." });
+                aPendingPhotos = Array.isArray(aPhotos.pending) ? aPhotos.pending : [];
+                const aMarked = new Set(aPendingPhotos.map((x) => x.key));
+                // ONE NOBODY CAN TELL AND COULD NOT BE MARKED is left as its frame and told, never bought again.
+                for (const d of aPhotos.unconfirmed || []) if (!aMarked.has(d)) aNotAdded.push({ kind: "photo", name: String(d).slice(0, 120), why: "purchase-unconfirmed", msg: "A photograph for this was being bought and I can't tell whether that purchase went through, so I didn't buy it again; its frame is left empty." });
                 aMerge = { ...aMerge, pages: aPhotos.pages };
                 if (aParts) aParts = aPhotos.parts;
                 // `planned` IS THE FULL REQUEST AND `offered` IS WHAT THE
@@ -36581,6 +36674,10 @@ async function handleRequest(request, env, ctx) {
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkippedSaid,
               notAdded: aNotAdded.length ? aNotAdded : undefined,
+              // FRAMES PUBLISHED MARKED, EACH WAITING ON A PURCHASE NOBODY CAN
+              // TELL YET (2026-10-09, round 5): the request holds the part on
+              // them and fills each frame once its purchase is known.
+              pendingPhotos: aPendingPhotos.length ? aPendingPhotos.map((x) => ({ id: x.id, d: String(x.d).slice(0, 300), k: x.k, file: x.file, why: x.why })) : undefined,
               // EACH KIND SET ASIDE AND CARRIED ON IN ITS OWN WORDS (on `deferred`).
               setAside: aCarried.length ? aCarried.slice() : undefined,
               // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED

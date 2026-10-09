@@ -593,6 +593,8 @@ export function notDoneOf(body, op = "edit") {
   for (const k of list(b.unseenParts)) add(str(k) || "component", "unseen");
   for (const d of list(b.dropped)) if (plain(d) && d.why !== "duplicate") add(d.label || d.href || "entry", d.why || "left-out");
   for (const r of list(b.refusedLinks)) if (plain(r)) add(r.label || r.to || "link", r.why || "refused");
+  // A MARKED FRAME THE PLACEMENT STEP COULD NOT FILL (round 5).
+  for (const x of list(b.notPlaced)) if (plain(x)) add(x.d || "photograph", x.why || "not-placed");
   const failed = Array.isArray(b.failed) ? b.failed.length : Number.isInteger(b.failed) ? b.failed : 0;
   if (failed > 0) add(failed + " row" + (failed === 1 ? "" : "s"), "failed");
   return out;
@@ -972,6 +974,15 @@ function settle(rec, p, job, row, now) {
     endUnfinished(p, "", "unreadable"); return;
   }
   if (read.act === "recovered") { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "recovered" }; p.done = "made the change (what it changed was not recorded)"; return; }
+  if (read.act === "success" && p.place && p.route && p.route.place) {
+    // THE PLACEMENT STEP FINISHED (round 5): the addition's own "not done"
+    // stands beside any frame this step could not fill.
+    const notDone = [...(p.place.notDone || []), ...notDoneOf(ans.body, "edit")];
+    p.place = { ...p.place, placedBy: job.id };
+    p.outcome = { job: job.id, kind: "done" };
+    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone.slice(0, 24); return; }
+    p.status = "done"; p.why = null; return;
+  }
   if (read.act === "success") {
     // A RETRY THAT FINISHED speaks for the whole part: what an earlier try left is in what it did.
     delete p.left;
@@ -982,6 +993,19 @@ function settle(rec, p, job, row, now) {
     // done makes it partial, which nothing that needs it treats as finished.
     const notDone = notDoneOf(ans.body, (p.route && p.route.op) === "addon" ? "addon" : "edit");
     for (const w of lost) notDone.push({ what: w, why: "left-over" });
+    // AN ADDITION PUBLISHED WITH FRAMES WAITING ON A PURCHASE NOBODY CAN TELL
+    // YET (2026-10-09, round 5): what it added is live and stays; the part is
+    // held on those purchases, and once they are known a placement step fills
+    // the marked frames — the addition is never made again, nothing is bought
+    // again on a guess, and the customer sends nothing again.
+    const pending = (p.route && p.route.op) === "addon" ? pendingOf(ans.body) : [];
+    if (pending.length) {
+      p.status = "uncertain"; p.why = "photos-pending";
+      p.purchase = { held: pending.map((x) => ({ id: x.id, d: x.d, why: x.why || "unconfirmed" })), at: now };
+      p.place = { photos: pending, addon: p.route, notDone: notDone.slice(0, 24), job: job.id };
+      p.published = true;
+      return;
+    }
     if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone.slice(0, 24); return; }
     p.status = "done"; return;
   }
@@ -1014,6 +1038,14 @@ function settle(rec, p, job, row, now) {
   endUnfinished(p, "", "unreadable", { job: job.id, kind: "unreadable" });
 }
 
+/** The marked frames an addition published waiting on a purchase, read strictly: `{ id, d, k, file, why }` each. */
+export function pendingOf(body) {
+  const list = plain(body) && Array.isArray(body.pendingPhotos) ? body.pendingPhotos : [];
+  return list.filter((x) => plain(x) && typeof x.id === "string" && /^[0-9a-f]{24}$/.test(x.id) && typeof x.d === "string" && Number.isInteger(x.k) && x.k >= 0)
+    .slice(0, 12)
+    .map((x) => ({ id: x.id, d: x.d.slice(0, 300), k: x.k, file: typeof x.file === "string" ? x.file.slice(0, 200) : "", why: typeof x.why === "string" ? x.why.slice(0, 40) : "" }));
+}
+
 /** The purchases a held job named, read strictly: `{ id, d, why }` each. */
 function heldOf(body) {
   const list = plain(body) && Array.isArray(body.held) ? body.held : [];
@@ -1032,6 +1064,12 @@ export function purchaseResolved(record, n, now = Date.now()) {
   const p = rec.parts[n];
   if (rec.stop || rec.ended || !p || p.status !== "uncertain") return null;
   p.status = "ready"; p.why = null;
+  // AN ADDITION'S MARKED FRAMES (round 5): the next job fills them through the
+  // picture step's placement, not the addition again.
+  if (p.place && Array.isArray(p.place.photos) && p.place.photos.length) {
+    p.route = { op: "edit", layer: "picture", page: "", place: p.place.photos.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file })), cost: 0 };
+    p.phase = "run";
+  }
   p.purchase = { ...(p.purchase || {}), resolvedAt: now };
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
@@ -1128,7 +1166,12 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     if (p.status === "approval" && Number.isFinite(p.approvalAt) && now - p.approvalAt >= WAIT_MS) { p.status = "expired"; p.why = "unapproved"; }
     // AND A PURCHASE NOBODY COULD TELL IN A DAY: it stays recorded, unknown,
     // never bought again on a guess; the part is told as not done.
-    if (p.status === "uncertain" && p.purchase && Number.isFinite(p.purchase.at) && now - p.purchase.at >= WAIT_MS) { p.status = "expired"; p.why = "purchase-unconfirmed"; }
+    if (p.status === "uncertain" && p.purchase && Number.isFinite(p.purchase.at) && now - p.purchase.at >= WAIT_MS) {
+      // AN ADDITION THAT WENT LIVE with frames still waiting (round 5) is done
+      // in part — what it added stands, its frames stay empty — never expired.
+      if (p.place && p.published) { p.status = "partial"; p.why = "photos-unconfirmed"; p.notDone = [...(p.place.notDone || []), ...(p.place.photos || []).map((x) => ({ what: x.d.slice(0, 200), why: "photo-unconfirmed" }))].slice(0, 24); }
+      else { p.status = "expired"; p.why = "purchase-unconfirmed"; }
+    }
   }
   // WHO MAY RUN: an independent part whatever happened elsewhere; a part whose
   // prerequisite did not finish is not run, and says which. The prerequisites
@@ -1252,6 +1295,9 @@ export function ownsPrep(record, n, seq, owner, now = Date.now(), runMs = PREP_F
 function preparable(p) {
   if (p.phase === "route") return true;
   if (p.phase !== "run" || !p.route) return false;
+  // A PLACEMENT (round 5) makes no model call and its purchases are the part's
+  // own: there is nothing to prepare, and it must never buy in a preparation.
+  if (Array.isArray(p.route.place) && p.route.place.length) return false;
   if (p.route.op === "addon") return PREP_ADDON;
   return PREP_LAYERS.includes(p.route.layer);
 }
@@ -1582,6 +1628,9 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       recent: d.layer === "data" && Array.isArray(rec.recent) && rec.recent.length ? rec.recent.slice(0, 3) : undefined,
       images: imgs.length ? imgs : undefined,
+      // AN ADDITION'S MARKED FRAMES TO FILL (round 5): the picture step places
+      // each one's purchase, with no model call.
+      place: Array.isArray(d.place) && d.place.length ? d.place.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file })) : undefined,
       idem: key,
       request,
     },
@@ -1664,6 +1713,9 @@ export function requestView(rec, { progress = null, said = null } = {}) {
       // WHAT A HELD PART WAITS ON (2026-10-09, round 3): each picture whose
       // purchase nobody can tell, by its description.
       ...(p.status === "uncertain" ? { purchases: heldPurchases(p).map((h) => ({ d: h.d })) } : {}),
+      // AN ADDITION ALREADY LIVE WHOSE FRAMES WAIT ON THEIR PHOTOGRAPHS (round
+      // 5): published, so never shown as nothing done.
+      ...(p.place && p.published ? { published: true, waitingPhotos: (p.place.photos || []).length } : {}),
       ...(p.status === "waiting" && p.question ? { question: { id: p.question.id, text: p.question.text, options: p.question.options, ...(p.question.note ? { note: p.question.note } : {}), ...(p.question.queued ? { queued: true } : {}) } } : {}),
       ...(typeof p.answer === "string" ? { answer: p.answer } : {}),
       // THE JOBS WHOSE OWN REPLY EXPLAINS THIS PART: every run that ended with an
