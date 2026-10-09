@@ -12329,6 +12329,9 @@ function landedSaid(notes) {
  * than the edit the customer actually asked for. The caller falls back to
  * whatever is cached and, for anything new, to the primary language.
  */
+/** The translation call itself, under a name a caller's own \`translateStrings\` cannot shadow (round 5). */
+const translateNow = (...a) => translateStrings(...a);
+
 async function translateStrings(env, tag, strings, models = null) {
   if (!strings.length) return { ok: true, strings: [], usage: null };
   const model = (models && typeof models.quick === "string" && models.quick) || modelsFor().quick;
@@ -13629,8 +13632,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // `design_schema` on 2026-08-23, so the prose had been describing a field the
   // designer could not answer.
   const cssRead = readCss(css);
-  const fontFiles = await fetchSiteFonts(cssRead.fonts || []);
-  try { mark?.("fonts"); } catch { /* a trace must never break a build */ }
+  // THE FONTS, FETCHED BESIDE THE PHOTOGRAPH STEP (2026-10-09, parallel round
+  // 5). They need only the design's stylesheet and are read only by the
+  // compile, so they no longer hold up the page writer: a first run that hands
+  // its generation to the container fetches none (it never compiles), and the
+  // run that compiles starts them with the image step and joins them at the
+  // compile. Started at most once, and settled before this function returns.
+  let fontsP = null;
+  const fontsFor = () => (fontsP ||= (async () => { try { return await fetchSiteFonts(cssRead.fonts || []); } catch { return {}; } })());
   // WHETHER THIS SITE GOT ITS OWN SCRIPT, so the answer leaves the building.
   //
   // `putSiteWorker` logged its result and returned it to NOBODY — so a build
@@ -13770,6 +13779,39 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   const photoKey = "build-" + String(jobId || "inline-" + bVersion).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
   const photoOwner = "build:" + String(jobId || bVersion).slice(0, 64);
   let photoTask = null;
+  // ── THE TRANSLATIONS, ASKED BESIDE THE PHOTOGRAPHS (2026-10-09, round 5) ──
+  //
+  // They need only the pages' words, which the image step does not change
+  // (\`src\` is never read as words). So the image step asks for each extra
+  // language's missing strings at once, and the compile's own loop below —
+  // unchanged, its usage still pushed to \`langUsage\` and billed — is handed
+  // that call's answer when it asks for EXACTLY the same strings in the same
+  // language. Each answer is used at most once; any other ask is made then.
+  const langBeside = new Map();
+  const langAsk = (tag, missing) => tag + "\n" + JSON.stringify(missing);
+  const translateStrings = (e, tag, missing, m) => {
+    const k = langAsk(tag, missing);
+    const p = langBeside.get(k);
+    if (p) { langBeside.delete(k); return p; }
+    return translateNow(e, tag, missing, m);
+  };
+  const translationsBeside = (pg) => {
+    try {
+      const routes = (Array.isArray(pg) ? pg : []).map((p) => routeOf(p.path)).filter(Boolean);
+      const { langs: siteLangs } = resolveLangs(lang || "en", Array.isArray(langs) ? langs : [], { routes });
+      const { strings } = collectStrings(pg);
+      let n = 0;
+      for (const l of siteLangs) {
+        if (l.primary) continue;
+        const had = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
+        const missing = missingFrom(untranslated(had) ? {} : had, strings);
+        if (!missing.length || langBeside.has(langAsk(l.tag, missing))) continue;
+        langBeside.set(langAsk(l.tag, missing), translateNow(env, l.tag, missing, models).catch(() => ({ ok: false, why: "call" })));
+        n++;
+      }
+      return n;
+    } catch { return 0; }
+  };
   const out = await publishPages({
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
@@ -14069,6 +14111,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // `via` is undefined on every fired build and 1/0 answered 0. Absent is
       // the honest reading of "this invocation did not make the call"; the
       // collector supplies the truth it does have (see `runResumedSiteBuild`).
+      // THE COMPILE'S OWN INPUTS THAT ARE READY NOW, STARTED BESIDE THE
+      // PHOTOGRAPHS (round 5): the fonts, and the translations of the pages'
+      // words. Joined at the compile; never handed on unsettled.
+      fontsFor();
+      try { mark?.("fonts", { beside: 1 }); } catch { /* a trace must never break a build */ }
+      const early = translationsBeside(pages);
+      if (early) try { mark?.("lang-beside", { calls: early }); } catch { /* a trace must never break a build */ }
       try { if (genPath.via) mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); else mark?.("img"); } catch { /* a trace must never break a build */ }
       // AND THE PICTURES NO WRITER WAS OFFERED (2026-10-08, the content-
       // preservation batch): the designer's list past `imgBudget`, named with
@@ -14091,6 +14140,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         }), { plan, budget: imgBudget, notOffered: imgNotOffered });
     },
     compile: async (pages, builtParts) => {
+      // THE FONTS, JOINED HERE (round 5): fetched beside the photographs, or
+      // now when the image step did not run.
+      const fontFiles = await fontsFor();
       // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
       // the spine can re-send them forever; it cannot reach into this closure, so
       // the last thing actually sent to the container is captured here. Assigned
@@ -14497,6 +14549,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // handed on — to its resume, its reply or its refund — and each is recorded
   // as the build's logical purchase, which the resume reads.
   if (photoTask) { try { await photoTask.settled; } catch { /* each is recorded on its own */ } }
+  // AND WHAT WAS STARTED BESIDE THE PHOTOGRAPHS (round 5), never left running:
+  // the fonts, and any translation the compile did not come to use.
+  await Promise.allSettled([fontsP, ...langBeside.values()].filter(Boolean));
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   // AND WHETHER THE SITE IS SERVED BY ITS OWN SCRIPT.
   //

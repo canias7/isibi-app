@@ -306,6 +306,56 @@ test("BLD 8 — NO IMAGE KEY, NO CALL: a build without the image service's key n
   assert.equal(answerOf(b, id).body.images.made, 0);
 });
 
+test("BLD 9 — THE COMPILE'S READY INPUTS BESIDE THE PHOTOGRAPHS (round 5): the first run hands its page writing on WITHOUT fetching fonts (it never compiles); the resume asks for the fonts and the French translation WHILE its photographs are still being bought, and the compile uses that one answer — one fonts fetch, one translation call, every picture placed", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const seen = { fonts: [], translate: [], fontsInFirst: 0 };
+  let release;
+  const gateP = new Promise((ok) => { release = ok; });
+  const img = images({ hold: async () => { await gateP; } });
+  const design = { ...DESIGN, lang: "en", langs: ["fr"], css: 'body{font-family:"Cormorant Garamond",serif}' };
+  const over = (phase) => async (u, init) => {
+    if (u.startsWith("https://api.fontsource.org/")) {
+      seen.fonts.push({ phase, ended: img.log.filter((e) => e.end != null).length });
+      return new Response("not here", { status: 404 });
+    }
+    if (u.includes("/v1/messages")) {
+      let bd = {};
+      try { bd = JSON.parse(String((init && init.body) || "{}")); } catch { bd = {}; }
+      if (bd.tool_choice && bd.tool_choice.name === "write_translation") {
+        const text = String((bd.messages && bd.messages[0] && bd.messages[0].content) || "");
+        const strings = JSON.parse(text.slice(text.indexOf("Strings:\n") + "Strings:\n".length));
+        seen.translate.push({ phase, ended: img.log.filter((e) => e.end != null).length, n: strings.length });
+        return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "tr1", name: "write_translation", input: { strings: strings.map((x) => "FR " + x) } }] });
+      }
+    }
+    return img.over(u, init);
+  };
+  await fireInterim(b, id, ledger(), { design, brief: BRIEF_MANY, env: { FAL_KEY: "k" }, over: over("first"), credits: 40 });
+  assert.equal(seen.fonts.length, 0, "the first run fetched fonts it never uses before handing its page writing on");
+  assert.equal(answerOf(b, id).status, 202, "the first run did not hand on to its resume");
+  // THE HOLD LIFTS ONCE BOTH COMPILE INPUTS WERE ASKED FOR (or after 3s, so the old order fails rather than hangs).
+  const lifted = (async () => {
+    const t0 = Date.now();
+    while (!(seen.fonts.length && seen.translate.length) && Date.now() - t0 < 3000) await wait(5);
+    await wait(20);
+    release();
+  })();
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k" }, source: pageOf(PICS), over: over("resume") });
+  await lifted;
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  assert.equal(seen.fonts.length, 1, "fonts fetched: " + JSON.stringify(seen.fonts));
+  // ASKED BEFORE ANY PHOTOGRAPH'S PURCHASE HAD ENDED — the purchases are held
+  // until both were asked for, so these ran beside them, not after.
+  assert.equal(seen.fonts[0].ended, 0, "the fonts were fetched after a photograph's purchase had ended");
+  assert.equal(seen.translate.length, 1, "the translation was asked again at the compile: " + JSON.stringify(seen.translate));
+  assert.equal(seen.translate[0].ended, 0, "the translation was asked after a photograph's purchase had ended (at the compile)");
+  assert.equal(img.log.length, PICS.length);
+  assert.equal(new Set(urlsIn(published(b))).size, PICS.length);
+  assert.equal(img.open(), 0);
+});
+
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });
