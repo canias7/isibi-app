@@ -76,6 +76,20 @@
   picture by the next reader (the job, the driver's look, a resumed build);
   until then the part is held with `store-pending`, and the held answer says
   the picture was made and is being saved.
+- **An addition's photograph waiting on its purchase** (2026-10-09, round 5,
+  `docs/history/2026-10-09-parallel-round-5.md`). The addition publishes
+  with that frame marked (`src="" data-pending-photo="<purchase id>"`) and
+  answers `pendingPhotos`; the part is held `uncertain` (`photos-pending`)
+  with `published: true` and what is left to place. Once the purchase is
+  known, the part runs a placement step (a picture job carrying `place`):
+  each photograph into exactly its marked frame, one publish, charged by the
+  count placed. A frame gone or a purchase with no picture is told in
+  `notPlaced` and the part ends partial; held past a day, the part ends
+  partial (`photos-unconfirmed`), because the addition is live.
+- **An uncertain preparation's answers are reused** (round 5). A
+  preparation that ended uncertain hands its own recorded routing and step
+  answers to the part's jobs, with the earlier attempt's; only identical
+  requests are answered from them.
 - **A part only the full rewrite can make waits for the customer's
   go-ahead on the request itself**, with its files kept. The go-ahead is
   written before anything depends on it, and the server files the existing

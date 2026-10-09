@@ -20,14 +20,16 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **What parallel tasks do not cover yet** (2026-10-08, revised after round 4,
-  2026-10-09): writes one at a time per site, the image provider offers no
-  idempotency or lookup (a call whose answer was lost is held), an add-on's
-  unknown photograph ends its part partial, photos bought outside a request
-  part or a build have no purchase record, a first Build overlaps only its
-  photographs, prepared or prefetched work no job uses is ours, targets
-  depend on the model, no live evidence. In full under Backlog below;
-  `docs/history/2026-10-09-parallel-round-4.md`.
+- **What parallel tasks do not cover yet** (2026-10-08, revised after round 5,
+  2026-10-09): writes one at a time per site; the image provider offers no
+  idempotency or lookup (a call whose answer was lost is held); an add-on
+  photograph cut off by its own wait, or not in a `src` attribute, is not
+  marked for later; photos bought outside a request part or a build have no
+  purchase record; a first Build's provisioning, schema, seed, compile and
+  publish stay in order, and its live lines only come on the queued path; a
+  page step waits behind any earlier page write; prepared or prefetched work
+  no job uses is ours; targets depend on the model; no live evidence. In
+  full under Backlog below; `docs/history/2026-10-09-parallel-round-5.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1005,8 +1007,8 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 4,
-  2026-10-09; `docs/history/2026-10-09-parallel-round-4.md` §8).** Closed in
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 5,
+  2026-10-09; `docs/history/2026-10-09-parallel-round-5.md` §8).** Closed in
   round 3: a retake reading an unreadable earlier record as "nothing
   happened", and a part's job buying while a preparation's purchase was out
   (one logical purchase per picture); the page tweak's preparation, now
@@ -1014,7 +1016,13 @@ here; take a closed one out of both.**
   in round 4: a picture made and not stored was recorded `none` and bought
   again (Codex's reproduction) — the purchase now records the made
   picture's source and finishes the download or store on that picture; and
-  an image step meeting a purchase in flight is now driven (BLD 7). Not yet:
+  an image step meeting a purchase in flight is now driven (BLD 7). Closed in
+  round 5: an add-on's photograph whose purchase is unknown is no longer
+  ended partial — its frame is marked and the part held, then a placement
+  step fills exactly that frame once the purchase is known; a first Build's
+  fonts and translations now run beside its photographs; a first Build has
+  model-written live lines; and an uncertain preparation's own answers are
+  reused by the part's jobs (found by the seven-task batch). Not yet:
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job; changing it is SQL and was not needed
     for model work to overlap;
@@ -1030,16 +1038,21 @@ here; take a closed one out of both.**
     purchase record (a build always has one, keyed by its job or version). They get the stage split and
     the download and store retries, but a picture made and not stored there
     is told as not made (not charged) and is not finished later;
-  - **an add-on's photograph whose purchase is unknown** is left as its frame
-    and told, and the part ends partial; it is not held and resumed as the
-    picture step is;
+  - **an add-on's photograph not marked**: one still in flight when the
+    add-on's own wait ended, or a token that is not a whole `src="…"`
+    attribute, is told as before and not placed later;
   - **an add-on that needs a new database** is prepared only up to its design
     (the provisioning boundary);
   - **the logo step** has no model call to prepare;
-  - **a first Build**: only the photographs run beside the page writer.
-    Provisioning, schema and seed beside it are not done; no live progress
-    line during a build; a message mixing a build with edits is not a request
+  - **a first Build**: the photographs run beside the page writer, and the
+    fonts and translations beside the photographs. Provisioning, schema,
+    seed, the look merge, the compile, the render check and the publish stay
+    in order (each needs the one before). Live lines are written on the
+    queued build path only, with the default quick model rather than the
+    build's own picker. A message mixing a build with edits is not a request
     of this flow;
+  - **a page step waits behind any earlier unapplied page write**: its
+    fallback writer is shown every page (`stepInputs`);
   - **wasted work is ours**: a prepared call or picture no job used, a
     photograph bought beside a build's pages that its writer did not use, and
     a job's repeated calls when an earlier attempt's record stays unreadable;
