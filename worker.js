@@ -5715,6 +5715,12 @@ function makePrepCtx({ id, budget, uid = "", slug = "", rec = recorder() }) {
 
 /** A job's model transport: recorded under a preparation, answered from its staged preparation under a job, unchanged otherwise. */
 const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec.wrap(send) : job && job.replay ? job.replay.wrap(send) : send);
+/**
+ * THE SAME FOR A TRANSPORT CALLED `(keys, req, budget)` — the page writer's
+ * (2026-10-09): one request in, its answer out, recorded or replayed by the
+ * request it sent, exactly as `jobSend` does for a plain send.
+ */
+const jobCall = (job, call) => (keys, req, budget) => jobSend(job, (r) => call(keys, r, budget))(req);
 /** The same for a picture bought for a description. */
 const jobImage = (job, generate) => (job && job.prepare === true && job.rec ? job.rec.image(generate) : job && job.replay ? job.replay.image(generate) : generate);
 
@@ -26645,6 +26651,14 @@ async function handleRequest(request, env, ctx) {
             // would buy a blind spot in a check that caught two real bugs in
             // this change alone; renaming one property costs nothing.
             let cssCtx = null;
+            // A PREPARATION'S STOP (2026-10-09): the step reached the write a
+            // preparation never makes — its model work is done and recorded —
+            // and it answers at once, so no failure path after it (a compile
+            // fallback, a rollback) runs. `prepStop` counts the stop; a
+            // publish that already counted it is answered with `prepAnswer`.
+            const prepAnswer = () => Response.json({ ok: false, error: "prepared", ours: true });
+            const prepStop = () => { eJob.reached = (Number(eJob.reached) || 0) + 1; return prepAnswer(); };
+            const isPrep = !!(eJob && eJob.prepare === true);
             const publishStep = async (e, args) => {
               // A PREPARATION STOPS HERE (2026-10-08): the step's work is done
               // and recorded; nothing is compiled, staged or published, and the
@@ -27947,7 +27961,8 @@ async function handleRequest(request, env, ctx) {
               let dCost = 0, dBilled = false;
               const dOut = await runDataEdit({
                 send: eQuick(),
-                before: async (usage) => { dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
+                // PREPARED: the change is chosen; no row is touched here.
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -28165,7 +28180,11 @@ async function handleRequest(request, env, ctx) {
               // rather than one derived and hoped for. Best-effort: the rung
               // proceeds either way, because the connection in hand is the same
               // one whether or not the row learns its name.
-              if (rBack.state === "incomplete") {
+              // A PREPARATION WRITES NO REFERENCE: a site whose database link
+              // needs healing is not prepared; its own job heals and runs it.
+              // A PREPARATION RECORDS NO REFERENCE (it writes nothing): the
+              // connection in hand is the same either way; the job heals it.
+              if (rBack.state === "incomplete" && !isPrep) {
                 try { await healSiteBackendDb(env, ownerSlug, rBack.uid || ou.id, rBack.db); }
                 catch (e) { console.error("rules edit reference heal failed:", ownerSlug, e && e.message); }
               }
@@ -28242,7 +28261,8 @@ async function handleRequest(request, env, ctx) {
               let rCost = 0, rBilled = false;
               const rOut = await runRulesEdit({
                 send: eQuick(),
-                before: async (usage) => { rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
+                // PREPARED: the rules are chosen; nothing is granted here.
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
@@ -29558,6 +29578,8 @@ async function handleRequest(request, env, ctx) {
                 });
               }
 
+              // PREPARED: every lane has answered; the look is never written here.
+              if (isPrep) return prepStop();
               try {
                 // ONE WRITE FOR BOTH. `cssMoved` is what decides whether the
                 // sheet is named at all: `nextCss` equals `priorCss` unless a
@@ -30012,6 +30034,8 @@ async function handleRequest(request, env, ctx) {
                     slug: ownerSlug, pages: twPages,
                     label: versionLabel({ revise: true, changeNote: eRun }),
                   });
+                  // PREPARED: the tweak is done; never the rewrite fallback below.
+                  if (isPrep) return prepAnswer();
                   // A FAILED COMPILE FALLS THROUGH rather than answering, and
                   // that is the one place this rung differs from every other
                   // lane. The rewrite below is a genuinely different attempt
@@ -30328,7 +30352,7 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(pagesCall(env), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }));
+                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }));
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -30743,6 +30767,7 @@ async function handleRequest(request, env, ctx) {
                 parts: pParts || undefined,
                 label: versionLabel({ revise: true, changeNote: eRun }),
               });
+              if (isPrep) return prepAnswer();
               if (!pPub.ok) {
                 return Response.json({
                   ok: false, error: "compile", cost: 0,
@@ -31618,6 +31643,15 @@ async function handleRequest(request, env, ctx) {
             const aJob = (eReplay && eReplay.replay) || null;
             if (aRawMarker && !aJob) return Response.json({ error: "not found" }, { status: 404 });
             if (aJob) editTraceJob = aJob.id;
+            // A PREPARATION OF AN ADDITION (2026-10-09): its picker and designers —
+            // and, for an addition with no database, its page writer — run and are
+            // recorded; it stops at the first write (a database made or healed, a
+            // charge), keeps no answer and no trace. The part's own job does all
+            // of it, answered from the record where its requests are unchanged.
+            const aPrep = !!(aJob && aJob.prepare === true);
+            if (aPrep) editTracePrep = true;
+            const aPrepStop = () => { aJob.reached = (Number(aJob.reached) || 0) + 1; return Response.json({ ok: false, error: "prepared", ours: true }); };
+            const aKeepAnswer = (...a) => (aPrep ? Promise.resolve() : saveAddonAnswer(...a));
             aReplyOut.job = !!aJob;
             // A PART OF A LONGER REQUEST (2026-10-03), as on the edit route.
             const aPart = aJob ? readRequestOf(ab && ab.request) : null;
@@ -31642,7 +31676,7 @@ async function handleRequest(request, env, ctx) {
             // `aJob` is null on the synchronous path and `quickSend` keeps its
             // flat ceiling, exactly as before. AND SO DO THE ANSWERS
             // (`clarifyTransport`), as on the edit route.
-            const aQuick = (what = "") => clarifyTransport(quickSend(env, what, aJob && aJob.budget), {
+            const aQuick = (what = "") => clarifyTransport(jobSend(aJob, quickSend(env, what, aJob && aJob.budget)), {
               shown: () => aCtxShown,
               all: () => aCtxAll || [],
               part: aPartShown,
@@ -31781,7 +31815,9 @@ async function handleRequest(request, env, ctx) {
             // found, and saying "the site got its database for it" about a
             // database it has had for days is exactly what run 47's reply did.
             let aHealedRef = false;
-            if (aBack.state === "incomplete") {
+            // A PREPARATION RECORDS NO REFERENCE (2026-10-09): it writes nothing;
+            // the connection in hand is the same, and the part's job heals it.
+            if (aBack.state === "incomplete" && !aPrep) {
               const h = await healSiteBackendDb(env, ownerSlug, aBack.uid || ou.id, aBack.db);
               aHealedRef = !!(h && h.healed);
               aMark("backend", "healed", { ref: aHealedRef ? 1 : 0 });
@@ -32321,6 +32357,8 @@ async function handleRequest(request, env, ctx) {
                 }, 422);
               }
               const rowBill = pageCredits(...aDesignUsage);
+              // PREPARED: the entry is chosen and checked; nothing is charged or saved.
+              if (aPrep) return aPrepStop();
               let rowCost = 0;
               if (aJob) {
                 rowCost = await aCharge(rowBill);
@@ -33177,7 +33215,7 @@ async function handleRequest(request, env, ctx) {
               // requirement outcomes told under it. Never fatal.
               let coverage = null;
               try { coverage = aRecordFor ? aRecordFor(failed) : null; } catch (e) { coverage = null; }
-              await saveAddonAnswer(env, ownerSlug, {
+              await aKeepAnswer(env, ownerSlug, {
                 message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage,
                 outcome: failed, error: typeof body.error === "string" ? body.error : "",
                 requirementsTold: told.requirementsTold, warningsTold: told.warningsTold,
@@ -33204,13 +33242,13 @@ async function handleRequest(request, env, ctx) {
             // whenever this one ended before its first save (a designer's call
             // that failed, a designer that refused). It now says this one is
             // being designed, until a save or a failure says more.
-            await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: [], coverage: null, state: "designing" });
+            await aKeepAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: [], coverage: null, state: "designing" });
             // …AND HOW IT ENDED, WHERE IT ENDS WITHOUT A LATER SAVE (2026-10-07):
             // a design or judgment call that did not go through, and a question
             // back, are written onto this addition's record with what it holds
             // so far — so the record never says "designing" of an addition that
             // has ended, and the job's answer and the record tell one story.
-            const aEnded = (state, coverage = null) => saveAddonAnswer(env, ownerSlug, {
+            const aEnded = (state, coverage = null) => aKeepAnswer(env, ownerSlug, {
               message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage, state, ...(state === "failed" ? { error: "send" } : {}),
             });
             for (const k of aKinds) {
@@ -33544,7 +33582,7 @@ async function handleRequest(request, env, ctx) {
               unseenPages: aUnseenPages,
             });
             const aSaveAnswer = async () => {
-              try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
+              try { await aKeepAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
               catch (e) { console.error("addon answer save failed:", ownerSlug, e && e.message); }
             };
             aRecordFor = (failed) => aRecord(failed);
@@ -33688,6 +33726,8 @@ async function handleRequest(request, env, ctx) {
                 // MAY THE DATABASE BE MADE? (async path) A cold provision is
                 // tens of seconds of Neon calls; the cancel and the budget are
                 // re-asked before it, as they are before the page call.
+                // A PREPARATION NEVER MAKES A DATABASE: its designs are done.
+                if (aPrep) return aPrepStop();
                 const aGateProv = aJob ? aJob.gate("editing") : null;
                 if (aGateProv && !aGateProv.go) return await editStopped(env, { job: aJob, why: aGateProv.why, phase: "editing", trace: editTrace, ctx, extra: aStopEvidence() });
                 aMark("provision", "start", { tiers: aBackend });
@@ -33816,6 +33856,9 @@ async function handleRequest(request, env, ctx) {
               // Synchronously nothing moves: the collect stays after the work,
               // as it always did. The consumer refunds a landed #1 when the
               // rest does not ship.
+              // PREPARED: designs and the seed net answered; the first reserve and
+              // the first write are the job's.
+              if (aPrep) return aPrepStop();
               if (aJob) {
                 aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
                 aFirstPlaced = true;
@@ -34432,7 +34475,7 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(pagesCall(env), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
+              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -34933,6 +34976,9 @@ async function handleRequest(request, env, ctx) {
             // own trade — and the reply carries the sum. A refusal here stops
             // BEFORE the look is stored.
             const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
+            // PREPARED: the pages are written and recorded; nothing is charged,
+            // stored, bought or compiled here.
+            if (aPrep) return aPrepStop();
             let aCost = 0;
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
             if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }

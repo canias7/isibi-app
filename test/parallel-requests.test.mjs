@@ -400,7 +400,7 @@ test("P6 REDELIVERY — every queued message delivered twice, no page open: one 
 
 // ── ADD-ON, BESIDE AN EDIT AND BESIDE ANOTHER ADDITION ─────────────────────
 
-test("P7 MIXED (Edit + Add-on) — the addition's routing is prepared while the edit's job is in its model call; its routing job is answered from that preparation; the addition itself (which writes the site as it works) runs as its own job after", async () => {
+test("P7 MIXED (Edit + Add-on) — the addition's routing is prepared while the edit's job is in its model call; its own work is NOT prepared beside it, because the edit changes a page and the addition's page writer reads the pages (2026-10-09; its work is prepared beside independent tasks: test/parallel-prep-paths.test.mjs); every call is made once", async () => {
   let routedAgain = null;
   const second = new Promise((ok) => { routedAgain = ok; });
   const timeline = [];
@@ -434,8 +434,12 @@ test("P7 MIXED (Edit + Add-on) — the addition's routing is prepared while the 
     assert.equal((timeline.find((t) => t[0] === "text:end") || [])[2], true, "the addition's routing did not run beside the edit's job: " + JSON.stringify(timeline));
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.prep])));
-    assert.equal(rec.parts[1].prep.outcome, "routed", "an addition's own work was prepared — it writes the site as it goes");
+    assert.equal(rec.parts[1].prep.outcome, "routed", "the addition's work was prepared beside a change to a page it reads");
     assert.equal(calls(P, T.route).length, 2, "the addition was routed twice");
+    // THE ADDITION'S MODEL WORK, ONCE: made by its own job, against the page as the edit left it.
+    assert.equal(calls(P, T.adds).length, 1, "the add-on picker was asked twice");
+    assert.equal(calls(P, T.design).length, 1, "the page designer was asked twice");
+    assert.equal(calls(P, T.pages).length, 1, "the page writer was asked twice");
     assert.deepEqual(jobLine(P, r.key), ["edit:done", "route:done", "addon:done"]);
     assert.ok(P.page("visit.tsx").includes(TIKTOK_TO));
     assert.ok(P.pages().includes("gallery.tsx"));

@@ -133,10 +133,21 @@ export function stepInputs(part) {
   if (!part) return [SITE];
   if (part.phase === "route" || !part.route) return ["pagelist"];
   const layer = typeof part.route.layer === "string" ? part.route.layer : "";
-  if (part.route.op === "addon") return [SITE];
+  // AN ADDITION (2026-10-09): its picker reads the page list and the look; its
+  // designers the menu it may add to and the pictures it may use; its page
+  // writer the pages it writes beside. A stored row it does not read; a table
+  // it adds is waited for by creation, and one changed beside it is caught by
+  // the job's exact-request check.
+  if (part.route.op === "addon") return ["pagelist", "theme", "menu", "pages", "images"];
   if (layer === "text") return ["pages"];
   if (layer === "nav") return ["menu", "pagelist"];
   if (layer === "picture") return ["images"];
+  // THE LOOK's lanes read the stored look and the pages a layout lane moves.
+  if (layer === "look") return ["theme", "pages"];
+  // A PAGE step: its writer is shown every page beside the one it writes.
+  if (layer === "page") return ["pages", "pagelist"];
+  // DATA and RULES read the tables.
+  if (layer === "data" || layer === "rules") return ["data"];
   return [SITE];
 }
 
@@ -144,10 +155,15 @@ export function stepInputs(part) {
 function feeds(write, input) {
   if (write === SITE || input === SITE) return true;
   const kind = write.includes(":") ? write.slice(0, write.indexOf(":")) : write;
-  if (input === "pages") return ["page", "new-page", "component", "new-component", "header", "footer", "menu", "identity"].includes(kind);
+  // A PICTURE PLACED is written into a page's source.
+  if (input === "pages") return ["page", "new-page", "component", "new-component", "header", "footer", "menu", "identity", "images"].includes(kind);
   if (input === "pagelist") return kind === "new-page" || kind === "pagelist";
   if (input === "images") return kind === "images" || kind === "new-page";
   if (input === "menu") return kind === "menu" || kind === "header" || kind === "new-page";
+  if (input === "theme") return kind === "theme" || kind === "identity";
+  if (input === "data") return kind === "data" || kind === "new-data";
+  // ONE PAGE: what is written to that page, or what every page renders.
+  if (input.startsWith("page:")) return overlaps(write, input) || ["component", "new-component", "header", "footer", "menu", "identity"].includes(kind);
   return overlaps(write, input);
 }
 
@@ -156,7 +172,10 @@ export function effectiveTargets(part) {
   const t = part && part.targets && typeof part.targets === "object" ? part.targets : {};
   const writes = new Set(Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : []);
   const reads = new Set(Array.isArray(t.reads) ? t.reads.map(readTarget).filter(Boolean) : []);
-  for (const w of impliedWrites(part && part.route)) writes.add(w);
+  // A TABLE THE ROUTER NAMED stands for the step's "some table" (2026-10-09):
+  // the data and rules steps write the tables they were asked about.
+  const namedTable = [...writes].some((w) => w.startsWith("data:") || w.startsWith("new-data:"));
+  for (const w of impliedWrites(part && part.route)) if (!(w === "data" && namedTable)) writes.add(w);
   if (!writes.size) writes.add(SITE);
   return { writes: [...writes], reads: [...reads] };
 }

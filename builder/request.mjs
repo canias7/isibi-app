@@ -160,8 +160,16 @@ export const PREP_MAX_LIVE = 3;
 export const PREP_TRIES = 2;
 /** How long a preparation that has not answered is waited for before its part runs without it (or it is tried again). */
 export const PREP_FRESH_MS = 10 * 60 * 1000;
-/** The edit steps whose work, before their publish, writes nothing but what a preparation may: their model calls and the pictures they buy. */
-export const PREP_LAYERS = Object.freeze(["text", "nav", "picture"]);
+/**
+ * The edit steps a preparation runs up to their first write: their model calls
+ * and the pictures they buy. Text, menu and picture stop at their publish; look
+ * before the look is stored; page at its publish (its tweak or its rewrite);
+ * data and rules before a row or a grant is touched (2026-10-09). The logo step
+ * makes no model call, so there is nothing to prepare.
+ */
+export const PREP_LAYERS = Object.freeze(["text", "nav", "picture", "look", "page", "data", "rules"]);
+/** And the add-on step: its picker and designers, and an addition with no database its page writer, up to its first write (2026-10-09). */
+export const PREP_ADDON = true;
 /** Hand-overs one part may make before the full rewrite is the only way left: an edit's, the add-on's, and one more. */
 export const HOPS_MAX = 3;
 
@@ -1200,7 +1208,8 @@ export function ownsPrep(record, n, seq, owner, now = Date.now(), runMs = PREP_F
 function preparable(p) {
   if (p.phase === "route") return true;
   if (p.phase !== "run" || !p.route) return false;
-  return p.route.op !== "addon" && PREP_LAYERS.includes(p.route.layer);
+  if (p.route.op === "addon") return PREP_ADDON;
+  return PREP_LAYERS.includes(p.route.layer);
 }
 
 /**

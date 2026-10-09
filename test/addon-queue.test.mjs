@@ -202,7 +202,10 @@ test("every model call on the addon route rides the job's clock", () => {
   // itself wrapped, so every small call is also shown what they already told
   // us (`clarifyTransport`, builder/clarify.mjs) — the clock still rides the
   // `quickSend` inside it, and nothing else reaches `quickSend` (below).
-  assert.match(b, /const aQuick = \(what = ""\) => clarifyTransport\(quickSend\(env, what, aJob && aJob\.budget\), \{/, "aQuick does not carry the job's budget");
+  // RE-ANCHORED 2026-10-09 (the parallel-tasks batch): `jobSend` sits between,
+  // so a preparation records each call and a job replays a prepared one; the
+  // clock still rides the `quickSend` inside it.
+  assert.match(b, /const aQuick = \(what = ""\) => clarifyTransport\(jobSend\(aJob, quickSend\(env, what, aJob && aJob\.budget\)\), \{/, "aQuick does not carry the job's budget");
   // TWO DIRECT CALLS SINCE 2026-09-04 (run 36), and the second is the job's
   // clock too, seen through `repairClock`: the repair call holds back the
   // second compile as well as the reserves, which `aQuick`'s view cannot
