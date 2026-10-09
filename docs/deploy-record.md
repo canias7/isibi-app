@@ -1530,6 +1530,14 @@ the only run that push started: `completed` / `success`, 13:41:04–13:44:11.
 - **The free runtime check is the owner's press**. Run 110 (13:31 UTC) was
   pressed before the merge and read production as it was then (`9d6bda8afc4e`,
   `335396c8c0e0fbcb`); it is not this check.
+- **Runtime-confirmed by the owner's free press, run 111** (run 37943299539,
+  14:19 UTC, from `main`):
+  - both readers answered `0fd50fd2d05c` and agreed;
+  - a cold container answered `6c9fc805fe4de0d8`;
+  - async and the runner were on;
+  - every zero-cost confirmation passed (`ALL FREE CHECKS PASSED`);
+  - balance 11, and nothing charged. (The press before it, at about 14:10,
+    never started.)
 
 ## The served-file check, driven end to end on deploy 2139
 

@@ -8,8 +8,9 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2189** (`main` `0fd50fd2`, image
-  `6c9fc805fe4de0d8`), deployed 2026-10-09 13:44 UTC and not yet
-  runtime-confirmed. **Balance 11**, last read after run 109.
+  `6c9fc805fe4de0d8`), deployed 2026-10-09 13:44 UTC and
+  **runtime-confirmed by run 111** (14:19 UTC: both readers `0fd50fd2d05c`,
+  a cold container `6c9fc805fe4de0d8`, every free check passed, balance 11). **Balance 11**, last read after run 109.
   Nothing moved money.
 - **The attachment correction is closed** (`18d6aae1`, `58d3350b`, records
   `604d2415`). Codex confirmed it with 59 focused tests, their own mixed
@@ -158,7 +159,7 @@ since. Add new ones there.
 
 ---
 
-## 2026-10-09 — The release: deploy 2189, and press A prepared (deployed, not yet runtime-confirmed)
+## 2026-10-09 — The release: deploy 2189, and press A prepared (runtime-confirmed by run 111)
 
 On your word (*"approve the release and press A's preparation"*):
 - **Deploy 2189**: `main` `9d6bda8a` → `0fd50fd2`, 93 commits, one green
