@@ -9,8 +9,9 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2189** (`main` `0fd50fd2`, image
   `6c9fc805fe4de0d8`), deployed 2026-10-09 13:44 UTC and
-  **runtime-confirmed by run 111** (14:19 UTC: both readers `0fd50fd2d05c`,
-  a cold container `6c9fc805fe4de0d8`, every free check passed, balance 11). **Balance 11**, last read after run 109.
+  **runtime-confirmed by run 111** (14:19 UTC). **Press A ran as run 113**:
+  every product check passed, with overlap and clarification observed live;
+  12 credits; **balance 18** (`docs/history/2026-10-09-run113.md`). **Balance 11**, last read after run 109.
   Nothing moved money.
 - **The attachment correction is closed** (`18d6aae1`, `58d3350b`, records
   `604d2415`). Codex confirmed it with 59 focused tests, their own mixed
@@ -156,6 +157,30 @@ proposal), `docs/history/2026-10-09-readiness-review.md`,
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — Run 113: press A on deploy 2189, every product check passed (12 credits)
+
+Press A (`lv-parallel`), run 37947640646, 14:54–15:10 UTC. The full record is
+`docs/history/2026-10-09-run113.md`.
+- **The first live run of the preparation code.**
+  - A part was prepared while another part's job was queued: *"at 75 s part 1
+    was preparing while part 0 queued"*.
+  - The footer link asked for the YouTube address while the price and the
+    heading finished. Your answer resumed it, and YouTube went onto 10
+    footers.
+  - The heading changed, and the price changed 4.5 → 4.6 and was **put back
+    to 4.5** by the run.
+  - Everything else is byte for byte as before.
+  - Every reply was model-written.
+- **12 credits** (routing 6, jobs 6), exactly the balance's move, inside the
+  11–17 estimate. Balance 30 → **18**.
+- **One canary check failed, my scenario's fault**: the progress check needs
+  a closed-tab message, which this press does not have. It is removed from
+  the scenario. The model wrote its 6 progress lines.
+- **Not shown live**: whether the prepared answers were reused (not readable
+  by a press); the closed-tab path with preparation on.
 
 ---
 

@@ -39,7 +39,9 @@ test("lv-parallel: on the bakery, in request mode, two messages word for word â€
   assert.deepEqual([...LP.layers].sort(), ["data", "nav", "text"]);
   // WHAT IT CHECKS.
   assert.equal(LP.expect.overlap, true);
-  assert.equal(LP.expect.progress, true);
+  // NO PROGRESS CHECK (run 113): it reads a closed-tab message, which this press does not have.
+  assert.equal(LP.expect.progress, undefined);
+  assert.ok(LP.steps.every((st) => st.away === undefined));
   assert.deepEqual(LP.expect.social, { network: "youtube", host: "youtube.com", path: "/@harbourloaf" });
   assert.deepEqual(LP.expect.headings, [{ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }]);
   assert.deepEqual([...LP.covers], ["several-parts", "step-question", "answer-resumes"]);

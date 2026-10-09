@@ -857,7 +857,10 @@ export const UI_SCENARIOS = Object.freeze({
         Object.freeze({ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }),
       ]),
       social: Object.freeze({ network: "youtube", host: "youtube.com", path: "/@harbourloaf" }),
-      progress: true,
+      // NO `progress` (run 113, 2026-10-09): that check reads a message sent
+      // with its tab closed (`away: "fresh"`), and this press ends its first
+      // message on a question instead, so it could only fail. The lines
+      // themselves are read from the narration usage the workflow prints.
       overlap: true,
     }),
     covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
