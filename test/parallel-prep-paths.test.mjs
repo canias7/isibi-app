@@ -26,6 +26,9 @@ async function withPlatform(opts, fn) {
   try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
 }
 const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
+/** Every stored object of the site but a request's or a job's records, by its etag. */
+const siteEtags = (P) => new Map([...P.objects.entries()].filter(([k]) => !/^(requests|requests-live|jobs)\//.test(k)).map(([k, o]) => [k, o.etag]));
+const changedSince = (P, was) => { const now = siteEtags(P); return [...new Set([...now.keys(), ...was.keys()])].filter((k) => now.get(k) !== was.get(k)); };
 /** The site's own stored objects holding `text` — not a request's or a job's records, where a preparation keeps its answers. */
 const siteObjectsWith = (P, text) => [...P.objects.entries()].filter(([k, o]) => !/^(requests|jobs)\//.test(k) && typeof o.body === "string" && o.body.includes(text)).map(([k]) => k);
 const statuses = (rec) => rec.parts.map((p) => p.status);
@@ -78,7 +81,14 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     P.queue.splice(0);
     const running = deliver(P, jobs[0]);
     await new Promise((ok) => setTimeout(ok, 50));
+    // NOTHING OF THE SITE WRITTEN BY THE PREPARATION: with a first task that
+    // writes no stored object (a row change), every object of the site but a
+    // request's or a job's records is exactly as it was — not written and
+    // put back, not written at all.
+    const strict = first.kind === "data";
+    const before = strict ? siteEtags(P) : null;
     await deliver(P, prep[0]);
+    if (strict) assert.deepEqual(changedSince(P, before), [], "the preparation wrote to the site");
     const mid = P.record(r.key).parts[1].prep;
     if (check && check.before) await check.before(P);
     await running;

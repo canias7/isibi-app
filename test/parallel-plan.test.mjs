@@ -272,3 +272,24 @@ test("the progress writer is told what a task being prepared has actually reache
   assert.match(said(null), /“add a gallery page” \(not started yet\)/, "CONTROL: a task with no preparation");
   assert.doesNotMatch(said({ seq: 1, for: 1, phase: "run", state: "done", outcome: "ready", at: now }), /add a gallery page” \(finished/);
 });
+
+test("an addition is not prepared beside an earlier picture: a picture placed is written into a page, and an addition's page writer reads the pages and its designers the pictures (control: beside a stored row's change it is)", () => {
+  const ended = (p) => p.status === "done";
+  const pic = part(0, { route: { layer: "picture" } });
+  const add = part(1, { route: { op: "addon" }, targets: { writes: ["new-page:/gallery"], reads: [] } });
+  assert.equal(clearToPrepare([pic, add], 1, ended), false);
+  const row = part(0, { route: { layer: "data" }, targets: { writes: ["data:hours"], reads: [] } });
+  assert.equal(clearToPrepare([row, add], 1, ended), true, "CONTROL: an addition beside a row change of a list it does not add to");
+  const text = part(1, { route: { layer: "text" }, targets: { writes: ["page:/"], reads: [] } });
+  assert.equal(clearToPrepare([pic, text], 1, ended), false, "a picture placed is a page the text step reads");
+});
+
+test("purchase notes: a purchase that answered with no picture has ended — only a note still `buying` (or one that cannot be read) is unknown", async () => {
+  const { readBuys, unfinishedBuy } = await import("../builder/prepared.mjs");
+  assert.equal(unfinishedBuy({ buys: [{ d: "a", state: "none" }] }), null, "a purchase that answered nothing was treated as unknown");
+  assert.equal(unfinishedBuy({ buys: [{ d: "a", state: "bought", url: "/u/s/a.jpg" }] }), null);
+  assert.deepEqual(unfinishedBuy({ buys: [{ d: "a", state: "bought", url: "/u/s/a.jpg" }, { d: "b", state: "buying" }] }), { d: "b", state: "buying" });
+  assert.deepEqual(unfinishedBuy({ buys: [{ d: "c", state: "weird" }] }), { d: "c", state: "buying" }, "an unreadable note read as finished");
+  assert.deepEqual(readBuys({ buys: [{ d: "a", state: "bought" }] }), [{ d: "a", state: "buying" }], "a bought note with no address read as bought");
+  assert.deepEqual(unfinishedBuy(null), null);
+});
