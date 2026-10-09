@@ -16,7 +16,7 @@
 // publishes, the page, the task states and what was charged.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { platform, sendMessage, settle, tick, call, readWritten, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, settle, tick, pump, call, readWritten, T } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
@@ -189,6 +189,38 @@ test("APH 4 — held for a day with nobody able to tell: the addition is LIVE, s
     assert.equal(rec.parts[1].why, "photos-unconfirmed");
     assert.ok(rec.parts[1].notDone.some((x) => x.what === BENCH && x.why === "photo-unconfirmed"));
     assert.equal(P.imageLog.length, 1, "bought again on expiry");
+  });
+});
+
+test("APH 5 — THE PURCHASE CANNOT BE READ WHEN THE PLACEMENT RUNS: the driver saw it known and filed the placement, but the job finds the record unreadable — it is held again, nothing published, nothing charged, the frame still marked; once the record reads, the next look places that picture, never bought again", async () => {
+  await withPlatform({ slug: slugOf("a5"), ...BASE() }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    for (let i = 0; i < 3; i++) P.failPut(isUpload(P));
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "uncertain"]);
+    // THE DRIVER'S LOOK: the store works again, the purchase is known, the placement filed.
+    await tick(P);
+    const filed = P.record(r.key).parts[1];
+    assert.ok(Array.isArray(filed.route && filed.route.place) && filed.route.place.length === 1, "no placement was filed: " + JSON.stringify(filed.route));
+    const placements = P.queue.length;
+    assert.ok(placements > 0, "the placement job was not queued");
+    // …AND THEN THE RECORD CANNOT BE READ while the job runs.
+    // ONE READ'S WORTH OF FAILURES (`PURCHASE_READS`, three tries): the job's.
+    for (let i = 0; i < 3; i++) P.failGet((k) => k.includes("/purchases/"));
+    const pubBefore = publishedOf(P, r.key, 1);
+    await pump(P, { max: placements });
+    const mid = P.record(r.key).parts[1];
+    assert.equal(mid.status, "uncertain", "a placement that could not read its purchase was not held again: " + JSON.stringify([mid.status, mid.why, mid.notDone]));
+    assert.match(gallery(P), /data-pending-photo="[0-9a-f]{24}"/, "the marked frame was lost");
+    assert.equal(publishedOf(P, r.key, 1), pubBefore, "something was published while the purchase was unknown");
+    const placementJob = runJobs(P, r.key, 1).pop();
+    assert.deepEqual(reserveOf(P, placementJob.id).filter((x) => x > 0), [], "the held placement was charged");
+    // THE RECORD READS AGAIN: placed, never bought twice.
+    await tick(P);
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
+    assert.match(gallery(P), /<SafeImage src="\/u\/[^"]+\.jpg" alt="the workshop bench"/);
+    assert.equal(P.imageLog.length, 1, "the photograph was bought again");
   });
 });
 
