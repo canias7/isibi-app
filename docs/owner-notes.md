@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-08, parallel tasks in one message, ending in `703eff67`)
+## Current handoff — read this first (2026-10-09, parallel tasks round 2: one owner per preparation, and preparation for every step that can have it, ending in `7bd4e3eb` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,149 +10,126 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`. This batch is:
-  - `af80c83a`, the two carried recovery fixes;
-  - `b772ec67`, the plan and the preparation claims;
-  - `41e889e8`, preparation and replay in the Worker, the card, the tests;
-  - `6b9c1dcb`, restoring 31 planner tests `41e889e8` wrote over (my
-    mistake, caught by the suite's total);
-  - `703eff67`, two flaws the sweep found, fixed, with their cases;
-  - and the records.
-  Before it: batch 9 (`241720dc`, records `7012286a`) and the earlier
-  batches.
+- **On the branch, unmerged**: everything since `9d6bda8a`. This round is:
+  - `3be40e6a`, preparation ownership (Codex's duplicate);
+  - `2c3cd671`, preparation for look, page, data, rules and the add-on step;
+  - `c06977c7`, progress lines told what a prepared task reached, and two
+    guards re-anchored;
+  - `7bd4e3eb`, from the sweep: a strict "no site object written" check,
+    pictures counted as page writes, and a purchase note's `none`;
+  - `68f1f653` and the records commit after it.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
-- The limits of 1 page and 15 components, the ownership and accounting
-  protections and the .txt reminder are unchanged.
 
-**The two carried recovery fixes** (`af80c83a`)
-- **Every clarification answer is kept**: on the page, in the router's
-  prompt and in the designer's brief. The question limit now only bounds how
-  many more questions may be asked.
-- **A corrective design call that meets a busy provider is retried with the
-  same correction and the same question field**, never the plain request.
-- 5 cases; 4 of them fail on the old code.
+**1. Codex's duplicate, fixed** (`3be40e6a`)
+- **What Codex showed on `464c6a3c`**: one `request-prep` message delivered
+  twice at once, with routing held. Both consumers passed a read-only
+  "attempting" check, and the one preparation bought two photographs.
+- **Now**: before any model call, a consumer takes the preparation
+  (`attempting` → `running`, with its own owner token) in **one conditional
+  write of the request record on its etag**. Of two deliveries, exactly one
+  write lands. The other reads again, sees it taken, and makes no call.
+- **Only the owner's result is kept**: same attempt number, same owner,
+  still running. A consumer that lost, or a late one whose attempt was
+  taken again, keeps nothing and never replaces a newer result.
+- **Every call and every purchase is noted as it happens**, in the
+  attempt's own file. A purchase is noted `buying` before it is made and
+  `bought` (with its address) or `none` after. Ownership and the attempt's
+  own deadline are checked before each purchase.
+- **Expiry**: an attempt is taken again 10 minutes after it was taken. The
+  new attempt names the old one, and:
+  - reuses its recorded answers (exact request match) and its bought
+    pictures;
+  - **never repeats a purchase whose note still says `buying`**. It ends
+    `uncertain`, with no call. The task's own job then uses whatever that
+    purchase landed, read when the job starts.
 
-**Parallel tasks: how it works.** The record is
-`docs/history/2026-10-08-parallel-requests.md`.
-- **Nothing new to orchestrate with.** It lives in the existing request
-  record, driver (`nextStep`), jobs, routing, question round, sweep and
-  ledger.
-- **The model plans, code checks**:
-  - the router now names, for each change it finds, what it writes and reads
-    (pages, the menu, the footer, the theme, a component, a table, the
-    pictures, or something it creates);
-  - code keeps only what parses, and adds what each step is known to write
-    from its own wiring;
-  - code adds one kind of waiting itself: a task that refers to something
-    another task *creates* waits for it, in whichever order you wrote them;
-  - no phrase matching anywhere.
-- **What overlaps**:
-  - the database lets one job change a site at a time, and that is not
-    changed here (it would be SQL);
-  - so while one task's job runs, up to three other tasks are **prepared**
-    beside it, in the Worker: their routing, and for text, menu and picture
-    changes the step itself, including buying the picture;
-  - a preparation writes nothing, charges nothing and stores no question.
-- **Against the site as it is**: when a task's own job runs, it reuses a
-  prepared answer only for a call whose request is byte for byte the one
-  prepared. Anything else is asked again against the current site, so a
-  prepared answer is never applied to a site it wasn't made for. The publish
-  is the existing one, so no task overwrites another's work.
-- **When a task waits**:
-  - it needs another's result (by the model's order, or by creation);
-  - or another task's unapplied change touches what it reads or writes (the
-    same page, the same component, the menu, the page list).
-  For example, a photo and a TikTok link run together; a menu link waits for
-  the page it links to; two changes to one page or one component take turns.
-- **Questions**: a question found while preparing is asked first, at no new
-  model cost. Independent tasks carry on, and your answer resumes the task
-  without your resending anything.
-- **Browser closed, redelivery, retries**: all on the server. A job retried
-  after a failure is answered from the same preparation, with no second call
-  or picture; a message delivered twice publishes and charges once.
-- **On screen**: the card says "Working on it alongside" and then "Ready,
-  applying next". A task is shown as done only after its own job has applied
-  and published it. Three screenshots were sent in the chat.
+**2. Which paths overlap now** (supplied answers only)
 
-**Cost, honestly**
-- **The same calls are billed**: parallel does not save credits in itself,
-  it saves waiting.
-- **No duplicate routing or planning**: each task is routed once, in its
-  preparation, and its job reuses that.
-- **What can be wasted is ours, not the customer's**: a prepared call or
-  picture no job used, because an earlier task changed what it reads. The
-  waiting rules keep this rare, but not zero.
-- **A prepared picture is bought before its task is applied.** If the task
-  is then stopped, that purchase is ours.
+| Path | Parallel work |
+|---|---|
+| Edit: text, menu, picture | **full preparation** (unchanged from 2026-10-08, now owned) |
+| Edit: look | **full preparation, new**: lane picker and every lane; stops before the look is stored |
+| Edit: page | **full preparation, new**: the page writer's rewrite (recorded and replayed); stops at the publish. The tweak is stopped too, but no test reaches it |
+| Edit: data | **full preparation, new**: the change chosen; stops before any row is touched |
+| Edit: rules | **full preparation, new**: the rule chosen; stops before any grant, policy or schema write, and a blank database link is not healed by a preparation |
+| Add-on, no new database | **full preparation, new**: picker, designers, seed net, page writer; stops before any charge, database, stored answer or trace |
+| Add-on, list entry | **full preparation, new**: the entry's choice |
+| Add-on that needs a new database | **preparation up to its design**; its page writer runs in its job after provisioning |
+| Edit: logo | **no parallel work** (no model call; routing only) |
+| Build (first build) | **existing behaviour only**: its design graph runs agents concurrently by their needs (P8, which passes on the commit before the first parallel batch). **No new Build orchestration** |
 
-**Tests actually run** (supplied model answers only)
-- **`test/parallel-requests.test.mjs`, 11 cases** through the real routes,
-  driver and queue consumer:
-  - overlap, proven with a gate;
-  - reverse-order dependency;
-  - a shared page;
-  - a shared component with unrelated wording;
-  - a question during preparation while other work continues;
-  - a crash and retry reusing the preparation;
-  - double delivery;
-  - mixed Edit + Add-on, and Add-on + Add-on;
-  - a prepared step that refuses;
-  - Build's design graph.
-- **`test/parallel-plan.test.mjs`, 14 unit cases**, and a real-Chromium case
-  for the card.
-- **Before, on `af80c83a`**: 9 of the 11 integration cases fail. P6 (double
-  delivery) and P8 (Build) pass there too: they guard behaviour that already
-  existed.
-- **Sweep: 31 of 31 killed, and the comment-only control survived.** The
-  first round's 6 survivors led to two real fixes (`703eff67`):
-  - a task not yet routed was never prepared unless the router named its
-    targets;
-  - a prepared routing's step was not re-checked against its own route.
-- **Full suite on `703eff67`: `10165 / 10165 / 0 / 0`**, against the base's
-  `10139`, measured in a worktree.
-- **Required CI on `a005c0df`**: the site build is green (run 37862003118).
-  Unit tests (run 37862003046) read `10165 / 10123 / 1 / 41`. The one
-  failure is `canary-tiktok-answer` GUARD 6, which is not from this batch:
-  its fixture question expired at 2026-10-08 23:59 UTC, and the run started
-  at 23:55. The case now runs on a controlled clock (its own commit, test
-  only). **Unit tests on `86deb541` (run 37863441884): `10165 / 10124 / 0 /
-  41`, green.** That total equals the local `10165`; CI skips the browser
-  cases. The site build did not run again, because `86deb541` touches only
-  a test and a document; its last run is green on `a005c0df`.
+- Each step is prepared only when no earlier unfinished task writes what it
+  reads (look: theme and pages; page: every page; data and rules: the
+  tables; an addition: page list, theme, menu, pages, pictures). A placed
+  picture counts as a page write. A table the router names stands in for
+  "some table", so two different lists can be worked on side by side.
+- **Revalidated against the site as it is**: a prepared answer is used only
+  for a byte-identical request. Anything that changed what the step reads
+  makes it ask again. The publish is the existing coordinated one, so
+  nothing overwrites another task's change. Questions stay scoped to their
+  task while independent work continues, and every clarification answer is
+  kept (2026-10-08).
+- **Progress** (`c06977c7`): the model-written lines tell a prepared task
+  as "being worked out alongside this one; nothing of it is on the site
+  yet" and then "worked out and waiting its turn". They never call it done.
 
-**Mocked versus live**
-- Every model answer and every picture purchase is a stand-in, and so are
-  Supabase's calls and the queue.
-- **Not shown live**: whether real models name useful targets, real overlap
-  timings, how often a prepared answer is missed, and the preparation's
-  Worker cost.
+**Tests actually run** (supplied model answers, a stand-in image service,
+the real Worker routes, request driver and queue consumer)
+- **`test/parallel-prep-ownership.test.mjs`, 5 cases**:
+  - OWN 1, Codex's reproduction: one routing call, one picture call, one
+    photograph, one charge and one publish per job;
+  - OWN 2: the owner dies in its first call; the attempt is retaken only
+    after its time, and the work is done once;
+  - OWN 3: the owner dies after a noted purchase; the retake makes no call
+    and no purchase;
+  - OWN 4: the owner dies inside the purchase; the retake is `uncertain`
+    with no call; the job buys once. **That is two purchases from the image
+    service (ours) and one charge to the customer**;
+  - OWN 5: a late owner lands its picture after the retake; its result does
+    not replace the newer one, and the job reuses its picture (one purchase
+    in total).
+- **`test/parallel-prep-paths.test.mjs`, 7 cases**: look, page, add-on
+  page, add-on row, data, rules and REVALIDATED. In each, the other task's
+  substantive model call is made while the first task's job is held inside
+  its own work (a gate only that call opens). Its job asks nothing again,
+  no site object is written before its job, and each job is charged at
+  most once. REVALIDATED changes the page in between: the writer is asked
+  again and the change is kept.
+- **`test/parallel-plan.test.mjs`, 4 new unit cases** (18 now): the claim,
+  expiry and `prev`, the progress wording, an addition beside a picture,
+  and the purchase notes.
+- **Red check**: all 5 OWN cases fail on `464c6a3c`, and all 7 path cases
+  fail on `3be40e6a`.
+- **Sweep**: 32 mutants over `builder/request.mjs`, `builder/request-plan.mjs`, `builder/prepared.mjs`, `builder/site-progress.mjs` and `worker.js`: 25 killed in the first round; the 7 survivors' tests were strengthened (`7bd4e3eb`) and a second round killed 4 more, so **29 of 32 killed, and the comment-only control survived**. Three survive, and each is explained: `note-loop-ignores-mine` (the loop then rewrites the same record, which changes nothing), `page-rewrite-no-stop` (the rewrite path writes nothing before its stop anyway; the strict no-write check passes either way), and `page-tweak-falls-through` (the page tweak is not reached by any supplied-answer case; recorded as a gap).
+- **Full suite on `7bd4e3eb`: `10181 / 10181 / 0 / 0`** (base `10165`, plus
+  16 new cases).
+- **Required CI**: read on the records commit; the result is in the next records commit.
+- **The next image, predicted** (not built): production `335396c8c0e0fbcb`
+  → **`de4fc820f7675016`** (202 inputs).
 
-**The next image, predicted** (not built): production `335396c8c0e0fbcb` →
-**`187c501d7e7f2007`** (202 inputs: the two new modules are copied in).
-
-**Remaining gaps** (backlog):
-- writes one at a time per site;
-- look, page, logo, data, rules and add-on steps prepared only up to their
-  routing;
-- wasted preparation is ours;
-- targets depend on the model;
-- no progress milestone of the preparation's own;
-- a build mixed with edits is not covered;
-- the constants are estimates;
-- no live run.
-
-**Still open from earlier batches**: as in batch 9's handoff (in git), plus
-the design-recovery gaps it listed.
+**Remaining gaps** (backlog)
+- writes stay one at a time per site (the database's lock; not needed for
+  model work to overlap, not changed);
+- an add-on that needs a new database is prepared only to its design;
+- logo: nothing to prepare;
+- Build: no general task orchestration beyond the existing design graph;
+  a message mixing a build with edits is not a request of this flow;
+- the page tweak's stop is untested;
+- an `uncertain` purchase that never lands is bought again (ours);
+- wasted preparation is ours; the input rules are a heuristic;
+- targets depend on the model; the constants are estimates;
+- **no real-model or live run**.
 
 **Yours to decide**
-- The review of this batch (and the earlier unmerged batches).
-- Whether concurrent writes to one site are worth a database change.
-- Whether the look, page and add-on steps should get staged preparation.
+- The review of this round (and the earlier unmerged batches).
+- Whether the add-on with a new database should be prepared further (it
+  would need provisioning staged apart from the site).
 - Any release: one merge, one image build, its own runtime check, and a
-  first real measurement of overlap and miss rate.
+  first real measurement of overlap.
 
-**Links**: `docs/history/2026-10-08-parallel-requests.md` (this round),
-`docs/request-flow.md`, `docs/backlog.md`.
+**Links**: `docs/history/2026-10-09-parallel-round-2.md` (this round),
+`docs/history/2026-10-08-parallel-requests.md`, `docs/request-flow.md`,
+`docs/backlog.md`.
 
 ## How you like things done
 
@@ -161,6 +138,31 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 2: one owner per preparation, and preparation for look, page, data, rules and the add-on step (on the branch, `7bd4e3eb`; nothing merged, deployed, built or paid)
+
+You asked me to fix the duplicate preparation Codex reproduced, and to
+extend preparation beyond text, menu and picture, keeping coordinated
+publication and reporting honestly what overlaps.
+
+- **The duplicate** (`3be40e6a`): a preparation is taken by one atomic
+  write on the request record's etag before any call. Only its owner's
+  result is kept. Calls and purchases are noted as they happen. An expired
+  attempt is retaken and reuses the old one's work, and a purchase of
+  unknown outcome is never repeated by a preparation.
+- **The remaining steps** (`2c3cd671`, `7bd4e3eb`): look, page, data, rules
+  and the add-on step are prepared up to their first write. Logo has no
+  model call. A first Build keeps its existing design graph, and nothing new
+  is orchestrated there.
+- **Progress** (`c06977c7`): prepared tasks are told as worked out, not on
+  the site yet.
+- **Results**:
+  - 16 new cases (12 integration, 4 unit);
+  - red checks: 5 of 5 and 7 of 7 fail before;
+  - sweep: 29 of 32 killed, control survived, 3 explained survivors;
+  - full suite `10181 / 10181 / 0 / 0`.
+- **Mocked versus live**: supplied answers only. No real model or live run.
+- **Remaining**: in the handoff and in `docs/backlog.md`.
 
 ## 2026-10-08 — Parallel tasks in one message, inside the existing request driver (on the branch, `703eff67`; nothing merged, deployed, built or paid)
 
