@@ -689,7 +689,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // AND THE PICKER GETS THE SITE, not a digest of names.
   // RE-ANCHORED 2026-10-02 (the audit's W24): and why the request was handed
   // here, when it was (`handOverLine`).
-  assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick, handOver: handOverLine\(aHand\) \}/,
+  // RE-ANCHORED 2026-10-09 (round 8): and whether files it was said to carry
+  // never arrived (`filesMissing`, read from the request part's own body).
+  assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick, handOver: handOverLine\(aHand\), filesMissing: !!\(aPart && ab && ab\.filesMissing === true\) \}/,
     "the picker is still shown a digest instead of the site");
   // ── THE ROUTE REALLY HANDS THE TABLE FACTS IN ────────────────────────────
   //
