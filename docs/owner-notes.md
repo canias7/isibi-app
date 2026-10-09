@@ -173,6 +173,9 @@ Run 37945999330 (14:40 UTC, `lv-parallel` from the branch at `cc95a10b`).
   - `/order` showing £4.50.
 - Nothing sent, nothing to put back, balance 11 → 11.
 - **To run it, the balance must first be between 20 and 30.**
+- **Funds**: raised from 11 to exactly 30 at your request, at 14:47:46
+  UTC. Read back at once: 30, the last ledger row still 409, no job open. That
+  is the one top-up for press A.
 
 ---
 
