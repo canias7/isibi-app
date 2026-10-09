@@ -317,3 +317,39 @@ test("PUR 9 — held for a day with nobody able to tell: the part expires, told 
     assert.equal(chargedOf(P, r.key, 1), 0);
   });
 });
+
+test("PUR 10 — the purchase's OWN record cannot be read when a preparation reaches it (three failing reads), though nothing was ever begun: unknown, never absent — the preparation buys nothing and ends uncertain; the part's job then reads it, finds nothing begun, and buys it once", async () => {
+  await withPlatform({ slug: slugOf("p10"), ...BASE() }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    for (let i = 0; i < 3; i++) P.failGet((k) => k.includes("/purchases/"));
+    await deliver(P, takePrep(P));
+    assert.equal(P.record(r.key).parts[1].prep.outcome, "uncertain", JSON.stringify(P.record(r.key).parts[1].prep));
+    assert.equal(P.imageLog.length, 0, "a purchase whose record could not be read was made");
+    assert.equal(purchases(P).length, 0);
+    const { rec } = await settle(P, r.key);
+    finished(P, r, rec);
+    assert.equal(P.imageLog.length, 1);
+    assert.equal(uploads(P).length, 1);
+    assert.equal(chargedOf(P, r.key, 1), 1);
+  });
+});
+
+test("PUR 11 — the preparation's `buying` claim LANDS but its answer is lost: it may have been written, so nothing is bought on it — the preparation ends uncertain with no purchase; the part's job finds the claim and nothing stored, and holds the part; the customer's say-so then buys it once", async () => {
+  await withPlatform({ slug: slugOf("p11"), ...BASE() }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    P.losePut((k, body) => k.includes("/purchases/") && String(body).includes('"state":"buying"'));
+    await deliver(P, takePrep(P));
+    assert.equal(P.record(r.key).parts[1].prep.outcome, "uncertain", JSON.stringify(P.record(r.key).parts[1].prep));
+    assert.equal(P.imageLog.length, 0, "a purchase was made on a claim whose answer was lost");
+    assert.deepEqual(purchases(P).map((x) => x.state), ["buying"]);
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "uncertain"]);
+    assert.equal(P.imageLog.length, 0);
+    assert.equal((await call(P, "POST", "/api/site/request/" + P.slug + "/" + r.key + "/buy-again", { part: 1 })).status, 200);
+    const { rec } = await settle(P, r.key);
+    finished(P, r, rec);
+    assert.equal(P.imageLog.length, 1);
+    assert.equal(uploads(P).length, 1);
+    assert.equal(chargedOf(P, r.key, 1), 1);
+  });
+});
