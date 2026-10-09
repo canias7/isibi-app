@@ -159,6 +159,23 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-09 — Run 112: press A stopped by its funds check (nothing sent, nothing charged)
+
+Run 37945999330 (14:40 UTC, `lv-parallel` from the branch at `cc95a10b`).
+- The balance read **11**, below the press's budget of 20, so it stopped
+  before the first message: *"the balance (11) does not cover this press's
+  budget of 20 credits — nothing is sent"*.
+- Read before stopping:
+  - all 12 pages at version `01791429280760-09n7s1`;
+  - the focaccia at 4.5 for both the owner and a visitor, the table equal to
+    the press's record;
+  - the conditional write's probe answering 409 with nothing changed;
+  - `/order` showing £4.50.
+- Nothing sent, nothing to put back, balance 11 → 11.
+- **To run it, the balance must first be between 20 and 30.**
+
+---
+
 ## 2026-10-09 — The release: deploy 2189, and press A prepared (runtime-confirmed by run 111)
 
 On your word (*"approve the release and press A's preparation"*):
