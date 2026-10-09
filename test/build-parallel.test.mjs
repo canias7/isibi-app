@@ -292,6 +292,20 @@ test("BLD 7 — THE IMAGE STEP MEETS PURCHASES STILL IN FLIGHT (the recorded unt
   assert.deepEqual(purchases(b, id).map((p) => p.state), PICS.map(() => "bought"));
 });
 
+test("BLD 8 — NO IMAGE KEY, NO CALL: a build without the image service's key never asks it — nothing leaves, each purchase ends `none` (refused before sending), and the build publishes with its placeholders", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images();
+  await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, over: img.over });
+  assert.equal(img.log.length, 0, "the image service was asked without a key");
+  assert.deepEqual(purchases(b, id).map((p) => p.state), PICS.map(() => "none"));
+  assert.ok(purchases(b, id).every((p) => p.why === "refused"));
+  await finishResume(b, id, ledger(), { credits: 400, source: pageOf(PICS), over: img.over });
+  assert.equal(img.log.length, 0);
+  assert.equal(answerOf(b, id).body.page, "app");
+  assert.equal(answerOf(b, id).body.images.made, 0);
+});
+
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

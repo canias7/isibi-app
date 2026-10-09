@@ -83,6 +83,9 @@ const BASE = (o = {}) => ({
   ...o,
 });
 const MSG = TIKTOK + ", and " + PHOTO + ".";
+const PREP_PAST = 10 * 60 * 1000 + 1000;
+/** The preparation's time passes and the sweep takes it again. */
+async function retake(P) { P.advance(PREP_PAST); await tick(P); return takePrep(P); }
 const buyAgain = (P, key) => call(P, "POST", "/api/site/request/" + P.slug + "/" + key + "/buy-again", { part: 1 });
 /** Both parts finished: each published once, the picture on the page. */
 function finished(P, r, rec) {
@@ -205,6 +208,52 @@ test("PO 5 — made, not stored, through the preparation AND the job's first try
     finished(P, r, rec);
     shownIsStored(P);
     assert.equal(P.imageLog.length, 1, "provider calls");
+    assert.equal(uploads(P).length, 1);
+    assert.deepEqual(purchases(P).map((x) => x.state), ["bought"]);
+    assert.equal(chargedOf(P, r.key, 1), 1);
+  });
+});
+
+test("PO 9 — the store LANDS AND ITS BUYER DIES (the record still `generated`), and the made picture can no longer be downloaded: the next reader finds the stored photograph by its tag and needs no download — one provider call, one download, one stored photograph", async () => {
+  await withPlatform({ slug: slugOf("o9"), ...BASE() }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    P.hangPut(isUpload(P));
+    assert.equal(await deliver(P, takePrep(P)), "hung");
+    P.recover();
+    assert.equal(uploads(P).length, 1, "the store landed");
+    assert.equal(purchases(P)[0].state, "generated");
+    // THE SOURCE IS GONE: a reader that downloads again would fail.
+    P.failDownload(() => true, { times: 99 });
+    await deliver(P, await retake(P));
+    assert.equal(P.record(r.key).parts[1].prep.outcome, "ready", JSON.stringify(P.record(r.key).parts[1].prep));
+    const { rec } = await settle(P, r.key);
+    finished(P, r, rec);
+    shownIsStored(P);
+    assert.equal(P.imageLog.length, 1, "provider calls");
+    assert.equal(P.downloadLog.length, 1, "a stored photograph was downloaded again instead of found by its tag");
+    assert.equal(uploads(P).length, 1);
+    assert.deepEqual(purchases(P).map((x) => x.state), ["bought"]);
+    assert.equal(chargedOf(P, r.key, 1), 1);
+  });
+});
+
+test("PO 10 — made and never storable, and its source is gone: the part stays held; the customer's buy-again releases the `generated` record and a new picture is bought once — two provider calls, one stored photograph, one charge", async () => {
+  await withPlatform({ slug: slugOf("o10"), ...BASE() }, async (P) => {
+    const r = await sendMessage(P, { message: MSG });
+    P.failDownload((u) => u.includes("/p1.jpg"), { times: 99 });
+    await deliver(P, takePrep(P));
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "uncertain"]);
+    assert.equal(purchases(P)[0].state, "generated");
+    await tick(P);
+    assert.equal(P.record(r.key).parts[1].status, "uncertain");
+    assert.equal(P.imageLog.length, 1, "a picture made and not yet stored was bought again without the customer");
+    const b = await buyAgain(P, r.key);
+    assert.equal(b.status, 200, JSON.stringify(b.body));
+    const { rec } = await settle(P, r.key);
+    finished(P, r, rec);
+    shownIsStored(P);
+    assert.equal(P.imageLog.length, 2);
     assert.equal(uploads(P).length, 1);
     assert.deepEqual(purchases(P).map((x) => x.state), ["bought"]);
     assert.equal(chargedOf(P, r.key, 1), 1);
