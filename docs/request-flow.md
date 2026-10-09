@@ -58,6 +58,15 @@
   minutes from when it was taken; the new attempt reuses the old one's calls
   and pictures, and ends `uncertain`, with no call, when a purchase's outcome
   is unknown; the part's job then uses whatever that purchase landed.
+- **One purchase per picture** (2026-10-09, round 3,
+  `docs/history/2026-10-09-parallel-round-3.md`). A part's picture is one
+  logical purchase with one record under the site's source, shared by its
+  preparation attempts, retakes and its applying job. A record still
+  `buying` is resolved by the stored photograph tagged with its id;
+  otherwise, or when it cannot be read, the outcome is unknown and the part
+  is held as `uncertain` — nothing published or charged, independent parts
+  going on — until the purchase is found, the customer says to buy again
+  (`POST /api/site/request/<slug>/<key>/buy-again`), or a day passes.
 - **A part only the full rewrite can make waits for the customer's
   go-ahead on the request itself**, with its files kept. The go-ahead is
   written before anything depends on it, and the server files the existing
@@ -519,8 +528,10 @@ executed).
 - **Preparation beside the running job (2026-10-08, widened 2026-10-09)**:
   writes stay one at a time per site (the database's `site_busy`); the logo
   step has nothing to prepare; an add-on that needs a new database is
-  prepared only up to its design; a first Build has no orchestration beyond
-  its existing design graph; a prepared call or picture no job uses is
+  prepared only up to its design; a first Build orchestrates only its
+  photographs (bought beside its page generation) beyond its existing design
+  graph; an unknown purchase is held, never bought again without the
+  customer's say-so; a prepared call or picture no job uses is
   ours, and so is a second purchase after an `uncertain` one that never
   landed; with no targets named a part is the whole site and nothing is
   prepared beside it. In full:

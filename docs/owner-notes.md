@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 2: one owner per preparation, and preparation for every step that can have it, ending in `7bd4e3eb` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 3: one purchase per picture whoever makes it, and a first Build's photographs beside its pages, ending in `17ce3f6f` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,125 +11,134 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`. This round is:
-  - `3be40e6a`, preparation ownership (Codex's duplicate);
-  - `2c3cd671`, preparation for look, page, data, rules and the add-on step;
-  - `c06977c7`, progress lines told what a prepared task reached, and two
-    guards re-anchored;
-  - `7bd4e3eb`, from the sweep: a strict "no site object written" check,
-    pictures counted as page writes, and a purchase note's `none`;
-  - `68f1f653` and the records commit after it.
+  - `dba60da6`, one logical purchase per picture (Codex's two reproductions);
+  - `2c4def8b`, a first Build's photographs as a task beside its pages, and
+    the page tweak's preparation case;
+  - `17ce3f6f`, two cases the sweep asked for;
+  - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
 
-**1. Codex's duplicate, fixed** (`3be40e6a`)
-- **What Codex showed on `464c6a3c`**: one `request-prep` message delivered
-  twice at once, with routing held. Both consumers passed a read-only
-  "attempting" check, and the one preparation bought two photographs.
-- **Now**: before any model call, a consumer takes the preparation
-  (`attempting` → `running`, with its own owner token) in **one conditional
-  write of the request record on its etag**. Of two deliveries, exactly one
-  write lands. The other reads again, sees it taken, and makes no call.
-- **Only the owner's result is kept**: same attempt number, same owner,
-  still running. A consumer that lost, or a late one whose attempt was
-  taken again, keeps nothing and never replaces a newer result.
-- **Every call and every purchase is noted as it happens**, in the
-  attempt's own file. A purchase is noted `buying` before it is made and
-  `bought` (with its address) or `none` after. Ownership and the attempt's
-  own deadline are checked before each purchase.
-- **Expiry**: an attempt is taken again 10 minutes after it was taken. The
-  new attempt names the old one, and:
-  - reuses its recorded answers (exact request match) and its bought
-    pictures;
-  - **never repeats a purchase whose note still says `buying`**. It ends
-    `uncertain`, with no call. The task's own job then uses whatever that
-    purchase landed, read when the job starts.
+**1. Codex's two reproductions, closed** (`dba60da6`)
+- **What failed**:
+  - a retake that could not read its predecessor's record took that as "nothing happened" and bought again;
+  - a part's job bought a picture while the preparation's purchase was still out, and then the first purchase landed too.
+- **Now a part's picture is one logical purchase with one record**, under
+  the site's source. Every preparation attempt, every retake and the part's
+  applying job share it, wherever they run.
+  - It is begun by one conditional write (`buying`), then becomes `bought` or `none`.
+  - Each stored photograph is tagged with its purchase's id.
+  - A record still `buying` is resolved by finding that tagged photograph.
+- **An outcome nobody can tell is never bought again on a guess.** That covers a record still `buying` with nothing stored, a record that cannot be read after three tries, a malformed record, and a claim whose answer was lost.
+  - A preparation ends `uncertain`.
+  - A part's job **holds the part**: nothing published, nothing charged.
+  - The request records the part as the new status **`uncertain`**. What
+    needs it waits, and independent parts carry on.
+  - It moves on by itself when the purchase is found to have landed. Or you
+    press **"Buy the picture again (may cost again)"** on the card, which
+    releases it. Or it expires after a day, told as not done.
+  - Its line is the model's "unconfirmed" line, and its reply's facts say it
+    is on hold, not given up. Screenshot sent in the chat.
+- **An unreadable previous attempt record** is read again. If it still
+  cannot be read, the retake makes no call and buys nothing. The job reads it
+  again; if that fails too, the job makes its calls again (our cost), but
+  never a second purchase.
+- **The add-on step's photographs** use the same record. A retried add-on job
+  reuses what an earlier try bought. One whose outcome is unknown is left as
+  its frame and told, and the part ends partial.
+- **Provider idempotency/lookup**: the image service's endpoint offers
+  neither. The lookup that exists is our tag on the stored photograph. A
+  purchase the provider completed but we never stored stays unknown and is
+  held.
 
 **2. Which paths overlap now** (supplied answers only)
 
 | Path | Parallel work |
 |---|---|
-| Edit: text, menu, picture | **full preparation** (unchanged from 2026-10-08, now owned) |
-| Edit: look | **full preparation, new**: lane picker and every lane; stops before the look is stored |
-| Edit: page | **full preparation, new**: the page writer's rewrite (recorded and replayed); stops at the publish. The tweak is stopped too, but no test reaches it |
-| Edit: data | **full preparation, new**: the change chosen; stops before any row is touched |
-| Edit: rules | **full preparation, new**: the rule chosen; stops before any grant, policy or schema write, and a blank database link is not healed by a preparation |
-| Add-on, no new database | **full preparation, new**: picker, designers, seed net, page writer; stops before any charge, database, stored answer or trace |
-| Add-on, list entry | **full preparation, new**: the entry's choice |
-| Add-on that needs a new database | **preparation up to its design**; its page writer runs in its job after provisioning |
-| Edit: logo | **no parallel work** (no model call; routing only) |
-| Build (first build) | **existing behaviour only**: its design graph runs agents concurrently by their needs (P8, which passes on the commit before the first parallel batch). **No new Build orchestration** |
+| Edit: text, menu, picture, look, data, rules | **full preparation** beside another task's job (round 2), now with one purchase per picture across preparation, retakes and the job |
+| Edit: page | **full preparation**: the page writer's rewrite and, **now tested**, the tweak (nothing written before its job, no rewrite asked for) |
+| Add-on, no new database; list entries | **full preparation**; its photographs bought by its job through the purchase record |
+| Add-on that needs a new database | preparation up to its design: **the provisioning boundary** (its page writer runs after provisioning, in its job) |
+| Edit: logo | routing only |
+| Build: design | **existing** designer concurrency (the design graph), unchanged |
+| Build: photographs | **new**: bought beside the page generation, joined at the image step, durable across resume and retry |
+| Build: provisioning, schema, seed, fonts, publish | sequential, as before |
+| Writes to one site | one at a time (the database's lock), unchanged |
 
-- Each step is prepared only when no earlier unfinished task writes what it
-  reads (look: theme and pages; page: every page; data and rules: the
-  tables; an addition: page list, theme, menu, pages, pictures). A placed
-  picture counts as a page write. A table the router names stands in for
-  "some table", so two different lists can be worked on side by side.
-- **Revalidated against the site as it is**: a prepared answer is used only
-  for a byte-identical request. Anything that changed what the step reads
-  makes it ask again. The publish is the existing coordinated one, so
-  nothing overwrites another task's change. Questions stay scoped to their
-  task while independent work continues, and every clarification answer is
-  kept (2026-10-08).
-- **Progress** (`c06977c7`): the model-written lines tell a prepared task
-  as "being worked out alongside this one; nothing of it is on the site
-  yet" and then "worked out and waiting its turn". They never call it done.
+**3. A first Build's photographs beside its pages** (`2c4def8b`)
+- They need only the design. Each description is the design's own, and the
+  page writer gets exactly those words as its tokens. So they are bought
+  **beside the page generation**, started right after the build reads the
+  balance, instead of after the pages are written.
+- Bounded by the design's budget and by the balance less a 60-credit reserve
+  for the pages.
+- Each is the build's logical purchase, keyed by the build's job, so a
+  resume or a retried run reuses it.
+- **Joined at the image step** (after the pages, before the compile):
+  - a token whose purchase is in flight waits for it;
+  - one already bought is reused;
+  - one the writer changed is bought then;
+  - one nobody can tell is left as the placeholder and told as unconfirmed.
+- **Nothing is handed on** — to the resume, the reply or the refund — while
+  a purchase the task began is in flight.
+- **Charged for what the page shows**: a photo bought beside the pages that
+  no page used is told as stored and not on the site. It is not in `made`,
+  which is what the bill counts (our cost).
+- The explanation is model-written from facts that name every picture's
+  outcome. The 1 page and 15 component limits are unchanged.
 
-**Tests actually run** (supplied model answers, a stand-in image service,
-the real Worker routes, request driver and queue consumer)
-- **`test/parallel-prep-ownership.test.mjs`, 5 cases**:
-  - OWN 1, Codex's reproduction: one routing call, one picture call, one
-    photograph, one charge and one publish per job;
-  - OWN 2: the owner dies in its first call; the attempt is retaken only
-    after its time, and the work is done once;
-  - OWN 3: the owner dies after a noted purchase; the retake makes no call
-    and no purchase;
-  - OWN 4: the owner dies inside the purchase; the retake is `uncertain`
-    with no call; the job buys once. **That is two purchases from the image
-    service (ours) and one charge to the customer**;
-  - OWN 5: a late owner lands its picture after the retake; its result does
-    not replace the newer one, and the job reuses its picture (one purchase
-    in total).
-- **`test/parallel-prep-paths.test.mjs`, 7 cases**: look, page, add-on
-  page, add-on row, data, rules and REVALIDATED. In each, the other task's
-  substantive model call is made while the first task's job is held inside
-  its own work (a gate only that call opens). Its job asks nothing again,
-  no site object is written before its job, and each job is charged at
-  most once. REVALIDATED changes the page in between: the writer is asked
-  again and the change is kept.
-- **`test/parallel-plan.test.mjs`, 4 new unit cases** (18 now): the claim,
-  expiry and `prev`, the progress wording, an addition beside a picture,
-  and the purchase notes.
-- **Red check**: all 5 OWN cases fail on `464c6a3c`, and all 7 path cases
-  fail on `3be40e6a`.
-- **Sweep**: 32 mutants over `builder/request.mjs`, `builder/request-plan.mjs`, `builder/prepared.mjs`, `builder/site-progress.mjs` and `worker.js`: 25 killed in the first round; the 7 survivors' tests were strengthened (`7bd4e3eb`) and a second round killed 4 more, so **29 of 32 killed, and the comment-only control survived**. Three survive, and each is explained: `note-loop-ignores-mine` (the loop then rewrites the same record, which changes nothing), `page-rewrite-no-stop` (the rewrite path writes nothing before its stop anyway; the strict no-write check passes either way), and `page-tweak-falls-through` (the page tweak is not reached by any supplied-answer case; recorded as a gap).
-- **Full suite on `7bd4e3eb`: `10181 / 10181 / 0 / 0`** (base `10165`, plus
-  16 new cases).
-- **Required CI**: green. Unit tests on `f8c7934d` (run 37867948814, the same code as `7bd4e3eb` plus records): `10181 / 10140 / 0 / 41`, whose total equals the local `10181` (CI skips the browser cases). Site build on `7bd4e3eb` (run 37867396976): all nine jobs succeeded.
-- **The next image, predicted** (not built): production `335396c8c0e0fbcb`
-  → **`de4fc820f7675016`** (202 inputs).
+**Tests actually run** (supplied model answers and a stand-in image service,
+through the real routes, request driver, queue consumer, build consumer and
+resume)
+- `test/parallel-purchase.test.mjs`, **11 cases**:
+  - Codex's two reproductions (PUR 1, PUR 4);
+  - the previous attempt's record unreadable for good (PUR 2) or malformed (PUR 3);
+  - completion before the job starts (PUR 5);
+  - a stored photograph whose buyer died (PUR 6);
+  - a purchase that never answers, released by you, with the job's message delivered twice at once and a second press refused (PUR 7);
+  - a malformed purchase record (PUR 8) and expiry (PUR 9);
+  - the purchase record itself unreadable (PUR 10) and a lost claim answer (PUR 11).
+
+  Each asserts the provider's purchases, the stored photographs, the publishes and the step's charges separately.
+- `test/build-parallel.test.mjs`, **5 cases**:
+  - **BLD 1, the new overlap**: the image service is called while the page generation's fire is still out, and the resume reuses the photos;
+  - **BLD 2, order and nothing lost**: the hand-over waits for every purchase, and every picture and every requirement's section is on the published page;
+  - BLD 3, a retried run buys nothing;
+  - BLD 4, a landed purchase found by its tag and an unknown one held;
+  - BLD 5, the balance control.
+- The page tweak's preparation case; 2 unit cases; OWN 4 revised (the job
+  now holds instead of buying a second time).
+- **Red check** on `2045f915`: 17 of the 20 new or revised cases fail. Three
+  pass there and guard behaviour that already worked: PUR 5, BLD 5 and the
+  tweak case.
+- **Sweep: 29 of 29 killed, and the comment-only control survived.** The first round's two survivors became PUR 10 and PUR 11.
+- **Full suite**: running on `17ce3f6f`; recorded in the next records commit.
+- **Required CI**: read after the push; recorded in the next records commit.
+- **The next image, predicted** (not built): `335396c8c0e0fbcb` →
+  **`3200859f5ffd7283`** (202 inputs).
 
 **Remaining gaps** (backlog)
-- writes stay one at a time per site (the database's lock; not needed for
-  model work to overlap, not changed);
-- an add-on that needs a new database is prepared only to its design;
-- logo: nothing to prepare;
-- Build: no general task orchestration beyond the existing design graph;
-  a message mixing a build with edits is not a request of this flow;
-- the page tweak's stop is untested;
-- an `uncertain` purchase that never lands is bought again (ours);
-- wasted preparation is ours; the input rules are a heuristic;
-- targets depend on the model; the constants are estimates;
-- **no real-model or live run**.
+- the image provider has no idempotency or lookup: a purchase it completed
+  but we never stored stays unknown and is held;
+- an add-on's unknown photograph ends its part partial (not held and
+  resumed);
+- a first Build orchestrates only its photographs: no provisioning, schema or
+  seed beside the page writer, and no live progress line during a build;
+- photos bought beside a build's pages that the writer did not use are our
+  cost;
+- an image step meeting a purchase still in flight is not driven by a case
+  (the hand-over order is);
+- writes stay one at a time per site;
+- no real-model or live run.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
-- Whether the add-on with a new database should be prepared further (it
-  would need provisioning staged apart from the site).
-- Any release: one merge, one image build, its own runtime check, and a
-  first real measurement of overlap.
+- Whether the image provider's queue endpoint (with request ids) is worth
+  adopting to narrow the unknown window; it would need a live check.
+- Whether a build's provisioning should run beside its page writer.
+- Any release: one merge, one image build, its own runtime check.
 
-**Links**: `docs/history/2026-10-09-parallel-round-2.md` (this round),
-`docs/history/2026-10-08-parallel-requests.md`, `docs/request-flow.md`,
-`docs/backlog.md`.
+**Links**: `docs/history/2026-10-09-parallel-round-3.md` (this round),
+`docs/request-flow.md`, `docs/backlog.md`.
 
 ## How you like things done
 
@@ -138,6 +147,26 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 3: one purchase per picture, and a first Build's photographs beside its pages (on the branch, `17ce3f6f`; nothing merged, deployed, built or paid)
+
+You asked me to close the two purchase failures Codex reproduced, and to build the missing Build capability rather than counting the existing design graph as it.
+
+- **Purchases** (`dba60da6`, `17ce3f6f`):
+  - a part's picture is one logical purchase shared by its preparation, retakes and job;
+  - an outcome nobody can tell holds the part as `uncertain`, never bought again without your say-so;
+  - an unreadable earlier record is read again, never taken as empty.
+- **Build** (`2c4def8b`):
+  - a first Build's photographs are bought beside its page generation, joined at the image step, durable across resume and retry;
+  - the design graph is unchanged.
+- **Page tweak**: its preparation is now tested.
+- **Results**:
+  - 19 new cases;
+  - red check: 17 of 20 fail on the base;
+  - sweep: 29 of 29 killed;
+  - full suite: in the next records commit.
+- **Mocked versus live**: supplied answers and a stand-in image service only.
+- **Remaining**: in the handoff and in `docs/backlog.md`.
 
 ## 2026-10-09 — Parallel tasks round 2: one owner per preparation, and preparation for look, page, data, rules and the add-on step (on the branch, `7bd4e3eb`; nothing merged, deployed, built or paid)
 
