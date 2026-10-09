@@ -25,12 +25,12 @@ here; take a closed one out of both.**
   idempotency or lookup (a call whose answer was lost is held); an add-on
   photograph whose token sits inside a longer string, a synchronous add-on,
   a legacy job with the flow off, or a post whose files would not all be kept
-  (more than 3, or unreadable) is told and saved, never placed automatically; the container's `/frames` door needs the new image;
+  (more than 3, or one that does not decode) is told and saved, never placed automatically; the container's `/frames` door needs the new image;
   photos bought outside the add-on, a request part or a build have no purchase record; a first Build's provisioning, schema, seed, compile and
   publish stay in order, and its live lines only come on the queued path; a
   page step waits behind any earlier page write; prepared or prefetched work
   no job uses is ours; targets depend on the model; no live evidence. In
-  full under Backlog below; `docs/history/2026-10-09-parallel-round-8.md`.
+  full under Backlog below; `docs/history/2026-10-09-parallel-round-9.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1008,8 +1008,8 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 8,
-  2026-10-09; `docs/history/2026-10-09-parallel-round-8.md` §6).** Closed in
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 9,
+  2026-10-09; `docs/history/2026-10-09-parallel-round-9.md` §4).** Closed in
   round 3: a retake reading an unreadable earlier record as "nothing
   happened", and a part's job buying while a preparation's purchase was out
   (one logical purchase per picture); the page tweak's preparation, now
@@ -1037,7 +1037,18 @@ here; take a closed one out of both.**
   placed by the driver. Closed in round 8: such a post with attachments is
   taken on with its files kept by the request (`storeRequestFiles`), and one
   that only says files came is taken on with that fact, the picker told, so
-  it may ask for them. Not yet:
+  it may ask for them. Closed in round 9: a file that matched the data-URL
+  shape but did not decode was skipped by the store, so a request held fewer
+  files than it was sent (Codex's reproduction) — every file is now decoded
+  before any is kept, a message or post whose files do not all read is never
+  taken on, and an answer bringing one is refused whole at no cost. Not yet:
+  - **the add-on step does not consume attachment image contents**: it
+    preserves them with the request; using a customer's own picture inside
+    an addition is not implemented;
+  - **a message whose files do not all read gets no durable recovery**: the
+    router answers it as before and a legacy add-on post stays a job, and
+    neither names the failing file (the answer path does); a decoded file's
+    bytes are not checked against its declared type;
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job; changing it is SQL and was not needed
     for model work to overlap;

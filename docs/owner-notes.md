@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 8: a legacy add-on with attachments kept as a request, the site-build gate, ending in `8de702d9` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 9: every attachment read whole before any is kept, ending in `58d3350b` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,104 +11,97 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review
-  of `6973f7aa` (the 9 runtime-path tests, all passed) is kept, and round 7's
-  fixes are unchanged. This round:
-  - `7b7b4641`: a legacy add-on with attachments, taken on with its files;
-  - `8de702d9`: one wiring guard re-anchored on the picker's new argument;
+  of `e72b46d6` (23 tests passed, the newer site-build gate green) is kept.
+  This round:
+  - `18d6aae1`: every attachment read whole before any is kept;
+  - `58d3350b`: one acceptance rule, and the sweep's asks;
   - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
 
-**1. What an add-on does with attachments** (read from the code)
-- The add-on step **never reads attachment bytes, on any path**.
-- In a request, the files live with the request (`rec.files`). Questions,
-  answers that bring more files, and later parts that do read files (the
-  logo layer) reach them with no page open.
-- The page's add-on post used to send only `attached: true`, so round 7 left
-  it a job of its own, with no automatic recovery.
+**1. The defect Codex found**
+- **The post**: a legacy add-on with one valid file and
+  `{name:"broken.png", data:"data:image/png;base64,AAAAA"}`.
+- **What it did**: it was accepted as a request holding only the valid file,
+  with nothing saying a file was lost.
+- **Why**: the shape was checked without decoding, and the store skipped the
+  file that failed to decode.
 
-**2. The change** (`7b7b4641`)
-- **The page now sends the files** with its add-on post, as the routing call
-  does.
-- **The server keeps them with the request** through the request's own file
-  storage, the same path a routed message's files take.
-- **A post whose files would not all be kept** (more than 3, or one that
-  doesn't read) **stays a job**. It is never a request that lost files.
-- **A post that only says files came with it** (an older page) is taken on
-  with that fact:
-  - the add-on picker is told the files never arrived;
-  - **the model decides** whether the request depends on them, and if so asks
-    for them through its own question;
-  - the answer's files join the request's, and the part resumes told nothing
-    is missing.
-- **With the request flow deliberately off**, a post with files is a job of
-  its own, exactly as before.
+**2. The fix** (general, not for that payload)
+- **One shared reading** for every caller. A file must be a data URL whose
+  Base64 is standard (whitespace allowed, padding only at the end) and decodes
+  to at least one byte.
+- **The router's acceptance and the legacy add-on** (which goes through the
+  same acceptance) decline a message whose files do not all read. That is the
+  existing fallback: the router answers as before, and the add-on post stays
+  a job of its own. **It is never a request holding fewer files than it was
+  sent.**
+- **An answer to a question that brings an unreadable file** is refused
+  whole:
+  - nothing runs and nothing is charged;
+  - the question stays open, and the answer and its files go back in the box;
+  - it carries a fixed error sentence naming the file.
+  The questions themselves stay model-written.
+- **The store keeps all files or none.** That is a backstop no caller
+  reaches.
 
-**3. The site-build gate**
-- **Run 37894981062** (`f7992fae`): shard 2 was cancelled while its runner
-  was stuck in `apt-get` installing Playwright's packages, before any test
-  ran.
-- A re-run was tried once from this session and refused (**403**, no
-  `actions: write`). It was not retried. **That run stays cancelled.** To
-  clear it, open https://github.com/canias7/isibi-app/actions/runs/37894981062
-  and press **"Re-run failed jobs"**.
-- **This round's push ran the gate again: run 37901004808 on `7b7b4641` is
-  green on every job**, all four shards and "all checks". `8de702d9` changed
-  a test only.
+**3. What an add-on does with attachments** (unchanged)
+- **The add-on step preserves attachments but does not consume their image
+  contents.**
+- The files are kept with the request and reach questions, answers and later
+  parts (the logo layer).
+- **Using your own picture inside an addition is not implemented**, and I
+  don't claim it.
 
 **Tests actually run** (supplied model answers, a stand-in image service, the
 network blocked)
-- `test/addon-attachments.test.mjs` (new):
-  - AT 1: two files kept byte for byte, the page closed, the photograph's
-    store failing, the files still kept while the part waits, then the
-    delayed placement once;
-  - AT 2: a duplicate post, with the files written once;
-  - AT 3: a post with no files: the picker asks, the answer brings the files,
-    which join the request, and the delayed placement follows;
-  - AT 4: an unreadable file, so the post stays a job;
-  - AT 5: the flow off, so a job;
-  - AT 6: the page's own post carries the files;
-  - a network check.
-  Each checks the files, page, statuses, provider calls, publication and
-  accounting: the addition is never rerun and there is one purchase.
-- RT 7 now covers more files than one request carries.
-- **Red check** on `6973f7aa`: **4 of 4 behaviour cases fail**. The two that
-  describe behaviour that already held pass.
+- New in `test/addon-attachments.test.mjs`:
+  - AT 7: Codex's mixed payload;
+  - AT 8: every file malformed;
+  - AT 9: seven bad padding and length forms;
+  - AT 10: PNG, JPEG, WEBP, GIF and PDF with whitespace, each kept byte for
+    byte;
+  - AT 11: a clarification answer with a broken file is refused at no cost,
+    then resubmitted valid, and the part resumes;
+  - AT 12: the router's own acceptance.
+- **Still passing**:
+  - AT 2: a duplicate post, with the files written once and no second
+    addition or purchase;
+  - AT 1: valid files recovered with the page closed, charged at most once
+    per job.
+- **Red check** on `e72b46d6`: **4 of 4 defect cases fail**. AT 8 and AT 10
+  pass there, because that behaviour already held.
 - **Focused run** (with the seven-task and Build-progress files):
-  **`52 / 52 / 0 / 0`**.
-- **Sweep**: **9 of 9 killed**, and the control survived.
-- **Full suite**: **`10265 / 10265 / 0 / 0`** on `8de702d9`.
-- **CI**:
-  - unit tests on `8de702d9` (run 37901724877): green, `10265 / 10224 / 0 /
-    41`;
-  - unit tests on `7b7b4641`: red on the guard fixed in `8de702d9`;
-  - site build on `7b7b4641` (run 37901004808): green.
-- **The next image, predicted** (not built): **`f17b91256b43680f`**.
+  **`58 / 58 / 0 / 0`**.
+- **Sweep**: **4 of 5 killed**, and the control survived. The survivor is
+  the store's all-or-none backstop, which no caller can reach. It is kept on
+  purpose.
+- **Full suite**: **`10271 / 10271 / 0 / 0`** on `58d3350b`.
+- **CI on `58d3350b`**:
+  - unit tests (run 37926585857): green, `10271 / 10230 / 0 / 41`;
+  - site build (run 37926585858): green on every job.
+- **The next image, predicted** (not built): **`6c9fc805fe4de0d8`**.
 
-**Remaining acceptance blockers**
-1. No live evidence at all. Whether a real picker asks for missing files is
-   the model's judgment, shown only with a supplied answer.
-2. The `/frames` door needs the new image (round 7).
-3. Told and saved, never placed automatically:
-   - the synchronous add-on;
-   - a legacy job with the flow off;
-   - a post whose files would not all be kept;
-   - a token inside a longer string;
-   - a door that is down when the addition marks.
-4. The add-on step still reads no attachment bytes. Files are kept and reach
-   questions and later parts, but using your own picture inside an addition
-   is not a feature here and was not added.
-5. The image provider has no idempotency. The finite-clock wait still needs a
-   live look.
-6. `f7992fae`'s own site-build run stays cancelled unless you re-run it.
+**Remaining limitations**
+1. No live evidence at all.
+2. **The add-on does not consume attachment image contents** (§3).
+3. **A message or legacy post whose files do not all read** gets no durable
+   recovery: the router answers it as before, or it stays a job. Neither
+   names the failing file; only the answer path does.
+4. A decoded file is kept under the type it declares; its bytes are not
+   checked against that type.
+5. **Unchanged:**
+   - the `/frames` door needs the new image;
+   - the synchronous add-on, the flow off, and a token inside a longer string
+     are told, never placed automatically;
+   - the image provider has no idempotency key.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
-- Whether to re-run run 37894981062.
 - Any release: one merge, one image build, its runtime check, then round 7's
   one paid add-on check (about 3–13 credits).
 
-**Links**: `docs/history/2026-10-09-parallel-round-8.md` (this round),
-`docs/history/2026-10-09-parallel-round-7.md`, `docs/request-flow.md`,
+**Links**: `docs/history/2026-10-09-parallel-round-9.md` (this round),
+`docs/history/2026-10-09-parallel-round-8.md`, `docs/request-flow.md`,
 `docs/backlog.md`.
 
 ## How you like things done
@@ -116,6 +109,38 @@ network blocked)
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — Parallel tasks round 9: every attachment read whole before any is kept (on the branch, `58d3350b`; nothing merged, deployed, built or paid)
+
+You asked me to fix Codex's finding generally: a file that looked like a data
+URL but did not decode was silently dropped, leaving a request with fewer
+files than it was sent.
+
+- **Commits**: `18d6aae1` (one shared reading; the store keeps all or none;
+  both acceptances decline; an answer with a broken file refused whole) and
+  `58d3350b` (one acceptance rule, an unreachable catch removed, the router's
+  decline told apart from a failure).
+- **Never a partial set.** A request holds every file it was sent, or it is
+  not created (the existing fallback). An answer bringing a broken file is
+  refused at no cost, with the question left open.
+- **The add-on still preserves attachments but does not consume their image
+  contents.** That feature is not implemented.
+- Results:
+  - red check: 4 of 4;
+  - focused run: 58 of 58;
+  - sweep: 4 of 5, the survivor an unreachable backstop kept on purpose;
+  - suite: `10271 / 10271 / 0 / 0`;
+  - CI on `58d3350b`: unit `10271 / 10230 / 0 / 41` (run 37926585857), site
+    build green (run 37926585858);
+  - image predicted `6c9fc805fe4de0d8`.
+- **Remaining**:
+  - a message or post whose files do not all read gets no durable recovery
+    and isn't told which file failed;
+  - a file's declared type is not checked against its bytes;
+  - no live evidence.
+- The record: `docs/history/2026-10-09-parallel-round-9.md`.
 
 ---
 

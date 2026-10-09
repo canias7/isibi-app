@@ -108,7 +108,11 @@
   page follows it. Its files come with the post and are kept by the request
   (round 8, `storeRequestFiles`); a post that only says files came is taken on
   with that fact (`attached`), its part told `filesMissing`, and the add-on
-  picker may ask for them — an answer's files join the request's. With the
+  picker may ask for them — an answer's files join the request's. Every file
+  is decoded whole before any is kept (round 9, `readAttachments`): a message
+  or post whose files do not all read is never a request holding fewer, and
+  an answer bringing one is refused whole (`answer-files-unreadable`, no
+  cost, the question left open). With the
   flow off, no request key, or files that would not all be kept, it stays a
   job of its own; its purchases are records keyed by that job, and nothing
   places its frames later.
