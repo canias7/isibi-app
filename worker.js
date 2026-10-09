@@ -17008,26 +17008,67 @@ async function settleRequestMarker(env, rec) {
  * URL is not a file this can keep, and is left out (the logo step says what it
  * did with the ones it got).
  */
-/** One attachment as a request keeps it: its data URL's type and base64, or null when it does not read as one. */
-function attachmentData(a) {
+// ── ONE READING OF AN ATTACHMENT (2026-10-09, round 9) ─────────────────────
+//
+// Codex found a file that passed the data-URL pattern and failed to decode
+// (`data:image/png;base64,AAAAA`): the acceptance took the post on, the store
+// skipped that file without a word, and the request held one file of two as
+// if that were all of them. So a file is READ here, once, for every caller:
+// a data URL, then standard Base64 (RFC 4648: whole quads, `=` padding only
+// at the end; whitespace and line breaks between characters are allowed and
+// dropped), then decoded to at least one byte. What does not read is null —
+// never coerced, never partly kept.
+const STD_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+/** One attachment decoded: `{ type, bytes, name }`, or null when it does not read as a file. */
+function decodeAttachment(a, i = 0) {
   const data = typeof a === "string" ? a : a && typeof a.data === "string" ? a.data : "";
-  return /^data:([a-z0-9.+\-]+\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(data);
+  const m = /^data:([a-z0-9.+\-]+\/[a-z0-9.+\-]+);base64,([\s\S]*)$/i.exec(data);
+  if (!m) return null;
+  const b64 = m[2].replace(/\s+/g, "");
+  if (!b64 || !STD_BASE64.test(b64)) return null;
+  let bytes;
+  try { bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); } catch { return null; }
+  if (!bytes.length) return null;
+  const name = a && typeof a.name === "string" && a.name ? a.name.slice(0, 120) : "file-" + (i + 1);
+  return { type: m[1], bytes, name };
 }
+/**
+ * A LIST OF ATTACHMENTS, READ WHOLE: `{ files, unreadable, over }`. `files` are
+ * the decoded ones, `unreadable` names each that did not read, and `over` says
+ * the list is longer than one request carries. Every caller that keeps files
+ * asks this first and refuses — or falls back — unless every file reads.
+ */
+function readAttachments(list) {
+  const all = Array.isArray(list) ? list : [];
+  const files = [], unreadable = [];
+  all.forEach((a, i) => {
+    const f = decodeAttachment(a, i);
+    if (f) files.push(f);
+    else unreadable.push({ index: i, name: a && typeof a.name === "string" && a.name ? a.name.slice(0, 120) : "file-" + (i + 1) });
+  });
+  return { files, unreadable, over: all.length > MAX_ATTACHMENTS };
+}
+/** Does every attachment read, within one request's number? */
+const attachmentsWhole = (list) => { const r = readAttachments(list); return !r.over && !r.unreadable.length; };
 
+/**
+ * KEEP A REQUEST'S FILES, ALL OR NONE (round 9). A list with a file that does
+ * not read, or more than one request carries, THROWS before anything is
+ * written: every caller already refused such a list, so reaching here with
+ * one is a caller's defect, and a throw is what makes it loud rather than a
+ * request quietly holding fewer files than it was sent.
+ */
 async function storeRequestFiles(env, slug, key, images, attempt) {
+  const read = readAttachments(images);
+  if (read.over || read.unreadable.length) throw new Error("request files: not every file reads (" + read.unreadable.length + " unreadable" + (read.over ? ", over the limit" : "") + ")");
   const out = [];
-  for (const [i, a] of (Array.isArray(images) ? images : []).slice(0, MAX_ATTACHMENTS).entries()) {
-    const m = attachmentData(a);
-    if (!m) continue;
-    let bytes;
-    try { bytes = Uint8Array.from(atob(m[2].replace(/\s+/g, "")), (c) => c.charCodeAt(0)); } catch { continue; }
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
+  for (const f of read.files) {
+    const digest = await crypto.subtle.digest("SHA-256", f.bytes);
     const sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const ext = (m[1].split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
+    const ext = (f.type.split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
     const k = requestFileKey(slug, key, attempt, sha, ext);
-    await env.SITES_BUCKET.put(k, bytes, { httpMetadata: { contentType: m[1] } });
-    const name = a && typeof a.name === "string" ? a.name.slice(0, 120) : "file-" + (i + 1);
-    out.push({ key: k, sha, type: m[1], name, bytes: bytes.length });
+    await env.SITES_BUCKET.put(k, f.bytes, { httpMetadata: { contentType: f.type } });
+    out.push({ key: k, sha, type: f.type, name: f.name, bytes: f.bytes.length });
   }
   return out;
 }
@@ -17901,6 +17942,10 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   const message = typeof instruction === "string" && instruction.trim() ? instruction : String(rb.message || "");
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
+  // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
+  // as a request that would hold fewer than it was sent: answered as before,
+  // with the page still holding its files.
+  if (!attachmentsWhole(rb.images)) return null;
   // THIS ACCEPTANCE'S OWN ID, on its copies and on its record (`attemptId`).
   const attempt = newAttempt();
   const draft = newRequest({
@@ -18014,7 +18059,7 @@ async function addonAsRequest(env, ctx, { uid, slug, ab }) {
   // with it and carries none (an older page) is taken on with that fact kept
   // (`attached`), and the add-on step is told the files did not arrive.
   const sent = Array.isArray(ab.images) ? ab.images : [];
-  if (sent.length > MAX_ATTACHMENTS || sent.some((a) => !attachmentData(a))) return null;
+  if (!attachmentsWhole(sent)) return null;
   let prior = null;
   try { prior = await loadRequest(env, slug, ab.idem); } catch { prior = null; }
   if (prior && prior.rec) {
@@ -25536,6 +25581,16 @@ async function handleRequest(request, env, ctx) {
         // question stays waiting, and the number is said before anything is
         // charged (the owner's rule for attachments across a question).
         const rNewFiles = Array.isArray(rb.images) ? rb.images.length : 0;
+        // AN ANSWER'S FILE THAT DOES NOT READ (round 9) is never dropped while
+        // the rest join: nothing is sent on, the question stays open, and which
+        // file it was is said before anything is charged — the limit's rule.
+        const rUnread = rWaiting.requestKey && rNewFiles > 0 ? readAttachments(rb.images).unreadable : [];
+        if (rUnread.length) {
+          return Response.json({
+            ok: false, error: "answer-files-unreadable", cost: 0, unreadable: rUnread.map((u) => u.name),
+            msg: "I couldn't read " + (rUnread.length === 1 ? "the file " + JSON.stringify(rUnread[0].name) : rUnread.length + " of the files (" + rUnread.map((u) => JSON.stringify(u.name)).join(", ") + ")") + ", so I haven't sent this answer. Your answer and its files are back in the box, and the question is still open — attach " + (rUnread.length === 1 ? "that file" : "those files") + " again and send it.",
+          }, { status: 422 });
+        }
         if (rWaiting.requestKey && rNewFiles > 0) {
           let held = null;
           try { held = (await loadRequest(env, rSlug, rWaiting.requestKey)).rec; } catch { held = null; }

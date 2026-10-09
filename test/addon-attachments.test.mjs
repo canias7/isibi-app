@@ -225,6 +225,134 @@ test("AT 6 — THE PAGE'S OWN POST CARRIES THE FILES: `siteAddon` (cut from publ
   assert.equal(none.body.images, undefined);
 });
 
+// ── ROUND 9: EVERY FILE MUST READ, OR NONE IS KEPT AS IF IT WERE ALL ─────────
+//
+// Codex's reproduction: a valid file beside `data:image/png;base64,AAAAA` was
+// taken on as a request holding ONE file — the second matched the data-URL
+// pattern, failed to decode, and was skipped by the store without a word.
+const BROKEN = { name: "broken.png", data: "data:image/png;base64,AAAAA" };
+const filesKept = (P) => [...P.objects.keys()].filter((k) => k.includes("/files/"));
+const b64Of = (d) => d.slice(d.indexOf(",") + 1).replace(/\s+/g, "");
+
+test("AT 7 — CODEX'S REPRODUCTION, A VALID FILE BESIDE ONE THAT DOES NOT DECODE: never a request holding fewer files than it was sent — the post stays a job of its own (the existing fallback), nothing is kept under any request, and no partial file list is recorded anywhere", async () => {
+  await withPlatform({ slug: slugOf("mixed"), ...BASE([]) }, async (P) => {
+    const idem = key32();
+    const a = await post(P, { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true, images: [FILES[0], BROKEN] });
+    assert.equal(a.status, 202, JSON.stringify(a.body));
+    assert.ok(typeof a.body.job === "string" && !a.body.request, "taken on as a request that lost a file: " + JSON.stringify(a.body));
+    assert.equal(P.record(idem), null);
+    assert.deepEqual(filesKept(P), []);
+    await pump(P);
+  });
+});
+
+test("AT 8 — EVERY FILE MALFORMED: the same — a job of its own, nothing kept, never a request that says it carries files it has none of", async () => {
+  await withPlatform({ slug: slugOf("allbad"), ...BASE([]) }, async (P) => {
+    const idem = key32();
+    const a = await post(P, { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true, images: [BROKEN, { name: "two.jpg", data: "data:image/jpeg;base64,@@@@" }] });
+    assert.equal(a.status, 202, JSON.stringify(a.body));
+    assert.equal(P.record(idem), null);
+    assert.deepEqual(filesKept(P), []);
+    await pump(P);
+  });
+});
+
+test("AT 9 — INVALID PADDING AND LENGTH, each beside a valid file: a lone extra character, missing padding, padding in the middle, too much padding, nothing after the comma, no Base64 marker — every one leaves the post a job with nothing kept", async () => {
+  const bad = {
+    "length 4n+1": "data:image/png;base64,AAAAA",
+    "no padding": "data:image/png;base64,AAA",
+    "padding inside": "data:image/png;base64,AA=AAAAA",
+    "too much padding": "data:image/png;base64,A===",
+    "padding past a quad": "data:image/png;base64,AAAA=",
+    "empty": "data:image/png;base64,",
+    "not base64": "data:image/png,AAAA",
+  };
+  await withPlatform({ slug: slugOf("pad"), ...BASE([]) }, async (P) => {
+    for (const [what, data] of Object.entries(bad)) {
+      const idem = key32();
+      const a = await post(P, { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true, images: [FILES[0], { name: "x.png", data }] });
+      assert.equal(a.status, 202, what + ": " + JSON.stringify(a.body));
+      assert.ok(!a.body.request, what + ": taken on as a request");
+      assert.equal(P.record(idem), null, what);
+    }
+    assert.deepEqual(filesKept(P), []);
+    await pump(P, { max: 20 });
+  });
+});
+
+test("AT 10 — VALID FILES IN THE SUPPORTED FORMATS, WITH LINE BREAKS AND SPACES IN THEIR BASE64: every one is kept, byte for byte what its Base64 decodes to, under its own type and name", async () => {
+  const wrap = (d) => { const i = d.indexOf(",") + 1; const b = d.slice(i); return d.slice(0, i) + b.replace(/(.{8})/g, "$1\n ").trim(); };
+  const WEBP = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+  const GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+  const PDF = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zDtsOfCg==";
+  const sets = [
+    [{ name: "a.png", data: wrap(PNG) }, { name: "b.jpg", data: wrap(JPG) }, { name: "c.webp", data: WEBP }],
+    [{ name: "d.gif", data: GIF.replace(",", ",\t \r\n") }, { name: "e.pdf", data: wrap(PDF) }],
+  ];
+  await withPlatform({ slug: slugOf("formats"), ...BASE([]) }, async (P) => {
+    for (const set of sets) {
+      const idem = key32();
+      const a = await post(P, { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true, images: set });
+      assert.equal(a.status, 200, JSON.stringify(a.body));
+      const rec = P.record(idem);
+      assert.equal(rec.files.length, set.length, JSON.stringify(rec.files));
+      set.forEach((f, i) => {
+        const kept = rec.files[i];
+        assert.equal(kept.name, f.name);
+        assert.equal(kept.type, f.data.slice(5, f.data.indexOf(";")));
+        const want = Buffer.from(b64Of(f.data), "base64");
+        assert.deepEqual(Buffer.from(P.objects.get(kept.key).body), want, f.name + ": the kept bytes are not what its Base64 decodes to");
+        assert.equal(kept.bytes, want.length);
+      });
+    }
+  });
+});
+
+test("AT 11 — CLARIFICATION RESUBMISSION: an answer that brings a file that does not read is refused whole before anything runs or is charged — no file joins, the question stays open, the routing model is not asked; the same answer sent again with files that read resumes the part with them, and the delayed photograph is placed once", async () => {
+  const picked = [];
+  await withPlatform({ slug: slugOf("resubmit"), ...BASE(picked, { pick: (n) => (n === 0 ? { question: ASK_FILES } : { kinds: ["page", "photo"] }) }) }, async (P) => {
+    const idem = key32();
+    await post(P, { instruction: ADD, picker: "sonnet", idem, tz: "Europe/London", attached: true });
+    await settle(P, idem);
+    const q = P.question();
+    assert.equal(q.requestKey, idem);
+    const routes = calls(P, T.route), ledger = P.ledger.length;
+    const bad = await sendMessage(P, { message: "Here they are", ask: { id: q.id, chosen: false }, images: [FILES[0], BROKEN] });
+    assert.equal(bad.status, 422, JSON.stringify(bad.body));
+    assert.equal(bad.body.error, "answer-files-unreadable");
+    assert.deepEqual(bad.body.unreadable, ["broken.png"]);
+    assert.equal(bad.body.cost, 0);
+    assert.equal(P.question().status, "pending", "the question was closed by an answer that was refused");
+    assert.deepEqual(P.record(idem).files, [], "a file joined from a refused answer");
+    assert.deepEqual(filesKept(P), []);
+    assert.equal(calls(P, T.route), routes, "the routing model was asked for a refused answer");
+    assert.equal(P.ledger.length, ledger, "something was charged for a refused answer");
+    const ok = await sendMessage(P, { message: "Here they are", ask: { id: q.id, chosen: false }, images: FILES });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.deepEqual(ok.body.resumed, { key: idem, part: 0 });
+    assert.equal(P.record(idem).files.length, 2);
+    for (let i = 0; i < 3; i++) P.failPut(isUpload(P));
+    await settle(P, idem);
+    await tick(P);
+    const s = await settle(P, idem);
+    assert.deepEqual(statuses(s.rec), ["done"], JSON.stringify(s.rec.parts.map((p) => [p.status, p.why])));
+    assert.match(gallery(P), PLACED);
+    assert.equal(calls(P, T.pages), 1);
+    assert.equal(P.imageLog.length, 1);
+  });
+});
+
+test("AT 12 — THE ROUTER'S OWN ACCEPTANCE KEEPS THE SAME RULE: a message whose file does not read is not taken on as a request that would hold fewer files — it is answered as before, with no request and nothing kept", async () => {
+  await withPlatform({ slug: slugOf("routed"), ...BASE([]) }, async (P) => {
+    const r = await sendMessage(P, { message: ADD, images: [FILES[0], BROKEN] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.intent, "addon");
+    assert.equal(r.body.request, undefined, "taken on as a request that lost a file");
+    assert.equal(P.record(r.key), null);
+    assert.deepEqual(filesKept(P), []);
+  });
+});
+
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });
