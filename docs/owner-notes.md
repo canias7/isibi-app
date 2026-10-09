@@ -157,6 +157,24 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-09 — Run 110: a free canary press before the merge (nothing charged)
+
+You pressed the canary from `main` (run 37937465925, 13:31 UTC) with the
+proposal's sha and image filled in, before the release was approved or
+merged.
+- Its two version checks failed, as they must on production today: the
+  Worker answered `9d6bda8afc4e` (expected `938df08a`), and a cold container
+  answered `335396c8c0e0fbcb` (expected `6c9fc805fe4de0d8`).
+- Every zero-cost confirmation passed: the async shape on both sites, the
+  forged marker and a stranger's poll both answering 404, and the free job
+  ending.
+- The source read was complete, the balance read 11, and the press stopped
+  before any paid edit. Nothing was charged.
+- **It is not the release's runtime check.** That press comes after the
+  merge and the image window.
+
+---
+
 ## 2026-10-09 — The multi-agent readiness review and the release proposal (on the branch, `8109aab4`; nothing merged, deployed, built or paid)
 
 You closed the attachment fix and asked for the overall readiness review and
