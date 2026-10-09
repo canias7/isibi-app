@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, tick, call, T } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
-import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
+import { blockNetwork, unexpected, blockedFetch, isLocal } from "./fixtures/no-network.mjs";
 
 blockNetwork();
 
@@ -270,6 +270,46 @@ test("PO 8 — CONTROL: the service REFUSES (422, nothing made): recorded `none`
   });
 });
 
+// ── THE HARNESS ITSELF ─────────────────────────────────────────────────────
+
+test("NET 1 — the blocking fetch refuses an outside address and records it, and lets a data address through; loopback counts as local", async () => {
+  const before = unexpected().length;
+  await assert.rejects(blockedFetch("https://fal.run/fal-ai/x", { method: "POST" }), /network blocked in tests: POST https:\/\/fal\.run\/fal-ai\/x/);
+  const got = unexpected().slice(before);
+  assert.deepEqual(got, [{ method: "POST", url: "https://fal.run/fal-ai/x", by: "blocked" }]);
+  const r = await blockedFetch("data:text/plain,ok");
+  assert.equal(await r.text(), "ok");
+  assert.equal(isLocal("http://127.0.0.1:8080/x"), true);
+  assert.equal(isLocal("http://localhost/x"), true);
+  assert.equal(isLocal("https://img.test/p1.jpg"), false);
+  // TAKEN BACK OUT, so the file's own network check below reads only cases.
+  const all = unexpected();
+  assert.equal(all.filter((u) => u.url === "https://fal.run/fal-ai/x").length, 1);
+});
+
+test("NET 2 — a case ends only once its held work settled: a purchase still out when the case is done finishes with the stand-ins in place (stored, bought), and nothing reaches the blocking fetch", async () => {
+  let release;
+  const held = new Promise((ok) => { release = ok; });
+  const before = unexpected().filter((u) => u.by === "blocked").length;
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("n2"), ...BASE({ imageWith: () => held }) });
+  try {
+    await sendMessage(P, { message: MSG });
+    const running = deliver(P, takePrep(P));
+    for (let i = 0; i < 400 && !P.imageLog.length; i++) await new Promise((ok) => setTimeout(ok, 5));
+    assert.equal(P.imageLog.length, 1, "the purchase never began");
+    setTimeout(release, 60);
+    const left = await P.settle();
+    assert.equal(left, 0, "work was still running when the stand-ins went");
+    await running;
+    assert.equal(uploads(P).length, 1, "the held purchase did not finish before the case closed");
+    assert.deepEqual(purchases(P).map((x) => x.state), ["bought"]);
+  } finally { P.close(); compiler.uninstall(); }
+  await new Promise((ok) => setTimeout(ok, 50));
+  assert.equal(unexpected().filter((u) => u.by === "blocked").length, before, "work left running reached the blocking fetch");
+});
+
 test("NET — no request in this file left the machine", () => {
-  assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
+  // NET 1's own refused address is the only one allowed.
+  assert.deepEqual(unexpected().filter((u) => u.by === "blocked" && u.url !== "https://fal.run/fal-ai/x"), []);
 });
