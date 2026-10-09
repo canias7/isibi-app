@@ -206,8 +206,8 @@ test("readPrepStep and prepRunOf keep only a well-formed step: finite ends in or
   }
   assert.equal(prepRunOf({ prep: null }), null);
   assert.equal(prepRunOf({ prep: { seq: 1 } }), null, "an attempt never taken was given a run");
-  assert.deepEqual(prepRunOf({ prep: { seq: 2, startedAt: 5, endedAt: 9, outcome: "routed", step: { from: 7, to: 6, calls: 1 } } }), { seq: 2, from: 5, to: 9, outcome: "routed", step: null });
-  assert.deepEqual(prepRunOf({ prep: { seq: 2, startedAt: 5, outcome: 3 } }), { seq: 2, from: 5, to: null, outcome: null, step: null });
+  assert.deepEqual(prepRunOf({ prep: { seq: 2, at: 4, startedAt: 5, endedAt: 9, outcome: "routed", step: { from: 7, to: 6, calls: 1 } } }), { seq: 2, sent: 4, from: 5, to: 9, outcome: "routed", step: null });
+  assert.deepEqual(prepRunOf({ prep: { seq: 2, startedAt: 5, outcome: 3 } }), { seq: 2, sent: null, from: 5, to: null, outcome: null, step: null });
 });
 
 test("PROGRESS SWITCHED OFF AFTER THE RECORDS EXIST: the view serves no run interval (the records are the progress feature's, read only while it is on)", async () => {

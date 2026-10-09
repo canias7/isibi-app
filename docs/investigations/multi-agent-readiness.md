@@ -374,6 +374,20 @@ runs 107 and 109.
   - The interval fields are product code (`builder/request.mjs`,
     `worker.js`), so they need a deploy before a press can read them.
 
+### 7.3b Run 117 and its diagnosis (2026-10-09)
+
+- **Run 117** passed every check but the interval check.
+- **The cause**: the driver sent the preparations before filing the job, and
+  the queue ran the three messages one after another. The job began only
+  after both preparations had ended
+  (`docs/history/2026-10-09-run117-diagnosis.md`).
+- **Corrected on the branch**:
+  - the job is filed first;
+  - every preparation attempt is kept, with its claim time;
+  - two parts' prepared steps at once also pass;
+  - the canary prints the timeline.
+- **Not deployed.**
+
 ### 7.4 Optional presses, each on its own approval
 
 - **Press B: an add-on with a photograph** (round 7's check):

@@ -17904,34 +17904,44 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         catch (e) { console.error("progress: request tasks", slug, errorClassForLog(e)); }
       }
       let again = false;
-      // THE PREPARATIONS THIS STEP CLAIMED, sent once their claim is written.
-      if (!same && prepare && prepare.length) await sendRequestPreps(env, record, prepare);
-      if (file) {
-        const q = await fileRequestJob(env, cur, file);
-        if (q.ok && q.job) {
-          for (let k = 0; k < 4; k++) {
-            const at = k === 0 ? { rec: cur, etag: tag } : await loadRequest(env, slug, key);
-            if (!at.rec) break;
-            const withId = noteJobId(at.rec, file.key, q.job);
-            const t = await saveRequestRecord(env, withId, at.etag);
-            if (t) { cur = withId; tag = t; break; }
-          }
-          // A JOB FILED AFTER A STOP — one an earlier step chose and could not
-          // file, filed now so its id is known — is cancelled at once, through
-          // the job's own door: it ends at its first gate, as any job does.
-          if (cur.stop) { try { await editRpc(env, "edit_cancel", { p_id: q.job, p_uid: cur.uid }); } catch { /* its own end settles it */ } }
-          // A DUPLICATE OF A JOB THAT ALREADY ENDED (its filer died after the
-          // filing): its row is read and settled on the next turn, now.
-          again = q.duplicate === true && ["done", "failed", "cancelled", "lost"].includes(String(q.state));
-        } else {
-          console.log("request:", slug, key, "could not file", file.key, String(q.error || ""), "— the sweep files it again");
-          // THE SITE IS PAUSED FOR A CHECK: said on the part, which keeps its place.
-          if (q.error === "needs-review") {
-            const noted = noteFilingRefused(cur, file.key, q.error);
-            const t = await saveRequestRecord(env, noted, tag);
-            if (t) { cur = noted; tag = t; }
+      // THE PREPARATIONS THIS STEP CLAIMED, sent once their claim is written —
+      // AND AFTER THE JOB THIS STEP FILES (2026-10-09, run 117's diagnosis): a
+      // queue that delivers one message at a time ran the three messages in the
+      // order sent, so preparations sent first held the job behind them (filed
+      // 23:07:38, fired 23:08:28, after both had ended). A job's consumer fires
+      // it into the site's container and returns in seconds, so the job sent
+      // first runs beside every preparation delivered after it. Sent in
+      // `finally`, so a filing that throws still sends what was claimed.
+      try {
+        if (file) {
+          const q = await fileRequestJob(env, cur, file);
+          if (q.ok && q.job) {
+            for (let k = 0; k < 4; k++) {
+              const at = k === 0 ? { rec: cur, etag: tag } : await loadRequest(env, slug, key);
+              if (!at.rec) break;
+              const withId = noteJobId(at.rec, file.key, q.job);
+              const t = await saveRequestRecord(env, withId, at.etag);
+              if (t) { cur = withId; tag = t; break; }
+            }
+            // A JOB FILED AFTER A STOP — one an earlier step chose and could not
+            // file, filed now so its id is known — is cancelled at once, through
+            // the job's own door: it ends at its first gate, as any job does.
+            if (cur.stop) { try { await editRpc(env, "edit_cancel", { p_id: q.job, p_uid: cur.uid }); } catch { /* its own end settles it */ } }
+            // A DUPLICATE OF A JOB THAT ALREADY ENDED (its filer died after the
+            // filing): its row is read and settled on the next turn, now.
+            again = q.duplicate === true && ["done", "failed", "cancelled", "lost"].includes(String(q.state));
+          } else {
+            console.log("request:", slug, key, "could not file", file.key, String(q.error || ""), "— the sweep files it again");
+            // THE SITE IS PAUSED FOR A CHECK: said on the part, which keeps its place.
+            if (q.error === "needs-review") {
+              const noted = noteFilingRefused(cur, file.key, q.error);
+              const t = await saveRequestRecord(env, noted, tag);
+              if (t) { cur = noted; tag = t; }
+            }
           }
         }
+      } finally {
+        if (!same && prepare && prepare.length) await sendRequestPreps(env, record, prepare);
       }
       const offered = await offerRequestQuestions(env, cur, tag);
       cur = offered.rec;

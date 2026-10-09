@@ -1247,6 +1247,10 @@ export function nextStep(record, rows = {}, now = Date.now()) {
       // (`prev`): what it recorded is reused, and a purchase it began and never
       // finished is never made again blindly (the Worker reads its notes).
       const prev = prepFor(p) && p.prep.state === "running" ? p.prep.seq : (prepFor(p) && Number.isInteger(p.prep.prev) ? p.prep.prev : null);
+      // THE ATTEMPT IT REPLACES IS KEPT AS EVIDENCE (2026-10-09, run 117's
+      // diagnosis): when it was sent, taken and answered, and its step —
+      // never lost to the new claim (`prepPast`, the last PREP_PAST_KEPT).
+      keepPastPrep(p);
       p.prep = { seq: (Number(p.prep && p.prep.seq) || 0) + 1, for: p.seq, phase: p.phase, tries: again + 1, state: "attempting", at: now, ...(Number.isInteger(prev) ? { prev } : {}) };
       prepare.push({ n: p.n, seq: p.prep.seq });
       running++;
@@ -1367,13 +1371,42 @@ export function readPrepStep(step) {
  * Null when no attempt was taken.
  */
 export function prepRunOf(p) {
-  const pr = p && p.prep;
-  if (!pr || !Number.isFinite(pr.startedAt)) return null;
+  return runOfPrep(p && p.prep);
+}
+
+/** One attempt's timings, read strictly: `sent` its claim (`at`), `from`/`to` taken and answered. Null when never taken. */
+function runOfPrep(pr) {
+  if (!pr || typeof pr !== "object" || !Number.isFinite(pr.startedAt)) return null;
   return {
-    seq: pr.seq, from: pr.startedAt, to: Number.isFinite(pr.endedAt) ? pr.endedAt : null,
+    seq: pr.seq, sent: Number.isFinite(pr.at) ? pr.at : null, from: pr.startedAt, to: Number.isFinite(pr.endedAt) ? pr.endedAt : null,
     outcome: typeof pr.outcome === "string" ? pr.outcome : null,
     step: readPrepStep(pr.step),
   };
+}
+
+/** How many earlier attempts a part keeps the timings of. */
+export const PREP_PAST_KEPT = 6;
+
+/** The attempt about to be replaced, kept on the part (`prepPast`) when a consumer took it; the oldest dropped past PREP_PAST_KEPT. */
+function keepPastPrep(p) {
+  const run = runOfPrep(p && p.prep);
+  if (!run) return;
+  const past = Array.isArray(p.prepPast) ? p.prepPast.filter((x) => x && x.seq !== run.seq) : [];
+  past.push(run);
+  p.prepPast = past.slice(-PREP_PAST_KEPT);
+}
+
+/**
+ * EVERY PREPARATION ATTEMPT A PART RAN, OLDEST FIRST (2026-10-09): the kept
+ * earlier ones and the current one, each read strictly. A reader judging
+ * overlap reads them all, so a retry never hides an earlier attempt's work.
+ */
+export function prepRunsOf(p) {
+  const out = [];
+  for (const x of Array.isArray(p && p.prepPast) ? p.prepPast : []) { const r = runOfPrep({ seq: x && x.seq, at: x && x.sent, startedAt: x && x.from, endedAt: x && x.to, outcome: x && x.outcome, step: x && x.step }); if (r) out.push(r); }
+  const cur = prepRunOf(p);
+  if (cur && !out.some((r) => r.seq === cur.seq)) out.push(cur);
+  return out;
 }
 
 /** What the page and the progress writer read of a part's preparation: `preparing`, `prepared`, or nothing. */
@@ -1759,6 +1792,7 @@ export function requestView(rec, { progress = null, said = null, runs = null } =
       // correction): the evidence a reader judges overlap by — never a status
       // sampled while it ran.
       ...((pr) => (pr ? { prepRun: pr } : {}))(prepRunOf(p)),
+      ...((rs) => (rs.length > 1 ? { prepRuns: rs } : {}))(prepRunsOf(p)),
       ...((rs) => (rs.length ? { runs: rs } : {}))(runsOf(p, runs)),
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
       ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),

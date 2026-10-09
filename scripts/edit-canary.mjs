@@ -1313,6 +1313,12 @@ if (UI_ASK) {
       requests.tables = { before: tablesBefore, after: tablesAfter };
       console.log("");
       for (const c of requests.checks) check(c.name, c.ok, c.why);
+      // THE TIMELINE THE INTERVAL CHECK READ (2026-10-09, run 117's
+      // diagnosis): readable in the log, never only in the artifact.
+      if (Array.isArray(requests.timeline)) {
+        console.log("\n  THE REQUEST'S TIMELINE (preparations and job execution, from its own view):");
+        for (const line of requests.timeline) console.log(line);
+      }
       console.log("\n  THE REPLIES (each the model's own, and on screen):");
       for (const c of requests.replies) check(c.name, c.ok, c.why);
       // THE MONEY, BY THIS PRESS'S OWN CHARGES (2026-10-04, on the owner's word:

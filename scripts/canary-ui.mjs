@@ -152,6 +152,14 @@ const WALNUT_ROW = Object.freeze({
 // makes no write of its own, and the next press reads its baseline afresh.
 const LOAVES_R2 = Object.freeze(LOAVES_NOW.map((r) => (r.id === 5 ? Object.freeze({ ...r, price: 6.2 }) : r)));
 const FOCACCIA_ROW = Object.freeze({ ...D1_ROW, restore: false, record: LOAVES_R2 });
+// THE TABLE AFTER RUN 117 (2026-10-09): the focaccia at 4.6, kept by that run
+// (its row check read exactly that one change on both readers and on /order).
+const LOAVES_R3 = Object.freeze(LOAVES_R2.map((r) => (r.id === 6 ? Object.freeze({ ...r, price: 4.6 }) : r)));
+// THE FOCACCIA 4.6 -> 4.7, kept (`restore: false`, the demo-site rule).
+const FOCACCIA_ROW_R3 = Object.freeze({
+  ...D1_ROW, from: "4.6", to: "4.7", restore: false, record: LOAVES_R3,
+  shown: Object.freeze({ ...D1_ROW.shown, before: "£4.60", after: "£4.70" }),
+});
 
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
@@ -856,17 +864,16 @@ export const UI_SCENARIOS = Object.freeze({
     // budget of 20.
     budget: 20, fundsFirst: true, cap: 1018, addon: true,
     layers: Object.freeze(["text", "data", "nav"]),
-    row: FOCACCIA_ROW,
+    row: FOCACCIA_ROW_R3,
     expect: Object.freeze({
       headings: Object.freeze([
-        Object.freeze({ route: "/order", from: "Pick your loaf and a collection time", to: "Choose a loaf and a time to collect it" }),
+        Object.freeze({ route: "/order", from: "Choose a loaf and a time to collect it", to: "Pick a loaf and a time to collect it" }),
       ]),
-      // FRESH TARGETS (2026-10-09): run 113 kept YouTube in every footer and
-      // the Order heading it asked for; read live before this change, every
-      // footer links to Facebook, Instagram, TikTok and YouTube, none to
-      // LinkedIn, and /order's heading reads "Pick your loaf and a collection
-      // time".
-      social: Object.freeze({ network: "linkedin", host: "linkedin.com", path: "/company/harbourloaf" }),
+      // FRESH TARGETS AGAIN (2026-10-09, after run 117): read live, every
+      // footer links to Facebook, Instagram, LinkedIn, TikTok and YouTube, none
+      // to X; /order's heading reads "Choose a loaf and a time to collect it";
+      // the focaccia is 4.6 (run 117 kept it).
+      social: Object.freeze({ network: "x", host: "x.com", path: "/harbourloaf" }),
       // THE MODEL'S PROGRESS LINES, CHECKED (restored after Codex's review of
       // ac24aece): read off the answer, sent with its tab closed once a line
       // shows live and followed to its end in a fresh browser session.
@@ -876,31 +883,36 @@ export const UI_SCENARIOS = Object.freeze({
     covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
     steps: Object.freeze([
       Object.freeze({
-        say: "Add a link to our LinkedIn page in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Pick your loaf and a collection time' to 'Choose a loaf and a time to collect it'.",
+        // THE HEADING FIRST (2026-10-09, run 117's diagnosis): in apply order
+        // the footer link comes last, so it holds back no earlier part's step
+        // (a footer is written into every page, which a heading's step reads),
+        // and the price's data step — tables only — is clear to be prepared
+        // beside whichever job runs first.
+        say: "Change the Order page heading 'Choose a loaf and a time to collect it' to 'Pick a loaf and a time to collect it', change the Sea Salt Focaccia's price to £4.70, and add a link to our X account in the footer.",
         until: "question",
-        ms: 10 * 60_000,
-        // Part 0 first (one job at a time): run 107's TikTok part to its question.
+        ms: 12 * 60_000,
+        // One job at a time: the heading's job and its publish (run 117's took
+        // 195 s), the price's, then the link's hand-over and menu step to its
+        // question — every container wait at the longest measured.
         path: Object.freeze([
           Object.freeze({ stage: "routing", ms: 5_000 }),
-          Object.freeze({ stage: "the link's add-on hand-over", ms: 25_000 }),
+          Object.freeze({ stage: "the heading's job, before its publish", ms: 114_000 }),
           Object.freeze({ stage: "container", ms: 0, wait: true }),
+          Object.freeze({ stage: "the price's job", ms: 30_000 }),
+          Object.freeze({ stage: "the link's routing and add-on hand-over", ms: 30_000 }),
           Object.freeze({ stage: "menu step, to its question", ms: 25_000 }),
         ]),
       }),
       Object.freeze({
-        say: "It's linkedin.com/company/harbourloaf",
+        say: "It's x.com/harbourloaf",
         // SENT WITH ITS TAB CLOSED once a progress line shows live on the
         // resumed part, and followed to its end in a fresh browser session
         // (`away: "fresh"`): the browser-closed path, with the model's lines.
         away: "fresh",
-        // The price and the heading may still be applying (each its own job,
-        // the heading's publish meeting a container), then the answer's step
-        // and its publish.
-        ms: 16 * 60_000,
+        // The answer's routing, the menu step with the address and its
+        // publish (message 1 ends only once the other parts are applied).
+        ms: 12 * 60_000,
         path: Object.freeze([
-          Object.freeze({ stage: "the price's job", ms: 30_000 }),
-          Object.freeze({ stage: "the heading's job, before its publish", ms: 114_000 }),
-          Object.freeze({ stage: "container", ms: 0, wait: true }),
           Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
           Object.freeze({ stage: "menu step with the answer", ms: 35_000 }),
           Object.freeze({ stage: "container", ms: 0, wait: true }),

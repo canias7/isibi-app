@@ -14,21 +14,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { UI_SCENARIOS, readUiScenario, pathNeedMs, pressLimitMs, UI_PRESS_MAX_MS, UI_REPLY_FLOOR_MS } from "../scripts/canary-ui.mjs";
-import { overlapVerdict, requestBatchVerdict, progressChecks, replyChecks } from "../scripts/canary-requests.mjs";
+import { overlapVerdict, requestBatchVerdict, progressChecks, replyChecks, requestTimeline } from "../scripts/canary-requests.mjs";
 import { ownMoneyVerdict, routeCallsOf } from "../scripts/canary-ui.mjs";
 import { rqApp, drive, view, part, RQ_KEY, SITE } from "./fixtures/canary-rq-app.mjs";
 
 const LP = UI_SCENARIOS["lv-parallel"];
-const M1 = "Add a link to our LinkedIn page in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Pick your loaf and a collection time' to 'Choose a loaf and a time to collect it'.";
-const M2 = "It's linkedin.com/company/harbourloaf";
+const M1 = "Change the Order page heading 'Choose a loaf and a time to collect it' to 'Pick a loaf and a time to collect it', change the Sea Salt Focaccia's price to £4.70, and add a link to our X account in the footer.";
+const M2 = "It's x.com/harbourloaf";
 
-test("lv-parallel: on the bakery, in request mode, two messages word for word — the LinkedIn footer link first (it asks), the price and the heading beside it — then the answer, sent with its tab closed and followed in a fresh session; inside its budget, cap, walls and time; the focaccia kept", () => {
+test("lv-parallel: on the bakery, in request mode, two messages word for word — the heading first, the price beside it, the X footer link last (it asks) — then the answer, sent with its tab closed and followed in a fresh session; inside its budget, cap, walls and time; the focaccia kept", () => {
   assert.ok(LP, "no lv-parallel scenario");
   assert.equal(readUiScenario("lv-parallel", "fold-lane-bakery").ok, true);
   assert.equal(readUiScenario("lv-parallel", "fretwork-1").ok, false);
   assert.equal(LP.request, true);
   assert.deepEqual(LP.steps.map((s) => s.say), [M1, M2]);
   assert.equal(LP.steps[0].until, "question", "the first message must end on the footer link's question");
+  // THE ORDER (run 117's diagnosis): the footer link last in the message, so
+  // in apply order it holds back no earlier part's step.
+  assert.ok(M1.indexOf("heading") < M1.indexOf("price") && M1.indexOf("price") < M1.indexOf("footer"));
   assert.equal(LP.steps[1].until, undefined);
   // THE BROWSER-CLOSED PATH: the answer is sent with its tab closed and
   // followed in a fresh browser session, where the progress checks read.
@@ -48,22 +51,23 @@ test("lv-parallel: on the bakery, in request mode, two messages word for word �
   assert.equal(LP.expect.overlap, true);
   // THE MODEL'S PROGRESS LINES, CHECKED (restored after Codex's review of ac24aece).
   assert.equal(LP.expect.progress, true);
-  // FRESH TARGETS: run 113 kept YouTube in every footer and its heading.
-  assert.deepEqual(LP.expect.social, { network: "linkedin", host: "linkedin.com", path: "/company/harbourloaf" });
-  assert.deepEqual(LP.expect.headings, [{ route: "/order", from: "Pick your loaf and a collection time", to: "Choose a loaf and a time to collect it" }]);
+  // FRESH TARGETS: runs 113 and 117 kept YouTube, LinkedIn and their headings.
+  assert.deepEqual(LP.expect.social, { network: "x", host: "x.com", path: "/harbourloaf" });
+  assert.deepEqual(LP.expect.headings, [{ route: "/order", from: "Choose a loaf and a time to collect it", to: "Pick a loaf and a time to collect it" }]);
   assert.deepEqual([...LP.covers], ["several-parts", "step-question", "answer-resumes"]);
-  // THE ROW: the focaccia, 4.5 -> 4.6, KEPT (`restore: false`, the demo-site
-  // rule), against the table as read whole on 2026-10-09: seven rows, the
-  // Walnut Levain at 6.2.
+  // THE ROW: the focaccia, 4.6 -> 4.7, KEPT (`restore: false`, the demo-site
+  // rule), against the table run 117 left: seven rows, the Walnut Levain at
+  // 6.2, the focaccia at 4.6.
   assert.equal(LP.row.table, "loaves");
   assert.equal(LP.row.id, 6);
   assert.deepEqual(LP.row.match, { name: "Sea Salt Focaccia" });
-  assert.equal(LP.row.from, "4.5");
-  assert.equal(LP.row.to, "4.6");
+  assert.equal(LP.row.from, "4.6");
+  assert.equal(LP.row.to, "4.7");
+  assert.deepEqual([LP.row.shown.before, LP.row.shown.after], ["£4.60", "£4.70"]);
   assert.equal(LP.row.restore, false, "the run must keep the focaccia's new price and write nothing");
   assert.equal(LP.row.record.length, 7);
   assert.equal(LP.row.record.find((r) => r.id === 5).price, 6.2);
-  assert.equal(LP.row.record.find((r) => r.id === 6).price, 4.5);
+  assert.equal(LP.row.record.find((r) => r.id === 6).price, 4.6, "the baseline is not the table run 117 left");
   // TIME: each message's bound covers its measured path, every container wait
   // at the longest measured; the two with their reply floors fit the press.
   for (const s of LP.steps) assert.ok(s.ms >= pathNeedMs(s.path), `${s.say.slice(0, 30)}: ${s.ms} < ${pathNeedMs(s.path)}`);
@@ -191,7 +195,7 @@ test("NEGATIVE — MISSING EVIDENCE: no view, an unsent message, a view with no 
 
 test("the press's verdict carries the interval check only when the scenario asks for it", () => {
   const spec = { steps: [{ say: "x" }], expect: { overlap: true } };
-  const named = "message 1: a part's prepared step ran while another part's job was executing, by their recorded intervals";
+  const named = "message 1: a part's prepared step ran while another part's job or prepared step was executing, by their recorded intervals";
   const good = stepWith([part(0, "p", "done", { runs: [ran("j", 1000, 9000)] }), part(1, "h", "done", { prepRun: prepOf(1, 2, { from: 4000, to: 6000, calls: 1 }) })]);
   const c = requestBatchVerdict({ spec, steps: good }).checks.find((x) => x.name === named);
   assert.ok(c, "no overlap check");
@@ -201,6 +205,13 @@ test("the press's verdict carries the interval check only when the scenario asks
   assert.equal(requestBatchVerdict({ spec, steps: [] }).checks.find((x) => x.name === named).ok, false);
   const off = requestBatchVerdict({ spec: { steps: [{ say: "x" }], expect: {} }, steps: good });
   assert.equal(off.checks.some((x) => x.name === named), false, "a press that does not ask is judged on it");
+  // THE TIMELINE IT READ GOES TO THE PRESS, which prints it in its own log.
+  const tl = requestBatchVerdict({ spec, steps: good }).timeline;
+  assert.ok(Array.isArray(tl) && tl.some((l) => /part 1 prep #1/.test(l)) && tl.some((l) => /part 0 job j /.test(l)), JSON.stringify(tl));
+  assert.equal(off.timeline, undefined);
+  const press = fs.readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
+  const at = press.indexOf("THE REQUEST'S TIMELINE"), checks = press.indexOf("for (const c of requests.checks) check(c.name, c.ok, c.why);");
+  assert.ok(at > 0 && checks > 0 && at > checks && /for \(const line of requests\.timeline\) console\.log\(line\)/.test(press.slice(at, at + 300)), "the press does not print the timeline after its checks");
 });
 
 // ── THE WHOLE PRESS, OFFLINE, THROUGH THE REAL CANARY DRIVER ─────────────────
@@ -264,7 +275,7 @@ const LP_REPLIES = {
 // THE BAKERY'S TABLE, as both readers serve it: the focaccia at 4.5 until the
 // price's job has run (here: once the message is sent), 4.6 after.
 function loaves(h) {
-  const rows = () => LP.row.record.map((r) => ({ ...r, price: r.id === 6 && h.server.key ? 4.6 : r.price }));
+  const rows = () => LP.row.record.map((r) => ({ ...r, price: r.id === 6 && h.server.key ? Number(LP.row.to) : r.price }));
   const io = { reads: 0 };
   io.owner = async () => { io.reads++; return { status: 200, json: { rows: rows().map((r) => ({ ...r, price: String(r.price) })) } }; };
   io.pub = async () => { io.reads++; return { status: 200, text: JSON.stringify(rows()) }; };
@@ -358,4 +369,62 @@ test("END TO END, OFFLINE, NEGATIVE: the same press with the heading prepared on
   assert.match(ov.why, /did not overlap another part's job/);
   assert.deepEqual(failed(progressChecks({ steps: rec.steps })), []);
   assert.deepEqual(failed(replyChecks(rec.steps)), []);
+});
+
+// ── TWO PREPARATIONS AT ONCE, EVERY ATTEMPT, AND THE READABLE TIMELINE ───────
+// (2026-10-09, diagnosing run 117)
+
+test("TWO PARTS' PREPARED STEPS AT ONCE pass — the work itself ran together, even with no job beside it; routing beside a step, or one part's two attempts, do not", () => {
+  const both = overlapVerdict(stepWith([
+    part(0, "the price", "queued"),
+    part(1, "the photo", "ready", { prepRun: prepOf(1000, 9000, { from: 2000, to: 8000, calls: 2 }) }),
+    part(2, "the heading", "ready", { prepRun: prepOf(1500, 9500, { from: 3000, to: 7000, calls: 1 }) }),
+  ]));
+  assert.equal(both.ok, true, both.why);
+  assert.deepEqual(both.overlaps, []);
+  assert.deepEqual(both.together.map((t) => [t.parts, t.ms]), [[[1, 2], 4000]]);
+  assert.match(both.said, /parts 1 and 2's prepared steps ran together for 4 s/);
+  // A ROUTING BESIDE A STEP IS NOT TWO PIECES OF WORK.
+  const routed = overlapVerdict(stepWith([
+    part(1, "the photo", "ready", { prepRun: prepOf(1000, 9000, { from: 2000, to: 8000, calls: 2 }) }),
+    part(2, "the heading", "ready", { prepRun: prepOf(1500, 9500, null, "routed") }),
+  ]));
+  assert.equal(routed.ok, false);
+  // RUN 117'S SHAPE: the second preparation began after the first had ended.
+  const serial = overlapVerdict(stepWith([
+    part(1, "the footer link", "waiting", { prepRun: prepOf(5000, 33000, { from: 19700, to: 31800, calls: 1 }, "stopped") }),
+    part(2, "the heading", "done", { prepRun: prepOf(36200, 49200, { from: 37000, to: 48000, calls: 1 }) }),
+    part(0, "the price", "done", { runs: [ran("524dd74b", 57500, 82500)] }),
+  ]));
+  assert.equal(serial.ok, false);
+  assert.match(serial.why, /nor another part's prepared step/);
+  // ONE PART'S TWO ATTEMPTS ARE NOT TWO PARTS.
+  const self = overlapVerdict(stepWith([part(1, "the photo", "ready", { prepRuns: [prepOf(1000, 5000, { from: 2000, to: 4000, calls: 1 }), { ...prepOf(3000, 9000, { from: 3500, to: 8000, calls: 1 }), seq: 2 }] })]));
+  assert.equal(self.ok, false);
+});
+
+test("EVERY ATTEMPT IS READ: an earlier attempt's step that overlapped a job passes even when the latest attempt did not", () => {
+  const earlier = { ...prepOf(1000, 6000, { from: 2000, to: 5000, calls: 1 }), seq: 1 };
+  const latest = { ...prepOf(20000, 25000, { from: 21000, to: 24000, calls: 1 }), seq: 2 };
+  const parts = [part(0, "the price", "done", { runs: [ran("job-price-1", 1500, 9000)] }), part(1, "the photo", "done", { prepRun: latest, prepRuns: [earlier, latest] })];
+  assert.equal(overlapVerdict(stepWith(parts)).ok, true, "an earlier attempt's overlap was lost");
+  const onlyLatest = [parts[0], part(1, "the photo", "done", { prepRun: latest })];
+  assert.equal(overlapVerdict(stepWith(onlyLatest)).ok, false, "CONTROL: the latest alone does not overlap");
+});
+
+test("THE TIMELINE prints every attempt and every job in clock order, from the request's acceptance, and says when nothing was recorded", () => {
+  const v = { ...view(K, [
+    part(0, "the price", "done", { route: "data", runs: [ran("524dd74bbdc1", 1791587312704, 1791587337756)] }),
+    part(1, "the footer link", "waiting", { prepRun: { seq: 1, sent: 1791587255207, from: 1791587260196, to: 1791587288195, outcome: "stopped", step: { from: 1791587274922, to: 1791587286978, calls: 1 } } }),
+    part(2, "the heading", "done", { route: "text", prepRun: { seq: 1, sent: null, from: 1791587291403, to: 1791587304393, outcome: "routed", step: null } }),
+  ]), at: 1791587255207 };
+  const lines = requestTimeline(v);
+  assert.match(lines[0], /accepted 23:07:35\.207 UTC/);
+  assert.deepEqual(lines.slice(1).map((l) => l.trim()), [
+    "part 1 prep #1: claimed +0.0s, taken +5.0s, step +19.7s–+31.8s (1 model call(s)), answered +33.0s, stopped",
+    "part 2 prep #1: claimed ?, taken +36.2s, no step, answered +49.2s, routed",
+    "part 0 job 524dd74b (data): ran +57.5s–+82.5s",
+  ]);
+  assert.match(requestTimeline({ ...view(K, [part(0, "x", "queued")]), at: 1 })[1], /no preparation and no job execution interval recorded/);
+  assert.match(requestTimeline(null)[0], /no request view/);
 });
