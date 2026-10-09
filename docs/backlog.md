@@ -20,8 +20,12 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **`canary-reopen-browser` REOPEN 1 failed once under the full suite**
+  (2026-10-09): it passes alone, so it is likely load-sensitive. In full
+  under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
-  2026-10-09): writes one at a time per site; the image provider offers no
+  2026-10-09): writes one at a time per site; a preparation does not see
+  another request's unapplied writes (never applied stale, our cost); the image provider offers no
   idempotency or lookup (a call whose answer was lost is held); an add-on
   photograph whose token sits inside a longer string, a synchronous add-on,
   a legacy job with the flow off, or a post whose files would not all be kept
@@ -1042,6 +1046,11 @@ here; take a closed one out of both.**
   files than it was sent (Codex's reproduction) — every file is now decoded
   before any is kept, a message or post whose files do not all read is never
   taken on, and an answer bringing one is refused whole at no cost. Not yet:
+  - **a preparation does not see another request's unapplied writes**
+    (2026-10-09, the readiness review): a second message's step can be
+    prepared against a page the first message's job is about to change. It
+    is never applied stale (the job asks again; XR in
+    `test/parallel-requests.test.mjs`), but the prepared call is our cost;
   - **the add-on step does not consume attachment image contents**: it
     preserves them with the request; using a customer's own picture inside
     an addition is not implemented;
@@ -2666,3 +2675,10 @@ product.)*
   step; blocked on a fal top-up.
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
+
+- **`canary-reopen-browser` REOPEN 1 failed once under the full suite**
+  (2026-10-09, the readiness review, on `8109aab4`): *"message 1: that tab's
+  preview loaded the newer address — tab 2 loaded /?v=1"*. It passes 3 of 3
+  runs alone, and the full suite's rerun was clean. It is a real-Chromium
+  preview timing check, so it is likely load-sensitive. Not investigated
+  further.

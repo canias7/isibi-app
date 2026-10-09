@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 9: every attachment read whole before any is kept, ending in `58d3350b` and its records)
+## Current handoff — read this first (2026-10-09, the multi-agent readiness review and the release proposal, ending in `8109aab4` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,100 +8,145 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2188** (`main` `9d6bda8a`, image
-  `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
-  moved money.
-- **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review
-  of `e72b46d6` (23 tests passed, the newer site-build gate green) is kept.
-  This round:
-  - `18d6aae1`: every attachment read whole before any is kept;
-  - `58d3350b`: one acceptance rule, and the sweep's asks;
-  - and the records.
-- Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
+  `335396c8c0e0fbcb`), unchanged. **Balance 11**, last read after run 109.
+  Nothing moved money.
+- **The attachment correction is closed** (`18d6aae1`, `58d3350b`, records
+  `604d2415`). Codex confirmed it with 59 focused tests, their own mixed
+  reproduction included, and CI is green. **The Add-on preserves attachments
+  but does not consume their image contents.**
+- **This round**: `8109aab4` (one new test, XR) and the records. No product
+  code changed.
+- Nothing merged, deployed or built. No paid call, no model call, no SQL.
 
-**1. The defect Codex found**
-- **The post**: a legacy add-on with one valid file and
-  `{name:"broken.png", data:"data:image/png;base64,AAAAA"}`.
-- **What it did**: it was accepted as a request holding only the valid file,
-  with nothing saying a file was lost.
-- **Why**: the shape was checked without decoding, and the store skipped the
-  file that failed to decode.
+**1. What runs concurrently** (in full:
+`docs/investigations/multi-agent-readiness.md` §2)
+- **Concurrent, Edit and Add-on**: up to three other parts of a request are
+  *prepared* beside the running job. Their model calls (and a picture step's
+  purchase) are made and recorded, with nothing written and nothing charged.
+  This covers:
+  - the text, menu, picture, look, page, data and rules steps;
+  - an add-on with no new database (picker, designers, page writer).
+  The job then reuses a recorded answer only when its request is byte for
+  byte the same.
+- **Concurrent, Build**: the design graph (existing), plus photographs beside
+  the page writing, and fonts and translations beside the photographs.
+- **Waits**:
+  - a part whose step reads what an earlier unapplied part writes (same page,
+    menus, page list, tables, pictures);
+  - a part that needs another's result, including one that refers to
+    something another part creates;
+  - any job while another holds the site.
+- **Sequential**:
+  - every write to one site (the database's lock);
+  - an add-on's provisioning onward;
+  - the logo step;
+  - a first Build's provisioning, schema, seed, compile, render check and
+    publish;
+  - the full rewrite after its go-ahead.
+- **Unsupported**:
+  - concurrent writes to one site;
+  - a message mixing a first Build with edits;
+  - preparation that sees another request's unapplied writes;
+  - **using attachment contents in an addition**.
+- **Build's limits**: 1 page and 15 components, unchanged since production.
 
-**2. The fix** (general, not for that payload)
-- **One shared reading** for every caller. A file must be a data URL whose
-  Base64 is standard (whitespace allowed, padding only at the end) and decodes
-  to at least one byte.
-- **The router's acceptance and the legacy add-on** (which goes through the
-  same acceptance) decline a message whose files do not all read. That is the
-  existing fallback: the router answers as before, and the add-on post stays
-  a job of its own. **It is never a request holding fewer files than it was
-  sent.**
-- **An answer to a question that brings an unreadable file** is refused
-  whole:
-  - nothing runs and nothing is charged;
-  - the question stays open, and the answer and its files go back in the box;
-  - it carries a fixed error sentence naming the file.
-  The questions themselves stay model-written.
-- **The store keeps all files or none.** That is a backstop no caller
-  reaches.
+**2. The evidence, by requirement** (§3 of the review): every requirement you
+listed is covered offline by named tests:
+- independent overlap;
+- dependency ordering;
+- conflicting changes;
+- browser closure;
+- clarification while unrelated work continues;
+- retries and crash recovery;
+- stale prepared results;
+- duplicate submissions;
+- publishing;
+- charging;
+- model-written progress.
 
-**3. What an add-on does with attachments** (unchanged)
-- **The add-on step preserves attachments but does not consume their image
-  contents.**
-- The files are kept with the request and reach questions, answers and later
-  parts (the logo layer).
-- **Using your own picture inside an addition is not implemented**, and I
-  don't claim it.
+**Live evidence exists only for the sequential flow** (runs 101 and 105–109
+on deploy 2188): order, closed tab, clarification end to end, progress and
+charges. **No preparation code has run live.**
 
-**Tests actually run** (supplied model answers, a stand-in image service, the
-network blocked)
-- New in `test/addon-attachments.test.mjs`:
-  - AT 7: Codex's mixed payload;
-  - AT 8: every file malformed;
-  - AT 9: seven bad padding and length forms;
-  - AT 10: PNG, JPEG, WEBP, GIF and PDF with whitespace, each kept byte for
-    byte;
-  - AT 11: a clarification answer with a broken file is refused at no cost,
-    then resubmitted valid, and the part resumes;
-  - AT 12: the router's own acceptance.
-- **Still passing**:
-  - AT 2: a duplicate post, with the files written once and no second
-    addition or purchase;
-  - AT 1: valid files recovered with the page closed, charged at most once
-    per job.
-- **Red check** on `e72b46d6`: **4 of 4 defect cases fail**. AT 8 and AT 10
-  pass there, because that behaviour already held.
-- **Focused run** (with the seven-task and Build-progress files):
-  **`58 / 58 / 0 / 0`**.
-- **Sweep**: **4 of 5 killed**, and the control survived. The survivor is
-  the store's all-or-none backstop, which no caller can reach. It is kept on
-  purpose.
-- **Full suite**: **`10271 / 10271 / 0 / 0`** on `58d3350b`.
-- **CI on `58d3350b`**:
-  - unit tests (run 37926585857): green, `10271 / 10230 / 0 / 41`;
-  - site build (run 37926585858): green on every job.
-- **The next image, predicted** (not built): **`6c9fc805fe4de0d8`**.
+**3. The one uncovered requirement, now tested**
+- **Two messages, two requests, one page.** A preparation checks only its own
+  request, so the second request's step can be prepared against a page the
+  first is about to change.
+- **XR** (`8109aab4`), through the real Worker and site lock, shows:
+  - the second request's job deferred while the first holds the site;
+  - the stale preparation not applied (the job asks again and sees the first
+    change);
+  - both changes kept, and each job charged once.
+- **It passes on the existing code**, so no blocker was found and no product
+  code changed.
+- **Sweep**: 2 of 2 product mutants killed, and the control survived.
 
-**Remaining limitations**
-1. No live evidence at all.
-2. **The add-on does not consume attachment image contents** (§3).
-3. **A message or legacy post whose files do not all read** gets no durable
-   recovery: the router answers it as before, or it stays a job. Neither
-   names the failing file; only the answer path does.
-4. A decoded file is kept under the type it declares; its bytes are not
-   checked against that type.
-5. **Unchanged:**
-   - the `/frames` door needs the new image;
-   - the synchronous add-on, the flow off, and a token inside a longer string
-     are told, never placed automatically;
-   - the image provider has no idempotency key.
+**Tests actually run**
+- **Focused** (15 files): **`232 / 232 / 0 / 0`**.
+- **Full suite** on `8109aab4`: **`10272 / 10272 / 0 / 0`**. The first run
+  had one intermittent real-browser failure (REOPEN 1, a preview timing
+  check), which passes 3 of 3 alone; it is in the backlog.
+- **CI on `8109aab4`**: unit tests green, `10272 / 10231 / 0 / 41` (run
+  37930813501). Site build green on `58d3350b` (run 37926585858); no product
+  file has changed since.
+
+**4. The release-and-validation proposal** (§7 of the review)
+- **One fast-forward** `9d6bda8a` → the candidate (93 commits).
+- **One image build**: `335396c8c0e0fbcb` → **`6c9fc805fe4de0d8`** (204
+  inputs). No secret changes.
+- **Steps**:
+  1. preflight;
+  2. merge;
+  3. the served `chat.js` byte-compared;
+  4. the image window;
+  5. **your free runtime press** (the new sha and image).
+- **Press A, `lv-parallel`** on `fold-lane-bakery`, required:
+  - message 1: *"Add a link to our Instagram in the footer, make the focaccia
+    £4.60, and change the Order page heading 'Choose your loaf and a
+    collection time' to 'Pick your loaf and a collection time'."*;
+  - message 2: *"It's instagram.com/harbourloaf"*;
+  - **it settles live** whether the router's targets allow overlap,
+    overlap itself, and clarification while the other parts finish, with the
+    tab closed;
+  - **about 11–17 credits, budget 20**. The balance (11) must be raised
+    first;
+  - the focaccia price (a live row) is put back afterwards with the free
+    `4b-d1-restore`, unless you keep it;
+  - **nine pass criteria**: overlap observed, clarification, order, results,
+    closure, progress, money, publishing, and every part `done`. It stops on
+    a wall, the budget, or a failed or partial part. **No overlap observed is
+    a fail of that criterion.**
+  - **Its canary preparation is still to do** (free): the scenario, the
+    trail recording each part's preparation state, an overlap verdict and
+    their tests. It can follow the merge.
+- **Optional, each on its own word**:
+  - press B, an add-on with one photograph: about 22–34 credits, a
+    photograph being about 19;
+  - press C, one first Build: about 11–45 credits, plus about 19 per
+    photograph.
+
+**Remaining gaps**
+1. No preparation code has run live.
+2. Overlap depends on the router naming targets. With none, a part counts as
+   the whole site: safe, but nothing overlaps.
+3. Cross-request preparation can be wasted (our cost), never applied stale.
+4. Writes stay one at a time per site.
+5. The image provider has no idempotency key.
+6. Crash recovery, lost purchases and duplicate deliveries stay offline-only
+   proof.
+7. The Add-on does not consume attachment contents.
 
 **Yours to decide**
-- The review of this round (and the earlier unmerged batches).
-- Any release: one merge, one image build, its runtime check, then round 7's
-  one paid add-on check (about 3–13 credits).
+- The review, and whether to approve the release proposal.
+- If yes:
+  - the preparation of press A;
+  - the merge, then your runtime press;
+  - raising the balance for press A;
+  - B and C separately.
 
-**Links**: `docs/history/2026-10-09-parallel-round-9.md` (this round),
-`docs/history/2026-10-09-parallel-round-8.md`, `docs/request-flow.md`,
+**Links**: `docs/investigations/multi-agent-readiness.md` (the review and the
+proposal), `docs/history/2026-10-09-readiness-review.md`,
+`docs/history/2026-10-09-parallel-round-9.md`, `docs/request-flow.md`,
 `docs/backlog.md`.
 
 ## How you like things done
@@ -109,6 +154,37 @@ network blocked)
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — The multi-agent readiness review and the release proposal (on the branch, `8109aab4`; nothing merged, deployed, built or paid)
+
+You closed the attachment fix and asked for the overall readiness review and
+one release-and-validation proposal.
+
+- **The review** (`docs/investigations/multi-agent-readiness.md`) sets out:
+  - what Edit, Add-on and Build run concurrently, what waits and what stays
+    sequential or unsupported;
+  - each requirement's evidence: offline tests, live runs, and what is not
+    shown.
+- **No blocker was found.** The one requirement no test covered, two
+  messages touching one page, is now XR (`8109aab4`). It passes on the
+  existing code; its sweep killed 2 of 2, with the control surviving.
+- Results:
+  - focused run `232 / 232`;
+  - full suite `10272 / 10272` on the rerun (one intermittent browser
+    failure on the first run, now in the backlog);
+  - unit CI `10272 / 10231 / 0 / 41`.
+- **The proposal**:
+  - one merge;
+  - one image build, `6c9fc805fe4de0d8`;
+  - your free runtime press;
+  - press A, `lv-parallel`: about 11–17 credits, budget 20, nine pass
+    criteria, its canary preparation still to do;
+  - optional B (an add-on photograph) and C (a first Build).
+- **Still true**:
+  - no preparation code has run live;
+  - the Add-on preserves attachments but does not consume them.
 
 ---
 
