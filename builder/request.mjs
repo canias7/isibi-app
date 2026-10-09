@@ -192,6 +192,11 @@ export const HOPS_MAX = 3;
 //                  customer's own go-ahead (`approvePart`), its files kept and what needs
 //                  it held; approved, it runs the rewrite as a job of its own (`rewrite`)
 //   needs-rewrite  the same, in a request recorded before approvals were kept (ended)
+//   uncertain      a picture purchase for it was begun (by its preparation, or an earlier
+//                  try) and nobody can tell whether it went through (2026-10-09, round 3):
+//                  held, nothing published or charged, what needs it held, independent
+//                  parts going on. Moved on (`purchaseResolved`) when the purchase is found
+//                  to have landed or the customer says to buy it again; expires in a day
 //   expired        its question went unanswered for a day
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
 export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
@@ -988,6 +993,15 @@ function settle(rec, p, job, row, now) {
     if (left) p.left = left;
     p.outcome = { job: job.id, kind: "asked" }; return;
   }
+  if (read.act === "refusal" && read.error === "purchase-unconfirmed") {
+    // HELD ON A PURCHASE NOBODY CAN TELL (2026-10-09, round 3): its job
+    // published and charged nothing; the part waits, recoverable.
+    job.end.act = "uncertain";
+    p.status = "uncertain"; p.why = "purchase-unconfirmed";
+    p.purchase = { held: heldOf(ans.body), at: now };
+    p.outcome = { job: job.id, kind: "uncertain" };
+    return;
+  }
   if (read.act === "refusal") {
     // A FAILURE AFTER PART OF IT WENT LIVE (2026-10-07) is done in part — what
     // went in stands, and nothing that needs the part runs, as for any part
@@ -999,6 +1013,33 @@ function settle(rec, p, job, row, now) {
   }
   endUnfinished(p, "", "unreadable", { job: job.id, kind: "unreadable" });
 }
+
+/** The purchases a held job named, read strictly: `{ id, d, why }` each. */
+function heldOf(body) {
+  const list = plain(body) && Array.isArray(body.held) ? body.held : [];
+  return list.filter((h) => plain(h) && typeof h.id === "string" && /^[0-9a-f]{24}$/.test(h.id))
+    .map((h) => ({ id: h.id, d: typeof h.d === "string" ? h.d.slice(0, 300) : "", why: typeof h.why === "string" ? h.why.slice(0, 40) : "" }));
+}
+
+/**
+ * A HELD PART MOVED ON (2026-10-09, round 3): every purchase it was held on is
+ * now known — found to have landed, ended, or released by the customer — so
+ * it runs again, as a new job of the same step; the purchase is reused or made
+ * through its one record. Null when the part is not held.
+ */
+export function purchaseResolved(record, n, now = Date.now()) {
+  const rec = clone(record);
+  const p = rec.parts[n];
+  if (rec.stop || rec.ended || !p || p.status !== "uncertain") return null;
+  p.status = "ready"; p.why = null;
+  p.purchase = { ...(p.purchase || {}), resolvedAt: now };
+  rec.updatedAt = now;
+  rec.rev = (Number(rec.rev) || 0) + 1;
+  return settleState(rec, now);
+}
+
+/** The purchases a held part waits on: `{ id, d, why }` each, or [] for a part not held. */
+export const heldPurchases = (p) => (p && p.status === "uncertain" && p.purchase && Array.isArray(p.purchase.held) ? p.purchase.held : []);
 
 /**
  * WHAT ONE JOB'S OWN OUTCOME IS, FOR ITS CARD (2026-10-06, the owner: *"Derive
@@ -1085,6 +1126,9 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     // AND A GO-AHEAD NOBODY GAVE IN A DAY, the same way: its files are let go
     // when the request ends, and what needed it is not run.
     if (p.status === "approval" && Number.isFinite(p.approvalAt) && now - p.approvalAt >= WAIT_MS) { p.status = "expired"; p.why = "unapproved"; }
+    // AND A PURCHASE NOBODY COULD TELL IN A DAY: it stays recorded, unknown,
+    // never bought again on a guess; the part is told as not done.
+    if (p.status === "uncertain" && p.purchase && Number.isFinite(p.purchase.at) && now - p.purchase.at >= WAIT_MS) { p.status = "expired"; p.why = "purchase-unconfirmed"; }
   }
   // WHO MAY RUN: an independent part whatever happened elsewhere; a part whose
   // prerequisite did not finish is not run, and says which. The prerequisites
@@ -1270,7 +1314,7 @@ export function settleState(rec, now = Date.now()) {
     rec.ended = false;
     rec.state = ps.some((p) => p.status === "unverified") ? "review"
       : ps.some((p) => ["queued", "started", "ready"].includes(p.status)) ? "running"
-      : ps.some((p) => p.status === "waiting" || p.status === "approval") ? "waiting" : "blocked";
+      : ps.some((p) => p.status === "waiting" || p.status === "approval" || p.status === "uncertain") ? "waiting" : "blocked";
   }
   return rec;
 }
@@ -1617,6 +1661,9 @@ export function requestView(rec, { progress = null, said = null } = {}) {
       // card read it here — dropped from this view, a part stopped after its
       // table went in was told as stopped "before it changed anything".
       ...(leftValue(p.left) && p.status !== "done" ? { left: leftValue(p.left) } : {}),
+      // WHAT A HELD PART WAITS ON (2026-10-09, round 3): each picture whose
+      // purchase nobody can tell, by its description.
+      ...(p.status === "uncertain" ? { purchases: heldPurchases(p).map((h) => ({ d: h.d })) } : {}),
       ...(p.status === "waiting" && p.question ? { question: { id: p.question.id, text: p.question.text, options: p.question.options, ...(p.question.note ? { note: p.question.note } : {}), ...(p.question.queued ? { queued: true } : {}) } } : {}),
       ...(typeof p.answer === "string" ? { answer: p.answer } : {}),
       // THE JOBS WHOSE OWN REPLY EXPLAINS THIS PART: every run that ended with an

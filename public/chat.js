@@ -8335,6 +8335,8 @@ function renderSiteWorkspace(view, site) {
       if (reqStop && thread.contains(reqStop)) { siteRequestStop(site.id, reqStop.getAttribute('data-req-stop')); return; }
       const reqGo = e.target.closest('[data-req-approve]');
       if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
+      const reqBuy = e.target.closest('[data-req-buy]');
+      if (reqBuy && thread.contains(reqBuy)) { siteRequestBuyAgain(site.id, reqBuy.getAttribute('data-req-buy'), Number(reqBuy.getAttribute('data-req-part'))); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
       const ans = e.target.closest('[data-ans]');
@@ -10368,6 +10370,41 @@ function siteRequestApprove(origin, key, n) {
   }).catch(failed);
 }
 /**
+ * THE CUSTOMER'S SAY-SO TO BUY A PICTURE AGAIN (2026-10-09, round 3): for a
+ * part held because a purchase began and nobody can tell whether it went
+ * through. The server releases that purchase and runs the part again; a
+ * second press, here or elsewhere, answers the part as it is.
+ */
+function siteRequestBuyAgain(origin, key, n) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return;
+  const st = siteReqState(origin, key);
+  const p = st && st.view && Array.isArray(st.view.parts) ? st.view.parts.find((x) => x && x.n === n) : null;
+  if (!p || p.status !== 'uncertain' || (st.rebuying || []).includes(n)) return;
+  st.rebuying = (st.rebuying || []).concat([n]);
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+  const settle = () => { st.rebuying = (st.rebuying || []).filter((x) => x !== n); sitesSave(); };
+  const failed = () => {
+    settle();
+    siteReqSay(origin, '⚠️ I couldn’t confirm that just now. If the part still shows its button, press it again — pressing twice never buys twice.', { key });
+    siteRequestFollow(origin, key);
+  };
+  apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/buy-again', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ part: n }),
+  }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    const view = b ? siteRequestOf(b) : null;
+    if (view && (r.ok || r.status === 409)) {
+      settle();
+      const done = await siteRequestShow(origin, key, view, null, null);
+      if (!done) siteRequestFollow(origin, key);
+      return;
+    }
+    failed();
+  }).catch(failed);
+}
+/**
  * Once per site per page load: the server's requests for this site, followed
  * where this page has not finished with them. AGAIN (2026-10-07) when the tab
  * comes back into view (`siteLookAgain`): what another tab or device finished
@@ -10462,6 +10499,8 @@ const SITE_REQ_STATUS = {
   waiting: 'Waiting for your answer', unverified: 'Checking it published', done: 'Done', partial: 'Partly done', failed: 'Not done',
   'not-run': 'Not run', cancelled: 'Stopped', 'needs-rewrite': 'Needs a full rewrite', expired: 'Question expired', refused: 'Not run',
   approval: 'Needs your go-ahead',
+  // HELD ON A PICTURE PURCHASE NOBODY CAN TELL (2026-10-09, round 3).
+  uncertain: 'Checking a picture purchase',
 };
 // A PART BEING WORKED ON BESIDE ANOTHER (2026-10-08, the parallel-tasks batch):
 // its model work is running, or done and waiting its turn to be applied. Its
@@ -10488,6 +10527,7 @@ function siteRequestHTML(m, site) {
     let label = SITE_REQ_STATUS[status] || status;
     if (status === 'waiting' && p.question && p.question.queued === true) label = 'Has a question to ask next';
     if (status === 'expired' && p.why === 'unapproved') label = 'Go-ahead not given';
+    if (status === 'expired' && p.why === 'purchase-unconfirmed') label = 'Picture purchase not confirmed';
     if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
     const left = (status === 'cancelled' || status === 'failed') && typeof p.left === 'string' && Object.hasOwn(SITE_REQ_LEFT, p.left) ? SITE_REQ_LEFT[p.left] : null;
     if (left) label = left[status];
@@ -10502,8 +10542,15 @@ function siteRequestHTML(m, site) {
     // label stays the fixed status; the lines are the model's words.
     // AND IT IS NAMED BY THE MODEL'S OWN LINE FOR ITS STATE, once written; by
     // its words, as they are, until then.
+    // ITS SAY-SO TO BUY AGAIN (2026-10-09, round 3), while it is held on a
+    // purchase nobody can tell: never pressed for the customer, and it says
+    // that it may cost a second time.
+    const buying = (st.rebuying || []).includes(p.n);
+    const again = status === 'uncertain'
+      ? (buying ? '<span class="st-req-status">Starting…</span>'
+        : '<button type="button" class="st-opt st-req-go" data-req-buy="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Buy the picture again (may cost again)</span></button>') : '';
     return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
-      '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + progressListHTML(p.progress, status === 'started') + '</li>';
+      '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + again + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   const stop = !v.ended && !v.stop
     ? '<div class="st-opts"><button type="button" class="st-opt st-opt-skip" data-req-stop="' + esc(m.request) + '"><span>Stop the rest</span></button></div>' : '';
@@ -10526,7 +10573,7 @@ function siteRequestHTML(m, site) {
 // its partial line.
 const SITE_SAID_FOR = {
   blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',
-  started: 'doing', unverified: 'unconfirmed', done: 'done', partial: 'partial',
+  started: 'doing', unverified: 'unconfirmed', uncertain: 'unconfirmed', done: 'done', partial: 'partial',
   failed: 'notdone', 'not-run': 'notdone', cancelled: 'notdone', expired: 'notdone', refused: 'notdone', 'needs-rewrite': 'notdone',
 };
 /** A found job's outcome, as the server read it, and which of its task's lines that outcome shows; an ended job whose outcome is not known shows its words. */

@@ -1006,7 +1006,7 @@ const WORK_SAID = Object.freeze({ edit: "a change to what the site already has",
  */
 export const PART_STATE = Object.freeze({
   blocked: "planned", ready: "planned", queued: "planned", waiting: "waiting", approval: "waiting",
-  started: "doing", unverified: "unconfirmed", done: "done", partial: "partial",
+  started: "doing", unverified: "unconfirmed", uncertain: "unconfirmed", done: "done", partial: "partial",
   failed: "notdone", "not-run": "notdone", cancelled: "notdone", expired: "notdone", refused: "notdone", "needs-rewrite": "notdone",
 });
 /** Each state as the writer reads it beside another part. */

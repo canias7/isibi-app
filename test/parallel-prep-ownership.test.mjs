@@ -155,7 +155,7 @@ test("OWN 3 — the owner dies right after the photograph was bought and noted, 
   });
 });
 
-test("OWN 4 — the owner dies INSIDE the purchase, its outcome unknown: the next attempt does not buy it again — it ends `uncertain` with no call at all; the part's own job then decides, against the site as it is", async () => {
+test("OWN 4 — the owner dies INSIDE the purchase, its outcome unknown: the next attempt does not buy it again — it ends `uncertain` with no new call; the part's own job does not buy it either (2026-10-09, round 3): the part is held, recoverable, and the independent part finishes", async () => {
   await withPlatform({ slug: slugOf("o4"), ...BASE({ more: { imageWith: (e, i) => (i === 0 ? new Promise(() => {}) : undefined) } }) }, async (P) => {
     const r = await sendMessage(P, { message: TIKTOK + ", and " + PHOTO + "." });
     deliver(P, takePrep(P)); // dies inside the purchase
@@ -167,9 +167,15 @@ test("OWN 4 — the owner dies INSIDE the purchase, its outcome unknown: the nex
     assert.equal(prep.outcome, "uncertain", JSON.stringify(prep));
     assert.equal(P.imageLog.length, 1, "a purchase whose outcome is unknown was made again by a preparation");
     assert.deepEqual({ route: calls(P, T.route).length, pic: calls(P, "choose_pictures").length }, before, "the uncertain attempt made calls");
-    await finish(P, r);
-    // THE PART'S OWN JOB, finding no picture landed, made its own purchase — once.
-    assert.equal(P.imageLog.length, 2);
+    // THE PART'S OWN JOB, finding the purchase begun and nothing landed, HOLDS
+    // the part (round 3; it bought a second picture before): no purchase, no
+    // publish, no charge — moved on only when the purchase is found or the
+    // customer says to buy it again (`test/parallel-purchase.test.mjs`).
+    const { settle: drive } = await import("./fixtures/request-flow.mjs");
+    const { rec } = await drive(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "uncertain"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.imageLog.length, 1, "the part's job bought a picture whose first purchase's outcome was unknown");
+    assert.ok(P.page("visit.tsx").includes(TIKTOK_TO));
   });
 });
 

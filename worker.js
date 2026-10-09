@@ -45,7 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
-import { recorder, replayer, readPrepared, readBuys, unfinishedBuy, prepKey, jobPrepKey } from "./builder/prepared.mjs";
+import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -260,7 +260,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, notePrepared, takePrep, ownsPrep, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -2671,7 +2671,7 @@ async function genSitePhoto(env, prompt) {
  * Returns the URL, or null. Never throws: a photograph that could not be made is
  * a slot left alone, not a failed edit.
  */
-async function makeSitePhoto(env, slug, prompt) {
+async function makeSitePhoto(env, slug, prompt, meta = null) {
   try {
     const p = imagePrompt(prompt);
     // AN EMPTY PROMPT IS SILENT, and that asymmetry is deliberate: a token with no
@@ -2689,7 +2689,11 @@ async function makeSitePhoto(env, slug, prompt) {
     const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
     const name = uploadName(hex, kind.ext);
     if (!name) return { url: null, error: "bad name" };
-    await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime } });
+    // TAGGED WITH THE LOGICAL PURCHASE IT ANSWERS (2026-10-09, round 3), when
+    // it answers one: a reader that finds the purchase still `buying` looks
+    // for this tag before calling its outcome unknown.
+    const purchase = meta && typeof meta.purchase === "string" && /^[0-9a-f]{24}$/.test(meta.purchase) ? meta.purchase : "";
+    await env.SITES_BUCKET.put(uploadKey(slug, name), bytes, { httpMetadata: { contentType: kind.mime }, ...(purchase ? { customMetadata: { purchase } } : {}) });
     return { url: uploadUrl(slug, name) };
   } catch (e) {
     console.error("photo failed:", slug, e && e.message);
@@ -2708,7 +2712,7 @@ async function makeSitePhoto(env, slug, prompt) {
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock }) {
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -2862,6 +2866,7 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   // the second is not a failure, it is not known. `done` reports both.
   const refusedTokens = new Set();
   const settledTokens = new Set();
+  const unconfirmedTokens = new Set();
   let failed = "";
   const shots = Promise.all(plan.shots.map(async ({ token, prompt }) => {
     // THROUGH THE SHARED READER, which is what makes `makeSitePhoto`'s own
@@ -2871,9 +2876,14 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     // thing between an image model's answer and an SVG served inline from our own
     // origin, so a second copy that forgets it is a stored XSS.
     try {
-      const { url, error } = await makeSitePhoto(env, slug, prompt);
+      // THROUGH A LOGICAL PURCHASE WHEN THE CALLER HAS ONE (`buy`, 2026-10-09,
+      // round 3): a picture already bought for the same purchase is reused,
+      // and one begun and not known to have ended is not bought again
+      // (`unknown`) — told as unconfirmed, never as refused.
+      const { url, error, unknown } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
       settledTokens.add(token);
-      if (url) urls.set(token, url);
+      if (unknown) unconfirmedTokens.add(token);
+      else if (url) urls.set(token, url);
       // Kept, not thrown. The build carries on with a placeholder for this one,
       // and the reason reaches the response — a site quietly missing its
       // pictures looks exactly like a site that was never meant to have any.
@@ -2956,10 +2966,12 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   // answered yet — the second is reported as unresolved, never as refused.
   const refused = plan.shots.filter((x) => refusedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
   const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
+  const unconfirmed = plan.shots.filter((x) => unconfirmedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
   return done(urls, {
     made: urls.size,
     refused,
     unresolved,
+    ...(unconfirmed.length ? { unconfirmed } : {}),
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
   });
 }
@@ -5721,8 +5733,17 @@ const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec
  * request it sent, exactly as `jobSend` does for a plain send.
  */
 const jobCall = (job, call) => (keys, req, budget) => jobSend(job, (r) => call(keys, r, budget))(req);
-/** The same for a picture bought for a description. */
-const jobImage = (job, generate) => (job && job.prepare === true && job.rec ? job.rec.image(generate) : job && job.replay ? job.replay.image(generate) : generate);
+/**
+ * The same for a picture bought for a description. A REQUEST PART'S JOB buys
+ * through its purchase guard (2026-10-09, round 3): a picture its preparation
+ * bought is answered from the staged record, and any other is bought once as
+ * that part's logical purchase, whoever began it.
+ */
+const jobImage = (job, generate) => {
+  if (job && job.prepare === true && job.rec) return job.rec.image(generate);
+  const once = job && job.purchase ? job.purchase.image(generate) : generate;
+  return job && job.replay ? job.replay.image(once) : once;
+};
 
 function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progress = null }) {
   let cancelled = false;
@@ -9434,6 +9455,9 @@ async function siteUploadList(env, slug) {
         // The download name a document was stored under, still encoded — this is
         // transport, and `readDownloadName` is the one thing that decodes it.
         download: (o.customMetadata && o.customMetadata[DOWNLOAD_NAME_KEY]) || "",
+        // THE LOGICAL PURCHASE A PHOTOGRAPH WAS BOUGHT FOR (2026-10-09, round 3):
+        // how a purchase whose buyer never wrote again is found to have landed.
+        purchase: (o.customMetadata && typeof o.customMetadata.purchase === "string" && o.customMetadata.purchase) || "",
       });
     }
     // Same termination rule as deleteSitePrefix: a truncated page with no
@@ -16816,6 +16840,225 @@ async function replayPrepared(env, ctx, rec, url, body, prec) {
   return { status: res.status, body: out, prep };
 }
 
+// ── ONE LOGICAL PURCHASE, WHOEVER MAKES IT (2026-10-09, round 3) ────────────
+//
+// `builder/prepared.mjs` has the states. Every buyer of a request part's
+// picture — a preparation attempt, its retake, the part's own job wherever it
+// runs, a retry of that job — comes through `purchaseOnce`, so a picture is
+// bought at most once whoever asks, and an outcome nobody can tell is held,
+// never taken as permission to buy again.
+
+/** How many times a purchase record is read before a failing read counts as unknown. */
+const PURCHASE_READS = 3;
+
+/** One object read as JSON, tried again on a failing read: `{ ok, obj, v, etag }`; `ok` false when it could not be read. */
+async function readJsonTried(env, k, tries = PURCHASE_READS) {
+  for (let i = 0; i < tries; i++) {
+    let o;
+    try { o = await env.SITES_BUCKET.get(k); } catch { continue; }
+    if (!o) return { ok: true, obj: null, v: null, etag: null };
+    let text;
+    try { text = await o.text(); } catch { continue; }
+    let v;
+    try { v = JSON.parse(text); } catch { return { ok: true, obj: o, v: undefined, etag: o.etag || null, malformed: true }; }
+    return { ok: true, obj: o, v, etag: o.etag || null };
+  }
+  return { ok: false };
+}
+
+/**
+ * A PURCHASE THAT LANDED WHILE ITS RECORD STILL SAYS `buying`: the stored
+ * photograph tagged with its id (`makeSitePhoto`). The address, or "" when
+ * none is there, or null when the library could not be read.
+ */
+async function purchasedPhoto(env, slug, id) {
+  try {
+    const found = (await siteUploadList(env, slug)).find((o) => o.purchase === id);
+    return found ? uploadUrl(slug, uploadFileName(found.key)) : "";
+  } catch { return null; }
+}
+
+/**
+ * BUY ONE PICTURE ONCE. `generate(describe, { purchase })` makes the purchase
+ * and answers its address or nothing. Answers `{ state: "bought", url,
+ * reused }`, `{ state: "none" }`, or `{ state: "unknown", id, why }` — begun
+ * by someone and not known to have ended (`unconfirmed`), or a record that
+ * could not be read (`unreadable`) or does not read as one (`malformed`).
+ * `mayBuy()` is asked again right before the purchase (a preparation's
+ * ownership); false answers `{ state: "none", skipped: true }`, nothing begun.
+ */
+async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy = async () => true, now = () => Date.now() }) {
+  const id = await purchaseId(slug, key, n, d, k);
+  const pk = purchaseKey(slug, key, n, id);
+  const meta = { v: 1, id, d, slug, key, n };
+  const write = (state, extra, onlyIf) => env.SITES_BUCKET.put(pk, JSON.stringify({ ...meta, state, by: owner, at: now(), ...extra }),
+    { httpMetadata: { contentType: "application/json" }, onlyIf });
+  for (let round = 0; round < 6; round++) {
+    const got = await readJsonTried(env, pk);
+    // COULD NOT LOOK: unknown — it may have been begun, even bought.
+    if (!got.ok) return { state: "unknown", id, why: "unreadable" };
+    let claim = null;
+    if (!got.obj) claim = { etagDoesNotMatch: "*" };
+    else {
+      const rec = got.malformed ? null : readPurchase(got.v);
+      if (!rec || rec.id !== id) return { state: "unknown", id, why: "malformed" };
+      if (rec.state === "bought") return { state: "bought", url: rec.url, reused: true, id };
+      if (rec.state === "buying") {
+        // BEGUN AND NEVER WRITTEN AGAIN: landed, if its photograph is stored.
+        const url = await purchasedPhoto(env, slug, id);
+        if (url) {
+          try { await write("bought", { url, found: true }, { etagMatches: got.etag }); } catch { /* the photograph is there; the next reader finds it the same way */ }
+          return { state: "bought", url, reused: true, id };
+        }
+        return { state: "unknown", id, why: "unconfirmed" };
+      }
+      // ENDED WITH NOTHING, OR RELEASED BY THE CUSTOMER: it may be begun again.
+      claim = { etagMatches: got.etag };
+    }
+    if (!(await mayBuy())) return { state: "none", skipped: true, id };
+    let put = null;
+    try { put = await write("buying", {}, claim); }
+    catch {
+      // A WRITE WHOSE ANSWER WAS LOST may have landed: never buy on it.
+      return { state: "unknown", id, why: "unconfirmed" };
+    }
+    if (!put) continue; // another buyer wrote first: read what it wrote
+    let url = null;
+    try { url = await generate(d, { purchase: id }); } catch { url = null; }
+    const etag = put.etag || null;
+    if (typeof url === "string" && url) {
+      try { await write("bought", { url }, etag ? { etagMatches: etag } : undefined); } catch { /* tagged: found by the next reader */ }
+      return { state: "bought", url, reused: false, id };
+    }
+    try { await write("none", {}, etag ? { etagMatches: etag } : undefined); } catch { /* left buying: the next reader finds nothing stored and holds it */ }
+    return { state: "none", id };
+  }
+  return { state: "unknown", id, why: "unconfirmed" };
+}
+
+/**
+ * A PART HELD ON A PURCHASE NOBODY CAN TELL: its job's answer — nothing
+ * published, nothing charged — naming each purchase (`held`), which the
+ * request records on the part (`uncertain`).
+ */
+function heldPurchase(unknown) {
+  const held = unknown.map((u) => ({ id: u.id, d: String(u.d || "").slice(0, 300), why: u.why }));
+  return Response.json({
+    ok: false, error: "purchase-unconfirmed", cost: 0, held,
+    msg: "I started buying " + (held.length === 1 ? "a picture" : held.length + " pictures") + " for this and can't tell yet whether the purchase went through, so I haven't bought it again or changed the page.",
+  }, { status: 409 });
+}
+
+/**
+ * ARE THESE PURCHASES KNOWN NOW? Each one's record read again: bought, ended
+ * or released is known; still `buying` is known only once its tagged
+ * photograph is found (and then recorded as bought); a record that cannot be
+ * read is not known.
+ */
+async function purchasesKnown(env, slug, key, n, held) {
+  if (!held.length) return false;
+  for (const h of held) {
+    const pk = purchaseKey(slug, key, n, h.id);
+    const got = await readJsonTried(env, pk);
+    if (!got.ok || !got.obj || got.malformed) return false;
+    const rec = readPurchase(got.v);
+    if (!rec || rec.id !== h.id) return false;
+    if (rec.state !== "buying") continue;
+    const url = await purchasedPhoto(env, slug, h.id);
+    if (!url) return false;
+    try { await env.SITES_BUCKET.put(pk, JSON.stringify({ ...got.v, state: "bought", url, found: true, at: Date.now() }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } }); }
+    catch { /* found by the next reader the same way */ }
+  }
+  return true;
+}
+
+/**
+ * RELEASE A HELD PART'S PURCHASES, on the customer's say-so: each one still
+ * `buying` becomes `released` (on its etag), then the request is moved on.
+ * `{ status, rec }`: 404 not theirs, 409 not held, 503 a purchase that could
+ * not be released (nothing moved), 200 released.
+ */
+async function releaseHeldPurchases(env, ctx, { slug, key, uid, n }) {
+  const at = await loadRequest(env, slug, key);
+  if (!at.rec || at.rec.uid !== uid) return { status: 404 };
+  const p = at.rec.parts[n];
+  if (!p || p.status !== "uncertain") return { status: 409, rec: at.rec };
+  for (const h of heldPurchases(p)) {
+    const pk = purchaseKey(slug, key, n, h.id);
+    const got = await readJsonTried(env, pk);
+    if (!got.ok) return { status: 503, rec: at.rec };
+    const cur = got.obj && !got.malformed ? readPurchase(got.v) : null;
+    if (cur && cur.state !== "buying") continue;
+    let put = null;
+    try {
+      put = await env.SITES_BUCKET.put(pk, JSON.stringify({ v: 1, id: h.id, d: h.d, slug, key, n, state: "released", by: "customer:" + uid, at: Date.now() }),
+        { httpMetadata: { contentType: "application/json" }, onlyIf: got.obj ? { etagMatches: got.etag } : { etagDoesNotMatch: "*" } });
+    } catch { put = null; }
+    if (!put) return { status: 503, rec: at.rec };
+  }
+  const moved = await advanceRequest(env, ctx, slug, key, "buy-again");
+  return { status: 200, rec: moved || at.rec };
+}
+
+/** The ids of every purchase begun for one request part, read off its records' keys; an unreadable listing hides nothing. */
+async function partPurchases(env, { slug, key, n }) {
+  const out = new Set();
+  try {
+    const prefix = purchaseKey(slug, key, n, "").slice(0, -".json".length);
+    let cursor;
+    for (let i = 0; i < 10; i++) {
+      const page = await env.SITES_BUCKET.list({ prefix, cursor });
+      for (const o of (page && page.objects) || []) { const m = /-([0-9a-f]{24})\.json$/.exec(o.key); if (m) out.add(m[1]); }
+      if (!page || !page.truncated || !page.cursor) break;
+      cursor = page.cursor;
+    }
+  } catch { /* an unreadable listing hides nothing: the request may then differ, and is asked again */ }
+  return out;
+}
+
+/**
+ * A PHOTOGRAPH BUYER FOR `buySitePhotos` THROUGH ONE OWNER'S LOGICAL
+ * PURCHASES: `(prompt)` answers `{ url }`, `{ url: null, error }`, or
+ * `{ url: null, unknown: true }` for a purchase begun and not known to have
+ * ended. `key` and `n` name whose purchases they are — a request part's, or a
+ * build's (`n` 0).
+ */
+function purchaseBuyer(env, { slug, key, n, owner }) {
+  const seen = new Map();
+  return async (prompt) => {
+    const d = String(prompt || "");
+    const k = seen.get(d) || 0;
+    seen.set(d, k + 1);
+    let made = { url: null };
+    const out = await purchaseOnce(env, { slug, key, n, d, k, owner, generate: async (dd, meta) => { made = await makeSitePhoto(env, slug, dd, meta); return made.url; } });
+    if (out.state === "unknown") return { url: null, unknown: true };
+    if (out.state === "bought") return { url: out.url };
+    return { url: null, ...(made.error ? { error: made.error } : {}) };
+  };
+}
+
+/**
+ * A JOB'S PURCHASES FOR ITS REQUEST PART: `image(generate)` buys each
+ * description through `purchaseOnce`, counting repeats of one description in
+ * the order asked (as its preparation did), and keeps every outcome it could
+ * not tell (`unknown`) for its route to hold the part on.
+ */
+function purchaseGuard(env, { slug, key, n, owner }) {
+  const seen = new Map();
+  const unknown = [];
+  return {
+    unknown, part: { slug, key, n },
+    image: (generate) => async (describe, ...rest) => {
+      const d = String(describe || "");
+      const k = seen.get(d) || 0;
+      seen.set(d, k + 1);
+      const out = await purchaseOnce(env, { slug, key, n, d, k, owner, generate: (dd, meta) => generate(dd, ...(rest.length ? rest : [meta])) });
+      if (out.state === "unknown") { unknown.push({ id: out.id, d, why: out.why }); return null; }
+      return out.state === "bought" ? out.url : null;
+    },
+  };
+}
+
 /**
  * PREPARE ONE PART: its routing when it has none yet, then — when the routing
  * (or the route it already had) chose a step whose work before its publish
@@ -16838,12 +17081,15 @@ function prepAttempt(env, { slug, key, n, seq, owner, prev }) {
   const save = () => env.SITES_BUCKET.put(pk, JSON.stringify(live), { httpMetadata: { contentType: "application/json" } });
   const carried = { route: replayer(prev && prev.route), run: replayer(prev && prev.run) };
   const bought = readBuys(prev).filter((b) => b.state === "bought");
-  const reused = new Set();
+  // WHAT THIS ATTEMPT COULD NOT TELL (2026-10-09, round 3): a purchase someone
+  // began whose outcome is unknown. The attempt ends `uncertain`.
+  const unknown = [];
+  const seen = new Map();
   const phase = (name) => {
     const r = recorder();
     if (name === "run") r.images.push(...live.run.images);
     return {
-      calls: r.calls, images: r.images,
+      calls: r.calls, images: r.images, part: { slug, key, n },
       // A PICTURE AN EARLIER ATTEMPT BOUGHT sits in the owner's uploads; hidden
       // from this attempt's library listing, as the part's job hides a
       // preparation's, so the listing is the one that attempt was asked with.
@@ -16857,26 +17103,37 @@ function prepAttempt(env, { slug, key, n, seq, owner, prev }) {
           return out;
         };
       },
+      // EVERY PURCHASE IS THE PART'S ONE LOGICAL PURCHASE (2026-10-09, round
+      // 3): bought once whoever asks — this attempt, the one before, the part's
+      // job — and only while this consumer still owns the attempt inside its
+      // own time. One begun by anyone and not known to have ended is held.
       image: (generate) => r.image(async (describe, ...rest) => {
         const d = String(describe || "");
-        // A PICTURE THE ATTEMPT BEFORE BOUGHT, for this description: reused.
-        const was = bought.findIndex((b, i) => !reused.has(i) && b.d === d);
-        if (was >= 0) { reused.add(was); live.buys.push({ ...bought[was] }); live.run.images = r.images.slice(); return bought[was].url; }
-        // STILL OURS, INSIDE OUR TIME, before anything is bought.
-        const at = await loadRequest(env, slug, key);
-        if (!ownsPrep(at.rec, n, seq, owner, Date.now(), PREP_RUN_MS)) return null;
+        const k = seen.get(d) || 0;
+        seen.set(d, k + 1);
         const note = { d, state: "buying" };
-        live.buys.push(note);
-        try { await save(); } catch { live.buys.pop(); return null; } // unnoted, never bought
-        const url = await generate(describe, ...rest);
-        if (typeof url === "string" && url) { note.state = "bought"; note.url = url; } else note.state = "none";
-        live.run.images = r.images.concat(typeof url === "string" && url ? [{ d, url }] : []);
+        const out = await purchaseOnce(env, {
+          slug, key, n, d, k, owner,
+          mayBuy: async () => {
+            const at = await loadRequest(env, slug, key);
+            if (!ownsPrep(at.rec, n, seq, owner, Date.now(), PREP_RUN_MS)) return false;
+            live.buys.push(note);
+            try { await save(); return true; } catch { live.buys.pop(); return false; } // unnoted, never bought
+          },
+          generate: (dd, meta) => generate(dd, ...(rest.length ? rest : [meta])),
+        });
+        if (out.state === "unknown") { unknown.push({ id: out.id, d, why: out.why }); if (live.buys.includes(note)) note.state = "buying"; return null; }
+        if (out.state === "bought") {
+          note.state = "bought"; note.url = out.url;
+          if (!live.buys.includes(note)) live.buys.push(note);
+          live.run.images = r.images.concat([{ d, url: out.url }]);
+        } else if (live.buys.includes(note)) note.state = "none";
         try { await save(); } catch { /* the last write keeps it */ }
-        return url;
+        return out.state === "bought" ? out.url : null;
       }),
     };
   };
-  return { live, pk, save, phase };
+  return { live, pk, save, phase, unknown };
 }
 
 /**
@@ -16907,20 +17164,26 @@ async function runRequestPrep(env, ctx, task) {
       if (await saveRequestRecord(env, t.record, at.etag)) { rec = t.record; prevSeq = t.prev; taken = true; }
     }
     if (!taken) return;
-    // THE ATTEMPT BEFORE, WHEN ONE WAS TAKEN AND NEVER ANSWERED.
+    // THE ATTEMPT BEFORE, WHEN ONE WAS TAKEN AND NEVER ANSWERED. Read again
+    // when a read fails; one that STILL cannot be read, or reads as nothing
+    // (2026-10-09, round 3, Codex's first reproduction), is unknown — never
+    // "nothing happened": what it did is not repeated on a guess. Its
+    // purchases are the part's logical purchases, read on their own records.
     let prev = null;
+    let prevUnreadable = false;
     if (Number.isInteger(prevSeq)) {
-      try { const po = await env.SITES_BUCKET.get(prepKey(slug, key, n, prevSeq)); prev = po ? JSON.parse(await po.text()) : {}; }
-      catch { prev = {}; }
+      const got = await readJsonTried(env, prepKey(slug, key, n, prevSeq));
+      if (!got.ok || got.malformed || (got.obj && (!got.v || typeof got.v !== "object" || Array.isArray(got.v)))) prevUnreadable = true;
+      else prev = got.v || {};
     }
     const A = prepAttempt(env, { slug, key, n, seq, owner, prev });
     const p = rec.parts[n];
     let outcome = "error";
     let work = rec;
-    if (prev && unfinishedBuy(prev)) {
-      // A PURCHASE BEGAN AND ITS OUTCOME IS UNKNOWN. A preparation never buys
-      // it again: this attempt ends here, and the part's own job decides —
-      // a picture that did land is in the owner's library, where it sees it.
+    if (prevUnreadable) {
+      // WHAT THE ATTEMPT BEFORE DID CANNOT BE READ: this attempt makes no call
+      // and buys nothing. It ends `uncertain`, naming that attempt, and the
+      // part's own job reads it again when it is staged.
       outcome = "uncertain";
     } else {
       if (p.phase === "route") {
@@ -16944,7 +17207,9 @@ async function runRequestPrep(env, ctx, task) {
         // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
         A.live.run.images = runPhase.images.slice();
         const b = r.body || {};
-        outcome = r.prep.reached > 0 ? "ready"
+        // A PURCHASE BEGUN BY SOMEONE AND NOT KNOWN TO HAVE ENDED: uncertain,
+        // whatever the step made of the picture it did not get.
+        outcome = A.unknown.length ? "uncertain" : r.prep.reached > 0 ? "ready"
           : (b.error === "clarify" || (b.ask && typeof b.ask === "object")) ? "ask"
           : r.status >= 500 ? "error" : "stopped";
       }
@@ -16998,11 +17263,19 @@ async function stagePrepared(env, id) {
     // now is handed to the part's own job — a picture that landed after its
     // owner lost the attempt is reused, never bought a second time. No calls:
     // only the pictures.
-    if (p.prep.state === "failed" && p.prep.outcome === "uncertain" && Number.isInteger(p.prep.prev) && !isRoute) {
-      const po = await env.SITES_BUCKET.get(prepKey(job.slug, want.key, want.part, p.prep.prev));
-      if (!po) return;
-      const images = readBuys(JSON.parse(await po.text())).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
-      if (images.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ calls: [], images }), { httpMetadata: { contentType: "application/json" } });
+    //
+    // AND ITS RECORDED CALLS TOO (2026-10-09, round 3): what that attempt
+    // asked and was answered is reused for an identical request, read again
+    // when a read fails. A record that still cannot be read stages nothing —
+    // the job makes its calls, and its purchases are the part's logical
+    // purchases, never bought twice whatever is staged.
+    if (p.prep.state === "failed" && p.prep.outcome === "uncertain" && Number.isInteger(p.prep.prev)) {
+      const got = await readJsonTried(env, prepKey(job.slug, want.key, want.part, p.prep.prev));
+      if (!got.ok || !got.obj || got.malformed || !got.v || typeof got.v !== "object") return;
+      const share = readPrepared(isRoute ? got.v.route : got.v.run);
+      const images = isRoute ? [] : readBuys(got.v).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
+      const staged = { calls: share.calls, images: [...share.images, ...images.filter((i) => !share.images.some((x) => x.url === i.url))] };
+      if (staged.calls.length || staged.images.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
       return;
     }
     if (p.prep.state !== "done" || typeof p.prep.key !== "string") return;
@@ -17039,7 +17312,15 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const { rec, etag } = await loadRequest(env, slug, key);
       if (!rec || !etag) return null;
       if (rec.ended) { await settleRequestMarker(env, rec); await requestReply(env, rec); return rec; }
-      const base = rec;
+      let base = rec;
+      // A PART HELD ON A PURCHASE NOBODY COULD TELL (2026-10-09, round 3),
+      // looked at again: moved on once every purchase it waits on is known —
+      // found landed (its photograph is stored), ended, or released by the
+      // customer. One still unknown keeps it held.
+      for (const p of base.parts) {
+        if (p.status !== "uncertain") continue;
+        if (await purchasesKnown(env, slug, key, p.n, heldPurchases(p))) { const moved = purchaseResolved(base, p.n); if (moved) base = moved; }
+      }
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
       for (const id of liveJobIds(base)) {
@@ -17796,7 +18077,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // filed itself names its one task here. Told apart as `requestJobEnded`
     // tells them: by the request its stored body carries.
     let partOfRequest = false;
-    try { partOfRequest = !!readRequestOf(JSON.parse(String(job.body || "")).request); } catch { partOfRequest = false; }
+    let requestOf = null;
+    try { requestOf = readRequestOf(JSON.parse(String(job.body || "")).request); partOfRequest = !!requestOf; } catch { partOfRequest = false; }
     progress = makeProgress(env, ctx, { id, run: owner, uid: job.uid, slug: job.slug, standalone: !partOfRequest });
     const wantMs = inlineBudgetMs(0, capMs);
     const budgetMs = inlineBudgetMs(startedAt, capMs);
@@ -17810,6 +18092,10 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       const po = await env.SITES_BUCKET.get(jobPrepKey(id));
       if (po) { const staged = readPrepared(await po.text()); if (staged.calls.length || staged.images.length) jctx.replay = replayer(staged); }
     } catch (e) { console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e)); }
+    // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
+    // that part's one logical purchase, shared with its preparation's attempts
+    // and with any retry of this job.
+    if (requestOf) jctx.purchase = purchaseGuard(env, { slug: job.slug, key: requestOf.key, n: requestOf.part, owner: "job:" + id });
 
     const req = replayEditRequest({ url: job.url, body: job.body, marker: packReplayMarker(id, job.secret) });
     // THE JOB CONTEXT REACHES THE HANDLER THROUGH THE REQUEST, not a global.
@@ -25349,11 +25635,12 @@ async function handleRequest(request, env, ctx) {
       if (!qu) return Response.json({ error: "sign in first" }, { status: 401 });
       const rqm = url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})$/);
       const rqa = rqm ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/approve$/);
-      const rlm = rqm || rqa ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
-      if (!rqm && !rqa && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      const rqb = rqm || rqa ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/buy-again$/);
+      const rlm = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rqa && !rqb && !rlm) return Response.json({ error: "not found" }, { status: 404 });
       {
         if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
-        const qSlug = (rqm || rqa || rlm)[1];
+        const qSlug = (rqm || rqa || rqb || rlm)[1];
         const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
         if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
         // `POST /api/site/request/<slug>/<key>/approve` `{ part }` — THE GO-AHEAD
@@ -25376,6 +25663,23 @@ async function handleRequest(request, env, ctx) {
           if (aOut.status === 409) return Response.json({ ok: false, error: "not-waiting", request: aView }, { status: 409 });
           if (aOut.status === 503) return Response.json({ ok: false, error: "could not start the rewrite", request: aView }, { status: 503 });
           return Response.json({ ok: true, request: aView });
+        }
+        // `POST /api/site/request/<slug>/<key>/buy-again` `{ part }` — THE
+        // CUSTOMER'S SAY-SO (2026-10-09, round 3) for a part held on a picture
+        // purchase nobody can tell: each such purchase is released, knowing it
+        // may cost a second time, and the part runs again. Pressed twice, or for
+        // a part no longer held, it answers 409 with the request as it is.
+        if (rqb) {
+          if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+          const bb = await readJsonBody(request, { max: 4096 });
+          const bPart = bb.ok && bb.body && Number.isInteger(bb.body.part) ? bb.body.part : -1;
+          if (bPart < 0) return Response.json({ ok: false, error: "which part?" }, { status: 400 });
+          const bOut = await releaseHeldPurchases(env, ctx, { slug: qSlug, key: rqb[2], uid: qu.id, n: bPart });
+          if (bOut.status === 404) return Response.json({ error: "not found" }, { status: 404 });
+          const bView = bOut.rec ? requestView(bOut.rec) : undefined;
+          if (bOut.status === 409) return Response.json({ ok: false, error: "not-held", request: bView }, { status: 409 });
+          if (bOut.status === 503) return Response.json({ ok: false, error: "could not release the purchase", request: bView }, { status: 503 });
+          return Response.json({ ok: true, request: bView });
         }
         if (rlm) {
           if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
@@ -28679,18 +28983,27 @@ async function handleRequest(request, env, ctx) {
               const pOut = await runPictureEdit({
                 send: eQuick(),
                 // The owner's upload library, named the way they see it.
-                library: async () => (await siteUploadList(env, ownerSlug))
-                  .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
-                  // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
-                  // owner's library (2026-10-08): it is placed by this job.
-                  .filter((f) => f.name && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url))))),
+                library: async () => {
+                  // A PICTURE BOUGHT FOR THIS VERY PART (2026-10-09, round 3), by
+                  // any of its attempts or jobs, is not yet the owner's library:
+                  // this part places it. Hidden from its own listing, so the
+                  // listing is the one its first attempt was asked with.
+                  const ownPart = eJob && eJob.purchase && eJob.purchase.part ? eJob.purchase.part : eJob && eJob.prepare === true && eJob.rec && eJob.rec.part ? eJob.rec.part : null;
+                  const mine = ownPart ? await partPurchases(env, ownPart) : new Set();
+                  return (await siteUploadList(env, ownerSlug))
+                    .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)), purchase: o.purchase }))
+                    // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
+                    // owner's library (2026-10-08): it is placed by this job.
+                    .filter((f) => f.name && !(f.purchase && mine.has(f.purchase)) && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url)))))
+                    .map(({ name, url }) => ({ name, url }));
+                },
                 // ONE PHOTOGRAPH AT A TIME, priced against the real balance
                 // before each. Checked per picture rather than once up front
                 // because each one is ~19 credits: a batch that can afford two
                 // of three must buy the two, and the third is reported.
-                generate: jobImage(eJob, async (describe) => {
+                generate: jobImage(eJob, async (describe, meta) => {
                   if (!imagesAffordable(1, { balance, usd: SITE_PHOTO_USD })) return null;
-                  const { url: made } = await makeSitePhoto(env, ownerSlug, describe);
+                  const { url: made } = await makeSitePhoto(env, ownerSlug, describe, meta);
                   // Only a photograph that really landed costs anything, so the
                   // working balance moves on success and not on the attempt —
                   // the same rule the build path's `made` count follows.
@@ -28703,6 +29016,14 @@ async function handleRequest(request, env, ctx) {
                 // refused as `unchecked` rather than cut on a guess.
                 parser: tweakParser,
               }, { instruction: eInstruction, pages: picFiles, model: eQuickModel });
+              // A PURCHASE WHOSE OUTCOME NOBODY CAN TELL (2026-10-09, round 3,
+              // Codex's second reproduction): begun by this part's preparation,
+              // or an earlier try, and never known to have landed or not. It is
+              // not bought again on a guess: nothing is published and nothing
+              // charged, and the part is held, recoverable — moved on when that
+              // purchase is found to have landed, or when the customer says to
+              // buy it again knowing it may cost.
+              if (eJob && eJob.purchase && eJob.purchase.unknown.length) return heldPurchase(eJob.purchase.unknown);
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (pOut.ask) return stepAsk("picture", pOut.ask);
 
@@ -35272,7 +35593,13 @@ async function handleRequest(request, env, ctx) {
                 aPhotos = await buySitePhotos(env, {
                   slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],
                   budget: aShots.length, balance: aBalance, reserve: 0, clock: aJob && aJob.budget,
+                  // A REQUEST PART'S PHOTOGRAPHS (2026-10-09, round 3) are its
+                  // logical purchases: a retry of this job reuses what an
+                  // earlier try bought and never buys one whose outcome is unknown.
+                  buy: aJob && aJob.purchase ? purchaseBuyer(env, { ...aJob.purchase.part, owner: "job:" + aJob.id }) : null,
                 });
+                // ONE NOBODY CAN TELL is left as its frame and told, never bought again.
+                for (const d of aPhotos.unconfirmed || []) aNotAdded.push({ kind: "photo", name: String(d).slice(0, 120), why: "purchase-unconfirmed", msg: "A photograph for this was being bought and I can't tell whether that purchase went through, so I didn't buy it again; its frame is left empty." });
                 aMerge = { ...aMerge, pages: aPhotos.pages };
                 if (aParts) aParts = aPhotos.parts;
                 // `planned` IS THE FULL REQUEST AND `offered` IS WHAT THE

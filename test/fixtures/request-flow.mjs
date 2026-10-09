@@ -67,7 +67,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // ── R2 ────────────────────────────────────────────────────────────────────
   const objects = new Map();
   let etagN = 0;
-  const setObj = (k, v) => { objects.set(k, { body: typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v), etag: "e" + (++etagN), at: now() }); };
+  const setObj = (k, v, meta) => { objects.set(k, { body: typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v), etag: "e" + (++etagN), at: now(), ...(meta ? { customMetadata: meta } : {}) }); };
   setObj(SOURCE_KEY(slug), JSON.stringify(pages));
   setObj(PARTS_KEY(slug), JSON.stringify([]));
   setObj(CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Harbour Loaf", theme: "broadsheet", description: OLD_DESC }, css: "" }));
@@ -105,17 +105,19 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
         // and the writer told it failed. `then` runs in between — another
         // tab's call, say — before the writer hears.
         if (x.kind === "lose") {
-          setObj(k, body);
+          setObj(k, body, opts.customMetadata);
           if (typeof x.then === "function") await x.then(k);
           throw new Error("r2 response lost");
         }
-        setObj(k, body);
+        setObj(k, body, opts.customMetadata);
         hung.what = "put:" + k;
         die(null);
         hung.resolve(hung.what);
         return new Promise(() => {});
       }
-      setObj(k, body);
+      // ITS CUSTOM METADATA KEPT (2026-10-09, round 3), as R2 keeps it: a
+      // photograph's purchase tag is how a purchase that landed is found.
+      setObj(k, body, opts.customMetadata);
       // EVERY JOB'S STORED REQUEST, KEPT FOR THE CASE: the consumer deletes the
       // object once it has read it, as it should.
       if (k.startsWith("jobs/edit/")) { try { filed.set(k.slice("jobs/edit/".length), JSON.parse(String(body))); } catch { /* not a job */ } }
@@ -132,12 +134,13 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     },
     // A PAGE AT A TIME, as R2 lists: `truncated` with a `cursor` while keys are
     // left, the cursor opaque to the caller (here, the last key it was given).
-    async list({ prefix = "", limit = 1000, cursor } = {}) {
+    async list({ prefix = "", limit = 1000, cursor, include } = {}) {
       const all = [...objects.keys()].filter((k) => k.startsWith(prefix) && (!cursor || k > cursor)).sort();
       const keys = all.slice(0, limit);
       const truncated = all.length > keys.length;
       // EACH WITH WHEN IT WAS LAST WRITTEN, as R2's own list hands it (2026-10-07).
-      return { objects: keys.map((k) => ({ key: k, etag: objects.get(k).etag, uploaded: new Date(objects.get(k).at) })), truncated, ...(truncated ? { cursor: keys[keys.length - 1] } : {}) };
+      const withMeta = Array.isArray(include) && include.includes("customMetadata");
+      return { objects: keys.map((k) => ({ key: k, etag: objects.get(k).etag, uploaded: new Date(objects.get(k).at), ...(withMeta && objects.get(k).customMetadata ? { customMetadata: objects.get(k).customMetadata } : {}) })), truncated, ...(truncated ? { cursor: keys[keys.length - 1] } : {}) };
     },
   };
   // ── edit_jobs AND THE LEDGER ──────────────────────────────────────────────
@@ -456,7 +459,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       entry.end = now();
       return resp({ images: [{ url: "https://img.test/p" + imageLog.length + ".jpg" }] });
     }
-    if (images && url.startsWith("https://img.test/")) return new Response(JPEG, { status: 200, headers: { "content-type": "image/jpeg" } });
+    // EACH PICTURE ITS OWN BYTES (2026-10-09, round 3), so each one bought is
+    // stored as its own upload and a case can count what was stored.
+    if (images && url.startsWith("https://img.test/")) {
+      const n = Number((url.match(/\/p(\d+)\.jpg/) || [])[1]) || 0;
+      const bytes = new Uint8Array(JPEG.length + 4);
+      bytes.set(JPEG);
+      bytes.set([n & 255, (n >> 8) & 255, 0x41, 0x41], JPEG.length);
+      return new Response(bytes, { status: 200, headers: { "content-type": "image/jpeg" } });
+    }
     const m = url.match(/\/rest\/v1\/rpc\/([a-z_]+)/);
     if (m) {
       const fn = m[1];

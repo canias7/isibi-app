@@ -293,3 +293,50 @@ test("purchase notes: a purchase that answered with no picture has ended — onl
   assert.deepEqual(readBuys({ buys: [{ d: "a", state: "bought" }] }), [{ d: "a", state: "buying" }], "a bought note with no address read as bought");
   assert.deepEqual(unfinishedBuy(null), null);
 });
+
+// ── ONE LOGICAL PURCHASE (2026-10-09, round 3) ──────────────────────────────
+
+test("a purchase record reads strictly: each state with its id, `bought` only with an address; anything else is null — which its readers take as unknown, never as absent", async () => {
+  const { readPurchase, purchaseId, purchaseKey } = await import("../builder/prepared.mjs");
+  const id = await purchaseId("loaf", "k".repeat(20), 1, "a loaf", 0);
+  assert.match(id, /^[0-9a-f]{24}$/);
+  assert.equal(await purchaseId("loaf", "k".repeat(20), 1, "a loaf", 0), id, "the same purchase is named the same by every buyer");
+  assert.notEqual(await purchaseId("loaf", "k".repeat(20), 1, "a loaf", 1), id, "a second purchase of one description is its own");
+  assert.notEqual(await purchaseId("loaf", "k".repeat(20), 2, "a loaf", 0), id, "another part's purchase is its own");
+  assert.equal(purchaseKey("loaf", "kk", 1, id), "source/loaf/purchases/kk/p1-" + id + ".json");
+  for (const state of ["buying", "none", "released"]) assert.equal(readPurchase({ v: 1, id, state }).state, state);
+  assert.equal(readPurchase({ v: 1, id, state: "bought", url: "/u/a.jpg" }).url, "/u/a.jpg");
+  for (const bad of [null, "", "{", "[]", { v: 1, id, state: "bought" }, { v: 2, id, state: "none" }, { v: 1, id: "x", state: "none" }, { v: 1, id, state: "done" }, JSON.stringify({ v: 1, id, state: "bou" })]) {
+    assert.equal(readPurchase(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("a part held on a purchase nobody can tell: `uncertain` from its job's answer, the request waiting (not ended), what needs it held and the rest going on; moved on by `purchaseResolved`; expired after a day", async () => {
+  const R = await import("../builder/request.mjs");
+  const rec0 = fiveHeld();
+  const n = 1;
+  const p = rec0.parts[n];
+  p.route = { op: "edit", intent: "edit", layer: "picture", page: "/p0", hops: 0 }; p.phase = "run";
+  p.jobs.push({ key: R.jobKey(rec0.key, n, 1), kind: "run", op: "edit", id: "f".repeat(32), seq: 1, end: null });
+  p.seq = 1; p.status = "started";
+  const held = { ok: false, error: "purchase-unconfirmed", cost: 0, held: [{ id: "a".repeat(24), d: "a loaf", why: "unconfirmed" }, { id: "nope", d: "x" }], msg: "held" };
+  const row = { ok: true, state: "failed", result: { status: 409, body: JSON.stringify(held) } };
+  const t0 = 1_000_000;
+  const { record } = R.nextStep(rec0, { ["f".repeat(32)]: row }, t0);
+  assert.equal(record.parts[n].status, "uncertain");
+  assert.equal(record.parts[n].why, "purchase-unconfirmed");
+  assert.deepEqual(R.heldPurchases(record.parts[n]), [{ id: "a".repeat(24), d: "a loaf", why: "unconfirmed" }], "a held entry with no proper id was kept");
+  assert.equal(record.ended, false);
+  assert.equal(record.state, "running", "the other parts, independent of it, go on");
+  assert.equal(R.requestView(record).parts[n].purchases[0].d, "a loaf");
+  // ALONE, the request waits on it rather than ending.
+  const alone = JSON.parse(JSON.stringify(record));
+  for (const q of alone.parts) if (q.n !== n) q.status = "done";
+  assert.equal(R.nextStep(alone, {}, t0 + 1).record.state, "waiting");
+  const moved = R.purchaseResolved(record, n, t0 + 5);
+  assert.equal(moved.parts[n].status, "ready");
+  assert.equal(R.purchaseResolved(moved, n, t0 + 6), null, "a part not held was moved on");
+  const { record: later } = R.nextStep(record, {}, t0 + 24 * 3600 * 1000 + 1);
+  assert.equal(later.parts[n].status, "expired");
+  assert.equal(later.parts[n].why, "purchase-unconfirmed");
+});

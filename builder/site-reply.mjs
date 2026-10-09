@@ -940,6 +940,10 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     } else {
       const own = said(e.msg);
       if (own) F.add("not-done", "The change was not made. The builder's own reason: " + quote(own));
+      // HELD ON A PURCHASE NOBODY CAN TELL (2026-10-09, round 3): not failed —
+      // what happens next, as the request will do it.
+      if (e.error === "purchase-unconfirmed") F.add("note", "This part is on hold, not given up: it carries on by itself if that purchase turns out to have gone through, and otherwise they can say to buy the picture again, which may cost a second time.");
+      if (own) { /* said above */ }
       else {
         const parts = Array.isArray(e.partial) ? e.partial.filter((p) => !(p && p.error === "clarify")) : [];
         if (parts.length) partialFacts(F, parts);

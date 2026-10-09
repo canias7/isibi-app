@@ -153,3 +153,59 @@ export function replayer(prepared) {
 export const prepKey = (slug, key, n, seq) => "requests/" + slug + "/" + key + "/prep/p" + n + "-" + seq + ".json";
 /** Where a job's own share of a preparation is put before it runs, under the job's id (a key the job may read, wherever it runs). */
 export const jobPrepKey = (id) => "jobs/prepared/" + id + ".json";
+
+// ── ONE PURCHASE, WHOEVER MAKES IT (2026-10-09, round 3, after Codex's review) ──
+//
+// An attempt's own notes (`readBuys`) end at the preparation's edge. Codex
+// showed what lies past it: a regular job that runs while a preparation's
+// purchase is still out buys its own picture, the first one lands too, and the
+// part is done with two photographs bought; and an attempt whose earlier
+// record cannot be read took that as "nothing happened" and bought again.
+//
+// So a picture a request's part buys is ONE LOGICAL PURCHASE with one record,
+// under the site's own source (`purchaseKey`), shared by every preparation
+// attempt, every retake and the part's applying job wherever it runs. It is
+// named by the part and by the picture's description and its place among the
+// part's purchases of that description (`purchaseId`) — the same in a
+// preparation and in the job, because they send the same step the same words.
+//
+//   absent      nobody has begun it: whoever writes `buying` first (a
+//               conditional create) may buy it
+//   buying      begun; its outcome is unknown until its buyer writes again.
+//               Another reader never buys it: it looks for the stored picture
+//               the purchase tags with its id, and otherwise the outcome is
+//               UNKNOWN — held, never taken as permission to buy again
+//   bought      landed: reused by everyone after, with its address
+//   none        ended with no picture: it may be begun again
+//   released    the customer said, knowing it may cost, to buy it again
+//
+// A record that cannot be read, or reads as none of these, is unknown too.
+
+/** Where one logical purchase is recorded: under the site's source, which a job may read and write wherever it runs. */
+export const purchaseKey = (slug, key, n, id) => "source/" + slug + "/purchases/" + key + "/p" + n + "-" + id + ".json";
+/** The states a purchase record may hold. */
+export const PURCHASE_STATES = Object.freeze(["buying", "bought", "none", "released"]);
+
+/** A purchase's id: the part, the description, and which purchase of that description it is (0, 1, …). */
+export async function purchaseId(slug, key, n, d, k) {
+  const text = [String(slug), String(key), String(n), String(d || ""), String(k || 0)].join("\n");
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+}
+
+/**
+ * A purchase record read back strictly, or null when it does not read as one —
+ * which its readers take as unknown, never as absent.
+ */
+export function readPurchase(raw) {
+  let v = raw;
+  if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return null; } }
+  if (!v || typeof v !== "object" || Array.isArray(v) || v.v !== 1 || !PURCHASE_STATES.includes(v.state)) return null;
+  if (typeof v.id !== "string" || !/^[0-9a-f]{24}$/.test(v.id)) return null;
+  if (v.state === "bought" && !(typeof v.url === "string" && v.url)) return null;
+  return {
+    v: 1, id: v.id, state: v.state, d: typeof v.d === "string" ? v.d : "",
+    by: typeof v.by === "string" ? v.by : "", at: Number.isFinite(v.at) ? v.at : 0,
+    ...(v.state === "bought" ? { url: v.url } : {}),
+  };
+}
