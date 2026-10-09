@@ -1489,6 +1489,37 @@ only run that push started, `completed` / `success`, the job **3m11s**
   the press stopped). Not pressed again; the question left unanswered
   (`docs/history/2026-10-07-combined-release.md` §4).
 
+**Deploy 2190 (2026-10-09) was predicted on both ends and built as
+predicted**, on the owner's word (*"merge and deploy"*). It fast-forwarded
+`main` `0fd50fd2` → **`19b1628d`**, 9 commits:
+- the interval correction (`f058eed1`);
+- `lv-parallel`'s fresh targets (`a220fd54`);
+- their records.
+
+It was pushed at 20:28:17 UTC. Run 37987214270, `push` on `19b1628d`, was the
+only run that push started: `completed` / `success`, 20:28:22–20:31:41.
+
+- **Before**:
+  - `main` an ancestor of the candidate;
+  - unit CI green on `f058eed1`, `a220fd54` and `19b1628d`
+    (`10288 / 10247 / 0 / 41`), and the site build green on `f058eed1`;
+  - nothing in flight;
+  - no open edit job (the only non-terminal-looking rows are two `lost`
+    jobs from 2026-09-01/02);
+  - the rollback (`git revert --no-commit 0fd50fd2..19b1628d`) giving back
+    `0fd50fd2`'s tree;
+  - no skip-CI or smoke marker in the 9 messages;
+  - nothing under `public/` changed.
+- **The image**: the container's `- …:6c9fc805fe4de0d8` /
+  `+ …:9236fe341b77544d` (the 1 printed masked), as predicted (204 inputs),
+  with `SUCCESS Modified application` at **20:31:32Z**.
+- **Wrangler**:
+  - 26 secrets;
+  - *"No updated asset files to upload"*, so no served-file check is owed;
+  - Current Version ID `…ff9cd9d-959a-4de2-b93a-8cc435748be2`.
+- **The image window**: to about 20:51 UTC.
+- **Not yet runtime-confirmed.** The owner's free runtime press is to come.
+
 **Deploy 2189 (2026-10-09) was predicted on both ends and built as
 predicted** (the owner's word: *"approve the release and press A's
 preparation"*; the plan is `docs/investigations/multi-agent-readiness.md`

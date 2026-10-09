@@ -6,8 +6,15 @@
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**Where it stands**
-- **Production is deploy 2189**:
+**Deploy 2190 (on your word, 2026-10-09)**
+- `main` `0fd50fd2` → **`19b1628d`**, one green deploy run (20:28–20:31 UTC).
+- The image moved `6c9fc805fe4de0d8` → **`9236fe341b77544d`**, as predicted.
+- No asset changed.
+- **Deployed, not runtime-confirmed**: your free runtime press is next, after
+  about 20:51 UTC (`docs/deploy-record.md`).
+
+**Where it stood before the deploy**
+- **Production was deploy 2189**:
   - `main` `0fd50fd2`, image `6c9fc805fe4de0d8`;
   - deployed 2026-10-09 13:44 UTC, **runtime-confirmed by run 111** (14:19
     UTC);
@@ -178,6 +185,19 @@ is in git; the dated entries further down are the full story.*
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — Deploy 2190: the interval correction released (not yet runtime-confirmed)
+
+On your word (*"merge and deploy"*):
+- `main` `0fd50fd2` → `19b1628d`, 9 commits;
+- one green run, 20:28–20:31 UTC;
+- image `6c9fc805fe4de0d8` → `9236fe341b77544d`, as predicted;
+- no asset uploaded.
+
+Preflight clean: nothing in flight, no open job, rollback verified, CI green.
+Next: your free runtime press, after about 20:51 UTC.
 
 ---
 
