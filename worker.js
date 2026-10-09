@@ -45,7 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
-import { recorder, replayer, readPrepared, prepKey, jobPrepKey } from "./builder/prepared.mjs";
+import { recorder, replayer, readPrepared, readBuys, unfinishedBuy, prepKey, jobPrepKey } from "./builder/prepared.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -260,7 +260,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, notePrepared, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, notePrepared, takePrep, ownsPrep, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -5702,8 +5702,7 @@ async function editRpc(env, fn, args) {
  * the recorder (`rec`). No lease, no heartbeat: it holds no lock, and the
  * part's own job, which does, makes every write.
  */
-function makePrepCtx({ id, budget, uid = "", slug = "" }) {
-  const rec = recorder();
+function makePrepCtx({ id, budget, uid = "", slug = "", rec = recorder() }) {
   return {
     id, owner: "prep:" + id, budget, trace: null, uid, slug, progress: null,
     prepare: true, rec, reached: 0,
@@ -16798,10 +16797,10 @@ export function readPrepTask(body) {
 const PREP_RUN_MS = 8 * 60 * 1000;
 
 /** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
-async function replayPrepared(env, ctx, rec, url, body) {
+async function replayPrepared(env, ctx, rec, url, body, prec) {
   const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug });
+  const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug, ...(prec ? { rec: prec } : {}) });
   const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
   EDIT_JOBS.set(secret, prep);
   let res;
@@ -16817,52 +16816,147 @@ async function replayPrepared(env, ctx, rec, url, body) {
  * writes nothing to the site — that step. Answers what it reached, and keeps
  * every recorded call and picture under the request. Never throws.
  */
+/**
+ * ONE ATTEMPT'S RECORD, KEPT AS IT GOES (2026-10-09, after Codex's review):
+ * every recorded call and every purchase note is written to the attempt's own
+ * key (`prepKey`, its `seq`) as it happens, so an attempt that dies leaves
+ * what it did. A retry names the attempt before it (`prev`): its recorded
+ * answers are reused for identical requests, and its pictures are reused for
+ * the same descriptions. A PURCHASE IS NOTED BEFORE IT IS MADE, and only
+ * while this consumer still owns the attempt inside its own time — so a
+ * purchase whose outcome is unknown is never made again by a preparation.
+ */
+function prepAttempt(env, { slug, key, n, seq, owner, prev }) {
+  const live = { v: 1, owner, route: { calls: [] }, run: { calls: [], images: [] }, buys: [] };
+  const pk = prepKey(slug, key, n, seq);
+  const save = () => env.SITES_BUCKET.put(pk, JSON.stringify(live), { httpMetadata: { contentType: "application/json" } });
+  const carried = { route: replayer(prev && prev.route), run: replayer(prev && prev.run) };
+  const bought = readBuys(prev).filter((b) => b.state === "bought");
+  const reused = new Set();
+  const phase = (name) => {
+    const r = recorder();
+    if (name === "run") r.images.push(...live.run.images);
+    return {
+      calls: r.calls, images: r.images,
+      // A PICTURE AN EARLIER ATTEMPT BOUGHT sits in the owner's uploads; hidden
+      // from this attempt's library listing, as the part's job hides a
+      // preparation's, so the listing is the one that attempt was asked with.
+      hides: (url) => typeof url === "string" && bought.some((b) => b.url === url),
+      wrap: (send) => {
+        const inner = r.wrap(carried[name].wrap(send));
+        return async (req) => {
+          const out = await inner(req);
+          live[name].calls = r.calls.slice();
+          try { await save(); } catch { /* the next write, or the last, keeps it */ }
+          return out;
+        };
+      },
+      image: (generate) => r.image(async (describe, ...rest) => {
+        const d = String(describe || "");
+        // A PICTURE THE ATTEMPT BEFORE BOUGHT, for this description: reused.
+        const was = bought.findIndex((b, i) => !reused.has(i) && b.d === d);
+        if (was >= 0) { reused.add(was); live.buys.push({ ...bought[was] }); live.run.images = r.images.slice(); return bought[was].url; }
+        // STILL OURS, INSIDE OUR TIME, before anything is bought.
+        const at = await loadRequest(env, slug, key);
+        if (!ownsPrep(at.rec, n, seq, owner, Date.now(), PREP_RUN_MS)) return null;
+        const note = { d, state: "buying" };
+        live.buys.push(note);
+        try { await save(); } catch { live.buys.pop(); return null; } // unnoted, never bought
+        const url = await generate(describe, ...rest);
+        if (typeof url === "string" && url) { note.state = "bought"; note.url = url; } else note.state = "none";
+        live.run.images = r.images.concat(typeof url === "string" && url ? [{ d, url }] : []);
+        try { await save(); } catch { /* the last write keeps it */ }
+        return url;
+      }),
+    };
+  };
+  return { live, pk, save, phase };
+}
+
+/**
+ * PREPARE ONE PART: its routing when it has none yet, then — when the routing
+ * (or the route it already had) chose a step whose work before its publish
+ * writes nothing to the site — that step. Answers what it reached, and keeps
+ * every recorded call and picture under the request. Never throws.
+ *
+ * TAKEN FIRST (2026-10-09, after Codex's review): before any model call or
+ * purchase this consumer takes the claim in one write of the record on its
+ * etag (`takePrep`). Two deliveries of one message read at the same moment
+ * cannot both take it: one write lands, the other reads again, finds the
+ * claim taken and stops. The outcome is kept only by the owner, for its
+ * attempt (`notePrepared`).
+ */
 async function runRequestPrep(env, ctx, task) {
   const { slug, key, n, seq } = task;
+  const owner = "prep-" + [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
   try {
-    const { rec } = await loadRequest(env, slug, key);
-    const p = rec && rec.parts[n];
-    // THE CLAIM IS THE ONE THIS MESSAGE IS FOR, OR NOTHING RUNS: a delivery
-    // again of an answered or re-taken claim, or a request stopped, makes no call.
-    if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "attempting" || rec.stop || rec.ended) return;
-    const kept = { v: 1 };
+    let rec = null, prevSeq = null, taken = false;
+    for (let round = 0; round < 6 && !taken; round++) {
+      const at = await loadRequest(env, slug, key);
+      if (!at.rec) return;
+      const t = takePrep(at.rec, n, seq, owner);
+      // NOT THIS MESSAGE'S TO TAKE: answered, taken by another delivery, taken
+      // again since, or the request stopped. No call is made.
+      if (!t.ok) return;
+      if (await saveRequestRecord(env, t.record, at.etag)) { rec = t.record; prevSeq = t.prev; taken = true; }
+    }
+    if (!taken) return;
+    // THE ATTEMPT BEFORE, WHEN ONE WAS TAKEN AND NEVER ANSWERED.
+    let prev = null;
+    if (Number.isInteger(prevSeq)) {
+      try { const po = await env.SITES_BUCKET.get(prepKey(slug, key, n, prevSeq)); prev = po ? JSON.parse(await po.text()) : {}; }
+      catch { prev = {}; }
+    }
+    const A = prepAttempt(env, { slug, key, n, seq, owner, prev });
+    const p = rec.parts[n];
     let outcome = "error";
     let work = rec;
-    if (p.phase === "route") {
-      const { url, body } = jobBody(rec, n, "route", key + "-prep" + seq);
-      const r = await replayPrepared(env, ctx, rec, url, body);
-      kept.route = { calls: r.prep.rec.calls, images: [] };
-      const read = readRoute({ status: r.status, body: r.body });
-      if (read.act === "clarify") outcome = "ask";
-      else if (read.act !== "route") outcome = read.act === "failed" ? "error" : "stopped";
-      else {
-        // THE STEP ITS ROUTING CHOSE, prepared as its run job will send it —
-        // only a step a preparation runs, clear of every earlier part it
-        // conflicts with now that its route says what it writes.
-        const step = routedForPrep(rec, n, read);
-        if (step.ok) { work = step.work; outcome = "run"; } else outcome = "routed";
+    if (prev && unfinishedBuy(prev)) {
+      // A PURCHASE BEGAN AND ITS OUTCOME IS UNKNOWN. A preparation never buys
+      // it again: this attempt ends here, and the part's own job decides —
+      // a picture that did land is in the owner's library, where it sees it.
+      outcome = "uncertain";
+    } else {
+      if (p.phase === "route") {
+        const { url, body } = jobBody(rec, n, "route", key + "-prep" + seq);
+        const r = await replayPrepared(env, ctx, rec, url, body, A.phase("route"));
+        const read = readRoute({ status: r.status, body: r.body });
+        if (read.act === "clarify") outcome = "ask";
+        else if (read.act !== "route") outcome = read.act === "failed" ? "error" : "stopped";
+        else {
+          // THE STEP ITS ROUTING CHOSE, prepared as its run job will send it —
+          // only a step a preparation runs, clear of every earlier part it
+          // conflicts with now that its route says what it writes.
+          const step = routedForPrep(rec, n, read);
+          if (step.ok) { work = step.work; outcome = "run"; } else outcome = "routed";
+        }
+      } else outcome = "run";
+      if (outcome === "run") {
+        const { url, body } = jobBody(work, n, "run", key + "-prep" + seq);
+        const runPhase = A.phase("run");
+        const r = await replayPrepared(env, ctx, rec, url, body, runPhase);
+        // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
+        A.live.run.images = runPhase.images.slice();
+        const b = r.body || {};
+        outcome = r.prep.reached > 0 ? "ready"
+          : (b.error === "clarify" || (b.ask && typeof b.ask === "object")) ? "ask"
+          : r.status >= 500 ? "error" : "stopped";
       }
-    } else outcome = "run";
-    if (outcome === "run") {
-      const { url, body } = jobBody(work, n, "run", key + "-prep" + seq);
-      const r = await replayPrepared(env, ctx, rec, url, body);
-      kept.run = { calls: r.prep.rec.calls, images: r.prep.rec.images };
-      const b = r.body || {};
-      outcome = r.prep.reached > 0 ? "ready"
-        : (b.error === "clarify" || (b.ask && typeof b.ask === "object")) ? "ask"
-        : r.status >= 500 ? "error" : "stopped";
     }
-    const calls = (kept.route ? kept.route.calls.length : 0) + (kept.run ? kept.run.calls.length : 0);
-    const images = kept.run ? kept.run.images.length : 0;
-    const pk = prepKey(slug, key, n, seq);
+    const kept = A.live;
+    const calls = kept.route.calls.length + kept.run.calls.length;
+    const images = kept.run.images.length;
     let stored = false;
-    try { await env.SITES_BUCKET.put(pk, JSON.stringify(kept), { httpMetadata: { contentType: "application/json" } }); stored = true; }
+    try { await A.save(); stored = true; }
     catch (e) { console.error("request prep: could not keep", slug, key, n, errorClassForLog(e)); }
     for (let round = 0; round < 6; round++) {
       const at = await loadRequest(env, slug, key);
       if (!at.rec) return;
-      const { record, kept: ok } = notePrepared(at.rec, n, seq, { ok: stored && outcome !== "error", outcome, key: stored ? pk : null, calls, images });
-      if (!ok) break;
+      const ok = stored && outcome !== "error" && outcome !== "uncertain";
+      const { record, kept: mine } = notePrepared(at.rec, n, seq, { ok, outcome, key: stored ? A.pk : null, calls, images, owner });
+      // NOT OURS ANY MORE (taken again after our time ran out): a later
+      // attempt's result is never replaced by this one.
+      if (!mine) break;
       if (await saveRequestRecord(env, record, at.etag)) break;
     }
     console.log("request prep:", slug, key, "part", n, outcome, calls, "calls", images, "pictures");
@@ -16891,11 +16985,25 @@ async function stagePrepared(env, id) {
     if (!want) return;
     const { rec } = await loadRequest(env, job.slug, want.key);
     const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
-    if (!p || !p.prep || p.prep.state !== "done" || typeof p.prep.key !== "string") return;
+    if (!p || !p.prep) return;
+    const isRoute = /\/api\/site\/route(?![\w/-])/.test(String(job.url || ""));
+    // AN ATTEMPT THAT ENDED UNCERTAIN (2026-10-09): the attempt before it began
+    // a purchase whose outcome was unknown. Whatever that attempt did buy by
+    // now is handed to the part's own job — a picture that landed after its
+    // owner lost the attempt is reused, never bought a second time. No calls:
+    // only the pictures.
+    if (p.prep.state === "failed" && p.prep.outcome === "uncertain" && Number.isInteger(p.prep.prev) && !isRoute) {
+      const po = await env.SITES_BUCKET.get(prepKey(job.slug, want.key, want.part, p.prep.prev));
+      if (!po) return;
+      const images = readBuys(JSON.parse(await po.text())).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
+      if (images.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ calls: [], images }), { httpMetadata: { contentType: "application/json" } });
+      return;
+    }
+    if (p.prep.state !== "done" || typeof p.prep.key !== "string") return;
     const po = await env.SITES_BUCKET.get(p.prep.key);
     if (!po) return;
     const v = JSON.parse(await po.text());
-    const share = /\/api\/site\/route(?![\w/-])/.test(String(job.url || "")) ? v.route : v.run;
+    const share = isRoute ? v.route : v.run;
     if (!share) return;
     const staged = readPrepared(share);
     if (!staged.calls.length && !staged.images.length) return;
@@ -28555,7 +28663,7 @@ async function handleRequest(request, env, ctx) {
                   .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)) }))
                   // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
                   // owner's library (2026-10-08): it is placed by this job.
-                  .filter((f) => f.name && !(eJob && eJob.replay && eJob.replay.hides(f.url))),
+                  .filter((f) => f.name && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url))))),
                 // ONE PHOTOGRAPH AT A TIME, priced against the real balance
                 // before each. Checked per picture rather than once up front
                 // because each one is ~19 credits: a batch that can afford two

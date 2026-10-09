@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -233,7 +233,8 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   if (!go.file) {
     const p1 = go.record.parts[1];
     assert.equal(p1.prep && p1.prep.state, "attempting", "the independent part was neither filed nor being prepared");
-    go = nextStep(notePrepared(go.record, 1, p1.prep.seq, { ok: true, outcome: "routed" }).record, {});
+    const took = takePrep(go.record, 1, p1.prep.seq, "c1");
+    go = nextStep(notePrepared(took.record, 1, p1.prep.seq, { ok: true, outcome: "routed", owner: "c1" }).record, {});
   }
   assert.equal(go.file && go.file.n, 1, "the independent part did not go ahead");
   // THE PAGE IS SHOWN NO HAND-OVER JOB AS A PART'S REPLY.

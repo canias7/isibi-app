@@ -1143,7 +1143,11 @@ export function nextStep(record, rows = {}, now = Date.now()) {
       if (!p || p.status !== "ready" || currentJob(p) || !preparable(p) || !wantsPrep(p, now)) continue;
       if (!clearToPrepare(rec.parts, p.n, ended)) continue;
       const again = prepFor(p) ? (Number(p.prep.tries) || 0) : 0;
-      p.prep = { seq: (Number(p.prep && p.prep.seq) || 0) + 1, for: p.seq, phase: p.phase, tries: again + 1, state: "attempting", at: now };
+      // AN ATTEMPT A CONSUMER TOOK AND NEVER ANSWERED is named on the new one
+      // (`prev`): what it recorded is reused, and a purchase it began and never
+      // finished is never made again blindly (the Worker reads its notes).
+      const prev = prepFor(p) && p.prep.state === "running" ? p.prep.seq : (prepFor(p) && Number.isInteger(p.prep.prev) ? p.prep.prev : null);
+      p.prep = { seq: (Number(p.prep && p.prep.seq) || 0) + 1, for: p.seq, phase: p.phase, tries: again + 1, state: "attempting", at: now, ...(Number.isInteger(prev) ? { prev } : {}) };
       prepare.push({ n: p.n, seq: p.prep.seq });
       running++;
     }
@@ -1155,15 +1159,42 @@ export function nextStep(record, rows = {}, now = Date.now()) {
 
 /** Is this part's preparation for the step it is on now (no job filed for it since)? */
 const prepFor = (p) => !!p.prep && p.prep.for === p.seq && p.prep.phase === p.phase;
-/** Is a preparation running for this part that may still answer? */
+/** When a claim last showed life: taken by its consumer (`startedAt`), or sent (`at`). */
+const prepSince = (prep) => (prep.state === "running" && Number.isFinite(prep.startedAt) ? prep.startedAt : prep.at);
+/** Is a preparation sent, or taken by a consumer, that may still answer? */
 function preparing(p, now) {
-  return prepFor(p) && p.prep.state === "attempting" && Number.isFinite(p.prep.at) && now - p.prep.at < PREP_FRESH_MS;
+  return prepFor(p) && (p.prep.state === "attempting" || p.prep.state === "running") && Number.isFinite(prepSince(p.prep)) && now - prepSince(p.prep) < PREP_FRESH_MS;
 }
 /** Is there a preparation worth starting: none for this step yet, or one that went quiet with a try left? */
 function wantsPrep(p, now) {
   if (!prepFor(p)) return true;
-  if (p.prep.state !== "attempting") return false;
+  if (p.prep.state !== "attempting" && p.prep.state !== "running") return false;
   return !preparing(p, now) && (Number(p.prep.tries) || 0) < PREP_TRIES;
+}
+
+/**
+ * A CONSUMER TAKES A PREPARATION (2026-10-09, after Codex's review): the claim
+ * the driver sent (`attempting`, this `seq`) becomes this consumer's
+ * (`running`, its `owner`), in one write of the record on its etag — so of two
+ * deliveries of one message, read at the same moment, exactly one write lands
+ * and the other, reading again, finds the claim taken and makes no call. The
+ * caller saves the answer on the etag it read under; `ok` false means there
+ * is nothing to take.
+ */
+export function takePrep(record, n, seq, owner, now = Date.now()) {
+  const rec = clone(record);
+  const p = rec.parts[n];
+  if (rec.stop || rec.ended || !p || !prepFor(p) || p.prep.seq !== seq || p.prep.state !== "attempting" || typeof owner !== "string" || !owner) return { record: rec, ok: false };
+  p.prep = { ...p.prep, state: "running", owner, startedAt: now };
+  rec.updatedAt = now;
+  rec.rev = (Number(rec.rev) || 0) + 1;
+  return { record: rec, ok: true, prev: Number.isInteger(p.prep.prev) ? p.prep.prev : null };
+}
+
+/** Is this consumer still the owner of this attempt, inside its own time? Asked before every purchase. */
+export function ownsPrep(record, n, seq, owner, now = Date.now(), runMs = PREP_FRESH_MS) {
+  const p = record && record.parts ? record.parts[n] : null;
+  return !!p && !record.stop && !record.ended && !!p.prep && p.prep.seq === seq && p.prep.state === "running" && p.prep.owner === owner && Number.isFinite(p.prep.startedAt) && now - p.prep.startedAt < runMs;
 }
 /** Can this part's next step be prepared: its routing, or an edit step whose work before its publish writes nothing to the site. */
 function preparable(p) {
@@ -1181,10 +1212,13 @@ function preparable(p) {
  * only — the step it chose is not one a preparation runs), `stopped` (the step
  * ended on its own without changing anything), or `error`.
  */
-export function notePrepared(record, n, seq, { ok = false, outcome = "error", key = null, calls = 0, images = 0, now = Date.now() } = {}) {
+export function notePrepared(record, n, seq, { ok = false, outcome = "error", key = null, calls = 0, images = 0, owner = null, now = Date.now() } = {}) {
   const rec = clone(record);
   const p = rec.parts[n];
-  if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "attempting") return { record: rec, kept: false };
+  // ONLY THE OWNER OF THIS ATTEMPT (2026-10-09): taken by it (`running`, its
+  // `owner`), the same `seq`. A consumer that lost the claim, or a late one
+  // whose attempt was since taken again, keeps nothing.
+  if (!p || !p.prep || p.prep.seq !== seq || p.prep.state !== "running" || typeof owner !== "string" || p.prep.owner !== owner) return { record: rec, kept: false };
   p.prep = { ...p.prep, state: ok ? "done" : "failed", outcome: String(outcome || "error"), key: typeof key === "string" ? key : null, calls: Number(calls) || 0, images: Number(images) || 0, endedAt: now };
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
@@ -1210,7 +1244,7 @@ export function routedForPrep(record, n, read) {
 /** What the page and the progress writer read of a part's preparation: `preparing`, `prepared`, or nothing. */
 export function prepState(p, now = Date.now()) {
   if (!p || !["ready", "blocked", "queued"].includes(p.status) || !prepFor(p)) return "";
-  if (p.prep.state === "attempting") return now - p.prep.at < PREP_FRESH_MS ? "preparing" : "";
+  if (p.prep.state === "attempting" || p.prep.state === "running") return now - prepSince(p.prep) < PREP_FRESH_MS ? "preparing" : "";
   return p.prep.state === "done" && p.prep.outcome === "ready" ? "prepared" : "";
 }
 

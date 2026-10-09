@@ -86,6 +86,26 @@ export function readPrepared(raw) {
 }
 
 /**
+ * AN ATTEMPT'S PURCHASE NOTES (2026-10-09), written before each purchase and
+ * again when it ends: `{ d, state: "buying" }`, then `{ d, state: "bought",
+ * url }` or `{ d, state: "none" }`. Read back strictly: a note that cannot be
+ * read is the same as one still buying, its outcome unknown.
+ */
+export function readBuys(raw) {
+  const list = raw && typeof raw === "object" && Array.isArray(raw.buys) ? raw.buys : [];
+  return list.map((b) => {
+    const d = b && typeof b.d === "string" ? b.d : "";
+    if (b && b.state === "bought" && typeof b.url === "string" && b.url) return { d, state: "bought", url: b.url };
+    // ANSWERED WITH NO PICTURE: the purchase ended, and nothing came of it.
+    if (b && b.state === "none") return { d, state: "none" };
+    return { d, state: "buying" };
+  });
+}
+
+/** A purchase an attempt began and never saw end: its outcome is unknown, and it is not bought again by a preparation. */
+export const unfinishedBuy = (raw) => readBuys(raw).find((b) => b.state === "buying") || null;
+
+/**
  * A REPLAYER over what was prepared: `wrap(send)` answers a call from the
  * record when its fingerprint is one prepared and not yet used (each answer
  * once, in the order made), and otherwise makes it; `image(generate)` hands

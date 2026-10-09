@@ -143,9 +143,17 @@ test("the progress writer reads a preparation from the raw record: in progress w
 });
 
 // ── THE DRIVER'S CHOICES, ONE BY ONE (answering the first sweep's survivors) ──
-import { planParts, newRequest, nextStep, noteJobId, notePrepared, routedForPrep, PREP_MAX_LIVE } from "../builder/request.mjs";
+import { planParts, newRequest, nextStep, noteJobId, notePrepared, takePrep, ownsPrep, routedForPrep, PREP_MAX_LIVE, PREP_FRESH_MS } from "../builder/request.mjs";
+/** A consumer takes the claim, then keeps its outcome — the only way an outcome is kept (2026-10-09). */
+const answered = (rec, n, outcome, now = Date.now(), owner = "c1") => {
+  const seq = rec.parts[n].prep.seq;
+  const t = takePrep(rec, n, seq, owner, now);
+  assert.equal(t.ok, true, "the claim could not be taken");
+  return notePrepared(t.record, n, seq, { ok: true, outcome, owner, now }).record;
+};
 
 const PKEY = "rqpar0000000000001";
+const KEYOF = (rec) => rec.parts[0].jobs[0].key;
 const HELD = ["make a photo of bread for the home page", "make a photo of cakes for the gallery", "make a photo of the shop for the visit page", "make a photo of flour for the about page", "make a photo of ovens for the story page"];
 const MSG5 = "Change our TikTok link on the Visit page, and " + HELD.join(", and ") + ".";
 const doneRow = { ok: true, state: "done", billing: "finalized", needs_review: false, result: { status: 200, body: JSON.stringify({ ok: true, layer: "text" }) } };
@@ -186,22 +194,56 @@ test("nextStep: a part whose preparation found a question goes first, ahead of a
   let rec = noteJobId(r1.record, r1.file.key, "j0");
   // Part 1's preparation answered (routed) and part 3's found a question:
   // part 1 is free and earlier, but the question goes first.
-  ({ record: rec } = notePrepared(rec, 1, rec.parts[1].prep.seq, { ok: true, outcome: "routed", now }));
-  ({ record: rec } = notePrepared(rec, 3, rec.parts[3].prep.seq, { ok: true, outcome: "ask", now }));
+  rec = answered(rec, 1, "routed", now);
+  rec = answered(rec, 3, "ask", now);
   const r2 = nextStep(rec, { j0: doneRow }, now + 1000);
   assert.equal(r2.file && r2.file.n, 3, "the part with a question waiting was not asked first: " + JSON.stringify(r2.file));
 });
 
-test("notePrepared keeps an outcome only for the claim it answers, once", () => {
+test("takePrep and notePrepared: one owner per attempt; an outcome kept only by that owner, for that attempt, once", () => {
   const now = Date.now();
   const rec = nextStep(fiveHeld(), {}, now).record;
   const seq = rec.parts[1].prep.seq;
-  assert.equal(notePrepared(rec, 1, seq + 1, { ok: true, outcome: "ready" }).kept, false, "an answer for another claim was kept");
-  const once = notePrepared(rec, 1, seq, { ok: true, outcome: "ready" });
+  assert.equal(notePrepared(rec, 1, seq, { ok: true, outcome: "ready", owner: "c1" }).kept, false, "an outcome was kept for a claim nobody took");
+  const t = takePrep(rec, 1, seq, "c1", now);
+  assert.equal(t.ok, true);
+  assert.equal(t.record.parts[1].prep.state, "running");
+  // THE SECOND DELIVERY, reading the record as it was, takes it too — and its
+  // write is the one the etag refuses; reading again, it finds the claim taken.
+  assert.equal(takePrep(t.record, 1, seq, "c2", now).ok, false, "a taken claim was taken again");
+  assert.equal(takePrep(rec, 1, seq + 1, "c2", now).ok, false, "a claim for another attempt was taken");
+  assert.equal(notePrepared(t.record, 1, seq, { ok: true, outcome: "ready", owner: "c2" }).kept, false, "a consumer that does not own the attempt kept an outcome");
+  assert.equal(notePrepared(t.record, 1, seq + 1, { ok: true, outcome: "ready", owner: "c1" }).kept, false, "an answer for another attempt was kept");
+  const once = notePrepared(t.record, 1, seq, { ok: true, outcome: "ready", owner: "c1" });
   assert.equal(once.kept, true);
   assert.equal(once.record.parts[1].prep.outcome, "ready");
-  assert.equal(notePrepared(once.record, 1, seq, { ok: true, outcome: "error" }).kept, false, "a second answer to the same claim overwrote the first");
-  assert.equal(notePrepared(rec, 4, 1, { ok: true }).kept, false, "a part with no claim took an answer");
+  assert.equal(notePrepared(once.record, 1, seq, { ok: true, outcome: "error", owner: "c1" }).kept, false, "a second answer to the same attempt overwrote the first");
+  assert.equal(ownsPrep(t.record, 1, seq, "c1", now + 1000), true);
+  assert.equal(ownsPrep(t.record, 1, seq, "c1", now + PREP_FRESH_MS), false, "an owner past its time still owns the attempt");
+  assert.equal(ownsPrep(t.record, 1, seq, "c2", now), false);
+});
+
+test("an attempt taken and never answered is taken again after its time, naming the one before; one only sent is retried without; a late answer from the first is refused", () => {
+  const now = Date.now();
+  let rec = nextStep(fiveHeld(), {}, now).record;
+  const s1 = rec.parts[1].prep.seq;
+  const taken = takePrep(rec, 1, s1, "c1", now).record;
+  const j = noteJobId(taken, KEYOF(taken), "j0");
+  // INSIDE ITS TIME: not taken again.
+  let r = nextStep(j, {}, now + 60_000);
+  assert.equal(r.record.parts[1].prep.seq, s1, "a running attempt was taken again inside its time");
+  // PAST IT: a new attempt, naming the first.
+  r = nextStep(j, {}, now + PREP_FRESH_MS + 1);
+  const p1 = r.record.parts[1].prep;
+  assert.equal(p1.seq, s1 + 1);
+  assert.equal(p1.state, "attempting");
+  assert.equal(p1.prev, s1, "the new attempt does not name the one before");
+  // PART 2'S ATTEMPT WAS ONLY SENT, NEVER TAKEN: retried with nothing to reuse.
+  assert.equal(r.record.parts[2].prep.prev, undefined);
+  // THE FIRST CONSUMER ANSWERS LATE: refused, the new attempt untouched.
+  const late = notePrepared(r.record, 1, s1, { ok: true, outcome: "ready", owner: "c1" });
+  assert.equal(late.kept, false, "a late answer replaced a newer attempt");
+  assert.equal(late.record.parts[1].prep.seq, s1 + 1);
 });
 
 test("routedForPrep: the step a prepared routing chose is held back when the part's OWN routing names a target an earlier part writes; without it, prepared (the control)", () => {
