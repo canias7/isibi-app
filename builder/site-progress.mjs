@@ -274,7 +274,8 @@ export function readProgressRecord(raw) {
   if (typeof raw.uid !== "string" || !raw.uid || raw.uid.length > 80) return null;
   if (typeof raw.slug !== "string" || !SLUG_RE.test(raw.slug)) return null;
   // A REQUEST'S OWN RECORD (`op: "request"`) holds its parts' task lines and nothing else.
-  if (raw.op !== "edit" && raw.op !== "addon" && raw.op !== "request") return null;
+  // A FIRST BUILD'S OWN RECORD (\`op: "build"\`, 2026-10-09, parallel round 5).
+  if (raw.op !== "edit" && raw.op !== "addon" && raw.op !== "request" && raw.op !== "build") return null;
   if (typeof raw.run !== "string" || !RUN_RE.test(raw.run)) return null;
   const at = num(raw.at);
   if (at === null || !Array.isArray(raw.marks) || !Array.isArray(raw.lines) || !Number.isInteger(raw.nf) || raw.nf < 0) return null;
@@ -316,7 +317,7 @@ export function readProgressRecord(raw) {
  */
 export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at, request = null }) {
   if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
-  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request")) return null;
+  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request" && op !== "build")) return null;
   const ref = op === "request" ? null : readRequestRef(request);
   return readProgressRecord({
     v: 1, job, uid, slug, op, run, at, words: typeof words === "string" ? words : "",
@@ -325,6 +326,50 @@ export function openRecord({ job, uid, slug, op, run, words = "", picker = "", p
     taskWords: Array.isArray(tasks) ? tasks : [], tasks: null, taskTries: 0, tasksWhy: null,
     ...(ref ? { request: ref } : {}),
   });
+}
+
+/**
+ * A BUILD CARRIED ON BY ITS NEXT RUN (2026-10-09, round 5): a first build hands
+ * its page writing to the container and a later run (the resume) finishes it
+ * under a lease name of its own. Only a build's record, open, of the same
+ * customer, is taken over — its milestones and lines kept — so the writer's
+ * check that the row's lease is the record's run holds for the run now doing
+ * the work. Null when it may not be taken over.
+ */
+export function takeOverRecord(rec, { run, uid }) {
+  if (!rec || rec.op !== "build" || rec.closed || rec.uid !== uid || typeof run !== "string" || !RUN_RE.test(run)) return null;
+  if (rec.run === run) return rec;
+  // THE OLD RUN'S DELIVERY NUMBERS GO: the new run numbers its own from 0, and
+  // one of its milestones must never read as a repeat of the old run's.
+  return { ...rec, run, writer: null, marks: rec.marks.map(({ key, ...m }) => m) };
+}
+
+/**
+ * WHAT A FIRST BUILD'S STEP SAYS, FOR ITS LIVE LINES (2026-10-09, round 5),
+ * read from the build's own trace — the step it really reached, with its
+ * counts — never from what it was asked to do. Preparation is said as
+ * preparation: nothing here says anything is published; the build's own reply
+ * says what was. Steps that say nothing a customer needs answer none.
+ */
+export function buildStepFacts(step) {
+  const s = step && typeof step === "object" ? step : {};
+  const name = typeof s.s === "string" ? s.s : "";
+  const n = (k) => (Number.isFinite(s[k]) && s[k] > 0 ? Math.floor(s[k]) : 0);
+  const pl = (k, one, many) => (k === 1 ? one : k + " " + many);
+  switch (name) {
+    case "design": return [fact("designed", "Designed the site: its pages, its look and the photographs it will use. Nothing is built yet.")];
+    case "provision": return s.db === 0 ? [] : [fact("prepared", "Set up the site's database. The site is not published yet.")];
+    case "schema": return n("tables") ? [fact("prepared", "Made " + pl(n("tables"), "the table", "tables") + " the site stores its information in. Not published yet.")] : [];
+    case "seed": return [fact("prepared", "Filled in the starting entries. Not published yet.")];
+    case "gen": return [fact("doing", "Writing the pages now.")];
+    case "photos-alongside": return n("started") ? [fact("doing", "Buying " + pl(n("started"), "the photograph", "photographs") + " for the site while the pages are being written.")] : [];
+    case "fired": return [fact("doing", "Waiting for the page writing to finish; the photographs already started carry on meanwhile.")];
+    case "photos-wait": return n("open") ? [fact("doing", "The pages are written. Waiting for " + pl(n("open"), "a photograph", "photographs") + " still being bought before placing " + (n("open") === 1 ? "it" : "them") + ".")] : [];
+    case "photo-recovered": return [fact("doing", "Recovered " + pl(n("n") || 1, "a photograph", "photographs") + " that had been made but not saved, instead of buying " + ((n("n") || 1) === 1 ? "it" : "them") + " again.")];
+    case "photos-joined": return n("used") ? [fact("prepared", "Placed " + pl(n("used"), "the photograph", "photographs") + " on the pages. Not published yet.")] : [];
+    case "compile": return [fact("doing", "Putting the site together and checking it builds and renders before it is published.")];
+    default: return [];
+  }
 }
 
 /** The record as it is written: the same fields, with nothing the reader would refuse. */

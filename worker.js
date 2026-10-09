@@ -253,6 +253,7 @@ import {
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
   tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
+  takeOverRecord, buildStepFacts,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
@@ -2940,6 +2941,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   });
   if (!plan.shots.length) return done(new Map(), { made: 0 });
   const urls = new Map();
+  // PHOTOGRAPHS FINISHED FROM A PICTURE ALREADY MADE, or found stored, rather
+  // than bought (round 5): told on the build's live lines.
+  let recoveredCount = 0;
   // EACH SHOT'S OWN ENDING (2026-10-08, the seventh batch): one the provider
   // refused, and one still running when the wait ended, are different facts —
   // the second is not a failure, it is not known. `done` reports both.
@@ -2959,8 +2963,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
       // round 3): a picture already bought for the same purchase is reused,
       // and one begun and not known to have ended is not bought again
       // (`unknown`) — told as unconfirmed, never as refused.
-      const { url, error, unknown, id, d, k, why } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
+      const { url, error, unknown, id, d, k, why, recovered } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
       settledTokens.add(token);
+      if (recovered && url) recoveredCount++;
       if (unknown) {
         unconfirmedTokens.add(token);
         if (typeof id === "string") { pendIds.set(token, id); pendInfo.set(token, { id, d: String(d || ""), k: Number.isInteger(k) ? k : 0, why: String(why || ""), key: shotKey(prompt) }); }
@@ -3058,6 +3063,7 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   }
   return done(urls, {
     made: urls.size,
+    ...(recoveredCount ? { recovered: recoveredCount } : {}),
     refused,
     unresolved,
     ...(unconfirmed.length ? { unconfirmed } : {}),
@@ -7416,6 +7422,8 @@ async function progressFromJob(env, ids, body) {
     // request's part is named on the request's record (`syncRequestTasks`).
     const words = typeof b.words === "string" ? b.words.trim() : "";
     const r = await progressUpdate(env, id, (rec) => {
+      // A BUILD CARRIED ON BY ITS NEXT RUN (round 5) takes its record over.
+      if (rec && b.kind === "build" && b.take === true && rec.run !== run) { const t = takeOverRecord(rec, { run, uid }); return t ? { rec: t } : null; }
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
       const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request });
       return opened ? { rec: opened } : null;
@@ -7535,9 +7543,10 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
     return opened;
   };
   return {
-    begin({ op, words = "", picker = "", pages = [], request = null } = {}) {
+    begin({ op, words = "", picker = "", pages = [], request = null, take = false } = {}) {
       opening = {
         kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
+        ...(take === true ? { take: true } : {}),
         ...(standalone ? { task: true } : {}),
         // THE JOB'S PLACE IN ITS REQUEST (2026-10-07): its writer reads the
         // request's other parts by it, as they stand when each line is written.
@@ -7559,6 +7568,38 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
         await Promise.race([p, new Promise((ok) => { timer = setTimeout(() => ok(false), PROGRESS_CLOSE_MS); })]);
       } finally { if (timer) clearTimeout(timer); }
     },
+  };
+}
+
+/**
+ * A FIRST BUILD'S LIVE LINES (2026-10-09, parallel round 5), from its own
+ * trace: every step the build really reaches is handed here (\`step\`) and
+ * becomes milestone facts (\`buildStepFacts\`) the progress writer turns into
+ * the model's own lines, exactly as an edit's are. The record opens once the
+ * build knows its site's address (\`identify\`); steps before that are kept
+ * and sent then. A later run of the same build (the resume) takes the record
+ * over (\`take\`), so the lines carry on across the hand-over. Inert with
+ * progress off, without a lease, or without a job.
+ */
+function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) {
+  let p = null;
+  const early = [];
+  const send = (step) => {
+    const facts = buildStepFacts(step);
+    if (!facts.length) return;
+    const stage = "build-" + String(step.s || "");
+    if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
+  };
+  return {
+    identify(slug) {
+      if (p || typeof slug !== "string" || !slug) return;
+      p = makeProgress(env, ctx, { id, run, uid, slug, standalone: false });
+      if (!p) return;
+      p.begin({ op: "build", words, take });
+      for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
+    },
+    step(step) { try { if (step && typeof step === "object") send(step); } catch { /* lines never cost the build */ } },
+    close(why) { return p ? p.close(why) : Promise.resolve(); },
   };
 }
 
@@ -7762,7 +7803,7 @@ async function runProgressTask(env, task) {
 }
 
 /**
- * THE PROGRESS SWEEP, on the two-minute cron: every edit or add-on job still
+ * THE PROGRESS SWEEP, on the two-minute cron: every edit, add-on or build job still
  * running, read off the job table, and its record asked for a writer where a
  * milestone waits and nobody is on it — a message lost, a writer evicted, a
  * retry whose message never came. Inert with progress off.
@@ -7771,13 +7812,14 @@ export async function runProgressSweep(env) {
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !env.SUPABASE_SERVICE_KEY) return;
   let rows = null;
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,op,state&op=in.(edit,addon)&state=not.in.(done,failed,cancelled,lost)&order=updated_at.desc&limit=50`, { headers: svcHeaders(env) });
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,op,state&op=in.(edit,addon,build)&state=not.in.(done,failed,cancelled,lost)&order=updated_at.desc&limit=50`, { headers: svcHeaders(env) });
     if (r.ok) rows = await r.json();
   } catch (e) { console.error("progress sweep: could not read edit_jobs", errorClassForLog(e)); }
   if (!Array.isArray(rows)) return;
   const now = Date.now();
   for (const j of rows) {
-    if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || (j.op !== "edit" && j.op !== "addon") || isTerminalEdit(j.state)) continue;
+    // A FIRST BUILD'S LINES TOO (round 5): its record is asked for the same way.
+    if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || (j.op !== "edit" && j.op !== "addon" && j.op !== "build") || isTerminalEdit(j.state)) continue;
     const at = await progressRecordAt(env, j.id);
     if (!at.read || !at.rec) continue;
     // A LINE WHOSE CONFIRMATION NEVER LANDED (2026-10-06): the job's row read
@@ -14119,6 +14161,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const early = translationsBeside(pages);
       if (early) try { mark?.("lang-beside", { calls: early }); } catch { /* a trace must never break a build */ }
       try { if (genPath.via) mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); else mark?.("img"); } catch { /* a trace must never break a build */ }
+      // A DEPENDENCY STILL OUT (round 5): photographs the task began beside the
+      // pages and has not finished; the step waits for each, never buys again.
+      if (photoTask) { const open = photoTask.started - photoTask.results.length; if (open > 0) try { mark?.("photos-wait", { open }); } catch { /* a trace must never break a build */ } }
       // AND THE PICTURES NO WRITER WAS OFFERED (2026-10-08, the content-
       // preservation batch): the designer's list past `imgBudget`, named with
       // the rule that stopped them, so the answer accounts for every one.
@@ -14135,6 +14180,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           const done = await photoTask.settled;
           const placed = new Set((Array.isArray(r.bought) ? r.bought : []).map((x) => x && x.url));
           const alongside = done.filter((x) => typeof x.url === "string" && x.url && !placed.has(x.url)).map((x) => ({ key: x.d, url: x.url, alongside: true }));
+          // RECOVERED RATHER THAN BOUGHT, beside the pages or at this step.
+          const rec2 = done.filter((x) => x.recovered).length + (Number(r.recovered) || 0);
+          if (rec2) try { mark?.("photo-recovered", { n: rec2 }); } catch { /* a trace must never break a build */ }
           try { mark?.("photos-joined", { started: photoTask.started, used: done.filter((x) => x.url && placed.has(x.url)).length, unused: alongside.length }); } catch { /* a trace must never break a build */ }
           return alongside.length ? { ...r, bought: [...(r.bought || []), ...alongside], alongside: alongside.length } : r;
         }), { plan, budget: imgBudget, notOffered: imgNotOffered });
@@ -15375,7 +15423,10 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     write: (row) => writeBuildRecord(env, row),
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
   });
-  const tr = makeTrace(undefined, (snap) => rec.step(snap));
+  // THE BUILD'S LIVE LINES (round 5), from the steps this trace records.
+  const bProgress = lease ? buildProgressFor(env, ctx, { id, run: lease, uid: job.uid }) : null;
+  if (bProgress) { const ident = rec.identify.bind(rec); rec.identify = (s, u) => { ident(s, u); bProgress.identify(s); }; }
+  const tr = makeTrace(undefined, (snap) => { rec.step(snap); if (bProgress && snap && Array.isArray(snap.steps) && snap.steps.length) bProgress.step(snap.steps[snap.steps.length - 1]); });
   // THE CONTAINER'S LONGER CLOCK, AND THE STOP (stage 5b/5d): inside the
   // container the whole build runs here under `CONTAINER_BUILD_BUDGET_MS`
   // rather than the consumer's ceiling, and the budget reads the runner's
@@ -15454,6 +15505,8 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   } catch (e) {
     console.error("build queue: could not write the result for job", id, String((e && e.message) || e));
   }
+  // HANDED ON, ITS RECORD STAYS OPEN for the run that finishes it; ended, it closes.
+  if (bProgress && resultKind(out) !== "interim") await bProgress.close("ended");
   // THE ROW CLOSES LAST (stage 2c), after the answer is written — and not at
   // all on a fired build, whose lease is the container's now and whose row a
   // later look closes. A poll that reads `done` off the row and finds no
@@ -17118,7 +17171,7 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
       if (rec.state === "generated") {
         // MADE AND NOT STORED: finished on the same picture, never bought again.
         const f = await finishGenerated(env, { slug, pk, id, got, rec, owner, now });
-        if (f.url) return { state: "bought", url: f.url, reused: true, id };
+        if (f.url) return { state: "bought", url: f.url, reused: true, recovered: true, id };
         if (f.none) return { state: "none", id, why: "unusable" };
         return { state: "unknown", id, why: "store-pending" };
       }
@@ -17127,7 +17180,7 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
         const url = await purchasedPhoto(env, slug, id);
         if (url) {
           try { await write("bought", { url, found: true }, { etagMatches: got.etag }); } catch { /* the photograph is there; the next reader finds it the same way */ }
-          return { state: "bought", url, reused: true, id };
+          return { state: "bought", url, reused: true, recovered: true, id };
         }
         return { state: "unknown", id, why: "unconfirmed" };
       }
@@ -17300,7 +17353,7 @@ function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
     // THE PURCHASE IT WAITS ON (2026-10-09, round 5): an addition marks the
     // frame with it, so a later step fills exactly that frame.
     if (out.state === "unknown") return { url: null, unknown: true, id: out.id, d, k, why: out.why };
-    if (out.state === "bought") return { url: out.url };
+    if (out.state === "bought") return { url: out.url, ...(out.recovered ? { recovered: true } : {}) };
     return { url: null, ...(made.error ? { error: made.error } : {}) };
   };
 }
@@ -19065,7 +19118,11 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   // the clock, and this passed a STRING into it. Every read is guarded, so it
   // did not throw; it returned 0, and every timing on a resumed build was zero.
   // Both other call sites in this file pass `undefined`, which is the default.
-  const tr = makeTrace(undefined, (snap) => rec.step(snap));
+  // THE BUILD'S LIVE LINES CARRY ON HERE (round 5): this run takes the
+  // record the first run opened, under its own lease.
+  const rProgress = lease ? buildProgressFor(env, ctx, { id, run: lease, uid: claimed.uid || "", take: true }) : null;
+  if (rProgress) rProgress.identify(design.slug);
+  const tr = makeTrace(undefined, (snap) => { rec.step(snap); if (rProgress && snap && Array.isArray(snap.steps) && snap.steps.length) rProgress.step(snap.steps[snap.steps.length - 1]); });
   // ── AND THE BRANCH GOES IN THE TRACE, BEFORE ANY OF THE WORK ──────────────
   //
   // The result carries it too, and the result is DELETE-ON-READ and may never
@@ -19466,6 +19523,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
   } catch (e) {
     console.error("build resume: could not write the result for", id, String((e && e.message) || e));
   }
+  // THE LINES END WITH THE BUILD: its own reply says what was published.
+  if (rProgress) await rProgress.close("ended");
   // THE ROW CLOSES LAST (stage 2c), after the answer is written: a poll that
   // reads `done` off the row and finds no answer object is then a build whose
   // answer was already collected, never one still being written.
@@ -26134,6 +26193,9 @@ async function handleRequest(request, env, ctx) {
         if (rs && rs.state) pend.state = rs.state;
         if (flight) pend.flight = flight;
         if (code) pend.code = code;
+        // THE BUILD'S LIVE LINES (round 5), the model's own, from its real steps.
+        const pv = await progressViewFor(env, jid, bu.id);
+        if (pv.lines.length) pend.progress = pv.lines;
         return Response.json(pend, { status: 202 });
       }
       let out = null;
@@ -26155,6 +26217,13 @@ async function handleRequest(request, env, ctx) {
       // the comments here USED to name a sweep that does not exist, and a false
       // claim in a comment is the one that gets believed.
       try { await env.SITES_BUCKET.delete(resultKey(jid)); } catch { /* a few kilobytes */ }
+      // A BUILD HANDED ON (202) CARRIES ITS LIVE LINES TOO (round 5).
+      if (out.status === 202) {
+        const pv = await progressViewFor(env, jid, bu.id);
+        if (pv.lines.length) {
+          try { const pb = JSON.parse(out.body); if (pb && typeof pb === "object" && !Array.isArray(pb)) return Response.json({ ...pb, progress: pv.lines }, { status: 202 }); } catch { /* sent as it was */ }
+        }
+      }
       return new Response(out.body, { status: out.status, headers: { "content-type": out.type } });
     }
 

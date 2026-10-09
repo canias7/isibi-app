@@ -309,6 +309,9 @@ export function budgetStage(steps) {
     // THE TRANSLATIONS ASKED BESIDE THE IMAGE STEP (2026-10-09, round 5): the
     // pages exist; nothing is published yet.
     "lang-beside": "publish",
+    // THE IMAGE STEP WAITING ON PHOTOGRAPHS STILL BEING BOUGHT, AND ONE
+    // RECOVERED RATHER THAN BOUGHT (round 5): the pages exist.
+    "photos-wait": "publish", "photo-recovered": "publish",
     // From here the pages exist, so the note stops saying they were not written.
     img: "publish", compile: "publish", container: "publish", og: "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.

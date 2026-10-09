@@ -28,7 +28,10 @@ import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mj
 import { resultKey, readResult } from "../builder/build-job.mjs";
 import { resumeKey } from "../builder/build-resume.mjs";
 import { buildReplyFacts } from "../builder/site-reply.mjs";
-import { blockNetwork, unexpected, clearUnexpected } from "./fixtures/no-network.mjs";
+import { blockNetwork, unexpected, clearUnexpected, blockedFetch, noteUnexpected } from "./fixtures/no-network.mjs";
+import { BUILD_USER } from "./fixtures/build-route.mjs";
+import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { progressKey } from "../builder/site-progress.mjs";
 
 blockNetwork();
 
@@ -354,6 +357,184 @@ test("BLD 9 — THE COMPILE'S READY INPUTS BESIDE THE PHOTOGRAPHS (round 5): the
   assert.equal(img.log.length, PICS.length);
   assert.equal(new Set(urlsIn(published(b))).size, PICS.length);
   assert.equal(img.open(), 0);
+});
+
+// ── THE BUILD'S LIVE LINES (round 5) ────────────────────────────────────────
+//
+// The progress writer and the job row, stood in for: the row names the run the
+// record holds as its lease (the build still running), and the writer answers
+// each fact as given, so a case reads which facts a line covered — the facts
+// are the build's; the wording would be a model's.
+function progressStand(b, id) {
+  const written = [];
+  const recOf = () => { const raw = b.store.get(progressKey(id)); return raw ? JSON.parse(raw) : null; };
+  const over = async (u, init) => {
+    if (u.includes("/rest/v1/edit_jobs?select=id,uid,state,lease_owner")) {
+      const rec = recOf();
+      return json([{ id, uid: BUILD_USER.id, state: "running", lease_owner: rec ? rec.run : "none", lease_expires_at: new Date(Date.now() + 60000).toISOString(), cancel_requested_at: null, needs_review: false, op: "build" }]);
+    }
+    // EITHER PROVIDER'S WIRE: the writer is the picked model's quick one.
+    const anthropic = u.includes("/v1/messages");
+    if (anthropic || u.includes("/v1/chat/completions")) {
+      let bd = {};
+      try { bd = JSON.parse(String((init && init.body) || "{}")); } catch { bd = {}; }
+      const asked = (bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.function && bd.tool_choice.function.name))) || "";
+      if (asked === "write_progress") {
+        const text = (bd.messages || []).filter((m) => m && m.role === "user").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");
+        const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => ({ id: m[1], state: m[2], text: m[3] }));
+        written.push(facts);
+        const input = { text: "MODEL: " + facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) };
+        return json(anthropic
+          ? { stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "p1", name: "write_progress", input }] }
+          : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
+      }
+    }
+    return null;
+  };
+  return { written, recOf, over };
+}
+const taskQueue = () => ({ sent: [], async send(m) { this.sent.push(m); }, async sendBatch() { throw new Error("no batch"); } });
+const PROGRESS_ENV = { PROGRESS_REPLIES: "on", SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k" };
+/** Every progress task the build queued, delivered through the real consumer until none is left — the browser plays no part. */
+async function deliverProgress(b, q, stand, { install = true } = {}) {
+  for (let round = 0; round < 6; round++) {
+    const tasks = q.sent.filter((m) => m && m.kind === "edit-progress");
+    q.sent = q.sent.filter((m) => !(m && m.kind === "edit-progress"));
+    if (!tasks.length) return;
+    // WHILE A BUILD RUN IS STILL GOING (\`install: false\`), its own stand-in
+    // answers — it carries this one — and is never swapped out under it.
+    const prior = globalThis.fetch;
+    if (install) globalThis.fetch = async (input, init) => {
+      const u = String((input && input.url) || input || "");
+      const r = await stand.over(u, init);
+      if (r) return r;
+      if (u.includes("/rest/v1/")) return json([]);
+      noteUnexpected((init && init.method) || "GET", u, "build-parallel");
+      return new Response("no", { status: 503 });
+    };
+    try {
+      const worker = await loadWorker();
+      const ctx = makeCtx();
+      await worker.queue({ messages: tasks.map((t) => ({ body: t, ack() {}, retry() {} })) }, { ...PROGRESS_ENV, SITES_BUCKET: b, BUILD_QUEUE: q }, ctx);
+      for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
+    } finally { globalThis.fetch = install ? blockedFetch : prior; }
+  }
+}
+async function pollBuild(b, id) {
+  globalThis.fetch = async (input) => {
+    const u = String((input && input.url) || input || "");
+    if (u.includes("/auth/v1/user")) return json(BUILD_USER);
+    if (u.includes("/rest/v1/")) return json([]);
+    noteUnexpected("GET", u, "build-parallel");
+    return new Response("no", { status: 503 });
+  };
+  try {
+    const worker = await loadWorker();
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/build/" + id, { headers: { Authorization: "Bearer t" } }), { ...PROGRESS_ENV, SITES_BUCKET: b }, makeCtx());
+    return { status: res.status, body: await res.json().catch(() => null) };
+  } finally { globalThis.fetch = blockedFetch; }
+}
+const allFacts = (rec) => rec.marks.flatMap((m) => m.facts.map((f) => ({ stage: m.stage, ...f })));
+/** NO PREPARATION SAID AS PUBLISHED: a fact naming publication says it is not published yet, or that the check comes before it. */
+function noPublishClaim(facts) {
+  for (const f of facts) {
+    if (!/publish/i.test(f.text)) continue;
+    assert.match(f.text, /not published|before it is published/i, "a build fact claims publication: " + f.text);
+  }
+  assert.ok(!facts.some((f) => f.state === "applied"), "a build fact was stated as applied: " + JSON.stringify(facts));
+}
+
+test("BLD 10 — MODEL-WRITTEN BUILD PROGRESS FROM ITS REAL STEPS (round 5): the first run opens the build's record when its site is named and marks what it really did — designed, the photographs started beside the pages, the page writing out; the writer turns them into lines with the browser closed; the poll hands them over; the resume takes the record over under its own lease, says it RECOVERED the made-but-unsaved photograph instead of buying it again, says the compile comes before publication, and closes the record — no fact ever says anything is published", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images();
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  const fault = failStoreOf(b, 3);
+  const q = await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on" }, over: both });
+  assert.equal(fault.failed, 3, "the store did not fail as set up");
+  const first = stand.recOf();
+  assert.ok(first, "the first run opened no progress record");
+  assert.equal(first.op, "build");
+  assert.equal(first.slug, SLUG);
+  const stages1 = first.marks.map((m) => m.stage);
+  for (const s of ["build-design", "build-photos-alongside", "build-fired"]) assert.ok(stages1.includes(s), "missing " + s + " in " + stages1.join(","));
+  assert.ok(stages1.indexOf("build-design") < stages1.indexOf("build-fired"), "the milestones are out of order: " + stages1.join(","));
+  assert.ok(!first.closed, "the first run closed a record its resume carries on: " + JSON.stringify(first.closed));
+  assert.match(allFacts(first).find((f) => f.stage === "build-photos-alongside").text, /4 photographs/);
+  noPublishClaim(allFacts(first));
+  // THE WRITER, WITH THE BROWSER CLOSED: the tasks the build queued, delivered.
+  await deliverProgress(b, q, stand);
+  const afterFirst = stand.recOf();
+  assert.ok(afterFirst.lines.length >= 1, "no line was written for the first run's milestones");
+  assert.ok(afterFirst.lines.every((l) => /^MODEL: /.test(l.text)), "a line is not the writer's own");
+  const said = stand.written.flat().map((f) => f.text);
+  assert.ok(said.some((t) => /Designed the site/.test(t)), "the writer was not told the design: " + said.join(" | "));
+  // THE POLL: the stored hand-on answer carries the lines; so does the next look.
+  const p1 = await pollBuild(b, id);
+  assert.equal(p1.status, 202);
+  assert.ok(Array.isArray(p1.body.progress) && p1.body.progress.length >= 1, "the poll's 202 carried no lines: " + JSON.stringify(p1.body).slice(0, 300));
+  assert.ok(p1.body.progress.every((l) => /^MODEL: /.test(l.text || l)), JSON.stringify(p1.body.progress));
+  const p2 = await pollBuild(b, id);
+  assert.equal(p2.status, 202);
+  assert.ok(Array.isArray(p2.body.progress) && p2.body.progress.length >= 1, "the pending look carried no lines: " + JSON.stringify(p2.body).slice(0, 300));
+  // THE RESUME TAKES THE RECORD OVER and carries the lines on.
+  const rq = taskQueue();
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", BUILD_QUEUE: rq }, source: pageOf(PICS), over: both });
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  assert.equal(img.log.length, PICS.length, "a picture was bought twice");
+  const last = stand.recOf();
+  assert.notEqual(last.run, first.run, "the resume did not take the record over under its own lease");
+  assert.equal(last.marks.length > first.marks.length, true, "the resume added no milestone");
+  const stages2 = last.marks.slice(first.marks.length).map((m) => m.stage);
+  assert.ok(stages2.includes("build-photo-recovered"), "the recovery was not said: " + stages2.join(","));
+  assert.ok(stages2.includes("build-compile"), "the compile was not said: " + stages2.join(","));
+  assert.match(allFacts(last).find((f) => f.stage === "build-photo-recovered").text, /Recovered a photograph .* instead of buying it again/);
+  assert.ok(last.closed, "the resume did not close the record at the build's end");
+  noPublishClaim(allFacts(last));
+});
+
+test("BLD 11 — WAITING FOR A DEPENDENCY, SAID WHILE IT WAITS (round 5): the resume's image step meets photographs still being bought; the record says the pages are written and it is waiting for those four — written by the model while the purchases are still held — and only then are they released", async () => {
+  const b = buildBucket();
+  const id = newId();
+  let release;
+  const gateP = new Promise((ok) => { release = ok; });
+  const img = images({ hold: async () => { await gateP; } });
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  const q = await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on" }, over: both, credits: 40 });
+  assert.equal(img.log.length, 0);
+  await deliverProgress(b, q, stand);
+  const rq = taskQueue();
+  // HELD UNTIL THE WAIT IS ON THE RECORD AND THE WRITER HAS PUT IT INTO WORDS (or 4s, so a missing mark fails rather than hangs).
+  let waitLine = null;
+  const watcher = (async () => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4000) {
+      const rec = stand.recOf();
+      const m = rec && rec.marks.find((x) => x.stage === "build-photos-wait");
+      if (m) {
+        await deliverProgress(b, rq, stand, { install: false });
+        const now = stand.recOf();
+        waitLine = now.lines.find((l) => /Waiting for 4 photographs/.test(l.text)) || null;
+        if (waitLine) break;
+      }
+      await wait(10);
+    }
+    release();
+  })();
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", BUILD_QUEUE: rq }, source: pageOf(PICS), over: both });
+  await watcher;
+  assert.ok(waitLine, "no model line said the build was waiting for its photographs while they were held");
+  const rec = stand.recOf();
+  const wf = allFacts(rec).find((f) => f.stage === "build-photos-wait");
+  assert.equal(wf.state, "doing");
+  assert.match(wf.text, /The pages are written\. Waiting for 4 photographs still being bought/);
+  assert.equal(answerOf(b, id).body.page, "app");
+  assert.equal(img.log.length, PICS.length);
+  assert.ok(rec.closed);
+  noPublishClaim(allFacts(rec));
 });
 
 test("NET — no request in this file left the machine", () => {

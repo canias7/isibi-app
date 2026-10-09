@@ -46,9 +46,11 @@ test("RECORD 1 — the record lives beside the job's other objects under jobs/, 
   const raw2 = JSON.parse(JSON.stringify(packRecord(rec)));
   raw2.marks.push({ n: 2, stage: "x", at: "soon", facts: [], state: "pending" });
   assert.equal(readProgressRecord(raw2), null, "a malformed milestone was dropped instead of refusing the record");
-  for (const bad of [null, [], "x", { ...raw, v: 2 }, { ...raw, job: ["ab".repeat(16)] }, { ...raw, run: "" }, { ...raw, op: "build" }]) assert.equal(readProgressRecord(bad), null, JSON.stringify(bad).slice(0, 60));
+  for (const bad of [null, [], "x", { ...raw, v: 2 }, { ...raw, job: ["ab".repeat(16)] }, { ...raw, run: "" }, { ...raw, op: "deploy" }]) assert.equal(readProgressRecord(bad), null, JSON.stringify(bad).slice(0, 60));
   assert.equal(open({ run: "bad run!" }), null);
-  assert.equal(open({ op: "build" }), null);
+  assert.equal(open({ op: "deploy" }), null);
+  // A FIRST BUILD HAS ITS OWN RECORD NOW (2026-10-09, parallel round 5).
+  assert.equal(open({ op: "build" }).op, "build");
 });
 
 test("RECORD 2 — a milestone's facts get ids from the record's own counter; a milestone written twice (its answer lost) is added once; a closed record and a fact that does not read are refused", () => {
@@ -364,7 +366,7 @@ test("TASKS 1 — the record holds each task's words and, once written, its line
     { ...done, taskWords: [{ n: 0, words: "" }] },
     { ...done, taskWords: [{ n: 0, words: "a" }, { n: 0, words: "b" }] },
     { ...done, taskWords: Array.from({ length: PROGRESS_MAX_TASKS + 1 }, (_, n) => ({ n, words: "w" })), tasks: null },
-    { ...done, op: "build" },
+    { ...done, op: "deploy" },
   ]) assert.equal(readProgressRecord(JSON.parse(JSON.stringify(bad))), null, JSON.stringify(bad).slice(0, 120));
 });
 

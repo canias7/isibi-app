@@ -8950,6 +8950,16 @@ function setBuildCode(origin, got) {
   paintReactLive();
   return true;
 }
+/** The build's live lines from its poll (round 5): kept, newest last, repainted only when they changed. */
+function setBuildProgress(origin, lines) {
+  if (!siteBuild || siteOpenId !== origin || !Array.isArray(lines)) return false;
+  const list = lines.filter((l) => l && typeof l.text === 'string' && l.text).slice(-12);
+  if (!list.length) return false;
+  if (JSON.stringify(siteBuild.prog || []) === JSON.stringify(list)) return false;
+  siteBuild.prog = list;
+  paintReactLive();
+  return true;
+}
 // "4m 12s" / "48s" — the elapsed clock on the running row and in the stage panel.
 function stAgo(ms) {
   const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
@@ -9030,7 +9040,10 @@ function reactLiveStepsHTML() {
   else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', meta: clk('compiling'), state: st('compiling') }));
   if (reached('publishing')) rows.push(stStepRow({ label: past('publishing') ? 'Published' : 'Publishing', meta: clk('publishing'), state: st('publishing') }));
   if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
-  return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>';
+  // THE BUILD'S OWN LIVE LINES (2026-10-09, round 5): written by the model from
+  // the steps the build really reached — waiting on a dependency, recovering a
+  // photograph — under the fixed stage rows; the newest one is live.
+  return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>' + progressListHTML(sb.prog, true);
 }
 // ── B1: the stage panel IS the display (owner, 2026-09-07: "OK B1") ─────────
 //
@@ -13562,6 +13575,8 @@ async function followBuildJob(job, signal, origin) {
         // string somebody may put on a screen" is exactly the question that
         // belongs there rather than here.
         setBuildCode(origin, EditPoll.buildCode(p));
+        // AND ITS LIVE LINES, the model's own, from the same envelope (round 5).
+        if (Array.isArray(p.progress)) setBuildProgress(origin, p.progress);
       }
       continue;
     }
