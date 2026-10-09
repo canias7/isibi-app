@@ -144,6 +144,14 @@ const WALNUT_ROW = Object.freeze({
   record: LOAVES_NOW,
 });
 
+// THE READINESS PRESS'S ROW (2026-10-09, `lv-parallel`): the same focaccia
+// change as D1 (id 6, 4.5 -> 4.6), against `loaves` as a visitor's read
+// answered it at 2026-10-09 13:42:54Z, read whole (`0-6/7`): R2's kept
+// Walnut Levain at 6.2 and the Rye & Caraway. PUT BACK by the run itself
+// (no `restore: false`): the conditional write of 4.5 only while it reads 4.6.
+const LOAVES_R2 = Object.freeze(LOAVES_NOW.map((r) => (r.id === 5 ? Object.freeze({ ...r, price: 6.2 }) : r)));
+const FOCACCIA_ROW = Object.freeze({ ...D1_ROW, record: LOAVES_R2 });
+
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
 // What the site is kept for, read at 2026-09-27 07:59:28Z with a visitor's
@@ -820,6 +828,62 @@ export const UI_SCENARIOS = Object.freeze({
         }),
         ms: 8 * 60_000,
         path: Object.freeze([
+          Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
+          Object.freeze({ stage: "menu step with the answer", ms: 35_000 }),
+          Object.freeze({ stage: "container", ms: 0, wait: true }),
+          Object.freeze({ stage: "publish", ms: 65_000 }),
+        ]),
+      }),
+    ]),
+  }),
+  // THE READINESS PRESS (2026-10-09, prepared, not pressed; the owner
+  // approved the release and this preparation). One message of three parts
+  // whose order the preparation rules make concurrent: part 0, a footer link
+  // with no address, asks for it; part 1, a price (a data step, which reads
+  // only the tables), and part 2, a heading (a text step), are prepared beside
+  // part 0's jobs and applied while it waits. The answer resumes part 0.
+  // `expect.overlap` judges, from the request's own view, that a part was
+  // being worked out while another part's job ran. ABOUT 11-17: the message's
+  // routing 3; part 0's hand-over 0 and menu step 1-2; part 1's routing 1-3
+  // and data step 1; part 2's routing 1-3 and text step 2; the answer's
+  // routing 1. The focaccia is put back by the run (free).
+  "lv-parallel": Object.freeze({
+    site: "fold-lane-bakery", request: true,
+    budget: 20, fundsFirst: true, cap: 30, addon: true,
+    layers: Object.freeze(["text", "data", "nav"]),
+    row: FOCACCIA_ROW,
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/order", from: "Choose your loaf and a collection time", to: "Pick your loaf and a collection time" }),
+      ]),
+      social: Object.freeze({ network: "youtube", host: "youtube.com", path: "/@harbourloaf" }),
+      progress: true,
+      overlap: true,
+    }),
+    covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a link to our YouTube channel in the footer, change the Sea Salt Focaccia's price to £4.60, and change the Order page heading 'Choose your loaf and a collection time' to 'Pick your loaf and a collection time'.",
+        until: "question",
+        ms: 10 * 60_000,
+        // Part 0 first (one job at a time): run 107's TikTok part to its question.
+        path: Object.freeze([
+          Object.freeze({ stage: "routing", ms: 5_000 }),
+          Object.freeze({ stage: "the link's add-on hand-over", ms: 25_000 }),
+          Object.freeze({ stage: "container", ms: 0, wait: true }),
+          Object.freeze({ stage: "menu step, to its question", ms: 25_000 }),
+        ]),
+      }),
+      Object.freeze({
+        say: "It's youtube.com/@harbourloaf",
+        // The price and the heading may still be applying (each its own job,
+        // the heading's publish meeting a container), then the answer's step
+        // and its publish.
+        ms: 16 * 60_000,
+        path: Object.freeze([
+          Object.freeze({ stage: "the price's job", ms: 30_000 }),
+          Object.freeze({ stage: "the heading's job, before its publish", ms: 114_000 }),
+          Object.freeze({ stage: "container", ms: 0, wait: true }),
           Object.freeze({ stage: "the answer's routing", ms: 30_000 }),
           Object.freeze({ stage: "menu step with the answer", ms: 35_000 }),
           Object.freeze({ stage: "container", ms: 0, wait: true }),
@@ -2704,8 +2768,11 @@ export async function runUi(opts) {
     r.request.views++;
     r.request.final = view;
     const parts = (Array.isArray(view.parts) ? view.parts : []).map((p) => [p.n, p.status]);
+    // AND WHAT EACH PART'S PREPARATION HAD REACHED (2026-10-09): the view's own
+    // `prep`, "preparing" or "prepared", for the overlap verdict.
+    const prep = (Array.isArray(view.parts) ? view.parts : []).filter((p) => p && (p.prep === "preparing" || p.prep === "prepared")).map((p) => [p.n, p.prep]);
     const last = r.request.trail[r.request.trail.length - 1];
-    if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts });
+    if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts) || JSON.stringify(last.prep || []) !== JSON.stringify(prep)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts, ...(prep.length ? { prep } : {}) });
   };
   const wallHit = (r, key, hit) => {
     r.request.wall = hit;

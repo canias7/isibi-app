@@ -249,6 +249,29 @@ export function relationsOf(step) {
 }
 
 /**
+ * A PART WORKED OUT WHILE ANOTHER PART'S JOB RAN (2026-10-09, the readiness
+ * press): some view the canary read shows one part `preparing` or `prepared`
+ * (the request view's own reading of its preparation) while another part is
+ * `queued` or `started`. Read only from the request's own route; a press whose
+ * views carry no preparation reading at all says so, never a pass.
+ */
+export function overlapVerdict(step) {
+  const trail = step && step.request && Array.isArray(step.request.trail) ? step.request.trail : [];
+  if (!trail.length) return { ok: false, seen: [], views: 0, why: "the request was never read while it ran" };
+  const seen = [];
+  for (const v of trail) {
+    const st = Array.isArray(v && v.parts) ? v.parts : [];
+    const prep = Array.isArray(v && v.prep) ? v.prep : [];
+    for (const [n, state] of prep) {
+      const running = st.filter(([m, s]) => m !== n && (s === "queued" || s === "started")).map(([m, s]) => `part ${m} ${s}`);
+      if (running.length && (state === "preparing" || state === "prepared")) seen.push(`at ${Math.round((v.ms || 0) / 1000)} s part ${n} was ${state} while ${running.join(", ")}`);
+    }
+  }
+  const any = trail.some((v) => Array.isArray(v && v.prep) && v.prep.length);
+  return { ok: seen.length > 0, seen: seen.slice(0, 5), views: trail.length, why: seen.length ? "" : any ? "a part was prepared, but never while another part's job was queued or running" : "no view showed any part being prepared" };
+}
+
+/**
  * NO PART STARTED BEFORE A PART IT NEEDS HAD FINISHED, as the canary saw the
  * request: every view it read (`trail`, every 3 s with the tab open and every
  * 20 s with it closed) is checked against every relation. A part whose job is
@@ -935,6 +958,12 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug });
   checks.push(...o.checks);
   if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
+  // A PART WORKED OUT BESIDE ANOTHER'S JOB (2026-10-09), for a press that asks: the first message's request.
+  if (spec && spec.expect && spec.expect.overlap === true) {
+    const first = (Array.isArray(steps) ? steps : [])[0];
+    const v = first && first.sent ? overlapVerdict(first) : { ok: false, why: "the first message was not sent" };
+    checks.push({ name: "message 1: a part was being worked out while another part's job was queued or running", ok: v.ok, why: v.ok ? v.seen[0] : v.why });
+  }
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   const replies = replyChecks(steps);
