@@ -24,13 +24,13 @@ here; take a closed one out of both.**
   2026-10-09): writes one at a time per site; the image provider offers no
   idempotency or lookup (a call whose answer was lost is held); an add-on
   photograph whose token sits inside a longer string, a synchronous add-on,
-  or a legacy job with the flow off or with pictures is told and saved, never
-  placed automatically; the container's `/frames` door needs the new image;
+  a legacy job with the flow off, or a post whose files would not all be kept
+  (more than 3, or unreadable) is told and saved, never placed automatically; the container's `/frames` door needs the new image;
   photos bought outside the add-on, a request part or a build have no purchase record; a first Build's provisioning, schema, seed, compile and
   publish stay in order, and its live lines only come on the queued path; a
   page step waits behind any earlier page write; prepared or prefetched work
   no job uses is ours; targets depend on the model; no live evidence. In
-  full under Backlog below; `docs/history/2026-10-09-parallel-round-7.md`.
+  full under Backlog below; `docs/history/2026-10-09-parallel-round-8.md`.
 - **Where the design-recovery principle is still missing** (2026-10-08, the
   ninth batch): a revise's design, the page writer's failed answer, the seed
   top-up, live progress during a first build's design, the question's answer
@@ -1008,8 +1008,8 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 7,
-  2026-10-09; `docs/history/2026-10-09-parallel-round-7.md` §5).** Closed in
+- **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 8,
+  2026-10-09; `docs/history/2026-10-09-parallel-round-8.md` §6).** Closed in
   round 3: a retake reading an unreadable earlier record as "nothing
   happened", and a part's job buying while a preparation's purchase was out
   (one logical purchase per picture); the page tweak's preparation, now
@@ -1034,7 +1034,10 @@ here; take a closed one out of both.**
   frames through the site's container (`/frames`, the same code); and an
   addition posted straight to the add-on route is taken on as a one-part
   request under the flow, so its purchases are records and its frames are
-  placed by the driver. Not yet:
+  placed by the driver. Closed in round 8: such a post with attachments is
+  taken on with its files kept by the request (`storeRequestFiles`), and one
+  that only says files came is taken on with that fact, the picker told, so
+  it may ask for them. Not yet:
   - **concurrent writes to one site**: `edit_claim` takes
     `private.site_busy` for every job; changing it is SQL and was not needed
     for model work to overlap;
@@ -1055,7 +1058,8 @@ here; take a closed one out of both.**
     told). Under the deploy's default (`JOB_RUNNER_EVERYONE on`) no supported
     job runs there;
   - **an add-on that stays outside the request flow**: the synchronous route,
-    and a legacy post with the flow off or carrying pictures. Its purchases
+    a legacy post with the flow off, and one whose files would not all be
+    kept (more than 3, or unreadable). Its purchases
     are records keyed by its job (or its post's key), but nothing places its
     frames later; its reply says the frame was left empty;
   - **an add-on's photograph with no safe frame**: a token inside a longer

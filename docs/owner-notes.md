@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, parallel tasks round 7: photo recovery wherever the add-on runs, legacy posts as requests, the acceptance report, ending in `f7992fae` and its records)
+## Current handoff — read this first (2026-10-09, parallel tasks round 8: a legacy add-on with attachments kept as a request, the site-build gate, ending in `8de702d9` and its records)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,124 +11,105 @@ is in git; the dated entries further down are the full story.*
   `335396c8c0e0fbcb`), unchanged. **Balance 11**, not read again; nothing
   moved money.
 - **On the branch, unmerged**: everything since `9d6bda8a`. Codex's review
-  of `fd9c9a0d` (48 focused offline tests, all passed) is kept. The batch is
-  unchanged except for this round, and the purchase audit was not reopened.
-  This round:
-  - `f7992fae`: recovery wherever the job runs, legacy posts as requests, and
-    the tests;
+  of `6973f7aa` (the 9 runtime-path tests, all passed) is kept, and round 7's
+  fixes are unchanged. This round:
+  - `7b7b4641`: a legacy add-on with attachments, taken on with its files;
+  - `8de702d9`: one wiring guard re-anchored on the picker's new argument;
   - and the records.
 - Nothing merged, deployed or built. No paid call, no paid retest, no SQL.
 
-**1. Where each path really runs** (read from the runner flags and the fire's rules)
-- **A request part and its placement** are queued jobs. Each is **fired into
-  the site's container** when the runner flags name the owner or site
-  (`JOB_RUNNER_EVERYONE`, default on). It runs **in the Worker** (`inline`)
-  only when the flags name nobody. A container that can't take it is retried
-  3 times and then stopped with nothing charged, never run quietly in the
-  Worker.
-- **The parser** loads in the container and never in the Worker's isolate.
-  So until now, a job kept in the Worker could not mark or place a frame.
-- **An addition posted straight to the add-on route** was a job of its own
-  with no purchase record. This happens when the page acts on a routing
-  answer the router didn't take on, when an edit hands its ask over, or from
-  an older page. **The synchronous add-on** runs in the Worker on your
-  connection.
+**1. What an add-on does with attachments** (read from the code)
+- The add-on step **never reads attachment bytes, on any path**.
+- In a request, the files live with the request (`rec.files`). Questions,
+  answers that bring more files, and later parts that do read files (the
+  logo layer) reach them with no page open.
+- The page's add-on post used to send only `attached: true`, so round 7 left
+  it a job of its own, with no automatic recovery.
 
-**2. The same recovery wherever the job runs**
-- The frame code moved into one module with no dependencies,
-  `builder/pending-frames.mjs`. The container's build service now serves it
-  at a `/frames` door.
-- A job in the container reads its frames itself. **A job in the Worker asks
-  the site's container**, the same container its compile already needs.
-- If the door doesn't answer, nothing is guessed:
-  - at marking, the photograph stays pending with no frame, is told, and is
-    saved to your images when it lands;
-  - at placement, the part is held and asked again, with nothing bought
-    again, nothing published, and a truthful sentence.
+**2. The change** (`7b7b4641`)
+- **The page now sends the files** with its add-on post, as the routing call
+  does.
+- **The server keeps them with the request** through the request's own file
+  storage, the same path a routed message's files take.
+- **A post whose files would not all be kept** (more than 3, or one that
+  doesn't read) **stays a job**. It is never a request that lost files.
+- **A post that only says files came with it** (an older page) is taken on
+  with that fact:
+  - the add-on picker is told the files never arrived;
+  - **the model decides** whether the request depends on them, and if so asks
+    for them through its own question;
+  - the answer's files join the request's, and the part resumes told nothing
+    is missing.
+- **With the request flow deliberately off**, a post with files is a job of
+  its own, exactly as before.
 
-**3. Legacy posts brought into the request flow**
-- With the request flow on, a post straight to the add-on route is now
-  **taken on as a one-part request**, through the router's own acceptance,
-  under the post's key. Its purchases are records, a waiting frame is placed
-  by the existing driver, and a duplicate post finds the same request. The
-  page follows it like any request.
-- **It stays a job of its own** with the flow off or with pictures attached.
-  Its purchases are now records keyed by that job, so a redelivery never buys
-  twice. Nothing places its frames later, and its reply says the frame was
-  left empty.
+**3. The site-build gate**
+- **Run 37894981062** (`f7992fae`): shard 2 was cancelled while its runner
+  was stuck in `apt-get` installing Playwright's packages, before any test
+  ran.
+- A re-run was tried once from this session and refused (**403**, no
+  `actions: write`). It was not retried. **That run stays cancelled.** To
+  clear it, open https://github.com/canias7/isibi-app/actions/runs/37894981062
+  and press **"Re-run failed jobs"**.
+- **This round's push ran the gate again: run 37901004808 on `7b7b4641` is
+  green on every job**, all four shards and "all checks". `8de702d9` changed
+  a test only.
 
 **Tests actually run** (supplied model answers, a stand-in image service, the
-real build service spawned locally, the network blocked)
-- `test/addon-runtime-paths.test.mjs` (new), RT 1–8 and a network check:
-  - inline in the Worker with no parser, through the real `/frames` door;
-  - the door down at marking;
-  - the door down at placement and back;
-  - fired into the container;
-  - the legacy post as a request, plus its redelivery;
-  - the legacy post with the flow off;
-  - a post with pictures;
-  - the page following a request answer.
-  Each checks the final page, statuses, provider calls, publication and
-  accounting.
-- 18 existing page-filed cases now make their one page-filed post with the
-  flow off, the only way that job still exists. Their subject is unchanged.
-- **Red check** on `fd9c9a0d`, with `typescript` blocked to stand in for the
-  isolate: **5 of 5 behaviour cases fail**, and the already-working fired
-  path passes.
-- **Focused run**: the new file, both pending-photo files, `pending-frames`,
-  the seven-task batch and Build progress, all with the network blocked:
-  **`45 / 45 / 0 / 0`**.
-- **Sweep**: **12 of 12 product mutants killed**, and the control survived.
-- **Full suite**: **`10258 / 10258 / 0 / 0`** on `f7992fae` (was 10249).
-- **Required CI**: unit tests green on `f7992fae` (run 37894981092): `10258 / 10217 / 0 / 41`,
-  the same total as locally (CI skips 41). **Site build** (run 37894981062) is
-  **not green**. Shard 2 was cancelled at its 20-minute limit while its runner
-  was still installing Playwright's system packages: `apt-get` hung on a
-  package mirror from 06:43 until it was cancelled, before any test ran. The
-  other three `site-build.mjs` shards, the published-site, theme and
-  kit-and-generator checks all passed, and "all checks" failed only on the
-  cancelled shard. A session cannot re-run a workflow; it is yours to re-run.
-- **The next image, predicted** (not built): `335396c8c0e0fbcb` →
-  **`4f631d9c2e42064b`** (204 inputs). **The `/frames` door exists live only
-  after this image is built.**
+network blocked)
+- `test/addon-attachments.test.mjs` (new):
+  - AT 1: two files kept byte for byte, the page closed, the photograph's
+    store failing, the files still kept while the part waits, then the
+    delayed placement once;
+  - AT 2: a duplicate post, with the files written once;
+  - AT 3: a post with no files: the picker asks, the answer brings the files,
+    which join the request, and the delayed placement follows;
+  - AT 4: an unreadable file, so the post stays a job;
+  - AT 5: the flow off, so a job;
+  - AT 6: the page's own post carries the files;
+  - a network check.
+  Each checks the files, page, statuses, provider calls, publication and
+  accounting: the addition is never rerun and there is one purchase.
+- RT 7 now covers more files than one request carries.
+- **Red check** on `6973f7aa`: **4 of 4 behaviour cases fail**. The two that
+  describe behaviour that already held pass.
+- **Focused run** (with the seven-task and Build-progress files):
+  **`52 / 52 / 0 / 0`**.
+- **Sweep**: **9 of 9 killed**, and the control survived.
+- **Full suite**: **`10265 / 10265 / 0 / 0`** on `8de702d9`.
+- **CI**:
+  - unit tests on `8de702d9` (run 37901724877): green, `10265 / 10224 / 0 /
+    41`;
+  - unit tests on `7b7b4641`: red on the guard fixed in `8de702d9`;
+  - site build on `7b7b4641` (run 37901004808): green.
+- **The next image, predicted** (not built): **`f17b91256b43680f`**.
 
-**Acceptance report**
-- **Supported (offline proof only)**:
-  - a request part or placement, in the container or in the Worker;
-  - a legacy post taken on as a request;
-  - every equivalent JSX form, shared components, late purchases,
-    redelivery, and changed or removed frames (rounds 5–6, kept).
-- **Genuine blockers**:
-  1. No live evidence at all, and the fired path's container side is
-     simulated in-process.
-  2. The door needs the new image. Until then, a job kept in the Worker
-     marks nothing: pending with no frame, told. Under the default flags none
-     runs there.
-  3. These are told and saved, never placed automatically:
-     - the synchronous add-on;
-     - a legacy job with the flow off or with pictures;
-     - a token inside a longer string;
-     - a door that is down when the addition marks.
-  4. The image provider has no idempotency.
-  5. The finite-clock wait still needs a live look.
-- **The smallest live validation**, after your merge, the image build and
-  the free runtime check:
-  - one paid add-on on `fold-lane-bakery` — "add a gallery page with one
-    photo of the workshop bench" — expected route `addon`;
-  - checked for: it ran in the container, one photograph bought and placed,
-    one publish, and its charge;
-  - about 3–13 credits, then the free restore.
-  The pending paths can't be forced live without fault injection, so they
-  stay offline-only proof.
+**Remaining acceptance blockers**
+1. No live evidence at all. Whether a real picker asks for missing files is
+   the model's judgment, shown only with a supplied answer.
+2. The `/frames` door needs the new image (round 7).
+3. Told and saved, never placed automatically:
+   - the synchronous add-on;
+   - a legacy job with the flow off;
+   - a post whose files would not all be kept;
+   - a token inside a longer string;
+   - a door that is down when the addition marks.
+4. The add-on step still reads no attachment bytes. Files are kept and reach
+   questions and later parts, but using your own picture inside an addition
+   is not a feature here and was not added.
+5. The image provider has no idempotency. The finite-clock wait still needs a
+   live look.
+6. `f7992fae`'s own site-build run stays cancelled unless you re-run it.
 
 **Yours to decide**
 - The review of this round (and the earlier unmerged batches).
-- Any release: one merge, one image build, its own runtime check, then the
-  one paid add-on above.
+- Whether to re-run run 37894981062.
+- Any release: one merge, one image build, its runtime check, then round 7's
+  one paid add-on check (about 3–13 credits).
 
-**Links**: `docs/history/2026-10-09-parallel-round-7.md` (this round, with
-the execution table), `docs/history/2026-10-09-parallel-round-6.md`,
-`docs/request-flow.md`, `docs/backlog.md`.
+**Links**: `docs/history/2026-10-09-parallel-round-8.md` (this round),
+`docs/history/2026-10-09-parallel-round-7.md`, `docs/request-flow.md`,
+`docs/backlog.md`.
 
 ## How you like things done
 
@@ -137,6 +118,30 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-09 — Parallel tasks round 8: a legacy add-on with attachments kept as a request, and the site-build gate (on the branch, `8de702d9`; nothing merged, deployed, built or paid)
+
+You asked me to finish the attachment entry point and resolve the site-build
+gate.
+
+- **A legacy add-on with attachments** now keeps its files with the request,
+  the same way a routed message's are kept, so it gets automatic photo
+  recovery. Files that wouldn't all be kept leave it a job, never a request
+  that lost some.
+- **A post that only says files came** is taken on with that fact. The model
+  may ask for the files, and the answer's files join the request.
+- **The flow deliberately off** stays as before.
+- **The gate**: the cancelled shard was a runner stuck installing packages.
+  My one re-run attempt was refused (403). This round's push ran the gate
+  green on every job.
+- Results:
+  - red check: 4 of 4;
+  - focused run: 52 of 52;
+  - sweep: 9 of 9;
+  - suite: 10265 of 10265;
+  - unit CI and site build: green.
+- Supplied model answers only; nothing live. Full record:
+  `docs/history/2026-10-09-parallel-round-8.md`.
 
 ## 2026-10-09 — Parallel tasks round 7: photo recovery wherever the add-on runs, legacy posts as requests (on the branch, `f7992fae`; nothing merged, deployed, built or paid)
 

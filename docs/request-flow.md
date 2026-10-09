@@ -105,9 +105,13 @@
   acting on a routing answer the router did not take on, an edit's
   hand-over, an older page — is accepted as a one-part request
   (`addonAsRequest`, through `acceptRequest`, under the post's key) and the
-  page follows it. With the flow off, no request key, or pictures in the
-  post, it stays a job of its own; its purchases are records keyed by that
-  job, and nothing places its frames later.
+  page follows it. Its files come with the post and are kept by the request
+  (round 8, `storeRequestFiles`); a post that only says files came is taken on
+  with that fact (`attached`), its part told `filesMissing`, and the add-on
+  picker may ask for them — an answer's files join the request's. With the
+  flow off, no request key, or files that would not all be kept, it stays a
+  job of its own; its purchases are records keyed by that job, and nothing
+  places its frames later.
 - **An uncertain preparation's answers are reused** (round 5). A
   preparation that ended uncertain hands its own recorded routing and step
   answers to the part's jobs, with the earlier attempt's; only identical
