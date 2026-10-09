@@ -16,6 +16,7 @@ import {
   CONSUMER_MS, BUILD_BUDGET_MS, PUBLISH_RESERVE_MS, CONTAINER_CALL_MS, makeBudget,
 } from "../builder/build-budget.mjs";
 import { photoWait, imageNote, PHOTO_FLOOR_MS } from "../builder/site-images.mjs";
+import { makeEditBudget, EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS } from "../builder/edit-job.mjs";
 import { buildPathFn } from "./fixtures/build-path.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -153,6 +154,18 @@ test("A PLACEHOLDER SAYS SO, so nothing mistakes the stand-in for the site", () 
   // of page carries it.
   assert.equal([...CODE.matchAll(/content=\\"placeholder/g)].length, 1,
     "something other than the placeholder claims the mark");
+});
+
+test("THE ADD-ON'S PHOTOGRAPHS GIVE WAY TO ITS JOB'S CLOCK (round 6): an edit job's budget answers `remaining()`, not `remainingMs()`; read as no clock, the add-on waited for every shot past its finite deadline. The real edit budget is read now; a container's infinite one still waits for all; no clock still waits for all", () => {
+  const job = photoWait(makeEditBudget(EDIT_JOB_MS));
+  assert.equal(job.wait, "race", "a finite edit job's clock was not read");
+  assert.ok(job.ms > 0 && job.ms <= EDIT_JOB_MS - PUBLISH_RESERVE_MS, "the wait does not end before the publish reserve: " + job.ms);
+  assert.equal(job.buy, true);
+  const late = photoWait(makeEditBudget(PUBLISH_RESERVE_MS + 1000));
+  assert.deepEqual([late.wait, late.buy], ["none", false], "a job with no time left still bought");
+  assert.equal(photoWait(makeEditBudget(CONTAINER_EDIT_BUDGET_MS)).wait, "all", "a container (no limit) stopped waiting");
+  assert.equal(photoWait(null).wait, "all");
+  assert.equal(photoWait({}).wait, "all");
 });
 
 test("THE PICTURES GIVE WAY TO THE CLOCK — driven, all three answers", () => {

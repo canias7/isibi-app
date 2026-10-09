@@ -842,8 +842,18 @@ export function addonPagesFacts({ added = [], changed = [], linked = [] } = {}) 
 }
 
 /** The add-on's publish starting. */
-export function addonPublishFacts() {
-  return [fact("doing", "Publishing the site with the additions now.")];
+export function addonPublishFacts(pending = []) {
+  const out = [fact("doing", "Publishing the site with the additions now.")];
+  // A PHOTOGRAPH STILL WAITING (round 6) is said apart from the addition being
+  // published: the page goes live without it, and it is not on the page yet.
+  for (const p of (Array.isArray(pending) ? pending : []).slice(0, 6)) {
+    const d = flat(p && p.d);
+    if (!d) continue;
+    out.push(p && p.located === false
+      ? fact("notdone", "The photograph \"" + d + "\" is not on the page: its purchase is still being confirmed, and no single place on the page could be tied to it, so it will not be put in by itself.")
+      : fact("next", "The photograph \"" + d + "\" is not on the page yet: its purchase is still being confirmed. The page goes up with its frame kept empty, and the photograph goes in by itself once confirmed."));
+  }
+  return out;
 }
 
 // ── THE CALL ────────────────────────────────────────────────────────────────

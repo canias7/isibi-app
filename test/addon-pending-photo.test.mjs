@@ -80,6 +80,8 @@ const BASE = (o = {}) => ({
   ...o,
 });
 const gallery = (P) => P.page("gallery.tsx") || "";
+/** A frame marked for a purchase: the empty literal and the purchase's mark (round 6). */
+const MARKED = /\{"" \/\*pending-photo:[0-9a-f]{24}\*\/\}/;
 /** The addition's own model work: its designers and its page writer. */
 const additionCalls = (P) => ({ adds: calls(P, T.adds), design: calls(P, T.design), pages: calls(P, T.pages) });
 
@@ -96,7 +98,7 @@ test("APH 1 — the photograph is MADE but cannot be stored during the addition:
     assert.equal(held.published, true);
     // THE PAGE: live, its frame empty and marked with the purchase.
     const id = purchases(P)[0].id;
-    assert.match(gallery(P), new RegExp('src="" data-pending-photo="' + id + '"'), gallery(P));
+    assert.match(gallery(P), new RegExp('src=\\{"" /\\*pending-photo:' + id + '\\*/\\}'), gallery(P));
     assert.doesNotMatch(gallery(P), /@@IMG/);
     // PROVIDER AND ASSET: one call, the made picture kept (generated), nothing stored.
     assert.equal(P.imageLog.length, 1);
@@ -123,8 +125,8 @@ test("APH 1 — the photograph is MADE but cannot be stored during the addition:
     await tick(P);
     const s2 = await settle(P, r.key);
     assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
-    assert.match(gallery(P), /<SafeImage src="\/u\/[^"]+\.jpg" alt="the workshop bench"/);
-    assert.doesNotMatch(gallery(P), /data-pending-photo/);
+    assert.match(gallery(P), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/);
+    assert.doesNotMatch(gallery(P), /pending-photo/);
     assert.equal(P.imageLog.length, 1, "the photograph was bought again");
     assert.equal(uploads(P).length, 1);
     assert.deepEqual(additionCalls(P), before, "the addition's model work ran again");
@@ -142,7 +144,7 @@ test("APH 2 — the photograph's call is LOST after it left: unknown — the gal
     const s1 = await settle(P, r.key);
     assert.deepEqual(statuses(s1.rec), ["done", "uncertain"]);
     assert.equal(purchases(P)[0].state, "buying");
-    assert.match(gallery(P), /data-pending-photo="[0-9a-f]{24}"/);
+    assert.match(gallery(P), MARKED);
     const before = additionCalls(P);
     await tick(P);
     assert.equal(P.record(r.key).parts[1].status, "uncertain");
@@ -151,7 +153,7 @@ test("APH 2 — the photograph's call is LOST after it left: unknown — the gal
     assert.equal(b.status, 200, JSON.stringify(b.body));
     const s2 = await settle(P, r.key);
     assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
-    assert.match(gallery(P), /<SafeImage src="\/u\/[^"]+\.jpg" alt="the workshop bench"/);
+    assert.match(gallery(P), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/);
     assert.equal(P.imageLog.length, 2, "provider calls: the lost one and the one the customer asked for");
     assert.equal(uploads(P).length, 1);
     assert.deepEqual(additionCalls(P), before, "the addition's model work ran again");
@@ -166,9 +168,9 @@ test("APH 3 — the marked frame is GONE when the placement runs (a later change
     await settle(P, r.key);
     // THE FRAME IS TAKEN OFF THE PAGE BEFORE THE STORE WORKS AGAIN.
     const key = "source/" + P.slug + "/pages.json";
-    const pages = JSON.parse(P.objects.get(key).body).map((p) => (p.path === "gallery.tsx" ? { ...p, source: p.source.replace(/<SafeImage src="" data-pending-photo="[0-9a-f]{24}"[^>]*\/>/, "") } : p));
+    const pages = JSON.parse(P.objects.get(key).body).map((p) => (p.path === "gallery.tsx" ? { ...p, source: p.source.replace(/<SafeImage src=\{"" \/\*pending-photo:[0-9a-f]{24}\*\/\}[^>]*\/>/, "") } : p));
     P.objects.set(key, { ...P.objects.get(key), body: JSON.stringify(pages), etag: "e-frame-gone" });
-    assert.doesNotMatch(gallery(P), /data-pending-photo/);
+    assert.doesNotMatch(gallery(P), /pending-photo/);
     await tick(P);
     const s2 = await settle(P, r.key);
     assert.deepEqual(statuses(s2.rec), ["done", "partial"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
@@ -211,7 +213,7 @@ test("APH 5 — THE PURCHASE CANNOT BE READ WHEN THE PLACEMENT RUNS: the driver 
     await pump(P, { max: placements });
     const mid = P.record(r.key).parts[1];
     assert.equal(mid.status, "uncertain", "a placement that could not read its purchase was not held again: " + JSON.stringify([mid.status, mid.why, mid.notDone]));
-    assert.match(gallery(P), /data-pending-photo="[0-9a-f]{24}"/, "the marked frame was lost");
+    assert.match(gallery(P), MARKED, "the marked frame was lost");
     assert.equal(publishedOf(P, r.key, 1), pubBefore, "something was published while the purchase was unknown");
     const placementJob = runJobs(P, r.key, 1).pop();
     assert.deepEqual(reserveOf(P, placementJob.id).filter((x) => x > 0), [], "the held placement was charged");
@@ -219,7 +221,7 @@ test("APH 5 — THE PURCHASE CANNOT BE READ WHEN THE PLACEMENT RUNS: the driver 
     await tick(P);
     const s2 = await settle(P, r.key);
     assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
-    assert.match(gallery(P), /<SafeImage src="\/u\/[^"]+\.jpg" alt="the workshop bench"/);
+    assert.match(gallery(P), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/);
     assert.equal(P.imageLog.length, 1, "the photograph was bought again");
   });
 });

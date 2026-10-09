@@ -59,6 +59,16 @@ import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
+/** Why a waiting photograph was not placed, from the placement's own reason (round 6). */
+function notPlacedWhy(x) {
+  const saved = x.saved === true ? " The photograph itself was saved to your images." : "";
+  if (x.why === "frame-gone") return "its empty frame is no longer on the page, so it was not placed anywhere else." + (saved || " Nothing was bought for it.");
+  if (x.why === "frame-changed") return "its frame was changed after the addition, so what is there now was kept and not overwritten." + (saved || " Nothing was bought for it.");
+  if (x.why === "no-frame") return "no single place on the page could be safely tied to it, so it was not put in by a guess." + (saved || " Nothing was bought for it.");
+  if (x.why === "unverified") return "its frame could not be checked safely, so nothing was changed." + saved;
+  return "it could not be bought, so its frame stays empty.";
+}
+
 export function repliesOn(env) {
   return !!(env && typeof env.MODEL_REPLIES === "string" && env.MODEL_REPLIES.trim().toLowerCase() === "on");
 }
@@ -933,7 +943,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       if (layer === "rules") F.add("note", "It took effect at once; nothing needed rebuilding.");
       // A WAITING FRAME THAT COULD NOT BE FILLED (2026-10-09, round 5).
       (Array.isArray(e.notPlaced) ? e.notPlaced : []).forEach((x, i) => {
-        if (x && typeof x.d === "string") F.add("not-done", "The photograph " + quote(x.d) + " was not put on the page: " + (x.why === "frame-gone" ? "its empty frame is no longer there, so nothing was bought for it." : "it could not be bought, so its frame stays empty.") , "notPlaced:" + i);
+        if (x && typeof x.d === "string") F.add("not-done", "The photograph " + quote(x.d) + " was not put on the page: " + notPlacedWhy(x), "notPlaced:" + i);
       });
     }
     outcomeFacts(F, e);
@@ -1146,7 +1156,14 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     // A FRAME WAITING ON ITS PHOTOGRAPH (2026-10-09, round 5): published empty
     // and marked, filled later by itself — not done yet, and not given up.
     (Array.isArray(a.pendingPhotos) ? a.pendingPhotos : []).forEach((pp, i) => {
-      if (pp && typeof pp.d === "string" && pp.d) F.add("not-done", "The photograph " + quote(pp.d) + " is not on the page yet: it was being bought and whether that purchase went through cannot be told yet, so it was not bought again. Its frame is on the published page, empty and kept for it; once the purchase is confirmed the photograph is put into that frame by itself, without redoing the addition, and nothing else needs to be asked for.", "pendingPhotos:" + i);
+      if (!(pp && typeof pp.d === "string" && pp.d)) return;
+      const stillOut = pp.why === "in-flight"
+        ? "it was still being made when the addition was published, so it was not bought again."
+        : "it was being bought and whether that purchase went through cannot be told yet, so it was not bought again.";
+      // WITH NO FRAME SAFELY FOUND (round 6): the purchase is still followed,
+      // and the customer is told it will not be placed by itself.
+      if (pp.located === false) F.add("not-done", "The photograph " + quote(pp.d) + " is not on the page: " + stillOut + " I could not tie it to one place on the page, so once its purchase is known it will not be put in by itself — I will say whether it was saved to your images, and nothing will be placed by a guess.", "pendingPhotos:" + i);
+      else F.add("not-done", "The photograph " + quote(pp.d) + " is not on the page yet: " + stillOut + " Its frame is on the published page, empty and kept for it; once the purchase is confirmed the photograph is put into that frame by itself, without redoing the addition, and nothing else needs to be asked for.", "pendingPhotos:" + i);
     });
     for (const k of (Array.isArray(a.kept) ? a.kept : [])) {
       if (!k || !k.path) continue;

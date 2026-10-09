@@ -1589,7 +1589,8 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   // round 3): either way the reason is destructured, and the purchase buyer
   // hands `makeSitePhoto`'s own reason through.
   // ROUND 5: \`recovered\` rides beside it, for the build's live lines.
-  assert.match(buy, /const \{ url, error, unknown, id, d, k, why, recovered \} = buy \? await buy\(prompt\) : await makeSitePhoto\(/, "the per-shot reason is destructured away");
+  // ROUND 6: the buyer is also handed the shot's identity callback.
+  assert.match(buy, /const \{ url, error, unknown, id, d, k, why, recovered \} = buy \? await buy\(prompt(?:, \(x\) => inflight\.set\(token, x\))?\) : await makeSitePhoto\(/, "the per-shot reason is destructured away");
   const buyer = worker.slice(worker.indexOf("function purchaseBuyer("), worker.indexOf("\n}\n", worker.indexOf("function purchaseBuyer(")));
   assert.match(buyer, /made = await makeSitePhoto\(env, slug, dd, meta\)/, "the purchase buyer does not make the photograph through makeSitePhoto");
   assert.match(buyer, /made\.error \? \{ error: made\.error \}/, "the purchase buyer drops makeSitePhoto's reason");

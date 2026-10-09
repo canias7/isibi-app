@@ -169,7 +169,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, pendingAttr, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, fillPending, hasPendingMark, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2785,7 +2785,7 @@ async function makeSitePhoto(env, slug, prompt, meta = null) {
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false }) {
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, parse = null }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -2890,6 +2890,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   const pendIds = new Map();
   const pendInfo = new Map();
   let pendingOut = [];
+  // EACH SHOT'S PURCHASE, KNOWN AS IT STARTS (round 6): a shot still out when
+  // the wait ends is pending work under this identity, not a lost picture.
+  const inflight = new Map();
   const done = (urls, rest) => ({
     pages: applyImages(pages, urls), parts: applyImages(parts, urls),
     ...(pendingOut.length ? { pending: pendingOut } : {}),
@@ -2963,7 +2966,7 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
       // round 3): a picture already bought for the same purchase is reused,
       // and one begun and not known to have ended is not bought again
       // (`unknown`) — told as unconfirmed, never as refused.
-      const { url, error, unknown, id, d, k, why, recovered } = buy ? await buy(prompt) : await makeSitePhoto(env, slug, prompt);
+      const { url, error, unknown, id, d, k, why, recovered } = buy ? await buy(prompt, (x) => inflight.set(token, x)) : await makeSitePhoto(env, slug, prompt);
       settledTokens.add(token);
       if (recovered && url) recoveredCount++;
       if (unknown) {
@@ -3051,15 +3054,36 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   }
   // A SNAPSHOT AT THE WAIT'S END: what the provider refused, and what had not
   // answered yet — the second is reported as unresolved, never as refused.
+  // A SHOT STILL OUT WHEN THE WAIT ENDED (round 6, the recorded timing gap):
+  // under `pend` it is pending work under the identity it started with — its
+  // eventual photograph is placed into its frame — never swept as lost.
+  if (pend) {
+    for (const x of plan.shots) {
+      if (settledTokens.has(x.token) || urls.has(x.token) || pendIds.has(x.token)) continue;
+      const ident = inflight.get(x.token);
+      if (!ident || typeof ident.id !== "string") continue;
+      pendIds.set(x.token, ident.id);
+      pendInfo.set(x.token, { id: ident.id, d: String(ident.d || ""), k: Number.isInteger(ident.k) ? ident.k : 0, why: "in-flight", key: shotKey(x.prompt) });
+    }
+  }
   const refused = plan.shots.filter((x) => refusedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
-  const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
+  const unresolved = plan.shots.filter((x) => !settledTokens.has(x.token) && !urls.has(x.token) && !pendIds.has(x.token)).map((x) => shotKey(x.prompt));
   const unconfirmed = plan.shots.filter((x) => unconfirmedTokens.has(x.token) && !urls.has(x.token)).map((x) => shotKey(x.prompt));
-  // THE FRAMES WAITING ON THEIR PURCHASE, MARKED BEFORE THE SWEEP (`pend`).
+  // THE FRAMES WAITING ON THEIR PURCHASE, MARKED BEFORE THE SWEEP (`pend`),
+  // through the page's own syntax tree (round 6). Every purchase waited on is
+  // pending work: with the frames it was marked in, or — where no frame could
+  // be safely found — with none (`located: false`) and why, never dropped.
   if (pend && pendIds.size) {
-    const mp = markPending(pages, pendIds);
-    const mq = markPending(parts, pendIds);
+    const mp = markPending(pages, pendIds, parse);
+    const mq = markPending(parts, pendIds, parse);
     pages = mp.pages; parts = mq.pages;
-    pendingOut = [...mp.marked, ...mq.marked].map((m) => ({ ...pendInfo.get(m.token), file: m.file }));
+    const marks = [...mp.marked, ...mq.marked];
+    const lost = [...mp.unlocated, ...mq.unlocated];
+    const pendingOf = (token, files, notHere) => ({
+      ...pendInfo.get(token), files, file: files[0] || "", located: files.length > 0,
+      ...(notHere.length ? { unlocated: notHere.map((m) => ({ file: m.file, why: m.why })) } : {}),
+    });
+    pendingOut = [...pendIds.keys()].map((token) => pendingOf(token, marks.filter((m) => m.token === token).map((m) => m.file), lost.filter((m) => m.token === token)));
   }
   return done(urls, {
     made: urls.size,
@@ -17236,7 +17260,7 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
 /** An addition's marked frames to fill, read strictly from a job's body (round 5): `{ id, d, k }` each. */
 function readPlace(v) {
   return (Array.isArray(v) ? v : []).filter((x) => x && typeof x === "object" && typeof x.id === "string" && /^[0-9a-f]{24}$/.test(x.id) && typeof x.d === "string" && Number.isInteger(x.k) && x.k >= 0)
-    .slice(0, 12).map((x) => ({ id: x.id, d: x.d.slice(0, 300), k: x.k }));
+    .slice(0, 12).map((x) => ({ id: x.id, d: x.d.slice(0, 300), k: x.k, located: x.located !== false }));
 }
 
 /**
@@ -17269,7 +17293,12 @@ async function purchasesKnown(env, slug, key, n, held) {
   for (const h of held) {
     const pk = purchaseKey(slug, key, n, h.id);
     const got = await readJsonTried(env, pk);
-    if (!got.ok || !got.obj || got.malformed) return false;
+    if (!got.ok || got.malformed) return false;
+    // NEVER CLAIMED (round 6): a purchase whose identity was kept when a wait
+    // ended before its claim landed. No record means nothing was begun, so it
+    // is known — the next step claims it in one conditional write and buys it
+    // once; a late claim from the original call then finds that and stops.
+    if (!got.obj) continue;
     const rec = readPurchase(got.v);
     if (!rec || rec.id !== h.id) return false;
     if (rec.state === "generated") {
@@ -17341,10 +17370,16 @@ async function partPurchases(env, { slug, key, n }) {
  */
 function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
   const seen = new Map();
-  return async (prompt) => {
+  return async (prompt, onIdentity = null) => {
     const d = String(prompt || "");
     const k = seen.get(d) || 0;
     seen.set(d, k + 1);
+    // ITS IDENTITY, TOLD BEFORE ANY WAITING (2026-10-09, round 6): the
+    // purchase's id is fixed by whose it is and what it is, so a caller whose
+    // wait ends while this call is still out can keep it as pending work and
+    // place its eventual result. The claim itself is one conditional write, so
+    // a later reader can never buy it a second time.
+    if (typeof onIdentity === "function") { try { onIdentity({ id: await purchaseId(slug, key, n, d, k), d, k }); } catch { /* the call goes on; only the early identity is lost */ } }
     // THE SAME PURCHASE STILL IN FLIGHT IN THIS INVOCATION (a build's photo
     // task, begun beside its pages): waited for, never begun a second time.
     if (pending && pending.has(d + "\n" + k)) { try { await pending.get(d + "\n" + k); } catch { /* read on its record below */ } }
@@ -29329,25 +29364,49 @@ async function handleRequest(request, env, ctx) {
               const plParts = await editParts();
               let plFiles = (plParts.ok ? editableFiles(eSrc, plParts.parts) : eSrc).map((f) => ({ ...f }));
               let plBalance = await readCreditsFor(env, eJob.uid).catch(() => 0);
+              // THE PAGE'S OWN PARSER (round 6): a frame is filled only where the
+              // tree shows its mark still right after the empty literal the
+              // addition left — never by a guess at where it went.
+              const plParse = await tweakParser();
               const plHeld = [], plPlaced = [], plNot = [];
+              const plPurchase = (pp, buyIt) => purchaseOnce(env, {
+                slug: ownerSlug, key: eJob.purchase.part.key, n: eJob.purchase.part.n, d: pp.d, k: pp.k, owner: "job:" + eJob.id,
+                // WHERE THERE IS NO FRAME TO FILL, the purchase is only READ: one
+                // that landed is reported saved, and nothing is ever begun.
+                mayBuy: async () => buyIt,
+                generate: async (dd, meta) => {
+                  if (!imagesAffordable(1, { balance: plBalance, usd: SITE_PHOTO_USD })) return null;
+                  const { url: plUrl } = await makeSitePhoto(env, ownerSlug, dd, meta);
+                  if (plUrl) plBalance -= SITE_PHOTO_USD / CREDIT_USD;
+                  return plUrl;
+                },
+              });
+              /** A purchase with no frame to fill: read, never bought; told as saved when it landed. */
+              const plNoFrame = async (pp, why) => {
+                const out = await plPurchase(pp, false);
+                if (out.state === "unknown") { plHeld.push({ id: out.id, d: pp.d, why: out.why }); return; }
+                plNot.push({ d: pp.d, why, ...(out.state === "bought" ? { saved: true } : {}) });
+              };
               for (const pp of place) {
-                const mark = pendingAttr(pp.id);
-                const at = plFiles.findIndex((f) => String(f.source || "").includes(mark));
+                // NO FRAME COULD BE SAFELY FOUND WHEN THE ADDITION PUBLISHED.
+                if (pp.located === false) { await plNoFrame(pp, "no-frame"); continue; }
+                const where = plFiles.map((f, i) => (hasPendingMark(f.source, pp.id) ? i : -1)).filter((i) => i >= 0);
                 // THE FRAME IS GONE (a later edit took it): nothing is bought for it.
-                if (at < 0) { plNot.push({ d: pp.d, why: "frame-gone" }); continue; }
-                const out = await purchaseOnce(env, {
-                  slug: ownerSlug, key: eJob.purchase.part.key, n: eJob.purchase.part.n, d: pp.d, k: pp.k, owner: "job:" + eJob.id,
-                  generate: async (dd, meta) => {
-                    if (!imagesAffordable(1, { balance: plBalance, usd: SITE_PHOTO_USD })) return null;
-                    const { url: plUrl } = await makeSitePhoto(env, ownerSlug, dd, meta);
-                    if (plUrl) plBalance -= SITE_PHOTO_USD / CREDIT_USD;
-                    return plUrl;
-                  },
-                });
+                if (!where.length) { await plNoFrame(pp, "frame-gone"); continue; }
+                // CHECKED BEFORE ANY PURCHASE: a frame changed after the addition
+                // (the customer's own picture in it, say) is left exactly as it is.
+                const dry = where.map((i) => fillPending(plFiles[i].source, pp.id, "/u/check.jpg", plParse));
+                if (dry.some((r) => r.unverified)) { await plNoFrame(pp, "unverified"); continue; }
+                if (!dry.some((r) => r.filled > 0)) { await plNoFrame(pp, "frame-changed"); continue; }
+                const out = await plPurchase(pp, true);
                 if (out.state === "unknown") { plHeld.push({ id: out.id, d: pp.d, why: out.why }); continue; }
                 if (out.state !== "bought") { plNot.push({ d: pp.d, why: "not-bought" }); continue; }
-                plFiles[at] = { ...plFiles[at], source: String(plFiles[at].source).split(mark).join('src="' + out.url + '"') };
-                plPlaced.push({ d: pp.d, file: plFiles[at].path });
+                const into = [];
+                for (const i of where) {
+                  const r = fillPending(plFiles[i].source, pp.id, out.url, plParse);
+                  if (r.filled > 0) { plFiles[i] = { ...plFiles[i], source: r.source }; into.push(plFiles[i].path); }
+                }
+                plPlaced.push({ d: pp.d, file: into[0], files: into });
               }
               if (plHeld.length) return heldPurchase(plHeld);
               if (!plPlaced.length) {
@@ -36048,6 +36107,10 @@ async function handleRequest(request, env, ctx) {
                   // held on it: once the purchase is known, a placement step
                   // fills that frame — the addition is never made again.
                   pend: !!(aJob && aJob.purchase),
+                  // THE PAGE'S OWN PARSER finds each frame (round 6), whatever
+                  // valid TSX the writer used; without one, a frame is never
+                  // guessed at and its purchase stays pending with no frame.
+                  parse: aJob && aJob.purchase ? await tweakParser() : null,
                 });
                 aPendingPhotos = Array.isArray(aPhotos.pending) ? aPhotos.pending : [];
                 const aMarked = new Set(aPendingPhotos.map((x) => x.key));
@@ -36295,7 +36358,7 @@ async function handleRequest(request, env, ctx) {
               return got;
             };
             aMark("publish:1", "start", { pages: aMerge.pages.length, parts: aParts ? aParts.length : 0 });
-            if (aJob && aJob.progress) aJob.progress.mark("publish", addonPublishFacts());
+            if (aJob && aJob.progress) aJob.progress.mark("publish", addonPublishFacts(aPendingPhotos));
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
               label: versionLabel({ revise: true, changeNote: aInstruction }),
@@ -36814,7 +36877,11 @@ async function handleRequest(request, env, ctx) {
               // FRAMES PUBLISHED MARKED, EACH WAITING ON A PURCHASE NOBODY CAN
               // TELL YET (2026-10-09, round 5): the request holds the part on
               // them and fills each frame once its purchase is known.
-              pendingPhotos: aPendingPhotos.length ? aPendingPhotos.map((x) => ({ id: x.id, d: String(x.d).slice(0, 300), k: x.k, file: x.file, why: x.why })) : undefined,
+              pendingPhotos: aPendingPhotos.length ? aPendingPhotos.map((x) => ({
+                id: x.id, d: String(x.d).slice(0, 300), k: x.k, file: x.file, why: x.why,
+                files: Array.isArray(x.files) ? x.files.slice(0, 12) : [], located: x.located !== false,
+                ...(Array.isArray(x.unlocated) && x.unlocated.length ? { unlocated: x.unlocated.slice(0, 12) } : {}),
+              })) : undefined,
               // EACH KIND SET ASIDE AND CARRIED ON IN ITS OWN WORDS (on `deferred`).
               setAside: aCarried.length ? aCarried.slice() : undefined,
               // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED

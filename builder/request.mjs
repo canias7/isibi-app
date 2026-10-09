@@ -1043,7 +1043,12 @@ export function pendingOf(body) {
   const list = plain(body) && Array.isArray(body.pendingPhotos) ? body.pendingPhotos : [];
   return list.filter((x) => plain(x) && typeof x.id === "string" && /^[0-9a-f]{24}$/.test(x.id) && typeof x.d === "string" && Number.isInteger(x.k) && x.k >= 0)
     .slice(0, 12)
-    .map((x) => ({ id: x.id, d: x.d.slice(0, 300), k: x.k, file: typeof x.file === "string" ? x.file.slice(0, 200) : "", why: typeof x.why === "string" ? x.why.slice(0, 40) : "" }));
+    .map((x) => {
+      const files = (Array.isArray(x.files) ? x.files : [x.file]).filter((f) => typeof f === "string" && f).map((f) => f.slice(0, 200)).slice(0, 12);
+      // WHERE ITS FRAME IS, OR THAT NONE COULD BE SAFELY FOUND (round 6): a
+      // purchase with no frame is still pending work, told apart, never placed by a guess.
+      return { id: x.id, d: x.d.slice(0, 300), k: x.k, file: files[0] || "", files, located: x.located !== false && files.length > 0, why: typeof x.why === "string" ? x.why.slice(0, 40) : "" };
+    });
 }
 
 /** The purchases a held job named, read strictly: `{ id, d, why }` each. */
@@ -1067,7 +1072,7 @@ export function purchaseResolved(record, n, now = Date.now()) {
   // AN ADDITION'S MARKED FRAMES (round 5): the next job fills them through the
   // picture step's placement, not the addition again.
   if (p.place && Array.isArray(p.place.photos) && p.place.photos.length) {
-    p.route = { op: "edit", layer: "picture", page: "", place: p.place.photos.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file })), cost: 0 };
+    p.route = { op: "edit", layer: "picture", page: "", place: p.place.photos.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file, files: Array.isArray(x.files) ? x.files : [x.file].filter(Boolean), located: x.located !== false })), cost: 0 };
     p.phase = "run";
   }
   p.purchase = { ...(p.purchase || {}), resolvedAt: now };
@@ -1630,7 +1635,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       images: imgs.length ? imgs : undefined,
       // AN ADDITION'S MARKED FRAMES TO FILL (round 5): the picture step places
       // each one's purchase, with no model call.
-      place: Array.isArray(d.place) && d.place.length ? d.place.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file })) : undefined,
+      place: Array.isArray(d.place) && d.place.length ? d.place.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file, files: Array.isArray(x.files) ? x.files : [x.file].filter(Boolean), located: x.located !== false })) : undefined,
       idem: key,
       request,
     },
