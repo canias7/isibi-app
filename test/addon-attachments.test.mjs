@@ -348,6 +348,9 @@ test("AT 12 — THE ROUTER'S OWN ACCEPTANCE KEEPS THE SAME RULE: a message whose
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.intent, "addon");
     assert.equal(r.body.request, undefined, "taken on as a request that lost a file");
+    // DECLINED, NOT FAILED: answered as before, never the store-failure answer
+    // that asks the page to send the message again.
+    assert.notEqual(r.body.failed, true, "the acceptance failed instead of declining: " + JSON.stringify(r.body));
     assert.equal(P.record(r.key), null);
     assert.deepEqual(filesKept(P), []);
   });

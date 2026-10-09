@@ -17026,9 +17026,8 @@ function decodeAttachment(a, i = 0) {
   if (!m) return null;
   const b64 = m[2].replace(/\s+/g, "");
   if (!b64 || !STD_BASE64.test(b64)) return null;
-  let bytes;
-  try { bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); } catch { return null; }
-  if (!bytes.length) return null;
+  // STANDARD BASE64 IS WHAT `atob` DECODES, so past the pattern it cannot throw.
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const name = a && typeof a.name === "string" && a.name ? a.name.slice(0, 120) : "file-" + (i + 1);
   return { type: m[1], bytes, name };
 }
@@ -18055,11 +18054,11 @@ async function addonAsRequest(env, ctx, { uid, slug, ab }) {
   // so a question, a hand-over and every later job of the request has them, with
   // no page open. A post whose files would not all be kept — more than one
   // request carries, or one that does not read — is never taken on as a request
-  // that lost some: it stays a job, as before. A post that says files came
+  // that lost some: `acceptRequest`'s own rule (round 9, `attachmentsWhole`)
+  // declines it and it stays a job, as before. A post that says files came
   // with it and carries none (an older page) is taken on with that fact kept
   // (`attached`), and the add-on step is told the files did not arrive.
   const sent = Array.isArray(ab.images) ? ab.images : [];
-  if (!attachmentsWhole(sent)) return null;
   let prior = null;
   try { prior = await loadRequest(env, slug, ab.idem); } catch { prior = null; }
   if (prior && prior.rec) {
