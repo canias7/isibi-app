@@ -211,7 +211,7 @@ No line can call a prepared task done.
 - **Sweep:** 32 mutants over `builder/request.mjs`, `builder/request-plan.mjs`, `builder/prepared.mjs`, `builder/site-progress.mjs` and `worker.js`: 25 killed in the first round; the 7 survivors' tests were strengthened (`7bd4e3eb`) and a second round killed 4 more, so **29 of 32 killed, and the comment-only control survived**. Three survive, and each is explained: `note-loop-ignores-mine` (the loop then rewrites the same record, which changes nothing), `page-rewrite-no-stop` (the rewrite path writes nothing before its stop anyway; the strict no-write check passes either way), and `page-tweak-falls-through` (the page tweak is not reached by any supplied-answer case; recorded as a gap).
 - **Full suite on `7bd4e3eb`: `10181 / 10181 / 0 / 0`**, against the base's `10165` (16 new cases: 5 ownership, 7 paths, 4 unit). Doc tests 32 of 32.
 - **The next image, predicted** (not built): production `335396c8c0e0fbcb` → `de4fc820f7675016` (202 inputs).
-- **Required CI:** read on the records commit; recorded in the owner-notes handoff.
+- **Required CI:** green. Unit tests on `f8c7934d` (run 37867948814, the same code as `7bd4e3eb` plus records): `10181 / 10140 / 0 / 41`, whose total equals the local `10181` (CI skips the browser cases). Site build on `7bd4e3eb` (run 37867396976): all nine jobs succeeded.
 
 ## 7. Mocked versus live
 
