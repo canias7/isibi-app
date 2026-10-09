@@ -23,6 +23,9 @@ is in git; the dated entries further down are the full story.*
 - **Press A's hard cap is now 1018**, your choice. It was 30, which would
   have refused at this balance. The change is on the branch only, so press
   from the branch.
+- **Run 117 pressed it**: every check passed except the interval check
+  (concurrency still not shown); 16 credits, balance **1002**
+  (`docs/history/2026-10-09-run117.md`).
 - **What still bounds it**: the budget of 20 is checked before each message
   is sent. A request the server has taken on runs to its end whatever it
   costs. So the first message's request is bounded by nothing but the
@@ -200,6 +203,24 @@ is in git; the dated entries further down are the full story.*
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-09 — Run 117: press A ran; every check passed but the interval check (16 credits)
+
+Run 38002581379 (23:04–23:19 UTC, from the branch at `fd71d41a`).
+- **Shown live**:
+  - the footer link's question, answered with the tab closed and followed in
+    a fresh session (all eight progress checks passed);
+  - the Order heading and a LinkedIn link in every footer;
+  - the focaccia at £4.60, kept;
+  - everything else byte for byte;
+  - every reply model-written.
+- **Money**: 16 credits (routing 6, jobs 10), exactly the balance's move,
+  1018 → **1002**.
+- **Failed: the interval check.** A step was prepared, but not while another
+  part's job ran; the jobs ran one after another. **Concurrency is still not
+  shown live.** The full record is `docs/history/2026-10-09-run117.md`.
 
 ---
 
