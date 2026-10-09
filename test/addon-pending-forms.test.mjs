@@ -201,7 +201,7 @@ function shortPhotoWait() {
   return () => { globalThis.setTimeout = real; };
 }
 
-test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addition publishes with the frame marked under the purchase's identity (kept before the wait), the part is held with the photograph told as still being made, the independent part finishes; when the call lands later, the next look places that photograph — one provider call, no new purchase, the addition not redone", async () => {
+test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addition publishes with the frame marked under the purchase's identity (kept before the wait), the part is held with the photograph told as still being made, the independent part finishes; when the call lands later, the next look places that photograph — one provider call, no new purchase, the addition not redone", { timeout: 30000 }, async () => {
   let release;
   const gate = new Promise((ok) => { release = ok; });
   let restore = null;
@@ -241,6 +241,39 @@ test("APF 4 — THE WAIT ENDS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the addi
     assert.equal(rs[1].length, 1, "the placement was not charged once: " + JSON.stringify(rs));
   });
   if (restore) restore();
+});
+
+test("APF 8 — THE WAIT ENDS BEFORE THE PURCHASE WAS EVEN CLAIMED (its record's first write still out): the frame is marked under the identity the buyer reported before any waiting; with no record nothing was begun, so the next look claims it in one conditional write, buys it once and places it; the original call, freed afterwards, finds that claim and buys nothing", { timeout: 30000 }, async () => {
+  let release;
+  const stuck = new Promise((ok) => { release = ok; });
+  let restore = null;
+  await withPlatform({ slug: slugOf("unclaimed"), ...BASE() }, async (P) => {
+    // THE FIRST WRITE OF THE PURCHASE RECORD (its claim) is held until the case lets it go.
+    P.beforePut((k) => k.includes("/purchases/"), () => stuck);
+    restore = shortPhotoWait();
+    const r = await sendMessage(P, { message: MSG });
+    const s1 = await settle(P, r.key);
+    restore(); restore = null;
+    assert.deepEqual(statuses(s1.rec), ["done", "uncertain"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.notDone])));
+    const pend = s1.rec.parts[1].place.photos;
+    assert.equal(pend[0].why, "in-flight");
+    assert.equal((gallery(P).match(MARK) || [])[1], pend[0].id);
+    assert.equal(purchases(P).length, 0, "the claim landed after all — the case is not the one it says");
+    assert.equal(P.imageLog.length, 0);
+    await tick(P);
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why, p.notDone])));
+    assert.match(gallery(P), /<SafeImage src=\{"\/u\/[^"]+\.jpg"\}/);
+    assert.equal(P.imageLog.length, 1, "bought other than once");
+    // THE ORIGINAL CALL, FREED NOW, FINDS THE CLAIM AND BUYS NOTHING.
+    release();
+    await new Promise((ok) => setTimeout(ok, 50));
+    assert.equal(P.imageLog.length, 1, "the original call bought it a second time");
+    assert.equal(uploads(P).length, 1);
+    assert.equal(publishedOf(P, r.key, 1), 2);
+  });
+  if (restore) restore();
+  release();
 });
 
 test("APF 5 — EVERY MESSAGE DELIVERED TWICE, NO PAGE OPEN: the addition published once, the photograph bought once, the placement publishing once and charged once", async () => {
