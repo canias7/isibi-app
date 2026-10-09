@@ -17625,12 +17625,25 @@ async function stagePrepared(env, id) {
     // when a read fails. A record that still cannot be read stages nothing —
     // the job makes its calls, and its purchases are the part's logical
     // purchases, never bought twice whatever is staged.
-    if (p.prep.state === "failed" && p.prep.outcome === "uncertain" && Number.isInteger(p.prep.prev)) {
-      const got = await readJsonTried(env, prepKey(job.slug, want.key, want.part, p.prep.prev));
-      if (!got.ok || !got.obj || got.malformed || !got.v || typeof got.v !== "object") return;
-      const share = readPrepared(isRoute ? got.v.route : got.v.run);
-      const images = isRoute ? [] : readBuys(got.v).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
-      const staged = { calls: share.calls, images: [...share.images, ...images.filter((i) => !share.images.some((x) => x.url === i.url))] };
+    //
+    // AND THE UNCERTAIN ATTEMPT'S OWN ANSWERS (2026-10-09, round 5): an attempt
+    // ends uncertain when a picture it bought is made and not yet stored — its
+    // routing and its step's calls were answered all the same. They are reused
+    // with the earlier attempt's, so the job asks neither again; the picture
+    // itself is the part's logical purchase, finished on its own record.
+    if (p.prep.state === "failed" && p.prep.outcome === "uncertain" && (Number.isInteger(p.prep.prev) || typeof p.prep.key === "string")) {
+      const sources = [];
+      if (typeof p.prep.key === "string") sources.push(p.prep.key);
+      if (Number.isInteger(p.prep.prev)) sources.push(prepKey(job.slug, want.key, want.part, p.prep.prev));
+      const staged = { calls: [], images: [] };
+      for (const k of sources) {
+        const got = await readJsonTried(env, k);
+        if (!got.ok || !got.obj || got.malformed || !got.v || typeof got.v !== "object") continue;
+        const share = readPrepared(isRoute ? got.v.route : got.v.run);
+        const images = isRoute ? [] : readBuys(got.v).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
+        for (const c of share.calls) staged.calls.push(c);
+        for (const i of [...share.images, ...images]) if (!staged.images.some((x) => x.url === i.url)) staged.images.push(i);
+      }
       if (staged.calls.length || staged.images.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
       return;
     }
