@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, Build reconnection round 2: Codex's three gaps fixed; offline, not deployed)
+## Current handoff — read this first (2026-10-10, Build reconnection round 3: storage failures, unaccepted jobs and the inline fallback; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,84 +10,68 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Round 1 of the Build reconnection: `47be3540`, records to `7a8e7518`.
-  - Round 2: `9f62095e`, with records after.
-- **fal is not being topped up**, and it doesn't hold the project up. Paid
-  image generation stays paused, the tests use image mocks, and real-image
-  generation is unverified.
-- **Balance 971**, untouched. Read the ledger before relying on it.
+  - Round 1: `47be3540`.
+  - Round 2: `9f62095e`, records to `df55065e`.
+  - Round 3: `ae62f760`, with records after.
+- **fal is not being topped up.** Paid image generation stays paused, the
+  tests use image mocks, and real-image generation is unverified.
+- **Balance 971**, untouched.
 
-**Round 2 fixes Codex's three reproduced gaps on `7a8e7518`**
-(`docs/history/2026-10-10-build-reconnect.md`, "Round 2"):
-1. **The claim-to-marker race could start two paid builds.**
-   - The marker is now written before the chat's claim.
-   - `claimVerdict` decides held or free. A missing or unreadable marker is
-     never "free" on its own.
-   - A takeover is a write conditional on the exact claim judged.
-   - Ownership that can't be settled answers a retryable 503, with nothing
-     filed, queued or charged.
-   - A release writes `ended` over its own claim conditionally, never a
-     blind delete. Ended or abandoned attempts stay recoverable.
-2. **Running builds skipped while the page was busy are no longer lost.**
-   - Owed builds are queued and taken up one at a time, only while the page
-     is free.
-   - A local re-check every 750 ms (no request) takes the next one as soon
-     as the page is free, and stops once nothing is owed.
-   - Another operation's busy state is never cleared.
-3. **A failed listing read is retried, bounded.**
-   - Automatic retries at 2, 4, 8, 16 and 32 seconds, then only on a render
-     a minute later.
-   - Never two reads at once.
+**Round 3** (`docs/history/2026-10-10-build-reconnect.md`, "Round 3")
+1. **A storage failure no longer runs a build twice.**
+   - The consumer runs any job object it finds, so the inline fallback now
+     runs only when the job is provably gone (deleted, then read back as
+     absent).
+   - Otherwise the queued path is kept: the message is sent, or the build is
+     followed. The row stays open, and the stale sweep re-sends it, or fails
+     it with the deposit back.
+2. **Discovery no longer exposes unaccepted jobs.**
+   - Markers start unaccepted and become `accepted` only once the message is
+     sent. The listing shows accepted builds only.
+   - An unaccepted marker holds its chat while it has a live row, or for up
+     to 5 minutes without one. After that it is abandoned and frees the chat.
+3. **The inline fallback keeps its chat.**
+   - Its marker says `inline`. A second POST for that chat gets a no-cost
+     409 ("already being built in another window").
+   - It is never listed.
+   - When it ends, it releases its claim conditionally and deletes its
+     marker.
 
 **Verification (offline)**
-- **Tests**: `test/build-reconnect.test.mjs` has 27 cases (16 kept, 11
-  new), including Codex's two exact interleavings (RC 11, RB 6).
-- **Red check**: on `7a8e7518`'s code every new case fails or hangs. RC 15
-  first passed there, so it was given the in-release window, which is red.
-- **Related suites**: 193 of 193 across the reconnect, build-queue, jobs,
-  resume, parallel, disconnect, chat, Dockerfile and image files.
-- **Sweep**: 17 of 17 killed, and the comment-only control survived.
-  - The first pass left 4 survivors. One exposed a real defect: after a
-    successful build, a second owed build could wait for an unrelated
-    render. The general re-check fixed it.
-  - The other three needed sharper assertions (RC 16 added; RB 6 and RB 8
-    tightened).
-- **Full suite on `9f62095e`'s code**: `10369 / 10369 / 0 / 0` locally.
-- **CI on `74b41d1a`** (the code commit `9f62095e` plus records):
-  - **site build** 38063680474 green;
-  - **unit tests** 38063680493 **cancelled at the job's 5-minute limit**
-    (`timeout-minutes: 5` in `.github/workflows/unit.yml`). It was not a
-    test failure: the log shows the suite finished `10369 / 10328 / 0 / 41
-    skipped` in 298.8 s, and the runner was stopped at about 300 s.
-    - Earlier green runs took about 220 s and 250 s for 10,342 and 10,358
-      tests, and this file takes about 10 s locally, in parallel with the
-      others. So the suite now sits close enough to the limit that a slow
-      runner is cut off.
-    - The limit is left as it is (a CI setting, outside this batch); it is
-      recorded as a finding for your decision.
-  - **On `425d6340`** (the same code, records only), unit tests 38064225602
-    were **green**: `10369 / 10328 / 0 / 41 skipped`, the same 41 skips,
-    with the suite at 255.6 s.
+- **Tests**: `test/build-reconnect.test.mjs` has 30 cases. RC 17, RC 18 and
+  RC 19 are new, and RC 8 is extended to the new states.
+- **Fixture**: the queue-wiring bucket gained R2's `head()`.
+- **Red check**: on `df55065e`'s code, RC 17 and RC 19 fail, and RC 18 never
+  reaches an inline build.
+- **Related suites**: 196 of 196 (reconnect 30, queue-wiring 13, jobs 31,
+  resume 44, parallel 15, disconnect 4, chat 21, Dockerfile 21, images 17).
+- **Sweep**: 15 of 15 standing mutants killed, and the comment control
+  survived.
+  - The first pass showed the delete check in `buildJobGone` was redundant;
+    the read-back alone now decides.
+  - RC 17 gained a failed-read-back case.
+- **Full suite on `ae62f760`'s code**: `10372 / 10372 / 0 / 0` locally.
+- **CI**: read after the push; see the next records commit.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
-  production `8d6dbcea93252fbb` → `dd8d2e17a6559834` (205 inputs, 174
-  paths). This replaces round 1's `a2ad6fa4a83ace7c`. Nothing is built.
+  production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs, 174
+  paths). This replaces round 2's `dd8d2e17a6559834`. Nothing is built.
 
-**Remaining gaps (kept explicit)**
-- **A crashed acceptance holds its chat until it ages out.** A POST that died
-  after its claim but before queueing leaves a claim and marker with no row.
-  A new first build for that chat follows the dead job (and sees it fail)
-  until the claim is older than any build runs. Following is chosen over a
-  possible second paid build.
-- **A marker that can't be written** means the build runs unlisted and
-  unclaimed, as before round 1.
-- **An inline fallback** (job store or queue down) still runs the build
-  inline after releasing the claim.
-- **Builds accepted before round 1**, and inline builds, aren't listed.
-- **A fresh session** gets the customer's words and the result, not earlier
-  local conversation.
-- **Untested**: real-model progress wording, real images, and any live run.
-- **CI headroom (a finding, not changed)**: the unit-test job's 5-minute
-  limit is now within a slow runner's time for the whole suite.
+**Remaining gaps**
+- **Without a row (no service key)**: if the "accepted" write is lost after
+  the message was sent, the marker frees its chat after 5 minutes while the
+  build may still run. With a row, the row holds the chat.
+- **A lost "inline" write**: the plain unaccepted marker holds the chat for
+  5 minutes only, while an inline build can run longer.
+- **A Worker that dies mid-inline** leaves an `inline` marker holding its
+  chat until it is older than a build can run.
+- **A send that failed with the job not provably gone**: the browser follows
+  a job that may never run until the stale sweep re-sends it, or fails it
+  with the deposit back. There is no row-less recovery.
+- **Unchanged from earlier rounds**:
+  - builds accepted before round 1, and inline builds, aren't listed;
+  - a fresh session gets the customer's words and the result only;
+  - real-model progress wording, real images and any live run are untested;
+  - the unit-test job's 5-minute limit is tight.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -96,6 +80,24 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — Build reconnection round 3: storage failures, unaccepted jobs and the inline fallback (offline; not deployed)
+
+- **You**: finish the Build acceptance fixes:
+  - duplicate work after storage failures;
+  - discovery exposing unaccepted jobs;
+  - the inline fallback's ownership.
+- **Done**:
+  - the inline fallback runs only when the job is provably gone;
+  - markers are listed only once accepted, and acceptance holds the chat;
+  - the inline build keeps its chat (a second POST gets a no-cost 409) and
+    gives it back when it ends.
+- **Verified offline**: 3 new cases plus RC 8 extended, a red check,
+  a sweep (15 of 15) and the full suite (10,372 of 10,372).
+- **Not done**: merge, deploy, container build or paid retest. Real images
+  are unverified.
 
 ---
 

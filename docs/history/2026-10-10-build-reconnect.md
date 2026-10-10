@@ -310,3 +310,114 @@ with the new module so the imports load:
 - The 5-minute limit in `.github/workflows/unit.yml` is now within a slow
   runner's time for the whole suite. It is recorded as a finding and left
   unchanged.
+
+## Round 3: storage failures, unaccepted jobs and the inline fallback (offline)
+
+Three gaps that remained after round 2 (`df55065e`), fixed together as
+general rules.
+
+1. **Duplicate work after a storage failure.**
+   - **The gap**: the queue consumer runs whatever job object it finds, row
+     or no row. When the queue send failed, the producer deleted the job
+     (best effort), closed the row and ran the build inline. A send that
+     failed after its message had landed, with a delete that also failed,
+     meant the queued build and the inline build both ran. The same applied
+     to a job store whose write landed but reported failure.
+   - **Now** (`buildJobGone`): the inline fallback runs only when the job
+     object is provably gone, deleted and then read back as absent. If not:
+     - after a failed store, the message is still sent;
+     - after a failed send, the build is followed.
+     - The row stays open; the stale sweep re-sends a queued row nobody
+       touched, and fails it with the deposit back if it never runs.
+     - Either way it is one build, never two.
+2. **Discovery exposing unaccepted jobs.**
+   - **The gap**: since round 2 the marker is written before the claim, so
+     the listing showed a build as running before its job was stored or
+     queued, including ones that then fell back to inline and had no job to
+     follow.
+   - **Now**: a marker records whether its build was accepted. It becomes
+     `accepted` only once its message is sent (or may still run), and the
+     listing shows only accepted builds (`listsBuild`). Not yet accepted
+     means:
+     - **accepting** (it holds its chat) while its row has no verdict, or
+       with no row while it is younger than an acceptance takes
+       (`BUILD_ACCEPT_MS`, 5 minutes);
+     - **abandoned** (the chat is free) once its row has a verdict, or with
+       no row once it is older than that. This also shortens round 2's
+       "crashed acceptance holds its chat until it ages out" to 5 minutes
+       when no row was filed; with a row, the stale sweep settles it.
+3. **The inline fallback's ownership.**
+   - **The gap**: falling back inline released the chat claim at once, so a
+     second POST could start a second, paid build while the first ran
+     inline.
+   - **Now**:
+     - the inline build keeps its claim, and its marker says `inline`;
+     - another POST for that chat gets a no-cost 409
+       (`build-running-inline`), with nothing filed, queued or charged and
+       no job to follow;
+     - the build is never listed;
+     - when it ends, however it ends, the route releases its claim
+       conditionally and deletes its marker (`buildDone.finally`), so the
+       next build is free;
+     - an `inline` marker holds its chat whatever its closed row says, and
+       only while it is younger than a build can run.
+
+### Tests
+
+`test/build-reconnect.test.mjs` now has 30 cases (3 new; RC 8 extended).
+- **RC 17**: the queue send fails after its message landed, and the job
+  can't be proven gone.
+  - Nothing runs inline, the row isn't closed, and the build is accepted
+    and listed.
+  - The consumer runs it once, and the waiting POST answers with that one
+    job.
+  - **Store side**: the write lands but reports failure, and the delete
+    fails. The message is still sent, and nothing runs inline.
+- **RC 18**: the queue send fails and the job is provably gone, so the build
+  runs inline.
+  - While it runs, a second POST gets a 409 with no row filed, and the
+    listing shows nothing.
+  - When it ends, the claim says `ended`, the marker is gone, and the next
+    build is filed.
+- **RC 19**: while a build is being accepted, the listing shows nothing.
+  - Once its message is sent, it is listed.
+  - An attempt abandoned before acceptance is never listed and frees its
+    chat.
+- **RC 8**: the new states and both predicates (`holdsChat`, `listsBuild`).
+- **Fixture**: `test/build-queue-wiring.test.mjs`'s bucket gained R2's
+  `head()`. Its storage-failure case still runs the build inline, because
+  the job is provably absent.
+
+### Red check
+
+RC 17, 18 and 19 were run against `df55065e`'s `worker.js`, with the new
+module and tests:
+- RC 17 and RC 19 fail;
+- RC 18 never reaches an inline build (its promise is left pending).
+
+### Sweep
+
+- **Setup**: 15 mutants plus a comment-only control.
+- **First pass**: 13 killed and 2 survived, both in `buildJobGone`:
+  - **"ignore a failed delete" survived because it was equivalent**: the
+    read-back after it still sees the object. The early `return false` on a
+    failed delete was redundant and over-cautious, since a delete that
+    reports failure may still have removed the object. It is gone; the
+    read-back alone decides.
+  - **"`return true` instead of the read-back"** survived because every test
+    stopped at the delete first. With the early return gone, RC 17 reaches
+    the read-back and kills it.
+  - **A reverse mutant** (a read-back that throws counted as gone) was added,
+    with RC 17's third part, a failed read-back after a failed send. It is
+    killed.
+- **Result**: 15 of 15 standing mutants killed; the control survived.
+- **Related suites**: reconnect 30, queue-wiring 13, jobs 31,
+  resume-wiring 44, parallel 15, survives-disconnect 4, chat 21,
+  Dockerfile 21, images 17. All pass.
+
+### Commit, suite and image
+
+- **Commit**: `ae62f760`.
+- **Full suite**: `10372 / 10372 / 0 / 0` locally.
+- **Image**: production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs,
+  174 paths). Predicted, not built.
