@@ -13187,7 +13187,19 @@ function editReply(e) {
 // as a 202 from the POST is (its live, model-written lines and its end), an
 // ended one from the answer it gave. Nothing is posted, so nothing is sent
 // again, restarted or charged again.
-let siteBuildsChecked = false;
+// DISCOVERY'S OWN STATE (2026-10-10, Codex's review of 7a8e7518). One listing
+// read at a time (`inflight`); a successful read ends discovery for this page
+// load (`done`); a failed one is tried again on a bounded schedule — automatic
+// retries at 2, 4, 8, 16 and 32 seconds, then only on a later render at least a
+// minute on — never overlapping and never a rapid loop. A 401 is not a
+// failure: the session is not read yet, and the next render asks.
+const SITE_BUILDS_RETRY_MS = [2000, 4000, 8000, 16000, 32000];
+const SITE_BUILDS_COOLDOWN_MS = 60000;
+const siteBuildsState = { inflight: false, done: false, tries: 0, nextAt: 0, timer: 0, wait: 0 };
+// OWED BUILDS WAIT HERE, OLDEST FIRST, UNTIL THIS PAGE IS FREE. One found build
+// is taken up at a time, and never while anything else here is busy, so none is
+// skipped for good and no other operation's busy state is touched.
+const siteBuildsOwed = [];
 const siteBuildsShown = new Set();
 /** The answer a found build stands in for: the POST's own 202 while it runs, its kept answer once it ended. */
 function siteFoundAnswer(found) {
@@ -13222,54 +13234,95 @@ function siteBuildOwed(s, b) {
   const last = Array.isArray(s.msgs) && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
   return !!(last && last.r === 'u');
 }
-/** The account's first builds, read once on open: each owed one is picked up in its own chat. */
-function siteBuildsCheck() {
-  if (siteBuildsChecked) return;
-  siteBuildsChecked = true;
+/** One owed build taken up in its own chat — only when nothing else on this page is busy. */
+function siteBuildTake(b) {
+  let s = siteById(b.chat);
+  if (!siteBuildOwed(s, b)) return;
+  const words = typeof b.words === 'string' ? b.words : '';
+  if (!s) {
+    // A SESSION THAT NEVER SAW THIS CHAT: the project is made here under the
+    // chat's own id, with the customer's words as its first message, so the
+    // finished site belongs to it as it would have to the page that asked.
+    const at = Number.isFinite(b.at) ? b.at : Date.now();
+    sitesLoad().unshift({ id: b.chat, name: words.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site', createdAt: at, updatedAt: Date.now(), html: '', msgs: words ? [{ r: 'u', t: words }] : [] });
+    sitesSave();
+    s = siteById(b.chat);
+    if (!s) return;
+  }
+  // THIS PAGE'S BUSY STATE IS TAKEN FOR THE FOUND BUILD, as a sent one takes it,
+  // and its finish gives it back — it was free when taken.
+  siteBusy = true;
+  const finish = siteBuildFinish(b.chat);
+  if (b.state === 'unknown') {
+    finish('Your site finished building, but I couldn’t read its answer here. Your sites list shows what it made.');
+    return;
+  }
+  if (b.state === 'running') {
+    siteBuildStart(true);
+    if (Array.isArray(b.progress) && b.progress.length) setBuildProgress(b.chat, b.progress);
+    sitesSave();
+    renderSites();
+  }
+  reactSend(s, words, b.chat, 'build', [], finish, [], undefined, b.state === 'running' ? { job: b.job } : { job: b.job, answer: b.answer });
+}
+/**
+ * Takes up the oldest owed build when this page is free. While owed builds
+ * wait and the page is busy, a local look (no request) comes back every
+ * `SITE_BUILDS_WAIT_MS` and takes the next one as soon as the page is free —
+ * whichever of the page's many paths freed it — and stops once none is owed.
+ */
+const SITE_BUILDS_WAIT_MS = 750;
+function siteBuildsDrain() {
+  while (!siteBusy && siteBuildsOwed.length) {
+    const b = siteBuildsOwed.shift();
+    siteBuildsShown.add(b.job);
+    siteBuildTake(b);
+  }
+  if (siteBuildsOwed.length && !siteBuildsState.wait) {
+    siteBuildsState.wait = setTimeout(() => { siteBuildsState.wait = 0; siteBuildsDrain(); }, SITE_BUILDS_WAIT_MS);
+  }
+}
+/** A failed listing read: tried again on the bounded schedule, never overlapping. */
+function siteBuildsRetry() {
+  const delay = SITE_BUILDS_RETRY_MS[siteBuildsState.tries];
+  siteBuildsState.tries++;
+  if (delay === undefined) { siteBuildsState.nextAt = Date.now() + SITE_BUILDS_COOLDOWN_MS; return; }
+  siteBuildsState.nextAt = Date.now() + delay;
+  siteBuildsState.timer = setTimeout(() => { siteBuildsState.timer = 0; siteBuildsCheck(true); }, delay);
+}
+/**
+ * The account's first builds, read on open: each owed one is queued and taken
+ * up in its own chat as this page comes free. `fromTimer` is the bounded
+ * retry's own call; a render never starts a read while one is in flight, while
+ * a retry is scheduled, or before the cool-down after the last retry.
+ */
+function siteBuildsCheck(fromTimer) {
+  siteBuildsDrain();
+  if (siteBuildsState.done || siteBuildsState.inflight) return;
+  if (!fromTimer && (siteBuildsState.timer || Date.now() < siteBuildsState.nextAt)) return;
+  siteBuildsState.inflight = true;
   apiFetch('/api/site/builds').then((r) => {
     // NOT SIGNED IN YET (the first paint runs before the session is read): the
     // next render asks again rather than never.
-    if (r && r.status === 401) { siteBuildsChecked = false; return null; }
-    return r && r.ok ? r.json() : null;
+    if (r && r.status === 401) return 'signed-out';
+    if (!r || !r.ok) return null;
+    return r.json().catch(() => null);
   }).then((d) => {
-    const list = d && Array.isArray(d.builds) ? d.builds : [];
+    siteBuildsState.inflight = false;
+    if (d === 'signed-out') return;
+    if (!d || !Array.isArray(d.builds)) { siteBuildsRetry(); return; }
+    siteBuildsState.done = true;
+    siteBuildsState.tries = 0;
     // OLDEST FIRST, so a chat with two answers left ends on its latest.
-    for (const b of list.slice().reverse()) {
+    for (const b of d.builds.slice().reverse()) {
       if (!b || typeof b.job !== 'string' || !b.job || typeof b.chat !== 'string' || !b.chat) continue;
-      if (siteBuildsShown.has(b.job)) continue;
+      if (siteBuildsShown.has(b.job) || siteBuildsOwed.some((o) => o.job === b.job)) continue;
       if (['running', 'done', 'failed', 'unknown'].indexOf(b.state) < 0) continue;
-      let s = siteById(b.chat);
-      if (!siteBuildOwed(s, b)) { siteBuildsShown.add(b.job); continue; }
-      // ONE BUILD AT A TIME ON THIS PAGE, as a sent one is: a running build here
-      // is left for the next look.
-      if (b.state === 'running' && siteBusy) continue;
-      siteBuildsShown.add(b.job);
-      const words = typeof b.words === 'string' ? b.words : '';
-      if (!s) {
-        // A SESSION THAT NEVER SAW THIS CHAT: the project is made here under the
-        // chat's own id, with the customer's words as its first message, so the
-        // finished site belongs to it as it would have to the page that asked.
-        const at = Number.isFinite(b.at) ? b.at : Date.now();
-        sitesLoad().unshift({ id: b.chat, name: words.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site', createdAt: at, updatedAt: Date.now(), html: '', msgs: words ? [{ r: 'u', t: words }] : [] });
-        sitesSave();
-        s = siteById(b.chat);
-        if (!s) continue;
-      }
-      const finish = siteBuildFinish(b.chat);
-      if (b.state === 'unknown') {
-        finish('Your site finished building, but I couldn’t read its answer here. Your sites list shows what it made.');
-        continue;
-      }
-      if (b.state === 'running') {
-        siteBusy = true;
-        siteBuildStart(true);
-        if (Array.isArray(b.progress) && b.progress.length) setBuildProgress(b.chat, b.progress);
-        sitesSave();
-        renderSites();
-      }
-      reactSend(s, words, b.chat, 'build', [], finish, [], undefined, b.state === 'running' ? { job: b.job } : { job: b.job, answer: b.answer });
+      if (!siteBuildOwed(siteById(b.chat), b)) { siteBuildsShown.add(b.job); continue; }
+      siteBuildsOwed.push(b);
     }
-  }).catch(() => { siteBuildsChecked = false; });
+    siteBuildsDrain();
+  }).catch(() => { siteBuildsState.inflight = false; siteBuildsRetry(); });
 }
 
 function editReplyBody(e) {

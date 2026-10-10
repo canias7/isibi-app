@@ -99,11 +99,38 @@ export function readBuildDone(raw) {
   return { status: raw.status, body: raw.body, type: str(raw.type) || "application/json", at: num(raw.at) || 0 };
 }
 
-/** The chat's claim: which build is running for it. */
-export function packBuildChat({ job, at }) { return { v: BUILD_LIVE_VERSION, job, at }; }
+/**
+ * The chat's claim: which build owns it. `ended` is the owner's own release
+ * (its job could not be stored or queued), written over its own claim and
+ * only while the claim is still its own, so a release never removes another
+ * request's ownership.
+ */
+export function packBuildChat({ job, at, ended = false }) { return { v: BUILD_LIVE_VERSION, job, at, ...(ended ? { ended: true } : {}) }; }
 export function readBuildChat(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION || !isJobId(raw.job)) return null;
-  return { job: raw.job, at: num(raw.at) || 0 };
+  return { job: raw.job, at: num(raw.at) || 0, ended: raw.ended === true };
+}
+
+/**
+ * MAY A NEW FIRST BUILD TAKE A CHAT WHOSE CLAIM IS ALREADY WRITTEN?
+ * (2026-10-10, the claim-to-marker race.)
+ *   "held"  its owner may still be running: the new request follows it;
+ *   "free"  its owner has ended (a kept answer, a row verdict, its own
+ *           release, or no row and older than a build can run), or the claim
+ *           itself is not a claim (unparseable), and it may be replaced —
+ *           only by a write conditional on exactly the claim judged here.
+ * A missing or unreadable marker is NOT an ended owner: the marker is written
+ * before the claim, so a claim with no marker is a request part-way through,
+ * or one that went down mid-way; either way its build may already be queued,
+ * and it stays "held" until it is older than any build runs. Following a
+ * build that never ran costs the customer a failure message; starting a
+ * second one would cost them a second build.
+ */
+export function claimVerdict({ held, view, now }) {
+  if (!held) return "free";
+  if (held.ended) return "free";
+  if (view) return holdsChat(view) ? "held" : "free";
+  return num(now) !== null && now - held.at > BUILD_JOB_MS ? "free" : "held";
 }
 
 /**

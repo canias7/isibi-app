@@ -46,7 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
-import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, holdsChat, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -15191,64 +15191,97 @@ async function deleteSiteFor(env, uid, dslug) {
 /**
  * A FIRST BUILD'S PLACE IN THE ACCOUNT'S LISTING, AT ACCEPTANCE (2026-10-10).
  * A first build only — a revise names its site, and the site is found by its
- * slug — and only on the account's own keys. The chat (the request's chat field, the
- * browser's project id) is claimed with a conditional write: when the claim
- * is held by a build that is still running, that build is answered
- * (`running`) and nothing else happens. A claim held by a build that ended,
- * or that cannot be read, is taken over. The marker is written after the
- * claim. Nothing here can refuse a build: a write that fails is said in the
- * log and the build runs as it always did, unlisted.
+ * slug — and only on the account's own keys.
+ *
+ * THE MARKER FIRST, THEN THE CHAT'S CLAIM (the claim-to-marker race, Codex's
+ * review of 7a8e7518). The claim was written first, and a second POST that
+ * arrived between the claim and the marker found a claim whose build had no
+ * marker, read it as free, replaced it and queued a second paid build beside
+ * the first. Now every claim names a build whose marker is already written,
+ * and `claimVerdict` decides what a written claim means: held (follow it),
+ * or free (its owner ended; replace it — only by a write conditional on the
+ * exact claim judged, so two takers never both win). A missing or unreadable
+ * marker is never "free" on its own.
+ *
+ * WHAT CAN COME BACK:
+ *   claimed            this build owns the chat;
+ *   running: <job>     another build owns it — the caller follows that one,
+ *                      and this build's own marker is taken back;
+ *   uncertain          ownership could not be settled (a claim that could not
+ *                      be read, or one that kept changing): nothing is filed,
+ *                      queued or charged, and the caller is told to send again;
+ *   none of these      no bucket, not a first build, no chat, or a marker that
+ *                      could not be written: the build runs as it always did,
+ *                      unlisted — no claim was made, so no one's ownership is
+ *                      in doubt.
  */
 async function liveBuildStart(env, { url, body, uid, id }) {
-  const out = { claimed: false, marked: false, running: "" };
+  const out = { claimed: false, marked: false, running: "", uncertain: false };
+  if (!env.SITES_BUCKET || !isLiveUid(uid)) return out;
+  let chat = "";
   try {
-    if (!env.SITES_BUCKET || !isLiveUid(uid)) return out;
     const path = new URL(url).pathname;
     const first = (path === "/api/site/react-build" || path === "/api/site/build") && !(body && typeof body.slug === "string" && body.slug);
     if (!first) return out;
     // THROUGH THE SAME REFUSAL AS THE BUILD ROUTE'S OWN READ (`cleanChatId`), never raw.
     const chatId = body ? cleanChatId(body.chat) : "";
-    const chat = isLiveChat(chatId) ? chatId : "";
-    if (chat) {
-      const key = buildChatKey(uid, chat);
-      const now = Date.now();
-      let put = await env.SITES_BUCKET.put(key, JSON.stringify(packBuildChat({ job: id, at: now })), { onlyIf: { etagDoesNotMatch: "*" } });
-      if (!put) {
-        const cur = await env.SITES_BUCKET.get(key);
-        const held = cur ? readBuildChat(JSON.parse(await cur.text())) : null;
-        if (held && held.job !== id) {
-          const view = await liveBuildView(env, uid, held.job, now);
-          if (holdsChat(view)) return { ...out, running: held.job };
-        }
-        put = await env.SITES_BUCKET.put(key, JSON.stringify(packBuildChat({ job: id, at: now })), cur && typeof cur.etag === "string" ? { onlyIf: { etagMatches: cur.etag } } : {});
-        if (!put) {
-          // ANOTHER POST TOOK IT BETWEEN THE READ AND THE WRITE: its build is
-          // the chat's, and this one follows it.
-          const again = await env.SITES_BUCKET.get(key);
-          const won = again ? readBuildChat(JSON.parse(await again.text())) : null;
-          if (won && won.job !== id) return { ...out, running: won.job };
-        }
-      }
-      out.claimed = true;
-      out.chat = chat;
-    }
+    chat = isLiveChat(chatId) ? chatId : "";
     await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive({ job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now() })));
     out.marked = true;
-  } catch (e) { console.error("build live: could not list build", id, "for its account (it runs unlisted)", String((e && e.message) || e)); }
-  return out;
+  } catch (e) {
+    console.error("build live: could not list build", id, "for its account (it runs unlisted)", String((e && e.message) || e));
+    return out;
+  }
+  if (!chat) return out;
+  const unmark = async () => { try { await env.SITES_BUCKET.delete(buildLiveKey(uid, id)); } catch { /* tidied by the window */ } };
+  try {
+    const key = buildChatKey(uid, chat);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const now = Date.now();
+      const claim = JSON.stringify(packBuildChat({ job: id, at: now }));
+      if (await env.SITES_BUCKET.put(key, claim, { onlyIf: { etagDoesNotMatch: "*" } })) return { ...out, claimed: true, chat };
+      const cur = await env.SITES_BUCKET.get(key);
+      if (!cur) continue; // released between the write and the read: ask again
+      let held = null;
+      try { held = readBuildChat(JSON.parse(await cur.text())); } catch { held = null; }
+      if (held && held.job === id) return { ...out, claimed: true, chat };
+      const view = held && !held.ended ? await liveBuildView(env, uid, held.job, now) : null;
+      if (claimVerdict({ held, view, now }) === "held") {
+        await unmark();
+        return { ...out, marked: false, running: held.job };
+      }
+      if (typeof cur.etag !== "string" || !cur.etag) break;
+      if (await env.SITES_BUCKET.put(key, claim, { onlyIf: { etagMatches: cur.etag } })) return { ...out, claimed: true, chat };
+      // CHANGED UNDER US: judged again from what is there now.
+    }
+  } catch (e) {
+    console.error("build live: could not settle who owns the chat for", id, String((e && e.message) || e));
+  }
+  await unmark();
+  return { ...out, marked: false, uncertain: true };
 }
 
-/** A build that will never run (its job could not be stored or queued): its marker goes, and its chat claim if it is still its own. */
+/**
+ * A build that will never run (its job could not be stored or queued). Its
+ * chat claim is released FIRST, by writing `ended` over it — conditional on
+ * the claim still being exactly its own, so a release never overwrites or
+ * removes a claim another request has since taken — and only then is its own
+ * marker deleted, so no reader sees its claim without its marker.
+ */
 async function liveBuildRelease(env, uid, id, live) {
   try {
     if (!live || !env.SITES_BUCKET || !isLiveUid(uid)) return;
-    if (live.marked) await env.SITES_BUCKET.delete(buildLiveKey(uid, id));
     if (live.claimed && live.chat) {
       const key = buildChatKey(uid, live.chat);
       const cur = await env.SITES_BUCKET.get(key);
-      const held = cur ? readBuildChat(JSON.parse(await cur.text())) : null;
-      if (held && held.job === id) await env.SITES_BUCKET.delete(key);
+      let held = null;
+      if (cur) { try { held = readBuildChat(JSON.parse(await cur.text())); } catch { held = null; } }
+      if (held && held.job === id && !held.ended && typeof cur.etag === "string" && cur.etag) {
+        await env.SITES_BUCKET.put(key, JSON.stringify(packBuildChat({ job: id, at: Date.now(), ended: true })), { onlyIf: { etagMatches: cur.etag } });
+      }
+      live.claimed = false;
     }
+    if (live.marked) { await env.SITES_BUCKET.delete(buildLiveKey(uid, id)); live.marked = false; }
   } catch (e) { console.error("build live: could not take back the listing of", id, String((e && e.message) || e)); }
 }
 
@@ -15316,6 +15349,12 @@ async function enqueueSiteBuild(request, env, { auth }) {
   const live = await liveBuildStart(env, { url, body: rb.body, uid: bu.id, id });
   if (live.running) {
     return { res: Response.json({ ok: false, stage: "resuming", job: live.running, already: true, msg: "Your site is already being built from this chat — following it now." }, { status: 202 }) };
+  }
+  // OWNERSHIP THAT COULD NOT BE SETTLED STARTS NOTHING: no row, no job, no
+  // queue message, no charge. Sending again settles it (the claim is read
+  // afresh), and a build that is running is followed then.
+  if (live.uncertain) {
+    return { res: Response.json({ ok: false, error: "build-ownership-unsettled", retry: true, msg: "I couldn't safely start your build just now, and nothing was charged. Please send it again." }, { status: 503 }) };
   }
   const back = () => { liveBuildRelease(env, bu.id, id, live); return { replay: replayRequest({ url, auth, body }) }; };
   // ── THE ROW, BEFORE THE OBJECT AND THE MESSAGE (stage 2c) ──────────────────

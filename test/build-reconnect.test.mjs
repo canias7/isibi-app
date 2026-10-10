@@ -32,7 +32,8 @@ import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mj
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { blockNetwork, blockedFetch, unexpected } from "./fixtures/no-network.mjs";
 import { resultKey, jobKey, packResult } from "../builder/build-job.mjs";
-import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, BUILD_LIVE_MS } from "../builder/build-live.mjs";
+import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, packBuildChat, claimVerdict, BUILD_LIVE_MS } from "../builder/build-live.mjs";
+import { BUILD_JOB_MS } from "../builder/build-job.mjs";
 import { resumeKey } from "../builder/build-resume.mjs";
 import { openRecord, appendMark, claimWriter, commitLine, confirmLines, progressKey, packRecord, buildStepFacts } from "../builder/site-progress.mjs";
 
@@ -274,7 +275,19 @@ test("RC 6 — A JOB THAT COULD NOT BE QUEUED (it runs inline, unlisted): its ma
     ]);
     void res;
   } finally { globalThis.fetch = blockedFetch; }
-  assert.deepEqual(keysUnder(b, "builds-live/"), [], "a build that was never queued is still listed");
+  // ITS MARKER IS GONE, AND ITS CLAIM IS RELEASED BY ITS OWN `ended` RECORD —
+  // never a blind delete, which could remove a claim another request had
+  // since taken.
+  assert.deepEqual(keysUnder(b, "builds-live/").filter((k) => !k.includes("/chat-")), [], "a build that was never queued is still listed");
+  const claim = JSON.parse(b.store.get(buildChatKey(BUILD_USER.id, CHAT)));
+  assert.equal(claim.ended, true, "the released claim does not say it ended: " + JSON.stringify(claim));
+  const listed = await call(b, queue(), stand(), "GET", "/api/site/builds");
+  assert.deepEqual(listed.body, { builds: [] });
+  // AND THE CHAT IS FREE: the next first build for it is filed as its own.
+  const q2 = queue();
+  const next = await startBuild(b, q2, stand());
+  assert.ok(next.job && q2.sent.length === 1, "a released chat was not free for the next build");
+  await settlePost(b, next);
 });
 
 test("RC 7 — THE WINDOW AND THE DOOR: a marker past a day is tidied away as it is read and not listed; a signed-out caller is refused", async () => {
@@ -297,6 +310,199 @@ test("RC 10 — A MARKER THAT IS NOT THIS ACCOUNT'S, filed under its prefix (a m
   const r = await call(b, q, stand(), "GET", "/api/site/builds");
   assert.equal(r.status, 200);
   assert.deepEqual(r.body, { builds: [] }, "a marker naming another account was listed: " + JSON.stringify(r.body));
+});
+
+// ── ACCEPTANCE OWNERSHIP UNDER INTERLEAVING (Codex's review of 7a8e7518) ───
+
+/** A first build's POST, started and left running (it waits on its answer slot as the browser's socket does). */
+function postBuild(b, q, { token = "t", chat = CHAT } = {}) {
+  return (async () => {
+    const worker = await loadWorker();
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/react-build", {
+      method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ brief: BRIEF, images: [], picker: "sonnet", qa: [], chat }),
+    }), ENV(b, q), makeCtx());
+    return { status: res.status, body: await res.json().catch(() => null) };
+  })();
+}
+/**
+ * PAUSES THE FIRST WRITE TO A KEY THAT `match` ACCEPTS, before it lands or
+ * just after it has landed. `reached` resolves at the pause; `release` lets
+ * it go on. Every other write passes straight through.
+ */
+function gateWrite(b, match, when) {
+  // `match(key, opts)`: the write's key and its options (its `onlyIf`).
+  let release; const gate = new Promise((r) => { release = r; });
+  let hit; const reached = new Promise((r) => { hit = r; });
+  const put = b.put.bind(b);
+  let armed = true;
+  b.put = async (k, v, o) => {
+    if (!armed || !match(k, o)) return put(k, v, o);
+    armed = false;
+    if (when === "before") { hit(); await gate; return put(k, v, o); }
+    const r = await put(k, v, o); hit(); await gate; return r;
+  };
+  return { reached, release };
+}
+const chatKey = (uid = BUILD_USER.id) => buildChatKey(uid, CHAT);
+const markersOf = (b, uid = BUILD_USER.id) => keysUnder(b, "builds-live/" + uid + "/").map((k) => markerJobOf(k, uid)).filter(Boolean);
+async function until(pred, n = 2000) { for (let i = 0; i < n && !pred(); i++) await new Promise((r) => setImmediate(r)); }
+
+test("RC 11 — CODEX'S INTERLEAVING: POST A paused just after its chat claim landed; POST B for the same account and chat follows A's build; A resumes and queues it — one row, one queue message, one job", async () => {
+  const b = buildBucket();
+  const q = queue();
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const g = gateWrite(b, (k) => k === chatKey(), "after");
+    const a = postBuild(b, q);
+    await g.reached;
+    const aJob = JSON.parse(b.store.get(chatKey())).job;
+    const bAns = await postBuild(b, q);
+    assert.equal(bAns.status, 202, JSON.stringify(bAns.body));
+    assert.deepEqual({ stage: bAns.body.stage, job: bAns.body.job }, { stage: "resuming", job: aJob }, "B did not follow A's build");
+    g.release();
+    await until(() => q.sent.length > 0);
+    assert.deepEqual(q.sent.map((m) => m.id), [aJob], "a second build was queued");
+    assert.equal(rpc.filter((r) => r.fn === "edit_create").length, 1, "a second row was filed");
+    assert.deepEqual(markersOf(b), [aJob], "B left a marker for a build that never ran");
+    assert.equal(JSON.parse(b.store.get(chatKey())).job, aJob, "A lost its claim");
+    await settlePost(b, { job: aJob, answer: a });
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
+test("RC 12 — THE OTHER SIDE OF THE CLAIM: POST A paused after its marker and before its claim; B claims and queues; A resumes, finds B's running build and follows it, taking its own marker back — one row, one queue message", async () => {
+  const b = buildBucket();
+  const q = queue();
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const g = gateWrite(b, (k) => k === chatKey(), "before");
+    const a = postBuild(b, q);
+    await g.reached;
+    const aMarker = markersOf(b);
+    assert.equal(aMarker.length, 1, "A's marker was not written before its claim");
+    const bp = postBuild(b, q);
+    await until(() => q.sent.length > 0);
+    const bJob = q.sent[0].id;
+    assert.notEqual(bJob, aMarker[0]);
+    g.release();
+    const aAns = await a;
+    assert.equal(aAns.status, 202, JSON.stringify(aAns.body));
+    assert.deepEqual({ stage: aAns.body.stage, job: aAns.body.job }, { stage: "resuming", job: bJob });
+    assert.equal(q.sent.length, 1, "A queued a second build");
+    assert.equal(rpc.filter((r) => r.fn === "edit_create").length, 1);
+    assert.deepEqual(markersOf(b), [bJob], "A's marker for a build it never queued was left listed");
+    await settlePost(b, { job: bJob, answer: bp });
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
+test("RC 13 — A CLAIM WITH NO MARKER IS NOT FREE: a young one is followed (nothing filed, queued or marked); one older than any build runs, or one its owner released, is taken — the ended attempt stays recoverable", async () => {
+  const ghost = "0123456789abcdef0123456789abcdef";
+  for (const [label, claim, follows] of [
+    ["young, no marker", packBuildChat({ job: ghost, at: Date.now() }), true],
+    ["abandoned, no marker", packBuildChat({ job: ghost, at: Date.now() - BUILD_JOB_MS - 60000 }), false],
+    ["released by its owner", packBuildChat({ job: ghost, at: Date.now(), ended: true }), false],
+  ]) {
+    const b = buildBucket({ [chatKey()]: JSON.stringify(claim) });
+    const q = queue();
+    const rpc = [];
+    globalThis.fetch = stand({ rpc });
+    try {
+      const p = postBuild(b, q);
+      if (follows) {
+        const r = await p;
+        assert.equal(r.status, 202, label + ": " + JSON.stringify(r.body));
+        assert.equal(r.body.job, ghost, label);
+        assert.equal(q.sent.length, 0, label + ": a build was queued");
+        assert.equal(rpc.filter((x) => x.fn === "edit_create").length, 0, label + ": a row was filed");
+        assert.deepEqual(markersOf(b), [], label + ": a marker was left");
+      } else {
+        await until(() => q.sent.length > 0);
+        assert.equal(q.sent.length, 1, label + ": the chat was not recovered");
+        assert.equal(JSON.parse(b.store.get(chatKey())).job, q.sent[0].id, label);
+        await settlePost(b, { job: q.sent[0].id, answer: p });
+      }
+    } finally { globalThis.fetch = blockedFetch; }
+  }
+  assert.equal(claimVerdict({ held: { job: ghost, at: 1000 }, view: null, now: 2000 }), "held");
+  assert.equal(claimVerdict({ held: { job: ghost, at: 1000 }, view: { state: "done" }, now: 2000 }), "free");
+  assert.equal(claimVerdict({ held: { job: ghost, at: 1000 }, view: { state: "running" }, now: 2000 + BUILD_JOB_MS }), "held", "a running view lost to the claim's age");
+});
+
+test("RC 14 — OWNERSHIP THAT CANNOT BE READ STARTS NOTHING: a chat claim whose read fails answers a retryable 503 — no row, no R2 job, no queue message, no charge, no marker left", async () => {
+  const b = buildBucket({ [chatKey()]: JSON.stringify(packBuildChat({ job: "0123456789abcdef0123456789abcdef", at: Date.now() })) });
+  const get = b.get.bind(b);
+  b.get = async (k) => { if (k === chatKey()) throw new Error("R2 read failed"); return get(k); };
+  const q = queue();
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const r = await postBuild(b, q);
+    assert.equal(r.status, 503, JSON.stringify(r.body));
+    assert.equal(r.body.retry, true);
+    assert.equal(q.sent.length, 0);
+    assert.equal(rpc.filter((x) => x.fn === "edit_create" || /debit|credit/.test(x.fn)).length, 0);
+    assert.deepEqual(markersOf(b), []);
+    assert.equal(keysUnder(b, "jobs/").length, 0);
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
+test("RC 15 — A RELEASE NEVER TOUCHES ANOTHER REQUEST'S CLAIM: A's queue send fails after another build has taken the chat; A takes back only its own marker, and the other claim is left exactly as it was", async () => {
+  const b = buildBucket();
+  const other = "fedcba9876543210fedcba9876543210";
+  const theirs = JSON.stringify(packBuildChat({ job: other, at: Date.now() }));
+  const q = { sent: [], async send() { b.store.set(chatKey(), theirs); throw new Error("queue down"); }, async sendBatch() { throw new Error("no batch"); } };
+  globalThis.fetch = stand();
+  try {
+    await Promise.race([postBuild(b, q), new Promise((r) => setTimeout(r, 1500))]);
+  } finally { globalThis.fetch = blockedFetch; }
+  assert.equal(b.store.get(chatKey()), theirs, "the release overwrote or removed another request's claim");
+  assert.deepEqual(markersOf(b), [], "A's own marker was left");
+  // AND IN THE WINDOW INSIDE THE RELEASE ITSELF: A reads its own claim, and
+  // another request's claim lands before A acts on that read. A release that
+  // deletes after checking would remove it; one conditional on what it read
+  // cannot.
+  const b2 = buildBucket();
+  let failed = false;
+  const get = b2.get.bind(b2);
+  b2.get = async (k) => {
+    const r = await get(k);
+    // A REAL WRITE (a new etag), as another request's takeover would land.
+    if (failed && k === chatKey() && r) { b2.get = get; await b2.put(chatKey(), theirs); }
+    return r;
+  };
+  const q2 = { sent: [], async send() { failed = true; throw new Error("queue down"); }, async sendBatch() { throw new Error("no batch"); } };
+  globalThis.fetch = stand();
+  try {
+    await Promise.race([postBuild(b2, q2), new Promise((r) => setTimeout(r, 1500))]);
+  } finally { globalThis.fetch = blockedFetch; }
+  assert.equal(b2.store.get(chatKey()), theirs, "a claim taken inside the release's own read-then-act window was removed or overwritten");
+});
+
+test("RC 16 — TWO TAKERS OF ONE ENDED CLAIM: both judge it free; B's takeover lands first and B queues; A's takeover, conditional on the claim it judged, fails, and A judges again — B's running build — and follows it. One row, one queue message", async () => {
+  const ghost = "0123456789abcdef0123456789abcdef";
+  const b = buildBucket({ [chatKey()]: JSON.stringify(packBuildChat({ job: ghost, at: Date.now(), ended: true })) });
+  const q = queue();
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const g = gateWrite(b, (k, o) => k === chatKey() && !!(o && o.onlyIf && o.onlyIf.etagMatches), "before");
+    const a = postBuild(b, q);
+    await g.reached; // A has judged the ended claim free and is about to take it over
+    const bp = postBuild(b, q);
+    await until(() => q.sent.length > 0);
+    const bJob = q.sent[0].id;
+    g.release();
+    const aAns = await a;
+    assert.equal(aAns.status, 202, JSON.stringify(aAns.body));
+    assert.equal(aAns.body.job, bJob, "A did not follow the build that took the chat first");
+    assert.equal(q.sent.length, 1, "both takers queued a build");
+    assert.equal(rpc.filter((r) => r.fn === "edit_create").length, 1);
+    assert.equal(JSON.parse(b.store.get(chatKey())).job, bJob, "A overwrote B's claim");
+    assert.deepEqual(markersOf(b), [bJob]);
+    await settlePost(b, { job: bJob, answer: bp });
+  } finally { globalThis.fetch = blockedFetch; }
 });
 
 test("RC 8 — buildLiveState from its records: kept answer first (done by the browser's own success gate, else failed), then the row's verdict, a done row with no kept answer as unknown, a row with none as running, and with no row at all running only while younger than a build can run", () => {
@@ -351,8 +557,10 @@ const SRC = [
   cutLine("const BUILD_POLL_MS ="), cutLine("const BUILD_FOLLOW_MS ="),
   cut("async function followBuildJob("),
   cut("function reactSend("),
-  cutLine("let siteBuildsChecked ="), cutLine("const siteBuildsShown ="),
-  cut("function siteFoundAnswer("), cut("function siteBuildFinish("), cut("function siteBuildOwed("), cut("function siteBuildsCheck("),
+  cutLine("const SITE_BUILDS_RETRY_MS ="), cutLine("const SITE_BUILDS_COOLDOWN_MS ="), cutLine("const siteBuildsState ="),
+  cutLine("const siteBuildsOwed ="), cutLine("const siteBuildsShown ="),
+  cut("function siteFoundAnswer("), cut("function siteBuildFinish("), cut("function siteBuildOwed("),
+  cut("function siteBuildTake("), cutLine("const SITE_BUILDS_WAIT_MS ="), cut("function siteBuildsDrain("), cut("function siteBuildsRetry("), cut("function siteBuildsCheck("),
   cut("function siteFinishBuild("),
   cut("function buildToldLines("), cut("function settlementLine("), cut("function buildFactLines("), cut("function buildFailureView("),
   cut("function failureCostLine("), cutLine("const siteTablesOrder ="), cut("function siteTablesAdd("), cut("function siteTablesRead("),
@@ -365,35 +573,43 @@ const SRC = [
  * (`{ status, body }`). Returns the requests made, the sites after, and what
  * each chat was told. `renders` re-runs the page's render this many times.
  */
-async function browserPage({ sites = [], answer, renders = 1 } = {}) {
+async function browserPage({ sites = [], answer, renders = 1, busy = false, clock = null, between = null } = {}) {
   const store = sites.map((s) => JSON.parse(JSON.stringify(s)));
   const reqs = [];
   const told = [];
+  const delays = [];
+  // A CONTROLLED CLOCK when given (`clock.t`), so the retry schedule's waits are
+  // read, not slept: a timer runs at once and its delay is recorded.
+  const D = clock ? Object.assign(function () {}, { now: () => clock.t }) : Date;
   const ctx = vm.createContext({
     window: {}, Auth: { accessToken: async () => "token" }, EditPoll: EP,
-    AbortController, Response, Headers, encodeURIComponent, JSON, Promise, Object, Array, Set, Math, Date, String, Number,
+    AbortController, Response, Headers, encodeURIComponent, JSON, Promise, Object, Array, Set, Math, Date: D, String, Number,
     fetch: (url, init) => {
       const method = (init && init.method) || "GET";
       reqs.push(method + " " + String(url));
-      const a = answer(String(url), method);
+      const a = answer(String(url), method, reqs);
       if (!a) return Promise.resolve(new Response(JSON.stringify({ ok: false, error: "unscripted" }), { status: 500, headers: { "content-type": "application/json" } }));
+      if (a.throws) return Promise.reject(new TypeError("Failed to fetch"));
+      if (a.wait) return a.wait.then((x) => new Response(JSON.stringify(x.body), { status: x.status, headers: { "content-type": "application/json" } }));
       return Promise.resolve(new Response(JSON.stringify(a.body), { status: a.status, headers: { "content-type": "application/json" } }));
     },
-    setTimeout: (fn) => { setImmediate(fn); return 0; }, clearTimeout: () => {},
+    setTimeout: (fn, ms) => { delays.push(ms || 0); if (clock && ms) clock.t += ms; setImmediate(fn); return delays.length; }, clearTimeout: () => {},
     showAuthGate: () => {}, scheduleCreditRefresh: () => {}, fetchCredits: () => {},
     sitesLoad: () => store, siteById: (id) => store.find((s) => s.id === id) || null, sitesSave: () => {}, renderSites: () => {},
     siteSnap: () => {}, reactRoutePages: () => [{ path: "/" }], readReactStream: async () => ({}),
     siteReplyMsg: (t) => ({ r: "a", t }),
     setBuildPhase: () => {}, setBuildCode: () => {}, setBuildProgress: (origin, lines) => told.push({ origin, progress: lines.map((l) => l.text) }), buildWhy: () => "",
     siteBuildStart: () => {}, siteBuildStop: () => {}, paintReactLive: () => {}, designQuestion: () => false,
-    buildPicker: "sonnet", siteBuild: null, siteAbort: null, siteErr: null, siteBusy: false, siteOpenId: null,
+    buildPicker: "sonnet", siteBuild: null, siteAbort: null, siteErr: null, siteBusy: busy, siteOpenId: null,
   });
   vm.runInContext(SRC, ctx);
+  const settle = async () => { for (let j = 0; j < 600; j++) await new Promise((r) => setImmediate(r)); };
   for (let i = 0; i < renders; i++) {
     ctx.siteBuildsCheck();
-    for (let j = 0; j < 600; j++) await new Promise((r) => setImmediate(r));
+    await settle();
+    if (between) { await between(i, ctx); await settle(); }
   }
-  return { reqs, store, told, busy: ctx.siteBusy };
+  return { reqs, store, told, delays, busy: ctx.siteBusy, ctx, settle };
 }
 
 /** The Worker's own bodies for one build, at each stage, for the browser cases. */
@@ -486,6 +702,147 @@ test("RB 5 — A CHAT THAT ALREADY HAS ITS SITE, with a later message of its own
   const p = await browserPage({ sites: [site], answer: (url) => (url === "/api/site/builds" ? { status: 200, body: w.done } : null) });
   assert.deepEqual(p.reqs, ["GET /api/site/builds"]);
   assert.equal(p.store[0].msgs.length, 3, "the old build was answered into a chat that already has its site: " + JSON.stringify(p.store[0].msgs));
+  assert.equal(p.busy, false);
+});
+
+/** The same running build, as a second chat's: its own job and chat, the Worker's own bodies. */
+function secondBuild(w) {
+  const job2 = "abcdefabcdefabcdefabcdefabcdef12";
+  const chat2 = "site_1791640000999_fghij";
+  const b0 = w.running.builds[0];
+  return { job2, chat2, entry: { ...b0, job: job2, chat: chat2, words: "A florist called Petal Row." }, pending: { ...w.pending, job: job2 } };
+}
+
+test("RB 6 — TWO RUNNING BUILDS IN TWO CHATS, THREE RENDERS (Codex's case): both are followed to their ends, one after the other — each chat restored with its answer, each job polled, nothing posted, and the page free at the end", async () => {
+  const w = await workerBodies();
+  const { job2, chat2, entry, pending } = secondBuild(w);
+  const listing = { builds: [entry, w.running.builds[0]] };
+  const polls = { [w.job]: 0, [job2]: 0 };
+  const p = await browserPage({
+    sites: [{ id: CHAT, name: "Fold Lane", msgs: [{ r: "u", t: BRIEF }] }],
+    renders: 3,
+    answer: (url) => {
+      if (url === "/api/site/builds") return { status: 200, body: listing };
+      for (const j of [w.job, job2]) {
+        if (url === "/api/site/build/" + j) return ++polls[j] < 2 ? { status: 202, body: j === w.job ? w.pending : pending } : { status: w.poll.status, body: w.poll.body };
+      }
+      return null;
+    },
+  });
+  assert.ok(!p.reqs.some((r) => r.startsWith("POST")), JSON.stringify(p.reqs));
+  assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 1, "the listing was read more than once");
+  assert.ok(polls[w.job] >= 2 && polls[job2] >= 2, "a running build was skipped for good: " + JSON.stringify(polls));
+  // ONE AT A TIME: the page's busy state is held by the build it follows, so
+  // the second build's polls all come after the first build's last.
+  const order = p.reqs.filter((r) => r.startsWith("GET /api/site/build/")).map((r) => r.slice("GET /api/site/build/".length));
+  const firstJob = order[0];
+  const lastOfFirst = order.lastIndexOf(firstJob);
+  assert.ok(order.slice(0, lastOfFirst + 1).every((j) => j === firstJob), "the two found builds were followed at once: " + JSON.stringify(order));
+  const one = p.store.find((s) => s.id === CHAT);
+  const two = p.store.find((s) => s.id === chat2);
+  assert.ok(two, "the second chat was never restored");
+  for (const s of [one, two]) {
+    assert.equal(s.slug, GOOD_DESIGN.slug, s.id + " has no site");
+    assert.equal(s.msgs.filter((m) => m.r === "a").length, 1, s.id + " was answered " + s.msgs.filter((m) => m.r === "a").length + " times");
+  }
+  assert.equal(p.busy, false);
+});
+
+test("RB 7 — DISCOVERY WHILE ANOTHER OPERATION IS BUSY: the listing is read, but nothing is taken up and the other operation's busy state is never cleared; once it is free, every owed build — ended and running — is taken up, each once", async () => {
+  const w = await workerBodies();
+  const { job2, chat2, entry, pending } = secondBuild(w);
+  const ended = { ...w.done.builds[0], job: "1234567890abcdef1234567890abcdef", chat: "site_1791640000555_klmno", words: "A tea room." };
+  const listing = { builds: [entry, ended] };
+  let polled = 0;
+  let seenWhileBusy = null;
+  const p = await browserPage({
+    sites: [],
+    busy: true,
+    renders: 3,
+    answer: (url) => {
+      if (url === "/api/site/builds") return { status: 200, body: listing };
+      if (url === "/api/site/build/" + job2) return ++polled < 2 ? { status: 202, body: pending } : { status: w.poll.status, body: w.poll.body };
+      return null;
+    },
+    between: (i, ctx) => {
+      if (i === 0) {
+        seenWhileBusy = { busy: ctx.siteBusy, sites: ctx.sitesLoad().length, polled };
+        ctx.siteBusy = false; // THE OTHER OPERATION ENDS (its own finish frees the page)
+      }
+    },
+  });
+  assert.deepEqual(seenWhileBusy, { busy: true, sites: 0, polled: 0 }, "discovery acted, or cleared another operation's busy state, while it was busy");
+  assert.ok(!p.reqs.some((r) => r.startsWith("POST")));
+  assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 1);
+  const a = p.store.find((s) => s.id === ended.chat);
+  const b = p.store.find((s) => s.id === chat2);
+  assert.ok(a && b, "an owed build was lost: " + JSON.stringify(p.store.map((s) => s.id)));
+  assert.equal(a.msgs.filter((m) => m.r === "a").length, 1);
+  assert.equal(b.msgs.filter((m) => m.r === "a").length, 1);
+  assert.equal(b.slug, GOOD_DESIGN.slug);
+  assert.equal(p.busy, false);
+});
+
+test("RB 8 — A TEMPORARY LISTING FAILURE IS TRIED AGAIN, NEVER OVERLAPPING: renders while the first read is out ask nothing more; its 503 is retried once after 2 s, and the build it then names is shown", async () => {
+  const w = await workerBodies();
+  let release;
+  const first = new Promise((r) => { release = r; });
+  let n = 0;
+  let whileOut = -1;
+  const clock = { t: 1_000_000 };
+  const p = await browserPage({
+    sites: [{ id: CHAT, name: "Fold Lane", msgs: [{ r: "u", t: BRIEF }] }],
+    clock,
+    renders: 3,
+    answer: (url) => (url === "/api/site/builds" ? (++n === 1 ? { wait: first } : { status: 200, body: w.done }) : null),
+    between: (i) => {
+      if (i === 1) {
+        // RENDERS 0 AND 1 HAVE RUN WITH THE FIRST READ STILL OUT: one read only.
+        whileOut = n;
+        release({ status: 503, body: { error: "unavailable" } });
+      }
+    },
+  });
+  assert.equal(whileOut, 1, "a render started a second listing read while the first was out");
+  assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 2, JSON.stringify(p.reqs));
+  assert.deepEqual(p.delays.filter((d) => d >= 1000), [2000], "the retry was not the first step of the schedule");
+  assert.equal(p.store[0].slug, GOOD_DESIGN.slug, "the build named after the retry was not shown");
+  assert.equal(p.store[0].msgs.length, 2);
+});
+
+test("RB 9 — A LISTING THAT KEEPS FAILING IS BOUNDED: five automatic retries at 2, 4, 8, 16 and 32 s, then nothing until a render a minute on — no rapid loop — and a thrown network error counts the same", async () => {
+  const clock = { t: 5_000_000 };
+  let n = 0;
+  const p = await browserPage({
+    sites: [],
+    clock,
+    renders: 4,
+    answer: (url) => (url === "/api/site/builds" ? (++n % 2 ? { status: 503, body: { error: "unavailable" } } : { throws: true }) : null),
+    between: (i) => { if (i === 2) clock.t += 60000; },
+  });
+  // 1 + 5 retries, then renders 1 and 2 (inside the cool-down) ask nothing; render 3 (a minute on) asks once.
+  assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 7, JSON.stringify(p.reqs));
+  // EXACTLY THE SCHEDULE, and no timer after it: the read a minute on that fails again waits for another render.
+  assert.deepEqual(p.delays.filter((d) => d >= 1000), [2000, 4000, 8000, 16000, 32000]);
+});
+
+test("RB 10 — THE NEXT OWED BUILD STARTS WHEN THE FIRST ONE ENDS, not only on a later render: one render, two running builds, both followed to their ends", async () => {
+  const w = await workerBodies();
+  const { job2, chat2, entry, pending } = secondBuild(w);
+  const polls = { [w.job]: 0, [job2]: 0 };
+  const p = await browserPage({
+    sites: [{ id: CHAT, name: "Fold Lane", msgs: [{ r: "u", t: BRIEF }] }],
+    renders: 1,
+    answer: (url) => {
+      if (url === "/api/site/builds") return { status: 200, body: { builds: [entry, w.running.builds[0]] } };
+      for (const j of [w.job, job2]) {
+        if (url === "/api/site/build/" + j) return ++polls[j] < 2 ? { status: 202, body: j === w.job ? w.pending : pending } : { status: w.poll.status, body: w.poll.body };
+      }
+      return null;
+    },
+  });
+  assert.ok(polls[w.job] >= 2 && polls[job2] >= 2, "the second build waited for a render that never came: " + JSON.stringify(polls));
+  assert.equal(p.store.find((s) => s.id === chat2).slug, GOOD_DESIGN.slug);
   assert.equal(p.busy, false);
 });
 
