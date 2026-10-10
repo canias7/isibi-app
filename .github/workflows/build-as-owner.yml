@@ -406,7 +406,11 @@ jobs:
       # out so the build runs against the code that just shipped rather than
       # racing the rollout — the exact mistake edit-smoke recorded on
       # 2026-08-12, when 90s of sleep tested a Worker mid-replacement.
+      # NOT FOR THE FIRST-BUILD CHECK (2026-10-10): it is dispatched from a
+      # branch whose own commit is never deployed, against deployed main, so
+      # this wait could only time out and stop the job before the check ran.
       - name: wait for this push's deploy
+        if: github.event.inputs.mode != 'check'
         run: |
           # ASK deploy.yml FOR ITS OWN RUNS. Never `actions/runs?head_sha=` plus
           # a find-by-name: that asks for the first page of EVERY workflow on

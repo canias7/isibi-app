@@ -366,6 +366,9 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   assert.ok(owner.includes('const { main } = await import("./build-check.mjs");'));
   const wf = fs.readFileSync(ROOT + ".github/workflows/build-as-owner.yml", "utf8");
   assert.ok(wf.includes("options: [edit, build, check]"));
+  // A CHECK DISPATCHED FROM THE BRANCH never waits for a deploy of its own commit.
+  const wait = wf.indexOf("- name: wait for this push's deploy");
+  assert.ok(wait > 0 && wf.slice(wait, wait + 120).includes("if: github.event.inputs.mode != 'check'"), "the deploy wait would block the check");
   assert.ok(wf.includes("OWNER_SPEND: ${{ github.event.inputs.spend || 'no' }}"));
   assert.ok(wf.includes("            build-check.json"));
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
