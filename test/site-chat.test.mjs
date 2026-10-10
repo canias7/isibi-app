@@ -376,15 +376,26 @@ test("only a first build hands the chat to a writer, and both build call sites d
 
 test("the chat is read from the request ONCE, on a first build, through the refusal", () => {
   const w = bare(worker);
+  // TWO READERS, BOTH THROUGH THE REFUSAL (2026-10-10): the build route's, and
+  // the acceptance's in `liveBuildStart`, which records which chat a queued
+  // first build belongs to so a reopened browser can find it. Each is a first
+  // build only. What this guards is unchanged: no reader of `body.chat` skips
+  // `cleanChatId`.
   const reads = [...w.matchAll(/cleanChatId\(/g)];
-  assert.equal(reads.length, 1, "the chat id is read in more than one place: " + reads.length);
+  assert.equal(reads.length, 2, "the chat id is read in an unexpected number of places: " + reads.length);
   assert.match(w, /const chatId = firstBuild \? cleanChatId\(body\.chat\) : "";/,
     "the chat is no longer read only on a first build, through the refusal");
-  // NEVER `body.chat` raw anywhere else: a second reader that skipped the
-  // refusal would be the coercion bug at the one hop that decides which site a
-  // customer is answered with.
+  const at = w.indexOf("async function liveBuildStart(");
+  assert.ok(at > 0, "liveBuildStart is gone; this guard is watching nothing");
+  const fn = w.slice(at, w.indexOf("\n}\n", at));
+  assert.ok(fn.indexOf("if (!first) return out;") > 0 && fn.indexOf("if (!first) return out;") < fn.indexOf("cleanChatId(body.chat)"),
+    "the acceptance reads the chat before it has refused anything but a first build");
+  // NEVER `body.chat` raw anywhere: a reader that skipped the refusal would be
+  // the coercion bug at the one hop that decides which site a customer is
+  // answered with.
   const raw = [...w.matchAll(/body\.chat\b/g)];
-  assert.equal(raw.length, 1, "body.chat is read somewhere that is not the refusal: " + raw.length);
+  const refused = [...w.matchAll(/cleanChatId\(body\.chat\)/g)];
+  assert.equal(raw.length, refused.length, "body.chat is read somewhere that is not the refusal: " + raw.length + " reads, " + refused.length + " refused");
 });
 
 test("the two collisions are told apart, and an unreadable lookup keeps the older sentence", async () => {

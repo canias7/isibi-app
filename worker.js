@@ -46,6 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, holdsChat, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -15187,6 +15188,102 @@ async function deleteSiteFor(env, uid, dslug) {
  * `{replay}` — run the build inline against this; or `{}` before the body was
  * ever read, where the caller's own request is still intact.
  */
+/**
+ * A FIRST BUILD'S PLACE IN THE ACCOUNT'S LISTING, AT ACCEPTANCE (2026-10-10).
+ * A first build only — a revise names its site, and the site is found by its
+ * slug — and only on the account's own keys. The chat (the request's chat field, the
+ * browser's project id) is claimed with a conditional write: when the claim
+ * is held by a build that is still running, that build is answered
+ * (`running`) and nothing else happens. A claim held by a build that ended,
+ * or that cannot be read, is taken over. The marker is written after the
+ * claim. Nothing here can refuse a build: a write that fails is said in the
+ * log and the build runs as it always did, unlisted.
+ */
+async function liveBuildStart(env, { url, body, uid, id }) {
+  const out = { claimed: false, marked: false, running: "" };
+  try {
+    if (!env.SITES_BUCKET || !isLiveUid(uid)) return out;
+    const path = new URL(url).pathname;
+    const first = (path === "/api/site/react-build" || path === "/api/site/build") && !(body && typeof body.slug === "string" && body.slug);
+    if (!first) return out;
+    // THROUGH THE SAME REFUSAL AS THE BUILD ROUTE'S OWN READ (`cleanChatId`), never raw.
+    const chatId = body ? cleanChatId(body.chat) : "";
+    const chat = isLiveChat(chatId) ? chatId : "";
+    if (chat) {
+      const key = buildChatKey(uid, chat);
+      const now = Date.now();
+      let put = await env.SITES_BUCKET.put(key, JSON.stringify(packBuildChat({ job: id, at: now })), { onlyIf: { etagDoesNotMatch: "*" } });
+      if (!put) {
+        const cur = await env.SITES_BUCKET.get(key);
+        const held = cur ? readBuildChat(JSON.parse(await cur.text())) : null;
+        if (held && held.job !== id) {
+          const view = await liveBuildView(env, uid, held.job, now);
+          if (holdsChat(view)) return { ...out, running: held.job };
+        }
+        put = await env.SITES_BUCKET.put(key, JSON.stringify(packBuildChat({ job: id, at: now })), cur && typeof cur.etag === "string" ? { onlyIf: { etagMatches: cur.etag } } : {});
+        if (!put) {
+          // ANOTHER POST TOOK IT BETWEEN THE READ AND THE WRITE: its build is
+          // the chat's, and this one follows it.
+          const again = await env.SITES_BUCKET.get(key);
+          const won = again ? readBuildChat(JSON.parse(await again.text())) : null;
+          if (won && won.job !== id) return { ...out, running: won.job };
+        }
+      }
+      out.claimed = true;
+      out.chat = chat;
+    }
+    await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive({ job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now() })));
+    out.marked = true;
+  } catch (e) { console.error("build live: could not list build", id, "for its account (it runs unlisted)", String((e && e.message) || e)); }
+  return out;
+}
+
+/** A build that will never run (its job could not be stored or queued): its marker goes, and its chat claim if it is still its own. */
+async function liveBuildRelease(env, uid, id, live) {
+  try {
+    if (!live || !env.SITES_BUCKET || !isLiveUid(uid)) return;
+    if (live.marked) await env.SITES_BUCKET.delete(buildLiveKey(uid, id));
+    if (live.claimed && live.chat) {
+      const key = buildChatKey(uid, live.chat);
+      const cur = await env.SITES_BUCKET.get(key);
+      const held = cur ? readBuildChat(JSON.parse(await cur.text())) : null;
+      if (held && held.job === id) await env.SITES_BUCKET.delete(key);
+    }
+  } catch (e) { console.error("build live: could not take back the listing of", id, String((e && e.message) || e)); }
+}
+
+/**
+ * ONE OF THE ACCOUNT'S BUILDS, AS ITS OWN RECORDS SAY IT IS (`buildLiveState`):
+ * the marker, the kept final answer, and — only without one — the row, read
+ * owner-scoped (`edit_get` with the caller's id). Null when the account has
+ * no such marker.
+ */
+async function liveBuildView(env, uid, job, now = Date.now()) {
+  const mo = await env.SITES_BUCKET.get(buildLiveKey(uid, job));
+  if (!mo) return null;
+  let marker = null;
+  try { marker = readBuildLive(JSON.parse(await mo.text())); } catch { marker = null; }
+  if (!marker || marker.uid !== uid || marker.job !== job) return null;
+  let done = null;
+  const dob = await env.SITES_BUCKET.get(buildKeptKey(uid, job));
+  if (dob) { try { done = readBuildDone(JSON.parse(await dob.text())); } catch { done = null; } }
+  const row = done ? null : await buildRowStatus(env, job, uid);
+  return buildLiveState({ marker, done, row, now });
+}
+
+/** A build's final answer, kept on its account's keys when it is written, so it can be read again (the answer slot is read once). */
+async function keepBuildDone(env, id, next) {
+  try {
+    const r = readResult(next);
+    if (!r || !isLiveUid(r.uid) || !isJobId(id) || resultKind(next) !== "terminal") return false;
+    // ONLY A BUILD THE ACCOUNT'S LISTING NAMES: a revise, or a build accepted
+    // before markers existed, has nothing to be found by.
+    if (!(await env.SITES_BUCKET.head(buildLiveKey(r.uid, id)))) return false;
+    await env.SITES_BUCKET.put(buildKeptKey(r.uid, id), JSON.stringify(packBuildDone({ status: r.status, body: r.body, type: r.type, at: Date.now() })));
+    return true;
+  } catch (e) { console.error("build live: could not keep the answer of", id, "(the poll still serves it once)", String((e && e.message) || e)); return false; }
+}
+
 async function enqueueSiteBuild(request, env, { auth }) {
   // AUTHENTICATED BEFORE ANYTHING IS WRITTEN OR SENT.
   const bu = await authUser(request);
@@ -15207,8 +15304,20 @@ async function enqueueSiteBuild(request, env, { auth }) {
   const url = request.url;
   let body;
   try { body = JSON.stringify(rb.body); } catch { return { replay: replayRequest({ url, auth, body: "{}" }) }; }
-  const back = () => ({ replay: replayRequest({ url, auth, body }) });
   const id = newJobId((b) => crypto.getRandomValues(b));
+  // ── A FIRST BUILD THE BROWSER CAN FIND AGAIN (2026-10-10) ─────────────────
+  //
+  // The chat that asked is claimed for this build, and the account's marker
+  // names it (`builds-live/`, `build-live.mjs`), so a reload, a closed tab or
+  // another session finds the build and follows it instead of losing it. A
+  // first build asked again for a chat whose build is still running is
+  // answered with THAT build — the existing 202 the browser already follows —
+  // and nothing new is filed, queued or charged.
+  const live = await liveBuildStart(env, { url, body: rb.body, uid: bu.id, id });
+  if (live.running) {
+    return { res: Response.json({ ok: false, stage: "resuming", job: live.running, already: true, msg: "Your site is already being built from this chat — following it now." }, { status: 202 }) };
+  }
+  const back = () => { liveBuildRelease(env, bu.id, id, live); return { replay: replayRequest({ url, auth, body }) }; };
   // ── THE ROW, BEFORE THE OBJECT AND THE MESSAGE (stage 2c) ──────────────────
   //
   // The edit path's order — row, object, message — for the same reason: a
@@ -15240,6 +15349,7 @@ async function enqueueSiteBuild(request, env, { auth }) {
     // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
     // claim has no lease and is never swept, so it is closed here by name.
     if (hasRow) await closeBuildRow(env, id, "failed", "could not store the job");
+    await liveBuildRelease(env, bu.id, id, live);
     return back();
   }
   try {
@@ -15250,6 +15360,7 @@ async function enqueueSiteBuild(request, env, { auth }) {
     // token sitting in a bucket for no reason.
     try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* not worth failing a build over */ }
     if (hasRow) await closeBuildRow(env, id, "failed", "could not enqueue");
+    await liveBuildRelease(env, bu.id, id, live);
     return back();
   }
   // NO TRACE MARK HERE, and that is a decision rather than an omission. The
@@ -16420,7 +16531,11 @@ async function storeBuildResult(env, id, out, role, who = "build", { facts: give
     let put;
     try { put = await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(next), { onlyIf: cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } }); }
     catch (e) { console.error(who + ": could not write the answer for", id, String((e && e.message) || e)); return { ok: false, ...(unread ? { unread } : {}) }; }
-    if (put) return { ok: true, as, wrote: true, ...(unread ? { unread } : {}) };
+    if (put) {
+      // KEPT FOR THE ACCOUNT'S LISTING (2026-10-10), beside the read-once slot.
+      await keepBuildDone(env, id, next);
+      return { ok: true, as, wrote: true, ...(unread ? { unread } : {}) };
+    }
   }
   console.error(who + ": the answer slot for", id, "is still contended after 6 tries");
   return { ok: false, ...(unread ? { unread } : {}) };
@@ -26388,6 +26503,51 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // ── THE ACCOUNT'S FIRST BUILDS, TO FIND AGAIN (2026-10-10) ────────────────
+    //
+    // Every build this account asked for in the last day, read off its own keys
+    // only (`builds-live/<uid>/`), each as its records say it is: running (with
+    // the model's own progress lines), done or failed (with the answer the
+    // build gave, whole), or finished with no answer kept. Another account's
+    // builds are not under this prefix at all. A marker past the window is
+    // tidied away as it is read. Spends nothing, sends nothing, starts nothing.
+    if (url.pathname === "/api/site/builds" && request.method === "GET") {
+      const bu = await authUser(request, env);
+      if (!bu) return Response.json({ error: "sign in first" }, { status: 401 });
+      if (!env.SITES_BUCKET || !isLiveUid(bu.id)) return Response.json({ builds: [] });
+      const now = Date.now();
+      const out = [];
+      try {
+        const listed = await env.SITES_BUCKET.list({ prefix: buildLiveRoot(bu.id), limit: 1000 });
+        const jobs = (listed.objects || []).map((o) => markerJobOf(o.key, bu.id)).filter(Boolean);
+        for (const job of jobs) {
+          const view = await liveBuildView(env, bu.id, job, now);
+          if (!view) continue;
+          if (now - view.at > BUILD_LIVE_MS) {
+            try { await env.SITES_BUCKET.delete(buildLiveKey(bu.id, job)); await env.SITES_BUCKET.delete(buildKeptKey(bu.id, job)); } catch { /* tidied next time */ }
+            continue;
+          }
+          if (view.state === "stale") continue;
+          const item = { job: view.job, chat: view.chat, words: view.words, at: view.at, state: view.state };
+          if (view.answer) {
+            let body = null;
+            try { body = JSON.parse(view.answer.body); } catch { body = null; }
+            item.answer = { status: view.answer.status, body };
+          }
+          if (view.state === "running") {
+            const pv = await progressViewFor(env, job, bu.id);
+            if (pv.lines.length) item.progress = pv.lines;
+          }
+          out.push(item);
+        }
+      } catch (e) {
+        console.error("build live: could not read the account's builds", String((e && e.message) || e));
+        return Response.json({ error: "could not read your builds just now" }, { status: 503 });
+      }
+      out.sort((a, b) => b.at - a.at);
+      return Response.json({ builds: out.slice(0, BUILD_LIVE_MAX) });
+    }
+
     if (url.pathname.startsWith("/api/site/build/") && request.method === "GET") {
       const bu = await authUser(request, env);
       if (!bu) return Response.json({ error: "sign in first" }, { status: 401 });
@@ -26480,6 +26640,17 @@ async function handleRequest(request, env, ctx) {
         // THE ANSWER OBJECT ALWAYS WINS: it is read first, above, and only its
         // absence reaches here — so a row that reads `done` is one whose
         // answer was already collected, never one still being written.
+        // THE KEPT ANSWER (2026-10-10): the slot is read once, so a second
+        // session — or this one after a reload — that follows the build after
+        // its answer was collected is served the answer its account kept,
+        // read on the caller's own keys and never deleted here.
+        if (isLiveUid(bu.id)) {
+          try {
+            const kept = await env.SITES_BUCKET.get(buildKeptKey(bu.id, jid));
+            const kd = kept ? readBuildDone(JSON.parse(await kept.text())) : null;
+            if (kd) return new Response(kd.body, { status: kd.status, headers: { "content-type": kd.type } });
+          } catch { /* the row's own verdict below */ }
+        }
         const rs = await buildRowStatus(env, jid, bu.id);
         if (rs && rs.verdict) {
           const vb = rs.verdict.body;

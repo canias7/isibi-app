@@ -5643,6 +5643,7 @@ function renderSites() {
   // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
+  siteBuildsCheck();
   if (open) { resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
@@ -13173,6 +13174,104 @@ function editReply(e) {
   return editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
 }
 
+// ── A FIRST BUILD FOUND AGAIN ON OPEN (2026-10-10, the Build reconnection gap) ──
+//
+// A first build's POST holds its socket while the build runs, and the page
+// learned the build's job only when it answered — so a reload, a closed tab or
+// another session lost the build: its message sat with no reply, and the next
+// one went out as a fresh first build. The server now lists the account's own
+// first builds (`GET /api/site/builds`, keyed by the account, each with the
+// chat that asked). On open, each one this page has not shown is picked up in
+// its own chat — created here from the customer's words when this session has
+// never seen it — and followed through `reactSend`'s own code: a running build
+// as a 202 from the POST is (its live, model-written lines and its end), an
+// ended one from the answer it gave. Nothing is posted, so nothing is sent
+// again, restarted or charged again.
+let siteBuildsChecked = false;
+const siteBuildsShown = new Set();
+/** The answer a found build stands in for: the POST's own 202 while it runs, its kept answer once it ended. */
+function siteFoundAnswer(found) {
+  const answer = found && found.answer && typeof found.answer === 'object' ? found.answer : null;
+  const status = answer && Number.isInteger(answer.status) ? answer.status : 202;
+  const body = answer ? (answer.body && typeof answer.body === 'object' ? answer.body : { ok: false, error: true }) : { ok: false, stage: 'resuming', job: found.job, found: true };
+  return { status, ok: status >= 200 && status < 300, headers: { get: () => 'application/json' }, json: async () => body };
+}
+/** The reply `siteSend` would write when the build ends — the same busy flag, rail and save. */
+function siteBuildFinish(origin) {
+  return (reply) => {
+    siteBusy = false;
+    siteBuildStop();
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push(siteReplyMsg(reply));
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+}
+/**
+ * IS THIS FOUND BUILD STILL OWED TO ITS CHAT? A chat this session has never
+ * seen is owed it. One it has is owed it only while its last message is the
+ * customer's own with no reply after it and nothing is in flight here — the
+ * page that sent it lost sight of it. A chat whose build was already answered
+ * here (a reply, a site with its address) is never answered twice.
+ */
+function siteBuildOwed(s, b) {
+  if (!s) return true;
+  if (s.slug && b.state === 'done') return false;
+  const last = Array.isArray(s.msgs) && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
+  return !!(last && last.r === 'u');
+}
+/** The account's first builds, read once on open: each owed one is picked up in its own chat. */
+function siteBuildsCheck() {
+  if (siteBuildsChecked) return;
+  siteBuildsChecked = true;
+  apiFetch('/api/site/builds').then((r) => {
+    // NOT SIGNED IN YET (the first paint runs before the session is read): the
+    // next render asks again rather than never.
+    if (r && r.status === 401) { siteBuildsChecked = false; return null; }
+    return r && r.ok ? r.json() : null;
+  }).then((d) => {
+    const list = d && Array.isArray(d.builds) ? d.builds : [];
+    // OLDEST FIRST, so a chat with two answers left ends on its latest.
+    for (const b of list.slice().reverse()) {
+      if (!b || typeof b.job !== 'string' || !b.job || typeof b.chat !== 'string' || !b.chat) continue;
+      if (siteBuildsShown.has(b.job)) continue;
+      if (['running', 'done', 'failed', 'unknown'].indexOf(b.state) < 0) continue;
+      let s = siteById(b.chat);
+      if (!siteBuildOwed(s, b)) { siteBuildsShown.add(b.job); continue; }
+      // ONE BUILD AT A TIME ON THIS PAGE, as a sent one is: a running build here
+      // is left for the next look.
+      if (b.state === 'running' && siteBusy) continue;
+      siteBuildsShown.add(b.job);
+      const words = typeof b.words === 'string' ? b.words : '';
+      if (!s) {
+        // A SESSION THAT NEVER SAW THIS CHAT: the project is made here under the
+        // chat's own id, with the customer's words as its first message, so the
+        // finished site belongs to it as it would have to the page that asked.
+        const at = Number.isFinite(b.at) ? b.at : Date.now();
+        sitesLoad().unshift({ id: b.chat, name: words.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site', createdAt: at, updatedAt: Date.now(), html: '', msgs: words ? [{ r: 'u', t: words }] : [] });
+        sitesSave();
+        s = siteById(b.chat);
+        if (!s) continue;
+      }
+      const finish = siteBuildFinish(b.chat);
+      if (b.state === 'unknown') {
+        finish('Your site finished building, but I couldn’t read its answer here. Your sites list shows what it made.');
+        continue;
+      }
+      if (b.state === 'running') {
+        siteBusy = true;
+        siteBuildStart(true);
+        if (Array.isArray(b.progress) && b.progress.length) setBuildProgress(b.chat, b.progress);
+        sitesSave();
+        renderSites();
+      }
+      reactSend(s, words, b.chat, 'build', [], finish, [], undefined, b.state === 'running' ? { job: b.job } : { job: b.job, answer: b.answer });
+    }
+  }).catch(() => { siteBuildsChecked = false; });
+}
+
 function editReplyBody(e) {
   // ⚠ THE SWEEP'S REPLY IS ANSWERED IN THE WRAPPER ABOVE, not here (moved
   // 2026-09-20). A job that committed and died before storing its reply is
@@ -13602,7 +13701,12 @@ async function followBuildJob(job, signal, origin) {
 // W24): `alsoAsked`, the parts put off, which the route takes out of the
 // message before its writer reads it, and `handOver`, why the step below handed
 // it on. Every reply names the parts (`deferred`), and this names them back.
-function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
+// `found` IS A BUILD THIS ACCOUNT ALREADY ASKED FOR, found again on open
+// (`siteBuildsCheck`, 2026-10-10): `{ job }` for one still running — followed
+// exactly as a 202 from the POST is — or `{ job, answer }` for one that ended,
+// whose answer is read exactly as the POST's would have been. Nothing is
+// posted: the build is not sent again, restarted or charged again.
+function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // THE FULL REWRITE READS THE FIRST `REWRITE_MAX` CHARACTERS OF A REQUEST
   // (2026-10-03): it is the build's pipeline, kept as it is, and it finds a
   // climb's held parts in that much of the instruction and writes from it. A
@@ -13670,7 +13774,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
   // server's, so it is the one named. Declared out here so a connection lost
   // mid-follow can say it as well.
   let firedHeld;
-  apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
+  (found && found.job ? Promise.resolve(siteFoundAnswer(found)) : apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal })).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
     let d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
     // ── FIRED, NOT FINISHED ────────────────────────────────────────────────

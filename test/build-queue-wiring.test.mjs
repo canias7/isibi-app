@@ -16,6 +16,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { loadWorker, makeCtx, isUnrouted } from "./fixtures/worker-harness.mjs";
+import { BUILD_LIVE_ROOT } from "../builder/build-live.mjs";
 import { JOB_KIND, JOB_PREFIX, isJobId, jobKey, resultKey, readJob, packJob, packResult, replayRequest } from "../builder/build-job.mjs";
 
 const BRIEF = { brief: "a barber shop in Leeds" };
@@ -343,7 +344,18 @@ test("the job store is under a prefix nothing serves", { timeout: TIMEOUT }, asy
   const bucket = fakeBucket();
   const queue = instantQueue(bucket, packResult({ status: 200, body: "{}" }));
   await withUser(() => post({ SITES_BUCKET: bucket, BUILD_QUEUE: queue }));
+  // THE BUILD'S ACCOUNT RECORDS (2026-10-10, `builds-live/<uid>/`, so a
+  // reopened browser can find the build) are private too, and they never hold
+  // the token: only the job id, the chat, the customer's words and the time.
+  let jobs = 0;
   for (const [, key] of bucket.log) {
+    if (key.startsWith(BUILD_LIVE_ROOT)) {
+      const v = bucket.store.get(key);
+      assert.ok(typeof v !== "string" || !/accessToken|Bearer|"token"/.test(v), `${key} holds a credential: ${v}`);
+      continue;
+    }
     assert.ok(key.startsWith(JOB_PREFIX), `the queue wrote to ${key}, outside the private job prefix`);
+    jobs++;
   }
+  assert.ok(jobs > 0, "no job was written; this guard is watching nothing");
 });
