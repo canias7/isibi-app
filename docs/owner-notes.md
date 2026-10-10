@@ -53,7 +53,19 @@ is in git; the dated entries further down are the full story.*
   - The other three needed sharper assertions (RC 16 added; RB 6 and RB 8
     tightened).
 - **Full suite on `9f62095e`'s code**: `10369 / 10369 / 0 / 0` locally.
-- **CI**: read after the push; see the next records commit.
+- **CI on `74b41d1a`** (the code commit `9f62095e` plus records):
+  - **site build** 38063680474 green;
+  - **unit tests** 38063680493 **cancelled at the job's 5-minute limit**
+    (`timeout-minutes: 5` in `.github/workflows/unit.yml`). It was not a
+    test failure: the log shows the suite finished `10369 / 10328 / 0 / 41
+    skipped` in 298.8 s, and the runner was stopped at about 300 s.
+    - Earlier green runs took about 220 s and 250 s for 10,342 and 10,358
+      tests, and this file takes about 10 s locally, in parallel with the
+      others. So the suite now sits close enough to the limit that a slow
+      runner is cut off.
+    - The limit is left as it is (a CI setting, outside this batch); it is
+      recorded as a finding for your decision.
+  - The run on the next records push: CI_R2B.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
   production `8d6dbcea93252fbb` → `dd8d2e17a6559834` (205 inputs, 174
   paths). This replaces round 1's `a2ad6fa4a83ace7c`. Nothing is built.
@@ -72,6 +84,8 @@ is in git; the dated entries further down are the full story.*
 - **A fresh session** gets the customer's words and the result, not earlier
   local conversation.
 - **Untested**: real-model progress wording, real images, and any live run.
+- **CI headroom (a finding, not changed)**: the unit-test job's 5-minute
+  limit is now within a slow runner's time for the whole suite.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
