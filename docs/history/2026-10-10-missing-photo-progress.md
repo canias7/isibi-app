@@ -101,7 +101,7 @@ already not charged (`made`, never `planned`).
   - BLD 13 fails;
   - the new file does not load, because the exports it tests do not exist.
 - **Sweep**: 18 of 18 mutants killed, the comment-only control survived.
-- **Full suite** and CI: in the owner-notes handoff, stamped after the runs.
+- **Full suite** locally: `10331 / 10331 / 0 / 0`. **Image** predicted `8d6dbcea93252fbb` → `21350e8c8a057be4` (204 inputs, 173 paths). CI is stamped in the owner-notes handoff.
 
 ## Limits, kept explicit
 

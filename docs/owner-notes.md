@@ -54,7 +54,7 @@ is in git; the dated entries further down are the full story.*
 - **Sweep**: 18 of 18 killed; the control survived.
 - **Full suite** locally: `10331 / 10331 / 0 / 0`.
 - **CI**: YYCIYY
-- **Image**: YYIMGYY
+- **Image**: `8d6dbcea93252fbb` → `21350e8c8a057be4` predicted (204 inputs, 173 paths; `builder/site-progress.mjs` is an input). A deploy would rebuild it, then wait 15–20 minutes.
 
 **Remaining gaps**
 - **Real-model wording is not measured.** Nothing in code reads a line's
