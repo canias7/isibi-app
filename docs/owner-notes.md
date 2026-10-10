@@ -1,72 +1,114 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, deploy 2191 released and run 119 passed: concurrency shown live)
+## Current handoff — read this first (2026-10-10, the Add-on-with-photograph and first-Build checks prepared, not pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2191** (on your approval, 2026-10-10):
-  - `main` `f96cbfd5`, image `8d6dbcea93252fbb`, as predicted;
-  - the dispatch correction (the job is queued before its preparations) and
-    the kept preparation attempts;
-  - one green deploy run, 00:14–00:17 UTC;
-  - **runtime-confirmed by run 118** (00:40 UTC): Worker `f96cbfd56d65`, a
-    cold container `8d6dbcea93252fbb`, every free check passed.
-- **The branch** `claude/help-needed-ehlwlj` is `main` plus the deploy and
-  run records.
-- **Run 119** (the single approved `lv-parallel` follow-up, run 38011323505,
-  00:58–01:13 UTC): **the workflow concluded `success`; every check passed.**
-  `docs/history/2026-10-10-run119.md` has the full record.
-- **Balance**: 990 after run 119 (1002 → 990, read by the press). That is a
-  historical reading; read the ledger before relying on it.
+- **Production is deploy 2191**: `main` `f96cbfd5`, image
+  `8d6dbcea93252fbb`, runtime-confirmed by run 118.
+- **The dispatch-order correction is closed as verified for the
+  demonstrated case** (your word, after Codex reviewed `2399f359`). Run 119:
+  the price's prepared step ran 19.9 s inside the heading job. Browser-closed
+  recovery, model-written progress, clarification, final results and the 12
+  credits all passed. **The limits stay explicit**:
+  - two substantive preparation steps at once have not been seen live;
+  - reuse of a prepared answer is not directly proven.
+- **The branch** `claude/help-needed-ehlwlj` is `main` plus records and this
+  round's scripts and tests: **`4273ba32` (scripts, tests and workflow inputs)**. Nothing merged, deployed or built;
+  no paid run, no balance change.
+- **Balance**: 990 after run 119 (a historical reading; read the ledger
+  first).
 
-**The concurrency evidence (the press's own printed timeline)**
-- Request `8e45b602`, accepted 01:01:14.630 UTC:
-  - part 0's heading job executed +14.7 → +194.4 s;
-  - **part 1's prepared data step, one model call, ran +42.6 → +62.6 s: 19.9 s
-    wholly inside that job**;
-  - part 2's preparation (routing only; its step rightly held by the heading
-    before it) ran +50.6 → +68.7 s, beside both.
-- **The jobs and publishes stayed one at a time** under the site's lock.
-- **Part 1's own job then took 2.5 s.** That is consistent with reuse of its
-  prepared answer, not proven.
+**What this round prepared** (`docs/history/2026-10-10-addon-build-checks.md`
+has every pass and fail condition)
+- **The Add-on press, `lv-addon-photo`**: one message on the bakery, *"Add a
+  Meet the Bakers page with a link in the menu, introducing the three of us
+  who bake through the night, with a photograph of us shaping loaves at the
+  bench."* It runs with the tab closed once progress shows, and is followed
+  in a fresh browser session.
+  - **New photograph checks**: exactly one photograph on the new page's
+    stored file; drawn with words describing it; its address serving an
+    image; the site's uploads gaining exactly that one image (bought once,
+    none stored twice, none taken from earlier pictures).
+  - Everything else is held byte for byte, plus the menu link, progress,
+    replies and money as before.
+  - **About 33–41 credits; budget 45, hard cap 1018.**
+- **The first-Build check, `build-as-owner` mode `check`**: one fresh build
+  of `copperleaf-tea-room` (404 today), a one-page tea-room brief asking for
+  photographs. The sending session lets go once the build is accepted, and
+  a fresh sign-in follows it to its end. **19 checks**:
+  - one page, at most 15 components drawn;
+  - **overlap from the build's own recorded times**: bands' summed calls
+    past their wave's wall, design agents the same, or a photograph still
+    being bought when the pages came back;
+  - dependency and publish order;
+  - model-written progress lines served live;
+  - photographs placed, and every stored image accounted for;
+  - every charge taken once.
+  - **About 30–65 credits; budget 70, hard cap 1018.** With spend `no` it
+    stops after a free preflight.
+- **The deployed image supports both**: the branch's product code is byte
+  for byte deploy 2191's. Only `scripts/`, `test/` and two workflow files
+  changed, and the predicted image for the pushed head is **`8d6dbcea93252fbb` (204 inputs), the deployed one**.
+  **No rebuild and no deploy are needed** before either press.
 
-**Also shown live in run 119**
-- **Clarification**: the X footer link asked for its address while the other
-  parts finished.
-- **Closed tab**: the answer was sent with the tab closed and followed in a
-  fresh browser session; all eight progress checks passed with model-written
-  lines.
-- **Results, all kept on the demo site**:
-  - `/order` reads *"Pick a loaf and a time to collect it"*;
-  - every footer links to X;
-  - the focaccia is 4.6 → 4.7;
-  - everything else is byte for byte as before.
-- **Money: 12 credits**, routing 6 plus jobs 6, exactly the balance's move.
+**Gaps found and kept separate**
+1. **The browser has no way back to a build in flight.** A closed and
+   reopened browser does not re-attach; the build itself carries on. The
+   check tests the API path instead. This is a product gap, not fixed here.
+2. **Build overlap is recorded as durations, not intervals.** The sum
+   against the wall is still proof. But a build whose band split is refused,
+   with a single-call design and photographs that finish while the pages are
+   written, leaves no overlap the press can read. The check then fails and
+   says so.
+3. **"Bought once" is read from the uploads and the trace.** The purchase
+   records are in R2, which a press cannot read.
 
-**Remaining limitations**
-1. **Two parts' substantive steps at once** has not been seen live. Run 119's
-   overlap was a prepared step beside a job.
-2. **Reuse of a prepared answer** by its job is not recorded where a press
-   can read it.
-3. **Overlap depends on the router naming targets** and on the queue
-   delivering promptly. Run 119's preparations were taken 22 s and 49 s after
-   being claimed.
-4. **Writes and publishes stay one at a time per site.**
-5. Crash recovery, lost purchases and duplicate deliveries stay offline-only
-   proof.
-6. **Not run (outside this approval)**: the optional Add-on-with-photograph
-   and first-Build presses.
+**Verification**
+- New tests: `canary-addon-photo` 8 and `canary-build` 14, all passing.
+- Red check: both fail on the old code, and a reused-picture add-on got no
+  photograph check there.
+- Sweep: 33 of 33 killed, 2 controls survived.
+- Full suite: **running at this push; stamped in the next commit once measured**. Doc tests 32/32.
 
----
+**The boxes, when you approve a press** (nothing is pressed yet)
+- **Add-on**: *edit canary* → *RUN A NAMED SCENARIO…* `lv-addon-photo`,
+  spend `yes`.
+- **Build**: *build as owner* → mode `check`, *check only: yes sends the
+  build* `yes`. Optionally first with `no`: a free preflight that stops
+  before sending.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — The Add-on-with-photograph and first-Build checks prepared (nothing pressed)
+
+After Codex reviewed `2399f359`, on your word:
+- **The dispatch-order correction is closed** as verified for the
+  demonstrated case, with its two limits kept.
+- **The Add-on press `lv-addon-photo`** (on the bakery) gained photograph
+  checks: the photograph bought once and placed, drawn with words, serving
+  an image. Everything else is held as before.
+- **The first-Build check** (`build-as-owner` mode `check`, on
+  `copperleaf-tea-room`) judges one fresh build on:
+  - its page and components;
+  - its recorded overlap and order;
+  - its model-written lines;
+  - the API-path closure;
+  - its photographs and its charges.
+- **Commit ``4273ba32` (scripts, tests and workflow inputs)`.** Tests 8 and 14 new, sweep 33/33, full suite
+  stamped once measured. The image is unchanged (`8d6dbcea93252fbb` (204 inputs), the deployed one).
+- **No merge, deploy, rebuild, balance change or paid run.**
+- **Found**: the browser cannot re-attach to a build in flight once
+  closed. Kept separate as a product gap.
 
 ---
 
