@@ -299,3 +299,14 @@ with the new module so the imports load:
 - **Image**: `builder/build-live.mjs` changed, so the prediction is
   production `8d6dbcea93252fbb` → `dd8d2e17a6559834` (205 inputs, 174
   paths). Predicted, not built.
+
+### CI
+
+- **On `74b41d1a`**: site build 38063680474 was green. Unit tests
+  38063680493 were cancelled at the job's 5-minute limit after the suite had
+  finished clean (`10369 / 10328 / 0 / 41`, 298.8 s).
+- **On `425d6340`** (the same code): unit tests 38064225602 were green
+  (`10369 / 10328 / 0 / 41`, 255.6 s).
+- The 5-minute limit in `.github/workflows/unit.yml` is now within a slow
+  runner's time for the whole suite. It is recorded as a finding and left
+  unchanged.

@@ -65,7 +65,9 @@ is in git; the dated entries further down are the full story.*
       runner is cut off.
     - The limit is left as it is (a CI setting, outside this batch); it is
       recorded as a finding for your decision.
-  - The run on the next records push: CI_R2B.
+  - **On `425d6340`** (the same code, records only), unit tests 38064225602
+    were **green**: `10369 / 10328 / 0 / 41 skipped`, the same 41 skips,
+    with the suite at 255.6 s.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
   production `8d6dbcea93252fbb` → `dd8d2e17a6559834` (205 inputs, 174
   paths). This replaces round 1's `a2ad6fa4a83ace7c`. Nothing is built.
