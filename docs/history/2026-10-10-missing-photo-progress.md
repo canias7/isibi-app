@@ -248,3 +248,83 @@ kept. Results:
   6,412.
 - **Full suite** locally: `10342 / 10342 / 0 / 0`. **Image and CI**: in the owner-notes handoff, stamped after the
   runs.
+
+## Closed as verified offline (2026-10-10)
+
+- Codex reviewed `0d4fd6e9` and independently passed all 35 missing-photo,
+  queued-writer and Build-parallel tests. The owner closed the correction as
+  **verified offline**.
+- The distinction stands:
+  - **model inputs are tested**: what every progress, reply and judge
+    request carries, through the real routes and the real queued writer;
+  - **real-model wording is not**.
+- **CI on `0d4fd6e9`**: unit tests 38053798352 green. That push changed
+  documents only, so no site build ran; the site build on the same code
+  (`2300a739`) was 38053365759, green.
+- The patch stays unmerged. The Meet the Bakers page and its menu links stay
+  on `fold-lane-bakery`.
+
+## The release and recovery sequence, prepared (not run)
+
+**Gate: you confirm fal is funded, then give your word for each step.**
+Funding alone authorizes nothing. Each press is the owner's.
+
+1. **Release, once.**
+   - **Pre-merge checks**:
+     - nothing in flight (Actions runs and edit jobs);
+     - required CI green on the candidate;
+     - the image predicted `8d6dbcea93252fbb` → `a7c974c472a4f6e0` (204
+       inputs, 173 paths);
+     - the rollback, `git revert --no-commit f96cbfd5..<candidate>`, verified
+       in a throwaway worktree.
+   - **The candidate** is the branch head at the time; today `0d4fd6e9`,
+     19 commits on `f96cbfd5`. Product changes are only in `worker.js`,
+     `builder/site-progress.mjs` and `builder/site-images.mjs`; `public/` is
+     unchanged, so there is no served-file comparison.
+   - **Fast-forward `main`** to it on your word: one deploy run, read for
+     `built` with the predicted pair.
+2. **Runtime.**
+   - Wait 15–20 minutes, because the image rolls.
+   - Then **your free canary press** (spend no) with the deploy sha and the
+     image id in their boxes. It must answer the new sha and
+     `a7c974c472a4f6e0`.
+   - Record it as deploy 2192, runtime-confirmed only then.
+3. **Recovery: fill the missing photograph on the existing page** (one paid
+   edit, through the canary's ordinary single edit):
+   - "Run the ONE paid edit as well": `yes`;
+   - "What to change": *"On the Meet the Bakers page, put a photograph of
+     the three of us shaping loaves at a long wooden bench at night into the
+     empty picture frame."*;
+   - "The site to edit": `fold-lane-bakery`;
+   - the deploy sha and image boxes: the values from step 2;
+   - the expected-route box: `intent=edit layer=picture page=/bakers
+     alsoAsked=none`.
+   - **How it works**: the picture rung finds the empty `SafeImage` by its
+     alt text ("Three bakers shaping loaves at a long wooden bench at
+     night") and buys one photograph through the purchase records.
+   - **Estimate, not a cap**: routing 2–3 plus one photograph at 18.75 plus
+     a fraction for the call, about **21–24 credits**. The balance is the
+     only bound.
+   - **Pass** (read free afterwards):
+     - `/bakers` serves a stored `/u/fold-lane-bakery/…` image in that
+       frame, and the address serves an image;
+     - the page's words, the menu links and every other page are unchanged;
+     - one provider call, and one photograph charged in the ledger;
+     - the reply and progress lines say what was done.
+   - **Stop on**: a route mismatch (refused before any edit), a refusal by
+     the provider, an unexplained charge, or a changed page other than
+     `/bakers`. A failure is not repeated.
+4. **Then the prepared Build check, only if step 3 passes.**
+   - Workflow `build as owner`: mode `check`, "check only" spend `yes`, on
+     `copperleaf-tea-room`.
+   - Its free preflight (spend `no`) first, as before.
+   - Estimate 30–65 credits; it refuses outside a balance of 70–1018.
+   - Judged as prepared: page, components, overlap, order, progress,
+     photographs and charges, in its own `build-check.json`.
+
+**Limits that stay documented**:
+- the browser cannot reconnect to a build in flight (an open product gap;
+  the check follows the build through the API only);
+- provider purchase-once is not verifiable by a press;
+- real-model wording is not measured by any test;
+- an Add-on purchase that throws leaves anything it stored unplaced.

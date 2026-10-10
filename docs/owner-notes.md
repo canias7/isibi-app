@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, the missing-photograph correction finished: refused, failed, uncertain and thrown photographs told truly on every later line; not deployed)
+## Current handoff — read this first (2026-10-10, the missing-photograph correction closed as verified offline; release and recovery prepared, waiting on fal)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,88 +8,74 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
-  `8d6dbcea93252fbb`, unchanged. Nothing merged, deployed or rebuilt.
-- **The branch** `claude/help-needed-ehlwlj`: the first round is `8b662cdb`
-  (Codex passed its 24 tests on `f2ae6556`; CI there: unit 38051538891 and
-  site build 38051538922, both green). This round is the commit carrying
-  this handoff.
-- **fal's balance is empty** (confirmed). The image retry and the paid Build
-  test stay paused until you fund fal.
-- **Balance 971**, unchanged. Read the ledger before relying on it.
+  `8d6dbcea93252fbb`, unchanged.
+- **The branch** `claude/help-needed-ehlwlj` is unmerged; the correction is
+  `8b662cdb` and `a8870276`, with records after.
+- **CI**:
+  - on `0d4fd6e9`: unit tests 38053798352 green (a documents-only push, so
+    no site build ran);
+  - on `2300a739`, the same code: unit tests 38053365746 and site build
+    38053365759, green.
+- **Closed as verified offline** (you, after Codex passed all 35 tests on
+  `0d4fd6e9`):
+  - **model inputs are tested**: every progress, reply and requirements
+    request, through the real routes and the real queued writer while a job
+    runs;
+  - **real-model wording is not**.
+- **Kept**: the Meet the Bakers page and its menu links on
+  `fold-lane-bakery`; the photograph's frame is empty.
+- **fal's balance is empty.** Nothing proceeds until you confirm it is
+  funded, and funding alone authorizes no deploy and no spending.
+- **Balance 971.** Read the ledger before relying on it.
 
-**What this round fixed**
-1. **Why the test request ended `done` while the live one ended `partial`.**
-   - Live, the designer wrote a requirement for the photograph, and the
-     requirement check found it missing.
-   - The fixture had no such requirement, and nothing else in the product
-     said a designed photograph wasn't made. The status depended on a model
-     writing that requirement.
-   - Reproduced through the real route with the live request's own
-     requirements: `partial`, the photograph's requirement still to do, as
-     live.
-   - **Fixed in the add-on**: a designed photograph the purchase did not make
-     is now "not added" from the code's own evidence, so the part is
-     `partial` whether or not a requirement exists.
-   - A photograph a requirement names is told once, by that requirement.
-   - A thrown purchase is told "can't tell", never "not made".
-2. **A Build image step that throws** now gives later lines accurate facts,
-   in three kinds kept apart:
-   - known not made (refused, failed or never tried);
-   - can't tell (a lost answer or a throw), never bought again;
-   - made and saved before the throw, said as saved and not placed, never
-     lost.
-3. **The real queued writer, while the job runs.** The add-on job is held at
-   the photo call, at its publish milestone and at its compile. At each hold
-   the writer's queued tasks go through the real consumer, and every request
-   it sends is checked:
-   - **refused**: the photo is said "still to make", then "not made", then
-     "not done" on a later line, still during the job. The part ends
-     partial, the reply writer is told, and the photo isn't charged;
-   - **storage failure** and **lost answer**: pending on every line, never
-     made or not made, and never bought twice;
-   - **successful placement**: made and placed, nothing listed as not done,
-     charged once.
-   - The page and menu changes are kept in every case. The progress lines
-     stay model-written.
+**Prepared, not run** (the full sequence with every box is in
+`docs/history/2026-10-10-missing-photo-progress.md`, "The release and
+recovery sequence"). Each step needs your word and your press:
+1. **Release once.**
+   - Pre-merge checks (nothing in flight, CI green, rollback verified).
+   - Fast-forward `main` to the branch head; one deploy run. The image is
+     predicted `8d6dbcea93252fbb` → `a7c974c472a4f6e0`, and `public/` is
+     unchanged.
+2. **Runtime**: wait 15–20 minutes, then your free canary press must answer
+   the new sha and image.
+3. **Recovery, one paid edit** on `fold-lane-bakery`:
+   - the message: *"On the Meet the Bakers page, put a photograph of the
+     three of us shaping loaves at a long wooden bench at night into the
+     empty picture frame."*;
+   - expected route `intent=edit layer=picture page=/bakers alsoAsked=none`;
+   - about **21–24 credits** (an estimate, not a cap);
+   - pass: the frame shows a stored photograph, nothing else changed, one
+     provider call, one photograph charged.
+4. **Then the prepared Build check** (`copperleaf-tea-room`, 30–65 credits),
+   only if step 3 passes; its free preflight first.
 
-**What the tests prove, and what they don't**
-- **Proven**: what every model request contains (progress lines during a
-  running job, the reply writer's facts, the requirements check), and the
-  outcomes: pages, statuses, purchases, provider calls and charges.
-- **Not proven**: a real model's wording. Every model here is supplied and
-  repeats its facts, and nothing in code reads a line's words. No model was
-  called.
-- **A thrown image step can't be reached through either route offline**:
-  every failure inside a purchase is caught per photo. Its facts are shown
-  from the real code that produces them, and its wiring by source checks.
+**Limits that stay**: the browser cannot reconnect to a build in flight;
+purchase-once can't be verified by a press; real-model wording is not
+measured; an Add-on purchase that throws leaves anything it stored unplaced.
 
-**Verified offline**
-- 15 missing-photo cases, 5 live-writer cases, BLD 13 and BLD 14.
-- **Red check**: on the previous code the refused live-writer case and BLD
-  13–14 fail; the controls pass there, as they should.
-- **Sweep**: 14 of 14 killed; the control survived.
-- The 236 files touching photos, progress or add-ons: 6,412 of 6,412.
-- **Full suite** locally: `10342 / 10342 / 0 / 0` (10,331 before plus the 11 new cases).
-- **Image**: `8d6dbcea93252fbb` → `a7c974c472a4f6e0` predicted on `a8870276` (204 inputs, 173 paths; `builder/site-images.mjs` and `site-progress.mjs` are inputs). A deploy would rebuild it, then wait 15–20 minutes.
-- **CI** on `2300a739`: unit tests 38053365746 and site build 38053365759, both green (the tests are those of `a8870276`; only records changed since).
-
-**Remaining gaps**
-- Real-model wording (above), and no live run: paused until fal is funded.
-- **The add-on's thrown purchase** says "can't tell" for every photo it was
-  buying. Ones it may have stored before throwing are not placed later by
-  this path (purchase-once stops a second purchase).
-- **Browser reconnection to a build in flight** is still an open product
-  gap.
-- No top-up, merge, deploy, container rebuild or paid test without your
-  word.
-
-Details: `docs/history/2026-10-10-missing-photo-progress.md`, second round.
+No top-up, merge, deploy, container rebuild or paid test without your word.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — The missing-photograph correction closed as verified offline; release and recovery prepared
+
+- **Closed**: Codex passed all 35 tests on `0d4fd6e9`, and you closed the
+  correction as verified offline. Model inputs are tested; real-model
+  wording is not.
+- **CI on `0d4fd6e9`**: unit tests 38053798352 green (no site build for a
+  documents-only push).
+- **Prepared, not run**, all waiting on fal being funded and your word for
+  each step:
+  - deploy once and check its runtime;
+  - one paid edit to fill the photograph on `/bakers` (about 21–24 credits);
+  - then the Build check.
+- Nothing merged, deployed or spent.
 
 ---
 
