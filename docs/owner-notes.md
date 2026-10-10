@@ -67,9 +67,12 @@ discovery. Two regressions are fixed.
   - site build 38082680268 on `6777ce1c`: green;
   - unit tests 38082680261 on `6777ce1c`: cancelled after 88 s by the
     records push;
-  - unit tests 38082765763 on `79e4a2e4` (the same code): cancelled at the
-    5-minute limit, the recorded finding. A re-run needs your press; the
-    push of this record starts another run.
+  - unit tests 38082765763 on `79e4a2e4` (the same code) and 38083184817
+    on `a1c6b183` (records only): both cancelled at the 5-minute limit,
+    inside `npm test`;
+  - **no unit run has completed on round 5's code.** The local full suite
+    is green (352 s). The limit is your recorded decision and is unchanged.
+    A re-run, or a decision on the limit, is yours.
 - **Image**: the prediction is now production `8d6dbcea93252fbb` →
   `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
   `d2e9c973504783f1`. Nothing is built.

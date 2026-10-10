@@ -787,8 +787,13 @@ protection was already in place.
   cancelled at the job's 5-minute limit (20:11:47 → 20:17:05 UTC). This is
   the recorded finding about that limit; the local suite took 352 s. Its
   log could not be read from here, and a re-run needs `actions: write`,
-  which this session doesn't have. The push of this CI record starts
-  another run.
+  which this session doesn't have.
+- **Unit tests** 38083184817 on `a1c6b183` (records only): cancelled again
+  at the 5-minute limit, inside `npm test` (20:17:51 → 20:22:59 UTC).
+- **No unit run has completed on round 5's code.** Round 4's green run took
+  273.7 s of its 300; this round adds tests to a suite that was already
+  near the limit. The limit is your recorded decision and is unchanged.
+  Not pushed again to retry; a re-run is your press.
 
 ### Remaining limitations
 
