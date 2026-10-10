@@ -584,3 +584,8 @@ module and tests:
 - **Full suite**: `10375 / 10375 / 0 / 0` locally.
 - **Image**: production `8d6dbcea93252fbb` → `d2e9c973504783f1` (205 inputs,
   174 paths). Predicted, not built.
+
+### CI
+
+- **On `50029f91`**: unit tests 38079343352 green (`10375 / 10334 / 0 / 41`,
+  273.7 s); site build 38079343341 green.

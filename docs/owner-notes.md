@@ -66,7 +66,10 @@ rule.
   - Two existing tests were restated for the rule: a redelivery of an
     executed job now makes zero design calls, and the billing-ref guard
     allows `billId`.
-- **CI**: read after the push; see the next records commit.
+- **CI on `50029f91`** (the code commit `0cc457de` plus records):
+  - unit tests 38079343352 green, `10375 / 10334 / 0 / 41 skipped` (the
+    same 41 CI skips), with the suite at 273.7 s;
+  - site build 38079343341 green.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
   production `8d6dbcea93252fbb` → `d2e9c973504783f1` (205 inputs, 174
   paths). This replaces round 3's `bccb030af1f1eed1`. Nothing is built.
