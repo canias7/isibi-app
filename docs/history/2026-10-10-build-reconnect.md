@@ -778,6 +778,18 @@ protection was already in place.
   `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
   `d2e9c973504783f1`. Predicted, not built.
 
+### CI
+
+- **Site build** 38082680268 on `6777ce1c`: green.
+- **Unit tests** 38082680261 on `6777ce1c`: cancelled after 88 s by the
+  records push (the workflow cancels a run in progress).
+- **Unit tests** 38082765763 on `79e4a2e4` (the same code plus records):
+  cancelled at the job's 5-minute limit (20:11:47 → 20:17:05 UTC). This is
+  the recorded finding about that limit; the local suite took 352 s. Its
+  log could not be read from here, and a re-run needs `actions: write`,
+  which this session doesn't have. The push of this CI record starts
+  another run.
+
 ### Remaining limitations
 
 - **An attempt that never started holds the job for up to 5 minutes**

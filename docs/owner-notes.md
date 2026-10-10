@@ -63,7 +63,13 @@ discovery. Two regressions are fixed.
   second, one through a stronger form), and the comment control survived.
 - **Related suites**: 261 of 261, 43 of 43, and 27 of 27.
 - **Full suite on `6777ce1c`'s code**: `10378 / 10378 / 0 / 0` locally.
-- **CI**: being read on the pushed head, recorded below when it ends.
+- **CI**:
+  - site build 38082680268 on `6777ce1c`: green;
+  - unit tests 38082680261 on `6777ce1c`: cancelled after 88 s by the
+    records push;
+  - unit tests 38082765763 on `79e4a2e4` (the same code): cancelled at the
+    5-minute limit, the recorded finding. A re-run needs your press; the
+    push of this record starts another run.
 - **Image**: the prediction is now production `8d6dbcea93252fbb` →
   `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
   `d2e9c973504783f1`. Nothing is built.
