@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { BUILD_CHECK, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, runBuildCheck } from "../scripts/canary-build.mjs";
+import { BUILD_CHECK, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -161,7 +161,7 @@ const goodClosure = () => ({
   final: { status: 200, json: { ok: true, slug: SLUG } }, site: 200,
 });
 
-test("ACCEPTED WORK SURVIVES THE SENDER GOING AWAY: accepted with a job, the sender silent after, a fresh sign-in of the same account reads the build's own final answer, and the site serves", () => {
+test("API CONTINUATION (NOT A BROWSER-CLOSED TEST): accepted with a job, the sender silent after, a fresh sign-in of the same account reads the build's own final answer, and the site serves", () => {
   assert.deepEqual(failed(buildClosureVerdict(goodClosure())), []);
   const one = (over, re) => assert.ok(failed(buildClosureVerdict({ ...goodClosure(), ...over })).some((f) => re.test(f)), `${re} did not fail`);
   one({ accepted: { status: 200, job: "" } }, /accepted and handed back a job/);
@@ -189,15 +189,18 @@ const goodPhotos = () => ({
   steps: NOW_TRACE, slug: SLUG,
 });
 
-test("THE PHOTOGRAPHS, BOUGHT ONCE AND PLACED: each placed one drawn with words and serving an image, and every stored image placed or recorded unused by the trace", () => {
+test("THE PHOTOGRAPHS, STORED AND PLACED (purchase-once NOT verified): each placed one drawn with words and serving an image, and every stored image placed or recorded unused by the trace", () => {
   assert.deepEqual(failed(buildPhotoVerdict(goodPhotos()).checks), []);
   const one = (over, re) => assert.ok(failed(buildPhotoVerdict({ ...goodPhotos(), ...over }).checks).some((f) => re.test(f)), `${re} did not fail`);
   one({ pages: photoPage([]), served: servedHtml([]), bytes: {} }, /at least 1/);
   one({ served: servedHtml([[P1, "Window seats"], [P2, null]]) }, /words describing it/);
   one({ bytes: { [P1]: img, [P2]: { status: 404, type: "text/html", bytes: 9 } } }, /serves an image/);
-  // A THIRD IMAGE NOTHING ACCOUNTS FOR: bought twice, or bought and dropped unrecorded.
+  // A THIRD IMAGE NOTHING ACCOUNTS FOR: stored and never placed or recorded unused.
   const extra = { ok: true, files: [...goodPhotos().uploads.files, { name: "9999aaaa9999aaaa9999aaaa9999aaaa.jpg", kind: "image" }] };
-  one({ uploads: extra }, /none bought twice/);
+  one({ uploads: extra }, /storage and placement only; purchase-once is not verified/);
+  // THE CHECK NEVER CLAIMS A PURCHASE COUNT: its name says what it establishes.
+  assert.ok(buildPhotoVerdict(goodPhotos()).checks.every((c) => !/bought once|bought twice|one purchase/.test(c.name)), "a photo check claims a purchase count");
+  assert.match(PURCHASE_UNVERIFIED, /NOT VERIFIED/);
   // …WHICH PASSES WHEN THE TRACE RECORDS ONE UNUSED.
   const unusedTrace = NOW_TRACE.map((x) => (x.s === "photos-joined" ? { ...x, used: 2, unused: 1 } : x));
   assert.deepEqual(failed(buildPhotoVerdict({ ...goodPhotos(), uploads: extra, steps: unusedTrace }).checks), []);
@@ -208,34 +211,77 @@ test("THE PHOTOGRAPHS, BOUGHT ONCE AND PLACED: each placed one drawn with words 
 
 // ── THE MONEY ────────────────────────────────────────────────────────────────
 
-const rowsOf = (list) => ({ ok: true, rows: list.map((r, i) => ({ id: 500 + i, ...r })) });
-test("EACH CHARGE ONCE: the build's own refs each debited once, its net more than nothing and within the balance's move, other activity told beside it", () => {
+const rowsOf = (list, from = 430) => ({ ok: true, complete: true, rows: list.map((r, i) => ({ id: from + 1 + i, ...r })) });
+const at = (balance, id) => ({ ok: true, balance, id });
+test("THE WHOLE BALANCE MOVE, EXPLAINED: between two stable readings the complete window's rows must record exactly the move, the build's rows and every other row attributed apart, each build ref debited once", () => {
   const rows = rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:design`, delta: -6 }, { ref: `build:${JOB}:pages`, delta: -30 }, { ref: `build:${JOB}:deposit`, delta: 0 }, { ref: "edit:other", delta: -2 }]);
-  const m = buildMoneyVerdict({ start: 990, end: 940, rows, job: JOB });
+  const m = buildMoneyVerdict({ start: at(990, 430), end: at(940, 435), rows, job: JOB });
   assert.equal(m.ok, true, m.why);
-  assert.equal(m.net, 48);
-  assert.deepEqual(m.refs, [`build:${JOB}:deposit`, `build:${JOB}:design`, `build:${JOB}:pages`]);
+  assert.deepEqual({ spent: m.spent, recorded: m.recorded, net: m.net, other: m.other }, { spent: 50, recorded: 50, net: 48, other: 2 });
   assert.deepEqual(m.others.map((r) => r.ref), ["edit:other"]);
-  // A REVERSAL IS NOT A SECOND CHARGE.
-  assert.equal(buildMoneyVerdict({ start: 990, end: 950, rows: rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -40 }, { ref: `build:${JOB}:pages`, delta: 12 }]), job: JOB }).ok, true);
-  assert.match(buildMoneyVerdict({ start: 990, end: 930, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -30 }, { ref: `build:${JOB}:pages`, delta: -30 }]), job: JOB }).why, /taken twice: build:c0ffee00c0ffee00c0ffee00c0ffee00:pages ×2/);
-  assert.match(buildMoneyVerdict({ start: 990, end: 980, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -30 }]), job: JOB }).why, /more than the balance's move of 10/);
-  assert.match(buildMoneyVerdict({ start: 990, end: 990, rows: rowsOf([]), job: JOB }).why, /a first build is charged/);
-  assert.match(buildMoneyVerdict({ start: 990, end: 990, rows: rowsOf([{ ref: `build:${JOB}x:pages`, delta: -5 }]), job: JOB }).why, /a first build is charged/, "another job's ref was counted");
-  assert.match(buildMoneyVerdict({ start: null, end: 1, rows: rowsOf([]), job: JOB }).why, /both ends/);
-  assert.match(buildMoneyVerdict({ start: 1, end: 1, rows: { ok: false }, job: JOB }).why, /ledger could not be read/);
-  assert.match(buildMoneyVerdict({ start: 1, end: 1, rows: rowsOf([]), job: "" }).why, /no job/);
-  assert.match(buildMoneyVerdict({ start: 9, end: 1, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: "x" }]), job: JOB }).why, /no amount/);
+  assert.deepEqual(m.refs, [`build:${JOB}:deposit`, `build:${JOB}:design`, `build:${JOB}:pages`]);
+  // A REVERSAL IS NOT A SECOND CHARGE, and is part of the explanation.
+  assert.equal(buildMoneyVerdict({ start: at(990, 430), end: at(950, 433), rows: rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -40 }, { ref: `build:${JOB}:pages`, delta: 12 }]), job: JOB }).ok, true);
+  // CODEX'S REPRODUCTION: the balance moved 90 and the window records one build debit of 10.
+  const codex = buildMoneyVerdict({ start: at(100, 430), end: at(10, 431), rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -10 }]), job: JOB });
+  assert.equal(codex.ok, false);
+  assert.match(codex.why, /the balance moved 90, the ledger window records 10: 80 unexplained/);
+  // A ROW THE BALANCE NEVER MOVED FOR is unexplained the other way.
+  assert.match(buildMoneyVerdict({ start: at(100, 430), end: at(90, 432), rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -10 }, { ref: "edit:x", delta: -5 }]), job: JOB }).why, /-5 unexplained/);
+  assert.match(buildMoneyVerdict({ start: at(990, 430), end: at(930, 432), rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -30 }, { ref: `build:${JOB}:pages`, delta: -30 }]), job: JOB }).why, /taken twice: build:c0ffee00c0ffee00c0ffee00c0ffee00:pages ×2/);
+  assert.match(buildMoneyVerdict({ start: at(990, 430), end: at(985, 431), rows: rowsOf([{ ref: "edit:x", delta: -5 }]), job: JOB }).why, /a first build is charged/);
+  assert.match(buildMoneyVerdict({ start: at(990, 430), end: at(985, 431), rows: rowsOf([{ ref: `build:${JOB}x:pages`, delta: -5 }]), job: JOB }).why, /a first build is charged/, "another job's ref was counted as the build's");
+  // INCOMPLETE OR UNSTEADY EVIDENCE NEVER PASSES.
+  const ok = { start: at(990, 430), end: at(980, 431), rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -10 }]), job: JOB };
+  assert.equal(buildMoneyVerdict(ok).ok, true);
+  assert.match(buildMoneyVerdict({ ...ok, rows: { ...ok.rows, complete: false } }).why, /could not be read whole/);
+  assert.match(buildMoneyVerdict({ ...ok, rows: { ok: false } }).why, /could not be read whole/);
+  assert.match(buildMoneyVerdict({ ...ok, start: { ok: false } }).why, /steadily, at both ends/);
+  assert.match(buildMoneyVerdict({ ...ok, end: { ok: true, balance: 980, id: "431" } }).why, /steadily, at both ends/);
+  assert.match(buildMoneyVerdict({ ...ok, end: at(980, 429) }).why, /went back/);
+  assert.match(buildMoneyVerdict({ ...ok, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -10 }], 431) }).why, /outside it: 432/);
+  assert.match(buildMoneyVerdict({ ...ok, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: "x" }]) }).why, /no amount/);
+  assert.match(buildMoneyVerdict({ ...ok, rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: null }]) }).why, /no amount/);
+  assert.match(buildMoneyVerdict({ ...ok, job: "" }).why, /no job/);
 });
 
-test("THE PREFLIGHT: below the budget, above the hard cap, an unread balance, a slug that is already a site, and a site read that did not answer each send nothing", () => {
-  const free = { status: 404 };
-  assert.equal(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: free }), "");
-  assert.match(buildPreflight({ balance: 69, budget: 70, cap: 1018, existing: free }), /does not cover this press's budget of 70/);
-  assert.match(buildPreflight({ balance: 1019, budget: 70, cap: 1018, existing: free }), /above this press's hard cap of 1018/);
-  assert.match(buildPreflight({ balance: null, budget: 70, cap: 1018, existing: free }), /could not be read/);
-  assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { status: 200 } }), /already a site/);
-  assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { status: 0 } }), /could not be read/);
+test("A LEDGER WINDOW READ WHOLE, AND A READING TAKEN STEADILY: the range must describe every row served; the balance is kept only between two equal last-row ids", async () => {
+  assert.equal(windowComplete({ status: 200, rows: [1, 2, 3], range: "0-2/3" }), true);
+  assert.equal(windowComplete({ status: 200, rows: [], range: "*/0" }), true);
+  assert.equal(windowComplete({ status: 206, rows: [1, 2], range: "0-1/4" }), false);
+  assert.equal(windowComplete({ status: 200, rows: [1, 2], range: "0-1/4" }), false, "a partial 200 passed");
+  assert.equal(windowComplete({ status: 200, rows: [1, 2], range: "0-1/*" }), false);
+  assert.equal(windowComplete({ status: 200, rows: [1, 2], range: "" }), false);
+  assert.equal(windowComplete({ status: 200, rows: [], range: "0-0/0" }), false);
+  assert.equal(windowComplete({ status: 200, rows: [1], range: "*/1" }), false);
+  assert.equal(windowComplete({ status: 200, rows: null, range: "*/0" }), false);
+  let n = 0;
+  const moving = { ledgerLast: async () => ({ ok: true, id: 430 + n++ }), balance: async () => 990 };
+  assert.deepEqual(await stableReading(moving), { ok: false }, "a moving ledger gave a reading");
+  let m = 0;
+  const settles = { ledgerLast: async () => ({ ok: true, id: m++ < 1 ? 429 : 430 }), balance: async () => 990 };
+  assert.deepEqual(await stableReading(settles), { ok: true, balance: 990, id: 430 });
+  assert.deepEqual(await stableReading({ ledgerLast: async () => ({ ok: false }), balance: async () => 990 }), { ok: false });
+  assert.deepEqual(await stableReading({ ledgerLast: async () => ({ ok: true, id: 1 }), balance: async () => null }), { ok: false });
+});
+
+const FREE = () => ({ backends: { status: 200, rows: [] }, builds: { status: 200, rows: [] }, host: { status: 404 } });
+test("THE SLUG, VERIFIED FREE: the site table and the build records each answer 200 with no row, and the address 404; every unreadable, unauthorized, rate-limited, failed or ambiguous reading refuses, and the owner's source route's 404 is never enough", () => {
+  assert.deepEqual(slugFreeVerdict(FREE()), { free: true, why: "" });
+  assert.equal(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: FREE() }), "");
+  // CODEX'S REPRODUCTION: statuses the old preflight let through.
+  for (const status of [401, 403, 429, 500, 0, 404]) {
+    assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { ...FREE(), backends: { status, rows: status === 404 ? [] : null } } }), /site table could not verify the slug is free.*nothing is sent/, `backends ${status} passed`);
+    assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { ...FREE(), builds: { status, rows: null } } }), /build records could not verify.*nothing is sent/, `builds ${status} passed`);
+  }
+  for (const status of [200, 401, 403, 429, 500, 0]) assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { ...FREE(), host: { status } } }), /did not answer 404/, `host ${status} passed`);
+  assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { ...FREE(), backends: { status: 200, rows: [{ slug: SLUG }] } } }), /already a site/);
+  assert.match(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: { ...FREE(), backends: { status: 200, rows: { slug: SLUG } } } }), /answered no list/);
+  // THE OLD SHAPE (the source route's own answer) is not a verification.
+  for (const old of [{ status: 404 }, { status: 404, json: { error: "not found" } }, null, undefined]) assert.notEqual(buildPreflight({ balance: 990, budget: 70, cap: 1018, existing: old }), "", `${JSON.stringify(old)} passed`);
+  assert.match(buildPreflight({ balance: 69, budget: 70, cap: 1018, existing: FREE() }), /does not cover this press's budget of 70/);
+  assert.match(buildPreflight({ balance: 1019, budget: 70, cap: 1018, existing: FREE() }), /above this press's hard cap of 1018/);
+  assert.match(buildPreflight({ balance: null, budget: 70, cap: 1018, existing: FREE() }), /could not be read/);
 });
 
 // ── THE PRESS, DRIVEN OFFLINE ────────────────────────────────────────────────
@@ -253,8 +299,8 @@ function stub(over = {}) {
     log: () => {},
     signIn: async () => { signIns++; return { token: `tok-${signIns}`, uid: "22175f41-6fbf-49d7-b039-a65078a0141c" }; },
     balance: async () => (calls.some((c) => c === "post") ? 940 : 990),
-    existing: async (t, slug) => { calls.push(`existing:${t}:${slug}`); return { status: 404, json: { error: "not found" } }; },
-    ledgerMark: async () => 430,
+    ledgerLast: async () => ({ ok: true, id: calls.some((c) => c === "post") ? 432 : 430 }),
+    existing: async (slug) => { calls.push(`existing:${slug}`); return FREE(); },
     post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.slug, SLUG); assert.equal(body.brief, BUILD_CHECK.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
     poll: async (t, job) => { calls.push(`poll:${t}`); assert.equal(job, JOB); const p = goodPolls()[Math.min(polled++, 3)]; return { status: p.status, json: p.status === 200 ? { ok: true, slug: SLUG, progress: p.progress } : { ok: false, pending: true, progress: p.progress } }; },
     trace: async () => ({ steps: NOW_TRACE, done: true, ok: true }),
@@ -262,7 +308,7 @@ function stub(over = {}) {
     served: async () => ({ status: 200, html: servedHtml([[P1, "The tea room's window seats"], [P2, "A slice of dark ginger cake"]]) }),
     image: async () => img,
     uploads: async (t) => { calls.push(`uploads:${t}`); return goodPhotos().uploads; },
-    ledgerSince: async (id) => { assert.equal(id, 430); return rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -38 }]); },
+    ledgerWindow: async (from, to) => { assert.equal(from, 430); assert.equal(to, 432); return rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -38 }]); },
     ...over,
   };
   return io;
@@ -291,9 +337,9 @@ test("THE PRESS'S FAILURES REACH ITS VERDICT: no recorded overlap, a second sess
   let n = 0;
   const same = await runBuildCheck(stub({ signIn: async () => { n++; return { token: "tok-same", uid: "22175f41-6fbf-49d7-b039-a65078a0141c" }; } }), { spend: true });
   assert.ok(failed(same.checks).some((f) => /signed in afresh/.test(f)));
-  const twice = await runBuildCheck(stub({ ledgerSince: async () => rowsOf([{ ref: `build:${JOB}:pages`, delta: -25 }, { ref: `build:${JOB}:pages`, delta: -25 }]) }), { spend: true });
+  const twice = await runBuildCheck(stub({ ledgerWindow: async () => rowsOf([{ ref: `build:${JOB}:pages`, delta: -25 }, { ref: `build:${JOB}:pages`, delta: -25 }]) }), { spend: true });
   assert.ok(failed(twice.checks).some((f) => /taken twice/.test(f)));
-  const inline = await runBuildCheck(stub({ post: async () => ({ status: 200, json: { ok: true, slug: SLUG } }) }), { spend: true });
+  const inline = await runBuildCheck(stub({ post: async function () { this.calls.push("post"); return { status: 200, json: { ok: true, slug: SLUG } }; } }), { spend: true });
   assert.ok(failed(inline.checks).some((f) => /accepted and handed back a job/.test(f)), "an inline answer passed the closure");
 });
 
@@ -303,7 +349,7 @@ test("THE FREE REHEARSAL AND THE REFUSALS: with spend not yes, or the balance ou
   assert.equal(rec.sent, false);
   assert.match(rec.stopped, /preflight passed and nothing is sent/);
   assert.ok(!io.calls.includes("post"));
-  for (const [over, re] of [[{ balance: async () => 60 }, /budget of 70/], [{ balance: async () => 2000 }, /hard cap of 1018/], [{ existing: async () => ({ status: 200, json: {} }) }, /already a site/]]) {
+  for (const [over, re] of [[{ balance: async () => 60 }, /budget of 70/], [{ balance: async () => 2000 }, /hard cap of 1018/], [{ existing: async () => ({ ...FREE(), backends: { status: 200, rows: [{ slug: SLUG }] } }) }, /already a site/]]) {
     const s = stub(over);
     const r = await runBuildCheck(s, { spend: true });
     assert.equal(r.sent, false);
@@ -325,3 +371,50 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
   assert.ok(bc.includes('String(process.env.OWNER_SPEND || "").trim().toLowerCase() === "yes"'), "spend is not read strictly");
 });
+
+// ── THE REVIEW'S REGRESSIONS, THROUGH THE REAL DRIVER (2026-10-10) ───────────
+
+test("A FAILED SLUG LOOKUP SENDS NOTHING, through runBuildCheck: each unauthorized, forbidden, rate-limited, failed, thrown or ambiguous reading stops the press before the POST, with spend yes", async () => {
+  const cases = [
+    { backends: { status: 401, rows: null } }, { backends: { status: 403, rows: null } }, { backends: { status: 429, rows: null } }, { backends: { status: 500, rows: null } },
+    { backends: { status: 0, rows: null } }, { builds: { status: 500, rows: null } }, { builds: { status: 200, rows: [{ slug: SLUG }] } },
+    { host: { status: 200 } }, { host: { status: 0 } }, { host: { status: 503 } },
+  ];
+  for (const c of cases) {
+    const s = stub({ existing: async () => ({ ...FREE(), ...c }) });
+    const r = await runBuildCheck(s, { spend: true });
+    assert.equal(r.sent, false, `${JSON.stringify(c)} was sent`);
+    assert.match(r.stopped, /nothing is sent/);
+    assert.ok(!s.calls.includes("post"), `${JSON.stringify(c)} reached the POST`);
+  }
+  // AN UNSTEADY BALANCE READING AT THE START ALSO SENDS NOTHING.
+  let n = 0;
+  const s = stub({ ledgerLast: async () => ({ ok: true, id: 400 + n++ }) });
+  const r = await runBuildCheck(s, { spend: true });
+  assert.equal(r.sent, false);
+  assert.match(r.stopped, /balance could not be read/);
+  assert.ok(!s.calls.includes("post"));
+});
+
+test("UNEXPLAINED SPENDING CANNOT PASS, through runBuildCheck: a balance that moved more than the complete window records, a window that cannot be shown whole, and an unsteady end reading each fail the press's money check", async () => {
+  const money = (rec) => rec.checks.find((c) => /whole balance move explained/.test(c.name));
+  // THE BALANCE FELL 80 MORE THAN THE LEDGER RECORDS (Codex's shape, through the driver).
+  const lost = await runBuildCheck(stub({ balance: async function () { return this.calls.some((c) => c === "post") ? 860 : 990; } }), { spend: true });
+  assert.equal(lost.ok, false);
+  assert.match(money(lost).why, /the balance moved 130, the ledger window records 50: 80 unexplained/);
+  const partial = await runBuildCheck(stub({ ledgerWindow: async () => ({ ...rowsOf([{ ref: `build:${JOB}:pages`, delta: -50 }]), complete: false }) }), { spend: true });
+  assert.equal(partial.ok, false);
+  assert.match(money(partial).why, /could not be read whole/);
+  let after = false, k = 0;
+  const unsteady = await runBuildCheck(stub({ post: async function (t, body) { this.calls.push("post"); after = true; return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; }, ledgerLast: async () => ({ ok: true, id: after ? 432 + k++ : 430 }) }), { spend: true });
+  assert.equal(unsteady.ok, false);
+  assert.match(money(unsteady).why, /steadily, at both ends/);
+  // THE PASSING PRESS SAYS WHAT IT DID NOT VERIFY, and does not pass it.
+  const good = await runBuildCheck(stub(), { spend: true });
+  assert.equal(good.ok, true);
+  assert.deepEqual(good.unverified, [PURCHASE_UNVERIFIED]);
+  assert.ok(good.checks.every((c) => !/NOT VERIFIED/.test(c.name)));
+  assert.ok(good.checks.filter((c) => /^API continuation:/.test(c.name)).length === 3, "the continuation checks are not named as API continuation");
+  assert.ok(good.checks.every((c) => !/browser[- ]closed test\)$/.test(c.name) || /not a browser-closed test/.test(c.name)));
+});
+

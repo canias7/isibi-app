@@ -34,17 +34,24 @@
 //   lines served while it still ran, each the model's own (the route serves
 //   only confirmed lines), never the fixed sentence of a step's fact, and
 //   none lost between reads.
-// - THE CLOSURE: the session that sent the build lets go the moment it is
-//   accepted (202, a job); a session signed in afresh follows it to its end.
-//   This is the API path: the browser has no way back to a build in flight
-//   once it is closed (recorded as a product gap, not tested here).
+// - THE API CONTINUATION: the session that sent the build lets go the
+//   moment it is accepted (202, a job); a session signed in afresh through the
+//   API follows it to its end. It is NOT a browser-closed test: the browser has
+//   no way back to a build in flight once it is closed (an open product gap,
+//   not tested here).
 // - THE PHOTOGRAPHS, off the stored source, the served page and the owner's
 //   upload list: every placed photograph serves an image with words
 //   describing it, and every image stored is placed or recorded unused by
-//   the trace — a second purchase shows as an image nothing accounts for.
-// - THE MONEY, off the ledger: every ref of this build debited once, its net
-//   no more than the balance's move, anything else in the window told beside
-//   it and never failing it (the account may be in use meanwhile).
+//   the trace. That establishes STORAGE AND PLACEMENT, never one purchase per
+//   photograph: a purchase that failed to store, or that overwrote the same
+//   file, leaves no image to count. The purchase records are in R2, which the
+//   press cannot read, so purchase-once is reported NOT VERIFIED.
+// - THE MONEY, off the complete ledger window between two stable readings
+//   (the balance read between two equal last-row ids): the whole balance move
+//   must equal what the window's rows record, the build's rows and every
+//   other row attributed apart; every ref of the build debited once. An
+//   unexplained difference, an unstable reading or a window that cannot be
+//   shown whole fails.
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 import { buildStepFacts } from "../builder/site-progress.mjs";
 import { photosOf } from "./canary-additions.mjs";
@@ -249,10 +256,10 @@ export function buildClosureVerdict({ accepted, senderAfter, sender, fresh, fina
   const out = [];
   const add = check(out);
   const job = accepted && typeof accepted.job === "string" ? accepted.job : "";
-  add("the build was accepted and handed back a job (202) — the generation runs on the server", !!(accepted && accepted.status === 202 && /^[0-9a-f]{32}$/.test(job)),
+  add("API continuation: the build was accepted and handed back a job (202) — the generation runs on the server", !!(accepted && accepted.status === 202 && /^[0-9a-f]{32}$/.test(job)),
     accepted ? `answered ${accepted.status}${job ? ` job ${job}` : ", no job"}` : "not sent");
-  add("the session that sent it made no call after the build was accepted", Array.isArray(senderAfter) && senderAfter.length === 0, `${arr(senderAfter).length} call(s): ${JSON.stringify(arr(senderAfter).slice(0, 4))}`);
-  add("a session signed in afresh, as the same account, followed the build", !!(fresh && sender && fresh.token && fresh.token !== sender.token && fresh.uid && fresh.uid === sender.uid),
+  add("API continuation: the session that sent it made no call after the build was accepted", Array.isArray(senderAfter) && senderAfter.length === 0, `${arr(senderAfter).length} call(s): ${JSON.stringify(arr(senderAfter).slice(0, 4))}`);
+  add("API continuation: a session signed in afresh through the API, as the same account, followed the build (not a browser-closed test)", !!(fresh && sender && fresh.token && fresh.token !== sender.token && fresh.uid && fresh.uid === sender.uid),
     fresh ? (fresh.token === (sender && sender.token) ? "the fresh session holds the sender's token" : "a different account, or no sign-in") : "no fresh session");
   const fj = final && final.json && typeof final.json === "object" ? final.json : null;
   add("the fresh session read the build's own final answer: ok, naming the site", !!(final && final.status === 200 && fj && fj.ok === true && typeof fj.slug === "string" && fj.slug),
@@ -291,7 +298,7 @@ export function buildPhotoVerdict({ pages, served, bytes, uploads, steps, slug, 
     const names = stored.map((p) => p.split("/").pop());
     const missing = names.filter((n) => !images.includes(n));
     const extra = images.filter((n) => !names.includes(n));
-    add(`every image stored is placed or recorded unused by the trace (${unused} unused) — none bought twice`, !missing.length && extra.length <= unused,
+    add(`every image stored is placed or recorded unused by the trace (${unused} unused) — storage and placement only; purchase-once is not verified`, !missing.length && extra.length <= unused,
       `stored ${JSON.stringify(images)}, placed ${JSON.stringify(names)}${missing.length ? `, placed but not stored ${JSON.stringify(missing)}` : ""}`);
   }
   return { checks: out, placed: stored };
@@ -300,56 +307,115 @@ export function buildPhotoVerdict({ pages, served, bytes, uploads, steps, slug, 
 // ── THE MONEY ────────────────────────────────────────────────────────────────
 
 /**
- * EACH CHARGE ONCE. `rows` are the account's ledger rows between the two
- * balance reads (`{ id, ref, delta }`); the build's own are those under
- * `build:<job>`. Every one of its refs debited at most once; its net taken
- * more than nothing and no more than the balance's move; the rest told.
+ * THE WHOLE BALANCE MOVE, EXPLAINED. `start` and `end` are stable readings
+ * (`{ ok, balance, id }`: the balance read between two equal last-row ids);
+ * `rows` the account's ledger rows with ids after `start.id` up to `end.id`,
+ * read whole (`{ ok, complete, rows }`). The balance's move must equal what
+ * those rows record, every one of them; the build's own rows (`build:<job>`)
+ * and every other row are attributed apart. Every build ref debited at most
+ * once, and the build's net more than nothing. Anything unstable, unread,
+ * partial or unexplained fails.
  */
 export function buildMoneyVerdict({ start, end, rows, job } = {}) {
   const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
-  if (!(num(start) !== null && num(end) !== null)) return bad("the balance could not be read at both ends");
-  if (!(rows && rows.ok === true && Array.isArray(rows.rows))) return bad("the ledger could not be read");
+  const stable = (r) => !!(r && r.ok === true && num(r.balance) !== null && Number.isInteger(r.id) && r.id >= 0);
+  if (!stable(start) || !stable(end)) return bad("the balance and the ledger's last row could not be read together, steadily, at both ends");
+  if (end.id < start.id) return bad(`the ledger's last row went back, ${start.id} -> ${end.id}`);
+  if (!(rows && rows.ok === true && rows.complete === true && Array.isArray(rows.rows))) return bad("the ledger window could not be read whole");
   if (!(typeof job === "string" && /^[0-9a-f]{32}$/.test(job))) return bad("no job to attribute charges to");
+  const outside = rows.rows.filter((r) => !(r && Number.isInteger(r.id) && r.id > start.id && r.id <= end.id));
+  if (outside.length) return bad(`the window holds rows outside it: ${outside.map((r) => r && r.id).join(", ")}`);
   const prefix = `build:${job}`;
-  const own = rows.rows.filter((r) => r && typeof r.ref === "string" && (r.ref === prefix || r.ref.startsWith(prefix + ":")));
+  const isBuild = (r) => typeof r.ref === "string" && (r.ref === prefix || r.ref.startsWith(prefix + ":"));
+  let recorded = 0, net = 0, other = 0;
   const debits = new Map();
-  let net = 0;
-  for (const r of own) {
+  for (const r of rows.rows) {
     const d = Number(r.delta);
-    if (!Number.isFinite(d)) return bad(`a ledger row under ${r.ref} has no amount`);
-    net -= d;
-    if (d < 0) debits.set(r.ref, (debits.get(r.ref) || 0) + 1);
+    if (typeof r.delta === "boolean" || r.delta === null || r.delta === "" || !Number.isFinite(d)) return bad(`ledger row ${r.id} has no amount`);
+    recorded -= d;
+    if (isBuild(r)) { net -= d; if (d < 0) debits.set(r.ref, (debits.get(r.ref) || 0) + 1); }
+    else other -= d;
   }
+  const spent = start.balance - end.balance;
+  const others = rows.rows.filter((r) => !isBuild(r)).map((r) => ({ id: r.id, ref: String(r.ref || ""), delta: Number(r.delta) }));
+  const facts = { spent, recorded, net, other, others, refs: [...debits.keys()].sort() };
+  if (recorded !== spent) return bad(`the balance moved ${spent}, the ledger window records ${recorded}: ${spent - recorded} unexplained`, facts);
   const twice = [...debits].filter(([, n]) => n > 1).map(([ref, n]) => `${ref} ×${n}`);
-  if (twice.length) return bad(`a charge was taken twice: ${twice.join(", ")}`, { net });
-  const spent = start - end;
-  if (!(net > 0)) return bad(`the build took ${net}; a first build is charged`, { net, spent });
-  if (net > spent) return bad(`the build's own charges, ${net}, are more than the balance's move of ${spent}`, { net, spent });
-  const others = rows.rows.filter((r) => !own.includes(r)).map((r) => ({ id: r.id, ref: String(r.ref || ""), delta: Number(r.delta) }));
-  return { ok: true, why: "", net, spent, refs: [...debits.keys()].sort(), others };
+  if (twice.length) return bad(`a charge was taken twice: ${twice.join(", ")}`, facts);
+  if (!(net > 0)) return bad(`the build took ${net}; a first build is charged`, facts);
+  return { ok: true, why: "", ...facts };
 }
+
+/**
+ * A LEDGER WINDOW SERVED WHOLE: a 200 list whose `Content-Range` (asked with
+ * `Prefer: count=exact`) describes every row served — `0-(n-1)/n`, or a starred range over 0
+ * for none. A partial answer, a `*` count, no header, or a range that does
+ * not describe the rows is not whole.
+ */
+export function windowComplete({ status, rows, range } = {}) {
+  if (status !== 200 || !Array.isArray(rows)) return false;
+  const m = /^(?:(\d+)-(\d+)|\*)\/(\d+)$/.exec(String(range || ""));
+  if (!m) return false;
+  const n = rows.length;
+  if (Number(m[3]) !== n) return false;
+  return n === 0 ? m[1] === undefined : Number(m[1]) === 0 && Number(m[2]) === n - 1;
+}
+
+/** What the press cannot verify, said rather than passed: one purchase per photograph (`unverified`). */
+export const PURCHASE_UNVERIFIED = "one provider purchase per photograph: NOT VERIFIED — the purchase records are kept in R2, which a press cannot read; a purchase that failed to store, or overwrote the same file, leaves no image to count";
 
 // ── THE PRESS ────────────────────────────────────────────────────────────────
 
-/** The press's refusals before anything is sent: a balance outside its window, a slug already a site, a source read that did not say. */
+/**
+ * IS THE SLUG VERIFIED FREE? Three explicit readings, each required: the
+ * site table read with the service key answers 200 with no row for it, the
+ * build records the same, and its address answers 404. The owner's source
+ * route is not one of them: its 404 also means another account's site, or an
+ * owner lookup that failed. Anything else — unauthorized, rate-limited,
+ * failed, unreadable, or not a list — is cannot-tell, and nothing is sent.
+ */
+export function slugFreeVerdict(existing) {
+  const e = existing && typeof existing === "object" ? existing : {};
+  const empty = (r) => !!(r && r.status === 200 && Array.isArray(r.rows) && r.rows.length === 0);
+  const say = (r) => (!r ? "not read" : r.status !== 200 ? `answered ${r.status || "nothing"}` : !Array.isArray(r.rows) ? "answered no list" : `holds ${r.rows.length} row(s)`);
+  if (e.backends && e.backends.status === 200 && Array.isArray(e.backends.rows) && e.backends.rows.length) return { free: false, why: "the slug is already a site, and a build would revise it" };
+  if (!empty(e.backends)) return { free: false, why: `the site table could not verify the slug is free (${say(e.backends)})` };
+  if (!empty(e.builds)) return { free: false, why: `the build records could not verify the slug is free (${say(e.builds)})` };
+  if (!(e.host && e.host.status === 404)) return { free: false, why: `the slug's address did not answer 404 (${e.host ? e.host.status || "nothing" : "not read"})` };
+  return { free: true, why: "" };
+}
+
+/** The press's refusals before anything is sent: a balance outside its window or unread, and a slug not verified free. */
 export function buildPreflight({ balance, budget, cap, existing }) {
   if (num(balance) === null) return "the balance could not be read — nothing is sent";
   if (balance < budget) return `the balance, ${balance}, does not cover this press's budget of ${budget} — nothing is sent`;
   if (balance > cap) return `the balance, ${balance}, is above this press's hard cap of ${cap} — nothing is sent`;
-  if (!existing || existing.status === 0) return "whether the slug is already a site could not be read — nothing is sent";
-  if (existing.status === 200) return "the slug is already a site, and a build would revise it — nothing is sent";
+  const f = slugFreeVerdict(existing);
+  if (!f.free) return `${f.why} — nothing is sent`;
   return "";
+}
+
+/** THE BALANCE AND THE LEDGER'S LAST ROW, TOGETHER: the balance read between two equal last-row ids, tried three times. */
+export async function stableReading(io) {
+  for (let i = 0; i < 3; i++) {
+    const a = await io.ledgerLast();
+    const balance = await io.balance();
+    const b = await io.ledgerLast();
+    if (a && a.ok && b && b.ok && a.id === b.id && num(balance) !== null) return { ok: true, balance, id: a.id };
+  }
+  return { ok: false };
 }
 
 /**
  * ONE FIRST BUILD, START TO FINISH, through `io` (every network read and
  * write the press makes, so the whole of it runs offline under a stub):
- * `signIn()` → `{ token, uid }`; `balance(token)`; `existing(token, slug)`
- * (the source route's answer before the build); `ledgerMark()` → the last
- * ledger id; `post(token, body)` → the build's answer; `poll(token, job)`;
+ * `signIn()` → `{ token, uid }`; `balance()`; `ledgerLast()` → `{ ok, id }`;
+ * `existing(slug)` → the slug's three readings (`slugFreeVerdict`);
+ * `post(token, body)` → the build's answer; `poll(token, job)`;
  * `trace(slug)` → `{ steps, done, ok }`; `source(token, slug)`;
  * `served(slug)` → `{ status, html }`; `image(slug, path)`;
- * `uploads(token, slug)`; `ledgerSince(id)`; `sleep(ms)`; `now()`; `log`.
+ * `uploads(token, slug)`; `ledgerWindow(fromId, toId)` → `{ ok, complete, rows }`;
+ * `sleep(ms)`; `now()`; `log`.
  * With `spend` false it stops after the preflight: a free rehearsal.
  */
 export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = {}) {
@@ -361,14 +427,15 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   const sender = await io.signIn();
   record.sender = { uid: sender && sender.uid };
   const A = tagged("sender", sender.token);
-  const start = await A.get("balance", (t) => io.balance(t));
-  const existing = await A.get("existing", (t) => io.existing(t, spec.slug));
+  const startReading = await stableReading(io);
+  const start = startReading.ok ? startReading.balance : null;
+  const existing = await io.existing(spec.slug);
+  record.existing = existing;
   const refuse = buildPreflight({ balance: start, budget: spec.budget, cap: spec.cap, existing });
   record.balanceStart = start;
   if (refuse) { record.stopped = refuse; log(`STOPPED: ${refuse}`); return record; }
   if (!spend) { record.stopped = "spend is not yes — the preflight passed and nothing is sent"; log(record.stopped); return record; }
-  const mark = await io.ledgerMark();
-  record.ledgerMark = mark;
+  record.ledgerMark = startReading.id;
   const accepted = await A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug }));
   record.sent = true;
   const acceptedAt = record.calls.length;
@@ -402,8 +469,9 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   for (const p of placed) bytes[p] = await io.image(spec.slug, p);
   const up = await B.get("uploads", (t) => io.uploads(t, spec.slug));
   await io.sleep(spec.laterReadMs);
-  const end = await B.get("balance", (t) => io.balance(t));
-  const rows = await io.ledgerSince(mark);
+  const endReading = await stableReading(io);
+  const end = endReading.ok ? endReading.balance : null;
+  const rows = endReading.ok ? await io.ledgerWindow(startReading.id, endReading.id) : { ok: false };
   const senderAfter = record.calls.slice(acceptedAt).filter((c) => c.who === "sender");
   const checks = [];
   checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status }));
@@ -419,8 +487,9 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   record.lines = pv.lines;
   const ph = buildPhotoVerdict({ pages, served: site && site.html, bytes, uploads: up, steps: tr.steps, slug: spec.slug });
   checks.push(...ph.checks);
-  const money = buildMoneyVerdict({ start, end, rows, job });
-  checks.push({ name: `every charge of this build taken once: net ${money.net ?? "?"} of the balance's move ${money.spent ?? "?"}`, ok: money.ok, why: money.why });
+  const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job });
+  checks.push({ name: `the whole balance move explained by the complete ledger window, the build's charges each taken once: moved ${money.spent ?? "?"}, recorded ${money.recorded ?? "?"} (this build ${money.net ?? "?"}, other rows ${money.other ?? "?"})`, ok: money.ok, why: money.why });
+  record.unverified = [PURCHASE_UNVERIFIED];
   record.money = money;
   record.balanceEnd = end;
   record.checks = checks;

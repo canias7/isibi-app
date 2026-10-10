@@ -559,16 +559,22 @@ export function servedPhotos(html, slug) {
 }
 
 /**
- * A NEW PAGE'S PHOTOGRAPH, BOUGHT AND PLACED (2026-10-10, the Add-on with a
+ * A NEW PAGE'S PHOTOGRAPH, STORED AND PLACED (2026-10-10, the Add-on with a
  * photograph): the new page's stored file shows exactly the photographs asked
  * for (`want.photo.count`, 1 by default), each the site's own; the served page
  * draws each with words describing it; each address serves an image; and the
  * site's uploads gained exactly that many new images, which are the ones
- * placed — a photograph bought twice, or one placed from the site's earlier
- * pictures instead of the one bought, shows here. `photos` is the press's own
+ * placed — a picture taken from the site's earlier ones, or a second stored
+ * image, shows here. THAT IS STORAGE AND PLACEMENT, NEVER ONE PURCHASE: a
+ * provider purchase that failed to store, or overwrote the same file, leaves
+ * no image to count, and the purchase records are in R2, which a press cannot
+ * read — so purchase-once is reported unverified (`PHOTO_PURCHASE_UNVERIFIED`),
+ * never passed. `photos` is the press's own
  * readings: `uploads.before`/`uploads.after` (the owner's upload list, each
  * `{ ok, files }`) and `bytes` (each placed address's `{ status, type, bytes }`).
  */
+export const PHOTO_PURCHASE_UNVERIFIED = "one provider purchase per photograph: NOT VERIFIED — the purchase records are kept in R2, which a press cannot read; a purchase that failed to store, or overwrote the same file, leaves no image to count";
+
 export function photoChecks({ found, after, served, photos, slug }) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
@@ -594,7 +600,7 @@ export function photoChecks({ found, after, served, photos, slug }) {
     const had = new Set(ub.files.map((x) => x && x.name));
     const fresh = ua.files.filter((x) => x && x.kind === "image" && !had.has(x.name)).map((x) => x.name).sort();
     const names = stored.map((p) => p.split("/").pop());
-    add(`the site's uploads gained exactly ${n} new image${n === 1 ? "" : "s"}, the one${n === 1 ? "" : "s"} placed (bought once, none stored twice, none taken from earlier pictures)`,
+    add(`the site's uploads gained exactly ${n} new image${n === 1 ? "" : "s"}, the one${n === 1 ? "" : "s"} placed (stored once and placed, none taken from earlier pictures; one provider purchase is not verified)`,
       fresh.length === n && names.length === n && names.every((x) => fresh.includes(x)),
       `new images ${JSON.stringify(fresh)}, placed ${JSON.stringify(names)}`);
   }
@@ -831,7 +837,8 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
       add("every other table is as it was: the same rules, columns and row counts", !diff.length, diff.join("; "));
     } else add("the site's tables are as they were: the same tables, rules, columns and row counts", !diff.length, diff.join("; "));
   }
-  return { checks: out, newPages: pf };
+  const unverified = pf.found.some((f) => f.want && f.want.photo) ? [PHOTO_PURCHASE_UNVERIFIED] : [];
+  return { checks: out, newPages: pf, unverified };
 }
 
 // ── WHICH PATH THE RUN TOOK ─────────────────────────────────────────────────
@@ -1142,5 +1149,5 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
-  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, ...(timeline ? { timeline } : {}) };
+  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified: o.unverified || [], ...(timeline ? { timeline } : {}) };
 }

@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import { ownerSession } from "./owner-session.mjs";
-import { runBuildCheck, BUILD_CHECK } from "./canary-build.mjs";
+import { runBuildCheck, BUILD_CHECK, windowComplete } from "./canary-build.mjs";
 import { uploadsOf } from "./canary-requests.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -59,11 +59,27 @@ export async function main() {
       const rows = await r.json().catch(() => null);
       return Array.isArray(rows) && rows[0] && Number.isFinite(Number(rows[0].balance)) ? Number(rows[0].balance) : null;
     },
-    existing: (token, slug) => get(`/api/site/source?slug=${encodeURIComponent(slug)}`, token),
-    ledgerMark: async () => {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&select=id&order=id.desc&limit=1`, { headers: svc });
-      const rows = await r.json().catch(() => null);
-      return Array.isArray(rows) && rows[0] ? Number(rows[0].id) : 0;
+    // THE SLUG'S THREE READINGS (`slugFreeVerdict`): the site table and the
+    // build records with the service key (the slug column only), and the
+    // address. A thrown read is status 0: cannot-tell.
+    existing: async (slug) => {
+      const rows = async (table) => {
+        try {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?slug=eq.${encodeURIComponent(slug)}&select=slug`, { headers: svc });
+          return { status: r.status, rows: await r.json().catch(() => null) };
+        } catch { return { status: 0, rows: null }; }
+      };
+      let host = { status: 0 };
+      try { host = { status: (await fetch(`https://${slug}.gofarther.app/`, { redirect: "manual" })).status }; } catch { /* cannot tell */ }
+      return { backends: await rows("site_backends"), builds: await rows("site_builds"), host };
+    },
+    ledgerLast: async () => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&select=id&order=id.desc&limit=1`, { headers: svc });
+        const rows = await r.json().catch(() => null);
+        if (r.status !== 200 || !Array.isArray(rows)) return { ok: false };
+        return { ok: true, id: rows[0] ? Number(rows[0].id) : 0 };
+      } catch { return { ok: false }; }
     },
     post: (token, body) => postLong(`${BASE}/api/site/react-build`, { Authorization: `Bearer ${token}`, "content-type": "application/json" }, JSON.stringify(body)),
     poll: (token, job) => get(`/api/site/build/${encodeURIComponent(job)}`, token),
@@ -82,12 +98,16 @@ export async function main() {
       catch { return { status: 0 }; }
     },
     uploads: async (token, slug) => uploadsOf(await get(`/api/site/${encodeURIComponent(slug)}/uploads`, token)),
-    ledgerSince: async (id) => {
+    // THE WINDOW, READ WHOLE: the exact count asked for, and the answer's
+    // range must describe every row it served (`0-(n-1)/n`, or `*/0`).
+    ledgerWindow: async (from, to) => {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&id=gt.${Number(id) || 0}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: svc });
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&id=gt.${Number(from)}&id=lte.${Number(to)}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: { ...svc, Prefer: "count=exact" } });
         const rows = await r.json().catch(() => null);
-        return { ok: r.status === 200 && Array.isArray(rows), rows: Array.isArray(rows) ? rows : null };
-      } catch { return { ok: false, rows: null }; }
+        const range = String(r.headers.get("content-range") || "");
+        const complete = windowComplete({ status: r.status, rows, range });
+        return { ok: r.status === 200 && Array.isArray(rows), complete, rows: Array.isArray(rows) ? rows : null, range };
+      } catch { return { ok: false, complete: false, rows: null }; }
     },
   };
   console.log(`THE FIRST-BUILD CHECK: slug ${BUILD_CHECK.slug}, budget ${BUILD_CHECK.budget}, hard cap ${BUILD_CHECK.cap}, spend ${SPEND ? "yes" : "no"}`);
@@ -100,6 +120,9 @@ export async function main() {
   for (const l of rec.lines || []) console.log(`  ${l.n}: ${l.text}`);
   console.log("\nTHE CHECKS:");
   for (const c of rec.checks) console.log(`  ${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.ok ? "" : ` — ${c.why}`}`);
+  console.log("\nNOT VERIFIED (said, never passed):");
+  for (const u of rec.unverified || []) console.log(`  ${u}`);
+  console.log("  the browser reconnecting to a build in flight: an open product gap; this press follows the build through the API only");
   console.log(`\nbalance ${rec.balanceStart} -> ${rec.balanceEnd}; ${rec.ok ? "PASSED" : "FAILED"}`);
   return rec.ok ? 0 : 1;
 }

@@ -1330,6 +1330,9 @@ if (UI_ASK) {
       });
       requests.logo = logo;
       requests.photos = photos;
+      // WHAT THE PRESS CANNOT VERIFY, SAID AND NEVER PASSED (2026-10-10, after
+      // Codex's review of 977a1422): one provider purchase per photograph.
+      for (const u of requests.unverified || []) console.log(`  NOT VERIFIED  ${u}`);
       requests.tables = { before: tablesBefore, after: tablesAfter };
       console.log("");
       for (const c of requests.checks) check(c.name, c.ok, c.why);

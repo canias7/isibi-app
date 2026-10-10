@@ -13,7 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { UI_SCENARIOS, readUiScenario, blocksPost } from "../scripts/canary-ui.mjs";
-import { photoChecks, servedPhotos, photoPath, uploadsOf, newPagePhotoPaths, outcomeChecks, requestBatchVerdict, progressChecks, replyChecks } from "../scripts/canary-requests.mjs";
+import { photoChecks, servedPhotos, photoPath, uploadsOf, newPagePhotoPaths, outcomeChecks, requestBatchVerdict, progressChecks, replyChecks, PHOTO_PURCHASE_UNVERIFIED } from "../scripts/canary-requests.mjs";
 import { rqApp, part, view, drive, SLUG } from "./fixtures/canary-rq-app.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -73,6 +73,10 @@ test("THE PHOTOGRAPH, BOUGHT AND PLACED: one on the new page's stored file, draw
   const cs = photoChecks(good());
   assert.equal(cs.length, 4);
   assert.deepEqual(failed(cs), []);
+  // STORAGE AND PLACEMENT, NEVER A PURCHASE COUNT (Codex's review of 977a1422):
+  // a purchase that failed to store, or overwrote the same file, leaves no image.
+  assert.ok(cs.every((c) => !/bought once|bought twice|none stored twice/.test(c.name)), "a check claims one purchase");
+  assert.ok(cs.some((c) => /stored once and placed.*one provider purchase is not verified/.test(c.name)));
 });
 
 test("THE PHOTOGRAPH'S FAILURES, each caught by its own check and no other: none placed, two placed, drawn without words, a dead address, a picture taken from the site's earlier ones, a second purchase stored, and uploads that could not be read", () => {
@@ -143,11 +147,15 @@ test("THE PRESS'S VERDICT CARRIES THEM: through outcomeChecks and requestBatchVe
   assert.ok(o.checks.some((c) => /every stored page is byte for byte/.test(c.name) && c.ok), "the existing pages were not held byte for byte");
   // THROUGH THE PRESS'S VERDICT, the same four.
   const v = requestBatchVerdict({ spec: { ...spec, steps: [] }, steps: [], before, after, served: sv, beforeServed: { "/": sv["/"] }, tables: {}, slug: SLUG, photos: good().photos });
+  assert.deepEqual(v.unverified, [PHOTO_PURCHASE_UNVERIFIED], "purchase-once is not said to be unverified");
+  assert.match(PHOTO_PURCHASE_UNVERIFIED, /NOT VERIFIED.*R2/);
+  assert.ok(v.checks.every((c) => !/NOT VERIFIED/.test(c.name)), "an unverified claim was made a check");
   const through = v.checks.filter((c) => /photograph|draws it with words|serves an image|uploads/.test(c.name));
   assert.equal(through.length, 4);
   assert.deepEqual(failed(through), [], "the press's readings did not reach the photograph's checks");
   // NO PHOTOGRAPH ASKED FOR, NONE JUDGED.
   const none = outcomeChecks({ spec: { expect: { pages: [{ about: ["baker"] }] } }, before, after, served: sv, beforeServed: { "/": sv["/"] }, tables: {}, slug: SLUG });
+  assert.deepEqual(none.unverified, []);
   assert.equal(none.checks.filter((c) => /serves an image|uploads gained/.test(c.name)).length, 0);
   // AN EXISTING PAGE THAT CHANGED is still caught beside a passing photograph.
   const moved = { ...after, source: { ...after.source, pages: [{ path: "src/routes/index.tsx", source: home.replace("Three of us", "Two of us") }, after.source.pages[1]] } };
@@ -163,7 +171,8 @@ test("THE PRESS'S READINGS, IN ORDER: the uploads are read before the message is
   const bytes = at("for (const path of newPagePhotoPaths({ before: BEFORE, after, served, slug: CANARY }))");
   const afterUp = at("photos = { uploads: { before: uploadsBefore, after: uploadsOf(await call(\"GET\", `/api/site/${encodeURIComponent(CANARY)}/uploads`)) }, bytes };");
   const verdict = at("frameLoads: ui.frameLoads || [], photos,");
-  assert.ok(before < send && send < bytes && bytes < afterUp && afterUp < verdict, "the readings are out of order");
+  const said = at("for (const u of requests.unverified || []) console.log(`  NOT VERIFIED  ${u}`);");
+  assert.ok(before < send && send < bytes && bytes < afterUp && afterUp < verdict && verdict < said, "the readings are out of order");
 });
 
 // ── THE PRESS, DRIVEN OFFLINE THROUGH THE REAL CANARY DRIVER ─────────────────
