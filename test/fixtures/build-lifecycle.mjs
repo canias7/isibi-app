@@ -77,8 +77,10 @@ export function replyAnswer(reply, seen, init) {
   return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "r1", name: "write_reply", input: { reply, covers: [...new Set(ids)] } }] });
 }
 
-export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [], env: extraEnv = {}, over = null, fire = null, credits = 400 } = {}) {
-  b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
+export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BRIEF, links = null, onDesign = null, designs = [], env: extraEnv = {}, over = null, fire = null, credits = 400, msg = {}, keepJob = false } = {}) {
+  // `keepJob` (2026-10-10, round 5): a retry delivered onto the envelope a
+  // previous attempt put back, rather than a freshly stored one.
+  if (!keepJob || !b.store.has(jobKey(id))) b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief, images: [], qa: [], chat: "c", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
   let claimedSite = false;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
@@ -126,7 +128,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
     // container accepting the page writer's call, while the case watches what
     // else the build does meanwhile.
     const held = typeof fire === "function" ? { idFromName: (n) => n, get: () => ({ fetch: async (...a) => { await fire(...a); return json({ ok: true, id: "gen-1" }); } }) } : container;
-    await worker.queue({ messages: [{ body: { kind: JOB_KIND, id }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SITES_BUCKET: b, SITE_BUILD_CONTAINER: held, BUILD_QUEUE: q, ...extraEnv }, ctx);
+    await worker.queue({ messages: [{ body: { kind: JOB_KIND, id, ...msg }, ack() {}, retry() {} }] }, { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SITES_BUCKET: b, SITE_BUILD_CONTAINER: held, BUILD_QUEUE: q, ...extraEnv }, ctx);
     // EVERY BACKGROUND TASK SETTLED WITH THE STAND-INS IN PLACE (round 4),
     // including any one of them started while the others ran.
     for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));

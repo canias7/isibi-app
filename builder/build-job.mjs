@@ -482,7 +482,16 @@ export function readMessage(body) {
   if (body.kind !== JOB_KIND) return null;
   if (!isJobId(body.id)) return null;
   const tries = readTries(body);
-  return tries === undefined ? { id: body.id } : { id: body.id, tries };
+  const out = tries === undefined ? { id: body.id } : { id: body.id, tries };
+  // A RETRY'S OWN ATTEMPT (2026-10-10, round 5): the execution record's token
+  // and the lease the attempt held, so the retry adopts that attempt and takes
+  // its lease over by name. Anything not shaped like one is dropped.
+  const name = /^[A-Za-z0-9:._-]{8,96}$/;
+  if (typeof body.token === "string" && name.test(body.token)) out.token = body.token;
+  if (typeof body.holder === "string" && name.test(body.holder)) out.holder = body.holder;
+  // HOW MANY TIMES IT HAS WAITED ON THE EXECUTION RECORD: a small whole number.
+  if (Number.isInteger(body.waits) && body.waits > 0 && body.waits <= 99) out.waits = body.waits;
+  return out;
 }
 
 /**

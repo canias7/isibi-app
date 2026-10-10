@@ -118,7 +118,9 @@ test("the queue handler takes this delivery's own clock and hands it to both inl
   // alone; the container's runtime is asserted below.
   assert.match(handler, /runQueuedSiteEdit\(env, ctx, edit\.id, \{[^}]*startedAt: deliveredAt \}\)/,
     "the inline edit runs on a fresh budget after the fire's wait");
-  assert.match(handler, /runQueuedSiteBuild\(env, ctx, msg\.id, \{[^}]*startedAt: deliveredAt \}\)/,
+  // RE-ANCHORED 2026-10-10 (round 5): a retry's token, holder and waits follow
+  // the clock in the same argument; the property is the clock reaching it.
+  assert.match(handler, /runQueuedSiteBuild\(env, ctx, msg\.id, \{[^}]*startedAt: deliveredAt[,\s][^}]*\}\)/,
     "the inline build runs on a fresh budget after the fire's wait");
 });
 

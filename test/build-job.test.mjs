@@ -139,6 +139,12 @@ test("the consumer acts on our own message shape and nothing else", () => {
   ]) {
     assert.equal(readMessage(bad), null, `${JSON.stringify(bad)} was read as a build to run`);
   }
+  // A RETRY'S OWN ATTEMPT (round 5): its token, its lease and how often it
+  // has waited ride through; anything not shaped like one is dropped.
+  assert.deepEqual(readMessage({ kind: JOB_KIND, id: ID, token: "c_abcdef12", holder: "c_12345678", waits: 3 }), { id: ID, token: "c_abcdef12", holder: "c_12345678", waits: 3 });
+  assert.deepEqual(readMessage({ kind: JOB_KIND, id: ID, token: "x", holder: "has space here", waits: 0 }), { id: ID });
+  assert.deepEqual(readMessage({ kind: JOB_KIND, id: ID, token: ["c_abcdef12"], waits: "3" }), { id: ID });
+  assert.deepEqual(readMessage({ kind: JOB_KIND, id: ID, waits: 100 }), { id: ID });
 });
 
 test("the replayed request carries what the build reads off a request, and nothing stale", async () => {

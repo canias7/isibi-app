@@ -572,7 +572,8 @@ test("the build consumer waits or gives the deposit back; the collector goes on 
   const del = build.indexOf("await env.SITES_BUCKET.delete(jobKey(id));");
   // RE-ANCHORED 2026-09-06 (stage 5b): the claim takes the launch's holder and
   // slug (null and "" from the Worker's own consumer); the order is the property.
-  const rowAt = build.indexOf("const row = await claimBuildRow(env, id, rowOwner, takeOver, launchSlug);");
+  // RE-ANCHORED 2026-10-10 (round 5): a resent attempt names its own lease.
+  const rowAt = build.indexOf("const row = await claimBuildRow(env, id, rowOwner, takeOver || (isRunToken(holder) ? holder : null), launchSlug);");
   const busy = build.indexOf("if (row.busy) {");
   const reverse = build.indexOf('await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);');
   const back = build.indexOf("await env.SITES_BUCKET.put(jobKey(id), raw);");

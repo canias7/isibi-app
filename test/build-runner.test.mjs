@@ -603,7 +603,9 @@ test("`canFire` is false inside the container — the queue there refuses — an
 test("the build consumer and the runner's dispatch, read off the Worker: the fire after the claim and before the delete, only with the lease held and only from the Worker; the runner's takeover, its slug and its longer budget; the budget reading the stop", () => {
   const src = noComments(WORKER);
   const q = fn(src, "async function runQueuedSiteBuild(");
-  const claimAt = at(q, "await claimBuildRow(env, id, rowOwner, takeOver, launchSlug)");
+  // RE-ANCHORED 2026-10-10 (round 5): a resent attempt's own lease (`holder`)
+  // is taken over by name beside the runner's; the property is the place.
+  const claimAt = at(q, "await claimBuildRow(env, id, rowOwner, takeOver || (isRunToken(holder) ? holder : null), launchSlug)");
   const fireAt = at(q, "await fireContainerJob(env, id, { holder: lease, kind: \"build\", who })");
   const identAt = at(q, "await buildFireIdentity(env, job)");
   assert.ok(claimAt < identAt && identAt < fireAt, "the fire does not follow the claim and the identity");

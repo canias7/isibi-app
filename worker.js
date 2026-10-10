@@ -46,7 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
-import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -1642,7 +1642,7 @@ export default {
             }
           }
         } else if (msg) {
-          await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries, startedAt: deliveredAt });
+          await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries, startedAt: deliveredAt, runToken: msg.token || "", holder: msg.holder || "", waits: msg.waits || 0 });
         } else if (resume) {
           await runResumedSiteBuild(env, ctx, resume.id, { tries: resume.tries });
         } else if (replyTask) {
@@ -15287,23 +15287,82 @@ async function liveBuildStart(env, { url, body, uid, id }) {
 }
 
 /**
- * TAKES THE EXECUTION RECORD OF JOB `id` FOR `owner` ("queue" or "inline"),
- * conditionally: "won" (this party alone executes it), "lost" (another holds
- * it — `run` says who), or "unknown" (the write or the read could not be
- * settled: never execute on that).
+ * TAKES THE EXECUTION RECORD OF JOB `id` FOR `owner` ("queue", "inline" or
+ * "revoked") under attempt `token`, conditionally:
+ *   "won"      this attempt holds it — including when the write's answer was
+ *              lost and the record reads back with this attempt's token
+ *              (round 5), and when a retry finds its own unstarted attempt;
+ *   "lost"     another attempt holds it (`run`, with its `etag` for a
+ *              conditional replace);
+ *   "unknown"  neither the write nor a read back could settle it — never
+ *              execute on that.
  */
-async function claimBuildRun(env, id, owner) {
-  try {
-    if (await env.SITES_BUCKET.put(buildRunKey(id), JSON.stringify(packBuildRun({ job: id, owner, at: Date.now() })), { onlyIf: { etagDoesNotMatch: "*" } })) return { outcome: "won" };
-    const cur = await env.SITES_BUCKET.get(buildRunKey(id));
-    if (!cur) return { outcome: "unknown" };
+async function claimBuildRun(env, id, owner, { token = "", started = false } = {}) {
+  const key = buildRunKey(id);
+  const readBack = async () => {
+    const cur = await env.SITES_BUCKET.get(key);
+    if (!cur) return null;
     let run = null;
     try { run = readBuildRun(JSON.parse(await cur.text())); } catch { run = null; }
-    return { outcome: "lost", run };
-  } catch (e) {
-    console.error("build run: could not settle who executes", id, String((e && e.message) || e));
-    return { outcome: "unknown" };
+    return { run, etag: typeof cur.etag === "string" ? cur.etag : "" };
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let wrote = false, threw = false;
+    try {
+      wrote = !!(await env.SITES_BUCKET.put(key, JSON.stringify(packBuildRun({ job: id, owner, at: Date.now(), token, started })), { onlyIf: { etagDoesNotMatch: "*" } }));
+    } catch (e) {
+      threw = true;
+      console.error("build run: the claim for", id, "answered nothing — reading it back", String((e && e.message) || e));
+    }
+    if (wrote) return { outcome: "won" };
+    let seen = null;
+    try { seen = await readBack(); } catch { return { outcome: "unknown" }; }
+    if (!seen) { if (threw) continue; return { outcome: "unknown" }; }
+    // A WRITE WHOSE ANSWER WAS LOST, OR A RETRY OF THIS VERY ATTEMPT: its own token.
+    if (token && seen.run && seen.run.token === token) return { outcome: "won", run: seen.run };
+    return { outcome: "lost", run: seen.run, etag: seen.etag };
   }
+  return { outcome: "unknown" };
+}
+/**
+ * REPLACES A RECORD READ AS RECOVERABLE (an attempt that never started, or an
+ * executor older than any build runs) — only by a write conditional on exactly
+ * that record, so an attempt that has since started is never overwritten.
+ * "won", "lost" (it changed) or "unknown".
+ */
+async function replaceBuildRun(env, id, etag, owner, { token = "", started = false } = {}) {
+  if (!etag) return "unknown";
+  try {
+    if (await env.SITES_BUCKET.put(buildRunKey(id), JSON.stringify(packBuildRun({ job: id, owner, at: Date.now(), token, started })), { onlyIf: { etagMatches: etag } })) return "won";
+  } catch { /* read back below */ }
+  try {
+    const cur = await env.SITES_BUCKET.get(buildRunKey(id));
+    const run = cur ? readBuildRun(JSON.parse(await cur.text())) : null;
+    return run && token && run.token === token && run.owner === owner ? "won" : "lost";
+  } catch { return "unknown"; }
+}
+/**
+ * MARKS THIS ATTEMPT'S RECORD STARTED, just before execution begins: "ok",
+ * "lost" (another attempt holds the record now) or "unknown" (the write and a
+ * read back could not settle it — the attempt does not execute on that).
+ */
+async function startBuildRun(env, id, token) {
+  const key = buildRunKey(id);
+  const read = async () => {
+    const cur = await env.SITES_BUCKET.get(key);
+    if (!cur) return null;
+    return { run: readBuildRun(JSON.parse(await cur.text())), etag: cur.etag };
+  };
+  let seen;
+  try { seen = await read(); } catch { return "unknown"; }
+  if (!seen || !seen.run || seen.run.token !== token) return seen ? "lost" : "unknown";
+  if (seen.run.started) return "ok";
+  try {
+    if (await env.SITES_BUCKET.put(key, JSON.stringify(packBuildRun({ ...seen.run, started: true })), { onlyIf: { etagMatches: seen.etag } })) return "ok";
+  } catch { /* read back below */ }
+  try { seen = await read(); } catch { return "unknown"; }
+  if (seen && seen.run && seen.run.token === token && seen.run.started) return "ok";
+  return seen && seen.run && seen.run.token !== token ? "lost" : "unknown";
 }
 /** The execution record, or `{}` when there is none or it cannot be read. */
 async function readBuildRunSafe(env, id) {
@@ -15315,10 +15374,17 @@ async function readBuildRunSafe(env, id) {
  * runs), "held" (an executor that may still be running), "unknown".
  */
 async function revokeBuildRun(env, id, now = Date.now()) {
-  const c = await claimBuildRun(env, id, "revoked");
+  const token = "revoke-" + crypto.randomUUID();
+  const c = await claimBuildRun(env, id, "revoked", { token });
   if (c.outcome === "won") return "free";
   if (c.outcome === "unknown") return "unknown";
-  return runVerdict(c.run, now) === "free" ? "free" : "held";
+  const st = runStanding(c.run, now);
+  if (st === "revoked") return "free";
+  if (st === "active" || st === "pending") return "held";
+  // RECOVERABLE (round 5): replaced by the revocation itself, conditionally,
+  // so a retry carrying the old attempt's token can never adopt it afterwards.
+  const r = await replaceBuildRun(env, id, c.etag, "revoked", { token });
+  return r === "won" ? "free" : r === "lost" ? "held" : "unknown";
 }
 
 /**
@@ -15455,24 +15521,51 @@ async function enqueueSiteBuild(request, env, { auth }) {
   // until it ends, and `after` gives it back then.
   // …AND RUNS AS THE SAME LOGICAL BUILD (round 4): billed under this job's id,
   // as the queued run would have been.
-  const inline = async () => ({ replay: replayRequest({ url, auth, body }), after: await liveBuildInline(env, bu.id, id, live), billId: id });
+  //
+  // …AND ITS ROW STAYS A LIVE JOB UNTIL THE WORK ENDS (round 5, Codex's
+  // review of 70222bb5): the fallback bills under this job (`build_debit`),
+  // which rightly refuses a lost, failed or cancelled row — so the row is
+  // never failed before the fallback runs. The fallback holds the row's lease
+  // (as a consumer would) and beats it, so no sweep re-sends or fails it
+  // beneath the work, and the row is finalized when the work actually ends:
+  // done on a successful answer, failed otherwise.
+  const holdRow = async () => {
+    if (!hasRow) return { held: false };
+    const owner = newLeaseOwner();
+    const r = await claimBuildRow(env, id, owner, null, null);
+    return r.held ? { held: true, owner, beat: buildRowBeat(env, id, owner) } : { held: false };
+  };
+  const inline = async (rowHold = null) => {
+    const release = await liveBuildInline(env, bu.id, id, live);
+    return {
+      replay: replayRequest({ url, auth, body }),
+      billId: id,
+      after: async (res) => {
+        if (rowHold && rowHold.beat) clearInterval(rowHold.beat);
+        if (hasRow) {
+          const ok = !!(res && res.status >= 200 && res.status < 300);
+          await closeBuildRow(env, id, ok ? "done" : "failed", ok ? "ran inline" : "ran inline and did not finish");
+        }
+        if (release) await release();
+      },
+    };
+  };
   // THE FALLBACK TAKES THE JOB'S EXECUTION RECORD FIRST (round 4): only when
   // this producer holds it — so no consumer can ever run the job — does the
   // build run inline. A consumer that already holds it is followed; one that
   // cannot be told apart from it is followed too. A failed send response is
   // never, on its own, a reason to close the row or release anything.
   const takeInline = async (note) => {
-    const run = await claimBuildRun(env, id, "inline");
+    const run = await claimBuildRun(env, id, "inline", { token: "inline-" + id, started: true });
     if (run.outcome !== "won") {
       console.error("build queue:", id, run.outcome === "lost" ? "is already " + (run.run ? run.run.owner : "held") + " — followed, never run inline beside it" : "execution could not be settled — followed, never run inline");
       return { outcome: run.outcome, owner: run.run ? run.run.owner : "" };
     }
     try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the record already stops any consumer */ }
-    // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
-    // claim has no lease and is never swept, so it is closed here by name —
-    // only now that no consumer can run it.
-    if (hasRow) await closeBuildRow(env, id, "failed", note);
-    return { outcome: "won", go: await inline() };
+    // THE ROW IS HELD, NOT CLOSED (round 5): the fallback's own deposit is
+    // taken against it, and `after` finalizes it when the work ends.
+    void note;
+    return { outcome: "won", go: await inline(await holdRow()) };
   };
   // ── THE ROW, BEFORE THE OBJECT AND THE MESSAGE (stage 2c) ──────────────────
   //
@@ -15524,11 +15617,14 @@ async function enqueueSiteBuild(request, env, { auth }) {
     // it: with no row, or its row confirmed closed, the inline build is the
     // only execution there can be. Anything less is queued and followed.
     if (t.outcome === "unknown") {
-      const closed = !hasRow || ((await closeBuildRow(env, id, "failed", "could not store the job — ran inline")) || {}).ok === true;
-      if (closed) {
-        try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* no message names it, and its row is closed */ }
-        console.error("build queue:", id, "not stored, never announced, row closed — running it inline");
-        return inline();
+      // NO SWEEP MAY ANNOUNCE IT: with no row, nothing can; with its row's
+      // lease held (and beaten), the sweep re-sends nothing — and the row
+      // stays a live job for the fallback's own deposit.
+      const rowHold = await holdRow();
+      if (!hasRow || rowHold.held) {
+        try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* no message names it, and its row is held */ }
+        console.error("build queue:", id, "not stored, never announced, row held — running it inline");
+        return inline(rowHold);
       }
     }
     console.error("build queue:", id, "may be stored — queued rather than run inline beside it");
@@ -15649,7 +15745,14 @@ async function awaitJobResult(env, id, uid) {
  * two come to disagree. What this side owns is the WORK, which outlives the
  * request by design.
  */
-async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, slug: launchSlug = "", budgetMs = null, startedAt = 0 } = {}) {
+/**
+ * HOW MANY TIMES A DELIVERY WAITS ON THE EXECUTION RECORD (2026-10-10, round
+ * 5): enough re-sends, each `SITE_BUSY_DEFER_S` apart, to outlast an unstarted
+ * attempt's window, plus two.
+ */
+const RUN_WAIT_MAX = Math.ceil(BUILD_RUN_START_MS / 1000 / SITE_BUSY_DEFER_S) + 2;
+
+async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, slug: launchSlug = "", budgetMs = null, startedAt = 0, runToken = "", holder = "", waits = 0 } = {}) {
   let job = null;
   // THE RAW OBJECT IS KEPT for one reason: a claim the site's own lock refuses
   // (stage 6) puts it back, so the message re-sent with a delay finds it.
@@ -15694,7 +15797,10 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // consumer claimed the row and fired this build — and the launch's slug
   // rides onto the handoff so the row learns the site the moment the runner
   // holds it. Null for the Worker's own fresh claim.
-  const row = await claimBuildRow(env, id, rowOwner, takeOver, launchSlug);
+  // A RETRY OF AN ATTEMPT THAT NEVER STARTED (round 5) takes that attempt's
+  // lease over by name (`holder`), as the runner does, so one lease follows
+  // the one logical execution.
+  const row = await claimBuildRow(env, id, rowOwner, takeOver || (isRunToken(holder) ? holder : null), launchSlug);
   // ── THE SITE IS SOMEBODY ELSE'S RIGHT NOW (stage 6) ────────────────────────
   //
   // A revise whose site an edit, an addon or the platform rebuild holds is
@@ -15780,25 +15886,54 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // and the message is asked again, bounded. The container's runner
   // (`takeOver`) continues this consumer's own execution and takes nothing.
   if (!takeOver) {
-    const run = await claimBuildRun(env, id, "queue");
-    if (run.outcome === "lost") {
-      console.log("build queue:", id, "is", run.run ? run.run.owner : "held", "elsewhere — not run here");
-      return;
-    }
-    if (run.outcome === "unknown") {
-      if (tries < CLAIM_RETRY_MAX) {
-        let kept = false;
-        try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
-        catch (e) { console.error("build queue: could not put the job back for", id, String((e && e.message) || e)); }
-        if (kept) {
-          const sent = await resendMessage(env, { kind: JOB_KIND, id, tries: tries + 1 }, "build queue: " + id + " — who executes it could not be settled, asking again in a minute");
-          if (sent.deferred) return;
-          try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
-        }
+    // THIS ATTEMPT'S NAME: a retry's carried token (its own unstarted attempt),
+    // or this delivery's lease owner.
+    const token = isRunToken(runToken) ? runToken : rowOwner;
+    const lease0 = row.held ? rowOwner : "";
+    // PUT BACK AND ASKED AGAIN, CARRYING THIS ATTEMPT (token and lease), so the
+    // retry adopts it — never a fresh attempt beside it — bounded.
+    // ITS OWN BOUND (`waits`, not the claim's one retry): long enough to
+    // outlast an unstarted attempt's window (`BUILD_RUN_START_MS`), after
+    // which that attempt is recoverable and replaced. At the bound, or when
+    // the message cannot be sent, the job object STAYS where a later delivery
+    // finds it — accepted work is never dropped on a label.
+    const askAgain = async (why) => {
+      let kept = false;
+      try { await env.SITES_BUCKET.put(jobKey(id), raw); kept = true; }
+      catch (e) { console.error("build queue: could not put the job back for", id, String((e && e.message) || e)); }
+      if (!kept) return;
+      if (waits >= RUN_WAIT_MAX) {
+        console.error("build queue:", id, "—", why, "; asked", waits, "times — the job is kept for a later delivery");
+        return;
       }
-      console.error("build queue:", id, "— who executes it could not be settled; not run (the row's sweep settles it)");
-      return;
+      const sent = await resendMessage(env, { kind: JOB_KIND, id, tries, waits: waits + 1, token, ...(lease0 ? { holder: lease0 } : {}) }, "build queue: " + id + " — " + why + ", asking again in a minute");
+      if (!sent.deferred) console.error("build queue:", id, "— could not ask again; the job is kept for a later delivery");
+    };
+    let run = await claimBuildRun(env, id, "queue", { token });
+    if (run.outcome === "lost") {
+      const st = runStanding(run.run, Date.now());
+      if (st === "recoverable" && run.run && run.run.owner === "queue") {
+        // AN ATTEMPT THAT NEVER STARTED (or an executor long gone): replaced,
+        // conditionally on exactly the record read.
+        const r = await replaceBuildRun(env, id, run.etag, "queue", { token });
+        run = { outcome: r };
+      } else if (st === "pending") {
+        // ANOTHER ATTEMPT CLAIMED IT AND HAS NOT STARTED: waited for, its
+        // input kept — never run beside it, never dropped.
+        await askAgain("another attempt holds it and has not started");
+        return;
+      } else {
+        console.log("build queue:", id, "is", run.run ? run.run.owner + (run.run.started ? " (started)" : "") : "held", "elsewhere — not run here");
+        return;
+      }
     }
+    if (run.outcome === "lost") { console.log("build queue:", id, "was taken while being recovered — not run here"); return; }
+    if (run.outcome === "unknown") { await askAgain("who executes it could not be settled"); return; }
+    // STARTED, just before anything runs: from here this attempt is the active
+    // executor no other delivery may replace.
+    const started = await startBuildRun(env, id, token);
+    if (started === "lost") { console.log("build queue:", id, "was taken before it started — not run here"); return; }
+    if (started === "unknown") { await askAgain("its start could not be recorded"); return; }
   }
 
   // ── THE BUILD RUNS IN THE SITE'S CONTAINER WHEN IT CAN (stage 5b, 2026-09-06) ──
@@ -27033,7 +27168,13 @@ async function handleRequest(request, env, ctx) {
       if (!buildDone) buildDone = runSiteBuild(buildReq, env, { rec, tr, budget, auth, billId: inlineBill });
       // AN INLINE FALLBACK GIVES ITS CHAT BACK WHEN IT ENDS (round 3), however
       // it ends; the build's own answer is unchanged.
-      if (inlineEnded) { const ended = inlineEnded; buildDone = buildDone.finally(() => ended()); }
+      if (inlineEnded) {
+        const ended = inlineEnded;
+        buildDone = buildDone.then(
+          async (res) => { try { await ended(res); } catch (e) { console.error("build: could not settle the inline fallback's row", String((e && e.message) || e)); } return res; },
+          async (err) => { try { await ended(null); } catch { /* the sweep settles the row */ } throw err; },
+        );
+      }
       // GUARDED, because `ctx` is a runtime argument rather than a language
       // guarantee: there is one caller today and it always passes one, and a
       // second added later without it would otherwise turn every build into a

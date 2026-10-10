@@ -31,8 +31,8 @@ import { buildBucket, BUILD_USER, GOOD_DESIGN } from "./fixtures/build-route.mjs
 import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { blockNetwork, blockedFetch, unexpected } from "./fixtures/no-network.mjs";
-import { resultKey, jobKey, packResult } from "../builder/build-job.mjs";
-import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, packBuildChat, packBuildRun, buildRunKey, claimVerdict, holdsChat, listsBuild, BUILD_ACCEPT_MS, BUILD_LIVE_MS } from "../builder/build-live.mjs";
+import { resultKey, jobKey, packResult, JOB_KIND } from "../builder/build-job.mjs";
+import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, packBuildChat, packBuildRun, buildRunKey, BUILD_RUN_START_MS, claimVerdict, holdsChat, listsBuild, BUILD_ACCEPT_MS, BUILD_LIVE_MS } from "../builder/build-live.mjs";
 import { BUILD_JOB_MS } from "../builder/build-job.mjs";
 import { resumeKey } from "../builder/build-resume.mjs";
 import { openRecord, appendMark, claimWriter, commitLine, confirmLines, progressKey, packRecord, buildStepFacts } from "../builder/site-progress.mjs";
@@ -519,12 +519,98 @@ const edits = (rpc, fn) => rpc.filter((r) => r.fn === fn);
  * fixture's do — so an inline build gets as far as its deposit, and every
  * billing call and designer call is kept.
  */
-function runNet({ rpc = [], designs = [] } = {}) {
+/**
+ * THE BUILD ROWS AS THE REPOSITORY'S SQL KEEPS THEM (2026-10-10, round 5),
+ * in place of answers that always said yes. One row per job, moved only the
+ * way the applied functions move it:
+ *   edit_create   → queued (a second create of the same id is a duplicate);
+ *   edit_claim    → claimed under the lease, refused `terminal` on a done,
+ *                   failed, cancelled or lost row and `leased` while another
+ *                   owner holds an unexpired lease (`expire(id)` ends it);
+ *   edit_handoff  → moves the lease only from its current owner;
+ *   edit_beat     → only the current owner;
+ *   edit_refund   → failed (or the asked state), refused `terminal` on done;
+ *   edit_finalize → done or failed;
+ *   build_debit   → refused `terminal` on lost, failed or cancelled
+ *                   (`supabase/proposed/build_debit.sql`), `not-a-build`,
+ *                   `not-owner`, `no-job`; else taken, once per ref.
+ * Every call and every state a row passes through is kept, in order.
+ */
+function sqlJobs() {
+  const rows = new Map();
+  const calls = [];
+  const TERMINAL = ["done", "failed", "cancelled", "lost"];
+  const move = (r, state) => { r.state = state; r.states.push(state); };
+  const answer = (fn, a) => {
+    const r = rows.get(a.p_id);
+    if (fn === "edit_create") {
+      if (rows.has(a.p_id)) return { ok: true, job: a.p_id, duplicate: true };
+      rows.set(a.p_id, { id: a.p_id, uid: a.p_uid, op: a.p_op, state: "queued", states: ["queued"], lease: null, expired: false, refs: new Set() });
+      return { ok: true, job: a.p_id, duplicate: false };
+    }
+    if (fn === "edit_claim") {
+      if (!r) return { ok: false, claimed: false, error: "no-job" };
+      if (TERMINAL.includes(r.state)) return { ok: true, claimed: false, state: r.state, error: "terminal" };
+      if (r.lease && !r.expired) return { ok: true, claimed: false, state: r.state, error: "leased" };
+      r.lease = a.p_owner; r.expired = false;
+      if (r.state === "queued") move(r, "claimed");
+      return { ok: true, claimed: true, state: r.state, billing: "external", uid: r.uid, slug: "build:x", needs_review: false };
+    }
+    if (fn === "edit_handoff") {
+      if (!r) return { ok: false, error: "no-job" };
+      if (TERMINAL.includes(r.state)) return { ok: false, error: "terminal", state: r.state };
+      if (r.lease !== a.p_owner) return { ok: false, error: "not-holder" };
+      r.lease = a.p_next; r.expired = false;
+      return { ok: true, uid: r.uid };
+    }
+    if (fn === "edit_beat") {
+      if (!r || r.lease !== a.p_owner || TERMINAL.includes(r.state)) return { ok: false, error: "not-holder" };
+      return { ok: true };
+    }
+    if (fn === "edit_refund") {
+      if (!r) return { ok: false, error: "no-job" };
+      if (r.state === "done") return { ok: false, error: "terminal", state: r.state };
+      move(r, a.p_state || "failed");
+      return { ok: true, refunded: 0, billing: "external" };
+    }
+    if (fn === "edit_finalize") {
+      if (!r) return { ok: false, error: "no-job" };
+      if (TERMINAL.includes(r.state)) return { ok: false, error: "terminal", state: r.state };
+      move(r, a.p_ok === false ? "failed" : "done");
+      return { ok: true };
+    }
+    if (fn === "build_debit") {
+      if (!r) return { ok: false, error: "no-job" };
+      if (r.op !== "build") return { ok: false, error: "not-a-build" };
+      if (r.uid !== a.p_uid) return { ok: false, error: "not-owner" };
+      if (["lost", "failed", "cancelled"].includes(r.state)) return { ok: false, error: "terminal", state: r.state, taken: 0 };
+      const repeat = r.refs.has(a.p_ref);
+      r.refs.add(a.p_ref);
+      return { ok: true, taken: repeat ? 0 : Number(a.p_amount) || 0, balance: 400, repeat };
+    }
+    return null;
+  };
+  const over = async (u, init) => {
+    const m = String(u).match(/\/rest\/v1\/rpc\/(\w+)/);
+    if (!m) return null;
+    const args = JSON.parse(String((init && init.body) || "{}"));
+    const out = answer(m[1], args);
+    if (out == null) return null;
+    calls.push({ fn: m[1], args, out, state: rows.has(args.p_id) ? rows.get(args.p_id).state : null });
+    return json(out);
+  };
+  return { rows, calls, over, row: (id) => rows.get(id), expire: (id) => { const r = rows.get(id); if (r) r.expired = true; }, of: (fn) => calls.filter((c) => c.fn === fn) };
+}
+
+function runNet({ rpc = [], designs = [], sql = sqlJobs() } = {}) {
   const base = stand({ rpc });
   return async (input, init) => {
     const u = String((input && input.url) || input || "");
     const m = u.match(/\/rest\/v1\/rpc\/(\w+)/);
-    if (m && m[1] === "build_debit") { rpc.push({ fn: m[1], args: JSON.parse(String((init && init.body) || "{}")) }); return json({ ok: true, taken: 2, balance: 400, repeat: false }); }
+    if (m) {
+      const r = await sql.over(u, init);
+      if (r) { rpc.push({ fn: m[1], args: JSON.parse(String((init && init.body) || "{}")) }); return r; }
+    }
     if (m && m[1] === "get_credits") { rpc.push({ fn: m[1], args: {} }); return json(400); }
     if (m && m[1] === "use_quota") { rpc.push({ fn: m[1], args: {} }); return json(true); }
     if (u.includes("/v1/messages")) {
@@ -543,7 +629,8 @@ test("RC 17 — ONE EXECUTION THROUGH A STORAGE FAILURE: a send that fails after
     const q = { sent: [], async send(m) { this.sent.push(m); throw new Error("queue: network reset after write"); }, async sendBatch() { throw new Error("no batch"); } };
     const rpc = [];
     const inlineDesigns = [];
-    globalThis.fetch = runNet({ rpc, designs: inlineDesigns });
+    const sql = sqlJobs();
+    globalThis.fetch = runNet({ rpc, designs: inlineDesigns, sql });
     let job;
     try {
       const a = postBuild(b, q, { env: { ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k" } });
@@ -554,7 +641,7 @@ test("RC 17 — ONE EXECUTION THROUGH A STORAGE FAILURE: a send that fails after
     } finally { globalThis.fetch = blockedFetch; }
     // THE DELIVERED MESSAGE: the real consumer, with the job envelope back in place.
     const designs = [];
-    await fireInterim(b, job, ledger(), { designs });
+    await fireInterim(b, job, ledger(), { designs, over: sql.over });
     assert.equal(designs.length, 0, "the consumer executed a job the inline build already held");
     assert.equal(JSON.parse(b.store.get(buildRunKey(job)) || "{}").owner, "inline", "the producer ran it without holding its execution record");
     // ONE EXECUTION, UNDER THE JOB'S OWN BILLING IDENTITY: the inline build's
@@ -563,6 +650,9 @@ test("RC 17 — ONE EXECUTION THROUGH A STORAGE FAILURE: a send that fails after
     const debits = rpc.filter((r) => r.fn === "build_debit");
     assert.ok(debits.length >= 1, "the inline build reached no deposit — this guard is watching nothing");
     for (const d of debits) assert.ok(String(d.args.p_ref || "").startsWith("build:" + job), "the inline build billed outside its job's identity: " + JSON.stringify(d.args));
+    // …AND THE SQL TOOK IT (round 5): the row was live when the deposit came.
+    assert.ok(sql.of("build_debit").length >= 1 && sql.of("build_debit").every((c) => c.out.ok === true), "the inline deposit was refused: " + JSON.stringify(sql.of("build_debit").map((c) => c.out)));
+    assert.equal(sql.row(job).states.length, 3, "the row did not go queued → claimed → ended once: " + sql.row(job).states.join(" → "));
   }
   // (b) THE STORE'S WRITE LANDS; the producer is told it failed.
   {
@@ -587,7 +677,8 @@ test("RC 17 — ONE EXECUTION THROUGH A STORAGE FAILURE: a send that fails after
     b.put = async (k, v, o) => { if (k.startsWith("builds-run/") && !globalThis.__consumerTurn) throw new Error("R2 write failed"); return put(k, v, o); };
     const q = { sent: [], async send(m) { this.sent.push(m); throw new Error("queue: reset"); }, async sendBatch() { throw new Error("no batch"); } };
     const rpc = [];
-    globalThis.fetch = stand({ rpc });
+    const sql = sqlJobs();
+    globalThis.fetch = runNet({ rpc, sql });
     let job, a;
     try {
       a = postBuild(b, q);
@@ -600,8 +691,10 @@ test("RC 17 — ONE EXECUTION THROUGH A STORAGE FAILURE: a send that fails after
     } finally { globalThis.fetch = blockedFetch; }
     globalThis.__consumerTurn = true;
     const designs = [];
-    try { await fireInterim(b, job, ledger(), { designs }); } finally { delete globalThis.__consumerTurn; }
+    try { await fireInterim(b, job, ledger(), { designs, over: sql.over }); } finally { delete globalThis.__consumerTurn; }
     assert.equal(designs.length, 1, "the consumer did not run the one execution");
+    assert.equal(sql.of("build_debit").length, 1, "not one deposit");
+    assert.equal(sql.of("build_debit")[0].out.ok, true, "the consumer's deposit was refused");
     const ans = await a;
     assert.equal(ans.status, 202, JSON.stringify(ans.body).slice(0, 200));
     assert.equal(ans.body.job, job);
@@ -678,6 +771,7 @@ test("RC 21 — CODEX'S HELD-DESIGNER REPRODUCTION: the queue accepts the messag
   const b = buildBucket();
   const rpc = [];
   const debits = [];
+  const sql = sqlJobs();
   let releaseDesign; const designGate = new Promise((r) => { releaseDesign = r; });
   let atDesign; const reached = new Promise((r) => { atDesign = r; });
   const designs = [];
@@ -689,14 +783,14 @@ test("RC 21 — CODEX'S HELD-DESIGNER REPRODUCTION: the queue accepts the messag
       consumer = fireInterim(b, m.id, ledger(), {
         designs,
         onDesign: async () => { atDesign(); await designGate; return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } }), { status: 200, headers: { "content-type": "application/json" } }); },
-        over: async (u, init) => { const mm = u.match(/\/rest\/v1\/rpc\/(\w+)/); if (mm && /debit|credit_reverse|use_credits/.test(mm[1])) debits.push({ fn: mm[1], args: JSON.parse(String((init && init.body) || "{}")) }); if (mm) rpc.push({ fn: mm[1] }); return null; },
+        over: async (u, init) => { const mm = u.match(/\/rest\/v1\/rpc\/(\w+)/); if (mm && /debit|credit_reverse|use_credits/.test(mm[1])) debits.push({ fn: mm[1], args: JSON.parse(String((init && init.body) || "{}")) }); if (mm) rpc.push({ fn: mm[1] }); return sql.over(u, init); },
       });
       await reached;
       throw new Error("queue: response lost");
     },
     async sendBatch() { throw new Error("no batch"); },
   };
-  globalThis.fetch = stand({ rpc });
+  globalThis.fetch = runNet({ rpc, sql });
   const a = postBuild(b, q);
   await reached;
   for (let i = 0; i < 400; i++) await new Promise((r) => setImmediate(r));
@@ -714,6 +808,8 @@ test("RC 21 — CODEX'S HELD-DESIGNER REPRODUCTION: the queue accepts the messag
   const refs = debits.map((d) => String(d.args.p_ref || d.args.ref || "")).filter(Boolean);
   assert.ok(refs.length >= 1 && refs.every((r) => r.startsWith("build:" + job)), "billing outside the one build's identity: " + JSON.stringify(refs));
   assert.equal(debits.filter((d) => d.fn === "build_debit").length, 1, "the deposit was taken more than once");
+  assert.equal(sql.of("build_debit")[0].out.ok, true, "the one deposit was refused by the rows' own rule");
+  assert.deepEqual(sql.row(job).states, ["queued", "claimed"], "the active consumer's row moved outside the SQL's transitions");
   assert.equal(edits(rpc, "edit_create").length, 1);
 });
 
@@ -808,7 +904,10 @@ test("RC 18 — THE INLINE FALLBACK OWNS ITS CHAT: the queue send fails and the 
     await g.reached;
     const job = markersOf(b)[0];
     assert.ok(job, "no inline marker");
-    assert.equal(edits(rpc, "edit_refund").length, 1, "the gone job's row was not closed");
+    // THE ROW IS HELD, NOT CLOSED, WHILE THE FALLBACK RUNS (round 5): its own
+    // deposit is taken against it, so a failed row here would refuse it.
+    assert.equal(edits(rpc, "edit_refund").length, 0, "the fallback failed its own row before running");
+    assert.equal(edits(rpc, "edit_claim").length, 1, "the fallback did not take its row's lease");
     const second = await call(b, queue(), stand({ rpc }), "POST", "/api/site/react-build", { body: { brief: BRIEF, images: [], picker: "sonnet", qa: [], chat: CHAT } });
     assert.equal(second.status, 409, JSON.stringify(second.body));
     assert.equal(second.body.error, "build-running-inline");
@@ -1225,6 +1324,207 @@ test("RB 10 — THE NEXT OWED BUILD STARTS WHEN THE FIRST ONE ENDS, not only on 
   assert.ok(polls[w.job] >= 2 && polls[job2] >= 2, "the second build waited for a render that never came: " + JSON.stringify(polls));
   assert.equal(p.store.find((s) => s.id === chat2).slug, GOOD_DESIGN.slug);
   assert.equal(p.busy, false);
+});
+
+// ── ROUND 5 (2026-10-10): THE FALLBACK'S ROW AND THE LOST RECORD WRITE ──────
+
+/** A ROW FILED AS THE ROUTE FILES ONE, straight into the SQL stand-in. */
+async function fileRow(sql, id) {
+  await sql.over("https://x/rest/v1/rpc/edit_create", { body: JSON.stringify({ p_id: id, p_uid: BUILD_USER.id, p_op: "build", p_idem: id }) });
+}
+const designOk = () => new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } }), { status: 200, headers: { "content-type": "application/json" } });
+const runOf = (b, job) => JSON.parse(b.store.get(buildRunKey(job)) || "null");
+const JOB_X = "c".repeat(32);
+/** THE BUILD JOB'S OWN RE-SENDS — not the generation's resume message a build that carried on sends. */
+const jobSends = (q) => q.sent.filter((m) => m.kind === JOB_KIND);
+
+test("RC 23 — CODEX'S FALLBACK-BILLING REPRODUCTION: the queue send fails and the job is provably gone, so the producer takes the execution and runs inline; its deposit goes through build_debit against its own row, which the SQL refuses once the row is failed — so the row is held under the fallback's own lease (queued → claimed), the deposit is taken (one billing identity, build:<job>), the designer runs once, and the row is finalized only when the work ends; and a row the sweep already ended is still refused, at no charge", async () => {
+  // (a) THE EXACT REPRODUCTION, against rows that move only as the SQL moves them.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    const rpc = [];
+    const designs = [];
+    globalThis.fetch = runNet({ rpc, designs, sql });
+    let ans;
+    try {
+      const a = postBuild(b, queue(true), { env: { ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k" } });
+      ans = await a;
+      await a.settled();
+    } finally { globalThis.fetch = blockedFetch; }
+    const job = [...sql.rows.keys()][0];
+    assert.ok(job && sql.rows.size === 1, "not exactly one row was filed");
+    assert.equal(runOf(b, job).owner, "inline", "the fallback ran without the job's execution record");
+    const debits = sql.of("build_debit");
+    assert.ok(debits.length >= 1, "the fallback reached no deposit — this guard is watching nothing");
+    assert.equal(debits[0].out.ok, true, "the fallback's deposit was refused: " + JSON.stringify(debits[0].out));
+    assert.ok(debits.every((d) => d.args.p_id === job && String(d.args.p_ref).startsWith("build:" + job)), "billing outside the job's own identity: " + JSON.stringify(debits.map((d) => d.args)));
+    assert.equal(designs.length, 1, "the designer did not run exactly once");
+    assert.notEqual(ans.status, 503, "the fallback answered " + JSON.stringify(ans.body).slice(0, 200));
+    assert.doesNotMatch(JSON.stringify(ans.body), /Credits check failed/);
+    // VALID TRANSITIONS: no terminal write before the deposit; one at the end.
+    const order = sql.calls.map((c) => c.fn);
+    const firstDebit = order.indexOf("build_debit");
+    assert.ok(!order.slice(0, firstDebit).some((f) => f === "edit_refund" || f === "edit_finalize"), "the row was ended before the fallback's deposit: " + order.join(","));
+    const r = sql.row(job);
+    assert.deepEqual(r.states.slice(0, 2), ["queued", "claimed"], "the fallback did not hold its row: " + r.states.join(" → "));
+    assert.equal(r.states.length, 3, "the row did not end exactly once: " + r.states.join(" → "));
+    assert.ok(["done", "failed"].includes(r.states[2]));
+    const end = order.lastIndexOf(r.states[2] === "done" ? "edit_finalize" : "edit_refund");
+    assert.ok(end > firstDebit, "the row was ended before the work");
+    assert.equal(sql.calls[order.indexOf("edit_claim")].out.claimed, true, "the fallback did not take its row's lease");
+  }
+  // (b) CONTROL — THE TERMINAL GUARD STANDS: a row the sweep already marked
+  // lost before the fallback could hold it is refused its deposit, and the
+  // build designs nothing and charges nothing.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    const designs = [];
+    const net = runNet({ designs, sql });
+    globalThis.fetch = async (input, init) => {
+      const u = String((input && input.url) || input || "");
+      if (u.includes("/rpc/edit_claim")) { const id = JSON.parse(String(init.body)).p_id; const r = sql.row(id); if (r && r.state === "queued") { r.state = "lost"; r.states.push("lost"); } }
+      return net(input, init);
+    };
+    let ans;
+    try {
+      const a = postBuild(b, queue(true), { env: { ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k" } });
+      ans = await a;
+      await a.settled();
+    } finally { globalThis.fetch = blockedFetch; }
+    const debits = sql.of("build_debit");
+    assert.ok(debits.length >= 1 && debits.every((d) => d.out.ok === false && d.out.error === "terminal"), "a lost row's deposit was not refused: " + JSON.stringify(debits.map((d) => d.out)));
+    assert.equal(designs.length, 0, "a refused deposit still designed");
+    assert.equal(ans.status, 503, JSON.stringify(ans.body).slice(0, 200));
+  }
+});
+
+test("RC 24 — CODEX'S LOST-RECORD-WRITE REPRODUCTION: the consumer's conditional builds-run write commits and then throws; read back, the record is its own attempt's, so this delivery runs it once; and when the read back fails too, the job is put back and asked again carrying the attempt, and the retry adopts its own unstarted attempt (its lease taken over by name) — one designer call, one deposit on one row, the build carried on, never stranded", async () => {
+  const lostWrite = (b, job, { readFails = false } = {}) => {
+    const put = b.put.bind(b);
+    const get = b.get.bind(b);
+    let armed = true, failRead = false;
+    b.put = async (k, v, o) => {
+      const r = await put(k, v, o);
+      if (armed && k === buildRunKey(job) && o && o.onlyIf && o.onlyIf.etagDoesNotMatch === "*") { armed = false; failRead = readFails; throw new Error("R2: response lost after commit"); }
+      return r;
+    };
+    b.get = async (k) => { if (failRead && k === buildRunKey(job)) { failRead = false; throw new Error("R2: read failed"); } return get(k); };
+  };
+  // (a) THE READ BACK FINDS ITS OWN TOKEN: the same delivery proceeds.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await fileRow(sql, JOB_X);
+    lostWrite(b, JOB_X);
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over });
+    assert.equal(designs.length, 1, "the delivery whose record write was lost did not run its job once");
+    assert.equal(jobSends(q).length, 0, "a settled claim was asked again");
+    const run = runOf(b, JOB_X);
+    assert.deepEqual({ owner: run.owner, started: run.started }, { owner: "queue", started: true });
+    const debits = sql.of("build_debit");
+    assert.equal(debits.length, 1, "not one deposit");
+    assert.equal(debits[0].out.ok, true);
+    assert.ok(String(debits[0].args.p_ref).startsWith("build:" + JOB_X));
+    assert.ok(b.store.has(resumeKey(JOB_X)), "the build did not carry on to its generation");
+  }
+  // (b) THE READ BACK FAILS TOO: put back, asked again with the attempt; the
+  // retry adopts it.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await fileRow(sql, JOB_X);
+    lostWrite(b, JOB_X, { readFails: true });
+    const designs = [];
+    const q1 = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over });
+    assert.equal(designs.length, 0, "an unsettled claim executed");
+    assert.equal(sql.of("build_debit").length, 0, "an unsettled claim charged");
+    assert.equal(jobSends(q1).length, 1, "the unsettled attempt was not asked again — the accepted work is stranded");
+    const retry = jobSends(q1)[0];
+    const first = runOf(b, JOB_X);
+    assert.ok(first && first.owner === "queue" && first.started !== true && retry.token === first.token, "the retry does not carry the attempt that holds the record: " + JSON.stringify({ retry, first }));
+    assert.equal(retry.holder, sql.row(JOB_X).lease, "the retry does not name the lease its attempt holds");
+    assert.equal(retry.waits, 1);
+    assert.ok(b.store.has(jobKey(JOB_X)), "the job's input was not kept for the retry");
+    const { kind: _k, id: _i, ...extra } = retry;
+    const q2 = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over, msg: extra, keepJob: true });
+    assert.equal(designs.length, 1, "the retry did not run the job exactly once");
+    assert.equal(jobSends(q2).length, 0);
+    const run = runOf(b, JOB_X);
+    assert.deepEqual({ token: run.token, started: run.started }, { token: first.token, started: true }, "the retry ran under another attempt's name");
+    const taken = sql.of("edit_handoff").filter((c) => c.args.p_owner === retry.holder);
+    assert.ok(taken.length === 1 && taken[0].out.ok === true, "the retry did not take its attempt's lease over by name: " + JSON.stringify(taken.map((c) => c.out)));
+    const debits = sql.of("build_debit");
+    assert.equal(debits.length, 1, "not one deposit");
+    assert.equal(debits[0].out.ok, true);
+    assert.deepEqual(sql.row(JOB_X).states, ["queued", "claimed"], "the row moved outside the SQL's transitions");
+    assert.ok(b.store.has(resumeKey(JOB_X)), "the build did not carry on to its generation");
+  }
+});
+
+test("RC 25 — A GENUINELY ACTIVE COMPETING CONSUMER STAYS PROTECTED: a delivery finding another attempt that started (or an inline run) never executes or charges; one finding another attempt that claimed and has not started waits, its job kept and asked again; one finding an attempt that never started past its window replaces it, conditionally, and runs once", async () => {
+  const seed = async (b, sql, { owner = "queue", started = false, age = 0, lease = "c_other99" } = {}) => {
+    await fileRow(sql, JOB_X);
+    await sql.over("https://x/rest/v1/rpc/edit_claim", { body: JSON.stringify({ p_id: JOB_X, p_owner: lease }) });
+    await b.put(buildRunKey(JOB_X), JSON.stringify(packBuildRun({ job: JOB_X, owner, at: Date.now() - age, token: "c_other99", started })));
+  };
+  for (const [what, opts] of [["a started queued attempt", { started: true }], ["an inline run", { owner: "inline", started: true }]]) {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await seed(b, sql, opts);
+    const before = b.store.get(buildRunKey(JOB_X));
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over });
+    assert.equal(designs.length, 0, what + " was run beside");
+    assert.equal(sql.of("build_debit").length, 0, what + " was charged again");
+    assert.equal(jobSends(q).length, 0, what + " was asked again");
+    assert.equal(b.store.get(buildRunKey(JOB_X)), before, what + "'s record was touched");
+    assert.equal(sql.row(JOB_X).lease, "c_other99", what + "'s lease was taken");
+  }
+  // PENDING: waited for, never run beside, never dropped.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await seed(b, sql);
+    const before = b.store.get(buildRunKey(JOB_X));
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over });
+    assert.equal(designs.length, 0, "a pending attempt was run beside");
+    assert.equal(sql.of("build_debit").length, 0);
+    assert.equal(b.store.get(buildRunKey(JOB_X)), before);
+    assert.equal(jobSends(q).length, 1, "the waiting delivery was not asked again");
+    assert.equal(jobSends(q)[0].waits, 1);
+    assert.ok(b.store.has(jobKey(JOB_X)), "the job's input was dropped");
+  }
+  // RECOVERABLE: an attempt that never started past its window is replaced.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await seed(b, sql, { age: BUILD_RUN_START_MS + 1000 });
+    sql.expire(JOB_X);
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over });
+    assert.equal(designs.length, 1, "an attempt that never started stranded its job");
+    assert.equal(jobSends(q).length, 0);
+    const run = runOf(b, JOB_X);
+    assert.ok(run.token !== "c_other99" && run.started === true && run.owner === "queue", "the stale attempt was not replaced: " + JSON.stringify(run));
+    assert.equal(sql.of("build_debit").length, 1);
+    assert.equal(sql.of("build_debit")[0].out.ok, true);
+  }
+  // AT THE BOUND THE JOB IS KEPT: a delivery that has waited its fill puts the
+  // input back and sends nothing — never deletes it on a label.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await seed(b, sql);
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over, msg: { waits: 99 } });
+    assert.equal(designs.length, 0);
+    assert.equal(jobSends(q).length, 0, "a delivery past its bound was sent again");
+    assert.ok(b.store.has(jobKey(JOB_X)), "a delivery past its bound dropped the job's input");
+  }
 });
 
 test("NET — no request in this file left the machine", () => {

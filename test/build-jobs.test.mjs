@@ -412,9 +412,17 @@ test("the build route files the row before the object and the message, under op 
   const take = fn.indexOf("const takeInline = async (note) => {");
   assert.ok(take > 0, "the inline fall-through helper is gone; this guard is watching nothing");
   const takeBody = fn.slice(take, close(fn, fn.indexOf("{", take)));
+  // …AND NOT CLOSED AT ALL BEFORE THE WORK (round 5): the fallback's deposit
+  // goes through build_debit against this row, which refuses a failed one —
+  // so the row is held under its own lease and closed by `after`.
   const won = takeBody.indexOf('if (run.outcome !== "won")');
-  const shut = takeBody.indexOf('if (hasRow) await closeBuildRow(env, id, "failed", note);');
-  assert.ok(takeBody.indexOf('claimBuildRun(env, id, "inline")') > 0 && won > 0 && shut > won, "the row is closed before the execution record is held");
+  const hold = takeBody.indexOf("inline(await holdRow())");
+  assert.ok(takeBody.indexOf('claimBuildRun(env, id, "inline"') > 0 && won > 0 && hold > won, "the row is held before the execution record is won");
+  assert.doesNotMatch(takeBody, /closeBuildRow/, "the fallback closes its row before running");
+  const inl = fn.indexOf("const inline = async (rowHold = null) => {");
+  const inlBody = fn.slice(inl, close(fn, fn.indexOf("{", inl)));
+  const after = inlBody.indexOf("after: async (res) => {");
+  assert.ok(inl > 0 && after > 0 && inlBody.indexOf("closeBuildRow(env, id, ok ? \"done\" : \"failed\"") > after, "the fallback's row is not finalized when its work ends");
   const notes = [...fn.matchAll(/await takeInline\("([^"]+)"\)/g)].map((m) => m[1]);
   assert.deepEqual(notes, ["could not store the job — ran inline", "could not enqueue — ran inline"], "a fall-through leaves its queued row behind");
   // THE AUTH GATE STILL COMES FIRST: nothing is filed for a stranger.
@@ -441,7 +449,8 @@ test("the consumer claims after the object, beats while it works, hands its name
   // (the runner's takeover by name) and slug; the Worker's own consumer hands
   // null and "" — driven in build-runner.test.mjs. The property here is the
   // claim's PLACE: after the object, before the recorder.
-  const claim = fn.indexOf("await claimBuildRow(env, id, rowOwner, takeOver, launchSlug)");
+  // THE RETRY'S HOLDER (round 5): a resent attempt names the lease it left.
+  const claim = fn.indexOf("await claimBuildRow(env, id, rowOwner, takeOver || (isRunToken(holder) ? holder : null), launchSlug)");
   const rec = fn.indexOf("makeRecorder(");
   assert.ok(del > 0 && claim > del && rec > claim, "the claim is not between the object's delete and the recorder");
   assert.match(fn, /const lease = row\.held \? rowOwner : null;/);

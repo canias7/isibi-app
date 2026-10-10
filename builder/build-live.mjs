@@ -146,10 +146,47 @@ export function buildRunKey(job) {
   return BUILD_RUN_ROOT + job + ".json";
 }
 const RUN_OWNERS = new Set(["queue", "inline", "revoked"]);
-export function packBuildRun({ job, owner, at }) { return { v: BUILD_LIVE_VERSION, job, owner, at }; }
+const RUN_TOKEN_RE = /^[A-Za-z0-9:._-]{8,96}$/;
+export const isRunToken = (v) => typeof v === "string" && RUN_TOKEN_RE.test(v);
+/**
+ * How long an execution record may sit claimed but not started before its
+ * attempt counts as recoverable (round 5): between the claim and the start
+ * there is only the record's own second write.
+ */
+export const BUILD_RUN_START_MS = 5 * 60 * 1000;
+/**
+ * THE RECORD NAMES ITS ATTEMPT AND SAYS WHETHER IT STARTED (round 5, Codex's
+ * lost-write review): `token` is the attempt's own name — a write whose
+ * answer was lost is reconciled by reading it back and finding this token,
+ * and a retry carrying the token adopts its own unstarted attempt; `started`
+ * is written just before execution begins, so an attempt that claimed and
+ * never started is told apart from one that is running.
+ */
+export function packBuildRun({ job, owner, at, token = "", started = false }) {
+  return { v: BUILD_LIVE_VERSION, job, owner, at, ...(isRunToken(token) ? { token } : {}), ...(started ? { started: true } : {}) };
+}
 export function readBuildRun(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION || !isJobId(raw.job) || !RUN_OWNERS.has(raw.owner)) return null;
-  return { job: raw.job, owner: raw.owner, at: num(raw.at) || 0 };
+  return { job: raw.job, owner: raw.owner, at: num(raw.at) || 0, token: isRunToken(raw.token) ? raw.token : "", started: raw.started === true };
+}
+/**
+ * WHAT ANOTHER ATTEMPT'S RECORD MEANS TO A NEW ARRIVAL (round 5):
+ *   "active"       an inline run, or a queued attempt that started, younger
+ *                  than any build runs — protected;
+ *   "pending"      a queued attempt claimed but not started, younger than the
+ *                  start window — waited for, never run beside;
+ *   "recoverable"  a queued attempt that never started past the window, or any
+ *                  executor older than a build can run — may be replaced, by a
+ *                  write conditional on exactly the record read;
+ *   "revoked"      the job can never start.
+ */
+export function runStanding(run, now) {
+  if (!run) return "recoverable";
+  if (run.owner === "revoked") return "revoked";
+  const age = num(now) !== null ? now - run.at : 0;
+  if (age > BUILD_JOB_MS) return "recoverable";
+  if (run.owner === "inline" || run.started) return "active";
+  return age > BUILD_RUN_START_MS ? "recoverable" : "pending";
 }
 /**
  * WHAT AN EXISTING EXECUTION RECORD MEANS FOR A CHAT'S CLAIM:
@@ -158,9 +195,8 @@ export function readBuildRun(raw) {
  *   "held"  an executor (queue or inline) that may still be running.
  */
 export function runVerdict(run, now) {
-  if (!run) return "free";
-  if (run.owner === "revoked") return "free";
-  return num(now) !== null && now - run.at > BUILD_JOB_MS ? "free" : "held";
+  const st = runStanding(run, now);
+  return st === "active" || st === "pending" ? "held" : "free";
 }
 
 /**
