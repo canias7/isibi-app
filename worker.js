@@ -46,7 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
-import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -15226,7 +15226,10 @@ async function liveBuildStart(env, { url, body, uid, id }) {
     // THROUGH THE SAME REFUSAL AS THE BUILD ROUTE'S OWN READ (`cleanChatId`), never raw.
     const chatId = body ? cleanChatId(body.chat) : "";
     chat = isLiveChat(chatId) ? chatId : "";
-    await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive({ job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now() })));
+    // NOT YET ACCEPTED (round 3): it owns its chat from here, and is listed
+    // only once its message is sent (`liveBuildAccept`).
+    out.marker = { job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now() };
+    await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive(out.marker)));
     out.marked = true;
   } catch (e) {
     console.error("build live: could not list build", id, "for its account (it runs unlisted)", String((e && e.message) || e));
@@ -15248,7 +15251,8 @@ async function liveBuildStart(env, { url, body, uid, id }) {
       const view = held && !held.ended ? await liveBuildView(env, uid, held.job, now) : null;
       if (claimVerdict({ held, view, now }) === "held") {
         await unmark();
-        return { ...out, marked: false, running: held.job };
+        // A BUILD RUNNING INLINE has no job to follow: the caller says so instead.
+        return { ...out, marked: false, running: held.job, inline: !!(view && view.state === "inline") };
       }
       if (typeof cur.etag !== "string" || !cur.etag) break;
       if (await env.SITES_BUCKET.put(key, claim, { onlyIf: { etagMatches: cur.etag } })) return { ...out, claimed: true, chat };
@@ -15283,6 +15287,47 @@ async function liveBuildRelease(env, uid, id, live) {
     }
     if (live.marked) { await env.SITES_BUCKET.delete(buildLiveKey(uid, id)); live.marked = false; }
   } catch (e) { console.error("build live: could not take back the listing of", id, String((e && e.message) || e)); }
+}
+
+/** The build was accepted (its message sent, or its job may still run): from now it is listed. */
+async function liveBuildAccept(env, uid, id, live) {
+  try {
+    if (!live || !live.marked || !live.marker || !env.SITES_BUCKET) return;
+    await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive({ ...live.marker, accepted: true })));
+  } catch (e) { console.error("build live: could not mark", id, "accepted (its row still holds the chat; it is not listed)", String((e && e.message) || e)); }
+}
+
+/**
+ * The build runs inline, in its own request (the queue path could not take
+ * it): it keeps its chat, marked `inline` so another request is told it is
+ * already being built rather than handed a job to follow, and is never
+ * listed. Returns what to run when the inline build ends: the release.
+ */
+async function liveBuildInline(env, uid, id, live) {
+  if (!live || !live.marked || !live.marker || !env.SITES_BUCKET) {
+    await liveBuildRelease(env, uid, id, live);
+    return null;
+  }
+  try {
+    await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive({ ...live.marker, inline: true })));
+  } catch (e) { console.error("build live: could not mark", id, "inline (it holds its chat while being accepted)", String((e && e.message) || e)); }
+  return () => liveBuildRelease(env, uid, id, live);
+}
+
+/**
+ * IS THE QUEUED JOB PROVABLY UNABLE TO RUN? (round 3: duplicate work after a
+ * storage failure.) The consumer runs whatever job object it finds — row or
+ * no row — so the inline fallback may only run once the object is gone:
+ * deleted, then read back as absent. Anything less (a delete that failed, a
+ * read that failed) means the queued build may still run, and the inline one
+ * must not run beside it.
+ */
+async function buildJobGone(env, id) {
+  // THE READ DECIDES, not the delete's own answer: a delete that reported a
+  // failure may still have removed the object, and one that reported success
+  // is only believed once the object reads back as absent.
+  try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the read below decides */ }
+  try { return (await env.SITES_BUCKET.head(jobKey(id))) === null; } catch { return false; }
 }
 
 /**
@@ -15347,6 +15392,11 @@ async function enqueueSiteBuild(request, env, { auth }) {
   // answered with THAT build — the existing 202 the browser already follows —
   // and nothing new is filed, queued or charged.
   const live = await liveBuildStart(env, { url, body: rb.body, uid: bu.id, id });
+  // THE CHAT'S BUILD IS RUNNING INLINE, in the request that sent it: there is
+  // no job to follow, so this request is told, and nothing starts.
+  if (live.running && live.inline) {
+    return { res: Response.json({ ok: false, stage: "building-elsewhere", already: true, error: "build-running-inline", msg: "Your site is already being built from this chat in another window — its answer will appear there. Nothing new was started or charged." }, { status: 409 }) };
+  }
   if (live.running) {
     return { res: Response.json({ ok: false, stage: "resuming", job: live.running, already: true, msg: "Your site is already being built from this chat — following it now." }, { status: 202 }) };
   }
@@ -15356,7 +15406,9 @@ async function enqueueSiteBuild(request, env, { auth }) {
   if (live.uncertain) {
     return { res: Response.json({ ok: false, error: "build-ownership-unsettled", retry: true, msg: "I couldn't safely start your build just now, and nothing was charged. Please send it again." }, { status: 503 }) };
   }
-  const back = () => { liveBuildRelease(env, bu.id, id, live); return { replay: replayRequest({ url, auth, body }) }; };
+  // THE INLINE FALLBACK KEEPS THE CHAT (round 3): the build it runs owns it
+  // until it ends, and `after` gives it back then.
+  const inline = async () => ({ replay: replayRequest({ url, auth, body }), after: await liveBuildInline(env, bu.id, id, live) });
   // ── THE ROW, BEFORE THE OBJECT AND THE MESSAGE (stage 2c) ──────────────────
   //
   // The edit path's order — row, object, message — for the same reason: a
@@ -15379,29 +15431,51 @@ async function enqueueSiteBuild(request, env, { auth }) {
   if (!hasRow && !(filed && filed.error === "no-service-key")) {
     console.log("build queue: no row for", id, "—", String((filed && filed.error) || "rpc"), "(the build runs without one)");
   }
+  // ── A STORAGE FAILURE NEVER RUNS THE BUILD TWICE (round 3) ───────────────
+  //
+  // The consumer runs whatever job object it finds, row or no row. So the
+  // inline fallback runs only when the object is PROVABLY gone
+  // (`buildJobGone`). A store that failed with the object possibly written, or
+  // a send that failed with the message possibly delivered and the object
+  // not provably removed, keeps the queued path instead: the message is sent
+  // (or was), the stale sweep re-sends a queued row nobody touched and fails
+  // it with its deposit back if it never runs — one build, never two.
+  let stored = true;
   try {
     await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url, auth, body, uid: bu.id, at: Date.now() })));
     // THE PROTOCOL RECORD, beside the envelope and outliving it.
     await keepJobMeta(env, id, true);
   } catch (e) {
-    console.error("build queue: could not store the job, running it inline instead:", String((e && e.message) || e));
-    // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
-    // claim has no lease and is never swept, so it is closed here by name.
-    if (hasRow) await closeBuildRow(env, id, "failed", "could not store the job");
-    await liveBuildRelease(env, bu.id, id, live);
-    return back();
+    console.error("build queue: could not store the job:", String((e && e.message) || e));
+    stored = false;
   }
+  if (!stored) {
+    if (await buildJobGone(env, id)) {
+      console.error("build queue:", id, "is provably not stored — running it inline instead");
+      // THE ROW MUST NOT OUTLIVE THE JOB IT NAMES: a queued row nobody will ever
+      // claim has no lease and is never swept, so it is closed here by name.
+      if (hasRow) await closeBuildRow(env, id, "failed", "could not store the job");
+      return inline();
+    }
+    console.error("build queue:", id, "may be stored — queued rather than run inline beside it");
+  }
+  let sent = true;
   try {
     await env.BUILD_QUEUE.send({ kind: JOB_KIND, id });
   } catch (e) {
-    console.error("build queue: could not enqueue, running it inline instead:", String((e && e.message) || e));
-    // Best-effort tidy-up: the job will never be picked up, so leaving it is a
-    // token sitting in a bucket for no reason.
-    try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* not worth failing a build over */ }
-    if (hasRow) await closeBuildRow(env, id, "failed", "could not enqueue");
-    await liveBuildRelease(env, bu.id, id, live);
-    return back();
+    console.error("build queue: could not enqueue:", String((e && e.message) || e));
+    sent = false;
   }
+  if (!sent) {
+    if (await buildJobGone(env, id)) {
+      console.error("build queue:", id, "is provably gone from the queue's reach — running it inline instead");
+      if (hasRow) await closeBuildRow(env, id, "failed", "could not enqueue");
+      return inline();
+    }
+    console.error("build queue:", id, "may still run from the queue — followed rather than run inline beside it");
+  }
+  // ACCEPTED: listed from here, followed by the browser that sent it.
+  await liveBuildAccept(env, bu.id, id, live);
   // NO TRACE MARK HERE, and that is a decision rather than an omission. The
   // producer's recorder never learns a slug — the designer names the site, and
   // that happens on the other side — so `makeRecorder` buffers everything it is
@@ -26566,7 +26640,10 @@ async function handleRequest(request, env, ctx) {
             try { await env.SITES_BUCKET.delete(buildLiveKey(bu.id, job)); await env.SITES_BUCKET.delete(buildKeptKey(bu.id, job)); } catch { /* tidied next time */ }
             continue;
           }
-          if (view.state === "stale") continue;
+          // ONLY A BUILD THAT WAS ACCEPTED (round 3): one still being accepted,
+          // one abandoned before its message was sent, or one running inline
+          // has no job a browser could follow, and is never handed one.
+          if (!listsBuild(view)) continue;
           const item = { job: view.job, chat: view.chat, words: view.words, at: view.at, state: view.state };
           if (view.answer) {
             let body = null;
@@ -26840,14 +26917,18 @@ async function handleRequest(request, env, ctx) {
       // then and a request body reads once.
       let buildDone;
       let buildReq = request;
+      let inlineEnded = null;
       if (env.BUILD_QUEUE && env.SITES_BUCKET) {
         const handed = await enqueueSiteBuild(request, env, { auth });
         if (handed.res) buildDone = Promise.resolve(handed.res);
-        else if (handed.replay) buildReq = handed.replay;
+        else if (handed.replay) { buildReq = handed.replay; inlineEnded = handed.after || null; }
       }
       // ONE DEFINITION OF THE BUILD, called by this and by the queue consumer,
       // so the two paths cannot drift.
       if (!buildDone) buildDone = runSiteBuild(buildReq, env, { rec, tr, budget, auth });
+      // AN INLINE FALLBACK GIVES ITS CHAT BACK WHEN IT ENDS (round 3), however
+      // it ends; the build's own answer is unchanged.
+      if (inlineEnded) { const ended = inlineEnded; buildDone = buildDone.finally(() => ended()); }
       // GUARDED, because `ctx` is a runtime argument rather than a language
       // guarantee: there is one caller today and it always passes one, and a
       // second added later without it would otherwise turn every build into a

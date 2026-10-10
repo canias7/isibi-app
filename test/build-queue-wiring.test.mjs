@@ -58,6 +58,9 @@ function fakeBucket(initial = {}, { failPut = false } = {}) {
     async put(k, v) { log.push(["put", k]); if (failPut) throw new Error("R2 is having a moment"); store.set(k, String(v)); },
     async delete(k) { log.push(["delete", k]); store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
+    // AS R2 HAS IT (2026-10-10, round 3): the inline fallback now reads the job
+    // back to prove it gone before running the build beside the queue.
+    async head(k) { log.push(["head", k]); return store.has(k) ? { key: k, size: 1 } : null; },
   };
 }
 

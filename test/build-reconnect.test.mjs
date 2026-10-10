@@ -32,7 +32,7 @@ import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mj
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { blockNetwork, blockedFetch, unexpected } from "./fixtures/no-network.mjs";
 import { resultKey, jobKey, packResult } from "../builder/build-job.mjs";
-import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, packBuildChat, claimVerdict, BUILD_LIVE_MS } from "../builder/build-live.mjs";
+import { buildLiveKey, buildKeptKey, buildChatKey, buildLiveState, readBuildLive, doneOutcome, markerJobOf, packBuildLive, packBuildChat, claimVerdict, holdsChat, listsBuild, BUILD_ACCEPT_MS, BUILD_LIVE_MS } from "../builder/build-live.mjs";
 import { BUILD_JOB_MS } from "../builder/build-job.mjs";
 import { resumeKey } from "../builder/build-resume.mjs";
 import { openRecord, appendMark, claimWriter, commitLine, confirmLines, progressKey, packRecord, buildStepFacts } from "../builder/site-progress.mjs";
@@ -316,14 +316,19 @@ test("RC 10 — A MARKER THAT IS NOT THIS ACCOUNT'S, filed under its prefix (a m
 
 /** A first build's POST, started and left running (it waits on its answer slot as the browser's socket does). */
 function postBuild(b, q, { token = "t", chat = CHAT } = {}) {
-  return (async () => {
+  const ctx = makeCtx();
+  const p = (async () => {
     const worker = await loadWorker();
     const res = await worker.fetch(new Request("https://gofarther.dev/api/site/react-build", {
       method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer " + token },
       body: JSON.stringify({ brief: BRIEF, images: [], picker: "sonnet", qa: [], chat }),
-    }), ENV(b, q), makeCtx());
+    }), ENV(b, q), ctx);
     return { status: res.status, body: await res.json().catch(() => null) };
   })();
+  // ITS BACKGROUND WORK (what the request handed to `waitUntil`), for a case
+  // that must let it finish under this file's stand-ins.
+  p.settled = async () => { let n = -1; while (n !== ctx.pending.length) { n = ctx.pending.length; await Promise.allSettled(ctx.pending); } };
+  return p;
 }
 /**
  * PAUSES THE FIRST WRITE TO A KEY THAT `match` ACCEPTS, before it lands or
@@ -331,13 +336,13 @@ function postBuild(b, q, { token = "t", chat = CHAT } = {}) {
  * it go on. Every other write passes straight through.
  */
 function gateWrite(b, match, when) {
-  // `match(key, opts)`: the write's key and its options (its `onlyIf`).
+  // `match(key, opts, value)`: the write's key, its options (its `onlyIf`) and what it writes.
   let release; const gate = new Promise((r) => { release = r; });
   let hit; const reached = new Promise((r) => { hit = r; });
   const put = b.put.bind(b);
   let armed = true;
   b.put = async (k, v, o) => {
-    if (!armed || !match(k, o)) return put(k, v, o);
+    if (!armed || !match(k, o, v)) return put(k, v, o);
     armed = false;
     if (when === "before") { hit(); await gate; return put(k, v, o); }
     const r = await put(k, v, o); hit(); await gate; return r;
@@ -505,8 +510,151 @@ test("RC 16 — TWO TAKERS OF ONE ENDED CLAIM: both judge it free; B's takeover 
   } finally { globalThis.fetch = blockedFetch; }
 });
 
+// ── ROUND 3: STORAGE FAILURES, UNACCEPTED JOBS AND THE INLINE FALLBACK ─────
+
+const edits = (rpc, fn) => rpc.filter((r) => r.fn === fn);
+
+test("RC 17 — A STORAGE FAILURE NEVER RUNS THE BUILD TWICE: the queue send fails after its message may have landed, and the job cannot be proven gone (its delete fails) — the build is NOT run inline; the queued job is kept, its row stays open, it is accepted and listed, and the consumer runs it once", async () => {
+  const b = buildBucket();
+  const del = b.delete.bind(b);
+  b.delete = async (k) => { if (/^jobs\/[0-9a-f]{32}\.json$/.test(k)) throw new Error("R2 delete failed"); return del(k); };
+  // THE AMBIGUOUS SEND: the message lands, and the producer is told it failed.
+  const q = { sent: [], async send(m) { this.sent.push(m); throw new Error("queue: network reset after write"); }, async sendBatch() { throw new Error("no batch"); } };
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const a = postBuild(b, q);
+    await until(() => q.sent.length > 0, 20000);
+    assert.equal(q.sent.length, 1, "the build was never sent to the queue: " + JSON.stringify(rpc.map((r) => r.fn)) + " " + JSON.stringify([...b.store.keys()]));
+    for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+    const job = q.sent[0].id;
+    assert.ok(b.store.has(jobKey(job)), "the queued job was dropped");
+    assert.equal(edits(rpc, "edit_refund").length, 0, "the row was closed as if the build ran inline");
+    const m = readBuildLive(JSON.parse(b.store.get(buildLiveKey(BUILD_USER.id, job))));
+    assert.deepEqual({ accepted: m.accepted, inline: m.inline }, { accepted: true, inline: false }, "the kept build was not marked accepted");
+    const listed = await call(b, queue(), stand({ rows: { [job]: { state: "queued" } } }), "GET", "/api/site/builds");
+    assert.deepEqual(listed.body.builds.map((x) => [x.job, x.state]), [[job, "running"]]);
+    // THE CONSUMER RUNS IT (once), and the waiting POST collects that build's answer.
+    await fireInterim(b, job, ledger(), { design: GOOD_DESIGN });
+    const ans = await a;
+    assert.equal(ans.status, 202, JSON.stringify(ans.body).slice(0, 300));
+    assert.equal(ans.body.job, job, "the POST answered with something other than the one queued build");
+    assert.equal(edits(rpc, "edit_create").length, 1);
+  } finally { globalThis.fetch = blockedFetch; }
+  // AND ON THE STORE SIDE: the job's write lands but the producer is told it
+  // failed, and the delete that would prove it gone fails too. The queued
+  // path is kept (the message is sent), never an inline build beside it.
+  const b2 = buildBucket();
+  const put2 = b2.put.bind(b2);
+  b2.put = async (k, v, o) => { const r = await put2(k, v, o); if (/^jobs\/[0-9a-f]{32}\.json$/.test(k)) throw new Error("R2: reset after write"); return r; };
+  const del2 = b2.delete.bind(b2);
+  b2.delete = async (k) => { if (/^jobs\/[0-9a-f]{32}\.json$/.test(k)) throw new Error("R2 delete failed"); return del2(k); };
+  const q2 = queue();
+  const rpc2 = [];
+  globalThis.fetch = stand({ rpc: rpc2 });
+  try {
+    const a2 = postBuild(b2, q2);
+    await until(() => q2.sent.length > 0, 20000);
+    assert.equal(q2.sent.length, 1, "a job that may be stored was run inline instead of queued");
+    for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(edits(rpc2, "edit_refund").length, 0, "the row was closed as if the build ran inline");
+    assert.equal(readBuildLive(JSON.parse(b2.store.get(buildLiveKey(BUILD_USER.id, q2.sent[0].id)))).accepted, true);
+    await settlePost(b2, { job: q2.sent[0].id, answer: a2 });
+  } finally { globalThis.fetch = blockedFetch; }
+  // AND WHEN THE READ-BACK ITSELF FAILS: a send that failed, then a check of
+  // the job that cannot answer, is not proof the job is gone — no inline build.
+  const b3 = buildBucket();
+  const head3 = b3.head.bind(b3);
+  b3.head = async (k) => { if (/^jobs\/[0-9a-f]{32}\.json$/.test(k)) throw new Error("R2 read failed"); return head3(k); };
+  const q3 = { sent: [], async send(m) { this.sent.push(m); throw new Error("queue: reset"); }, async sendBatch() { throw new Error("no batch"); } };
+  const rpc3 = [];
+  globalThis.fetch = stand({ rpc: rpc3 });
+  try {
+    const a3 = postBuild(b3, q3);
+    await until(() => q3.sent.length > 0, 20000);
+    for (let i = 0; i < 200; i++) await new Promise((r) => setImmediate(r));
+    const job3 = q3.sent[0].id;
+    assert.equal(edits(rpc3, "edit_refund").length, 0, "an unreadable job was taken as gone and the build run inline");
+    assert.equal(readBuildLive(JSON.parse(b3.store.get(buildLiveKey(BUILD_USER.id, job3)))).accepted, true);
+    await settlePost(b3, { job: job3, answer: a3 });
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
+test("RC 18 — THE INLINE FALLBACK OWNS ITS CHAT: the queue send fails and the job is provably gone, so the build runs inline — while it runs, a second POST for the chat is told it is already being built (409, nothing filed, queued or charged) and the listing shows nothing; when it ends the claim is released and the next build is free", async () => {
+  const b = buildBucket();
+  const q = queue(true);
+  const rpc = [];
+  globalThis.fetch = stand({ rpc });
+  try {
+    const g = gateWrite(b, (k, o, v) => markerJobOf(k, BUILD_USER.id) !== "" && typeof v === "string" && v.includes('"inline":true'), "after");
+    const a = postBuild(b, q);
+    await g.reached;
+    const job = markersOf(b)[0];
+    assert.ok(job, "no inline marker");
+    assert.equal(edits(rpc, "edit_refund").length, 1, "the gone job's row was not closed");
+    const second = await call(b, queue(), stand({ rpc }), "POST", "/api/site/react-build", { body: { brief: BRIEF, images: [], picker: "sonnet", qa: [], chat: CHAT } });
+    assert.equal(second.status, 409, JSON.stringify(second.body));
+    assert.equal(second.body.error, "build-running-inline");
+    assert.equal(edits(rpc, "edit_create").length, 1, "the second POST filed a row");
+    const listed = await call(b, queue(), stand(), "GET", "/api/site/builds");
+    assert.deepEqual(listed.body, { builds: [] }, "a build running inline was listed as a job to follow");
+    // `call` puts the blocked network back when it ends; A's inline build runs under the stand-ins.
+    globalThis.fetch = stand({ rpc });
+    g.release();
+    // THE INLINE BUILD RUNS TO ITS END under this file's own stand-ins (the
+    // network stays stubbed until it has answered).
+    await a;
+    await a.settled();
+    await until(() => markersOf(b).length === 0);
+    assert.deepEqual(markersOf(b), [], "the inline build's marker outlived it");
+    assert.equal(JSON.parse(b.store.get(chatKey())).ended, true, "the inline build did not give its chat back");
+    const q3 = queue();
+    const next = await startBuild(b, q3, stand());
+    assert.ok(next.job && q3.sent.length === 1, "the chat was not free after the inline build ended");
+    await settlePost(b, next);
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
+test("RC 19 — DISCOVERY NEVER HANDS OUT AN UNACCEPTED JOB: while a build is being accepted (marker written, message not yet sent) the listing shows nothing and a second POST follows nothing new; it is listed only once its message is sent; and an attempt abandoned before acceptance is never listed and frees its chat", async () => {
+  const b = buildBucket();
+  let release; const gate = new Promise((r) => { release = r; });
+  let reached; const at = new Promise((r) => { reached = r; });
+  const q = { sent: [], async send(m) { reached(); await gate; this.sent.push(m); }, async sendBatch() { throw new Error("no batch"); } };
+  globalThis.fetch = stand();
+  let job;
+  try {
+    const a = postBuild(b, q);
+    await at;
+    job = markersOf(b)[0];
+    const during = await call(b, queue(), stand({ rows: { [job]: { state: "queued" } } }), "GET", "/api/site/builds");
+    assert.deepEqual(during.body, { builds: [] }, "a build not yet accepted was listed");
+    release();
+    await until(() => q.sent.length > 0);
+    for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+    const after = await call(b, queue(), stand({ rows: { [job]: { state: "queued" } } }), "GET", "/api/site/builds");
+    assert.deepEqual(after.body.builds.map((x) => x.job), [job], "an accepted build was not listed");
+    await settlePost(b, { job, answer: a });
+  } finally { globalThis.fetch = blockedFetch; }
+  // ABANDONED BEFORE ACCEPTANCE: a marker never accepted, no row, older than an acceptance takes.
+  const ghost = "0123456789abcdef0123456789abcdef";
+  const b2 = buildBucket({
+    [buildLiveKey(BUILD_USER.id, ghost)]: JSON.stringify(packBuildLive({ job: ghost, uid: BUILD_USER.id, chat: CHAT, words: BRIEF, at: Date.now() - BUILD_ACCEPT_MS - 60000 })),
+    [chatKey()]: JSON.stringify(packBuildChat({ job: ghost, at: Date.now() - BUILD_ACCEPT_MS - 60000 })),
+  });
+  const listed = await call(b2, queue(), stand(), "GET", "/api/site/builds");
+  assert.deepEqual(listed.body, { builds: [] }, "an abandoned attempt was listed");
+  const q2 = queue();
+  globalThis.fetch = stand();
+  try {
+    const p = postBuild(b2, q2);
+    await until(() => q2.sent.length > 0);
+    assert.equal(q2.sent.length, 1, "an abandoned attempt still held its chat");
+    await settlePost(b2, { job: q2.sent[0].id, answer: p });
+  } finally { globalThis.fetch = blockedFetch; }
+});
+
 test("RC 8 — buildLiveState from its records: kept answer first (done by the browser's own success gate, else failed), then the row's verdict, a done row with no kept answer as unknown, a row with none as running, and with no row at all running only while younger than a build can run", () => {
-  const marker = { job: "0123456789abcdef0123456789abcdef", uid: BUILD_USER.id, chat: CHAT, words: "w", at: 1000 };
+  const marker = { job: "0123456789abcdef0123456789abcdef", uid: BUILD_USER.id, chat: CHAT, words: "w", at: 1000, accepted: true };
   const ok = { status: 200, body: JSON.stringify({ ok: true, slug: "fold-lane" }), type: "application/json" };
   assert.equal(doneOutcome(ok), "done");
   assert.equal(doneOutcome({ status: 200, body: JSON.stringify({ ok: true }) }), "failed", "an answer with no site is not a finished build");
@@ -517,6 +665,22 @@ test("RC 8 — buildLiveState from its records: kept answer first (done by the b
   assert.equal(buildLiveState({ marker, row: { verdict: null, state: "running" }, now: 2000 }).state, "running");
   assert.equal(buildLiveState({ marker, row: null, now: 2000 }).state, "running");
   assert.equal(buildLiveState({ marker, row: null, now: 1000 + 3 * 3600 * 1000 }).state, "stale");
+  // NOT YET ACCEPTED (round 3): being accepted while its row has no verdict or
+  // while young with no row; abandoned once its row has a verdict or it is
+  // older than an acceptance takes. Never listed either way.
+  const pending = { ...marker, accepted: false };
+  assert.equal(buildLiveState({ marker: pending, row: { verdict: null, state: "queued" }, now: 1000 + BUILD_JOB_MS }).state, "accepting", "a row with no verdict lost its hold to age");
+  assert.equal(buildLiveState({ marker: pending, row: { verdict: { status: 410, body: { failed: true } } }, now: 2000 }).state, "abandoned");
+  assert.equal(buildLiveState({ marker: pending, row: null, now: 2000 }).state, "accepting");
+  assert.equal(buildLiveState({ marker: pending, row: null, now: 1000 + BUILD_ACCEPT_MS + 1 }).state, "abandoned");
+  // RUNNING INLINE: its own state whatever its (closed) row says, until older than a build runs.
+  const inl = { ...marker, accepted: false, inline: true };
+  assert.equal(buildLiveState({ marker: inl, row: { verdict: { status: 410, body: { failed: true } } }, now: 2000 }).state, "inline", "a closed row freed a chat whose build runs inline");
+  assert.equal(buildLiveState({ marker: inl, row: null, now: 1000 + BUILD_JOB_MS + 1 }).state, "stale");
+  for (const st of ["running", "accepting", "inline"]) assert.equal(holdsChat({ state: st }), true, st);
+  for (const st of ["done", "failed", "unknown", "abandoned", "stale"]) assert.equal(holdsChat({ state: st }), false, st);
+  for (const st of ["running", "done", "failed", "unknown"]) assert.equal(listsBuild({ state: st }), true, st);
+  for (const st of ["accepting", "abandoned", "inline", "stale"]) assert.equal(listsBuild({ state: st }), false, st);
 });
 
 test("RC 9 — A RUNNING BUILD'S LIVE LINES COME BACK WITH IT: the listing carries the model's own committed lines from the build's progress record (as the poll does), and none from a record that is another account's", async () => {

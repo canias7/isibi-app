@@ -77,16 +77,32 @@ export function markerJobOf(key, uid) {
 const str = (v) => (typeof v === "string" ? v : "");
 const num = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
 
-/** The marker as written: the job, the account, the chat, the customer's own words, and when. */
-export function packBuildLive({ job, uid, chat, words = "", at }) {
-  return { v: BUILD_LIVE_VERSION, job, uid, chat: isLiveChat(chat) ? chat : "", words: str(words), at };
+/**
+ * How long an acceptance may take before a marker that never reached
+ * "accepted", with no row behind it, is taken as abandoned (2026-10-10,
+ * round 3). Acceptance is a row, an R2 object and a queue message — seconds.
+ */
+export const BUILD_ACCEPT_MS = 5 * 60 * 1000;
+
+/**
+ * The marker as written: the job, the account, the chat, the customer's own
+ * words, and when — and how far the build got (round 3):
+ *   accepted  its queue message was sent (or its job may be run by the queue):
+ *             only then is it listed, so discovery never hands a browser a job
+ *             that was not accepted;
+ *   inline    the queue path could not take it and it runs inside its own
+ *             request: never listed (there is no job to follow), but it still
+ *             owns its chat until it ends.
+ */
+export function packBuildLive({ job, uid, chat, words = "", at, accepted = false, inline = false }) {
+  return { v: BUILD_LIVE_VERSION, job, uid, chat: isLiveChat(chat) ? chat : "", words: str(words), at, ...(accepted ? { accepted: true } : {}), ...(inline ? { inline: true } : {}) };
 }
 /** A stored marker, read strictly: null for anything that is not one. */
 export function readBuildLive(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION) return null;
   if (!isJobId(raw.job) || !isLiveUid(raw.uid) || num(raw.at) === null) return null;
   if (typeof raw.chat !== "string" || (raw.chat && !isLiveChat(raw.chat)) || typeof raw.words !== "string") return null;
-  return { job: raw.job, uid: raw.uid, chat: raw.chat, words: raw.words, at: raw.at };
+  return { job: raw.job, uid: raw.uid, chat: raw.chat, words: raw.words, at: raw.at, accepted: raw.accepted === true, inline: raw.inline === true };
 }
 
 /** The kept final answer: its status, its body as the poll would serve it, its type, and when. */
@@ -149,27 +165,46 @@ export function doneOutcome(done) {
 /**
  * WHAT A FOUND BUILD IS, FROM ITS OWN RECORDS:
  *   done / failed  the kept final answer, handed back whole (`answer`);
- *   failed         the row's own verdict (failed, lost, cancelled), handed
- *                  back as the poll would answer it;
- *   unknown        a row that says done while no answer was kept (said as
- *                  that, never as running or as a success);
- *   running        a row with no verdict, or — with no row at all — a marker
- *                  younger than a build can run; its progress lines ride with it;
- *   stale          no row, no answer, and older than any build runs.
+ *   inline         running inside its own request (the queue could not take
+ *                  it): owns its chat while younger than a build can run, then
+ *                  stale — whatever its row says, since that row was closed
+ *                  when the build went inline;
+ *   accepting      not yet accepted: a row with no verdict behind it (the
+ *                  acceptance is under way, or its message was sent and only
+ *                  the "accepted" write was lost — the stale sweep settles the
+ *                  row either way), or no row and younger than an acceptance
+ *                  takes;
+ *   abandoned      not accepted, and its row has a verdict or it has no row
+ *                  and is older than an acceptance takes;
+ *   failed         an accepted build whose row has its own verdict (failed,
+ *                  lost, cancelled), handed back as the poll would answer it;
+ *   unknown        an accepted build whose row says done while no answer was
+ *                  kept (said as that, never as running or as a success);
+ *   running        an accepted build whose row has no verdict, or — with no row
+ *                  at all — younger than a build can run; its lines ride with it;
+ *   stale          accepted, no row, no answer, and older than any build runs.
  * `row` is `buildRowStatus`'s answer: null when there is no row.
  */
 export function buildLiveState({ marker, done = null, row = null, now }) {
   if (!marker) return null;
   const base = { job: marker.job, chat: marker.chat, words: marker.words, at: marker.at };
+  const age = num(now) !== null ? now - marker.at : 0;
   if (done) return { ...base, state: doneOutcome(done), answer: { status: done.status, body: done.body, type: done.type } };
+  if (marker.inline) return { ...base, state: age > BUILD_JOB_MS ? "stale" : "inline" };
+  if (!marker.accepted) {
+    if (row) return { ...base, state: row.verdict ? "abandoned" : "accepting" };
+    return { ...base, state: age > BUILD_ACCEPT_MS ? "abandoned" : "accepting" };
+  }
   if (row && row.verdict) {
     const v = row.verdict;
     if (v.body && v.body.collected === true) return { ...base, state: "unknown" };
     return { ...base, state: "failed", answer: { status: v.status, body: JSON.stringify(v.body), type: "application/json" } };
   }
   if (row) return { ...base, state: "running" };
-  return { ...base, state: num(now) !== null && now - marker.at > BUILD_JOB_MS ? "stale" : "running" };
+  return { ...base, state: age > BUILD_JOB_MS ? "stale" : "running" };
 }
 
-/** Whether a found build still holds its chat: only a running one does. */
-export const holdsChat = (view) => !!(view && view.state === "running");
+/** Whether a found build still owns its chat: one running, one being accepted, or one running inline. */
+export const holdsChat = (view) => !!(view && (view.state === "running" || view.state === "accepting" || view.state === "inline"));
+/** Whether the listing shows a found build: only one that was accepted and ended or runs as a job a browser can follow. */
+export const listsBuild = (view) => !!(view && ["running", "done", "failed", "unknown"].includes(view.state));
