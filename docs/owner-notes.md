@@ -51,7 +51,13 @@ is in git; the dated entries further down are the full story.*
     the read-back alone now decides.
   - RC 17 gained a failed-read-back case.
 - **Full suite on `ae62f760`'s code**: `10372 / 10372 / 0 / 0` locally.
-- **CI**: read after the push; see the next records commit.
+- **CI on `bfab3f05`** (the code commit `ae62f760` plus records):
+  - **site build** 38070870490 green;
+  - **unit tests** 38070870491 **cancelled at the job's 5-minute limit**,
+    again after a clean suite: `10372 / 10331 / 0 / 41 skipped` in 298.5 s.
+  - It is the second such stop, so the limit in `.github/workflows/unit.yml`
+    is now a recurring risk for any push (your decision; left unchanged).
+  - The run on the next records push: CI_R3B.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
   production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs, 174
   paths). This replaces round 2's `dd8d2e17a6559834`. Nothing is built.
