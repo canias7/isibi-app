@@ -1517,6 +1517,13 @@ the only run that push started: `completed` / `success`, 00:14:35–00:17:36.
 - **Wrangler**: 26 secrets, no asset uploaded, Current Version ID
   `309e59b…`.
 - **The image window**: to about 00:37 UTC.
+- **Runtime-confirmed by the owner's free press, run 118** (run
+  38010032315, 00:40 UTC, from `main`):
+  - both readers answered `f96cbfd56d65`;
+  - a cold container answered `8d6dbcea93252fbb`;
+  - async and the runner were on;
+  - `ALL FREE CHECKS PASSED`;
+  - balance 1002, and nothing charged.
 
 **Deploy 2190 (2026-10-09) was predicted on both ends and built as
 predicted**, on the owner's word (*"merge and deploy"*). It fast-forwarded
