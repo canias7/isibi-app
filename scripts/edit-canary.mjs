@@ -64,7 +64,7 @@ import { chainOrdered, chainTarget, requestJobsOf } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
 import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
-import { requestBatchVerdict } from "./canary-requests.mjs";
+import { requestBatchVerdict, uploadsOf, newPagePhotoPaths } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -946,6 +946,11 @@ if (UI_ASK) {
   // Stop, both through this run's session and never a page.
   const REQ = UI_ASK.scenario.request === true;
   const tablesBefore = REQ ? tablesOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`)) : null;
+  // A NEW PAGE ASKED TO SHOW A PHOTOGRAPH (2026-10-10): the site's uploads
+  // are read before the message, so a second purchase, or a picture placed
+  // from the site's earlier ones instead of the one bought, shows after it.
+  const PHOTO_PAGES = REQ && UI_ASK.scenario.expect && Array.isArray(UI_ASK.scenario.expect.pages) && UI_ASK.scenario.expect.pages.some((p) => p && p.photo);
+  const uploadsBefore = PHOTO_PAGES ? uploadsOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/uploads`)) : null;
   const requestsIo = {
     list: () => call("GET", `/api/site/requests/${encodeURIComponent(CANARY)}`),
     stop: (key) => call("DELETE", `/api/site/request/${encodeURIComponent(CANARY)}/${encodeURIComponent(key)}`),
@@ -1302,14 +1307,29 @@ if (UI_ASK) {
         } else logo = { url: "", status: 0, why: "the home page's header draws no uploaded logo" };
       }
       const tablesAfter = tablesOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`));
+      // THE NEW PAGE'S PHOTOGRAPH, READ (2026-10-10): the uploads again, and the
+      // bytes served at each photograph the new pages show.
+      let photos = null;
+      if (PHOTO_PAGES) {
+        const bytes = {};
+        for (const path of newPagePhotoPaths({ before: BEFORE, after, served, slug: CANARY })) {
+          try {
+            const x = await fetch(`${BEFORE.origin}${path}`, { headers: { "cache-control": "no-cache" } });
+            const buf = Buffer.from(await x.arrayBuffer());
+            bytes[path] = { status: x.status, type: String(x.headers.get("content-type") || ""), bytes: buf.length, sha256: createHash("sha256").update(buf).digest("hex") };
+          } catch (e) { bytes[path] = { status: 0, why: String((e && e.message) || e).slice(0, 120) }; }
+        }
+        photos = { uploads: { before: uploadsBefore, after: uploadsOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/uploads`)) }, bytes };
+      }
       requests = requestBatchVerdict({
         spec: UI_ASK.scenario, steps: ui.steps,
         before: { ...BEFORE, complete: BEFORE.readsComplete === true },
         after: after ? { ...after, complete: after.readsComplete === true } : null,
         served, beforeServed, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
-        frameLoads: ui.frameLoads || [],
+        frameLoads: ui.frameLoads || [], photos,
       });
       requests.logo = logo;
+      requests.photos = photos;
       requests.tables = { before: tablesBefore, after: tablesAfter };
       console.log("");
       for (const c of requests.checks) check(c.name, c.ok, c.why);

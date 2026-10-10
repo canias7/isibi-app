@@ -508,6 +508,99 @@ export function newPagesFound({ want, before, after, served }) {
   return { found, fresh, extra: fresh.filter((r) => !used.has(r)) };
 }
 
+/** The owner's upload list (`GET /api/site/<slug>/uploads`) as `{ ok, files: [{ name, kind }] }`, or why it could not be read. */
+export function uploadsOf(res) {
+  if (!res || res.status !== 200) return { ok: false, why: `status ${(res && res.status) || 0}` };
+  const list = res.json && Array.isArray(res.json.files) ? res.json.files : null;
+  if (!list) return { ok: false, why: "no files list in the answer" };
+  return { ok: true, files: list.filter((f) => f && typeof f.name === "string").map((f) => ({ name: f.name, kind: f.kind === "image" ? "image" : "doc" })) };
+}
+
+/**
+ * THE PHOTOGRAPHS TO READ THE BYTES OF after a press that asks a new page for
+ * one: every site photograph a stored page file the press added shows, and
+ * every one a route the press added draws. Paths from `/u/`, sorted.
+ */
+export function newPagePhotoPaths({ before, after, served, slug }) {
+  const had = new Set((before && before.source && Array.isArray(before.source.pages) ? before.source.pages : []).map((p) => p && p.path));
+  const was = new Set(Object.keys((before && before.render) || {}));
+  const out = new Set();
+  for (const p of (after && after.source && Array.isArray(after.source.pages) ? after.source.pages : [])) {
+    if (!p || had.has(p.path)) continue;
+    for (const u of photosOf(p.source, slug).keys()) { const x = photoPath(u, slug); if (x) out.add(x); }
+  }
+  for (const r of Object.keys((after && after.render) || {})) if (!was.has(r)) for (const d of servedPhotos(served && served[r], slug)) out.add(d.path);
+  return [...out].sort();
+}
+
+/** A `/u/<slug>/…` address as its path from `/u/`, whatever origin it was written with; "" when it is not one. */
+export function photoPath(src, slug) {
+  const s = typeof src === "string" ? src : "";
+  const mark = `/u/${String(slug || "").toLowerCase()}/`;
+  const at = s.toLowerCase().indexOf(mark);
+  return at < 0 ? "" : s.slice(at).split(/[?#]/)[0];
+}
+
+/**
+ * THE SITE'S OWN PHOTOGRAPHS A SERVED PAGE DRAWS, each with the words that
+ * describe it (`alt`, decoded; "" when it has none). Only `<img>` tags are
+ * read, so the link preview's image (a `<meta>`) is never counted.
+ */
+export function servedPhotos(html, slug) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<img\b[^>]*>/g)) {
+    const src = /\bsrc="([^"]*)"/.exec(m[0]);
+    const path = src ? photoPath(src[1], slug) : "";
+    if (!path) continue;
+    const alt = /\balt="([^"]*)"/.exec(m[0]);
+    out.push({ path, alt: alt ? alt[1].replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").trim() : "" });
+  }
+  return out;
+}
+
+/**
+ * A NEW PAGE'S PHOTOGRAPH, BOUGHT AND PLACED (2026-10-10, the Add-on with a
+ * photograph): the new page's stored file shows exactly the photographs asked
+ * for (`want.photo.count`, 1 by default), each the site's own; the served page
+ * draws each with words describing it; each address serves an image; and the
+ * site's uploads gained exactly that many new images, which are the ones
+ * placed — a photograph bought twice, or one placed from the site's earlier
+ * pictures instead of the one bought, shows here. `photos` is the press's own
+ * readings: `uploads.before`/`uploads.after` (the owner's upload list, each
+ * `{ ok, files }`) and `bytes` (each placed address's `{ status, type, bytes }`).
+ */
+export function photoChecks({ found, after, served, photos, slug }) {
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  const f = found || {};
+  const n = Number.isInteger(f.want && f.want.photo && f.want.photo.count) ? f.want.photo.count : 1;
+  const route = f.route || "the new page";
+  const file = f.path && after && typeof after.get === "function" ? after.get(f.path) : undefined;
+  const stored = typeof file === "string" ? [...photosOf(file, slug).keys()].map((u) => photoPath(u, slug)).filter(Boolean).sort() : [];
+  add(`${route}'s stored page shows exactly ${n} of the site's own photograph${n === 1 ? "" : "s"}`, typeof file === "string" && stored.length === n,
+    typeof file === "string" ? `it shows ${JSON.stringify(stored)}` : "the new page's stored file was not read");
+  const drawn = f.route ? servedPhotos(served && served[f.route], slug) : [];
+  const unsaid = stored.filter((p) => !drawn.some((d) => d.path === p && d.alt.length >= 3));
+  add(`the served ${route} draws ${n === 1 ? "it" : "each"} with words describing ${n === 1 ? "it" : "them"}`, stored.length === n && !unsaid.length,
+    `drawn: ${JSON.stringify(drawn)}${unsaid.length ? `; not drawn with words: ${JSON.stringify(unsaid)}` : ""}`);
+  const bytes = (photos && photos.bytes) || {};
+  const dead = stored.filter((p) => { const b = bytes[p]; return !(b && b.status === 200 && /^image\//.test(String(b.type || "")) && Number(b.bytes) > 1000); });
+  add(`${n === 1 ? "its address serves" : "each address serves"} an image`, stored.length === n && !dead.length,
+    dead.map((p) => `${p}: ${JSON.stringify(bytes[p] || "not read")}`).join("; ") || "nothing was placed");
+  const ub = photos && photos.uploads && photos.uploads.before, ua = photos && photos.uploads && photos.uploads.after;
+  if (!(ub && ub.ok === true && Array.isArray(ub.files) && ua && ua.ok === true && Array.isArray(ua.files))) {
+    add("the site's uploads were read before and after", false, `${ub && ub.ok ? "" : "before not read; "}${ua && ua.ok ? "" : "after not read"}`);
+  } else {
+    const had = new Set(ub.files.map((x) => x && x.name));
+    const fresh = ua.files.filter((x) => x && x.kind === "image" && !had.has(x.name)).map((x) => x.name).sort();
+    const names = stored.map((p) => p.split("/").pop());
+    add(`the site's uploads gained exactly ${n} new image${n === 1 ? "" : "s"}, the one${n === 1 ? "" : "s"} placed (bought once, none stored twice, none taken from earlier pictures)`,
+      fresh.length === n && names.length === n && names.every((x) => fresh.includes(x)),
+      `new images ${JSON.stringify(fresh)}, placed ${JSON.stringify(names)}`);
+  }
+  return out;
+}
+
 /**
  * THE SITE AGAINST THIS PRESS'S OWN BEFORE-READ: each named change there,
  * exactly, and everything not named as it was — every stored page byte for
@@ -517,7 +610,7 @@ export function newPagesFound({ want, before, after, served }) {
  * owner's table listing the same tables with the same rules, columns and row
  * counts. `found` is `newPagesFound`'s answer.
  */
-export function outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug }) {
+export function outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug, photos }) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
   const want = (spec && spec.expect) || {};
@@ -532,6 +625,9 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     add(`a new page about ${listOf(f.want.about).join(" and ")} was added, stored and served 200${f.route ? ` (${f.route})` : ""}`, !f.why && !!f.route, f.why);
   }
   add("no other page was added", !pf.extra.length, `also new: ${pf.extra.join(", ")}`);
+  // THE PHOTOGRAPH A NEW PAGE WAS ASKED TO SHOW (2026-10-10): bought for it,
+  // and placed (`photoChecks`).
+  for (const f of pf.found) if (f.want && f.want.photo) for (const c of photoChecks({ found: f, after: a, served, photos, slug })) out.push(c);
   // EACH HEADING: the served page reads the new words and not the old; the
   // before-read read the old.
   for (const h of Array.isArray(want.headings) ? want.headings : []) {
@@ -1022,7 +1118,7 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  * sent, so a stopped press records why it did not pass. A press that asks for
  * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
-export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, logo, row, tables, slug, frameLoads }) {
+export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, logo, row, tables, slug, frameLoads, photos }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
   want.forEach((_, i) => {
@@ -1032,7 +1128,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
     const j = jobOrderVerdict(s);
     checks.push({ name: `message ${i + 1}: no part started before a part it needs had finished${j.vacuous ? " (no part waited for another)" : ""}`, ok: j.ok, why: j.ok ? "" : j.why });
   });
-  const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug });
+  const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug, photos });
   checks.push(...o.checks);
   if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
   // SUBSTANTIVE PREPARATION BESIDE ANOTHER PART'S EXECUTION (2026-10-09), for a press that asks: the first message's request, by recorded intervals.

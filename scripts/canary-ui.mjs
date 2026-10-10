@@ -921,6 +921,46 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // THE ADD-ON WITH A PHOTOGRAPH (2026-10-10, prepared, not pressed). One
+  // message, fresh on the bakery: a Meet the Bakers page (the add-on) with a
+  // link in the menu and one photograph the site has never had, so the
+  // add-on must buy it rather than place one of the site's own. Judged like
+  // every request press on what landed — the new page, its menu link,
+  // everything else byte for byte — and beside that on the photograph
+  // (`photoChecks`): exactly one on the new page's stored file, drawn on the
+  // served page with words describing it, its address serving an image, and
+  // the site's uploads gaining exactly that one image (bought once, none
+  // stored twice, none taken from the earlier pictures). Its tab is closed
+  // once a progress line shows live and it is followed to its end in a fresh
+  // browser session (`away: "fresh"`). ABOUT 33-41: the routing call 1-3;
+  // the add-on with a page and its menu link 12-18 (runs 99, 101 and 103);
+  // the requirement judgment about 1; the photograph 19 (fal's 0.15 dollars
+  // at 0.008 a credit). The page and the photograph stay (the demo-site rule).
+  "lv-addon-photo": Object.freeze({
+    site: "fold-lane-bakery", request: true,
+    // THE HARD CAP, 1018, as for lv-parallel: the account read 990 after run
+    // 119, and the press still stops at its budget of 45.
+    budget: 45, fundsFirst: true, cap: 1018, addon: true,
+    layers: Object.freeze(["text", "look", "nav", "page"]),
+    expect: Object.freeze({
+      // FOUND BY WHAT IT SAYS: read live (free GETs, 2026-10-10), the bakery
+      // has no page about its bakers; its pages are /, /allergens,
+      // /bake-list, /classes, /faq, /gallery, /order, /starter,
+      // /tasting-evenings, /visit and /wholesale.
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["baker"]), photo: Object.freeze({ count: 1 }) })]),
+      // NO WORDS FOR THE LINK: the message names none (`labelFits`).
+      menu: Object.freeze({ page: 0 }),
+      progress: true,
+    }),
+    covers: Object.freeze([]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a Meet the Bakers page with a link in the menu, introducing the three of us who bake through the night, with a photograph of us shaping loaves at the bench.",
+        away: "fresh",
+        ms: 25 * 60_000,
+      }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.

@@ -69,10 +69,15 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'build | edit'
+        description: 'build | edit | check (the first-build check on copperleaf-tea-room: one fresh build followed from a fresh sign-in and judged on its page, components, recorded overlap, order, progress lines, photographs and charges; sends nothing unless spend is yes and the balance is between 70 and 1018)'
         type: choice
-        options: [edit, build]
+        options: [edit, build, check]
         default: edit
+      spend:
+        description: 'check only: yes sends the build (it is charged); no runs the free preflight and stops.'
+        type: choice
+        options: ['no', 'yes']
+        default: 'no'
       slug:
         description: 'The site to act on (required for edit; the claimed name for a build).'
         required: false
@@ -506,6 +511,7 @@ jobs:
           # which one moved, and whether the rest of the 216,304-byte stylesheet
           # came back byte for byte (the `keep` half, diffed rather than eyeballed).
           OWNER_MODE: ${{ github.event.inputs.mode || 'edit' }}
+          OWNER_SPEND: ${{ github.event.inputs.spend || 'no' }}
           OWNER_INSTRUCTION: ${{ github.event.inputs.instruction || 'the button up in the header is a bit bright for us — could you make it a deep forest green instead' }}
           OWNER_LAYER: ${{ github.event.inputs.layer || 'look' }}
           # A FRESH SLUG AGAIN. Runs 3 and 4 both died at the wall on THIS
@@ -1144,5 +1150,7 @@ jobs:
         if: always()
         with:
           name: build-as-owner-log
-          path: build-as-owner-log.md
+          path: |
+            build-as-owner-log.md
+            build-check.json
           if-no-files-found: ignore

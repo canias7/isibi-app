@@ -142,6 +142,13 @@ const INSTRUCTION = process.env.OWNER_INSTRUCTION || "";
 // aims at exactly the lane it means to, instead of trusting the classifier.
 const LAYER = String(process.env.OWNER_LAYER || "look").trim().toLowerCase();
 const IS_EDIT = MODE === "edit";
+// THE FIRST-BUILD CHECK (2026-10-10): its own driver and verdicts
+// (build-check.mjs, canary-build.mjs), on this workflow's sign-in secrets and
+// deploy wait. It sends the build only with OWNER_SPEND=yes.
+if (MODE === "check") {
+  const { main } = await import("./build-check.mjs");
+  process.exit(await main());
+}
 
 const LOG_FILE = "build-as-owner-log.md";
 const t0 = Date.now();
