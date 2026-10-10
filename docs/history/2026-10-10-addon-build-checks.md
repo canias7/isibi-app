@@ -82,8 +82,11 @@ its bakers, and no scenario has asked for one.
      three characters);
   3. its address serves an image (200, `image/*`, over 1,000 bytes);
   4. the site's uploads, read before and after, gained exactly one new
-     image, and it is the one placed: bought once, none stored twice, none
-     taken from the site's earlier pictures;
+     image, and it is the one placed: stored once and placed, none taken
+     from the site's earlier pictures. **This is storage and placement, not
+     one provider purchase** (corrected after Codex's review, below);
+- **reported NOT VERIFIED, never passed**: one provider purchase per
+  photograph;
 - **everything else as it was**: every existing stored page byte for byte
   apart from the menu link; no page removed; no other file or component
   added beyond the new page's; the description, the logos and the tables
@@ -115,22 +118,25 @@ and `scripts/build-check.mjs` (its network), reached from
 
 **How it runs**:
 1. sign in;
-2. read the balance;
-3. confirm the slug is not a site;
+2. read the balance and the ledger's last row together, steadily (the
+   balance read between two equal last-row ids);
+3. **verify the slug is free**: the site table and the build records each
+   answer 200 with no row, and the address answers 404;
 4. **stop unless spend is `yes`** (a free rehearsal);
-5. mark the ledger;
-6. POST the build;
-7. **the sending session makes no further call**;
-8. sign in afresh and poll the build every 6 s to its end (at most 25
-   minutes);
-9. read the trace, the source, the served page, each photograph's bytes and
+5. POST the build;
+6. **the sending session makes no further call**;
+7. sign in afresh through the API and poll the build every 6 s to its end
+   (at most 25 minutes);
+8. read the trace, the source, the served page, each photograph's bytes and
    the uploads;
-10. wait 60 s and read the balance and the ledger.
+9. wait 60 s, take the second steady reading, and read the complete ledger
+   window between the two.
 
 **Pass conditions** (19 checks, every one must pass):
-- **closure**: accepted 202 with a job; the sender silent after it; a
-  session signed in afresh as the same account read the build's own final
-  answer (ok, naming the site); the site serves 200;
+- **API continuation** (not a browser-closed test): accepted 202 with a
+  job; the sender silent after it; a session signed in afresh through the
+  API, as the same account, read the build's own final answer (ok, naming
+  the site); the site serves 200;
 - **shape**: the source read whole; **exactly one page**; **at most 15
   components drawn** (every kit module the page imports apart from the
   chrome, plus every component written for the site). This is stricter
@@ -147,10 +153,14 @@ and `scripts/build-check.mjs` (its network), reached from
   checked); no line lost or rewritten between reads;
 - **photographs**: at least one placed; each drawn with words describing it;
   each address serving an image; every image stored is placed, or recorded
-  unused by the trace (`photos-joined.unused`). An image nothing accounts for
-  is a second purchase;
-- **money**: every `build:<job>` ref debited once; the net more than nothing
-  and no more than the balance's move; other activity told, never failing.
+  unused by the trace (`photos-joined.unused`). This is storage and
+  placement; one provider purchase per photograph is reported **NOT
+  VERIFIED**, never passed;
+- **money**: the whole balance move between the two steady readings equals
+  what the complete ledger window records. The build's rows and every other
+  row are attributed apart, every `build:<job>` ref is debited once, and the
+  build's net is more than nothing. An unexplained difference, an unsteady
+  reading or a window not shown whole fails.
 
 **Fail conditions**: any check failing. Most likely:
 - **the overlap check**, if the band split was refused (`bands:<why>` in
@@ -250,12 +260,72 @@ pages' charge. **Budget 70, hard cap 1018.** The site stays.
 
 ## Limits, kept explicit
 
-- **The build's browser closure is tested on the API path.** The browser
-  itself has no way back to a build in flight (gap 4).
+- **The build is followed through the API, not a browser.** The browser
+  itself has no way back to a build in flight (gap 4, an open product gap).
+  The API continuation is not a browser-closed UI test.
 - **The overlap proof depends on what the build records.** It can fail
   honestly on a build whose parallel work left no interval.
-- **"Bought once" is read from the uploads and the trace.** The purchase
-  records in R2 are not readable by a press.
+- **One purchase per photograph is not verified.** The uploads and the trace
+  establish storage and placement only. A purchase that failed to store, or
+  overwrote the same file, leaves no image to count. The durable purchase
+  records are in R2, which no press can read.
 - **The component count is every component drawn**, not the plan's names.
 - **Neither press has run.** Its costs are estimates from measured runs, not
   limits. Only the balance window bounds a press.
+
+## Codex's review of `977a1422`, and the corrections (2026-10-10)
+
+Codex passed all 22 new scenario tests independently and reproduced two
+false passes. Both are fixed; nothing was merged, deployed or built, and no
+paid run was made.
+
+1. **`buildPreflight` let a failed slug lookup through.** It refused only
+   statuses 0 and 200, so 401, 403, 429 and 500 sent the build.
+   - Even its 404 was no proof: the owner's source route answers 404 for
+     another account's site and for an owner lookup that failed.
+   - **Now (`slugFreeVerdict`)** three explicit readings are each required:
+     the site table (service key, the slug column only) answers 200 with no
+     row; the build records the same; the address answers 404.
+   - Anything else (unauthorized, rate-limited, failed, thrown, not a list,
+     or a row) stops the press before the POST.
+2. **`buildMoneyVerdict` passed an unexplained spend.** It passed with the
+   balance 100 → 10 and a ledger holding one build debit of 10.
+   - **Now** each end is a steady reading: the balance read between two
+     equal last-row ids, tried three times.
+   - The window between them is read whole (`Prefer: count=exact`, the
+     range describing every row: `windowComplete`).
+   - The whole move must equal what the window records. The build's rows
+     and the other rows are attributed apart.
+   - Codex's case now fails: *"the balance moved 90, the ledger window
+     records 10: 80 unexplained"*.
+3. **The image checks over-claimed.** One new stored image establishes
+   storage and placement, not one provider purchase: another purchase may
+   fail to store, or overwrite the same file.
+   - The durable purchase records are in R2, which no press can read, so
+     purchase-once is now reported **NOT VERIFIED** on both presses
+     (`PHOTO_PURCHASE_UNVERIFIED`, `PURCHASE_UNVERIFIED`), printed apart
+     from the checks and never passed.
+   - The placement checks are kept.
+4. **Naming.** The build's three continuation checks are now *"API
+   continuation: …"*, with *"(not a browser-closed test)"* on the sign-in
+   check. Browser reconnection to a build in flight stays an open product
+   gap.
+
+**Unchanged**: the verified concurrency fix, and the Build limits (one page,
+at most 15 components).
+
+**Tests**: `canary-build` 17 (was 14) and `canary-addon-photo` 8, all
+passing; the canary files together 555 of 555.
+- **Real-driver regressions** through `runBuildCheck`:
+  - 10 failed or ambiguous slug readings and an unsteady start reading
+    each send nothing, with spend `yes`;
+  - a balance falling 80 more than the window records, a window not shown
+    whole, and an unsteady end reading each fail the money check;
+  - a passing press reports purchase-once as not verified.
+- **Red check**: on `977a1422`, preflight with 401, 403, 429 and 500
+  answered "" (sent), and Codex's money case passed. Now each is refused,
+  with the reasons above.
+- **Sweep**: 18 mutants, 17 killed, the control survived. The survivor
+  (reading the window after an unsteady end reading) is equivalent: the
+  verdict already fails on the unsteady reading.
+

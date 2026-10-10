@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, the Add-on-with-photograph and first-Build checks prepared, not pressed)
+## Current handoff — read this first (2026-10-10, Codex's two false passes fixed; both checks still not pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,78 +8,81 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
-  `8d6dbcea93252fbb`, runtime-confirmed by run 118.
-- **The dispatch-order correction is closed as verified for the
-  demonstrated case** (your word, after Codex reviewed `2399f359`). Run 119:
-  the price's prepared step ran 19.9 s inside the heading job. Browser-closed
-  recovery, model-written progress, clarification, final results and the 12
-  credits all passed. **The limits stay explicit**:
-  - two substantive preparation steps at once have not been seen live;
-  - reuse of a prepared answer is not directly proven.
-- **The branch** `claude/help-needed-ehlwlj` is `main` plus records and this
-  round's scripts and tests: **`4273ba32` (scripts, tests and workflow inputs)**. Nothing merged, deployed or built;
-  no paid run, no balance change.
-- **Balance**: 990 after run 119 (a historical reading; read the ledger
-  first).
+  `8d6dbcea93252fbb`, runtime-confirmed by run 118. The dispatch-order
+  correction is closed as verified for the demonstrated case (run 119), with
+  its limits kept: two substantive preparations at once not seen live, and
+  prepared-answer reuse not directly proven.
+- **The branch** `claude/help-needed-ehlwlj`:
+  - `4273ba32`, the checks;
+  - `3a7c5222` and `977a1422`, their records;
+  - `2104ed81`, the corrections after Codex's review of `977a1422`.
 
-**What this round prepared** (`docs/history/2026-10-10-addon-build-checks.md`
-has every pass and fail condition)
-- **The Add-on press, `lv-addon-photo`**: one message on the bakery, *"Add a
-  Meet the Bakers page with a link in the menu, introducing the three of us
-  who bake through the night, with a photograph of us shaping loaves at the
-  bench."* It runs with the tab closed once progress shows, and is followed
-  in a fresh browser session.
-  - **New photograph checks**: exactly one photograph on the new page's
-    stored file; drawn with words describing it; its address serving an
-    image; the site's uploads gaining exactly that one image (bought once,
-    none stored twice, none taken from earlier pictures).
-  - Everything else is held byte for byte, plus the menu link, progress,
-    replies and money as before.
-  - **About 33–41 credits; budget 45, hard cap 1018.**
-- **The first-Build check, `build-as-owner` mode `check`**: one fresh build
-  of `copperleaf-tea-room` (404 today), a one-page tea-room brief asking for
-  photographs. The sending session lets go once the build is accepted, and
-  a fresh sign-in follows it to its end. **19 checks**:
-  - one page, at most 15 components drawn;
-  - **overlap from the build's own recorded times**: bands' summed calls
-    past their wave's wall, design agents the same, or a photograph still
-    being bought when the pages came back;
-  - dependency and publish order;
-  - model-written progress lines served live;
-  - photographs placed, and every stored image accounted for;
-  - every charge taken once.
-  - **About 30–65 credits; budget 70, hard cap 1018.** With spend `no` it
-    stops after a free preflight.
-- **The deployed image supports both**: the branch's product code is byte
-  for byte deploy 2191's. Only `scripts/`, `test/` and two workflow files
-  changed, and the predicted image for the pushed head is **`8d6dbcea93252fbb` (204 inputs), the deployed one**.
-  **No rebuild and no deploy are needed** before either press.
+  Nothing merged, deployed or built; no paid run, no balance change.
+- **Balance**: 990 after run 119 (historical; read the ledger first).
 
-**Gaps found and kept separate**
-1. **The browser has no way back to a build in flight.** A closed and
-   reopened browser does not re-attach; the build itself carries on. The
-   check tests the API path instead. This is a product gap, not fixed here.
-2. **Build overlap is recorded as durations, not intervals.** The sum
-   against the wall is still proof. But a build whose band split is refused,
-   with a single-call design and photographs that finish while the pages are
-   written, leaves no overlap the press can read. The check then fails and
-   says so.
-3. **"Bought once" is read from the uploads and the trace.** The purchase
-   records are in R2, which a press cannot read.
+**Codex's review of `977a1422`, fixed**
+1. **A failed slug lookup could send a build.** The preflight let 401, 403,
+   429 and 500 through. **Now** three explicit readings are each required:
+   - the site table answers 200 with no row;
+   - the build records answer the same;
+   - the address answers 404.
 
-**Verification**
-- New tests: `canary-addon-photo` 8 and `canary-build` 14, all passing.
-- Red check: both fail on the old code, and a reused-picture add-on got no
-  photograph check there.
-- Sweep: 33 of 33 killed, 2 controls survived.
-- Full suite: **`10317 / 10317 / 0 / 0`** locally (on `4273ba32`'s code). Doc tests 32/32.
+   Anything else sends nothing. The owner's source-route 404 is no longer
+   used: it also answers for another account's site and for a failed
+   lookup.
+2. **An unexplained spend could pass.** Balance 100 → 10 with one build
+   debit of 10 passed. **Now** each end is a steady reading (the balance read
+   between two equal ledger-row ids), and the window between them is read
+   whole (exact count). The whole move must equal what the window records,
+   with the build's rows and other rows attributed apart. That case now fails:
+   *"80 unexplained"*.
+3. **The image checks over-claimed.** One new stored image proves storage and
+   placement, not one provider purchase: another purchase may fail to store,
+   or overwrite the same file.
+   - The durable purchase records are in R2, which no press can read, so
+     **purchase-once is reported NOT VERIFIED** on both presses, never passed.
+   - The placement checks are kept.
+4. **Naming.** The build's continuation checks are *"API continuation: …"*,
+   not a browser-closed test. **Browser reconnection to a build in flight
+   stays an open product gap.**
+
+**Honest coverage of the two prepared presses**
+- **Add-on (`lv-addon-photo`, on the bakery)**:
+  - **verifies**: the new page and its menu link; one photograph stored,
+    placed, described and served; everything else byte for byte;
+    model-written progress; the tab closed, followed in a fresh browser
+    session; its own charges;
+  - **not verified**: one provider purchase per photograph;
+  - **about 33–41 credits**, budget 45, hard cap 1018.
+- **First Build (`build-as-owner` mode `check`, `copperleaf-tea-room`)**:
+  - **verifies**: the slug verified free before sending; one page, at most
+    15 components; overlap from the build's recorded agent and wave times;
+    dependency and publish order; model-written lines served live; the API
+    continuation; photographs stored and placed; the whole balance move
+    explained, each build charge once;
+  - **not verified**: one provider purchase per photograph; the browser
+    reconnecting to a build in flight (product gap);
+  - **about 30–65 credits**, budget 70, hard cap 1018. With spend `no` it
+    runs a free preflight and stops.
+- **The deployed image supports both**: product code is byte for byte deploy
+  2191's. The predicted image is unchanged, `8d6dbcea93252fbb` (204 inputs).
+  **No rebuild or deploy is needed.**
+
+**Verification of the corrections**
+- `canary-build` 17 and `canary-addon-photo` 8 pass; all canary files 555 of
+  555.
+- Real-driver regressions: failed or ambiguous slug lookups send nothing;
+  unexplained spending, a partial window or an unsteady reading fails.
+- Red check on `977a1422`: Codex's cases passed there and fail now.
+- Sweep: 18 mutants, 17 killed; the 1 survivor is equivalent; the control
+  survived.
+- Full suite and CI: running at this push, stamped in the next commit once measured.
 
 **The boxes, when you approve a press** (nothing is pressed yet)
 - **Add-on**: *edit canary* → *RUN A NAMED SCENARIO…* `lv-addon-photo`,
   spend `yes`.
 - **Build**: *build as owner* → mode `check`, *check only: yes sends the
-  build* `yes`. Optionally first with `no`: a free preflight that stops
-  before sending.
+  build* `yes` (or `no` first, for a free preflight).
 
 ## How you like things done
 
@@ -89,20 +92,40 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-10 — Codex's two false passes fixed; purchase-once reported unverified (nothing pressed)
+
+Codex reviewed `977a1422`, passed the 22 new tests and reproduced two false
+passes. Fixed in `2104ed81`:
+- the build check refuses every slug lookup that is not an explicit,
+  verified "free";
+- it reconciles the whole balance move against the complete ledger window,
+  failing any unexplained difference, partial window or unsteady reading;
+- both presses now say one purchase per photograph is **not verified** (the
+  records are in R2), keeping the placement checks;
+- the build's continuation checks are named as API continuation, and the
+  browser reconnecting to a build stays an open product gap.
+
+Codex's cases pass on `977a1422` and fail now. Sweep 17 of 18 killed (1
+equivalent). Full suite: stamped once measured. No merge, deploy, rebuild, balance change
+or paid run.
+
+---
+
 ## 2026-10-10 — The Add-on-with-photograph and first-Build checks prepared (nothing pressed)
 
 After Codex reviewed `2399f359`, on your word:
 - **The dispatch-order correction is closed** as verified for the
   demonstrated case, with its two limits kept.
 - **The Add-on press `lv-addon-photo`** (on the bakery) gained photograph
-  checks: the photograph bought once and placed, drawn with words, serving
-  an image. Everything else is held as before.
+  checks: the photograph stored and placed, drawn with words, serving an
+  image (purchase-once corrected to *not verified* in the entry above).
+  Everything else is held as before.
 - **The first-Build check** (`build-as-owner` mode `check`, on
   `copperleaf-tea-room`) judges one fresh build on:
   - its page and components;
   - its recorded overlap and order;
   - its model-written lines;
-  - the API-path closure;
+  - the API continuation (not a browser-closed test);
   - its photographs and its charges.
 - **Commit ``4273ba32` (scripts, tests and workflow inputs)`.** Tests 8 and 14 new, sweep 33/33, full suite
   `10317 / 10317 / 0 / 0`. The image is unchanged (`8d6dbcea93252fbb` (204 inputs), the deployed one).
