@@ -1,106 +1,64 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-09, run 117's concurrency failure diagnosed; the dispatch order corrected on the branch)
+## Current handoff — read this first (2026-10-10, deploy 2191 released and run 119 passed: concurrency shown live)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2190**:
-  - `main` `19b1628d`, image `9236fe341b77544d`;
-  - runtime-confirmed by run 115 (21:07 UTC): the Worker `19b1628df403`, a
-    cold container `9236fe341b77544d`, every free check passed.
-- **The branch** `claude/help-needed-ehlwlj` is `main` plus:
-  - `lv-parallel`'s hard cap of 1018 (`fd71d41a`, your choice);
-  - run 117's records;
-  - this round's diagnosis and correction, with its records.
+- **Production is deploy 2191** (on your approval, 2026-10-10):
+  - `main` `f96cbfd5`, image `8d6dbcea93252fbb`, as predicted;
+  - the dispatch correction (the job is queued before its preparations) and
+    the kept preparation attempts;
+  - one green deploy run, 00:14–00:17 UTC;
+  - **runtime-confirmed by run 118** (00:40 UTC): Worker `f96cbfd56d65`, a
+    cold container `8d6dbcea93252fbb`, every free check passed.
+- **The branch** `claude/help-needed-ehlwlj` is `main` plus the deploy and
+  run records.
+- **Run 119** (the single approved `lv-parallel` follow-up, run 38011323505,
+  00:58–01:13 UTC): **the workflow concluded `success`; every check passed.**
+  `docs/history/2026-10-10-run119.md` has the full record.
+- **Balance**: 990 after run 119 (1002 → 990, read by the press). That is a
+  historical reading; read the ledger before relying on it.
 
-  This round is **not merged, deployed or built**.
-- **Run 117** (press A, `lv-parallel`, run 38002581379, 23:04–23:19 UTC, on
-  deploy 2190). **The workflow run failed on exactly one criterion**: *"a
-  part's prepared step ran while another part's job was executing, by their
-  recorded intervals"*. Every other check passed and stands:
-  - closing the tab, and recovering in a fresh session;
-  - model-written progress (all eight progress checks);
-  - the clarification;
-  - the completed changes;
-  - 16 credits reconciled.
-- **Balance**: 1002 when last read (after run 117, 23:19 UTC). That is a
-  historical reading. Read the ledger before relying on it.
+**The concurrency evidence (the press's own printed timeline)**
+- Request `8e45b602`, accepted 01:01:14.630 UTC:
+  - part 0's heading job executed +14.7 → +194.4 s;
+  - **part 1's prepared data step, one model call, ran +42.6 → +62.6 s: 19.9 s
+    wholly inside that job**;
+  - part 2's preparation (routing only; its step rightly held by the heading
+    before it) ran +50.6 → +68.7 s, beside both.
+- **The jobs and publishes stayed one at a time** under the site's lock.
+- **Part 1's own job then took 2.5 s.** That is consistent with reuse of its
+  prepared answer, not proven.
 
-**Why run 117's preparation did not overlap a job**
-(`docs/history/2026-10-09-run117-diagnosis.md`, from the run's own evidence
-and the job rows, all read-only)
-- At acceptance, part 0's job (the price) was filed and parts 1 and 2 claimed
-  for preparation. All three queue messages were sent at once.
-- The queue then processed them strictly one after another, each 3–5 s after
-  the last ended:
-  1. part 1's preparation (+5.0 → +33.0 s; its step +19.7 → +31.8 s, one
-     model call);
-  2. part 2's (+36.2 → +49.2 s, routing only);
-  3. only then the job, taken at +53.2 s and executed +57.5 → +82.5 s.
-- **The driver had sent the preparations before filing the job**, so the job
-  waited behind them.
-- **Not the cause**:
-  - container startup (about 4 s);
-  - a dependency (none named);
-  - a busy site (no deferrals);
-  - overwritten evidence (one attempt each).
-- **Part 2's step was rightly held**: the footer link writes into every page,
-  which the heading's step reads.
-- **No preparation overlapped another.**
+**Also shown live in run 119**
+- **Clarification**: the X footer link asked for its address while the other
+  parts finished.
+- **Closed tab**: the answer was sent with the tab closed and followed in a
+  fresh browser session; all eight progress checks passed with model-written
+  lines.
+- **Results, all kept on the demo site**:
+  - `/order` reads *"Pick a loaf and a time to collect it"*;
+  - every footer links to X;
+  - the focaccia is 4.6 → 4.7;
+  - everything else is byte for byte as before.
+- **Money: 12 credits**, routing 6 plus jobs 6, exactly the balance's move.
 
-**Corrected on the branch (product code; needs a deploy)**
-- **The job is filed before its preparations are sent**, so a queue that
-  delivers one at a time runs the job first, in the container, and the
-  preparations beside it. There are no artificial waits, and dependencies,
-  site locking, stale-result checks and single charging are unchanged.
-- **Every preparation attempt is kept** (the last 6) and served, with when it
-  was claimed.
-- **The check also passes on two parts' substantive prepared steps running at
-  once.** It still fails routing beside a step, status labels and missing
-  records.
-- **The canary prints the request's timeline in its log** after its checks.
-- **Tests**:
-  - the reproduction on run 117's queue behaviour fails before the
-    correction and passes after;
-  - 16 mutants killed, and the control survived;
-  - focused families `909 / 909 / 0 / 0` before the last assertions were
-    added.
-
-  - full suite `10295 / 10295 / 0 / 0`;
-  - CI on `ac3e5eca`: unit tests green (run 38006507027,
-    `10295 / 10254 / 0 / 41`) and site build green (run 38006507026);
-  - the image would move `9236fe341b77544d` → **`8d6dbcea93252fbb`**
-    (predicted, 204 inputs).
-
-**The follow-up press, ready but not pressed** (`lv-parallel`, fresh
-targets read live)
-- **Message 1**: *"Change the Order page heading 'Choose a loaf and a time to
-  collect it' to 'Pick a loaf and a time to collect it', change the Sea Salt
-  Focaccia's price to £4.70, and add a link to our X account in the
-  footer."*
-- **Message 2**, sent with the tab closed and followed in a fresh session:
-  *"It's x.com/harbourloaf"*.
-- **The focaccia** goes 4.6 → 4.7, kept.
-- **About 11–17 credits** (run 117 took 16). Budget 20, hard cap 1018.
-- **It needs, in order, each on your word**:
-  1. a merge and deploy of this round (the image changes, because
-     `worker.js` and `builder/request.mjs` changed);
-  2. the free runtime press with the new sha and image;
-  3. the press itself, from the branch or `main`.
-
-**Remaining gaps**
-1. **Concurrency is still not shown live.** The correction needs the deploy
-   and the press above.
-2. **Two preparations at once** needs the platform to run two consumer
-   invocations together. Run 117's queue did not, and the correction does not
-   depend on it.
-3. **Whether a prepared answer is reused by its job** is still not readable by
-   a press.
-4. Crash recovery, lost purchases and duplicate deliveries stay offline-only.
-   Writes stay one at a time per site.
+**Remaining limitations**
+1. **Two parts' substantive steps at once** has not been seen live. Run 119's
+   overlap was a prepared step beside a job.
+2. **Reuse of a prepared answer** by its job is not recorded where a press
+   can read it.
+3. **Overlap depends on the router naming targets** and on the queue
+   delivering promptly. Run 119's preparations were taken 22 s and 49 s after
+   being claimed.
+4. **Writes and publishes stay one at a time per site.**
+5. Crash recovery, lost purchases and duplicate deliveries stay offline-only
+   proof.
+6. **Not run (outside this approval)**: the optional Add-on-with-photograph
+   and first-Build presses.
 
 ---
 
@@ -109,6 +67,23 @@ targets read live)
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — Deploy 2191 and run 119: concurrency shown live (12 credits)
+
+On your approval (*"releasing this reviewed correction and running one
+lv-parallel follow-up"*):
+- **Deploy 2191**: `main` `19b1628d` → `f96cbfd5` (the reviewed commits
+  only). Preflight clean: nothing in flight, rollback verified, CI green.
+  Image `8d6dbcea93252fbb`, as predicted. Runtime-confirmed by run 118.
+- **Before spending**: balance 1002; no footer linked to X; the Order heading
+  and the focaccia (4.6) were as the scenario expected.
+- **Run 119**: `success`, every check passed. Part 1's prepared price step
+  ran 19.9 s inside part 0's executing heading job, by recorded intervals.
+  Clarification, closed-tab recovery, model-written progress, results and
+  accounting all passed.
+- **12 credits**, 1002 → 990. The changes are kept on the demo site.
 
 ---
 

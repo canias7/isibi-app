@@ -1524,6 +1524,9 @@ the only run that push started: `completed` / `success`, 00:14:35–00:17:36.
   - async and the runner were on;
   - `ALL FREE CHECKS PASSED`;
   - balance 1002, and nothing charged.
+- **The approved follow-up, run 119** (run 38011323505, 00:58–01:13 UTC):
+  `success`, every check passed, concurrency shown by recorded intervals;
+  12 credits (`docs/history/2026-10-10-run119.md`).
 
 **Deploy 2190 (2026-10-09) was predicted on both ends and built as
 predicted**, on the owner's word (*"merge and deploy"*). It fast-forwarded

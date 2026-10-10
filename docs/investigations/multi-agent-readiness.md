@@ -388,6 +388,18 @@ runs 107 and 109.
   - the canary prints the timeline.
 - **Not deployed.**
 
+### 7.3c Run 119: concurrency shown live (2026-10-10)
+
+- **Run 119** ran on deploy 2191 (`f96cbfd5`, image `8d6dbcea93252fbb`) and
+  passed every check.
+- **The overlap**: part 1's prepared data step (1 model call) ran 19.9 s
+  inside part 0's executing heading job, by their recorded intervals.
+- **Unchanged**: publishing and writes stayed one at a time.
+- **Still open**: reuse of a prepared answer is not recorded where a press
+  can read it.
+- **Not in scope**: the optional Add-on photo and first-Build presses were
+  not part of this approval and were not run.
+
 ### 7.4 Optional presses, each on its own approval
 
 - **Press B: an add-on with a photograph** (round 7's check):
