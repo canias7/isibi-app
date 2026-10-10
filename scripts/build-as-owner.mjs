@@ -146,6 +146,9 @@ const IS_EDIT = MODE === "edit";
 // (build-check.mjs, canary-build.mjs), on this workflow's sign-in secrets and
 // deploy wait. It sends the build only with OWNER_SPEND=yes.
 if (MODE === "check") {
+  // THE SAME PUBLIC ANON KEY THIS SCRIPT FALLS BACK TO (2026-10-10, run
+  // 38049268263): the repository holds no SUPABASE_ANON_KEY secret.
+  if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = ANON_KEY;
   const { main } = await import("./build-check.mjs");
   process.exit(await main());
 }

@@ -364,6 +364,9 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   const own = owner.indexOf('if (!EMAIL) fail("OWNER_EMAIL is not set");');
   assert.ok(hook > 0 && own > 0 && hook < own, "the check is not reached before build-as-owner's own validation");
   assert.ok(owner.includes('const { main } = await import("./build-check.mjs");'));
+  // THE PUBLIC ANON KEY IS HANDED ON before the check reads it (run 38049268263: no such secret).
+  const hand = owner.indexOf("if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = ANON_KEY;");
+  assert.ok(hand > hook && hand < owner.indexOf('await import("./build-check.mjs")') && owner.indexOf("const ANON_KEY") < hook, "the anon key is not handed to the check");
   const wf = fs.readFileSync(ROOT + ".github/workflows/build-as-owner.yml", "utf8");
   assert.ok(wf.includes("options: [edit, build, check]"));
   // A CHECK DISPATCHED FROM THE BRANCH never waits for a deploy of its own commit.
