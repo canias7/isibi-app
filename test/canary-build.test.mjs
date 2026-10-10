@@ -370,6 +370,13 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   assert.ok(wf.includes("            build-check.json"));
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
   assert.ok(bc.includes('String(process.env.OWNER_SPEND || "").trim().toLowerCase() === "yes"'), "spend is not read strictly");
+  // THE LEDGER'S OWNER COLUMN IS `uid` (credits uses `user_id`): read live
+  // 2026-10-10 before the approved press. A wrong column fails every ledger
+  // read, so the press could never get past its own steady reading.
+  const ledgerReads = bc.match(/credit_events\?[a-z_]+=eq\./g) || [];
+  assert.equal(ledgerReads.length, 2, "the ledger reads were not found");
+  assert.ok(ledgerReads.every((q) => q === "credit_events?uid=eq."), `a ledger read names the wrong column: ${JSON.stringify(ledgerReads)}`);
+  assert.ok(bc.includes("rest/v1/credits?user_id=eq."), "the balance read lost its column");
 });
 
 // ── THE REVIEW'S REGRESSIONS, THROUGH THE REAL DRIVER (2026-10-10) ───────────

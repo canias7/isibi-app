@@ -75,7 +75,7 @@ export async function main() {
     },
     ledgerLast: async () => {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&select=id&order=id.desc&limit=1`, { headers: svc });
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?uid=eq.${uid}&select=id&order=id.desc&limit=1`, { headers: svc });
         const rows = await r.json().catch(() => null);
         if (r.status !== 200 || !Array.isArray(rows)) return { ok: false };
         return { ok: true, id: rows[0] ? Number(rows[0].id) : 0 };
@@ -102,7 +102,7 @@ export async function main() {
     // range must describe every row it served (`0-(n-1)/n`, or `*/0`).
     ledgerWindow: async (from, to) => {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?user_id=eq.${uid}&id=gt.${Number(from)}&id=lte.${Number(to)}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: { ...svc, Prefer: "count=exact" } });
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?uid=eq.${uid}&id=gt.${Number(from)}&id=lte.${Number(to)}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: { ...svc, Prefer: "count=exact" } });
         const rows = await r.json().catch(() => null);
         const range = String(r.headers.get("content-range") || "");
         const complete = windowComplete({ status: r.status, rows, range });
