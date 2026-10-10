@@ -128,6 +128,42 @@ export function readBuildChat(raw) {
 }
 
 /**
+ * EXECUTION OWNERSHIP (2026-10-10, round 4). One record per job, created with
+ * a conditional write, so exactly one party ever executes a job:
+ *   queue    the queue's consumer took it (the container's runner, taking
+ *            the consumer's lease over, inherits it — the same execution);
+ *   inline   the producer's inline fallback took it, after a send or store
+ *            that failed — the same job id, the same billing identity;
+ *   revoked  a later request taking over an abandoned chat took it first, so
+ *            the job can never start.
+ * Deleting the job's envelope proves nothing (the consumer deletes it on
+ * read); only this record decides who runs. Kept under its own prefix,
+ * outside the job envelopes, and never served.
+ */
+export const BUILD_RUN_ROOT = "builds-run/";
+export function buildRunKey(job) {
+  if (!isJobId(job)) throw new Error("build-live: refusing a job id we did not mint");
+  return BUILD_RUN_ROOT + job + ".json";
+}
+const RUN_OWNERS = new Set(["queue", "inline", "revoked"]);
+export function packBuildRun({ job, owner, at }) { return { v: BUILD_LIVE_VERSION, job, owner, at }; }
+export function readBuildRun(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION || !isJobId(raw.job) || !RUN_OWNERS.has(raw.owner)) return null;
+  return { job: raw.job, owner: raw.owner, at: num(raw.at) || 0 };
+}
+/**
+ * WHAT AN EXISTING EXECUTION RECORD MEANS FOR A CHAT'S CLAIM:
+ *   "free"  revoked (the job can never start), or an executor older than any
+ *           build runs (it is gone);
+ *   "held"  an executor (queue or inline) that may still be running.
+ */
+export function runVerdict(run, now) {
+  if (!run) return "free";
+  if (run.owner === "revoked") return "free";
+  return num(now) !== null && now - run.at > BUILD_JOB_MS ? "free" : "held";
+}
+
+/**
  * MAY A NEW FIRST BUILD TAKE A CHAT WHOSE CLAIM IS ALREADY WRITTEN?
  * (2026-10-10, the claim-to-marker race.)
  *   "held"  its owner may still be running: the new request follows it;
@@ -185,12 +221,19 @@ export function doneOutcome(done) {
  *   stale          accepted, no row, no answer, and older than any build runs.
  * `row` is `buildRowStatus`'s answer: null when there is no row.
  */
-export function buildLiveState({ marker, done = null, row = null, now }) {
+export function buildLiveState({ marker, done = null, row = null, run = null, now }) {
   if (!marker) return null;
   const base = { job: marker.job, chat: marker.chat, words: marker.words, at: marker.at };
   const age = num(now) !== null ? now - marker.at : 0;
   if (done) return { ...base, state: doneOutcome(done), answer: { status: done.status, body: done.body, type: done.type } };
+  // THE EXECUTION RECORD OUTRANKS THE MARKER'S OWN FLAGS (round 4): a build
+  // whose "inline" or "accepted" write was lost is still the executor it is,
+  // and no acceptance timeout frees a chat while it may be running.
+  const runAge = run && num(now) !== null ? now - run.at : 0;
+  if (run && run.owner === "inline") return { ...base, state: runAge > BUILD_JOB_MS ? "stale" : "inline" };
+  if (run && run.owner === "revoked") return { ...base, state: "abandoned" };
   if (marker.inline) return { ...base, state: age > BUILD_JOB_MS ? "stale" : "inline" };
+  if (run && run.owner === "queue" && !(row && row.verdict)) return { ...base, state: runAge > BUILD_JOB_MS && !row ? "stale" : "running" };
   if (!marker.accepted) {
     if (row) return { ...base, state: row.verdict ? "abandoned" : "accepting" };
     return { ...base, state: age > BUILD_ACCEPT_MS ? "abandoned" : "accepting" };

@@ -202,7 +202,9 @@ test("a duplicate delivery meets its own deposit row: not refused, and reversed 
 
 test("the build's refs: one per debit, the job's id under the queue, carried to the pages debit and stored for the resume", () => {
   const w = blankJs(WORKER);
-  assert.match(w, /const billRef = "build:" \+ \(jobId \|\| crypto\.randomUUID\(\)\);/, "the ref is not the job's id under the queue");
+  // `billId` (2026-10-10, round 4): an inline fallback carries its job's id, so
+  // it bills under the same identity as the queued run — never a fresh ref.
+  assert.match(w, /const billRef = "build:" \+ \(jobId \|\| billId \|\| crypto\.randomUUID\(\)\);/, "the ref is not the job's id under the queue");
   assert.match(w, /const debitRef = \(step\) => billRef \+ ":" \+ step;/);
   // The pages debit rides the same ref, partial, and falls back to the
   // collect for a job stored before the ref existed.

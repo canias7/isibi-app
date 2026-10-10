@@ -336,10 +336,13 @@ test("THE QUEUED JOB (browser closed): the consumer repairs the design and fires
   assert.ok(raw, "the resume wrote no answer");
   const fin = JSON.parse(readResult(JSON.parse(raw)).body);
   assert.deepEqual(fin.buildFacts && fin.buildFacts.design, { outcome: "repaired", attempts: ["malformed:repair"] }, JSON.stringify(fin).slice(0, 300));
-  // The same job delivered again: its first design is again unusable, and the
-  // repair the record holds is not made a second time.
+  // The same job delivered again makes no second corrective call. Since
+  // 2026-10-10 (round 4, one execution per job) it makes no call at all: the
+  // job's execution record is held by the consumer that ran it, so a
+  // redelivery never executes it again — the stronger form of this guard.
   const again = [];
   await fireInterim(b, Q9, led, { onDesign, designs: again });
-  assert.ok(again.length >= 1, "OBSERVER: the redelivery never reached the design, so it proves nothing");
+  assert.equal(JSON.parse(b.store.get("builds-run/" + Q9 + ".json")).owner, "queue", "OBSERVER: the first delivery holds no execution record, so this proves nothing");
+  assert.equal(again.length, 0, "the redelivery executed the job a second time");
   assert.equal(again.filter((d) => isRepair(told(d))).length, 0, "the redelivery made a second corrective call");
 });

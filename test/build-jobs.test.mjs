@@ -406,8 +406,17 @@ test("the build route files the row before the object and the message, under op 
   assert.match(fn, /const hasRow = !!\(filed && filed\.ok === true && filed\.duplicate !== true\);/);
   // AND BOTH FALL-THROUGHS CLOSE THE ROW THEY FILED, so a queued row nobody
   // will claim — no lease, never swept — does not sit for ever.
-  const closes = [...fn.matchAll(/if \(hasRow\) await closeBuildRow\(env, id, "failed", "([^"]+)"\);/g)].map((m) => m[1]);
-  assert.deepEqual(closes, ["could not store the job", "could not enqueue"], "a fall-through leaves its queued row behind");
+  // …AND ONLY ONCE THE PRODUCER HOLDS THE JOB'S EXECUTION RECORD (2026-10-10,
+  // round 4): `takeInline` closes the row after `claimBuildRun` is won, so a
+  // consumer already running the job never has its row closed beneath it.
+  const take = fn.indexOf("const takeInline = async (note) => {");
+  assert.ok(take > 0, "the inline fall-through helper is gone; this guard is watching nothing");
+  const takeBody = fn.slice(take, close(fn, fn.indexOf("{", take)));
+  const won = takeBody.indexOf('if (run.outcome !== "won")');
+  const shut = takeBody.indexOf('if (hasRow) await closeBuildRow(env, id, "failed", note);');
+  assert.ok(takeBody.indexOf('claimBuildRun(env, id, "inline")') > 0 && won > 0 && shut > won, "the row is closed before the execution record is held");
+  const notes = [...fn.matchAll(/await takeInline\("([^"]+)"\)/g)].map((m) => m[1]);
+  assert.deepEqual(notes, ["could not store the job — ran inline", "could not enqueue — ran inline"], "a fall-through leaves its queued row behind");
   // THE AUTH GATE STILL COMES FIRST: nothing is filed for a stranger.
   assert.ok(fn.indexOf("if (!bu) return") > 0 && fn.indexOf("if (!bu) return") < filed, "a row is filed before the caller is authenticated");
 });
@@ -458,7 +467,8 @@ test("the fire hands the lease to the container after the record and before the 
   assert.match(W, /const \{ attachments: _drop, mark: _m, budget: _b, genPathOut: _g, canFire: _c, jobId: _j, \.\.\.design \} = buildArgs \|\| \{\};/,
     "the stored design carries the job id — a second copy of the record's own key");
   // THE SIGNATURE TAKES THE LEASE, defaulted so the inline path hands none.
-  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null \}\)/);
+  // `billId` (round 4): an inline fallback's job id, for its billing identity only.
+  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null \}\)/);
 });
 
 test("the job id rides to the fire: buildArgs → buildAndPublishPages → containerPagesFire → the container's report object", () => {

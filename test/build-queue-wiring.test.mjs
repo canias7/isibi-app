@@ -55,7 +55,15 @@ function fakeBucket(initial = {}, { failPut = false } = {}) {
   return {
     store, log,
     async get(k) { log.push(["get", k]); const v = store.get(k); return v === undefined ? null : { text: async () => v }; },
-    async put(k, v) { log.push(["put", k]); if (failPut) throw new Error("R2 is having a moment"); store.set(k, String(v)); },
+    // AS R2 ANSWERS (round 4): the object written, or null when a conditional
+    // write's precondition fails — the execution record is one.
+    async put(k, v, opts) {
+      log.push(["put", k]);
+      if (failPut) throw new Error("R2 is having a moment");
+      if (opts && opts.onlyIf && opts.onlyIf.etagDoesNotMatch === "*" && store.has(k)) return null;
+      store.set(k, String(v));
+      return { key: k };
+    },
     async delete(k) { log.push(["delete", k]); store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
     // AS R2 HAS IT (2026-10-10, round 3): the inline fallback now reads the job
