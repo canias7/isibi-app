@@ -305,12 +305,19 @@ Funding alone authorizes nothing. Each press is the owner's.
    - **Estimate, not a cap**: routing 2–3 plus one photograph at 18.75 plus
      a fraction for the call, about **21–24 credits**. The balance is the
      only bound.
-   - **Pass** (read free afterwards):
-     - `/bakers` serves a stored `/u/fold-lane-bakery/…` image in that
-       frame, and the address serves an image;
+   - **Pass**, read free afterwards, with each half judged on its own:
+     - **image placement**: `/bakers` serves a stored
+       `/u/fold-lane-bakery/…` image in that frame, the address serves an
+       image, and the site's upload list gains it;
+     - **customer charges**: the ledger rows for the press are the routing
+       plus the edit's own reserve, which includes one photograph, and the
+       balance move equals them;
      - the page's words, the menu links and every other page are unchanged;
-     - one provider call, and one photograph charged in the ledger;
      - the reply and progress lines say what was done.
+   - **Not a pass criterion**: the number of calls made to the photo
+     provider. No press can read the provider's side, so **provider
+     purchase-once stays unverified**. The ledger shows what the customer
+     was charged, not what the provider was asked or billed.
    - **Stop on**: a route mismatch (refused before any edit), a refusal by
      the provider, an unexplained charge, or a changed page other than
      `/bakers`. A failure is not repeated.

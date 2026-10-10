@@ -44,8 +44,13 @@ recovery sequence"). Each step needs your word and your press:
      empty picture frame."*;
    - expected route `intent=edit layer=picture page=/bakers alsoAsked=none`;
    - about **21–24 credits** (an estimate, not a cap);
-   - pass: the frame shows a stored photograph, nothing else changed, one
-     provider call, one photograph charged.
+   - pass, judged separately:
+     - **placement**: the frame shows a stored photograph, and nothing else
+       changed;
+     - **charges**: the ledger shows routing plus one photograph in the
+       edit's reserve, matching the balance move.
+   - The number of provider calls is not a criterion, because no press can
+     read it. Provider purchase-once stays unverified.
 4. **Then the prepared Build check** (`copperleaf-tea-room`, 30–65 credits),
    only if step 3 passes; its free preflight first.
 
