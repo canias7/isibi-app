@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, Codex's two false passes fixed; both checks still not pressed)
+## Current handoff — read this first (2026-10-10, the approved Add-on press failed on its photograph; the Build check was not pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,87 +8,93 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
-  `8d6dbcea93252fbb`, runtime-confirmed by run 118. The dispatch-order
-  correction is closed as verified for the demonstrated case (run 119), with
-  its limits kept: two substantive preparations at once not seen live, and
-  prepared-answer reuse not directly proven.
-- **The branch** `claude/help-needed-ehlwlj`:
-  - `4273ba32`, the checks;
-  - `3a7c5222` and `977a1422`, their records;
-  - `2104ed81`, the corrections after Codex's review of `977a1422`.
+  `8d6dbcea93252fbb`, unchanged; nothing merged, deployed or rebuilt.
+- **The branch** `claude/help-needed-ehlwlj` is `2092de4b` plus these records. On top of the
+  reviewed `daded612` are three script and workflow fixes, made before any
+  paid run because a free preflight would otherwise have stopped:
+  - `86339469`: the ledger column is `uid`;
+  - `5ea7230a`: the check no longer waits for a deploy of its own branch
+    commit;
+  - `2092de4b`: the check gets the public anon key.
 
-  Nothing merged, deployed or built; no paid run, no balance change.
-- **Balance**: 990 after run 119 (historical; read the ledger first).
+  None touches product code; the image is unchanged.
+- **Balance 971**, after the Add-on press (990 → 971, last ledger row 432).
+  Read the ledger before relying on it.
 
-**Codex's review of `977a1422`, fixed**
-1. **A failed slug lookup could send a build.** The preflight let 401, 403,
-   429 and 500 through. **Now** three explicit readings are each required:
-   - the site table answers 200 with no row;
-   - the build records answer the same;
-   - the address answers 404.
+**The approved Add-on press, run 38049499667: FAILED on the photograph**
+- **Landed and checked**:
+  - a new `/bakers` page ("Meet the Bakers"), served 200;
+  - one menu link to it on every page, every item kept;
+  - every other stored page byte for byte as it was.
+- **The photograph was not made.** The job's trace reads
+  `photos: planned 1, offered 1, made 0`, in 2.6 s: the provider refused or
+  failed at once. The page holds an empty frame, described "Three bakers
+  shaping loaves at a long wooden bench at night".
+  - **Image storage and placement: not established.** No image was stored
+    and none placed.
+  - **Provider purchase-once: not verified** (as designed); whether fal was
+    called or billed cannot be read by a press.
+  - **Cause not proven.** fal's balance is behind your signed-in route
+    `/api/fal-balance`, which I cannot call. **Please check fal's balance
+    or its key.**
+- **Reported honestly at the end**: the card shows partial; the
+  model-written reply says the photograph could not be placed and the frame
+  waits for an upload.
+- **One overstated progress line**: at 356 s the model wrote that the page
+  was added *"with a photograph"*, after the photo step had made nothing.
+  This is a finding, not fixed.
+- **Fresh-session follow**: the tab was closed after the first live line
+  (106 s), and a fresh browser session followed the request to its end.
+- **Money: 19, fully reconciled**: routing 3 (row 431) plus the job's one
+  reserve of 16 (row 432), exactly the balance move. The missing photograph
+  was not charged (the add-on bills `made`, not `planned`).
+- **The checks**: 56, of which 50 passed and 6 failed (the request partial,
+  the photograph's four, the final card partial).
 
-   Anything else sends nothing. The owner's source-route 404 is no longer
-   used: it also answers for another account's site and for a failed
-   lookup.
-2. **An unexplained spend could pass.** Balance 100 → 10 with one build
-   debit of 10 passed. **Now** each end is a steady reading (the balance read
-   between two equal ledger-row ids), and the window between them is read
-   whole (exact count). The whole move must equal what the window records,
-   with the build's rows and other rows attributed apart. That case now fails:
-   *"80 unexplained"*.
-3. **The image checks over-claimed.** One new stored image proves storage and
-   placement, not one provider purchase: another purchase may fail to store,
-   or overwrite the same file.
-   - The durable purchase records are in R2, which no press can read, so
-     **purchase-once is reported NOT VERIFIED** on both presses, never passed.
-   - The placement checks are kept.
-4. **Naming.** The build's continuation checks are *"API continuation: …"*,
-   not a browser-closed test. **Browser reconnection to a build in flight
-   stays an open product gap.**
+**The Build check was NOT pressed**
+- Per your stop conditions, after a demonstrated failure of the requested
+  outcome. It also buys photographs and would likely meet the same provider
+  failure.
+- Its free preflight passed (run 38049362223): balance read steadily, slug
+  verified free, nothing sent.
+- Neither paid run is to be repeated without your word.
 
-**Honest coverage of the two prepared presses**
-- **Add-on (`lv-addon-photo`, on the bakery)**:
-  - **verifies**: the new page and its menu link; one photograph stored,
-    placed, described and served; everything else byte for byte;
-    model-written progress; the tab closed, followed in a fresh browser
-    session; its own charges;
-  - **not verified**: one provider purchase per photograph;
-  - **about 33–41 credits**, budget 45, hard cap 1018.
-- **First Build (`build-as-owner` mode `check`, `copperleaf-tea-room`)**:
-  - **verifies**: the slug verified free before sending; one page, at most
-    15 components; overlap from the build's recorded agent and wave times;
-    dependency and publish order; model-written lines served live; the API
-    continuation; photographs stored and placed; the whole balance move
-    explained, each build charge once;
-  - **not verified**: one provider purchase per photograph; the browser
-    reconnecting to a build in flight (product gap);
-  - **about 30–65 credits**, budget 70, hard cap 1018. With spend `no` it
-    runs a free preflight and stops.
-- **The deployed image supports both**: product code is byte for byte deploy
-  2191's. The predicted image is unchanged, `8d6dbcea93252fbb` (204 inputs).
-  **No rebuild or deploy is needed.**
-
-**Verification of the corrections**
-- `canary-build` 17 and `canary-addon-photo` 8 pass; all canary files 555 of
-  555.
-- Real-driver regressions: failed or ambiguous slug lookups send nothing;
-  unexplained spending, a partial window or an unsteady reading fails.
-- Red check on `977a1422`: Codex's cases passed there and fail now.
-- Sweep: 18 mutants, 17 killed; the 1 survivor is equivalent; the control
-  survived.
-- Full suite `10320 / 10320 / 0 / 0` locally (on `2104ed81`'s code); CI unit tests green on `c7b895b4` (run 38019302087: `10320 / 10279 / 0 / 41`).
-
-**The boxes, when you approve a press** (nothing is pressed yet)
-- **Add-on**: *edit canary* → *RUN A NAMED SCENARIO…* `lv-addon-photo`,
-  spend `yes`.
-- **Build**: *build as owner* → mode `check`, *check only: yes sends the
-  build* `yes` (or `no` first, for a free preflight).
+**Remaining gaps**
+- The photograph path failed live; its cause is unconfirmed (fal).
+- A progress line can claim a photograph that was not made.
+- Provider purchase-once stays unverified by any press.
+- The browser cannot reconnect to a build in flight (open product gap). The
+  Build check's continuation is API-only and has not run live.
+- Build overlap, model-written build progress, build photographs and build
+  billing have not been shown live.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — The approved Add-on press failed on its photograph; the Build check was not pressed (19 credits)
+
+On your approval of one `lv-addon-photo` run and one first-Build check:
+- **Fixes before any paid run**: `86339469`, `5ea7230a` and `2092de4b`, all
+  script and workflow; no product change, image unchanged.
+- **Free preflights**:
+  - Add-on: run 38049173398 passed (run 38048916974 refused at once: the
+    scenario name was in the batch box);
+  - Build: run 38049362223 passed (runs 38049032515 and 38049268263 stopped
+    on the fixed issues).
+
+  None charged anything.
+- **Paid Add-on, run 38049499667**: failed.
+  - The page and menu links landed with everything else intact.
+  - **The photograph was not made** (`made 0` in 2.6 s, likely fal). Empty
+    frame left, reported as partial; one progress line overstated it.
+  - **19 credits** (routing 3, job 16), reconciled; no charge for the
+    photograph.
+- **The Build check was not pressed** (stop condition). Nothing repeated.
 
 ---
 

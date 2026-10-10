@@ -331,3 +331,85 @@ passing; the canary files together 555 of 555.
 - **Full suite**: `10320 / 10320 / 0 / 0` locally on `2104ed81`'s code; CI
   unit tests green on `c7b895b4` (run 38019302087, `10320 / 10279 / 0 / 41`).
 
+## The approved presses (2026-10-10): the Add-on press (run 38049499667) failed on the photograph; the Build was not pressed
+
+Approved by the owner after Codex reviewed `daded612`: one `lv-addon-photo`
+run and one first-Build check, against deployed `main` `f96cbfd5` and image
+`8d6dbcea93252fbb`. The branch carried three fixes made before any paid run,
+each because a free preflight would otherwise have stopped:
+- `86339469`: the ledger is `credit_events.uid`, not `user_id` (read live);
+- `5ea7230a`: the check skips the workflow's wait for its own commit's
+  deploy (run 38049032515 waited for a branch deploy that never comes);
+- `2092de4b`: the check gets the public anon key `build-as-owner` already
+  falls back to (run 38049268263: no such secret).
+
+None touches product code; the image stays `8d6dbcea93252fbb`.
+
+**The free preflights**
+- Add-on: run 38048916974 refused at once, because the scenario name was
+  in the batch box (no sign-in, nothing charged). Pressed again as run
+  38049173398, which passed: Worker `f96cbfd5`, cold container
+  `8d6dbcea93252fbb`, every free check, the bakery read whole (11 pages, no
+  bakers page), the message typed and not sent.
+- Build: run 38049362223 passed. It signed in and read the balance (990)
+  steadily against the ledger. The slug is verified free: site table 200
+  with no row, build records 200 with no row, address 404. Nothing was sent.
+
+**The paid Add-on press, run 38049499667 (11:44–11:57 UTC): workflow
+`failure`, 56 checks, 50 passed, 6 failed**
+- **What landed**:
+  - a new `/bakers` page ("Meet the Bakers"), stored and served 200;
+  - every page's menu gained one labelled link to it, keeping its items;
+  - every other stored page byte for byte as it was; no other page or file
+    added; description, logos and tables unchanged.
+- **The photograph was not made.**
+  - The job's trace (`e_mv2bx4sh29oq4ksh`) reads
+    `photos: planned 1, offered 1, made 0`, in 2.6 s, too fast for a real
+    generation, so the provider refused or failed at once.
+  - Its note: *"Couldn't make the photographs this time, so the pictures are
+    placeholders."*
+  - The stored page holds an empty frame: `SafeImage src=""`, alt "Three
+    bakers shaping loaves at a long wooden bench at night".
+  - **Image storage and placement**: not established. No new image was
+    stored (uploads gained none), nothing was placed, and the only image on
+    the served page is the header logo.
+  - **Provider purchase-once**: not verified (as designed). Whether fal was
+    called, and whether it billed, is not readable by a press.
+  - The cause is not proven. fal's balance is behind an owner-authenticated
+    route (`/api/fal-balance`), which this session cannot call.
+- **The 6 failures**:
+  - the request ended `partial@addon`;
+  - the photograph's four checks (stored, drawn with words, address serves,
+    uploads gained one);
+  - the final card names the part partial: *"I added some of the Meet the
+    Bakers page and menu link, but not all of it."*
+- **Honest reporting at the end**:
+  - the card went to partial;
+  - the model-written reply says the photograph could not be put on the
+    page and that the frame waits for an upload;
+  - the cover note lists the photograph as still to do.
+- **One overstated progress line**: at 356 s a model-written line said the
+  page was added *"with a photograph of you shaping loaves at the bench"*.
+  The photo step had already ended with nothing made, at about 300 s after
+  the send. Recorded as a finding (a progress fact claimed the photograph);
+  not fixed here.
+- **Progress and continuation**:
+  - the first line showed live in the sending tab at 106 s;
+  - the tab was closed;
+  - a fresh browser session followed the request to its end and showed every
+    earlier line;
+  - the progress checks passed apart from the final-state one above.
+- **Money: 19 credits, fully reconciled**:
+  - ledger row 431, routing 3 (`route:fold-lane-bakery:cadfb44a…`);
+  - ledger row 432, the job's one reserve of 16
+    (`a547111c40cfb681bece7da50c09c3b1#1`);
+  - 990 → 971 exactly, with no other row and no open job;
+  - the add-on bills photographs on `made`, never `planned`, so the missing
+    photograph was not charged.
+- **The page and its menu links stay** (the demo-site rule).
+
+**Stopped.** The requested outcome failed (the photograph), so per the
+approval the Build check was **not** pressed and neither run is repeated.
+The Build check also buys photographs, so it would likely meet the same
+provider failure. Its preflight passed and it remains ready.
+
