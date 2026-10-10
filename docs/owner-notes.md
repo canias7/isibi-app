@@ -69,7 +69,11 @@ and the job rows, all read-only)
   - focused families `909 / 909 / 0 / 0` before the last assertions were
     added.
 
-  The full suite and CI are stamped in the dated entry below once read.
+  - full suite `10295 / 10295 / 0 / 0`;
+  - CI on `ac3e5eca`: unit tests green (run 38006507027,
+    `10295 / 10254 / 0 / 41`) and site build green (run 38006507026);
+  - the image would move `9236fe341b77544d` → **`8d6dbcea93252fbb`**
+    (predicted, 204 inputs).
 
 **The follow-up press, ready but not pressed** (`lv-parallel`, fresh
 targets read live)

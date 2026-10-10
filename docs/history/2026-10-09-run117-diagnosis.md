@@ -145,6 +145,12 @@ been routing beside a step, not two pieces of work.
   timeline not handed to the press) was killed by the assertion added for
   it.
 
+**Suite and CI**:
+- full suite `10295 / 10295 / 0 / 0`;
+- on `ac3e5eca`, unit tests green (run 38006507027, `10295 / 10254 / 0 /
+  41`) and site build green (run 38006507026);
+- predicted image `8d6dbcea93252fbb` (204 inputs).
+
 ## The follow-up press (fresh targets, not pressed)
 
 `lv-parallel` is re-pointed. Read live (free GETs) before the change:
