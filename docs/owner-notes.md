@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, the missing-photograph correction closed as verified offline; release and recovery prepared, waiting on fal)
+## Current handoff — read this first (2026-10-10, a first build found again after a reload or in another session; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,62 +9,97 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged; the correction is
-  `8b662cdb` and `a8870276`, with records after.
-- **CI**:
-  - on `0d4fd6e9`: unit tests 38053798352 green (a documents-only push, so
-    no site build ran);
-  - on `2300a739`, the same code: unit tests 38053365746 and site build
-    38053365759, green.
-- **Closed as verified offline** (you, after Codex passed all 35 tests on
-  `0d4fd6e9`):
-  - **model inputs are tested**: every progress, reply and requirements
-    request, through the real routes and the real queued writer while a job
-    runs;
-  - **real-model wording is not**.
-- **Kept**: the Meet the Bakers page and its menu links on
-  `fold-lane-bakery`; the photograph's frame is empty.
-- **fal's balance is empty.** Nothing proceeds until you confirm it is
-  funded, and funding alone authorizes no deploy and no spending.
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. It carries the
+  missing-photograph correction (`8b662cdb`, `a8870276`) and now the Build
+  reconnection (`47be3540`), with records after.
+- **The missing-photograph correction is closed** as verified offline: model
+  inputs tested, real-model wording not.
+- **fal is not being topped up**, and it no longer holds the project up.
+  Paid image generation stays paused; the work goes on with offline image
+  mocks. **Real-image generation is unverified.**
 - **Balance 971.** Read the ledger before relying on it.
 
-**Prepared, not run** (the full sequence with every box is in
-`docs/history/2026-10-10-missing-photo-progress.md`, "The release and
-recovery sequence"). Each step needs your word and your press:
-1. **Release once.**
-   - Pre-merge checks (nothing in flight, CI green, rollback verified).
-   - Fast-forward `main` to the branch head; one deploy run. The image is
-     predicted `8d6dbcea93252fbb` → `a7c974c472a4f6e0`, and `public/` is
-     unchanged.
-2. **Runtime**: wait 15–20 minutes, then your free canary press must answer
-   the new sha and image.
-3. **Recovery, one paid edit** on `fold-lane-bakery`:
-   - the message: *"On the Meet the Bakers page, put a photograph of the
-     three of us shaping loaves at a long wooden bench at night into the
-     empty picture frame."*;
-   - expected route `intent=edit layer=picture page=/bakers alsoAsked=none`;
-   - about **21–24 credits** (an estimate, not a cap);
-   - pass, judged separately:
-     - **placement**: the frame shows a stored photograph, and nothing else
-       changed;
-     - **charges**: the ledger shows routing plus one photograph in the
-       edit's reserve, matching the balance move.
-   - The number of provider calls is not a criterion, because no press can
-     read it. Provider purchase-once stays unverified.
-4. **Then the prepared Build check** (`copperleaf-tea-room`, 30–65 credits),
-   only if step 3 passes; its free preflight first.
+**The Build reconnection** (`docs/history/2026-10-10-build-reconnect.md`)
+- **The gap**: a first build's job id lived only in the browser's memory
+  while its POST waited. A reload, a closed tab or another device lost the
+  build's reply, and the next message in that chat started a second, paid
+  build.
+- **Now**, reusing the durable build jobs (row, R2 job, resume, progress
+  record, answer):
+  - at acceptance the account records which chat asked; a second first-build
+    POST for that chat while it runs is answered with the running build, and
+    nothing is filed, queued or charged;
+  - the build's final answer is kept for its owner, so the poll can serve it
+    again after its read-once slot is gone;
+  - `GET /api/site/builds` lists the account's own builds: running (with the
+    model's progress lines), done, failed or unknown;
+  - on open, the builder picks up each build still owed to its chat. It
+    follows a running one or shows an ended one through the existing build
+    code, and never POSTs. A fresh session creates the chat from the
+    customer's words.
+- **Tests**: 16 offline cases (10 server, 5 browser, 1 state rules) covering
+  reload, a fresh session, running, completed, failed and lost builds,
+  duplicate polling and account isolation, through the real Worker routes
+  and the real `chat.js` follow. Images are mocked; progress comes from a supplied
+  writer.
+- **Red check**: 11 of 13 fail or hang on the old code; RC 6 (a control) and
+  RC 8 (the module's own rules) pass.
+- **Sweep**: 19 of 19 killed and the comment control survived. Two
+  survivors from the first pass were killed by RC 10 and RB 5.
+- **Full suite**: 10,358 tests. 10,357 passed before the commit; the one
+  failure was `container-images.test.mjs`, which needs every image input to
+  be a git object, and `builder/build-live.mjs` was not yet committed. On
+  `47be3540` that file passes 17 of 17.
+- **Four guards were fixed at their cause**: the Dockerfile tree, one chat
+  refusal, the private prefixes and the `buildDone` anchor. Details are in
+  the history doc.
+- **Image**: `worker.js` now imports `builder/build-live.mjs`, so the
+  container copies it. The prediction is production `8d6dbcea93252fbb` →
+  `a2ad6fa4a83ace7c` (205 inputs, 174 paths). The earlier `a7c974c472a4f6e0`
+  is superseded. Nothing is built until a deploy you approve.
+- **CI**: read after the push; see the next commit's records.
 
-**Limits that stay**: the browser cannot reconnect to a build in flight;
-purchase-once can't be verified by a press; real-model wording is not
-measured; an Add-on purchase that throws leaves anything it stored unplaced.
+**Limits that stay**
+- Inline builds (no queue) and builds accepted before this change aren't
+  listed.
+- A fresh session gets the customer's words and the result, not earlier
+  local conversation.
+- Simultaneous same-chat POSTs are guarded by a conditional write but only
+  tested in sequence.
+- Real-model wording is not measured, and purchase-once can't be verified by
+  a press.
+- An Add-on purchase that throws leaves anything it stored unplaced.
 
-No top-up, merge, deploy, container rebuild or paid test without your word.
+**Still prepared, not run**: the release and photo recovery sequence in
+`docs/history/2026-10-10-missing-photo-progress.md`. It needs paid image
+generation, so it stays paused.
+
+No top-up, paid provider call, merge, deploy or container rebuild without
+your word.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — A first build found again after a reload or in another session (offline; not deployed)
+
+- **You**: fal is not being topped up, and that is not a blocker for the
+  whole project. Paid images stay paused, and offline mocks are used. You
+  closed the missing-photo correction and asked for the Build reconnection.
+- **Done**:
+  - the account's accepted builds are recorded by chat;
+  - a repeat POST for a running chat follows the running build;
+  - the final answer is kept for its owner;
+  - `GET /api/site/builds` lists the builds;
+  - the builder picks them up on open, with no resend, restart or charge.
+- **Verified offline**: 16 cases, a red check, a sweep (19 of 19) and the
+  full suite (10,358; see the handoff).
+- **Not done**: any live run. Real images and real-model wording are
+  unverified.
 
 ---
 
