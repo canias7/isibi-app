@@ -169,7 +169,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -253,7 +253,7 @@ import {
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
   tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
-  takeOverRecord, buildStepFacts,
+  takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
@@ -14287,15 +14287,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // is reused, one the writer changed is bought now — and a picture the
       // task bought that no page wrote is told as stored (`alongside`), never
       // as placed, and is not in `made`, which is what the bill counts.
-      return withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget, buy: purchaseBuyer(env, { slug, key: photoKey, n: 0, owner: photoOwner, pending: photoTask ? photoTask.pending : null }) })
+      const bought = withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget, buy: purchaseBuyer(env, { slug, key: photoKey, n: 0, owner: photoOwner, pending: photoTask ? photoTask.pending : null }) })
         .then(async (r) => {
-          // THE PHOTOGRAPHS NOT MADE (2026-10-10): every frame the pages hold
-          // a token for, tried or past what could be paid for, less what was
-          // made — told on the live lines as not done, and kept missing after.
-          if (r && typeof r === "object") {
-            const missing = Math.max(0, (Array.isArray(r.attempted) ? r.attempted.length : 0) + (Array.isArray(r.notTried) ? r.notTried.length : 0) - (Number(r.made) || 0));
-            if (missing) try { mark?.("photos-missing", { missing }); } catch { /* a trace must never break a build */ }
-          }
           if (!photoTask || !r || typeof r !== "object") return r;
           const done = await photoTask.settled;
           const placed = new Set((Array.isArray(r.bought) ? r.bought : []).map((x) => x && x.url));
@@ -14306,6 +14299,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           try { mark?.("photos-joined", { started: photoTask.started, used: done.filter((x) => x.url && placed.has(x.url)).length, unused: alongside.length }); } catch { /* a trace must never break a build */ }
           return alongside.length ? { ...r, bought: [...(r.bought || []), ...alongside], alongside: alongside.length } : r;
         }), { plan, budget: imgBudget, notOffered: imgNotOffered });
+      // THE PHOTOGRAPHS NOT MADE, EITHER WAY THE STEP ENDS (2026-10-10): read
+      // from each picture's own outcome (`pictureOutcomes`, on the answer or on
+      // the error) — a known failure apart from an outcome nobody can tell —
+      // and, when the step THREW, the pictures the photo task had already made
+      // and saved, said as saved and not placed rather than lost. Told on the
+      // live lines as not done, and kept so on every later line.
+      const sayPhotos = (pictures, stored) => {
+        const step = buildPhotoOutcome(pictures, { stored });
+        if (step) try { mark?.("photos-missing", step); } catch { /* a trace must never break a build */ }
+      };
+      return bought.then((r) => { sayPhotos(r && r.pictures, []); return r; }, async (e) => {
+        const stored = photoTask ? await photoTask.settled.then((rs) => rs.filter((x) => x && typeof x.url === "string" && x.url).map((x) => x.d), () => []) : [];
+        sayPhotos(e && e.pictures, stored);
+        throw e;
+      });
     },
     compile: async (pages, builtParts) => {
       // THE FONTS, JOINED HERE (round 5): fetched beside the photographs, or
@@ -36418,7 +36426,11 @@ async function handleRequest(request, env, ctx) {
                 aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
                 if (aParts) aParts = applyImages(aParts, new Map());
                 aMark("photos", "fail", { planned: aFold.photos.length, offered: aShots.length });
-                if (aJob && aJob.progress) aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos }));
+                // A THROWN PURCHASE IS AN OUTCOME NOBODY CAN TELL (2026-10-10):
+                // some may have been made before it threw, so each is said as
+                // not confirmed and its frame left empty — never as not made.
+                aPhotos.thrown = true;
+                if (aJob && aJob.progress) aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos, unsure: aShots.map((x) => x.describe) }));
               }
               // ── AND THE PICTURES ARE BILLED ────────────────────────────────
               //
@@ -36455,6 +36467,18 @@ async function handleRequest(request, env, ctx) {
               // NONE OFFERED (2026-10-10): the balance could pay for no photograph,
               // so every one the design asked for is not made, and said so.
               aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos }));
+            }
+            // EVERY PHOTOGRAPH THE DESIGN ASKED FOR AND THIS CHANGE DID NOT MAKE
+            // IS NOT ADDED (2026-10-10, after the Add-on press): from the
+            // purchase's own result, so the part is partial whether or not a
+            // designer wrote a requirement about it — one a requirement names is
+            // told by that requirement's outcome instead, once.
+            // A THROWN PURCHASE'S PHOTOGRAPHS ARE NOT KNOWN NOT MADE: told as
+            // unconfirmed, the purchase's own word for a cannot-tell.
+            const aThrewOn = aPhotos && aPhotos.thrown ? aShots.map((x) => x.describe) : [];
+            for (const x of photosNotMade({ planned: aFold.photos, bought: aPhotos ? aPhotos.bought : [], pending: aPendingPhotos, unconfirmed: aPhotos ? aPhotos.unconfirmed : [], requirements: aReq })) {
+              if (aThrewOn.some((d) => shotKey(d) === x.describe)) aNotAdded.push({ kind: "photo", name: x.describe.slice(0, 120), why: "purchase-unconfirmed", msg: "A photograph for this was being bought and I can't tell whether that purchase went through, so its frame is left empty." });
+              else aNotAdded.push({ kind: "photo", name: x.describe.slice(0, 120), why: "photo-not-made", msg: "The photograph \u201c" + x.describe.slice(0, 120) + "\u201d couldn't be made, so its frame on the page is left empty." });
             }
             // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
             //

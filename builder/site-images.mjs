@@ -1163,6 +1163,40 @@ export function parseImageTokens(pages) {
  * leave an already-keyed string alone — so it does not matter which side of a
  * comparison has been through it before.
  */
+/**
+ * THE PHOTOGRAPHS AN ADDITION DESIGNED AND DID NOT MAKE (2026-10-10, after the
+ * Add-on press): each `{ page, describe }` the design asked for whose purchase
+ * neither made it (`bought`), left it waiting on a purchase nobody can tell yet
+ * (`pending`), nor left it unconfirmed (`unconfirmed`, told on its own) — a
+ * refusal, a failure, a whole purchase thrown, or a balance that paid for
+ * none. Code evidence, never a model's word: the part is partial whether or
+ * not a designer wrote a requirement about the photograph. One a requirement
+ * already names (`requirements`, by its item: the description, the short name
+ * or the page) is left to that requirement's own outcome, so it is told once.
+ */
+export function photosNotMade({ planned = [], bought = [], pending = [], unconfirmed = [], requirements = [] } = {}) {
+  const low = (v) => shotKey(v).toLowerCase();
+  const made = new Set((Array.isArray(bought) ? bought : []).map((b) => shotKey(b && b.key)).filter(Boolean));
+  const waiting = new Set((Array.isArray(pending) ? pending : []).map((p) => shotKey(p && p.key)).filter(Boolean));
+  const unsure = new Set((Array.isArray(unconfirmed) ? unconfirmed : []).map((d) => shotKey(d)).filter(Boolean));
+  const named = new Set((Array.isArray(requirements) ? requirements : [])
+    .filter((r) => r && typeof r === "object" && (r.kind === "photo" || r.step === "photo" || r.from === "photo") && typeof r.item === "string")
+    .map((r) => low(r.item)).filter(Boolean));
+  const out = [];
+  const seen = new Set();
+  for (const p of Array.isArray(planned) ? planned : []) {
+    const d = shotKey(p && typeof p === "object" ? p.describe : p);
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    if (made.has(d) || waiting.has(d) || unsure.has(d)) continue;
+    const name = p && typeof p === "object" && typeof p.name === "string" ? p.name : "";
+    const page = p && typeof p === "object" && typeof p.page === "string" ? p.page : "";
+    if ([d, name, page].some((x) => x && named.has(low(x)))) continue;
+    out.push({ page: page || "/", describe: d, ...(name ? { name } : {}) });
+  }
+  return out;
+}
+
 export function shotKey(describe) {
   return String(describe == null ? "" : describe)
     .replace(/\s+/g, " ").trim();

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, a failed photograph now stays missing in every later progress line; not deployed)
+## Current handoff — read this first (2026-10-10, the missing-photograph correction finished: refused, failed, uncertain and thrown photographs told truly on every later line; not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,75 +9,106 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged. Nothing merged, deployed or rebuilt.
-- **The branch** `claude/help-needed-ehlwlj` carries the progress fix (this
-  handoff's commit) on top of `5c7aba5f`. The image prediction is below.
-- **fal's balance is empty** (you confirmed). That is the known reason image
-  generation is unavailable. The image retry and the Build test stay paused
-  until you fund fal.
-- **Balance 971**, unchanged since the Add-on press. Read the ledger before
-  relying on it.
+- **The branch** `claude/help-needed-ehlwlj`: the first round is `8b662cdb`
+  (Codex passed its 24 tests on `f2ae6556`; CI there: unit 38051538891 and
+  site build 38051538922, both green). This round is the commit carrying
+  this handoff.
+- **fal's balance is empty** (confirmed). The image retry and the paid Build
+  test stay paused until you fund fal.
+- **Balance 971**, unchanged. Read the ledger before relying on it.
 
-**The fix: what the progress writer is told (lines stay model-written)**
-- **Before**, the writer never heard what happened to a photograph. Only the
-  customer's words named it, so at 356 s it wrote *"with a photograph"*.
-- **Now**:
-  - the pages milestone says each photograph is still to make and not on the
-    page yet;
-  - a photographs milestone, from the purchase's own result, says each one
-    made or **not made**. It is marked on the result, the thrown purchase and
-    the nothing-affordable case;
-  - **every later line is told "STILL NOT MADE"** with each missing item,
-    after the earlier updates;
-  - two writer rules: describe only what the facts say (never a detail from
-    the request, such as a photograph); anything not made stays missing in
-    every update;
-  - the first build does the same: `photos-missing` counts the photographs
-    not made, from the purchase's result.
-- The page, the menu links, the other pages, the reply and the billing are
-  unchanged. A photograph not made was already not charged.
+**What this round fixed**
+1. **Why the test request ended `done` while the live one ended `partial`.**
+   - Live, the designer wrote a requirement for the photograph, and the
+     requirement check found it missing.
+   - The fixture had no such requirement, and nothing else in the product
+     said a designed photograph wasn't made. The status depended on a model
+     writing that requirement.
+   - Reproduced through the real route with the live request's own
+     requirements: `partial`, the photograph's requirement still to do, as
+     live.
+   - **Fixed in the add-on**: a designed photograph the purchase did not make
+     is now "not added" from the code's own evidence, so the part is
+     `partial` whether or not a requirement exists.
+   - A photograph a requirement names is told once, by that requirement.
+   - A thrown purchase is told "can't tell", never "not made".
+2. **A Build image step that throws** now gives later lines accurate facts,
+   in three kinds kept apart:
+   - known not made (refused, failed or never tried);
+   - can't tell (a lost answer or a throw), never bought again;
+   - made and saved before the throw, said as saved and not placed, never
+     lost.
+3. **The real queued writer, while the job runs.** The add-on job is held at
+   the photo call, at its publish milestone and at its compile. At each hold
+   the writer's queued tasks go through the real consumer, and every request
+   it sends is checked:
+   - **refused**: the photo is said "still to make", then "not made", then
+     "not done" on a later line, still during the job. The part ends
+     partial, the reply writer is told, and the photo isn't charged;
+   - **storage failure** and **lost answer**: pending on every line, never
+     made or not made, and never bought twice;
+   - **successful placement**: made and placed, nothing listed as not done,
+     charged once.
+   - The page and menu changes are kept in every case. The progress lines
+     stay model-written.
 
-**Verified offline (supplied model, stand-in services)**
-- `test/progress-missing-photo.test.mjs`, 10 cases, all passing:
-  - through the real Worker with fal answering 403 "Exhausted balance": the
-    Visit change and the new page are kept (empty frame, no token), the
-    photograph is said not made, nothing says it was made, and it is not
-    charged;
-  - every later line is told it is still not made. The route's real
-    milestones are replayed through the writer's own functions, one line per
-    milestone and also batched;
-  - controls: a made photograph (said made, charged once); a lost answer
-    (said as still being confirmed, never made or not made);
-  - the facts, the missing list, the rules and the wiring.
-- **BLD 13**: a first build with every picture refused publishes its pages,
-  says four not made, and every later line lists them.
-- **Red check**: on the old code BLD 13 fails, and the new file cannot load.
-- **Sweep**: 18 of 18 killed; the control survived.
-- **Full suite** locally: `10331 / 10331 / 0 / 0`.
+**What the tests prove, and what they don't**
+- **Proven**: what every model request contains (progress lines during a
+  running job, the reply writer's facts, the requirements check), and the
+  outcomes: pages, statuses, purchases, provider calls and charges.
+- **Not proven**: a real model's wording. Every model here is supplied and
+  repeats its facts, and nothing in code reads a line's words. No model was
+  called.
+- **A thrown image step can't be reached through either route offline**:
+  every failure inside a purchase is caught per photo. Its facts are shown
+  from the real code that produces them, and its wiring by source checks.
+
+**Verified offline**
+- 15 missing-photo cases, 5 live-writer cases, BLD 13 and BLD 14.
+- **Red check**: on the previous code the refused live-writer case and BLD
+  13–14 fail; the controls pass there, as they should.
+- **Sweep**: 14 of 14 killed; the control survived.
+- The 236 files touching photos, progress or add-ons: 6,412 of 6,412.
+- **Full suite** locally: `10342 / 10342 / 0 / 0` (10,331 before plus the 11 new cases).
+- **Image**: YYIMGYY
 - **CI**: YYCIYY
-- **Image**: `8d6dbcea93252fbb` → `21350e8c8a057be4` predicted (204 inputs, 173 paths; `builder/site-progress.mjs` is an input). A deploy would rebuild it, then wait 15–20 minutes.
 
 **Remaining gaps**
-- **Real-model wording is not measured.** Nothing in code reads a line's
-  words. What is proven is what the writer is told.
-- **No line is shown being written mid-job in the request harness**: the job
-  ends first there. The later-line property is shown by the replay.
-- **A build whose whole image step throws** says nothing about missing
-  photographs.
-- **In the harness, a refused photograph's part ends `done`**, while live it
-  ended `partial@addon`. Not asserted here; recorded in the history doc.
-- **Paused until fal is funded**: the image retry, the Build test,
-  purchase-once, build overlap and photographs, and browser reconnection to a
-  build (an open product gap).
-- No top-up, deploy or paid test without your word. A deploy of this fix
-  needs your word too.
+- Real-model wording (above), and no live run: paused until fal is funded.
+- **The add-on's thrown purchase** says "can't tell" for every photo it was
+  buying. Ones it may have stored before throwing are not placed later by
+  this path (purchase-once stops a second purchase).
+- **Browser reconnection to a build in flight** is still an open product
+  gap.
+- No top-up, merge, deploy, container rebuild or paid test without your
+  word.
 
-Details: `docs/history/2026-10-10-missing-photo-progress.md`.
+Details: `docs/history/2026-10-10-missing-photo-progress.md`, second round.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — The missing-photograph correction finished (offline; not deployed)
+
+After Codex passed `f2ae6556`:
+- **Fixture `done` vs live `partial`**:
+  - **Cause**: no requirement in the fixture, and no code evidence for a
+    photo that wasn't made.
+  - **Fixed**: `photo-not-made` from the purchase's own result, told once.
+- **A thrown Build image step**: told as known-failed, can't-tell or
+  saved-not-placed. A thrown Add-on purchase is "can't tell".
+- **The real queued writer during a running job, with controlled timing**:
+  refused, storage failure, lost answer and success, all through the route.
+- What is proven is the model inputs and the outcomes, not real-model
+  wording.
+- Red check, sweep 14 of 14.
+- Not deployed. The image retry and the Build test stay paused until fal is
+  funded.
 
 ---
 

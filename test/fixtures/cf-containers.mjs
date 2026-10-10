@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null } = {}) {
   const calls = [];
   COMPILER = {
     calls,
@@ -119,6 +119,9 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
         // past the thing it is checking.
         return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 503 });
       }
+      // A CASE'S OWN HOLD ON THE BUILD (2026-10-10): awaited before the answer,
+      // so a case can hold a job at its compile while something else runs.
+      if (typeof before === "function") await before(body);
       if (!ok) return new Response(JSON.stringify({ ok: false, error: error || "compile failed" }), { status: 200 });
       // THE FILES BACK, WHICH IS WHAT AN UNCHANGED SOURCE REALLY COMPILES TO.
       // Inventing a dist here would be a fixture in a shape the pipeline never

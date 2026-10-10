@@ -56,7 +56,7 @@ function routeSrc(body) {
 }
 
 /** The image service, stood in for: every purchase logged with when it began and ended; `hold(i)` may delay one; `refuse` answers every one as an empty balance does (403). */
-function images({ hold = null, refuse = false } = {}) {
+function images({ hold = null, refuse = false, lost = false } = {}) {
   const log = [];
   return {
     log,
@@ -70,6 +70,7 @@ function images({ hold = null, refuse = false } = {}) {
         if (hold) await hold(e);
         e.end = Date.now();
         if (refuse) return json({ detail: "User is locked. Reason: Exhausted balance." }, 403);
+        if (lost) throw new TypeError("connection reset");
         return json({ images: [{ url: "https://img.test/p" + (e.i + 1) + ".jpg" }] });
       }
       if (u.startsWith("https://img.test/")) {
@@ -600,8 +601,32 @@ test("BLD 13 — THE PHOTO SERVICE REFUSES EVERY PICTURE (an empty balance, 2026
   const { texts } = replayLines(rec);
   const { at, later } = afterNotMade(texts, missing);
   assert.ok(at >= 0 && later.length >= 1, "no line after the not-made fact: the check would be empty");
-  for (const t of later) assert.match(t.split("WHAT HAS HAPPENED SINCE")[0], /STILL NOT MADE IN THIS WORK[^]*4 photographs could not be made/, t);
+  for (const t of later) assert.match(t.split("WHAT HAS HAPPENED SINCE")[0], /NOT DONE IN THIS WORK[^]*4 photographs could not be made/, t);
   noPublishClaim(facts);
+});
+
+test("BLD 14 — EVERY PICTURE'S ANSWER LOST (the calls left; nothing came back): the build publishes with empty frames; its live lines say the four could not be CONFIRMED as made — never that they could not be made, never placed — and every later line keeps it so; nothing is billed and nothing is bought again by the resume", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images({ lost: true });
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on" }, over: both });
+  const asked = img.log.length;
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", BUILD_QUEUE: taskQueue() }, source: pageOf(PICS), over: both });
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  assert.equal(body.images.made, 0);
+  assert.equal(img.log.length, asked, "the resume bought again what nobody can tell was bought");
+  assert.ok(!published(b).includes("@@IMG"));
+  const rec = stand.recOf();
+  const step = allFacts(rec).filter((f) => f.stage === "build-photos-missing");
+  assert.deepEqual(step.map((f) => [f.state, f.text]), [["notdone", "4 photographs could not be confirmed as made, so their places on the pages are left empty, and they are not bought again."]], JSON.stringify(step));
+  const { texts } = replayLines(rec);
+  const { at, later } = afterNotMade(texts, step[0]);
+  assert.ok(at >= 0 && later.length >= 1);
+  for (const t of later) assert.match(t.split("WHAT HAS HAPPENED SINCE")[0], /NOT DONE IN THIS WORK[^]*could not be confirmed as made/, t);
+  noPublishClaim(allFacts(rec));
 });
 
 test("NET — no request in this file left the machine", () => {

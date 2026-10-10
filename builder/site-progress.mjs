@@ -371,10 +371,40 @@ export function buildStepFacts(step) {
     // line claimed a photograph that never arrived): counted from the purchase's
     // own result, said as not done, and kept missing in every later line
     // (`missingFacts`).
-    case "photos-missing": return n("missing") ? [fact("notdone", (n("missing") === 1 ? "A photograph" : n("missing") + " photographs") + " could not be made, so " + (n("missing") === 1 ? "its place on the page is" : "their places on the pages are") + " left empty.")] : [];
+    case "photos-missing": {
+      const one = (k) => n(k) === 1;
+      const out = [];
+      if (n("missing")) out.push(fact("notdone", (one("missing") ? "A photograph" : n("missing") + " photographs") + " could not be made, so " + (one("missing") ? "its place on the page is" : "their places on the pages are") + " left empty."));
+      if (n("unsure")) out.push(fact("notdone", (one("unsure") ? "A photograph" : n("unsure") + " photographs") + " could not be confirmed as made, so " + (one("unsure") ? "its place on the page is" : "their places on the pages are") + " left empty, and " + (one("unsure") ? "it is" : "they are") + " not bought again."));
+      if (n("stored")) out.push(fact("notdone", (one("stored") ? "A photograph was" : n("stored") + " photographs were") + " made and saved, but not put on the pages."));
+      return out;
+    }
     case "compile": return [fact("doing", "Putting the site together and checking it builds and renders before it is published.")];
     default: return [];
   }
+}
+
+/**
+ * A FIRST BUILD'S PHOTOGRAPHS AS THE IMAGE STEP LEFT THEM (2026-10-10), for
+ * its `photos-missing` milestone: from each offered picture's own outcome
+ * (`pictureOutcomes`), counted three ways a reader must not mix up —
+ *   missing  known not made: refused or failed, or never tried (the balance,
+ *            the library or the clock stopped it);
+ *   unsure   nobody can tell whether it was made: a purchase whose answer
+ *            never came, or a step that threw while buying (never bought again);
+ *   stored   made and saved by the photo task, but the step threw before
+ *            placing it (`stored`, its descriptions) — kept, never said lost.
+ * Null when every offered picture was made (or none was offered).
+ */
+export function buildPhotoOutcome(pictures, { stored = [] } = {}) {
+  const list = Array.isArray(pictures) ? pictures.filter((p) => p && typeof p === "object" && typeof p.describe === "string") : [];
+  const saved = new Set((Array.isArray(stored) ? stored : []).map((d) => flat(d)).filter(Boolean));
+  let missing = 0, unsure = 0, kept = 0;
+  for (const p of list) {
+    if (p.status === "failed" || p.status === "not-attempted") missing++;
+    else if (p.status === "unknown") { if (saved.has(flat(p.describe))) kept++; else unsure++; }
+  }
+  return missing || unsure || kept ? { missing, unsure, stored: kept } : null;
 }
 
 /** The record as it is written: the same fields, with nothing the reader would refuse. */
@@ -856,15 +886,18 @@ export function addonPagesFacts({ added = [], changed = [], linked = [], photos 
  * later line still said the page was added "with a photograph"): each one the
  * design asked for, by its description, from the purchase's own result — made
  * and placed (`bought`), waiting on a purchase nobody can tell yet (`pending`,
- * said at the publish), or not made: refused, failed, unconfirmed and left
- * empty, not offered because the balance could not pay, or the whole purchase
- * thrown. A photograph not made is `notdone`, and stays missing in every later
- * line (`missingFacts`).
+ * said at the publish), not confirmed because the whole purchase threw
+ * (`unsure`: some may have been made, so never "not made"), or not made:
+ * refused, failed, or not offered because the balance could not pay. Either
+ * of the last two is `notdone`, and stays so in every later line
+ * (`missingFacts`).
  */
-export function addonPhotosFacts({ planned = [], bought = [], pending = [] } = {}) {
+export function addonPhotosFacts({ planned = [], bought = [], pending = [], unsure = [] } = {}) {
   const key = (v) => flat(v);
   const made = new Set((Array.isArray(bought) ? bought : []).map((b) => key(b && b.key)).filter(Boolean));
   const waiting = new Set((Array.isArray(pending) ? pending : []).map((p) => key(p && p.key)).filter(Boolean));
+  // A PURCHASE THAT THREW (2026-10-10): whether it made these nobody can tell.
+  const cannotTell = new Set((Array.isArray(unsure) ? unsure : []).map((d) => key(d)).filter(Boolean));
   const out = [];
   const seen = new Set();
   for (const p of Array.isArray(planned) ? planned : []) {
@@ -872,7 +905,9 @@ export function addonPhotosFacts({ planned = [], bought = [], pending = [] } = {
     if (!d || seen.has(d)) continue;
     seen.add(d);
     if (made.has(d)) out.push(fact("prepared", "The photograph " + quote(d) + " was made and put on the page. Not published yet."));
-    else if (!waiting.has(d)) out.push(fact("notdone", "The photograph " + quote(d) + " could not be made, so its place on the page is left empty."));
+    else if (waiting.has(d)) continue;
+    else if (cannotTell.has(d)) out.push(fact("notdone", "The photograph " + quote(d) + " could not be confirmed as made, so its place on the page is left empty."));
+    else out.push(fact("notdone", "The photograph " + quote(d) + " could not be made, so its place on the page is left empty."));
   }
   return out;
 }
@@ -950,7 +985,7 @@ export const PROGRESS_SYSTEM =
   "- Speak in the first person, naturally and conversationally, the way you would tell them yourself: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
   "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
   "- What they asked for is not what was made: describe a page or anything else only with what the facts say it has, never with details from their request that no fact states, such as a photograph.\n" +
-  "- Anything listed as still not made stays missing: never say or suggest in any update that it was made, added, placed or is on the site.\n" +
+  "- Anything listed as not done stays exactly as it is said there in every update: never say or suggest that it is on the site or was done otherwise.\n" +
   "- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\n" +
   "- Do not repeat what your earlier updates said.\n" +
   "- The request's other parts are separate work: never describe them as this update's, or as done unless their state says finished.\n" +
@@ -1102,10 +1137,10 @@ export function progressContext(rec, { others = [] } = {}) {
   const rest = (Array.isArray(others) ? others : []).filter((o) => o && typeof o.words === "string" && o.words.trim() && Object.hasOwn(STATE_SAID, o.state));
   if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + (Object.hasOwn(PREP_SAID, o.prep) ? PREP_SAID[o.prep] : STATE_SAID[o.state]) + ")").join("\n"));
   if (rec && rec.lines.length) lines.push("WHAT YOUR EARLIER UPDATES SAID, IN ORDER:\n" + rec.lines.map((l) => "- " + flat(l.text)).join("\n"));
-  // STILL NOT MADE (2026-10-10): told on every later line, after the earlier
+  // NOT DONE, AS IT STANDS (2026-10-10): told on every later line, after the earlier
   // updates, so nothing written then can take it back.
   const missing = missingFacts(rec);
-  if (missing.length) lines.push("STILL NOT MADE IN THIS WORK (these stay missing; never say or suggest any of them was made):\n" + missing.map((t) => "- " + t).join("\n"));
+  if (missing.length) lines.push("NOT DONE IN THIS WORK, AS IT STANDS (each stays exactly as said here in every update; never say or suggest that any of them is on the site or was done otherwise):\n" + missing.map((t) => "- " + t).join("\n"));
   return lines.join("\n\n");
 }
 
