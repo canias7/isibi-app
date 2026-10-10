@@ -76,7 +76,7 @@ is in git; the dated entries further down are the full story.*
 - Red check on `977a1422`: Codex's cases passed there and fail now.
 - Sweep: 18 mutants, 17 killed; the 1 survivor is equivalent; the control
   survived.
-- Full suite and CI: running at this push, stamped in the next commit once measured.
+- Full suite `10320 / 10320 / 0 / 0` locally (on `2104ed81`'s code); CI unit tests green on `c7b895b4` (run 38019302087: `10320 / 10279 / 0 / 41`).
 
 **The boxes, when you approve a press** (nothing is pressed yet)
 - **Add-on**: *edit canary* → *RUN A NAMED SCENARIO…* `lv-addon-photo`,
@@ -106,7 +106,7 @@ passes. Fixed in `2104ed81`:
   browser reconnecting to a build stays an open product gap.
 
 Codex's cases pass on `977a1422` and fail now. Sweep 17 of 18 killed (1
-equivalent). Full suite: stamped once measured. No merge, deploy, rebuild, balance change
+equivalent). Full suite `10320 / 10320 / 0 / 0` locally; CI green (run 38019302087, `10320 / 10279 / 0 / 41`). No merge, deploy, rebuild, balance change
 or paid run.
 
 ---

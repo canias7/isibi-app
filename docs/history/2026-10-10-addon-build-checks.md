@@ -328,4 +328,6 @@ passing; the canary files together 555 of 555.
 - **Sweep**: 18 mutants, 17 killed, the control survived. The survivor
   (reading the window after an unsteady end reading) is equivalent: the
   verdict already fails on the unsteady reading.
+- **Full suite**: `10320 / 10320 / 0 / 0` locally on `2104ed81`'s code; CI
+  unit tests green on `c7b895b4` (run 38019302087, `10320 / 10279 / 0 / 41`).
 
