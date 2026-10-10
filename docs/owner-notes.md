@@ -1,16 +1,10 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, Build reconnection round 4: one execution rule for queued and inline builds; offline, not deployed)
+## Current handoff — read this first (2026-10-10, Build recovery round 5: the inline fallback keeps its row live, and lost record writes are reconciled; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
-
-**A correction first.** Round 3's handoff said "a storage failure no longer
-runs a build twice". **That was wrong.** Codex showed that deleting the job's
-envelope proves nothing: the consumer deletes it on read and may already be
-executing, so an inline build could start beside it. Round 4 replaces that
-rule.
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
@@ -19,77 +13,77 @@ rule.
   - Round 1: `47be3540`.
   - Round 2: `9f62095e`.
   - Round 3: `ae62f760`, records to `b67a1c8b`.
-  - Round 4: `0cc457de`, with records after.
-- **fal is not being topped up.** The tests use offline mocks, and real
-  images are unverified.
+  - Round 4: `0cc457de`, records to `70222bb5`.
+  - Round 5: `6777ce1c`, with records after.
+- **fal is not being topped up.** The tests use offline image mocks, and
+  real images are unverified.
 - **Balance 971**, untouched.
 
-**Round 4** (`docs/history/2026-10-10-build-reconnect.md`, "Round 4")
-- **One execution record per job** (`builds-run/<job>.json`), created with a
-  conditional write, so exactly one party executes a job.
-  - **The queue consumer** must hold it before it designs or fires the
-    container. The container runner inherits it.
-  - **The inline fallback** must hold it before running. If the consumer has
-    it, the producer follows the queued build: it never runs inline, never
-    closes the row and never releases anything on a failed send.
-  - **A failed record write** means no execution on that. The consumer
-    retries, bounded; the producer follows.
-  - **The one store-path exception**: a job that was never stored, never
-    announced, and whose row is confirmed closed may run inline.
-- **The same billing identity**: the inline run bills as `build:<job>`, like
-  the queued run.
-- **A failed marker write no longer bypasses ownership**: the candidate
-  follows the chat's owner, or answers a retryable 503 and starts nothing.
-- **The execution record outranks lost "accepted" or "inline" writes and the
-  5-minute acceptance window**: an executing build keeps its chat. A stale
-  claim is taken only after its job's record is revoked, and a revoked job's
-  late delivery never runs.
-- **Kept from earlier rounds**: the losing-candidate discovery fix (Codex
-  confirmed), discovery, browser retry, multiple-chat recovery and account
-  isolation.
+**Round 5** (`docs/history/2026-10-10-build-reconnect.md`, "Round 5")
+
+Codex passed 114 focused tests on `70222bb5`. Kept: the marker-write
+protection, the consumer-versus-inline exclusion, the billing identity and
+discovery. Two regressions are fixed.
+
+- **The inline fallback no longer fails its own row before billing against
+  it.**
+  - It holds the row's lease (claimed and beaten) through its run, so
+    `build_debit` accepts its deposit under `build:<job>`.
+  - It finalizes the row only when the work ends: done for a 2xx answer,
+    failed otherwise.
+  - The SQL's refusal of a terminal row is unchanged and still tested.
+- **A lost execution-record write no longer strands the job.**
+  - The record names its attempt (a token) and says whether it started.
+  - A write whose answer was lost is read back. If it carries this
+    attempt's token, the same delivery runs.
+  - If the read back fails too, the job is put back and asked again
+    carrying the token and the lease holder. The retry adopts its own
+    attempt and takes the lease over by name.
+  - **An active competitor stays protected**: a started attempt or an
+    inline run is never run beside or charged. An unstarted one is waited
+    for, and replaced conditionally once it is 5 minutes old.
+  - These waits have their own bound (7 re-sends). At the bound the job is
+    kept, never deleted on a label.
 
 **Verification (offline)**
-- **Tests**: `test/build-reconnect.test.mjs` has 33 cases. RC 20 (the marker
-  write), RC 21 (the held designer) and RC 22 (the transition windows) are
-  new, and RC 17 is rewritten for the rule.
-- **Assertions**: one designer call, one deposit, every billing ref
-  `build:<job>`, no row closed beneath a running consumer.
-- **Red check**: on `b67a1c8b`'s code, RC 17 and RC 21 fail on behaviour,
-  and RC 20 and RC 22 hang on a second build.
-- **Related suites**: 199 of 199 (reconnect 33, queue-wiring 13, jobs 31,
-  resume 44, parallel 15, disconnect 4, chat 21, Dockerfile 21, images 17).
-- **Sweep**: 15 of 16 killed, and the comment control survived.
-  - Three first-pass survivors gained cases: a row that can't be closed, a
-    revoke that can't be settled, and an already-revoked job.
-  - One (the inline line in the view) is equivalent and recorded.
-- **Full suite on `0cc457de`'s code**: `10375 / 10375 / 0 / 0` locally.
-  - Two existing tests were restated for the rule: a redelivery of an
-    executed job now makes zero design calls, and the billing-ref guard
-    allows `billId`.
-- **CI on `50029f91`** (the code commit `0cc457de` plus records):
-  - unit tests 38079343352 green, `10375 / 10334 / 0 / 41 skipped` (the
-    same 41 CI skips), with the suite at 273.7 s;
-  - site build 38079343341 green.
-- **Image**: `builder/build-live.mjs` changed, so the prediction is now
-  production `8d6dbcea93252fbb` → `d2e9c973504783f1` (205 inputs, 174
-  paths). This replaces round 3's `bccb030af1f1eed1`. Nothing is built.
+- **Tests**: `test/build-reconnect.test.mjs` has 36 cases.
+  - A stateful stand-in for the build rows replaces the always-yes billing
+    answers. It moves rows only as the repository's SQL does, refusing a
+    terminal row's deposit.
+  - **RC 23** (fallback billing), **RC 24** (lost record write, with and
+    without a failed read back) and **RC 25** (active, pending and stale
+    competitors, and the bound) are new.
+  - RC 17, RC 18 and RC 21 now run on the stateful rows.
+  - Assertions: one designer call, one billing identity, valid row
+    transitions, lost write responses, and a protected active consumer.
+- **Red check on `70222bb5`'s code**: RC 23 shows `build_debit` answering
+  `terminal`, and RC 24 shows zero designer calls (both Codex's
+  observations). RC 25's pending case and RC 17/18 also fail there.
+- **Sweep**: 16 of 16 mutants killed (14 on the first pass, 2 on the
+  second, one through a stronger form), and the comment control survived.
+- **Related suites**: 261 of 261, 43 of 43, and 27 of 27.
+- **Full suite on `6777ce1c`'s code**: `10378 / 10378 / 0 / 0` locally.
+- **CI**: being read on the pushed head, recorded below when it ends.
+- **Image**: the prediction is now production `8d6dbcea93252fbb` →
+  `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
+  `d2e9c973504783f1`. Nothing is built.
 
 **Remaining limitations**
-- **A producer whose execution-record write can't be settled after a failed
-  send follows a job that may never run**, if the message really was lost.
-  The stale sweep re-sends a queued row, or fails it with the deposit back.
-  With no row there is no recovery.
-- **A store failure with no row and an unwritable execution record** runs
-  inline with no record. Nothing can announce that job, but a later request
-  could revoke and take its chat after 5 minutes if the "inline" marker write
-  also failed.
-- **An executor older than `BUILD_JOB_MS`** is treated as gone, so a stalled
-  but live build past that age could lose its chat.
-- **Execution records are never swept** (`builds-run/`, one small object per
-  job).
-- **A consumer whose record write keeps failing** puts the job back and asks
-  again up to `CLAIM_RETRY_MAX`, then leaves it to the row's sweep.
-- **Unchanged from earlier rounds**:
+- **An unstarted attempt holds its job for up to 5 minutes** before another
+  delivery may replace it.
+- **Past the 7-re-send bound the job object is kept, but only the row's
+  stale sweep re-sends it.** That sweep re-sends only a queued row with no
+  live lease; a claimed row whose lease expired is marked lost.
+- **A fallback whose row lease can't be taken** still runs inline without a
+  lease. Its deposit is taken if the row is live and refused if it is
+  terminal.
+- **No test observes the fallback lease's heartbeat.**
+- **From round 4**:
+  - execution records are never swept;
+  - an executor older than `BUILD_JOB_MS` is treated as gone;
+  - a producer that can't settle the record after a failed send follows a
+    job that may never run, if the message really was lost.
+- **From earlier rounds**:
   - builds accepted before round 1 aren't listed;
   - a fresh session gets the words and the result only;
   - real-model wording, real images and any live run are untested;
@@ -102,6 +96,33 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — Build recovery round 5: the fallback's row and lost record writes (offline; not deployed)
+
+- **Codex on `70222bb5`**: 114 focused tests passed. Two regressions
+  remained:
+  - the inline fallback failed its own row and then billed against it, so
+    `build_debit` refused it (`terminal`) and the build answered 503 with
+    no design;
+  - a consumer's record write that committed but lost its answer made the
+    retry give up and delete the job.
+- **Done**:
+  - the fallback holds its row's lease through its run and finalizes it at
+    the end;
+  - the execution record names its attempt and whether it started;
+  - lost write answers are reconciled by reading the record back;
+  - an unsettled claim is retried carrying the attempt, so the retry adopts
+    it;
+  - active competitors stay protected, pending ones are waited for, and
+    stale ones are replaced conditionally;
+  - the waits have their own bound, and the job is kept at the bound.
+- **Verified offline**: a stateful SQL stand-in, RC 23–25, a red check
+  (Codex's two observations reproduced on `70222bb5`), a sweep (16 of 16)
+  and the full suite (10,378 of 10,378). Code commit `6777ce1c`.
+- **Not done**: merge, deploy, container build or paid calls. Real images
+  are unverified.
 
 ---
 

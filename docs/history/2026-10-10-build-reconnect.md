@@ -589,3 +589,209 @@ module and tests:
 
 - **On `50029f91`**: unit tests 38079343352 green (`10375 / 10334 / 0 / 41`,
   273.7 s); site build 38079343341 green.
+
+## Round 5: the inline fallback's row, and lost record writes (offline)
+
+Codex reviewed `70222bb5` and passed 114 focused tests. Kept from round 4:
+the marker-write protection, the consumer-versus-inline exclusion, the
+billing identity and the discovery fixes. Two deterministic regressions
+remained.
+
+1. **The inline fallback failed its own row, then billed against it.**
+   - `takeInline` won the execution record and then called
+     `closeBuildRow(..., "failed", ...)` before running the fallback.
+   - Since round 4 the fallback passes `billId` into `buildLedger` as its
+     `jobId`, so its deposit goes through `build_debit` against that row.
+     The repository's SQL (`supabase/proposed/build_debit.sql`) refuses a
+     lost, failed or cancelled row.
+   - **Codex's observation** (with a mock that honours that rule):
+     `edit_refund` marked the row failed, `build_debit` answered
+     `terminal`, the designer was never called, and the POST answered 503
+     "Credits check failed."
+   - The earlier tests passed only because their billing answers always
+     said yes.
+2. **A lost builds-run write stranded the job.**
+   - The consumer's conditional write of `builds-run/<job>.json` committed,
+     and then the call threw because its response was lost.
+   - The first delivery scheduled a retry. The retry read `owner: "queue"`,
+     assumed another executor was running, and returned after deleting the
+     job's envelope.
+   - **Codex's observation**: zero designer calls, no result, and no
+     further retry.
+
+### The fix
+
+**The fallback keeps its row live** (`worker.js`, `enqueueSiteBuild`):
+- `takeInline` no longer closes the row. Once the execution record is won,
+  `holdRow()` claims the row's lease under a fresh owner
+  (`claimBuildRow`) and beats it (`buildRowBeat`), as the queue consumer
+  does. The row moves queued → claimed, which `build_debit` accepts.
+- `after(res)`, when the work actually ends, clears the beat and finalizes
+  the row: `edit_finalize` with ok for a 2xx answer, and `edit_refund`
+  (failed) otherwise.
+- The store-unknown path holds the row the same way before it runs inline.
+- The terminal-job guard is unchanged, and the billing identity is still
+  `build:<job>`.
+
+**The execution record names its attempt** (`builder/build-live.mjs`):
+- `packBuildRun` and `readBuildRun` carry `token` (the attempt's own name)
+  and `started` (written just before execution begins).
+- `runStanding(run, now)` says what another attempt's record means to a new
+  arrival:
+  - `active`: an inline run, or a queued attempt that started. Protected.
+  - `pending`: a queued attempt that claimed and has not started, younger
+    than `BUILD_RUN_START_MS` (5 minutes). Waited for, never run beside.
+  - `recoverable`: an unstarted attempt past that window, or any executor
+    older than `BUILD_JOB_MS`. Replaced, conditionally on exactly the record
+    read.
+  - `revoked`.
+
+**Write outcomes are reconciled** (`worker.js`):
+- `claimBuildRun` reads the record back after a write that threw or
+  answered nothing. If the record carries this attempt's token, the write
+  landed, and the same delivery proceeds. If the read back fails too, the
+  outcome is `unknown`.
+- `replaceBuildRun` (conditional on the etag read) and `startBuildRun`
+  (marks `started`, conditional on the etag) reconcile the same way.
+- An `unknown` outcome never executes. `askAgain` puts the job object back
+  and re-sends the message carrying the attempt's `token` and the lease it
+  holds (`holder`). The retry adopts its own unstarted attempt, and
+  `claimBuildRow` takes the lease over by name through `edit_handoff`, as
+  the container runner does.
+- `builder/build-job.mjs` `readMessage` passes `token`, `holder` and
+  `waits` through when they are well shaped, and drops them otherwise.
+
+**The waits have their own bound** (`RUN_WAIT_MAX`, `worker.js`):
+- `CLAIM_RETRY_MAX` is 1, and one re-send is about 67 seconds
+  (`SITE_BUSY_DEFER_S`): shorter than the 5-minute start window, so a
+  delivery waiting on a pending attempt would have given up before that
+  attempt could become recoverable.
+- `RUN_WAIT_MAX` is enough re-sends to outlast the window, plus two (7).
+  It is counted in the message's own `waits` field.
+- At the bound, or when the message cannot be re-sent, the job object is
+  put back and kept for a later delivery. It is never deleted on a label.
+
+### Tests (offline; images and the designer mocked)
+
+`test/build-reconnect.test.mjs` now has 36 cases.
+- **A stateful SQL stand-in** (`sqlJobs`) replaces the always-yes billing
+  answers. It moves one row per job only as the applied functions do:
+  - `edit_create` files the row queued;
+  - `edit_claim` claims it, and refuses `terminal` or `leased`;
+  - `edit_handoff` and `edit_beat` work only for the current owner;
+  - `edit_refund` and `edit_finalize` end the row;
+  - `build_debit` refuses lost, failed or cancelled rows as `terminal`,
+    plus `not-a-build`, `not-owner` and `no-job`.
+  
+  Every call and state is kept in order. `runNet` routes through it, and
+  RC 17, RC 21 and RC 23–25 share one instance between the producer and
+  the real consumer (through `fireInterim`'s `over`).
+- **RC 23, Codex's fallback-billing reproduction**:
+  - the queue send fails and the job is provably gone;
+  - the fallback takes the execution and its row's lease (queued →
+    claimed);
+  - `build_debit` is accepted under `build:<job>` on that row;
+  - one designer call, no 503, and no "Credits check failed";
+  - no `edit_refund` or `edit_finalize` before the deposit, and exactly one
+    terminal write, after it.
+  - **Control**: a row the sweep already marked lost is still refused
+    `terminal`, with zero designer calls and a 503.
+- **RC 24, Codex's lost-record-write reproduction**:
+  - (a) the conditional write commits and then throws. The read back finds
+    its own token, so the same delivery runs once: one designer call, the
+    record `started`, one accepted deposit, and the build carried on to its
+    generation.
+  - (b) the read back fails too. Nothing executes or charges. The job is
+    put back, and the message is re-sent with the attempt's token, its lease
+    holder and `waits: 1`. The retry delivery adopts the attempt, takes the
+    lease over by name and runs once. In total: one designer call, one
+    deposit, and the row queued → claimed.
+- **RC 25, competing attempts**:
+  - a started queued attempt, or an inline run, is never run beside or
+    charged. Its record and lease are untouched, and nothing is re-sent.
+  - a pending attempt is waited for: the job is kept and re-sent with
+    `waits: 1`.
+  - a stale unstarted attempt (past 5 minutes, lease expired) is replaced
+    and run once.
+  - a delivery at its bound keeps the job and sends nothing.
+- **RC 18 restated**: the fallback holds its row's lease while it runs. It
+  does not close the row first.
+- **Guards re-anchored to the same properties**:
+  - `build-jobs.test.mjs`: the fallback holds its row after the record is
+    won and closes it only in `after`, and the claim names a retry's
+    holder;
+  - `build-runner.test.mjs` and `site-busy.test.mjs`: the claim's new
+    argument;
+  - `broad-rollout.test.mjs`: the delivery's clock still reaches the build
+    beside the new fields;
+  - `build-job.test.mjs`: a case for the reader's new fields.
+- **The fixture** `fireInterim` can deliver a retry's message fields
+  (`msg`) onto the envelope a previous attempt put back (`keepJob`).
+
+### Red check
+
+The new tests were run against `70222bb5`'s code (with the start window
+inlined, since that commit has no such export). Five cases fail:
+- RC 23: `build_debit` answers
+  `{"ok":false,"error":"terminal","state":"failed","taken":0}`, Codex's
+  observation;
+- RC 24: zero designer calls after the lost write, Codex's observation;
+- RC 25: a pending attempt's delivery is not asked again;
+- RC 17 and RC 18, under the stateful rows.
+
+The active-consumer parts of RC 25 pass there too, as they should: that
+protection was already in place.
+
+### Sweep
+
+- **Setup**: 16 mutants plus a comment-only control, against the reconnect
+  and `build-job` files.
+- **First pass**: 14 killed, 2 open, and the control survived.
+  - "holdRow holds nothing" survived. That mutant dropped only the
+    reported hold and its beat; the claim itself still ran, so no
+    short-lived test can observe it. A stronger mutant that skips the
+    claim is killed (RC 17).
+  - "pending is recoverable" hung the whole file before RC 25 reported (I
+    stopped that run by its process id). Run on RC 23–25 alone, it is
+    killed (RC 25).
+- **Second pass**: both killed (the stronger hold mutant, and "pending is
+  recoverable" on RC 23–25).
+- **Result**: 16 of 16 killed, one of them through its stronger form. The
+  beat's absence on its own is recorded as unobservable at test timescale.
+
+### Related suites
+
+- reconnect, queue-wiring, jobs, resume-wiring, parallel,
+  survives-disconnect, chat, Dockerfile, images, batch-9, credit-debit and
+  runner: 261 of 261;
+- build-job, rebuild-job and runner: 43 of 43;
+- broad-rollout and site-busy: 27 of 27, after the re-anchor.
+
+### Commit, suite and image
+
+- **Commit**: `6777ce1c`.
+- **Full suite**: `10378 / 10378 / 0 / 0` locally. The first run found the
+  two pinned guards in `broad-rollout` and `site-busy`, which were
+  re-anchored before the commit.
+- **Image**: `builder/build-live.mjs` and `builder/build-job.mjs` changed,
+  so the prediction is now production `8d6dbcea93252fbb` →
+  `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
+  `d2e9c973504783f1`. Predicted, not built.
+
+### Remaining limitations
+
+- **An attempt that never started holds the job for up to 5 minutes**
+  before another delivery may replace it.
+- **The waits are bounded** (`RUN_WAIT_MAX`, 7 re-sends). Past the bound,
+  the job object is kept, but nothing re-sends it except the row's stale
+  sweep. That sweep re-sends only a queued row with no live lease; a
+  claimed row whose lease expired is marked lost.
+- **A fallback whose row lease cannot be taken** (the claim refused or
+  unread) still runs inline without a lease. Its deposit is taken if the
+  row is live, and refused if the row is terminal.
+- **The heartbeat of the fallback's lease** is not observed by any test.
+- **Unchanged from round 4**:
+  - execution records are never swept;
+  - an executor older than `BUILD_JOB_MS` is treated as gone;
+  - builds accepted before round 1 aren't listed;
+  - real images, real-model wording and any live run are unverified.
