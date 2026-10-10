@@ -1489,6 +1489,35 @@ only run that push started, `completed` / `success`, the job **3m11s**
   the press stopped). Not pressed again; the question left unanswered
   (`docs/history/2026-10-07-combined-release.md` §4).
 
+**Deploy 2191 (2026-10-10) was predicted on both ends and built as
+predicted**, on the owner's approval to release the reviewed correction
+(Codex passed all 23 dispatch, interval and canary tests on `f96cbfd5`). It
+fast-forwarded `main` `19b1628d` → **`f96cbfd5`**, 7 commits:
+- the dispatch order and the kept preparation attempts (`ac3e5eca`);
+- `lv-parallel`'s cap and fresh targets;
+- their records.
+
+It was pushed at 00:14:32 UTC. Run 38008189235, `push` on `f96cbfd5`, was
+the only run that push started: `completed` / `success`, 00:14:35–00:17:36.
+
+- **Before**:
+  - `main` an ancestor of the candidate;
+  - the product diff exactly the reviewed one: `worker.js` (the job filed
+    before the preparations) and `builder/request.mjs` (kept attempts, the
+    claim's time, `prepRuns`);
+  - unit CI green on `f96cbfd5`, and unit and site build green on
+    `ac3e5eca`;
+  - nothing in flight, and no open edit job;
+  - the rollback giving back `19b1628d`'s tree;
+  - no skip-CI or smoke marker;
+  - nothing under `public/` changed.
+- **The image**: built `8d6dbcea93252fbb` (registry 404, 204 inputs), as
+  predicted. The container's `- …:9236fe341b77544d` / `+ …:8d6dbcea93252fbb`,
+  with `SUCCESS Modified application` at **00:17:29Z**.
+- **Wrangler**: 26 secrets, no asset uploaded, Current Version ID
+  `309e59b…`.
+- **The image window**: to about 00:37 UTC.
+
 **Deploy 2190 (2026-10-09) was predicted on both ends and built as
 predicted**, on the owner's word (*"merge and deploy"*). It fast-forwarded
 `main` `0fd50fd2` → **`19b1628d`**, 9 commits:
