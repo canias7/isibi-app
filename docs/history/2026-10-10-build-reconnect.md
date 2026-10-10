@@ -421,3 +421,11 @@ module and tests:
 - **Full suite**: `10372 / 10372 / 0 / 0` locally.
 - **Image**: production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs,
   174 paths). Predicted, not built.
+
+### CI
+
+- **On `bfab3f05`**: site build 38070870490 was green. Unit tests
+  38070870491 were cancelled at the 5-minute job limit after a clean suite
+  (`10372 / 10331 / 0 / 41`, 298.5 s).
+- **On `55fadecd`** (the same code): unit tests 38071394565 were green
+  (`10372 / 10331 / 0 / 41`, 283.1 s).

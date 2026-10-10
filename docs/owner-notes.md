@@ -57,7 +57,9 @@ is in git; the dated entries further down are the full story.*
     again after a clean suite: `10372 / 10331 / 0 / 41 skipped` in 298.5 s.
   - It is the second such stop, so the limit in `.github/workflows/unit.yml`
     is now a recurring risk for any push (your decision; left unchanged).
-  - The run on the next records push: CI_R3B.
+  - **On `55fadecd`** (the same code, records only), unit tests 38071394565
+    were **green**: `10372 / 10331 / 0 / 41 skipped`, with the suite
+    at 283.1 s. That leaves 17 s of headroom.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
   production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs, 174
   paths). This replaces round 2's `dd8d2e17a6559834`. Nothing is built.
