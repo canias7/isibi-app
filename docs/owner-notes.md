@@ -57,7 +57,11 @@ is in git; the dated entries further down are the full story.*
   container copies it. The prediction is production `8d6dbcea93252fbb` →
   `a2ad6fa4a83ace7c` (205 inputs, 174 paths). The earlier `a7c974c472a4f6e0`
   is superseded. Nothing is built until a deploy you approve.
-- **CI**: read after the push; see the next commit's records.
+- **CI on `5234eefc`** (the code commit `47be3540` plus records):
+  - unit tests 38059509449 green, `10358 / 10317 / 0 / 41 skipped`. The 41
+    skips are CI's own, the same as on `8b1d0474` (`10342 / 10301 / 0 /
+    41`). The total moved by exactly the 16 new cases;
+  - site build 38059509454 green.
 
 **Limits that stay**
 - Inline builds (no queue) and builds accepted before this change aren't

@@ -139,6 +139,8 @@ Everything here is offline, with images mocked.
 - **Image**: production `8d6dbcea93252fbb` → `a2ad6fa4a83ace7c` (205 inputs,
   174 paths). Predicted, not built.
 - **Commit**: `47be3540`.
+- **CI on `5234eefc`**: unit tests 38059509449 green (`10358 / 10317 / 0 /
+  41 skipped`, the same 41 skips as before); site build 38059509454 green.
 
 ## Limits, kept explicit
 
