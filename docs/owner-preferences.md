@@ -1191,3 +1191,13 @@
   generation is unavailable."* The image retry and the Build test stay
   paused until you fund fal. No top-up, deploy or paid test without your
   word.
+- **fal is not being topped up; it is not a blocker for the project**
+  (2026-10-10, superseding "paused until you fund fal"): *"I'm not topping
+  up fal. Stop treating funding as a blocker for the whole project. Keep
+  paid image generation paused and continue the parallel-agent work using
+  offline image mocks."* So:
+  - paid image generation stays paused, with no paid provider call;
+  - work goes on, tested offline with image mocks;
+  - real-image generation stays explicitly **unverified** in every record;
+  - the prepared photograph recovery and paid Build check wait without
+    blocking anything else.
