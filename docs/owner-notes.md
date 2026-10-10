@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, a first build found again after a reload or in another session; offline, not deployed)
+## Current handoff — read this first (2026-10-10, Build reconnection round 2: Codex's three gaps fixed; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,83 +9,96 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. It carries the
-  missing-photograph correction (`8b662cdb`, `a8870276`) and now the Build
-  reconnection (`47be3540`), with records after.
-- **The missing-photograph correction is closed** as verified offline: model
-  inputs tested, real-model wording not.
-- **fal is not being topped up**, and it no longer holds the project up.
-  Paid image generation stays paused; the work goes on with offline image
-  mocks. **Real-image generation is unverified.**
-- **Balance 971.** Read the ledger before relying on it.
+- **The branch** `claude/help-needed-ehlwlj` is unmerged.
+  - Round 1 of the Build reconnection: `47be3540`, records to `7a8e7518`.
+  - Round 2: `9f62095e`, with records after.
+- **fal is not being topped up**, and it doesn't hold the project up. Paid
+  image generation stays paused, the tests use image mocks, and real-image
+  generation is unverified.
+- **Balance 971**, untouched. Read the ledger before relying on it.
 
-**The Build reconnection** (`docs/history/2026-10-10-build-reconnect.md`)
-- **The gap**: a first build's job id lived only in the browser's memory
-  while its POST waited. A reload, a closed tab or another device lost the
-  build's reply, and the next message in that chat started a second, paid
-  build.
-- **Now**, reusing the durable build jobs (row, R2 job, resume, progress
-  record, answer):
-  - at acceptance the account records which chat asked; a second first-build
-    POST for that chat while it runs is answered with the running build, and
-    nothing is filed, queued or charged;
-  - the build's final answer is kept for its owner, so the poll can serve it
-    again after its read-once slot is gone;
-  - `GET /api/site/builds` lists the account's own builds: running (with the
-    model's progress lines), done, failed or unknown;
-  - on open, the builder picks up each build still owed to its chat. It
-    follows a running one or shows an ended one through the existing build
-    code, and never POSTs. A fresh session creates the chat from the
-    customer's words.
-- **Tests**: 16 offline cases (10 server, 5 browser, 1 state rules) covering
-  reload, a fresh session, running, completed, failed and lost builds,
-  duplicate polling and account isolation, through the real Worker routes
-  and the real `chat.js` follow. Images are mocked; progress comes from a supplied
-  writer.
-- **Red check**: 11 of 13 fail or hang on the old code; RC 6 (a control) and
-  RC 8 (the module's own rules) pass.
-- **Sweep**: 19 of 19 killed and the comment control survived. Two
-  survivors from the first pass were killed by RC 10 and RB 5.
-- **Full suite**: 10,358 tests. 10,357 passed before the commit; the one
-  failure was `container-images.test.mjs`, which needs every image input to
-  be a git object, and `builder/build-live.mjs` was not yet committed. On
-  `47be3540` that file passes 17 of 17.
-- **Four guards were fixed at their cause**: the Dockerfile tree, one chat
-  refusal, the private prefixes and the `buildDone` anchor. Details are in
-  the history doc.
-- **Image**: `worker.js` now imports `builder/build-live.mjs`, so the
-  container copies it. The prediction is production `8d6dbcea93252fbb` →
-  `a2ad6fa4a83ace7c` (205 inputs, 174 paths). The earlier `a7c974c472a4f6e0`
-  is superseded. Nothing is built until a deploy you approve.
-- **CI on `5234eefc`** (the code commit `47be3540` plus records):
-  - unit tests 38059509449 green, `10358 / 10317 / 0 / 41 skipped`. The 41
-    skips are CI's own, the same as on `8b1d0474` (`10342 / 10301 / 0 /
-    41`). The total moved by exactly the 16 new cases;
-  - site build 38059509454 green.
+**Round 2 fixes Codex's three reproduced gaps on `7a8e7518`**
+(`docs/history/2026-10-10-build-reconnect.md`, "Round 2"):
+1. **The claim-to-marker race could start two paid builds.**
+   - The marker is now written before the chat's claim.
+   - `claimVerdict` decides held or free. A missing or unreadable marker is
+     never "free" on its own.
+   - A takeover is a write conditional on the exact claim judged.
+   - Ownership that can't be settled answers a retryable 503, with nothing
+     filed, queued or charged.
+   - A release writes `ended` over its own claim conditionally, never a
+     blind delete. Ended or abandoned attempts stay recoverable.
+2. **Running builds skipped while the page was busy are no longer lost.**
+   - Owed builds are queued and taken up one at a time, only while the page
+     is free.
+   - A local re-check every 750 ms (no request) takes the next one as soon
+     as the page is free, and stops once nothing is owed.
+   - Another operation's busy state is never cleared.
+3. **A failed listing read is retried, bounded.**
+   - Automatic retries at 2, 4, 8, 16 and 32 seconds, then only on a render
+     a minute later.
+   - Never two reads at once.
 
-**Limits that stay**
-- Inline builds (no queue) and builds accepted before this change aren't
-  listed.
-- A fresh session gets the customer's words and the result, not earlier
+**Verification (offline)**
+- **Tests**: `test/build-reconnect.test.mjs` has 27 cases (16 kept, 11
+  new), including Codex's two exact interleavings (RC 11, RB 6).
+- **Red check**: on `7a8e7518`'s code every new case fails or hangs. RC 15
+  first passed there, so it was given the in-release window, which is red.
+- **Related suites**: 193 of 193 across the reconnect, build-queue, jobs,
+  resume, parallel, disconnect, chat, Dockerfile and image files.
+- **Sweep**: 17 of 17 killed, and the comment-only control survived.
+  - The first pass left 4 survivors. One exposed a real defect: after a
+    successful build, a second owed build could wait for an unrelated
+    render. The general re-check fixed it.
+  - The other three needed sharper assertions (RC 16 added; RB 6 and RB 8
+    tightened).
+- **Full suite on `9f62095e`'s code**: `10369 / 10369 / 0 / 0` locally.
+- **CI**: read after the push; see the next records commit.
+- **Image**: `builder/build-live.mjs` changed, so the prediction is now
+  production `8d6dbcea93252fbb` → `dd8d2e17a6559834` (205 inputs, 174
+  paths). This replaces round 1's `a2ad6fa4a83ace7c`. Nothing is built.
+
+**Remaining gaps (kept explicit)**
+- **A crashed acceptance holds its chat until it ages out.** A POST that died
+  after its claim but before queueing leaves a claim and marker with no row.
+  A new first build for that chat follows the dead job (and sees it fail)
+  until the claim is older than any build runs. Following is chosen over a
+  possible second paid build.
+- **A marker that can't be written** means the build runs unlisted and
+  unclaimed, as before round 1.
+- **An inline fallback** (job store or queue down) still runs the build
+  inline after releasing the claim.
+- **Builds accepted before round 1**, and inline builds, aren't listed.
+- **A fresh session** gets the customer's words and the result, not earlier
   local conversation.
-- Simultaneous same-chat POSTs are guarded by a conditional write but only
-  tested in sequence.
-- Real-model wording is not measured, and purchase-once can't be verified by
-  a press.
-- An Add-on purchase that throws leaves anything it stored unplaced.
+- **Untested**: real-model progress wording, real images, and any live run.
 
-**Still prepared, not run**: the release and photo recovery sequence in
-`docs/history/2026-10-10-missing-photo-progress.md`. It needs paid image
-generation, so it stays paused.
-
-No top-up, paid provider call, merge, deploy or container rebuild without
-your word.
+No top-up, paid call, merge, deploy or container build without your word.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — Build reconnection round 2: Codex's three gaps (offline; not deployed)
+
+- **Codex on `7a8e7518`**: the 16 cases and CI passed, and three further
+  offline tests failed:
+  - a claim-to-marker race that queued two builds;
+  - running builds skipped for good while the page was busy;
+  - a 503 from the listing that ended discovery for the page load.
+- **Fixed together**, as general rules:
+  - acceptance ownership: marker first, a conditional takeover, a 503 when
+    ownership is uncertain, and a conditional release;
+  - the browser: a queue of owed builds taken up as the page comes free;
+  - the listing: a bounded retry that never overlaps.
+- **Verified offline**: 27 cases (11 new), a red check, a sweep (17 of
+  17) and the full suite (10,369 of 10,369).
+- **Not done**: merge, deploy, container build, paid retest. Real images are
+  unverified.
 
 ---
 
