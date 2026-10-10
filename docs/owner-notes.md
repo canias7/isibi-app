@@ -70,7 +70,7 @@ is in git; the dated entries further down are the full story.*
 - **Sweep**: 14 of 14 killed; the control survived.
 - The 236 files touching photos, progress or add-ons: 6,412 of 6,412.
 - **Full suite** locally: `10342 / 10342 / 0 / 0` (10,331 before plus the 11 new cases).
-- **Image**: YYIMGYY
+- **Image**: `8d6dbcea93252fbb` → `a7c974c472a4f6e0` predicted on `a8870276` (204 inputs, 173 paths; `builder/site-images.mjs` and `site-progress.mjs` are inputs). A deploy would rebuild it, then wait 15–20 minutes.
 - **CI**: YYCIYY
 
 **Remaining gaps**
