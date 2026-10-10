@@ -329,7 +329,8 @@ general rules.
      - after a failed send, the build is followed.
      - The row stays open; the stale sweep re-sends a queued row nobody
        touched, and fails it with the deposit back if it never runs.
-     - Either way it is one build, never two.
+     - Round 3 claimed "one build, never two". **That was wrong** (Codex's
+       review of `b67a1c8b`); see round 4.
 2. **Discovery exposing unaccepted jobs.**
    - **The gap**: since round 2 the marker is written before the claim, so
      the listing showed a build as running before its job was stored or
@@ -429,3 +430,157 @@ module and tests:
   (`10372 / 10331 / 0 / 41`, 298.5 s).
 - **On `55fadecd`** (the same code): unit tests 38071394565 were green
   (`10372 / 10331 / 0 / 41`, 283.1 s).
+
+
+## Round 4: one execution rule for queued and inline builds (offline)
+
+Codex reviewed `b67a1c8b` and passed all 43 reconnect and queue-wiring
+tests. Codex also confirmed that the losing-candidate discovery reproduction
+now passes; that fix is kept. Two deterministic failures remained, and round
+3's claim that a storage failure could no longer duplicate a build was
+**wrong**.
+
+1. **A marker write that throws bypassed ownership.**
+   - **Codex's reproduction**: an accepted running build holds its chat with
+     a valid claim and marker. Only the new candidate's marker write throws.
+     `liveBuildStart` caught the error and returned without enforcing
+     ownership, so `enqueueSiteBuild` filed another row and queued a
+     different job.
+   - RC 17 never covered this: it tests job storage and queue delivery, not
+     the marker.
+2. **`buildJobGone` was not proof that execution can't happen.**
+   - **Codex's reproduction**: the queue accepts the message, and the real
+     consumer reads the job and reaches its designer, which is held open.
+     The producer's send then rejects as though its response was lost. The
+     producer deletes the stored job, `head` returns null (the consumer had
+     already deleted it on read), and an inline build starts while the
+     consumer is still executing. Codex saw extra designer calls while the
+     consumer's first was held.
+   - Deleting an envelope can't revoke execution that has already started.
+
+### The rule: one execution record per job
+
+`builder/build-live.mjs` (`buildRunKey`, `packBuildRun`, `readBuildRun`,
+`runVerdict`) and `worker.js` (`claimBuildRun`, `revokeBuildRun`):
+`builds-run/<job>.json`, created with a conditional write, so exactly one
+party ever creates it.
+- **The queue consumer** creates it (owner `queue`) before it executes or
+  fires the container.
+  - If another party holds it, the consumer doesn't run.
+  - If the write can't be settled, it never runs on that: the job goes back
+    and the message is asked again, bounded by `CLAIM_RETRY_MAX`.
+  - The container's runner (`takeOver`) continues the consumer's own
+    execution and takes nothing.
+- **The inline fallback** creates it (owner `inline`) before running.
+  - If the consumer holds it, the producer follows the queued build. Nothing
+    runs inline, the row isn't closed, and nothing is released: a failed
+    send response alone never revokes execution in progress.
+  - If the write can't be settled after a failed send, the build is followed,
+    never run inline.
+  - **The store path has one exception.** If the job's store failed, no
+    message was ever sent, and the row is confirmed closed (or there is
+    none), then no consumer can learn of the job, and the inline build runs
+    as the only possible execution.
+  - The row is closed only once the producer holds the record.
+- **The same logical build and billing identity.** The inline run carries its
+  job's id (`billId`), so its deposit and refs are `build:<job>`, exactly as
+  the queued run's would be, never a fresh ref beside them.
+- **A missing marker never bypasses ownership.** With no marker, a candidate
+  claims nothing, but it still reads the chat's owner and follows it. A chat
+  with no owner it can see, or one whose claim looks free, answers a
+  retryable 503 and starts nothing.
+- **The execution record outranks the marker's flags and the acceptance
+  timeout.**
+  - The listing view reads the record. A queued executor whose "accepted"
+    write was lost is still `running`, and an inline executor whose "inline"
+    write was lost is still `inline`, long after `BUILD_ACCEPT_MS`.
+  - Before a stale-looking claim is taken over, the old job's record is
+    written as `revoked`, conditionally. If an executor already holds it, the
+    chat stays held, unless the executor is older than any build runs. A
+    revoked job's late delivery never executes.
+  - Claims the owner released itself, and builds that ended (a kept answer
+    or a row verdict), need no revocation.
+
+### Tests (offline; images and designer mocked)
+
+`test/build-reconnect.test.mjs` now has 33 cases.
+- **RC 17 (rewritten for the rule)**:
+  - a send fails after its message landed: the producer takes the record
+    and runs inline once, billed under `build:<job>`, and the delivered
+    message's consumer never executes;
+  - a store write lands but reports failure: inline, never announced;
+  - the record can't be written after a failed send: nothing inline, the row
+    stays open, and the consumer runs it once.
+- **RC 20, Codex's marker-write reproduction**:
+  - a running owner is followed, with no row, no queue message and no
+    marker;
+  - with no owner, the response is a 503;
+  - a claim that looks free is never taken by a candidate with no marker.
+- **RC 21, Codex's held-designer reproduction**:
+  - the real consumer reaches its designer and is held while the producer's
+    send rejects;
+  - one designer call, no row closed, the execution record is `queue`;
+  - one deposit, and every billing ref is `build:<job>`;
+  - the POST answers with that one job.
+- **RC 22, the transition windows**:
+  - a queued executor past the acceptance window is followed and listed
+    running;
+  - an inline executor past the window gets a 409;
+  - a claim with no marker whose job is executing is held;
+  - an abandoned attempt is revoked before its chat is taken, and its late
+    delivery never executes.
+- **Fixtures**: the queue-wiring bucket answers like R2 (the object written,
+  or null when a conditional write's precondition fails).
+- **Guards**: two `build-jobs.test.mjs` guards now read the new shape. Rows
+  are closed only after the record is won, and `runSiteBuild` takes `billId`.
+
+### Red check
+
+RC 17 and RC 20–22 were run against `b67a1c8b`'s `worker.js`, with the new
+module and tests:
+- RC 17 fails: the consumer executes a job the inline build held;
+- RC 21 fails: the active consumer's row is closed on a failed send;
+- RC 20 and RC 22 hang: the old code queues a second build and waits on it.
+
+### Sweep
+
+- **Setup**: 16 mutants plus a comment-only control, run against the
+  reconnect and queue-wiring files.
+- **First pass**: 12 killed and 4 survived.
+  - **The store path's "row confirmed closed" check**: the case is a store
+    failure with the record unwritable and a row that can't be closed. RC 17
+    gained that part: the job is queued and followed, never run inline.
+  - **The revoke that can't be settled**: RC 22 gained the case where the
+    old job's record write fails, which answers 503 and takes nothing over.
+  - **An already-revoked record counted as free**: RC 22 gained the case of
+    an abandoned claim whose job another request had already revoked.
+  - **The inline line in `buildLiveState` is equivalent**: without it, a lost
+    "inline" write past the window reads `abandoned` rather than `inline`.
+    The revoke path then finds the `inline` record, holds the chat and
+    answers 409, and neither state is listed. It is kept so the view says
+    what is true.
+- **Second pass**: the three non-equivalent survivors are killed.
+- **Result**: 15 of 16 killed, 1 recorded as equivalent; the control
+  survived.
+- **Related suites**: reconnect 33, queue-wiring 13, jobs 31,
+  resume-wiring 44, parallel 15, survives-disconnect 4, chat 21,
+  Dockerfile 21, images 17. All pass (199).
+
+### Two existing tests, restated for the rule
+
+- **`build-batch-9.test.mjs`, "a redelivery of that job makes no second
+  corrective call"**: the test re-stores the job and delivers it again after
+  it executed. Under the execution record, that redelivery doesn't execute at
+  all, which is stronger than "no second corrective call". Its observer had
+  required the redelivery to reach the designer. It now requires the first
+  delivery's record (`queue`) and asserts zero design calls on the
+  redelivery.
+- **`credit-debit.test.mjs`, the billing-ref guard**: `billRef` is now
+  `jobId || billId || crypto.randomUUID()`.
+
+### Commit, suite and image
+
+- **Commit**: `0cc457de`.
+- **Full suite**: `10375 / 10375 / 0 / 0` locally.
+- **Image**: production `8d6dbcea93252fbb` → `d2e9c973504783f1` (205 inputs,
+  174 paths). Predicted, not built.

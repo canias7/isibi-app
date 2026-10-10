@@ -1,84 +1,95 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, Build reconnection round 3: storage failures, unaccepted jobs and the inline fallback; offline, not deployed)
+## Current handoff — read this first (2026-10-10, Build reconnection round 4: one execution rule for queued and inline builds; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
+
+**A correction first.** Round 3's handoff said "a storage failure no longer
+runs a build twice". **That was wrong.** Codex showed that deleting the job's
+envelope proves nothing: the consumer deletes it on read and may already be
+executing, so an inline build could start beside it. Round 4 replaces that
+rule.
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
   - Round 1: `47be3540`.
-  - Round 2: `9f62095e`, records to `df55065e`.
-  - Round 3: `ae62f760`, with records after.
-- **fal is not being topped up.** Paid image generation stays paused, the
-  tests use image mocks, and real-image generation is unverified.
+  - Round 2: `9f62095e`.
+  - Round 3: `ae62f760`, records to `b67a1c8b`.
+  - Round 4: `0cc457de`, with records after.
+- **fal is not being topped up.** The tests use offline mocks, and real
+  images are unverified.
 - **Balance 971**, untouched.
 
-**Round 3** (`docs/history/2026-10-10-build-reconnect.md`, "Round 3")
-1. **A storage failure no longer runs a build twice.**
-   - The consumer runs any job object it finds, so the inline fallback now
-     runs only when the job is provably gone (deleted, then read back as
-     absent).
-   - Otherwise the queued path is kept: the message is sent, or the build is
-     followed. The row stays open, and the stale sweep re-sends it, or fails
-     it with the deposit back.
-2. **Discovery no longer exposes unaccepted jobs.**
-   - Markers start unaccepted and become `accepted` only once the message is
-     sent. The listing shows accepted builds only.
-   - An unaccepted marker holds its chat while it has a live row, or for up
-     to 5 minutes without one. After that it is abandoned and frees the chat.
-3. **The inline fallback keeps its chat.**
-   - Its marker says `inline`. A second POST for that chat gets a no-cost
-     409 ("already being built in another window").
-   - It is never listed.
-   - When it ends, it releases its claim conditionally and deletes its
-     marker.
+**Round 4** (`docs/history/2026-10-10-build-reconnect.md`, "Round 4")
+- **One execution record per job** (`builds-run/<job>.json`), created with a
+  conditional write, so exactly one party executes a job.
+  - **The queue consumer** must hold it before it designs or fires the
+    container. The container runner inherits it.
+  - **The inline fallback** must hold it before running. If the consumer has
+    it, the producer follows the queued build: it never runs inline, never
+    closes the row and never releases anything on a failed send.
+  - **A failed record write** means no execution on that. The consumer
+    retries, bounded; the producer follows.
+  - **The one store-path exception**: a job that was never stored, never
+    announced, and whose row is confirmed closed may run inline.
+- **The same billing identity**: the inline run bills as `build:<job>`, like
+  the queued run.
+- **A failed marker write no longer bypasses ownership**: the candidate
+  follows the chat's owner, or answers a retryable 503 and starts nothing.
+- **The execution record outranks lost "accepted" or "inline" writes and the
+  5-minute acceptance window**: an executing build keeps its chat. A stale
+  claim is taken only after its job's record is revoked, and a revoked job's
+  late delivery never runs.
+- **Kept from earlier rounds**: the losing-candidate discovery fix (Codex
+  confirmed), discovery, browser retry, multiple-chat recovery and account
+  isolation.
 
 **Verification (offline)**
-- **Tests**: `test/build-reconnect.test.mjs` has 30 cases. RC 17, RC 18 and
-  RC 19 are new, and RC 8 is extended to the new states.
-- **Fixture**: the queue-wiring bucket gained R2's `head()`.
-- **Red check**: on `df55065e`'s code, RC 17 and RC 19 fail, and RC 18 never
-  reaches an inline build.
-- **Related suites**: 196 of 196 (reconnect 30, queue-wiring 13, jobs 31,
+- **Tests**: `test/build-reconnect.test.mjs` has 33 cases. RC 20 (the marker
+  write), RC 21 (the held designer) and RC 22 (the transition windows) are
+  new, and RC 17 is rewritten for the rule.
+- **Assertions**: one designer call, one deposit, every billing ref
+  `build:<job>`, no row closed beneath a running consumer.
+- **Red check**: on `b67a1c8b`'s code, RC 17 and RC 21 fail on behaviour,
+  and RC 20 and RC 22 hang on a second build.
+- **Related suites**: 199 of 199 (reconnect 33, queue-wiring 13, jobs 31,
   resume 44, parallel 15, disconnect 4, chat 21, Dockerfile 21, images 17).
-- **Sweep**: 15 of 15 standing mutants killed, and the comment control
-  survived.
-  - The first pass showed the delete check in `buildJobGone` was redundant;
-    the read-back alone now decides.
-  - RC 17 gained a failed-read-back case.
-- **Full suite on `ae62f760`'s code**: `10372 / 10372 / 0 / 0` locally.
-- **CI on `bfab3f05`** (the code commit `ae62f760` plus records):
-  - **site build** 38070870490 green;
-  - **unit tests** 38070870491 **cancelled at the job's 5-minute limit**,
-    again after a clean suite: `10372 / 10331 / 0 / 41 skipped` in 298.5 s.
-  - It is the second such stop, so the limit in `.github/workflows/unit.yml`
-    is now a recurring risk for any push (your decision; left unchanged).
-  - **On `55fadecd`** (the same code, records only), unit tests 38071394565
-    were **green**: `10372 / 10331 / 0 / 41 skipped`, with the suite
-    at 283.1 s. That leaves 17 s of headroom.
+- **Sweep**: 15 of 16 killed, and the comment control survived.
+  - Three first-pass survivors gained cases: a row that can't be closed, a
+    revoke that can't be settled, and an already-revoked job.
+  - One (the inline line in the view) is equivalent and recorded.
+- **Full suite on `0cc457de`'s code**: `10375 / 10375 / 0 / 0` locally.
+  - Two existing tests were restated for the rule: a redelivery of an
+    executed job now makes zero design calls, and the billing-ref guard
+    allows `billId`.
+- **CI**: read after the push; see the next records commit.
 - **Image**: `builder/build-live.mjs` changed, so the prediction is now
-  production `8d6dbcea93252fbb` → `bccb030af1f1eed1` (205 inputs, 174
-  paths). This replaces round 2's `dd8d2e17a6559834`. Nothing is built.
+  production `8d6dbcea93252fbb` → `d2e9c973504783f1` (205 inputs, 174
+  paths). This replaces round 3's `bccb030af1f1eed1`. Nothing is built.
 
-**Remaining gaps**
-- **Without a row (no service key)**: if the "accepted" write is lost after
-  the message was sent, the marker frees its chat after 5 minutes while the
-  build may still run. With a row, the row holds the chat.
-- **A lost "inline" write**: the plain unaccepted marker holds the chat for
-  5 minutes only, while an inline build can run longer.
-- **A Worker that dies mid-inline** leaves an `inline` marker holding its
-  chat until it is older than a build can run.
-- **A send that failed with the job not provably gone**: the browser follows
-  a job that may never run until the stale sweep re-sends it, or fails it
-  with the deposit back. There is no row-less recovery.
+**Remaining limitations**
+- **A producer whose execution-record write can't be settled after a failed
+  send follows a job that may never run**, if the message really was lost.
+  The stale sweep re-sends a queued row, or fails it with the deposit back.
+  With no row there is no recovery.
+- **A store failure with no row and an unwritable execution record** runs
+  inline with no record. Nothing can announce that job, but a later request
+  could revoke and take its chat after 5 minutes if the "inline" marker write
+  also failed.
+- **An executor older than `BUILD_JOB_MS`** is treated as gone, so a stalled
+  but live build past that age could lose its chat.
+- **Execution records are never swept** (`builds-run/`, one small object per
+  job).
+- **A consumer whose record write keeps failing** puts the job back and asks
+  again up to `CLAIM_RETRY_MAX`, then leaves it to the row's sweep.
 - **Unchanged from earlier rounds**:
-  - builds accepted before round 1, and inline builds, aren't listed;
-  - a fresh session gets the customer's words and the result only;
-  - real-model progress wording, real images and any live run are untested;
+  - builds accepted before round 1 aren't listed;
+  - a fresh session gets the words and the result only;
+  - real-model wording, real images and any live run are untested;
   - the unit-test job's 5-minute limit is tight.
 
 No top-up, paid call, merge, deploy or container build without your word.
@@ -88,6 +99,28 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — Build reconnection round 4: one execution rule (offline; not deployed)
+
+- **Codex on `b67a1c8b`**: 43 tests passed and the losing-candidate fix was
+  confirmed. Two failures remained:
+  - a marker write that throws bypassed ownership;
+  - `buildJobGone` let an inline build start while the consumer was
+    executing.
+- **Correction**: round 3's "storage failures no longer duplicate builds"
+  was wrong.
+- **Done**:
+  - one conditional execution record per job, which the consumer and the
+    inline fallback must both hold;
+  - the inline run bills as `build:<job>`;
+  - a missing marker never bypasses ownership;
+  - the record outranks lost marker writes and the acceptance window, and a
+    stale chat is taken only after its job is revoked.
+- **Verified offline**: 3 new cases plus RC 17 rewritten, a red check,
+  a sweep (15 of 16, 1 equivalent) and the full suite (10,375 of 10,375).
+- **Not done**: merge, deploy, container build or paid calls.
 
 ---
 
