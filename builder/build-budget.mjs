@@ -312,6 +312,8 @@ export function budgetStage(steps) {
     // THE IMAGE STEP WAITING ON PHOTOGRAPHS STILL BEING BOUGHT, AND ONE
     // RECOVERED RATHER THAN BOUGHT (round 5): the pages exist.
     "photos-wait": "publish", "photo-recovered": "publish",
+    // THE PHOTOGRAPHS THE IMAGE STEP COULD NOT MAKE (2026-10-10): the pages exist.
+    "photos-missing": "publish",
     // From here the pages exist, so the note stops saying they were not written.
     img: "publish", compile: "publish", container: "publish", og: "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.

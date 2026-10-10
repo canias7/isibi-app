@@ -252,7 +252,7 @@ import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
   tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
-  editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
+  editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
   takeOverRecord, buildStepFacts,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
 } from "./builder/site-progress.mjs";
@@ -14289,6 +14289,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // as placed, and is not in `made`, which is what the bill counts.
       return withPictureFacts(buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget, buy: purchaseBuyer(env, { slug, key: photoKey, n: 0, owner: photoOwner, pending: photoTask ? photoTask.pending : null }) })
         .then(async (r) => {
+          // THE PHOTOGRAPHS NOT MADE (2026-10-10): every frame the pages hold
+          // a token for, tried or past what could be paid for, less what was
+          // made — told on the live lines as not done, and kept missing after.
+          if (r && typeof r === "object") {
+            const missing = Math.max(0, (Array.isArray(r.attempted) ? r.attempted.length : 0) + (Array.isArray(r.notTried) ? r.notTried.length : 0) - (Number(r.made) || 0));
+            if (missing) try { mark?.("photos-missing", { missing }); } catch { /* a trace must never break a build */ }
+          }
           if (!photoTask || !r || typeof r !== "object") return r;
           const done = await photoTask.settled;
           const placed = new Set((Array.isArray(r.bought) ? r.bought : []).map((x) => x && x.url));
@@ -36041,7 +36048,7 @@ async function handleRequest(request, env, ctx) {
             // them, and none of the pages whose menus the code changed after.
             // Run 105's line said "the classes page" of exactly such a page.
             if (aJob && aJob.progress) {
-              const aPagesSaid = addonPagesFacts({ added: aWorkAdded, changed: aWorkChanged, linked: aLinkOnly.map((path) => ({ path, to: (aLinked.get(path) || {}).to || [] })) });
+              const aPagesSaid = addonPagesFacts({ added: aWorkAdded, changed: aWorkChanged, linked: aLinkOnly.map((path) => ({ path, to: (aLinked.get(path) || {}).to || [] })), photos: aFold.photos });
               if (aPagesSaid.length) aJob.progress.mark("pages", aPagesSaid);
             }
 
@@ -36391,6 +36398,9 @@ async function handleRequest(request, env, ctx) {
                 // the plan cannot tell a customer who asked for one from one
                 // who asked for three and could pay for one.
                 aMark("photos", "ok", { made: aPhotos.made || 0, planned: aFold.photos.length, offered: aShots.length });
+                // EACH PHOTOGRAPH AS THE PURCHASE LEFT IT (2026-10-10): made, or
+                // not made and kept missing in every later line.
+                if (aJob && aJob.progress) aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos, bought: aPhotos.bought, pending: aPendingPhotos }));
               } catch (e) {
                 // NAMED, NEVER FATAL — the site is the product and the pictures
                 // are the decoration, which is the build path's own rule. The
@@ -36408,6 +36418,7 @@ async function handleRequest(request, env, ctx) {
                 aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
                 if (aParts) aParts = applyImages(aParts, new Map());
                 aMark("photos", "fail", { planned: aFold.photos.length, offered: aShots.length });
+                if (aJob && aJob.progress) aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos }));
               }
               // ── AND THE PICTURES ARE BILLED ────────────────────────────────
               //
@@ -36440,6 +36451,10 @@ async function handleRequest(request, env, ctx) {
               if (aJob && aPhotoBill) {
                 aPhotoCharged = Number(await aCharge(pageCredits(aPhotoBill), 5)) || 0;
               }
+            } else if (aFold.photos.length && aJob && aJob.progress) {
+              // NONE OFFERED (2026-10-10): the balance could pay for no photograph,
+              // so every one the design asked for is not made, and said so.
+              aJob.progress.mark("photos", addonPhotosFacts({ planned: aFold.photos }));
             }
             // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
             //

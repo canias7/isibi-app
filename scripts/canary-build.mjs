@@ -205,9 +205,9 @@ export function buildOrderVerdict({ steps, done, ok } = {}) {
 /** Every fixed sentence a build step's facts can say, for a count of 0-20: a line equal to one is not the model's. */
 export function buildFactTexts() {
   const out = new Set();
-  const names = ["design", "provision", "schema", "seed", "gen", "photos-alongside", "fired", "photos-wait", "photo-recovered", "photos-joined", "compile"];
+  const names = ["design", "provision", "schema", "seed", "gen", "photos-alongside", "fired", "photos-wait", "photo-recovered", "photos-joined", "photos-missing", "compile"];
   for (const s of names) for (let n = 0; n <= 20; n++) {
-    for (const f of buildStepFacts({ s, started: n, open: n, used: n, n, tables: n, db: n })) if (f && typeof f.text === "string") out.add(f.text);
+    for (const f of buildStepFacts({ s, started: n, open: n, used: n, missing: n, n, tables: n, db: n })) if (f && typeof f.text === "string") out.add(f.text);
   }
   return out;
 }

@@ -1174,3 +1174,20 @@
   - the router and every downstream model are given the file's contents;
   - an attachment never hides a cut somewhere else.
   The backlog carries it.
+
+## What you've asked for since (2026-10-10)
+
+- **Progress messages stay model-written and grounded in what really
+  happened; a photograph that failed stays missing in every later update**
+  (2026-10-10, after the Add-on press's line claimed a photograph that was
+  never made): *"Keep messages model-written and grounded in actual results:
+  a failed photograph must remain missing in every later update."* So:
+  - the writer is told each photograph's real outcome (made, not made, or
+    still being confirmed), never left to infer it from the request;
+  - everything not made is handed to every later line as still missing;
+  - no line is composed by code in its place.
+- **fal's empty balance is the known reason image generation is
+  unavailable** (2026-10-10): *"Treat that as the known reason image
+  generation is unavailable."* The image retry and the Build test stay
+  paused until you fund fal. No top-up, deploy or paid test without your
+  word.

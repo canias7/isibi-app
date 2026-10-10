@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, the approved Add-on press failed on its photograph; the Build check was not pressed)
+## Current handoff — read this first (2026-10-10, a failed photograph now stays missing in every later progress line; not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,71 +8,99 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
-  `8d6dbcea93252fbb`, unchanged; nothing merged, deployed or rebuilt.
-- **The branch** `claude/help-needed-ehlwlj` is `2092de4b` plus these records. On top of the
-  reviewed `daded612` are three script and workflow fixes, made before any
-  paid run because a free preflight would otherwise have stopped:
-  - `86339469`: the ledger column is `uid`;
-  - `5ea7230a`: the check no longer waits for a deploy of its own branch
-    commit;
-  - `2092de4b`: the check gets the public anon key.
+  `8d6dbcea93252fbb`, unchanged. Nothing merged, deployed or rebuilt.
+- **The branch** `claude/help-needed-ehlwlj` carries the progress fix (this
+  handoff's commit) on top of `5c7aba5f`. The image prediction is below.
+- **fal's balance is empty** (you confirmed). That is the known reason image
+  generation is unavailable. The image retry and the Build test stay paused
+  until you fund fal.
+- **Balance 971**, unchanged since the Add-on press. Read the ledger before
+  relying on it.
 
-  None touches product code; the image is unchanged.
-- **Balance 971**, after the Add-on press (990 → 971, last ledger row 432).
-  Read the ledger before relying on it.
+**The fix: what the progress writer is told (lines stay model-written)**
+- **Before**, the writer never heard what happened to a photograph. Only the
+  customer's words named it, so at 356 s it wrote *"with a photograph"*.
+- **Now**:
+  - the pages milestone says each photograph is still to make and not on the
+    page yet;
+  - a photographs milestone, from the purchase's own result, says each one
+    made or **not made**. It is marked on the result, the thrown purchase and
+    the nothing-affordable case;
+  - **every later line is told "STILL NOT MADE"** with each missing item,
+    after the earlier updates;
+  - two writer rules: describe only what the facts say (never a detail from
+    the request, such as a photograph); anything not made stays missing in
+    every update;
+  - the first build does the same: `photos-missing` counts the photographs
+    not made, from the purchase's result.
+- The page, the menu links, the other pages, the reply and the billing are
+  unchanged. A photograph not made was already not charged.
 
-**The approved Add-on press, run 38049499667: FAILED on the photograph**
-- **Landed and checked**:
-  - a new `/bakers` page ("Meet the Bakers"), served 200;
-  - one menu link to it on every page, every item kept;
-  - every other stored page byte for byte as it was.
-- **The photograph was not made.** The job's trace reads
-  `photos: planned 1, offered 1, made 0`, in 2.6 s: the provider refused or
-  failed at once. The page holds an empty frame, described "Three bakers
-  shaping loaves at a long wooden bench at night".
-  - **Image storage and placement: not established.** No image was stored
-    and none placed.
-  - **Provider purchase-once: not verified** (as designed); whether fal was
-    called or billed cannot be read by a press.
-  - **Cause not proven.** fal's balance is behind your signed-in route
-    `/api/fal-balance`, which I cannot call. **Please check fal's balance
-    or its key.**
-- **Reported honestly at the end**: the card shows partial; the
-  model-written reply says the photograph could not be placed and the frame
-  waits for an upload.
-- **One overstated progress line**: at 356 s the model wrote that the page
-  was added *"with a photograph"*, after the photo step had made nothing.
-  This is a finding, not fixed.
-- **Fresh-session follow**: the tab was closed after the first live line
-  (106 s), and a fresh browser session followed the request to its end.
-- **Money: 19, fully reconciled**: routing 3 (row 431) plus the job's one
-  reserve of 16 (row 432), exactly the balance move. The missing photograph
-  was not charged (the add-on bills `made`, not `planned`).
-- **The checks**: 56, of which 50 passed and 6 failed (the request partial,
-  the photograph's four, the final card partial).
-
-**The Build check was NOT pressed**
-- Per your stop conditions, after a demonstrated failure of the requested
-  outcome. It also buys photographs and would likely meet the same provider
-  failure.
-- Its free preflight passed (run 38049362223): balance read steadily, slug
-  verified free, nothing sent.
-- Neither paid run is to be repeated without your word.
+**Verified offline (supplied model, stand-in services)**
+- `test/progress-missing-photo.test.mjs`, 10 cases, all passing:
+  - through the real Worker with fal answering 403 "Exhausted balance": the
+    Visit change and the new page are kept (empty frame, no token), the
+    photograph is said not made, nothing says it was made, and it is not
+    charged;
+  - every later line is told it is still not made. The route's real
+    milestones are replayed through the writer's own functions, one line per
+    milestone and also batched;
+  - controls: a made photograph (said made, charged once); a lost answer
+    (said as still being confirmed, never made or not made);
+  - the facts, the missing list, the rules and the wiring.
+- **BLD 13**: a first build with every picture refused publishes its pages,
+  says four not made, and every later line lists them.
+- **Red check**: on the old code BLD 13 fails, and the new file cannot load.
+- **Sweep**: 18 of 18 killed; the control survived.
+- **Full suite** locally: `10331 / 10331 / 0 / 0`.
+- **CI**: YYCIYY
+- **Image**: YYIMGYY
 
 **Remaining gaps**
-- The photograph path failed live; its cause is unconfirmed (fal).
-- A progress line can claim a photograph that was not made.
-- Provider purchase-once stays unverified by any press.
-- The browser cannot reconnect to a build in flight (open product gap). The
-  Build check's continuation is API-only and has not run live.
-- Build overlap, model-written build progress, build photographs and build
-  billing have not been shown live.
+- **Real-model wording is not measured.** Nothing in code reads a line's
+  words. What is proven is what the writer is told.
+- **No line is shown being written mid-job in the request harness**: the job
+  ends first there. The later-line property is shown by the replay.
+- **A build whose whole image step throws** says nothing about missing
+  photographs.
+- **In the harness, a refused photograph's part ends `done`**, while live it
+  ended `partial@addon`. Not asserted here; recorded in the history doc.
+- **Paused until fal is funded**: the image retry, the Build test,
+  purchase-once, build overlap and photographs, and browser reconnection to a
+  build (an open product gap).
+- No top-up, deploy or paid test without your word. A deploy of this fix
+  needs your word too.
+
+Details: `docs/history/2026-10-10-missing-photo-progress.md`.
 
 ## How you like things done
 
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-10 — A failed photograph stays missing in every later progress line (offline; not deployed)
+
+You confirmed fal's balance is empty. You asked for the false progress line
+to be fixed, with lines kept model-written and grounded in real results, and
+a failed photograph missing in every later update.
+- **Cause**: the writer was never told what happened to a photograph, and
+  the request's own words were the only thing naming it.
+- **Fix**:
+  - a photographs milestone from the purchase's result (made or not made);
+  - the pages milestone says photographs are still to make;
+  - every later line is handed what is still not made;
+  - two writer rules;
+  - the first build's `photos-missing`.
+- **Verified offline**:
+  - 10 new cases plus BLD 13;
+  - red check;
+  - sweep 18 of 18;
+  - full suite `10331 / 10331 / 0 / 0`.
+- Not deployed, not pressed. The image retry and the Build test stay paused
+  until you fund fal.
 
 ---
 

@@ -32,6 +32,7 @@ import { blockNetwork, unexpected, clearUnexpected, blockedFetch, noteUnexpected
 import { BUILD_USER } from "./fixtures/build-route.mjs";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { progressKey } from "../builder/site-progress.mjs";
+import { replayLines, afterNotMade } from "./fixtures/progress-replay.mjs";
 
 blockNetwork();
 
@@ -54,8 +55,8 @@ function routeSrc(body) {
   return "import { createFileRoute } from '@tanstack/react-router';\nexport const Route = createFileRoute('/')({ component: Page });\nfunction Page() { return (<main>" + body + "</main>); }\n";
 }
 
-/** The image service, stood in for: every purchase logged with when it began and ended; `hold(i)` may delay one. */
-function images({ hold = null } = {}) {
+/** The image service, stood in for: every purchase logged with when it began and ended; `hold(i)` may delay one; `refuse` answers every one as an empty balance does (403). */
+function images({ hold = null, refuse = false } = {}) {
   const log = [];
   return {
     log,
@@ -68,6 +69,7 @@ function images({ hold = null } = {}) {
         log.push(e);
         if (hold) await hold(e);
         e.end = Date.now();
+        if (refuse) return json({ detail: "User is locked. Reason: Exhausted balance." }, 403);
         return json({ images: [{ url: "https://img.test/p" + (e.i + 1) + ".jpg" }] });
       }
       if (u.startsWith("https://img.test/")) {
@@ -567,6 +569,39 @@ test("BLD 12 — A BUILD'S PROGRESS MESSAGE LOST, FOUND BY THE SWEEP (round 5): 
   assert.equal(sq.sent.filter((m) => m && m.kind === "edit-progress" && m.id === id).length, 1, "the sweep did not ask for the build's writer");
   await deliverProgress(b, sq, stand);
   assert.ok(stand.recOf().lines.length >= 1, "no line was written after the sweep's ask");
+});
+
+test("BLD 13 — THE PHOTO SERVICE REFUSES EVERY PICTURE (an empty balance, 2026-10-10): the build still publishes its pages with the frames left empty; its live lines are told, from the purchase's own result, that the four photographs were not made — never placed — and every line after that is told they are still not made; nothing is made, so nothing is billed (`made` 0)", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images({ refuse: true });
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on" }, over: both });
+  const rq = taskQueue();
+  await finishResume(b, id, ledger(), { credits: 400, env: { FAL_KEY: "k", PROGRESS_REPLIES: "on", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", BUILD_QUEUE: rq }, source: pageOf(PICS), over: both });
+  const body = answerOf(b, id).body;
+  assert.equal(body.page, "app", JSON.stringify(body).slice(0, 300));
+  assert.equal(body.images.made, 0);
+  assert.ok(img.log.length >= 1, "the image service was never asked");
+  assert.equal(uploads(b).length, 0, "a refused picture was stored");
+  assert.ok(!published(b).includes("@@IMG"), "a token was left in the published pages");
+  assert.match(published(b), /Opening hours/, "the pages were not published");
+  const rec = stand.recOf();
+  const facts = allFacts(rec);
+  const missing = facts.find((f) => f.stage === "build-photos-missing");
+  assert.ok(missing, "the photographs not made were not said: " + rec.marks.map((m) => m.stage).join(","));
+  assert.equal(missing.state, "notdone");
+  assert.equal(missing.text, "4 photographs could not be made, so their places on the pages are left empty.");
+  assert.ok(!facts.some((f) => f.stage === "build-photos-joined" && f.state === "prepared"), "a photograph was said placed: " + JSON.stringify(facts.filter((f) => /Placed/.test(f.text))));
+  const stages = rec.marks.map((m) => m.stage);
+  assert.ok(stages.indexOf("build-photos-missing") < stages.indexOf("build-compile"), "the compile milestone does not come after: " + stages.join(","));
+  // EVERY LINE AFTER IT, AS THE WRITER WOULD BE ASKED: still not made.
+  const { texts } = replayLines(rec);
+  const { at, later } = afterNotMade(texts, missing);
+  assert.ok(at >= 0 && later.length >= 1, "no line after the not-made fact: the check would be empty");
+  for (const t of later) assert.match(t.split("WHAT HAS HAPPENED SINCE")[0], /STILL NOT MADE IN THIS WORK[^]*4 photographs could not be made/, t);
+  noPublishClaim(facts);
 });
 
 test("NET — no request in this file left the machine", () => {
