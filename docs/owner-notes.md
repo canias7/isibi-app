@@ -72,7 +72,7 @@ has every pass and fail condition)
 - Red check: both fail on the old code, and a reused-picture add-on got no
   photograph check there.
 - Sweep: 33 of 33 killed, 2 controls survived.
-- Full suite: **running at this push; stamped in the next commit once measured**. Doc tests 32/32.
+- Full suite: **`10317 / 10317 / 0 / 0`** locally (on `4273ba32`'s code). Doc tests 32/32.
 
 **The boxes, when you approve a press** (nothing is pressed yet)
 - **Add-on**: *edit canary* → *RUN A NAMED SCENARIO…* `lv-addon-photo`,
@@ -105,7 +105,7 @@ After Codex reviewed `2399f359`, on your word:
   - the API-path closure;
   - its photographs and its charges.
 - **Commit ``4273ba32` (scripts, tests and workflow inputs)`.** Tests 8 and 14 new, sweep 33/33, full suite
-  stamped once measured. The image is unchanged (`8d6dbcea93252fbb` (204 inputs), the deployed one).
+  `10317 / 10317 / 0 / 0`. The image is unchanged (`8d6dbcea93252fbb` (204 inputs), the deployed one).
 - **No merge, deploy, rebuild, balance change or paid run.**
 - **Found**: the browser cannot re-attach to a build in flight once
   closed. Kept separate as a product gap.

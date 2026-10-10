@@ -184,8 +184,8 @@ pages' charge. **Budget 70, hard cap 1018.** The site stays.
   `wrangler.jsonc` and `.github/scripts/` is empty. This round changed only
   `scripts/`, `test/` and two workflow files. `scripts` and `test` are in
   `.dockerignore`, and the presses run on the GitHub runner.
-- **The predicted image for the pushed head** (204 inputs) is recorded in
-  the owner-notes handoff, and it is the deployed one. **No container
+- **The predicted image for `4273ba32`** is `8d6dbcea93252fbb` (204
+  inputs), the deployed one. **No container
   rebuild and no deploy is needed** before either press.
 - **What the presses rely on is deployed**:
   - the build trace marks (photos beside the pages, bands, design);
@@ -245,8 +245,8 @@ pages' charge. **Budget 70, hard cap 1018.** The site stays.
     rewrote a line), each closed by an assertion;
   - 1 was an equivalent mutant: a `<meta>` strip that could never matter,
     since only `<img>` tags are read. That dead line was removed.
-- **Full suite**: recorded in the owner-notes handoff, measured after the
-  run.
+- **Full suite**: `10317 / 10317 / 0 / 0` locally, on `4273ba32`'s code
+  (10295 before this round, plus the 22 new cases).
 
 ## Limits, kept explicit
 
