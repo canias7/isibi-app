@@ -366,7 +366,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // THE ANSWER'S USAGE: ten in and five out unless a narration case hands its
   // own (`progressWith`/`tasksWith` answering `{ usage }`, 2026-10-07) — every
   // other call's usage, which money is priced from, stays as it was.
-  const say = (tool, input, usage = null) => resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } });
+  // A PROVIDER REPLY AS GIVEN (`{ __raw }`, 2026-10-11, the unusable-answer
+  // round): a case may answer with the provider's own shape — a reply cut off
+  // at `max_tokens`, say — instead of a tool call made for it.
+  const say = (tool, input, usage = null) => (input && typeof input === "object" && Object.hasOwn(input, "__raw")
+    ? resp({ usage: usage || { input_tokens: 10, output_tokens: 5 }, ...input.__raw })
+    : resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } }));
   async function model(args, signal = null) {
     const tool = (args.tool_choice && args.tool_choice.name) || "";
     const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
@@ -433,7 +438,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
       const a = answers["lane:" + field];
       const v = typeof a === "function" ? await a(args, nextN("lane:" + field)) : a;
-      return say(tool, v && typeof v === "object" && Object.hasOwn(v, "question") && Object.keys(v).length === 1 ? v : { [field]: v });
+      return say(tool, v && typeof v === "object" && ((Object.hasOwn(v, "question") && Object.keys(v).length === 1) || Object.hasOwn(v, "__raw")) ? v : { [field]: v });
     }
     if (tool === T.design) {
       const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
@@ -738,6 +743,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** A job's progress record as the bucket holds it (2026-10-06). */
     progressOf(jobId) { const o = objects.get("jobs/" + jobId + ".progress.json"); return o ? JSON.parse(o.body) : null; },
     question() { const o = objects.get("source/" + slug + "/question.json"); return o ? JSON.parse(o.body) : null; },
+    // STORED OBJECTS, READ AND WRITTEN AS THE BUCKET HOLDS THEM (2026-10-11):
+    // a case may age a record into an earlier format, or change a page between
+    // a question and its answer, as another writer would.
+    objectKeys(prefix = "") { return [...objects.keys()].filter((k) => k.startsWith(prefix)); },
+    readObj(key) { const o = objects.get(key); return o ? o.body : null; },
+    writeObj(key, body) { setObj(key, body); },
     page(path) { return (JSON.parse(objects.get(SOURCE_KEY(slug)).body).find((p) => p.path === path) || {}).source; },
     pages() { return JSON.parse(objects.get(SOURCE_KEY(slug)).body).map((p) => p.path); },
     look() { return (JSON.parse(objects.get(CONFIG_KEY(slug)).body || "{}").look || {}); },

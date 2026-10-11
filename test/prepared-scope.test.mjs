@@ -194,7 +194,11 @@ test("prepScope: a text step's named pages and a data step's named tables — an
   assert.equal(prepScope(part("text", ["page:/about", "header"], "/about")), null, "a write beyond pages");
   assert.equal(prepScope(part("text", [], "/about")), null, "nothing named");
   assert.equal(prepScope(part("data", ["data:loaves", "menu"])), null, "a write beyond tables");
-  assert.equal(prepScope(part("rules", ["data:loaves"])), null, "rules are never narrowed");
+  // RULES NAMED FOR TABLES ARE NARROWED (2026-10-11, the generality round):
+  // their step is shown those tables only, the data step's contract, `needs` included.
+  assert.deepEqual(prepScope(part("rules", ["data:loaves"])), { tables: ["loaves"] }, "a rules change named for a table is narrowed to it");
+  assert.equal(prepScope(part("rules", ["data:loaves", "menu"])), null, "a rules write beyond tables");
+  assert.equal(prepScope(part("rules", [])), null, "a rules change naming nothing");
   assert.equal(prepScope({ ...part("text", ["page:/about"], "/about"), targets: { writes: ["page:/about"], reads: ["page:/visit"] } }), null, "a step that declares it reads another page");
   assert.equal(prepScope({ ...part("text", ["page:/about"], "/about"), phase: "route" }), null, "a part still to be routed");
 });

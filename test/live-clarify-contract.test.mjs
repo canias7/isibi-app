@@ -660,7 +660,7 @@ test("EVERY MODEL THAT COULD NOT ASK NOW ASKS, AND WHAT IT WROTE BESIDE THE QUES
   assert.ok(build.input && build.input.pages, "a first build's pages were not read");
 });
 
-test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so are a revise's and an add-on's; only the one-page edit is offered the question", () => {
+test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a revise's; the one-page edit and (since 2026-10-11) an add-on's writer are offered the question, the add-on's request otherwise byte for byte as it was", () => {
   const h16 = (v) => crypto.createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16);
   const SPEC = { tables: [] };
   const prior = [{ path: "index.tsx", source: "export default function P(){return <main/>}" }];
@@ -668,7 +668,12 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so are a
   const pinned = { build: "5f88c5a2f738b9eb", revise: "66e12434e0bde0a2", addon: "f58a2d99f8705356" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
-  assert.equal(h16(pagesRequest({ brief: "Add a gallery page", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "addon" })), pinned.addon, "an add-on's page request changed");
+  // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
+  // writer stage that could not account for a missing detail). Only its tool
+  // changed: with the plain tool put back, its request is the pinned bytes.
+  const addon = pagesRequest({ brief: "Add a gallery page", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "addon" });
+  assert.equal(addon.tools[0], SITE_PAGES_TOOL_ASK, "an add-on's page writer was not offered the question");
+  assert.equal(h16({ ...addon, tools: [SITE_PAGES_TOOL] }), pinned.addon, "an add-on's page request changed beyond its tool");
   const edit = pagesRequest({ brief: "Move the band", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "page", target: "index.tsx" });
   assert.equal(edit.tools[0], SITE_PAGES_TOOL_ASK, "the one-page edit was not offered the question");
 });

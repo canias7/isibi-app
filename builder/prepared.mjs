@@ -53,11 +53,55 @@ export async function requestHash(req) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ── AN ANSWER THAT ARRIVED IS NOT ALWAYS ONE THAT CAN BE GIVEN AGAIN ─────────
+//
+// (2026-10-11, the unusable-answer round, after Codex's review of 648964d5.)
+// A transport that succeeded proves only that a reply came back. A reply the
+// provider cut off at its token limit carries half a tool call; one it paused,
+// or ran out of context on, is unfinished; an error body, or something that is
+// not a reply at all, answered nothing. Codex showed the cost of replaying
+// one: a component's designer answered with a cut-off reply beside another
+// designer's question, the job rightly ended on the question, and after the
+// customer's answer the identical request was answered from the cut-off
+// record — the request failed and that designer was never asked again.
+//
+// So the boundary every recorded answer passes — recorded here, staged for a
+// job, read back, replayed — judges each reply: a reply that cannot be given
+// again is KEPT, with its verdict, for the record, and NEVER REPLAYED; its
+// call is made again, through the job's own reserve and limits, like any call
+// that has no recorded answer. A complete answer keeps its meaning whatever it
+// says — a design, a question back, a refusal, prose that changes nothing are
+// the model's answer and are replayed as before. Records stored before this
+// rule carry no verdict; they are judged when read.
+
+/** Provider stop reasons that mean the reply is unfinished (the xAI boundary reports `finish_reason: "length"` as `max_tokens`). */
+const UNFINISHED = new Set(["max_tokens", "pause_turn", "model_context_window_exceeded"]);
+
+/**
+ * WHY THIS REPLY CANNOT BE GIVEN AGAIN, or "" when it can. Reads the reply's
+ * shape and its stop reason only — never its words.
+ */
+export function unusableReply(reply) {
+  if (!reply || typeof reply !== "object" || Array.isArray(reply)) return "not-a-reply";
+  if (reply.type === "error" || (Object.hasOwn(reply, "error") && reply.error)) return "error";
+  if (typeof reply.stop_reason === "string" && UNFINISHED.has(reply.stop_reason)) return "unfinished:" + reply.stop_reason;
+  if (Object.hasOwn(reply, "content") && reply.content != null) {
+    if (!Array.isArray(reply.content)) return "malformed";
+    for (const b of reply.content) {
+      if (!b || typeof b !== "object") return "malformed";
+      if (b.type === "tool_use" && (!b.input || typeof b.input !== "object" || Array.isArray(b.input))) return "malformed";
+    }
+  }
+  if (Array.isArray(reply.choices) && reply.choices.some((c) => c && c.finish_reason === "length")) return "unfinished:length";
+  return "";
+}
+
 /**
  * A RECORDER: `wrap(send)` makes every call as `send` would and keeps its
  * answer under its request's fingerprint; `image(generate)` keeps each picture
  * bought under the description it was bought for. A failed call is not kept —
- * its job makes it again.
+ * its job makes it again. A reply that cannot be given again is kept with its
+ * verdict (`unusable`), for the record only: it is never replayed.
  */
 export function recorder() {
   const calls = [];
@@ -67,7 +111,11 @@ export function recorder() {
     wrap(send) {
       return async (req) => {
         const reply = await send(req);
-        try { calls.push({ h: await requestHash(req), reply }); } catch { /* an answer that cannot be kept is made again by the job */ }
+        try {
+          const h = await requestHash(req);
+          const why = unusableReply(reply);
+          calls.push(why ? { h, reply, unusable: why } : { h, reply });
+        } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
       };
     },
@@ -81,15 +129,28 @@ export function recorder() {
   };
 }
 
-/** A prepared record read back: `{ calls, images }`, only what reads — a malformed entry is dropped, never guessed. */
+/**
+ * A prepared record read back: `{ calls, images, discarded }`, only what reads
+ * — a malformed entry is dropped, never guessed. An entry whose reply cannot
+ * be given again (marked when recorded, or judged now — a record stored before
+ * the rule carries no mark) is left out of `calls` and named in `discarded`
+ * (`{ h, why }`), so every reader — a job's staging, its replayer, the next
+ * job's staging of what this one kept — gives it to nobody.
+ */
 export function readPrepared(raw) {
   let v = raw;
-  if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [] }; } }
+  if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [], discarded: [] }; } }
   const ok = v && typeof v === "object" && !Array.isArray(v);
-  const calls = ok && Array.isArray(v.calls) ? v.calls.filter((c) => c && typeof c.h === "string" && /^[0-9a-f]{64}$/.test(c.h) && c.reply && typeof c.reply === "object")
-    .map((c) => ({ h: c.h, reply: c.reply })) : [];
+  const calls = [];
+  const discarded = [];
+  for (const c of ok && Array.isArray(v.calls) ? v.calls : []) {
+    if (!c || typeof c.h !== "string" || !/^[0-9a-f]{64}$/.test(c.h)) continue;
+    const why = (typeof c.unusable === "string" && c.unusable) || unusableReply(c.reply);
+    if (why) { discarded.push({ h: c.h, why }); continue; }
+    calls.push({ h: c.h, reply: c.reply });
+  }
   const images = ok && Array.isArray(v.images) ? v.images.filter((i) => i && typeof i.d === "string" && typeof i.url === "string" && i.url) : [];
-  return { calls, images };
+  return { calls, images, discarded };
 }
 
 /**
@@ -133,6 +194,14 @@ export function replayer(prepared) {
     // `scopedText`, `scopedData`), so its exact request is what its answer
     // rests on. `rebased` stays in the shape, always 0.
     used: () => ({ calls: hits, rebased: 0, images: imageHits, missed: misses }),
+    /**
+     * MORE PREPARED CALLS, joined while the job runs (2026-10-11, the
+     * generality round): a later step of the same job, prepared beside the
+     * earlier ones, hands its recorded calls here before its turn. Read under
+     * the same rule as everything else (`readPrepared`): an answer that cannot
+     * be given again is never added.
+     */
+    add(more) { for (const c of readPrepared({ calls: Array.isArray(more) ? more : [] }).calls) calls.push(c); },
     /**
      * IS THIS PICTURE ONE ITS PREPARATION BOUGHT? Such a picture sits in the
      * owner's uploads before the job places it, so a step that lists the

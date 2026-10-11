@@ -5941,6 +5941,7 @@ const jobCall = (job, call) => (keys, req, budget) => jobSend(job, (r) => call(k
  * that part's logical purchase, whoever began it.
  */
 const jobImage = (job, generate) => {
+  if (job && job.prepare === true && job.noBuy === true) return async () => { throw new Error("no purchase in a step's preparation"); };
   if (job && job.prepare === true && job.rec) return job.rec.image(generate);
   const once = job && job.purchase ? job.purchase.image(generate) : generate;
   return job && job.replay ? job.replay.image(once) : once;
@@ -17741,9 +17742,55 @@ export function readPrepTask(body) {
 }
 /** How long a preparation may run, at most: inside the queue consumer's own minutes, with room to record it. */
 const PREP_RUN_MS = 8 * 60 * 1000;
+/** The steps of one edit whose model work is prepared beside the steps before them: those that make model calls of their own. */
+const STEP_AHEAD_LAYERS = new Set(["text", "picture", "nav", "page", "data", "rules"]);
+/** At most this many later steps of one edit are prepared at once — within the job's own preparation budget. */
+const STEP_AHEAD_MAX = 3;
+/**
+ * WHAT ONE STEP OF AN EDIT WRITES AND READS, from the code's own wiring of
+ * each rung (2026-10-11, the generality round) — the request planner's rule,
+ * one level down: a page step its page; a text step its page, or every page
+ * when none is named; the picture step the pictures and the page whose frames
+ * it lists (every page when none is named — frames live in page source); the
+ * menu step the menu, which every page renders; the data and rules steps the
+ * tables. The look's own values step (a name, a colour) is taken to write the
+ * whole site: renaming the business rewrites its name on every page.
+ */
+function stepReach(step) {
+  const page = typeof step.page === "string" && step.page ? "page:" + step.page : "";
+  // THE PAGES ITS OWN OPS NAMED, when its rung's page is not one.
+  const on = page ? [page] : Array.isArray(step.on) && step.on.length ? step.on.map((p) => "page:" + p) : ["pages"];
+  const whole = step.remove === true || (typeof step.rename === "string" && step.rename);
+  switch (step.layer) {
+    case "page": return whole || !page ? { writes: ["site"], reads: ["pages"] } : { writes: [page], reads: [page] };
+    case "text": return { writes: on, reads: on };
+    case "picture": return { writes: ["images", ...on], reads: ["images", ...on] };
+    case "nav": return { writes: ["menu", "pages"], reads: ["menu", "pages"] };
+    case "data": case "rules": return { writes: ["data"], reads: ["data"] };
+    default: return { writes: ["site"], reads: ["site"] };
+  }
+}
+/** Does a step's write reach what another reads? `site` reaches everything; `pages` every page. */
+function stepTouches(w, r) {
+  if (w === "site" || r === "site" || w === r) return true;
+  return (w === "pages" && r.startsWith("page:")) || (r === "pages" && w.startsWith("page:"));
+}
+/**
+ * MAY THIS LATER STEP BE PREPARED BESIDE THE ONES BEFORE IT? Only when none of
+ * them writes what it reads: prepared then, its turn would only ask again — a
+ * call made for nothing. (Its turn's exact-request check still decides reuse.)
+ */
+function stepClearAhead(steps, i) {
+  const reads = stepReach(steps[i]).reads;
+  for (let j = 0; j < i; j++) {
+    if (steps[j].withheld) continue;
+    if (stepReach(steps[j]).writes.some((w) => reads.some((r) => stepTouches(w, r)))) return false;
+  }
+  return true;
+}
 
 /** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
-async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false } = {}) {
+async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, buy = true } = {}) {
   const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug, ...(prec ? { rec: prec } : {}) });
@@ -17751,6 +17798,11 @@ async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false }
   // pictures here, so they are made while that job works. With nothing beside
   // it, its own job buys them, as before — never spent on a guess earlier.
   prep.beside = beside === true;
+  // A STEP'S PREPARATION INSIDE A JOB BUYS NOTHING (2026-10-11, the generality
+  // round): its picture is bought by the step itself, once, through the job's
+  // own purchase guard — a preparation made for a request an earlier step may
+  // still change is never a reason to spend.
+  prep.noBuy = buy === false;
   const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
   EDIT_JOBS.set(secret, prep);
   let res;
@@ -18500,6 +18552,10 @@ async function stagePrepared(env, id) {
  * really changes: a designer, lane or step whose request the answer did not
  * reach is never asked again, and one whose request it did reach always is.
  *
+ * Never an answer that cannot be given again (cut off, paused, an error):
+ * `readPrepared` leaves it out wherever it is read, records stored before
+ * that rule included (2026-10-11, the unusable-answer round).
+ *
  * ONLY FROM A JOB THAT CHARGED NOTHING (`end.cost === 0`): a replayed answer
  * keeps its usage and is billed by the job that uses it, so an answer an
  * earlier job was already billed for is never staged — no call is paid twice.
@@ -18520,7 +18576,14 @@ async function stageKept(env, id) {
     const { rec } = await loadRequest(env, job.slug, want.key);
     const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
     if (!p || !Array.isArray(p.jobs)) return;
-    const earlier = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end && j.end.cost === 0);
+    // ONLY FROM A JOB THAT PAUSED (2026-10-11, the unusable-answer round): it
+    // ended on the customer's question (`clarify`) or on a purchase nobody
+    // could tell yet (`uncertain`), so every answer it kept was either
+    // accepted or never read by its step. A job that ended any other way may
+    // have failed BECAUSE of one of its complete-looking answers, and nothing
+    // says which: its answers are never staged, and the next run asks again.
+    const earlier = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end && j.end.cost === 0
+      && (j.end.act === "clarify" || j.end.act === "uncertain"));
     if (!earlier.length) return;
     const add = [];
     for (const j of earlier) {
@@ -29492,7 +29555,11 @@ async function handleRequest(request, env, ctx) {
                   continue;
                 }
                 const words = mine.map((op) => op.words);
-                dispatched.push({ layer: to, page: ePage, fields: [f], ask: words.join("\n"), words, told: toldOf(mine) });
+                // THE PAGES ITS OWN OPS NAME (`on`, 2026-10-11): what the step
+                // reaches, for planning which later steps may be prepared beside
+                // the ones before them (`stepReach`). Never the rung's `page`.
+                const on = [...new Set(mine.map((op) => (typeof op.page === "string" ? op.page : "")).filter(Boolean))];
+                dispatched.push({ layer: to, page: ePage, fields: [f], ask: words.join("\n"), words, told: toldOf(mine), ...(on.length ? { on } : {}) });
               }
               steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
@@ -29679,7 +29746,11 @@ async function handleRequest(request, env, ctx) {
               // whole message in front of it. One step, exactly as before — and
               // the router's verbs ride on it, because it is the step they were
               // decided for.
-              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });
+              // A STEP PREPARED INSIDE A JOB IS SHOWN THE ANSWERS ITS TURN WILL BE
+              // (`told`, 2026-10-11): the indices its own step was given, into
+              // the same full list — so its requests are byte for byte its turn's.
+              const eTold = Array.isArray(eb && eb.told) && eb.told.length <= 64 && eb.told.every((j) => Number.isInteger(j) && j >= 0) ? eb.told.slice() : null;
+              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename, ...(eTold ? { told: eTold } : {}) });
             }
 
             // ── THE PERMISSION IS THE STATE, NOT A FLAG (2026-09-20) ──────
@@ -30157,6 +30228,7 @@ async function handleRequest(request, env, ctx) {
               let rCost = 0, rBilled = false;
               const rOut = await runRulesEdit({
                 send: eQuick(),
+                seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
                 before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
@@ -30165,7 +30237,7 @@ async function handleRequest(request, env, ctx) {
                 // table that already exists — and it persists `_meta` itself, so
                 // there is no second write that could disagree with the DDL.
                 apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
-              }, { instruction: eInstruction, tables: rSpec.tables, model: eQuickModel });
+              }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (rOut.ask) return stepAsk("rules", rOut.ask);
 
@@ -32904,7 +32976,43 @@ async function handleRequest(request, env, ctx) {
             // THE PLAN, AS A MILESTONE (2026-10-06): the steps about to run, as
             // the builder names them — what was worked out, and that it is next.
             if (eJob && eJob.progress) eJob.progress.mark("plan", editPlanFacts(steps));
+            // ── A LATER STEP'S MODEL WORK, PREPARED BESIDE THE EARLIER ONES
+            //    (2026-10-11, the generality round) ─────────────────────────
+            //
+            // The steps still WRITE in turn, in this order — each reads the
+            // stored site and writes it back, and the order is load-bearing.
+            // Their MODEL WORK need not wait: each later step that makes model
+            // calls is prepared now, beside the steps before it, through the
+            // very route a request part's preparation uses (`replayPrepared`):
+            // its own layer, page, words and answers, every call recorded,
+            // nothing written, nothing charged, no picture bought. When its turn
+            // comes, what it recorded is handed to this job's replayer, and each
+            // call whose request is byte for byte the one recorded is answered
+            // from it — billed once, by this job — and any other (an earlier
+            // step changed what it reads) is made now. A preparation that fails
+            // or does not finish hands over nothing: the step makes its calls.
+            const eAhead = new Map();
+            if (eJob && !isPrep && steps.length > 1) {
+              if (!eJob.replay) eJob.replay = replayer(null);
+              let ahead = 0;
+              steps.forEach((step, i) => {
+                if (i === 0 || ahead >= STEP_AHEAD_MAX || step.withheld || step.remove === true || (typeof step.rename === "string" && step.rename) || !STEP_AHEAD_LAYERS.has(step.layer)) return;
+                if (!stepClearAhead(steps, i)) return;
+                ahead++;
+                const prec = recorder();
+                const body = {
+                  layer: step.layer, page: step.page || "", instruction: step.instruction || step.ask || eRun,
+                  context: eb && eb.context, ...(Array.isArray(step.told) ? { told: step.told } : {}), picker: eb && eb.picker, ...(eb && eb.request ? { request: eb.request } : {}),
+                };
+                eAhead.set(i, replayPrepared(env, ctx, { uid: ou.id, slug: ownerSlug }, "/api/site/" + encodeURIComponent(ownerSlug) + "/edit", body, prec, { buy: false })
+                  .then(() => prec.calls, () => prec.calls));
+              });
+            }
+            let eStepAt = -1;
             for (const step of steps) {
+              eStepAt++;
+              // ITS PREPARED CALLS, HANDED OVER BEFORE ITS TURN.
+              if (eAhead.has(eStepAt)) { try { eJob.replay.add(await eAhead.get(eStepAt)); } catch { /* it makes its calls */ } }
               // ── A PAGE OPERATION THAT ALREADY SUCCEEDED IS NOT RUN AGAIN ──
               //
               // ⚠ REPRODUCED THROUGH THIS ROUTE (2026-09-23): `components`,
@@ -35463,6 +35571,14 @@ async function handleRequest(request, env, ctx) {
             // NOTHING IS STARTED ONCE THE LOOP HAS ENDED (an answer, a question,
             // a refusal): a late readiness never begins work nobody will take.
             let aLoopDone = false;
+            // …EXCEPT WORK THE QUESTION DOES NOT REACH (2026-10-11, the
+            // generality round): when the loop ends on a designer's question,
+            // every designer that neither is that designer nor uses its result
+            // keeps going — started as its inputs become ready, its answer kept
+            // with the job — so the customer's answer resumes only the asker and
+            // what uses it. Any other ending (a failure, a refusal) starts
+            // nothing more.
+            let aAskedBy = null;
             // A KIND WHOSE TURN HAS BEGUN is never started again early: its own
             // turn makes or takes its one call.
             const aTaken = new Set();
@@ -35478,9 +35594,10 @@ async function handleRequest(request, env, ctx) {
             // EVERY DESIGNER WHOSE INPUTS ARE READY, started now, whatever is
             // still out before it in the list.
             const aStartReady = () => {
-              if (aLoopDone) return;
+              if (aLoopDone && !aAskedBy) return;
               for (const j of aDesigning) {
                 if (aEarly.has(j) || aDecided.has(j) || aTaken.has(j)) continue;
+                if (aAskedBy && (j === aAskedBy || (aWaits[j] || []).includes(aAskedBy))) continue;
                 if (!aInputsReady(j)) continue;
                 const site = aViewFor(j, aProvisional);
                 const brief = requirementBrief(aReq.filter((r) => r.judged), j);
@@ -35835,7 +35952,7 @@ async function handleRequest(request, env, ctx) {
                 for (const j of Array.isArray(clean.value) ? clean.value : []) if (j && j.at) j.tz = aTz;
               }
             }
-            } finally { aLoopDone = true; }
+            } finally { aLoopDone = true; if (aStepAsk && ADD_KINDS.includes(aStepAsk.kind)) aAskedBy = aStepAsk.kind; }
             // HOP 7 OF EIGHT: the developer-facing record, beside the raw
             // replies run 28 is the reason for. Everything the customer is not
             // told — the counts, the unreadable entries, the invalid property
@@ -35896,7 +36013,15 @@ async function handleRequest(request, env, ctx) {
               // THE DESIGNERS ALREADY ASKED FINISH FIRST (2026-10-11): their
               // answers are kept with the job, so the answer to this question
               // resumes only the work it reaches (`stageKept`).
-              await Promise.allSettled([...aEarly.values()].map((e) => e.p));
+              // …AND READY WORK THE QUESTION DOES NOT REACH IS STARTED AND
+              // FINISHED TOO, round after round, as each answer readies the next.
+              aStartReady();
+              for (let round = 0; round < ADD_KINDS.length + 1; round++) {
+                const out = aEarly.size;
+                await Promise.allSettled([...aEarly.values()].map((e) => e.p));
+                aStartReady();
+                if (aEarly.size === out) break;
+              }
               aAskOut.request = aInstruction;
               await aEnded("asked", aRecord());
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: aStepAsk.kind, ...(ADD_KINDS.includes(aStepAsk.kind) ? { by: "add:" + aStepAsk.kind } : {}), cost: 0, unchanged: true, ask: aStepAsk.ask, msg: aStepAsk.ask.text });
@@ -36907,6 +37032,25 @@ async function handleRequest(request, env, ctx) {
                   : "The builder is busy — try again in a moment.",
                 upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
               }, 503);
+            }
+            // ── THE PAGE WRITER MAY ASK TOO (2026-10-11, the generality round) ──
+            //
+            // It was the one writer stage that could not: shown an addition it
+            // could not place without a detail they left out, it had to guess
+            // or return nothing. It asks now, as every designer does, in the
+            // model's own words — before anything of the addition is applied
+            // (the schema waits for the compile, the publish for both), so
+            // nothing is written, and the first reserve is refunded as on any
+            // answer that ships nothing. The question names its asker
+            // (`add:pages`), so the answer is shown to the page writer and the
+            // calls beside it, never to the picker or the designers: their
+            // requests are the ones they made, and the part's next job replays
+            // them (`stageKept`) — only the writer is asked again.
+            if (aGen && aGen.ask) {
+              aMark("pages", "ask");
+              aAskOut.request = aInstruction;
+              await aEnded("asked", aRecord());
+              return Response.json({ ok: false, error: "clarify", layer: "addon", kind: "pages", by: "add:pages", cost: 0, unchanged: true, ask: aGen.ask, msg: aGen.ask.text });
             }
             const aOver = aPass === 0 ? aBreach(aGen && aGen.input) : [];
             if (!aOver.length) break;

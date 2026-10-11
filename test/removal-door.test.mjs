@@ -191,10 +191,13 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // blanked to spaces, length kept). The ceiling only has to catch a window
   // whose end landmark is gone, which runs to the end of the block — 12,283
   // measured — so 2,500 still catches it, and the landmark is asserted first.
+  // RE-ANCHORED 2026-10-11 (the generality round): each scoped non-page step
+  // now records the pages its own ops name (`on`), 2,521 measured; 3,500
+  // still catches a lost end landmark (12,000+).
   const loopEnd = block.indexOf("steps.push(...mergePageSteps(dispatched));", loopAt);
   assert.ok(loopEnd > loopAt, "the dispatch loop's end landmark is gone");
   const loop = block.slice(loopAt, loopEnd);
-  assert.ok(loop.length > 100 && loop.length < 2500, "the dispatch loop could not be windowed");
+  assert.ok(loop.length > 100 && loop.length < 3500, "the dispatch loop could not be windowed");
   assert.match(loop, /for \(const f of doorDispatch\(pickedFields, doorOwn\)\) \{/,
     "the lanes that become steps are not the picker's with the router's own among them");
   assert.match(loop, /if \(f === doorOwn\) \{\s*dispatched\.push\(\{ layer: eLayer, page: ePage, fields: \(picked\.routed \|\| \[\]\)\.includes\(f\) \? \[f\] : \[\], remove: eRemove, rename: eRename \}\);/,

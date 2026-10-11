@@ -577,12 +577,16 @@ for (const mode of ["sync", "job"]) {
     // THE MODEL CALLS: the picker once, then one page step per NAMED page —
     // the quick writer declining and the full writer re-sorting — and never
     // the data step, which is the only thing that sorts every page at once.
-    assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak, T.pages, T.tweak, T.pages], "the model calls");
+    // (2026-10-11, the generality round) THE SET OF CALLS, not their order
+    // across the two steps: under a job the /menu step's model work is
+    // prepared beside the / step (they read and write different pages), so its
+    // calls may come first — each still made once and answered to its turn.
+    assert.deepEqual([...r.seen.calls].sort(), [T.route, T.pick, T.tweak, T.pages, T.tweak, T.pages].sort(), "the model calls");
     assert.equal(asked(r.seen.requests[T.pick][0]).includes(SELECTED), true, "the picker was not shown the message");
     // EACH STEP WAS SHOWN ITS OWN PAGE AND ONLY THE CHANGE'S WORDS — never the
     // excluded page, and never the rest of the sentence that excludes it.
-    assert.deepEqual(r.seen.requests[T.pages].map(shownPath), ["index.tsx", "menu.tsx"], "the full writer's files");
-    assert.deepEqual(r.seen.requests[T.tweak].map((a) => /\n\nTHE FILE \(([^)]+)\)/.exec(asked(a))[1]), ["index.tsx", "menu.tsx"], "the quick writer's files");
+    assert.deepEqual(r.seen.requests[T.pages].map(shownPath).sort(), ["index.tsx", "menu.tsx"], "the full writer's files");
+    assert.deepEqual(r.seen.requests[T.tweak].map((a) => /\n\nTHE FILE \(([^)]+)\)/.exec(asked(a))[1]).sort(), ["index.tsx", "menu.tsx"], "the quick writer's files");
     for (const c of [...r.seen.requests[T.tweak], ...r.seen.requests[T.pages]].map(asked)) {
       assert.ok(c.includes(SORT_WORDS), "a writer was not given the change's words");
       assert.ok(!c.includes("but not the order page"), "a writer was handed the whole message");

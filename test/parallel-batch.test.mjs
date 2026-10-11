@@ -273,13 +273,18 @@ test("BATCH — seven tasks in one message, more than the preparation limit (3):
       assert.ok(k > at("text:0:start") && k < end0, what + (part === undefined ? "" : " " + part) + " was not done while the first task's job ran");
     }
     assert.ok(mostLive <= PREP_MAX_LIVE, "more preparations than the limit ran at once: " + mostLive);
-    // NOT FORCED: three steps wait for an earlier change they read, and each
-    // of their preparations stopped at its routing. The About page's tweak
-    // reads every page (its writer's fallback is shown them all); the home
-    // heading's text step shares the home page with the photograph; the shop
-    // photo's step shares the Visit page with the TikTok change.
+    // NOT FORCED: two steps wait for an earlier change they read, and each of
+    // their preparations stopped at its routing — the home heading's text step
+    // shares the home page with the photograph; the shop photo's step shares
+    // the Visit page with the TikTok change. THE ABOUT PAGE'S TWEAK DOES NOT
+    // WAIT (2026-10-11, the generality round): it is shown the About page's
+    // file only, and no earlier part writes About or anything it renders, so
+    // it is prepared beside the first task's job (its rewrite fallback, shown
+    // the pages beside it, would be asked again by its job if they changed).
     const mid = P.record(r.key);
-    for (const [n, tool] of [[5, "tweak:5"], [3, "text:3"], [4, "pictures:4:ask"]]) {
+    assert.notEqual(at("tweak:5"), -1, "the About page's tweak waited for changes to other pages: " + JSON.stringify(mid.parts[5].prep));
+    assert.notEqual(mid.parts[5].prep && mid.parts[5].prep.outcome, "routed", "the About page's preparation stopped at its routing: " + JSON.stringify(mid.parts[5].prep));
+    for (const [n, tool] of [[3, "text:3"], [4, "pictures:4:ask"]]) {
       assert.equal(at(tool), -1, tool + " was made beside an unapplied change it reads");
       assert.equal(mid.parts[n].prep && mid.parts[n].prep.outcome, "routed", "part " + n + "'s preparation: " + JSON.stringify(mid.parts[n].prep));
     }

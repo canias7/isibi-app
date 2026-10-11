@@ -222,10 +222,10 @@ const NEEDS_FIELD = {
     "should change something there too. You will then be shown the whole site and asked again. Never guess at " +
     "what you were not shown.",
 };
-function withNeeds(tool) {
+export function withNeeds(tool) {
   return { ...tool, input_schema: { ...tool.input_schema, properties: { ...tool.input_schema.properties, needs: NEEDS_FIELD } } };
 }
-function notShown(kind, names) {
+export function notShown(kind, names) {
   return kind === "page"
     ? "NOT SHOWN\nOnly some of their pages are listed above. The site also has: " + names.join(", ") +
       ". If what they asked for depends on any of those pages, or belongs on them too, set needs instead of answering."

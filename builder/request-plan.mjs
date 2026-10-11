@@ -150,7 +150,10 @@ export function impliedWrites(route) {
 export function prepScope(part) {
   if (!part || part.phase === "route" || !part.route || part.route.op === "addon" || part.route.intent === "addon") return null;
   const layer = typeof part.route.layer === "string" ? part.route.layer : "";
-  if (layer !== "text" && layer !== "data") return null;
+  // RULES TOO (2026-10-11, the generality round): a rule change named for
+  // tables is shown those tables (`runRulesEdit`, `scopedData`), so it rests
+  // on them alone — the data step's contract, `needs` included.
+  if (layer !== "text" && layer !== "data" && layer !== "rules") return null;
   const t = part.targets && typeof part.targets === "object" ? part.targets : {};
   const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
   if (!named.length) return null;
@@ -224,13 +227,45 @@ export function stepInputs(part) {
   if (layer === "text") return ["pages"];
   if (layer === "nav") return ["menu", "pagelist"];
   if (layer === "picture") return ["images"];
-  // THE LOOK's lanes read the stored look and the pages a layout lane moves.
-  if (layer === "look") return ["theme", "pages"];
-  // A PAGE step: its writer is shown every page beside the one it writes.
-  if (layer === "page") return ["pages", "pagelist"];
+  // THE LOOK's picker reads the site's name and its page list, each value
+  // lane its own stored field, and a layout lane the page it moves. NAMED
+  // (2026-10-11, the generality round): when every write the router named is
+  // the look itself (`theme`, `identity`) or a named page, and it reads nothing
+  // else, that is all it reads — its preparation never waits for a part writing
+  // some other page. A lane outside what was named still only costs a fresh
+  // call: its job's exact-request check decides, never this.
+  if (layer === "look") return lookInputs(part) || ["theme", "pages"];
+  // A PAGE step: a change the router named for one page is first asked of the
+  // tweak, which is shown that page's file and nothing else; only a rewrite
+  // (the tweak said it cannot) is shown the pages beside it, to copy their
+  // design. NAMED (2026-10-11, the generality round): planned as reading that
+  // page and the page list, so its preparation does not wait for a part
+  // writing another page — a rewrite whose siblings changed meanwhile is asked
+  // again by its job's exact-request check, never applied stale.
+  if (layer === "page") return pageInputs(part) || ["pages", "pagelist"];
   // DATA and RULES read the tables.
   if (layer === "data" || layer === "rules") return ["data"];
   return [SITE];
+}
+
+/** A named page change's inputs, or null when it is not one page named that narrowly. */
+function pageInputs(part) {
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
+  const own = pagePath(part.route.page);
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!own || part.route.remove === true || (typeof part.route.rename === "string" && part.route.rename)) return null;
+  if (named.some((w) => w !== "page:" + own)) return null;
+  return ["pagelist", "page:" + own];
+}
+
+/** A named look's inputs, or null when its reach is not named that narrowly. */
+function lookInputs(part) {
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!named.length || !named.every((w) => w === "theme" || w === "identity" || w.startsWith("page:"))) return null;
+  return ["pagelist", "theme", ...new Set(named.filter((w) => w.startsWith("page:")))];
 }
 
 /**

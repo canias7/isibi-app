@@ -4475,7 +4475,9 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     // fourth copy of a model id is a fourth place for it to go stale.
     model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
-    tools: [mode === "page" ? SITE_PAGES_TOOL_ASK : SITE_PAGES_TOOL],
+    // THE QUESTION BACK, where the step can carry it (2026-10-02; the
+    // addition's writer since 2026-10-11, the generality round).
+    tools: [mode === "page" || mode === "addon" ? SITE_PAGES_TOOL_ASK : SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     // WHICH RULES, DECIDED BY THE SPEC RATHER THAN BY A FLAG. `siteHasTables` is
     // the one reading of the question and every lane reaches this through it —

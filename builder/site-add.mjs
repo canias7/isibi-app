@@ -429,16 +429,33 @@ export function backendDesigned(designed) {
  * A scheduled job runs on a timer and an `internal` function is called by the
  * platform, never by a page — so a message that adds only those has nothing
  * for the page call to write and nothing to publish: the database changes,
- * the site's pages do not, and the route answers without a compile. Anything
- * else — a table (shown somewhere), a connection (read by a page), a function a
- * page calls, a page, a component, a code, a scene — is a page change.
- * Nothing at all is not pageless: an empty answer is the route's `declined`.
+ * the site's pages do not, and the route answers without a compile. A TABLE
+ * NOTHING SHOWS is the same (2026-10-11, the generality round): its designer
+ * names the page that lists or collects it (`shows`), and leaves that out only
+ * when nothing should; and when its own access lets nobody on the site read
+ * it or write to it, no page could show it at all — so a table asked for as
+ * storage alone costs no page writer, no compile and no publish. Anything else — a table some page shows,
+ * a connection (read by a page), a function a page calls, a page, a
+ * component, a code, a scene — is a page change. Nothing at all is not
+ * pageless: an empty answer is the route's `declined`.
  */
 export function pageless(answers) {
   const list = Array.isArray(answers) ? answers.filter((a) => a && typeof a === "object" && a.kind) : [];
   if (!list.length) return false;
   return list.every((a) => {
     if (a.kind === "job") return true;
+    if (a.kind === "table") {
+      const ts = Array.isArray(a.value) ? a.value : [];
+      return ts.length > 0 && ts.every((t) => {
+        if (!t || typeof t !== "object" || t.shows) return false;
+        // NOTHING ON THE SITE CAN READ IT OR WRITE TO IT (its own access, not
+        // the absence of a field): no page could list it or collect it, so no
+        // page is written. A table visitors read or submit to always runs the
+        // page writer, `shows` or not.
+        const acc = resolveAccess(t.table || {});
+        return acc.read === "none" && acc.write === "none";
+      });
+    }
     if (a.kind !== "function") return false;
     const fns = Array.isArray(a.value) ? a.value : [];
     return fns.length > 0 && fns.every((f) => f && f.internal === true);
@@ -528,7 +545,9 @@ const ADDS = {
             type: "string",
             description:
               "The page that lists it or collects it, as its route — \"/\" for the home page, \"/book\". One of " +
-              "the pages the site has, or a page being added in this same change.",
+              "the pages the site has, or a page being added in this same change. Leave it out ONLY when nothing on " +
+              "the site should list or collect this table — they asked for the storage itself (a table the owner " +
+              "fills later, one a function or a connection reads) — and then no page is written for it.",
           },
           // WHY A SUPPORTING TABLE EXISTS (owner, 2026-09-13). The old ceiling
           // was a COUNT — "as many tables as the things they named, and not one

@@ -283,6 +283,104 @@ test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the
   });
 });
 
+// ── NAMED LOOK, RULES AND PAGE CHANGES CONSUME THEIR OWN INPUTS (2026-10-11,
+//    the generality round) ────────────────────────────────────────────────────
+//
+// Beside a first task that writes ANOTHER page or table, each is prepared while
+// that task's job runs — it waited before, planned as reading every page or
+// every table — and its job replays the prepared answer exactly.
+
+const twoTables = () => {
+  const SPEC2 = { tables: [SPEC.tables[0], { name: "hours", columns: [{ name: "day", type: "text" }, { name: "opens", type: "text" }], read: "public", write: "none" }] };
+  const HOURS = [{ id: 1, day: "Monday", opens: "09:00", created_at: "2026-08-21 23:06:22" }];
+  return rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 }, hours: { columns: [{ name: "id", type: "integer" }, { name: "day", type: "text" }, { name: "opens", type: "text" }, { name: "created_at", type: "timestamp with time zone" }], rows: HOURS } }, meta: { schema: JSON.stringify(SPEC2) } });
+};
+
+test("GN 2 — A NAMED LOOK (the site description, `identity`) prepared while a photograph is placed on the home page: it reads the site's name, page list and its own field, never another page — its lane answered beside the photograph's job, the look stored by its own job", async () => {
+  const DESC = "change the site description to say we bake overnight sourdough";
+  const NEW_DESC = "Overnight sourdough from a Bristol side street.";
+  await overlapCase({
+    slug: slugOf("gn2"), first: { kind: "photo", page: "/" },
+    other: {
+      words: DESC, writes: ["identity"], route: { intent: "edit", layer: "look" }, marker: "lane:description", logged: T.lane,
+      answers: { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": NEW_DESC },
+    },
+    check: {
+      before: (P) => assert.deepEqual(siteObjectsWith(P, NEW_DESC), [], "the preparation stored the look"),
+      after: (P) => assert.ok(siteObjectsWith(P, NEW_DESC).length > 0, "the look was not stored by its job"),
+    },
+  });
+});
+
+test("GN 3 — A NAMED RULES CHANGE (`data:loaves`) prepared while a row of ANOTHER table (hours) is changed: it is shown the loaves table only (hours by name), answered beside that job, and applied by its own job — both tables' changes kept", async () => {
+  const WORDS = "let signed-in members add loaves";
+  const db = twoTables();
+  const shown = [];
+  await overlapCase({
+    slug: slugOf("gn3"), db, first: { kind: "data", table: "hours" },
+    other: {
+      words: WORDS, writes: ["data:loaves"], route: { intent: "edit", layer: "rules" }, marker: "write_table_rules",
+      answers: { write_table_rules: (args) => { shown.push(String(args.messages[0].content)); return { tables: [{ table: "loaves", write: "members" }] }; } },
+    },
+    check: {
+      after: () => {
+        assert.ok(shown.length >= 1);
+        const asked = shown[0];
+        const stores = asked.slice(0, asked.indexOf("NOT SHOWN"));
+        assert.match(stores, /loaves/, "the rules step was not shown its own table");
+        assert.ok(!/\bhours\b/.test(stores), "the rules step was shown the other table in full");
+        assert.match(asked, /NOT SHOWN[\s\S]*hours/, "the other table was not named as not shown");
+        const stored = db.log().filter((e) => /^INSERT INTO _meta \(k,v\) VALUES \('schema'/.test(String(e.query))).pop();
+        assert.equal(JSON.parse(stored.params[0]).tables.find((t) => t.name === "loaves").write, "members");
+        assert.equal(db.rows("hours")[0].opens, "08:00", "the other table's change was lost");
+      },
+    },
+  });
+});
+
+test("GN 3b — A SCOPED RULES CHANGE THAT NEEDS ANOTHER TABLE says `needs`: it is asked again with every table, the second answer is the one applied (both calls billed), and nothing from the first is applied", async () => {
+  const WORDS = "let signed-in members add loaves, the way the opening hours work";
+  const db = twoTables();
+  const shown = [];
+  await overlapCase({
+    slug: slugOf("gn3b"), db, first: { kind: "data", table: "hours" },
+    other: {
+      words: WORDS, writes: ["data:loaves"], route: { intent: "edit", layer: "rules" }, marker: "write_table_rules", once: false,
+      answers: { write_table_rules: (args) => { const t = String(args.messages[0].content); shown.push(t); return t.includes("NOT SHOWN") ? { needs: true } : { tables: [{ table: "loaves", write: "members" }] }; } },
+    },
+    check: {
+      after: (P) => {
+        const asked = calls(P, "write_table_rules").length;
+        assert.ok(asked >= 2, "the scoped answer's `needs` was not asked again with every table");
+        assert.ok(shown.some((t) => !t.includes("NOT SHOWN") && /hours/.test(t)), "the second call was not shown every table");
+        const stored = db.log().filter((e) => /^INSERT INTO _meta \(k,v\) VALUES \('schema'/.test(String(e.query))).pop();
+        assert.equal(JSON.parse(stored.params[0]).tables.find((t) => t.name === "loaves").write, "members");
+      },
+    },
+  });
+});
+
+test("GN 4 — A NAMED PAGE CHANGE on Visit prepared while a photograph is placed on the HOME page: its tweak is shown the Visit file only, made beside the photograph's job and applied once by its own job", async () => {
+  const WORDS = "make the heading on the Visit page bigger";
+  const BIG = '<h1 className="text-5xl">Come to the bakery</h1>';
+  const shown = [];
+  await overlapCase({
+    slug: slugOf("gn4"), first: { kind: "photo", page: "/" },
+    other: {
+      words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+    },
+    check: {
+      before: (P) => assert.ok(!P.page("visit.tsx").includes(BIG), "the preparation wrote the page"),
+      after: (P) => {
+        assert.equal((P.page("visit.tsx").match(/text-5xl/g) || []).length, 1);
+        assert.equal(calls(P, T.pages).length, 0);
+        assert.ok(shown.every((x) => /visit/.test(String(x))), "the tweak was shown another page: " + JSON.stringify(shown));
+      },
+    },
+  });
+});
+
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

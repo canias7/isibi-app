@@ -33,6 +33,7 @@ import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
+import { scopedData, needsOf, withNeeds, notShown } from "./site-apply.mjs";
 
 /**
  * Haiku, deliberately, and the reason is the validation rather than the task
@@ -286,16 +287,21 @@ export function rulesMaxTokens(tables) {
   return Math.min(LIST_ANSWER_MAX_TOKENS, RULES_MAX_TOKENS + Math.ceil((rulesDigest(list).length + 400 * list.length) / ECHO_CHARS_PER_TOKEN));
 }
 
-export function rulesRequest({ instruction, tables, model = RULES_MODEL }) {
+export function rulesRequest({ instruction, tables, others = null, model = RULES_MODEL }) {
+  // A SCOPED REQUEST (2026-10-11, the generality round): only the tables the
+  // change names are shown, the rest by name only, and the model may say
+  // `needs` instead of answering — the data step's contract (`scopedData`).
+  const hidden = Array.isArray(others) ? others : null;
   return {
     model,
     max_tokens: rulesMaxTokens(tables),
-    tools: [RULES_TOOL],
+    tools: [hidden ? withNeeds(RULES_TOOL) : RULES_TOOL],
     tool_choice: { type: "tool", name: "write_table_rules" },
     system: [{ type: "text", text: RULES_SYSTEM }],
     messages: [{
       role: "user",
       content: "WHAT THIS SITE STORES\n" + rulesDigest(tables) +
+        (hidden ? "\n\n" + notShown("table", hidden) : "") +
         // WHOLE (2026-10-03): kept to the size policy by the route, never cut here.
         "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
     }],
@@ -537,17 +543,32 @@ export function rulesUsage(reply, model = RULES_MODEL) {
  * to fail differently. That is the same call `runDataEdit` makes, for the same
  * reason.
  */
-export async function runRulesEdit(deps, { instruction, tables, model = RULES_MODEL } = {}) {
+export async function runRulesEdit(deps, { instruction, tables, scope = null, model = RULES_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name);
   if (!usable.length) return { ok: false, escalate: true, reason: "no-tables", usage: null };
 
-  let reply;
+  // SHOWN ITS SCOPE FIRST when its route names one (2026-10-11, the generality
+  // round; `scopedData`): the tables the change names, the rest by name; asked
+  // again with every table, as it is now, when its answer says it needs more.
+  // So a prepared rules change rests only on the tables it was asked about,
+  // and a change to any other table leaves its exact request — and its
+  // prepared answer — standing.
+  const sc = scopedData(usable, scope);
+  let view = sc ? sc.shown : usable;
+  let reply, first = null;
   try {
-    reply = await deps.send(rulesRequest({ instruction, tables: usable, model }));
+    reply = await deps.send(sc ? rulesRequest({ instruction, tables: sc.shown, others: sc.others, model }) : rulesRequest({ instruction, tables: usable, model }));
+    if (sc && typeof deps.seen === "function") { try { deps.seen(needsOf(reply) ? "needs" : "scope"); } catch { /* the caller's own note */ } }
+    if (sc && needsOf(reply)) {
+      first = rulesUsage(reply, model);
+      view = usable;
+      reply = await deps.send(rulesRequest({ instruction, tables: usable, model }));
+    }
   } catch (e) {
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = rulesUsage(reply, model);
+  const second = rulesUsage(reply, model);
+  const usage = first && second ? { in: first.in + second.in, out: first.out + second.out, cacheRead: first.cacheRead + second.cacheRead, cacheWrite: first.cacheWrite + second.cacheWrite, model: second.model } : (second || first);
   // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): with no count
   // of tables, a list stopped part way would change some tables' rules and
   // drop the rest without a word. Failed as a call that did not answer — ours.
@@ -561,7 +582,8 @@ export async function runRulesEdit(deps, { instruction, tables, model = RULES_MO
   // route asks it.
   const ask = askOf(reply);
   if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
-  const { changes, refused } = readRules(reply, usable);
+  // CHECKED AGAINST WHAT IT WAS SHOWN: a scoped answer can name only its tables.
+  const { changes, refused } = readRules(reply, view);
   // THE NO-MATCH REPLY IS COMPOSED HERE, not at the call site, and that is not
   // tidiness: a refusal carries the reason a rule could not be applied, and a
   // caller that writes its own sentence eventually writes one that does not

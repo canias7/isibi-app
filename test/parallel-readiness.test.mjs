@@ -238,7 +238,7 @@ test("SCH 4 — THE NEW PAGE'S DESIGNER ASKS A QUESTION; A COMPONENT USES THE PA
 
 // ── 5. WORK STILL OUT WHEN A QUESTION ENDS THE STEP ─────────────────────────
 
-test("SCH 5 — THE TABLE'S DESIGNER ASKS AT ONCE WHILE A SLOW PAGE DESIGNER IS STILL OUT, AND A COMPONENT USES THE PAGE: the step waits for the page's answer before it asks (so it is kept), and starts nothing new once the step has ended — the component is not designed before the answer; after it, the table is asked again with the answer, the page's finished design is replayed, the component designed once, the picker never asked again", { timeout: 30000 }, async () => {
+test("SCH 5 — THE TABLE'S DESIGNER ASKS AT ONCE WHILE A SLOW PAGE DESIGNER IS STILL OUT, AND A COMPONENT USES THE PAGE: work the question does not reach keeps going — the page's answer is waited for and kept, and the component that uses it is started and finished before the step asks; after the answer only the table is asked again — the page's and the component's designs are replayed, the picker never asked again", { timeout: 30000 }, async () => {
   const db = rowsDb({ tables: {} });
   const n = { pick: 0, table: 0, page: 0, component: 0 };
   let tableAsked;
@@ -273,7 +273,7 @@ test("SCH 5 — THE TABLE'S DESIGNER ASKS AT ONCE WHILE A SLOW PAGE DESIGNER IS 
     const q = P.question();
     assert.ok(q && q.by === "add:table", "the question does not name the table's designer: " + JSON.stringify(q && q.by));
     assert.equal(n.page, 1);
-    assert.equal(n.component, 0, "a designer was started after the step had ended on a question");
+    assert.equal(n.component, 1, "ready work the question does not reach stopped when the question came");
     await sendMessage(P, { message: "No", ask: { id: q.id, chosen: true } });
     const s2 = await settle(P, r.key);
     assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
@@ -281,10 +281,41 @@ test("SCH 5 — THE TABLE'S DESIGNER ASKS AT ONCE WHILE A SLOW PAGE DESIGNER IS 
     assert.equal(n.pick, 1, "the picker, which the answer does not reach, was asked again");
     assert.equal(n.table, 2);
     assert.match(shown.table[1], /keep an email address/, "the table's designer was not shown its question again");
-    assert.equal(n.component, 1);
+    assert.equal(n.component, 1, "the component's finished design (made while the question waited) was asked of a model again");
     assert.equal(creates(db, "signups"), 1);
     assert.ok(P.pages().includes("gallery.tsx"));
     const refs = P.ledger.map((e) => e.ref);
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});
+
+test("SCH 6 — A STEP THAT ENDS ANY OTHER WAY STARTS NOTHING MORE: the table's designer fails at once while a slow page designer is still out and a component uses the page — the addition fails, and the component is never asked (no call nobody would use)", { timeout: 30000 }, async () => {
+  const db = rowsDb({ tables: {} });
+  const n = { table: 0, page: 0, component: 0 };
+  let failed;
+  const tableFailed = new Promise((r) => { failed = r; });
+  const scopes = [
+    { kind: "table", words: W_TABLE, uses: [] },
+    { kind: "page", words: "add a gallery page", uses: [] },
+    { kind: "component", words: "put a questions section on the gallery page", uses: ["page"] },
+  ];
+  await withPlatform({
+    slug: slugOf("s6"), pages: PAGES, replies: true, balance: 400, db,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["table", "page", "component"], scopes },
+      "add:table": async () => { n.table++; failed(); return { __raw: { stop_reason: "max_tokens", content: [] } }; },
+      "add:page": async () => { n.page++; await tableFailed; await new Promise((r) => setTimeout(r, 400)); return { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] }; },
+      "add:component": async () => { n.component++; return { component: [{ page: "/gallery", where: "at the bottom", does: "answers questions", components: ["card"] }] }; },
+      [T.pages]: { pages: [writtenPage("/gallery")] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", add a gallery page, and put a questions section on the gallery page." });
+    const { rec } = await settle(P, r.key);
+    assert.notEqual(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    await new Promise((r) => setTimeout(r, 700));
+    await P.settle();
+    assert.equal(n.component, 0, "a designer was started after the step had failed");
+    assert.equal(creates(db, "signups"), 0);
   });
 });
