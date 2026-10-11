@@ -812,3 +812,148 @@ protection was already in place.
   - an executor older than `BUILD_JOB_MS` is treated as gone;
   - builds accepted before round 1 aren't listed;
   - real images, real-model wording and any live run are unverified.
+
+## Round 6: a retry's token is not permission to execute (offline)
+
+Codex reviewed `7ed68ed3` and passed 139 focused tests. Kept from round 5:
+the fallback's billing fix and the lost-write recovery. One defect remained,
+reproduced two ways:
+1. **A started record with the retry's own token.** An incoming retry
+   carrying the same token as an already-started execution record designed
+   again, although `edit_claim` refused the lease and `edit_handoff` answered
+   `not-holder`.
+2. **Two concurrent copies of one retry.** Both read the saved envelope
+   before either deleted it, and both reached their designers. Codex held
+   both designer calls at once: one lease handoff succeeded and the other
+   failed, yet both executed. The ledger answered `repeat` for the second
+   deposit, which stops double charging at that step but not duplicate
+   provider work or publishing.
+
+The cause: `claimBuildRun` treated a matching token as ownership,
+`startBuildRun` answered `ok` for a token whose record was already
+`started`, and a refused lease never stopped a build.
+
+### The fix
+
+**The logical attempt and permission to execute are separate**
+(`builder/build-live.mjs`, `worker.js`):
+- The record keeps `token`, the logical attempt that a retry carries and
+  that two copies of one retry share. It gains `holder`: the one delivery
+  allowed to execute, named by that delivery's own fresh lease owner
+  (`rowOwner`).
+- `claimBuildRun` reconciles a lost write as this delivery's own only when
+  both the token and the holder match.
+- `startBuildRun` takes the holder. Only the record's holder marks it
+  started. A record held by another delivery is `lost`, started or not; a
+  record already started by this very delivery (its own late write) is
+  `ok`.
+- A retry takes over its own unstarted attempt (same token, not started)
+  with `replaceBuildRun` conditional on the etag it read, naming itself as
+  holder. Of two copies, only one such write can land. A started attempt is
+  never joined: it reads `active` and is left alone.
+- The inline fallback names itself (`inline-<job>`) as holder.
+
+**A refused lease is honoured before any work** (`claimBuildRow`,
+`runQueuedSiteBuild`):
+- `claimBuildRow` reports `refused` for a live lease another delivery holds
+  (`leased`), for a handoff from the named lease that fails (`not-holder`),
+  and for an ended row (`terminal`).
+- **The consumer**, before the execution record, design, deposit or
+  container launch:
+  - an ended row stops there;
+  - otherwise it reads the record: an `active` or `revoked` execution is
+    left alone;
+  - anything else (pending, recoverable or no record) is waited for with
+    the job kept (`askAgain`), since the lease's holder may yet die.
+- **The container runner** whose takeover is refused stops.
+- A missing row, an unread claim, or a claim refused for any other reason
+  still builds as before; the row stays an instrument.
+
+**The unit-test job's timeout is 10 minutes** (`.github/workflows/unit.yml`),
+up from 5, on the owner's word.
+
+### Tests (offline; images and the designer mocked)
+
+`test/build-reconnect.test.mjs` now has 37 cases. **RC 26** uses the
+stateful row fixture. Every copy reads the envelope before either deletes
+it, and every designer is held open long enough for any other copy to reach
+its own.
+- **(a) Two concurrent copies of one retry**: one designer call, one
+  successful and one refused handoff from the attempt's lease, the record
+  started under its token with the winning lease's delivery as holder, one
+  accepted deposit under `build:<job>`, the row queued → claimed, and no
+  work from the losing copy.
+- **(b) Arrival after the first copy started**: its handoff is refused
+  (`not-holder`). It does no design and takes no deposit; the record and
+  lease are untouched and nothing is re-sent.
+- **(b2) The same with the lease lapsed**: the claim succeeds, but the
+  record is started by another delivery, so the matching token is still not
+  permission.
+- **(c) No row to serialise them**: both copies reach the record and only
+  one gets past it. It alone reaches the deposit, which the SQL refuses
+  `no-job` because there is no row.
+- **(d) and (e), each layer on its own**:
+  - (d): a copy takes the attempt over after another copy's takeover, but
+    before that copy starts. The first copy's start finds the record no
+    longer its own.
+  - (e): a copy reads the attempt before the other starts and writes its
+    takeover after. The conditional write does not land over the started
+    attempt.
+  - In both, one copy passes the record.
+
+`test/build-jobs.test.mjs`:
+- **Restated**: a guard asserted that a row leased by another delivery
+  "never stops the build", which is the hole itself. It now asserts that
+  such a row, and an ended row, stop the build before any work, touch
+  nothing further on the row, and write no result.
+- **New**: a runner whose takeover the row refuses does no work and closes
+  nothing.
+
+`test/fixtures/build-lifecycle.mjs`: `fireInterim` can deliver several
+concurrent copies of one message under one set of stand-ins (`copies`).
+
+### Red check
+
+On `7ed68ed3`'s code, RC 26 fails with "both copies of the retry designed:
+2", Codex's observation. The other 36 cases pass there.
+
+### Sweep
+
+- **Setup**: 10 mutants plus a comment-only control, against the reconnect
+  and `build-jobs` files.
+- **First pass**: 7 killed, 1 hung (detected), 2 survived, and the control
+  survived. The survivors were "start ignores holder" and "replace
+  unconditional". Each survived because the other layer still admitted
+  exactly one copy.
+- **Fix**: cases (d) and (e) were added to defeat each layer on its own.
+- **Second pass**: both survivors killed (by (d) and (e)), and the hung
+  mutant ("claim without holder") killed outright by RC 24.
+- **Result**: 10 of 10 killed; the control survived.
+
+### Related suites, full suite and image
+
+- **Related suites**: 343 of 343 (reconnect, queue-wiring, jobs, job,
+  runner, batch-9, site-busy, broad-rollout, credit-debit, resume-wiring,
+  parallel, survives-disconnect, chat, deploy-gate, Dockerfile, images,
+  container-job). Workflow guards: 52 of 52.
+- **Commit**: `1b8af002`.
+- **Full suite**: `10380 / 10380 / 0 / 0` locally (355 s).
+- **Image**: production `8d6dbcea93252fbb` → `c55a9a5b92e96f9c` (205
+  inputs, 174 paths). This replaces round 5's `42bf628bceb7ed5b`. Predicted,
+  not built.
+
+### Remaining limitations
+
+- **A copy refused the lease while the winner has not yet started** puts the
+  job's envelope back and asks again. The later delivery finds the
+  execution active and stops. The envelope it left is deleted on that read,
+  but it may sit until then.
+- **Without a row** the record alone serialises copies. A copy that wins
+  with no row is refused its deposit (`no-job`) under the SQL contract.
+- **The record's holder check is per delivery.** A delivery that starts
+  and then dies holds the job until `BUILD_JOB_MS`, as before.
+- **Carried from round 5**:
+  - an unstarted attempt holds its job for up to 5 minutes;
+  - past the 7-re-send bound only the stale sweep re-sends;
+  - no test observes the fallback lease's heartbeat;
+  - execution records are never swept.

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-10, Build recovery round 5: the inline fallback keeps its row live, and lost record writes are reconciled; offline, not deployed)
+## Current handoff — read this first (2026-10-11, Build recovery round 6: a retry's token is no longer permission to execute; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,93 +10,76 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Round 1: `47be3540`.
-  - Round 2: `9f62095e`.
-  - Round 3: `ae62f760`, records to `b67a1c8b`.
-  - Round 4: `0cc457de`, records to `70222bb5`.
-  - Round 5: `6777ce1c`, with records after.
-- **fal is not being topped up.** The tests use offline image mocks, and
-  real images are unverified.
+  - Round 4: `0cc457de`.
+  - Round 5: `6777ce1c`, records to `7ed68ed3`.
+  - Round 6: `1b8af002`, with records after.
+- **fal is not being topped up.** The tests use image mocks, and real
+  images are unverified.
 - **Balance 971**, untouched.
 
-**Round 5** (`docs/history/2026-10-10-build-reconnect.md`, "Round 5")
+**Round 6** (`docs/history/2026-10-10-build-reconnect.md`, "Round 6")
 
-Codex passed 114 focused tests on `70222bb5`. Kept: the marker-write
-protection, the consumer-versus-inline exclusion, the billing identity and
-discovery. Two regressions are fixed.
+Codex passed 139 focused tests on `7ed68ed3`. Kept: the fallback's billing
+and the lost-write recovery. Fixed: a retry carrying a started attempt's
+token designed again, and two concurrent copies of one retry both designed.
 
-- **The inline fallback no longer fails its own row before billing against
-  it.**
-  - It holds the row's lease (claimed and beaten) through its run, so
-    `build_debit` accepts its deposit under `build:<job>`.
-  - It finalizes the row only when the work ends: done for a 2xx answer,
-    failed otherwise.
-  - The SQL's refusal of a terminal row is unchanged and still tested.
-- **A lost execution-record write no longer strands the job.**
-  - The record names its attempt (a token) and says whether it started.
-  - A write whose answer was lost is read back. If it carries this
-    attempt's token, the same delivery runs.
-  - If the read back fails too, the job is put back and asked again
-    carrying the token and the lease holder. The retry adopts its own
-    attempt and takes the lease over by name.
-  - **An active competitor stays protected**: a started attempt or an
-    inline run is never run beside or charged. An unstarted one is waited
-    for, and replaced conditionally once it is 5 minutes old.
-  - These waits have their own bound (7 re-sends). At the bound the job is
-    kept, never deleted on a label.
+- **Logical attempt versus permission.** The execution record keeps the
+  token (the logical attempt) and gains a holder: the one delivery, named by
+  its own lease, allowed to execute.
+  - A lost write counts as this delivery's own only if the holder matches.
+  - Only the holder can mark the record started.
+  - A retry takes over its own unstarted attempt only with a write
+    conditional on what it read, so one copy wins.
+  - A started attempt is never joined.
+- **A refused lease is honoured first.** These stop a delivery before any
+  design, deposit or container launch:
+  - another delivery's live lease;
+  - a failed handoff from the lease a retry named;
+  - an ended row.
+  
+  The consumer waits with the job kept unless the execution is active or
+  revoked; the container runner stops.
+- **The unit-test job's timeout is now 10 minutes.**
 
 **Verification (offline)**
-- **Tests**: `test/build-reconnect.test.mjs` has 36 cases.
-  - A stateful stand-in for the build rows replaces the always-yes billing
-    answers. It moves rows only as the repository's SQL does, refusing a
-    terminal row's deposit.
-  - **RC 23** (fallback billing), **RC 24** (lost record write, with and
-    without a failed read back) and **RC 25** (active, pending and stale
-    competitors, and the bound) are new.
-  - RC 17, RC 18 and RC 21 now run on the stateful rows.
-  - Assertions: one designer call, one billing identity, valid row
-    transitions, lost write responses, and a protected active consumer.
-- **Red check on `70222bb5`'s code**: RC 23 shows `build_debit` answering
-  `terminal`, and RC 24 shows zero designer calls (both Codex's
-  observations). RC 25's pending case and RC 17/18 also fail there.
-- **Sweep**: 16 of 16 mutants killed (14 on the first pass, 2 on the
-  second, one through a stronger form), and the comment control survived.
-- **Related suites**: 261 of 261, 43 of 43, and 27 of 27.
-- **Full suite on `6777ce1c`'s code**: `10378 / 10378 / 0 / 0` locally.
-- **CI**:
-  - site build 38082680268 on `6777ce1c`: green;
-  - unit tests 38082680261 on `6777ce1c`: cancelled after 88 s by the
-    records push;
-  - unit tests 38082765763 on `79e4a2e4` (the same code) and 38083184817
-    on `a1c6b183` (records only): both cancelled at the 5-minute limit,
-    inside `npm test`;
-  - **no unit run has completed on round 5's code.** The local full suite
-    is green (352 s). The limit is your recorded decision and is unchanged.
-    A re-run, or a decision on the limit, is yours.
-- **Image**: the prediction is now production `8d6dbcea93252fbb` →
-  `42bf628bceb7ed5b` (205 inputs, 174 paths). This replaces round 4's
-  `d2e9c973504783f1`. Nothing is built.
+- **RC 26** (stateful rows, every copy reading the envelope before
+  deletion):
+  - two concurrent copies give one designer call, one won and one refused
+    handoff, one valid holder, one deposit under `build:<job>`, and no
+    work from the loser;
+  - a copy arriving after its attempt started does nothing, with its
+    handoff refused or its lease lapsed;
+  - with no row, only one copy passes the record, including the two
+    interleavings that defeat each layer alone.
+- **Guards**: one guard was restated (it asserted that a leased row never
+  stopped the build), and a refused-runner case was added.
+- **Red check on `7ed68ed3`'s code**: "both copies of the retry designed:
+  2".
+- **Sweep**: 10 of 10 killed (two only after cases (d) and (e) were
+  added), and the comment control survived.
+- **Related suites**: 343 of 343; workflow guards 52 of 52.
+- **Full suite on `1b8af002`'s code**: `10380 / 10380 / 0 / 0` locally
+  (355 s).
+- **CI**: one push carries code and records, and its run is read to
+  completion below.
+- **Image**: production `8d6dbcea93252fbb` → `c55a9a5b92e96f9c` (205
+  inputs). Nothing is built.
 
 **Remaining limitations**
-- **An unstarted attempt holds its job for up to 5 minutes** before another
-  delivery may replace it.
-- **Past the 7-re-send bound the job object is kept, but only the row's
-  stale sweep re-sends it.** That sweep re-sends only a queued row with no
-  live lease; a claimed row whose lease expired is marked lost.
-- **A fallback whose row lease can't be taken** still runs inline without a
-  lease. Its deposit is taken if the row is live and refused if it is
-  terminal.
-- **No test observes the fallback lease's heartbeat.**
-- **From round 4**:
+- **A copy refused the lease before the winner starts** leaves the job's
+  envelope back with a re-sent message. That later delivery finds the
+  execution active, stops, and deletes the envelope on read.
+- **With no row, a winning copy is refused its deposit** (`no-job`), under
+  the SQL contract.
+- **From round 5**:
+  - an unstarted attempt holds its job up to 5 minutes;
+  - past 7 re-sends only the stale sweep re-sends;
+  - no test observes the fallback lease's heartbeat.
+- **From earlier rounds**:
   - execution records are never swept;
   - an executor older than `BUILD_JOB_MS` is treated as gone;
-  - a producer that can't settle the record after a failed send follows a
-    job that may never run, if the message really was lost.
-- **From earlier rounds**:
   - builds accepted before round 1 aren't listed;
-  - a fresh session gets the words and the result only;
-  - real-model wording, real images and any live run are untested;
-  - the unit-test job's 5-minute limit is tight.
+  - real images, real-model wording and live runs are unverified.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -105,6 +88,24 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Build recovery round 6: a retry's token is not permission (offline; not deployed)
+
+- **Codex on `7ed68ed3`**: 139 focused tests passed. A retry carrying a
+  started attempt's token designed again, and two concurrent copies of one
+  retry both designed.
+- **Done**:
+  - the record names its holder (the one delivery allowed to execute);
+  - start and lost-write reconciliation check the holder;
+  - a retry takes over only an unstarted attempt, conditionally;
+  - a refused lease, a failed handoff or an ended row stops a delivery
+    before any work;
+  - the unit-test timeout is 10 minutes.
+- **Verified offline**: RC 26, a red check (2 designs on `7ed68ed3`), a
+  sweep (10 of 10) and the full suite (10,380 of 10,380). Code `1b8af002`.
+- **Not done**: merge, deploy, container build or paid calls.
 
 ---
 
