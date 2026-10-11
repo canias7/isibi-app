@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, independent page edits and table edits run together; per-job reuse evidence; offline, not deployed)
+## Current handoff — read this first (2026-10-11, prepared answers reused only by exact replay of what the model saw; every call counted; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,63 +10,67 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Codex passed `625bf4ee` (46 focused tests); the reuse and counting
-    fixes are kept.
-  - This round: `bd635405` and `ebcc1d70`, with records after.
+  - Codex reviewed `1694dc88`: 65 focused tests passed, and two defects
+    were found.
+  - This round: `c5f4cb45` (the code), with records after.
 - **fal is funded and off limits**: no real image generation and no image
   retries, mocks only. Real images stay unverified.
 - **Balance 971**, untouched.
 
-**This round** (`docs/history/2026-10-11-independent-tasks.md`)
-- **Codex's gap, closed offline**: two text edits on separate pages, and two
-  data edits on separate tables, now do their model work at the same time.
-- **The model still sees the whole site.** What narrows is the dependency:
-  `prepScope` gives a text or data step whose route names only pages or
-  only tables those targets alone.
-- **Never narrowed for**:
-  - a step that names no targets, or writes beyond pages or tables;
-  - a step that declares any read;
-  - rules, look, menu, page writer and add-on steps.
-- **The re-base**: when the second part is applied after the first, its
-  prepared answer is re-based onto the changed site only if all of these
-  hold:
-  - everything in its scope is unchanged;
-  - it touches nothing outside its scope;
-  - its words and frame are the same;
-  - nothing changed elsewhere carries the words it changes or writes.
-  
-  Otherwise the job asks the model again, as before.
-- **Durable evidence**: each job that had a preparation records how many
-  calls it replayed, re-based and made fresh
-  (`jobs/prepared/<id>.use.json`). The request view serves it as `prepUse`,
-  so a live check can read reuse directly.
-- **Unchanged**: publication stays one job at a time, recovery, questions
-  per part, model-written progress, and Build's limits and flags.
+**This round** (`docs/history/2026-10-11-exact-reuse.md`)
+- **The lexical re-base is removed.** It applied 7 where 6 was correct in
+  Codex's reproduction (Monday's opening 09:00 → 08:00, the Dark Rye two
+  pounds less than that hour, the read omitted), and recorded it as
+  re-based. My earlier claim that its word checks prevent wrong reuse was
+  false; the previous history file now says so at the top.
+- **Reuse now rests on exactly what the model was shown.**
+  - A prepared text or data step is shown only the pages or tables its
+    route names, plus the names of the rest. The text step also sees
+    word-for-word copies of its lines on other pages.
+  - It can answer `needs` when the request depends on anything it wasn't
+    shown. It is then asked again with the whole site, as it is when its
+    job runs.
+  - The preparation and the job send the same scoped request, so only an
+    exact replay reuses an answer. Writing jobs run one at a time in order,
+    so that fresh call comes after the work it depends on.
+- **Independent work still overlaps and reuses**: separate pages, and
+  separate tables, are replayed exactly with no second call.
+- **The replayer counts every call.** With nothing recorded, or only
+  pictures, a fresh call is counted (it was left at 0).
+- **Evidence**: every request job records `staged` (yes, no or
+  unreadable), `replayed`, `rebased` (always 0 now) and `fresh`. The view
+  serves a job with no evidence as `known: false`, with no counts, never
+  zeros.
+- **Unchanged**: Build's limits and flags, publication one job at a time,
+  recovery, questions, progress.
 
 **Verification (offline)**
-- **New tests**:
-  - IND 1–4 through the real request flow: concurrent separate-page and
-    separate-table work, re-based with no second call; conflicts that still
-    wait; a changed input asked again. Every change is kept.
-  - Each re-base and scope rule alone.
-- **Red check on `625bf4ee`'s code**: IND 1, IND 2 and IND 4 fail; IND 3
-  (the conflict control) passes.
-- **Sweep**: 18 of 18 killed, and the comment control survived.
-- **Related suites**: 414 of 414.
-- **Full suite**: `10394 / 10394 / 0 / 0` locally.
-- **CI on `e0e20e7e`** (code plus records, one push, nothing pushed while
-  it ran): unit tests 38118494730 green (5 m 22 s); site build 38118494731
-  green.
-- **Image**: production `8d6dbcea93252fbb` → `ca9893133acc43b6` (206
+- **New regressions**: Codex's stale numeric case (now 6), a dependency
+  with no shared words, incomplete dependency declarations, an image-only
+  preparation, missing evidence, plus the independent/concurrent and
+  dependent/ordered controls. A new pure test file covers the rules one by
+  one.
+- **Red check on `1694dc88`**: the stale case fails with `actual: 7`, the
+  French case applies the stale text, the image-only case records
+  `fresh: 0`.
+- **Sweep**: 27 of 27 killed, and the comment control survived.
+- **Related suites**: 577 of 577. **Doc tests**: 32 of 32.
+- **Full suite**: `10405 / 10405 / 0 / 0` locally.
+- **CI**: run on the push of the code and these records together; read
+  after it finishes and recorded in a records-only update.
+- **Image**: production `8d6dbcea93252fbb` → `771ff668c8624677` (205
   inputs). Not built.
 
-**Remaining limitations**
-- **Narrowing covers only text and data steps.**
-- **It depends on the router naming targets.** A dependency in meaning only,
-  sharing no words, is caught only if the router declares the read.
-- **The clash check is lexical and conservative**: it may ask again
-  needlessly, never re-base wrongly on shared words.
-- **Writes stay serialized**, by design.
+**Remaining gaps**
+- **`needs` is shown only with supplied answers.** Whether a real model
+  says `needs` instead of guessing is not measured. A guess would be wrong
+  for lack of context, not a stale reuse.
+- **A step that says `needs` also asks the whole site during its
+  preparation**, a call its job can't reuse once the site has changed.
+- **Text scoping shows only word-for-word copies** on other pages. The same
+  thing written differently is left to `needs`.
+- **Scoping covers only prepared text and data steps.** Writes stay
+  serialized.
 - **Nothing is deployed or pressed.** The canary does not yet read
   `prepUse`.
 - **Carried**:
@@ -85,6 +89,30 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-11 — Prepared answers reused only by exact replay; every call counted (offline; not deployed)
+
+- **You**: Codex reviewed `1694dc88`. A stale numeric result came through
+  the real request flow (7 applied where 6 was correct, recorded as
+  re-based), and an image-only preparation's fresh call was counted as 0.
+  Fix both without lexical, numeric or phrase rules. Keep independent work
+  overlapping, and correct the documentation's claim.
+- **Done** (`c5f4cb45`):
+  - the re-base and its module are removed;
+  - a prepared text or data step is shown only its declared scope and can
+    answer `needs`, which asks again with the whole site as it is;
+  - the preparation and the job send the same scoped request, and only an
+    exact replay reuses an answer;
+  - the replayer counts every call;
+  - every request job's evidence says what was staged, and missing
+    evidence is served as unknown;
+  - the earlier history file's false claim is corrected at its top.
+- **Verified offline**: the new regressions, a red check on `1694dc88` (7
+  instead of 6, the stale French, `fresh: 0`), a sweep (27 of 27), suites
+  (577 of 577) and the full suite (10,405 of 10,405).
+- **Not done**: merge, deploy, container build, paid calls or images.
+
+---
+
 ## 2026-10-11 — Independent page and table edits run together; per-job reuse evidence (offline; not deployed)
 
 - **You**: two text edits on separate pages, and two data edits on separate
@@ -93,7 +121,8 @@ since. Add new ones there.
 - **Done** (`bd635405`, `ebcc1d70`):
   - declared-scope narrowing for text and data steps;
   - a checked re-base of prepared answers onto a site changed only outside
-    the scope;
+    the scope *(wrong, and removed the same day: its word checks did not
+    prevent a stale answer; see the entry above)*;
   - the per-job record of replayed, re-based and fresh calls, served as
     `prepUse`;
   - declared reads never narrowed;

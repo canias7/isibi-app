@@ -1,5 +1,21 @@
 # 2026-10-11 — Independent tasks run together: page edits and table edits
 
+> **CORRECTED the same day, after Codex's review of `1694dc88`.** The re-base
+> described in §2 was **wrong and has been removed**. Its lexical checks did
+> not prevent wrong reuse: in Codex's reproduction (Monday opening 09:00 →
+> 08:00; the Dark Rye's price set to two pounds less than that hour; the
+> router omitted the read), the preparation answered 7 from the old hours,
+> the re-base carried 7 onto the changed site, and the job recorded
+> `rebased: 1, fresh: 0`. The correct value was 6. The claims below that
+> the re-base "can't make a wrong change land" and is "conservative: never
+> a wrong re-base" (§5) are false. Separately, the replayer returned the live
+> send untouched when no answer was recorded, so an image-only preparation's
+> fresh call went uncounted (`missed: 0`). What replaced both — exact replay
+> of a step shown only its declared scope, with a way to say it needs more,
+> and a replayer that counts every call — is
+> [`2026-10-11-exact-reuse.md`](2026-10-11-exact-reuse.md). The text below is
+> kept as the record of what was claimed.
+
 Codex reviewed `625bf4ee` and passed all 46 focused tests; the reuse and
 counting fixes are kept. Codex then reproduced the remaining gap in the
 original goal ("independent tasks run together unless they need another
@@ -28,7 +44,10 @@ flags are unchanged.
   room (`max_tokens`) grows with all of them.
 - **That context is necessary, so it is not narrowed.** Hiding other pages
   or tables would hide context the model needs. What narrows is the step's
-  dependency.
+  dependency. *(Superseded: narrowing the dependency without narrowing what
+  the model sees is what let a stale answer through. A prepared step is now
+  shown only its scope and can ask for the whole site — see the correction
+  at the top.)*
 
 ## 2. The change
 
@@ -150,14 +169,15 @@ queue consumer and routes, with supplied answers:
 - **Narrowed only for text and data steps.** Rules, look, menu, page writer
   and add-on steps still depend on the whole of what they read.
 - **Depends on the router naming targets.** None named means the whole
-  site, as before. A router that names too narrow a target can't make a
+  site, as before. ~~A router that names too narrow a target can't make a
   wrong change land: the re-base refuses in-scope differences and word
-  clashes. But a dependency that shares no words (a request to make two
-  pages consistent in meaning only) is caught only if the router declares
-  the read.
-- **The clash check is lexical**, on words of three characters or more. It
-  is conservative: unrelated shared words cause a fresh call, never a wrong
-  re-base. It does not understand meaning.
+  clashes.~~ **False** (Codex, on `1694dc88`): an omitted read let a stale
+  numeric answer land. A dependency that shares no words was not caught
+  either.
+- **The clash check is lexical**, on words of three characters or more.
+  ~~It is conservative: unrelated shared words cause a fresh call, never a
+  wrong re-base.~~ **False**: it cannot see a dependency in meaning, so it
+  re-based wrongly. Removed.
 - **Publication stays one job at a time** (coordinated by design). The
   overlap is the model work; writes are serialized.
 - **Nothing is live**: none of this is deployed or pressed. The canary does
