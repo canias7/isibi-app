@@ -23,6 +23,9 @@ answer arrives.
 **This round**
 - **CI on `72c49a5e`**: unit tests 38129426568 green; site build 38129426790
   green (all eight jobs).
+- **CI on `6030bbc4`** (this round's tests, documents and records, one push):
+  unit tests 38130707653 green (5 m 0 s). Site build did not run: the push
+  touched no path it watches.
 - **The handler-throws case is covered** (IND 11): after the scoped answer
   said `needs`, the job's handler throws out of `handleRequest`. The saved
   evidence and the request view still say the answer asked, and the part is

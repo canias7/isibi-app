@@ -584,4 +584,5 @@ code changed; the predicted image stays `f9c4097ed179c5f8`.
 
 **Results**: IND 11 passes, and is red against the old placement; full suite
 `10451 / 10451 / 0 / 0` locally on `d4689dd2`; doc tests 32 of 32. CI on
-`d4689dd2` is recorded in the owner-notes handoff once it completes.
+`6030bbc4` (`d4689dd2` and its records): unit tests 38130707653 green;
+site build not started (no watched path changed).
