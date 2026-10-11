@@ -385,7 +385,7 @@ and the `prepUse` evidence checks were verified and are kept. Found:
   code of `958cd703`.
 - **Image prediction**: production `8d6dbcea93252fbb` → `62b0dae10edebdf5`
   (205 inputs). Not built.
-- **CI**: recorded after the push.
+- **CI on `87a48491`** (code plus records, one push, nothing pushed while it ran): unit tests 38126054995 green (4 m 41 s); site build 38126055016 green (all eight jobs).
 
 **Remaining gaps**:
 - **The spending bound is the balance the owner sets.** There is still no

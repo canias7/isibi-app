@@ -92,7 +92,7 @@ set), so at most 200 if both run in full.
 - **Related suites** 1,652 of 1,652; doc tests 32 of 32.
 - **Full suite**: `10434 / 10434 / 0 / 0` locally on the code of
   `958cd703`.
-- **CI**: recorded after the push.
+- **CI on `87a48491`** (code plus records, one push, nothing pushed while it ran): unit tests 38126054995 green (4 m 41 s); site build 38126055016 green (all eight jobs).
 
 **Remaining gaps**
 - No per-request or per-press cap on the server: the bound is the balance
