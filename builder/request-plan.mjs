@@ -129,10 +129,49 @@ export function impliedWrites(route) {
  * request would no longer be the one prepared), so it waits — what it may
  * NOT do is be wrong: the job's exact-request check decides that, not this.
  */
+/**
+ * A STEP'S DECLARED SCOPE (2026-10-11, the parallel-work goal): for a text
+ * step whose every write names a page, those pages; for a data step whose
+ * every write names a table, those tables. `null` when the step's reach is not
+ * declared that narrowly — then it reads, and is planned as reading, the whole
+ * of what its model is shown.
+ *
+ * The model is still shown everything (the text step every page's words, the
+ * data step every table): what narrows is what the step DEPENDS on. A prepared
+ * answer is carried onto a site that changed outside this scope only by a
+ * re-base that proves the change cannot bear on it
+ * (`builder/prepared-rebase.mjs`); any other change is asked of the model
+ * again. Never for rules, a look, a menu or an addition, whose reach the model
+ * decides inside the step.
+ */
+export function prepScope(part) {
+  if (!part || part.phase === "route" || !part.route || part.route.op === "addon" || part.route.intent === "addon") return null;
+  const layer = typeof part.route.layer === "string" ? part.route.layer : "";
+  if (layer !== "text" && layer !== "data") return null;
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!named.length) return null;
+  if (layer === "text") {
+    if (!named.every((w) => w.startsWith("page:"))) return null;
+    // A TEXT STEP THE ROUTER NAMED ONE PAGE FOR, and the route's own page, are
+    // its scope; a route naming another page than its targets is not narrowed.
+    const pages = [...new Set(named.map((w) => w.slice("page:".length)))];
+    const own = pagePath(part.route.page);
+    if (own && !pages.includes(own)) return null;
+    return { pages };
+  }
+  if (!named.every((w) => w.startsWith("data:"))) return null;
+  return { tables: [...new Set(named.map((w) => w.slice("data:".length)))] };
+}
+
 export function stepInputs(part) {
   if (!part) return [SITE];
   if (part.phase === "route" || !part.route) return ["pagelist"];
   const layer = typeof part.route.layer === "string" ? part.route.layer : "";
+  // A DECLARED SCOPE NARROWS WHAT THE STEP DEPENDS ON (`prepScope`).
+  const scope = prepScope(part);
+  if (scope && scope.pages) return scope.pages.map((p) => "page:" + p);
+  if (scope && scope.tables) return scope.tables.map((t) => "data:" + t);
   // AN ADDITION (2026-10-09): its picker reads the page list and the look; its
   // designers the menu it may add to and the pictures it may use; its page
   // writer the pages it writes beside. A stored row it does not read; a table
@@ -163,7 +202,10 @@ function feeds(write, input) {
   if (input === "theme") return kind === "theme" || kind === "identity";
   if (input === "data") return kind === "data" || kind === "new-data";
   // ONE PAGE: what is written to that page, or what every page renders.
-  if (input.startsWith("page:")) return overlaps(write, input) || ["component", "new-component", "header", "footer", "menu", "identity"].includes(kind);
+  // …AND A PICTURE PLACED (`images`), which is written into a page's source —
+  // with no page named, any page (2026-10-11, now that a text step's input can
+  // be one page).
+  if (input.startsWith("page:")) return overlaps(write, input) || ["component", "new-component", "header", "footer", "menu", "identity", "images"].includes(kind);
   return overlaps(write, input);
 }
 

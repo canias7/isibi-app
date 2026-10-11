@@ -46,6 +46,8 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
+import { rebaserFor } from "./builder/prepared-rebase.mjs";
+import { prepScope } from "./builder/request-plan.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
@@ -18355,8 +18357,43 @@ async function stagePrepared(env, id) {
     if (!share) return;
     const staged = readPrepared(share);
     if (!staged.calls.length && !staged.images.length) return;
-    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
+    // THE STEP'S DECLARED SCOPE RIDES WITH ITS ANSWERS (2026-10-11): the job may
+    // re-base an answer onto a site changed only outside it (`rebaserFor`).
+    const scope = isRoute ? null : prepScope(p);
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ ...staged, ...(scope ? { scope } : {}) }), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: prepared answers not staged for", id, errorClassForLog(e)); }
+}
+
+/** Where a job's use of its preparation is kept. */
+const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
+/**
+ * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), answers
+ * re-based onto a site changed only outside the step's scope (`rebased`),
+ * calls made by a model now (`fresh`), and pictures reused. Never throws.
+ */
+async function keepPrepUse(env, id, used) {
+  try {
+    const u = used && typeof used === "object" ? used : {};
+    const n = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 1, job: id, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+  } catch (e) { console.error("edit queue: could not keep the preparation's use for", id, errorClassForLog(e)); }
+}
+/** Each run job's use of its preparation, by job id, for a request's view — read, never written onto the request. */
+async function prepUseForRequest(env, rec) {
+  const out = {};
+  if (!rec || !Array.isArray(rec.parts)) return out;
+  for (const p of rec.parts) {
+    for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
+      if (!j || j.kind !== "run" || !isJobId(j.id) || Object.hasOwn(out, j.id)) continue;
+      try {
+        const o = await env.SITES_BUCKET.get(prepUseKey(j.id));
+        if (!o) continue;
+        const v = JSON.parse(await o.text());
+        if (v && v.job === j.id) out[j.id] = { replayed: v.replayed, rebased: v.rebased, fresh: v.fresh };
+      } catch { /* unread: left out, never guessed */ }
+    }
+  }
+  return out;
 }
 
 /** Send each claimed preparation as its own queue message; one the queue refuses is claimed again once it goes quiet. */
@@ -19236,7 +19273,14 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // made now. Read wherever the job runs — the key is the job's own.
     try {
       const po = await env.SITES_BUCKET.get(jobPrepKey(id));
-      if (po) { const staged = readPrepared(await po.text()); if (staged.calls.length || staged.images.length) jctx.replay = replayer(staged); }
+      if (po) {
+        const raw = JSON.parse(await po.text());
+        const staged = readPrepared(raw);
+        // A DECLARED SCOPE (`prepScope`, staged with the answers) lets an answer
+        // be re-based onto a site changed only outside it; none, exact only.
+        const rebase = raw && raw.scope && typeof raw.scope === "object" ? rebaserFor(raw.scope) : null;
+        if (staged.calls.length || staged.images.length) jctx.replay = replayer(staged, { rebase });
+      }
     } catch (e) { console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e)); }
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
@@ -19263,6 +19307,11 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       EDIT_JOBS.delete(job.secret);
       if (beat) { clearInterval(beat); beat = null; }
     }
+    // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL NOW
+    // (2026-10-11): kept under the job's own id, durable, so a later reader —
+    // the request's view, a live check — sees reuse directly instead of
+    // inferring it from timing. Written only when a preparation was staged.
+    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used());
     const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
     //
@@ -26856,7 +26905,7 @@ async function handleRequest(request, env, ctx) {
             if (!at || at.slug !== qSlug) continue;
             let found = null;
             try { found = await loadRequest(env, qSlug, at.key); } catch { found = null; }
-            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec), said: await saidForRequest(env, found.rec), runs: await runsForRequest(env, found.rec) }));
+            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec, { progress: await progressForRequest(env, found.rec), said: await saidForRequest(env, found.rec), runs: await runsForRequest(env, found.rec), prepUse: await prepUseForRequest(env, found.rec) }));
           }
           views.sort((a, b) => a.at - b.at);
           // AND THIS OWNER'S STANDALONE JOBS ON THE SITE (2026-10-06), each with
@@ -26886,7 +26935,7 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec) }) };
+        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) }) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });

@@ -1783,7 +1783,20 @@ function runsOf(p, runs) {
   return out;
 }
 
-export function requestView(rec, { progress = null, said = null, runs = null } = {}) {
+/** A part's run jobs' use of their preparation (`prepUse`, by job id): `[{ job, replayed, rebased, fresh }]`. */
+function prepUseOf(p, prepUse) {
+  if (!prepUse || typeof prepUse !== "object") return [];
+  const out = [];
+  const n = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+  for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
+    if (!j || j.kind !== "run" || typeof j.id !== "string" || !Object.hasOwn(prepUse, j.id)) continue;
+    const u = prepUse[j.id];
+    if (u && typeof u === "object") out.push({ job: j.id, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh) });
+  }
+  return out;
+}
+
+export function requestView(rec, { progress = null, said = null, runs = null, prepUse = null } = {}) {
   // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
   // run carries it (`routedCost`) only when part 0 ran on the answer that
   // accepted the message and its job's reply was written; a part 0 routed
@@ -1805,6 +1818,9 @@ export function requestView(rec, { progress = null, said = null, runs = null } =
       ...((pr) => (pr ? { prepRun: pr } : {}))(prepRunOf(p)),
       ...((rs) => (rs.length > 1 ? { prepRuns: rs } : {}))(prepRunsOf(p)),
       ...((rs) => (rs.length ? { runs: rs } : {}))(runsOf(p, runs)),
+      // WHAT EACH RUN JOB ANSWERED FROM ITS PREPARATION AND ASKED A MODEL NOW
+      // (2026-10-11): the job's own durable record, so reuse is read, not inferred.
+      ...((us) => (us.length ? { prepUse: us } : {}))(prepUseOf(p, prepUse)),
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
       ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),
       // THE APPROVED REWRITE'S BUILD, which no job poll reads (`/api/site/build/<id>` does).

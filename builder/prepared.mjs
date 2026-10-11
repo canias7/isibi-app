@@ -38,10 +38,16 @@ function canonical(v) {
   return v;
 }
 
-/** The request's fingerprint: SHA-256 over the deciding fields, canonical. */
-export async function requestHash(req) {
+/** The deciding fields of a request, and nothing else — what a fingerprint is taken over, and what a recorded call keeps. */
+export function decidingOf(req) {
   const pick = {};
   for (const k of DECIDING) if (req && Object.hasOwn(req, k) && req[k] !== undefined) pick[k] = req[k];
+  return pick;
+}
+
+/** The request's fingerprint: SHA-256 over the deciding fields, canonical. */
+export async function requestHash(req) {
+  const pick = decidingOf(req);
   const text = JSON.stringify(canonical(pick));
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -61,7 +67,11 @@ export function recorder() {
     wrap(send) {
       return async (req) => {
         const reply = await send(req);
-        try { calls.push({ h: await requestHash(req), reply }); } catch { /* an answer that cannot be kept is made again by the job */ }
+        // THE REQUEST ITSELF IS KEPT TOO (`q`, 2026-10-11): a step whose scope
+        // is declared may re-base an answer onto a site that changed only
+        // outside that scope (`builder/prepared-rebase.mjs`), which needs what
+        // the answer was made from, not only its fingerprint.
+        try { calls.push({ h: await requestHash(req), q: decidingOf(req), reply }); } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
       };
     },
@@ -80,7 +90,8 @@ export function readPrepared(raw) {
   let v = raw;
   if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [] }; } }
   const ok = v && typeof v === "object" && !Array.isArray(v);
-  const calls = ok && Array.isArray(v.calls) ? v.calls.filter((c) => c && typeof c.h === "string" && /^[0-9a-f]{64}$/.test(c.h) && c.reply && typeof c.reply === "object") : [];
+  const calls = ok && Array.isArray(v.calls) ? v.calls.filter((c) => c && typeof c.h === "string" && /^[0-9a-f]{64}$/.test(c.h) && c.reply && typeof c.reply === "object")
+    .map((c) => (c.q && typeof c.q === "object" && !Array.isArray(c.q) ? c : { h: c.h, reply: c.reply })) : [];
   const images = ok && Array.isArray(v.images) ? v.images.filter((i) => i && typeof i.d === "string" && typeof i.url === "string" && i.url) : [];
   return { calls, images };
 }
@@ -112,13 +123,16 @@ export const unfinishedBuy = (raw) => readBuys(raw).find((b) => b.state === "buy
  * back a picture bought for the same description. `used()` says how many of
  * each were answered from the record, for the job's trace.
  */
-export function replayer(prepared) {
+export function replayer(prepared, { rebase = null } = {}) {
   const { calls, images } = readPrepared(prepared);
   const spent = new Set();
   const spentImg = new Set();
-  let hits = 0, imageHits = 0, misses = 0;
+  let hits = 0, imageHits = 0, misses = 0, rebased = 0;
   return {
-    used: () => ({ calls: hits, images: imageHits, missed: misses }),
+    // `calls` answered exactly, `rebased` answered by re-basing a prepared
+    // answer onto a site changed only outside the step's scope, `missed` made
+    // fresh by a model now.
+    used: () => ({ calls: hits, rebased, images: imageHits, missed: misses }),
     /**
      * IS THIS PICTURE ONE ITS PREPARATION BOUGHT? Such a picture sits in the
      * owner's uploads before the job places it, so a step that lists the
@@ -133,6 +147,17 @@ export function replayer(prepared) {
         try { h = await requestHash(req); } catch { h = ""; }
         const at = h ? calls.findIndex((c, i) => !spent.has(i) && c.h === h) : -1;
         if (at >= 0) { spent.add(at); hits++; return calls[at].reply; }
+        // NO EXACT ANSWER: one made for the same step on a site that changed
+        // only outside the step's declared scope, re-based onto this request
+        // when — and only when — the re-base proves it safe; else made now.
+        if (typeof rebase === "function") {
+          for (let i = 0; i < calls.length; i++) {
+            if (spent.has(i) || !calls[i].q) continue;
+            let out = null;
+            try { out = rebase(calls[i].q, calls[i].reply, decidingOf(req)); } catch { out = null; }
+            if (out && typeof out === "object") { spent.add(i); rebased++; return out; }
+          }
+        }
         misses++;
         return send(req);
       };

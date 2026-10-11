@@ -112,7 +112,8 @@ test("record then replay: each answer once, a different request goes live, pictu
   assert.equal(await gi("bread"), "LIVE");
   assert.equal(rp.hides("/u/s/bread.jpg"), true);
   assert.equal(rp.hides("/u/s/other.jpg"), false);
-  assert.deepEqual(rp.used(), { calls: 2, images: 1, missed: 2 });
+  // `rebased` (2026-10-11): none here — nothing re-bases without a scope.
+  assert.deepEqual(rp.used(), { calls: 2, rebased: 0, images: 1, missed: 2 });
 });
 
 test("readPrepared keeps only what reads; keys", () => {
