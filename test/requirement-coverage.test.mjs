@@ -427,7 +427,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
     assert.ok(i > 0, "landmark moved: " + what);
     return i;
   };
-  const runAt = at("const ran = await runAdd(", "the designer call");
+  // RE-ANCHORED 2026-10-11 (the parallel-work goal): one statement, the
+  // designer's early answer when its request is unchanged or a call made now.
+  const runAt = at("const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "the designer call");
   // HOP 3 IS ABOVE EVERY EXIT BELOW IT. A list collected after the decline
   // check, after the cleaner's refusal or after the truncation check is a list
   // that vanishes in exactly the three cases worth reading it in.

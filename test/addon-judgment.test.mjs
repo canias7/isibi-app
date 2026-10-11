@@ -24,7 +24,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addon as routeAddon, writtenPage, storedAnswer, promptFor, SITE_CONN } from "./fixtures/addon-route.mjs";
+import { addon as routeAddon, writtenPage, storedAnswer, promptFor, addedTo, SITE_CONN } from "./fixtures/addon-route.mjs";
 import { invalidateSiteSchema } from "../site-schema.mjs";
 import { connForDatabase } from "../site-db.mjs";
 import {
@@ -806,4 +806,28 @@ test("JUDGE 14 — every report of requirements on the route is made with judgin
     assert.ok(end > 0, "no end to the call at " + m.index);
     assert.match(src.slice(m.index, end), /\bjudged: true\b/, m[1] + " is called on the route without judging in force");
   }
+});
+
+test("JUDGE 18 — A HAND-OFF BETWEEN TWO DESIGNERS THAT RUN TOGETHER (2026-10-11, the parallel-work goal): the photo designer is started beside the component designer, before the component's requirement is judged and handed to it; that early answer rests on a request without the hand-off, so it is discarded and the photo designer is asked again WITH it — what a designer needs from an earlier one is never answered from a request that lacked it", async () => {
+  const BENCH = "the workshop bench under the window, warm afternoon light";
+  const MSG = "add a gallery strip to the home page with a photo of the workshop in it";
+  const SHOWS = { need: "The strip's photograph shows the workshop it is about", status: "elsewhere", step: "photo", basis: "asked", words: "a photo of the workshop" };
+  const r = await addon("fw-judge-handoff-early", MSG, {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />')],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }], requirements: [SHOWS] },
+      photo: { photo: [{ page: "/", describe: BENCH, name: "bench" }] },
+    },
+    ...judging([[/shows the workshop/, "asked", "unsure"]]),
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 600));
+  // THE OBSERVER IS ALIVE: the hand-off was judged before it was handed on.
+  assert.ok(judged(r).some((t) => /about to be handed to the photo step/.test(t)), JSON.stringify(judged(r)).slice(0, 400));
+  const photos = r.prompts.filter((p) => p.kind === "photo");
+  // TWO ASKS: the early one without the hand-off, and the one made in its turn with it.
+  assert.equal(photos.length, 2, "the photo designer was not asked again once the hand-off changed its request: " + photos.length);
+  assert.doesNotMatch(photos[0].text, /shows the workshop it is about/, "the early ask already had the hand-off: it was not early");
+  assert.match(photos[1].text, /shows the workshop it is about/, "the photo designer's answer rests on a request without the hand-off");
+  assert.ok(r.traces.some((t) => t && t.phase === "add:photo" && t.status === "start" && t.detail && t.detail.again === true), "the discarded early answer left no mark: " + JSON.stringify(r.traces.filter((t) => t && /^add:/.test(t.phase))));
 });

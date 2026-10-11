@@ -286,7 +286,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -18040,8 +18040,16 @@ function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
     // a later reader can never buy it a second time.
     if (typeof onIdentity === "function") { try { onIdentity({ id: await purchaseId(slug, key, n, d, k), d, k }); } catch { /* the call goes on; only the early identity is lost */ } }
     // THE SAME PURCHASE STILL IN FLIGHT IN THIS INVOCATION (a build's photo
-    // task, begun beside its pages): waited for, never begun a second time.
-    if (pending && pending.has(d + "\n" + k)) { try { await pending.get(d + "\n" + k); } catch { /* read on its record below */ } }
+    // task, or an addition's, begun beside its pages): waited for, never begun
+    // a second time — ITS OWN ENDING IS THE ANSWER (2026-10-11). Read again on
+    // its record, a purchase the image service refused reads `none`, which
+    // `purchaseOnce` may begin again: a refused picture was asked for twice.
+    // Only a task that threw is read on its record below. One that ended
+    // bought is a reuse here, as its record would read: what the task itself
+    // recovered is the task's to tell, and is never told twice.
+    if (pending && pending.has(d + "\n" + k)) {
+      try { const r = await pending.get(d + "\n" + k); return r && r.url ? { url: r.url } : r; } catch { /* read on its record below */ }
+    }
     let made = { url: null };
     const out = await purchaseOnce(env, { slug, key, n, d, k, owner, generate: async (dd, meta) => { made = await makeSitePhoto(env, slug, dd, meta); return made.url; } });
     // THE PURCHASE IT WAITS ON (2026-10-09, round 5): an addition marks the
@@ -18069,12 +18077,14 @@ const BUILD_PHOTOS_RESERVE = 60;
  * the balance less a reserve for the pages themselves. Answers `{ pending,
  * settled, started }`; `settled` resolves to each purchase's ending.
  */
-function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null }) {
+function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null, part = 0, reserve = BUILD_PHOTOS_RESERVE }) {
   const pending = new Map();
   const list = Array.isArray(brief) ? brief.filter((s) => s && typeof s === "object" && !ownShot(s) && shotKey(s.describe)) : [];
-  let n = imagesAffordable(list.length, { balance, reserve: BUILD_PHOTOS_RESERVE, usd: SITE_PHOTO_USD });
+  let n = imagesAffordable(list.length, { balance, reserve, usd: SITE_PHOTO_USD });
   if (Number.isInteger(room)) n = Math.min(n, Math.max(0, room));
-  const buyer = purchaseBuyer(env, { slug, key, n: 0, owner });
+  // `part` IS THE LOGICAL PURCHASE'S PART (2026-10-11): an addition that is a
+  // request's part buys under that part, so its later step joins these.
+  const buyer = purchaseBuyer(env, { slug, key, n: part, owner });
   const seen = new Map();
   const results = [];
   for (const s of list.slice(0, Math.max(0, n))) {
@@ -33734,6 +33744,33 @@ async function handleRequest(request, env, ctx) {
             // not written at all.
             const aPartsRead = await readSiteParts(env, ownerSlug);
             const aStoredParts = aPartsRead.ok ? aPartsRead.parts : null;
+            // ── A PREPARED ADDITION'S DECLARED SCOPE (2026-10-11) ─────────────
+            //
+            // The parallel-work goal: *"a component that does not need the
+            // image's contents can be generated alongside it."* A part the
+            // request planner scoped (`addonScope`: every write it names lands
+            // on pages the site has) carries those pages, on its preparation
+            // and its job alike. Its picker and designers are then told the
+            // whole page list but what is built from, pictured on and headed on
+            // its OWN pages only; its page writer is shown those pages' source
+            // and the components they import. So what its model calls rest on
+            // is exactly what the plan says it reads, another part changing
+            // another page leaves its request byte for byte as prepared, and an
+            // exact replay is valid. A scope naming a page the site has not got
+            // is no scope: the whole site, as before.
+            const aScopeIn = stepScopeOf(ab && ab.scope);
+            const aSrcIds = aSrc.map((p) => pageId(p && p.path));
+            const aScope = aScopeIn && aScopeIn.pages && aScopeIn.pages.every((r) => aSrcIds.includes(pageId(r)))
+              ? [...new Set(aScopeIn.pages.map(pageId))] : null;
+            const aView = aScope ? aSrc.filter((p) => aScope.includes(pageId(p && p.path))) : aSrc;
+            // THE SITE'S OWN COMPONENTS THE SCOPED PAGES IMPORT, by module name.
+            const aNameKey = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            const aViewUses = aScope ? [...new Set(aView.flatMap((p) => [...String((p && p.source) || "").matchAll(/from\s*["']@\/routes\/-parts\/([^"']+)["']/g)].map((m) => aNameKey(m[1]))))] : null;
+            const aViewParts = aScope && aStoredParts ? aStoredParts.filter((p) => p && aViewUses.includes(aNameKey(p.name))) : aStoredParts;
+            // A DECLARATION LIST SHOWN UNDER A SCOPE: the components its pages
+            // import, and whatever this change itself declares (`own`).
+            const aViewTsx = (tsx, own) => (!aScope ? tsx : (Array.isArray(tsx) ? tsx : []).filter((t) => t && (aViewUses.includes(aNameKey(t.name)) || (own && own(t)))));
+            if (aScope) aMark("scope", "pages", { pages: aScope.length, shown: aView.length, parts: aViewParts ? aViewParts.length : null });
             const siteFacts = (spec) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
@@ -33748,12 +33785,12 @@ async function handleRequest(request, env, ctx) {
               // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
-              labels: pageLabels(aSrc, aLook.pages),
+              labels: pageLabels(aView, aLook.pages),
               // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one
               // copies the first's design): the kit components and the site's
               // own parts each page imports, so the component designer can
               // name the one a like section already uses.
-              builtFrom: pageComponents(aSrc),
+              builtFrom: pageComponents(aView),
               tables: ((spec && spec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a
@@ -33803,15 +33840,15 @@ async function handleRequest(request, env, ctx) {
               // refuses one that is not on this same list. Pages and
               // components, through the one inventory reader; pages alone
               // when the components could not be read.
-              photos: ownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok) || aSrc || [], ownerSlug),
+              photos: ownPhotos(photoInventory(aView, aViewParts, aPartsRead.ok) || aView || [], ownerSlug),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
-              tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
+              tsx: aViewTsx(Array.isArray(aLook.tsx) ? aLook.tsx : []),
               // THE COMPONENTS THE SITE REALLY HAS, beside the declarations
               // above. `tsx` is `look.tsx` — cumulative, a plan, and true of
               // a component nobody ever wrote; `parts` is what has a file.
               // `null` when the read failed, which `siteNote` prints as the
               // old sentence rather than as "it has none".
-              parts: aStoredParts ? aStoredParts.map((p) => ({ name: p && p.name })) : null,
+              parts: aViewParts ? aViewParts.map((p) => ({ name: p && p.name })) : null,
               // AND THE LOOK IT IS WEARING (owner, 2026-09-17). Every add
               // rule tells the designer to keep the site's design system;
               // until today nothing in its inputs said what that system is.
@@ -35022,11 +35059,56 @@ async function handleRequest(request, env, ctx) {
             const aEnded = (state, coverage = null) => aKeepAnswer(env, ownerSlug, {
               message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage, state, ...(state === "failed" ? { error: "send" } : {}),
             });
+            // ── DESIGNERS THAT NEED NOTHING FROM EACH OTHER RUN AT ONCE (2026-10-11) ──
+            //
+            // The owner: *"independent tasks … should actively run at the same
+            // time. Only work that genuinely needs another task's result should
+            // wait."* A designer is asked the site as the kinds before it left
+            // it (`aSite`, rebuilt only by a SCHEMA kind or a `page`) and what an
+            // earlier kind handed it (`aBrief`). So each kind is started as soon
+            // as no earlier kind that can change the site facts is still to be
+            // decided — a photograph and a component, say, together — and is
+            // checked when its turn comes: its request is built again from the
+            // site and brief as they then are, and an early answer is used only
+            // when that request is EXACTLY the one it was asked. Otherwise (an
+            // earlier kind handed it something) it is asked again, and the early
+            // answer is set aside unbilled: only the answer used is counted.
+            const aChangesSite = (k) => !!SPEC_OF_KIND[k] || k === "page";
+            const aDesignReq = (k, site, brief) => JSON.stringify(addRequest({ kind: k, message: aInstruction, site, model: aModels.quick, brief }));
+            const aEarly = new Map();
+            const aStartFrom = (k) => {
+              const at = aDesigning.indexOf(k);
+              for (const j of at < 0 ? [k] : aDesigning.slice(at)) {
+                if (!aEarly.has(j)) {
+                  const site = aSite;
+                  const brief = requirementBrief(aReq.filter((r) => r.judged), j);
+                  aMark("add:" + j, "start");
+                  aEarly.set(j, {
+                    site, req: aDesignReq(j, site, brief),
+                    p: runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief }).catch((e) => ({ failed: true, error: e })),
+                  });
+                }
+                if (aChangesSite(j)) break;
+              }
+            };
+            // THIS KIND'S EARLY ANSWER, OR NULL: started now with the kinds
+            // after it (`aStartFrom`), and used only when its request is still
+            // byte for byte the one it would be asked now — the same site facts
+            // and the same hand-off brief. Otherwise it is asked again.
+            const aTakeEarly = (k, brief) => {
+              aStartFrom(k);
+              const e = aEarly.get(k);
+              aEarly.delete(k);
+              if (!e) return null;
+              if (e.req === aDesignReq(k, aSite, brief)) return e.p;
+              // A SECOND START, MARKED AS ONE (the trace keeps start, ok and fail).
+              aMark("add:" + k, "start", { again: true });
+              return null;
+            };
             for (const k of aKinds) {
               // THE SAME READER THE SET-ASIDE LIST USED, so a kind cannot be
               // skipped there and designed here (or the reverse).
               if (addLayerIn(k, aKinds)) continue;
-              aMark("add:" + k, "start");
               // ── WHAT AN EARLIER STEP HANDED TO THIS ONE (2026-09-14) ──────
               //
               // `requirementBrief` was general and had ONE caller, for the page
@@ -35062,7 +35144,11 @@ async function handleRequest(request, env, ctx) {
               // rebuilds from this kind's own answer, so a digest taken after
               // the await would record the OUTPUT wearing the input's name.
               aShown.push({ kind: k, ...shownSchema(aSite) });
-              const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick, brief: aBrief });
+              // THIS KIND AND, WHILE NOTHING BEFORE THEM CAN CHANGE THE SITE, THE
+              // KINDS AFTER IT, started now; this one's early answer used only
+              // when its request is exactly the one it would be asked now.
+              const aEarlyOne = aTakeEarly(k, aBrief);
+              const ran = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick, brief: aBrief });
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
               // BELOW IT. A coverage list read after the decline check, after
               // the cleaner's refusal or after the truncation check is a list
@@ -35984,7 +36070,26 @@ async function handleRequest(request, env, ctx) {
             // components exist and were not loaded, and to the wall below it
             // is a refusal of every returned component — because the names we
             // could not read are exactly the names we cannot check against.
-            const aSentParts = partsSent(aStoredParts, { unreadable: !aPartsRead.ok });
+            // THE PAGE WRITER'S SCOPE IS THE PLAN'S UNLESS A DESIGNER NAMED A
+            // PAGE OUTSIDE IT (2026-10-11): then it is shown the whole site, as
+            // before, and a prepared answer resting on that request is one the
+            // job's exact-request check decides on. The destinations are the
+            // cleaned designers' own, read the way `aAskedPages` reads them.
+            const aDest = [];
+            for (const ans of aAnswers) {
+              for (const v of (Array.isArray(ans.value) ? ans.value : [ans.value])) {
+                if (v && typeof v === "object" && typeof v.page === "string") aDest.push(pageId(v.page));
+                if (v && typeof v === "object" && typeof v.path === "string") aDest.push(pageId(v.path));
+              }
+            }
+            const aWriterScoped = !!aScope && aDest.every((r) => r && aScope.includes(r));
+            if (aScope && !aWriterScoped) aMark("scope", "widened", { outside: aDest.filter((r) => !r || !aScope.includes(r)).length });
+            const aWriterSrc = aWriterScoped ? aView : aSrc;
+            const aWriterParts = aWriterScoped ? aViewParts : aStoredParts;
+            // THE STORED COMPONENTS A SCOPED WRITER WAS NOT SHOWN, by name: they
+            // are protected as a withheld one is, without being listed.
+            const aHiddenParts = aWriterScoped && aStoredParts ? aStoredParts.filter((p) => p && !aViewParts.includes(p)).map((p) => String(p.name || "").toLowerCase()) : [];
+            const aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok });
             // THE KIT SIGNATURES THIS REQUEST NEEDS: what the addition
             // declares, plus what the pages being edited already import.
             // `modules`, NEVER `kit` — the first is `seat-map` and the second
@@ -35993,7 +36098,7 @@ async function handleRequest(request, env, ctx) {
             // every one, which from outside reads as the site importing
             // nothing at all.
             const aPlanComponents = [...aFold.components];
-            for (const b of Object.values(pageComponents(aSrc))) {
+            for (const b of Object.values(pageComponents(aWriterSrc))) {
               for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
             }
             // ── THE PHOTOGRAPHS THIS CHANGE WILL BUY (2026-09-17) ───────────
@@ -36123,11 +36228,33 @@ async function handleRequest(request, env, ctx) {
             // on a change that worked it is alarming about nothing; what they
             // CAN act on — a page that did not survive, a component that was
             // not replaced — already has its own sentence.
-            const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });
+            const aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
             if (aPagesSent.withheld.length) {
               // EVERY ONE (2026-10-07): twelve were kept for the record.
               aUnseenPages = aPagesSent.withheld.slice();
               aMark("pages", "window", { shown: aPagesSent.shown.length, withheld: aPagesSent.withheld.length, chars: aPagesSent.chars });
+            }
+            // ── THE PHOTOGRAPHS ARE BOUGHT WHILE THE PAGES ARE WRITTEN (2026-10-11) ──
+            //
+            // Each one needs only its own description (`aShots`, the photo
+            // designer's), never the pages — the page writer is handed exactly
+            // those words as its tokens. So they are bought beside the writer
+            // (`startBuildPhotos`, the build path's own task), each through the
+            // logical purchase the step below buys through, and that step joins
+            // them: a photograph is attached only once its page exists and it
+            // does. A preparation buys nothing (it has no purchase owner); an
+            // addition with no durable record to buy through buys as before.
+            const aBuyAs = aJob && aJob.purchase ? { ...aJob.purchase.part, owner: "job:" + aJob.id }
+              : aJob && aJob.prepare !== true && typeof aJob.id === "string" && aJob.id ? { slug: ownerSlug, key: "job-" + aJob.id, n: 0, owner: "job:" + aJob.id }
+              : !aJob && isRequestKey(ab && ab.idem) ? { slug: ownerSlug, key: "post-" + ab.idem, n: 0, owner: "post:" + ab.idem }
+              : null;
+            let aPhotoTask = null;
+            if (aShots.length && aBuyAs && !aPrep) {
+              aPhotoTask = startBuildPhotos(env, { slug: aBuyAs.slug, brief: aShots, balance: aBalance, key: aBuyAs.key, owner: aBuyAs.owner, part: aBuyAs.n, reserve: 0 });
+              aMark("photos", "alongside", { started: aPhotoTask.started });
+              // NOT HELD BY THE JOB'S END: one still in flight when the job ends
+              // is what the image step's own wait already makes of a late call
+              // — its claim is on its record, never bought again on a guess.
             }
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
@@ -36217,7 +36344,7 @@ async function handleRequest(request, env, ctx) {
                 // cannot be corrected on one and missed on the other.
                 images: {
                   buy: aShots.length ? aShots : null,
-                  shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),
+                  shown: shownPhotos(photoInventory(aWriterSrc, aWriterParts, aPartsRead.ok), ownerSlug),
                   // `place` IS UNREAD WHEN BUYING, and the two cannot both be
                   // true: a kind that is set aside designs nothing, so
                   // `aFold.photos` — and with it `aShots` — is empty on exactly
@@ -36233,7 +36360,8 @@ async function handleRequest(request, env, ctx) {
                 // replaced the real file by name. `aSentParts` is computed
                 // ONCE and read twice: here, and by the wall below that
                 // decides whether a returned part may replace a stored one.
-                tsx: aMerged.tsx, parts: aStoredParts, partsUnreadable: !aPartsRead.ok,
+                tsx: aWriterScoped ? aViewTsx(aMerged.tsx, (t) => !(Array.isArray(aLook.tsx) ? aLook.tsx : []).some((o) => o && aNameKey(o.name) === aNameKey(t.name))) : aMerged.tsx,
+                parts: aWriterParts, partsUnreadable: !aPartsRead.ok,
                 gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
                 // AND THE LOOK IT IS WEARING. The stylesheet is sent as
                 // ALREADY APPLIED, never as something to reproduce: it is
@@ -36244,7 +36372,7 @@ async function handleRequest(request, env, ctx) {
                 theme: aMerged.theme || aLook.theme, css: aNextCss,
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
-              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget,
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
               clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
@@ -36811,7 +36939,7 @@ async function handleRequest(request, env, ctx) {
             const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
               const n = String((p && p.name) || "").toLowerCase();
               if (aSentParts.unreadable) { aUnseenParts.push(p && p.name); return false; }
-              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
+              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n) && !aHiddenParts.includes(n)) return true;
               aKeptParts.push(p.name);
               return false;
             });
@@ -37042,6 +37170,12 @@ async function handleRequest(request, env, ctx) {
             let aPhotoBill = null;
             if (aShots.length) {
               try {
+                // JOINED WITH THE PHOTOGRAPHS BOUGHT BESIDE THE PAGE WRITER
+                // (2026-10-11): each one is joined by the buyer (`pending`, the
+                // same logical purchase) — one in flight is waited for INSIDE
+                // this step's own purchase wait, so a call still out when that
+                // wait ends is kept as pending work as before; one bought is
+                // used; one refused is told, never bought again.
                 aPhotos = await buySitePhotos(env, {
                   slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],
                   budget: aShots.length, balance: aBalance, reserve: 0, clock: aJob && aJob.budget,
@@ -37054,10 +37188,7 @@ async function handleRequest(request, env, ctx) {
                   // redelivery or a takeover of that job reuses what it bought and
                   // never buys one whose outcome is unknown. Nothing places its
                   // frames later — no request holds it — and its reply says so.
-                  buy: aJob && aJob.purchase ? purchaseBuyer(env, { ...aJob.purchase.part, owner: "job:" + aJob.id })
-                    : aJob && aJob.prepare !== true && typeof aJob.id === "string" && aJob.id ? purchaseBuyer(env, { slug: ownerSlug, key: "job-" + aJob.id, n: 0, owner: "job:" + aJob.id })
-                    : !aJob && isRequestKey(ab && ab.idem) ? purchaseBuyer(env, { slug: ownerSlug, key: "post-" + ab.idem, n: 0, owner: "post:" + ab.idem })
-                    : null,
+                  buy: aBuyAs ? purchaseBuyer(env, { ...aBuyAs, pending: aPhotoTask ? aPhotoTask.pending : null }) : null,
                   // A REQUEST PART'S FRAME WAITING ON A PURCHASE NOBODY CAN TELL
                   // (2026-10-09, round 5) is published marked, and the part is
                   // held on it: once the purchase is known, a placement step

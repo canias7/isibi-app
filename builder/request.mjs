@@ -52,7 +52,7 @@ import { heldList, heldParts, wordsIn, readContext, EDIT_LAYERS } from "./site-a
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { outcomeOf } from "./site-reply.mjs";
-import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope } from "./request-plan.mjs";
+import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope, addonScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -1675,6 +1675,9 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
   const inRun = p.held.filter((w) => !p.resume || !!wordsIn(p.resume, w));
   const held = inRun.length ? inRun : undefined;
   if (d.op === "addon") {
+    // A PREPARED ADDITION'S DECLARED SCOPE (`addonScope`), on its preparation
+    // and its job alike, as an edit's is below.
+    const aScope = p.prep ? addonScope(p) : null;
     return {
       url: "/api/site/" + encodeURIComponent(rec.slug) + "/addon",
       body: {
@@ -1687,6 +1690,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
         // FILES IT WAS SAID TO CARRY AND NEVER GOT (round 8): the add-on step is
         // told, and may ask for them; an answer's files join the request's.
         filesMissing: rec.attached && !rec.files.length ? true : undefined,
+        scope: aScope || undefined,
         request,
       },
     };

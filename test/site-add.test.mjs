@@ -365,12 +365,14 @@ test("every field the edit path refuses to create has a kind here, and the route
   assert.match(siteLit, /\burl: aUrl,/, "the site note is not handed the address");
   // …AND WHAT EACH PAGE CALLS ITSELF (run 28), out of the stored source and
   // the stored plan, so "the booking page" is findable among routes.
-  assert.match(siteLit, /\blabels: pageLabels\(aSrc, aLook\.pages\),/, "the site note is not handed the pages' own headlines");
+  // RE-ANCHORED 2026-10-11: `aView`, the pages or a prepared part's scope of them.
+  assert.match(siteLit, /\blabels: pageLabels\(aView, aLook\.pages\),/, "the site note is not handed the pages' own headlines");
   assert.match(W, /import \{[^}]*\bpageLabels\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "pageLabels is called and never imported");
   // …AND EVERY DESIGNER'S RAW REPLY IS KEPT, on the site's own store, the
   // moment the loop ends and before a decline can return — then read back by
   // the owner through the answer route with `kind=addon`.
-  const runAt = at(b, "const ran = await runAdd(", "run");
+  // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
+  const runAt = at(b, "const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ANCHORED ON THE CALL, NOT ON ITS ARGUMENT LIST. This read the whole literal
   // and went red on 2026-09-13 for an honest extra argument — the coverage
   // record — reporting the keep as gone when it had only grown. The property is
@@ -1572,7 +1574,8 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // database sat between the hop and the design. The backend is the addon's
   // now and the first tier designed MAKES the database, so what follows the
   // fold is the provision, then the schema work, then the look merge.
-  const run = at(b, "const ran = await runAdd(", "run");
+  // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
+  const run = at(b, "const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke: the
   // site handed to the cleaner is `aSite` PLUS `today`, the site's own local
   // date, for the one-time job's past-date refusal. `aSite` is rebuilt from the
@@ -1613,7 +1616,9 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.ok(plan, "the kit parts are not handed to the page call: " + call);
   const planBuild = b.slice(b.indexOf("const " + plan[1] + " = "), gen);
   assert.match(planBuild, /aFold\.components/, "the addition's own components do not reach the page call's plan");
-  assert.match(planBuild, /pageComponents\(aSrc\)/, "the kit components the site's pages already import do not reach the page call's plan");
+  // RE-ANCHORED 2026-10-11: the pages the writer is shown (`aWriterSrc`, the
+  // site or a prepared part's scope of it).
+  assert.match(planBuild, /pageComponents\(aWriterSrc\)/, "the kit components the site's pages already import do not reach the page call's plan");
   // The reply says what kinds were added and what was set aside — and which
   // entries of a list were left out, with the server's own sentence.
   // RE-ANCHORED 2026-10-03 (the combined request flow): a kind set aside and

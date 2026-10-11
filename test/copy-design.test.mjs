@@ -98,7 +98,9 @@ test("the note tells the component designer what each page is built from, and th
   assert.doesNotMatch(siteNote({ name: "Crookes", pages: ["/"] }), /is built from/);
   assert.doesNotMatch(siteNote({ name: "Crookes", pages: ["/"], builtFrom: { "/": { kit: [], parts: [] } } }), /is built from/);
   // THE HOP: the addon route reads it off the stored source it already holds.
-  assert.match(worker, /builtFrom: pageComponents\(aSrc\),/, "the route does not hand the designer what each page is built from");
+  // RE-ANCHORED 2026-10-11: `aView` — the site's pages, or a prepared part's
+  // declared scope of them (the parallel-work goal).
+  assert.match(worker, /builtFrom: pageComponents\(aView\),/, "the route does not hand the designer what each page is built from");
   assert.match(worker, /import \{[^}]*\bpageComponents\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "pageComponents is not imported from its module");
 });
 

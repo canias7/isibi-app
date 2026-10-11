@@ -299,11 +299,12 @@ test("the addon route exists, is dispatched, and reaches the module", () => {
   assert.match(b, /mergeAddonPages\(/, "the merge is not wired");
   assert.match(b, /unlinkedPages\(/, "reachability is computed nowhere");
   assert.match(b, /assertOwner\(/, "the addon lane is not ownership-gated");
+  // RE-ANCHORED 2026-10-11: `aWriterSrc`, the pages or a prepared part's scope.
   // RE-ANCHORED 2026-09-03: the call was `…, aSrc, "addon")` and now carries
   // the job's clock after the mode (`"addon", undefined, aJob && aJob.budget`),
   // so `"addon")` no longer closes it. The property is the MODE argument:
   // addon mode is what makes the model return only what it touched.
-  assert.match(b, /generateSitePages\(env, briefWithLayout\(\{[\s\S]*?\}\), aSpec, [^\n]*?, aSrc, "addon"[,)]/,
+  assert.match(b, /generateSitePages\(env, briefWithLayout\(\{[\s\S]*?\}\), aSpec, [^\n]*?, aWriterSrc, "addon"[,)]/,
     "generateSitePages is not called in addon mode — it would re-emit every page");
 });
 

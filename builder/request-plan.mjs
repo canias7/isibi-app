@@ -170,6 +170,39 @@ export function prepScope(part) {
   return { tables: [...new Set(named.map((w) => w.slice("data:".length)))] };
 }
 
+/**
+ * AN ADDITION'S DECLARED SCOPE (2026-10-11, the parallel-work goal: "a
+ * component that does not need the image's contents can be generated
+ * alongside it"): the existing pages it names, when every write the router
+ * named for it lands on a named page — that page itself, a component made for
+ * it, or a picture placed on it — and it declares no reads. `null` for a new
+ * page (its writer copies the design of the pages beside it), for a menu, a
+ * table or the whole site, and for a routing.
+ *
+ * A PREPARED ADDITION IS SHOWN ONLY THIS SCOPE (`jobBody` carries it; the
+ * Worker's add-on route honours it): its picker and designers are told the
+ * full page list but what is built from, and pictured on, its own pages only;
+ * its page writer is shown its own pages' source and the components those
+ * pages import, and every other stored component is protected by name without
+ * being listed. A designer that names a page outside the scope widens the
+ * page writer back to the whole site, and its prepared answer then rests on a
+ * request no plan promised — the job's exact-request check asks it again.
+ */
+export function addonScope(part) {
+  if (!part || part.phase === "route" || !part.route || !(part.route.op === "addon" || part.route.intent === "addon")) return null;
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!named.every((w) => w.startsWith("page:") || w.startsWith("component:") || w.startsWith("new-component:") || w === "images")) return null;
+  const pages = [...new Set(named.filter((w) => w.startsWith("page:")).map((w) => w.slice("page:".length)))];
+  return pages.length ? { pages } : null;
+}
+
+/** The pages a part names as written: where what it places (a picture, a new component) lands. Empty when it names none. */
+function pagesWritten(part) {
+  return effectiveTargets(part).writes.filter((w) => w.startsWith("page:") || w.startsWith("new-page:")).map((w) => "page:" + w.slice(w.indexOf(":") + 1));
+}
+
 export function stepInputs(part) {
   if (!part) return [SITE];
   if (part.phase === "route" || !part.route) return ["pagelist"];
@@ -183,6 +216,10 @@ export function stepInputs(part) {
   // writer the pages it writes beside. A stored row it does not read; a table
   // it adds is waited for by creation, and one changed beside it is caught by
   // the job's exact-request check.
+  // A SCOPED ADDITION (`addonScope`) reads the page list, the look and its own
+  // pages — and what renders on them, which `feeds` answers per page.
+  const aScope = addonScope(part);
+  if (aScope) return ["pagelist", "theme", ...aScope.pages.map((p) => "page:" + p)];
   if (part.route.op === "addon") return ["pagelist", "theme", "menu", "pages", "images"];
   if (layer === "text") return ["pages"];
   if (layer === "nav") return ["menu", "pagelist"];
@@ -194,6 +231,27 @@ export function stepInputs(part) {
   // DATA and RULES read the tables.
   if (layer === "data" || layer === "rules") return ["data"];
   return [SITE];
+}
+
+/**
+ * Does an earlier part's write change what a step reads? `feeds`, except that
+ * what a part PLACES — a picture, a component it makes — lands on the pages it
+ * names, and on any page only when it names none (2026-10-11): a photograph
+ * placed on Visit is not an input of a step that reads About.
+ *
+ * ⚠ WHERE IT DOES LAND, THE ANSWER IS ALSO `conflicts`' TODAY: every step
+ * whose input is one page also writes that page, so a part placing something
+ * there is held back by the overlap of their writes anyway. `true` is kept so
+ * the rule stays right for a step that reads a page it does not write; a
+ * sweep mutant answering `false` here survives for exactly that reason
+ * (measured, 2026-10-11).
+ */
+function partFeeds(q, write, input) {
+  if (input.startsWith("page:") && (write === "images" || write.startsWith("new-component:"))) {
+    const on = pagesWritten(q);
+    if (on.length) return on.includes(input);
+  }
+  return feeds(write, input);
 }
 
 /** Does a write change what a step reads? */
@@ -328,7 +386,7 @@ export function clearToPrepare(parts, n, ended) {
     // A ROUTING writes nothing, so only what it reads (the page list) can make
     // it wait; a step that writes waits for any earlier part it conflicts with.
     if (me.phase !== "route" && me.route && conflicts(q, me)) return false;
-    if (effectiveTargets(q).writes.some((w) => inputs.some((i) => feeds(w, i)))) return false;
+    if (effectiveTargets(q).writes.some((w) => inputs.some((i) => partFeeds(q, w, i)))) return false;
   }
   return true;
 }

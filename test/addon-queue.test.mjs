@@ -225,7 +225,9 @@ test("every model call on the addon route rides the job's clock", () => {
   // pinning the budget as the LAST argument was a claim about the signature's
   // length rather than about the clock. The property is that the budget rides
   // the argument after `target`, which is where `generateSitePages` names it.
-  assert.match(b, /aSrc, "addon", undefined, aJob && aJob\.budget[,)]/, "the page call runs with no clock under a job");
+  // RE-ANCHORED 2026-10-11 (the parallel-work goal): the pages it is shown are
+  // `aWriterSrc` — the site, or a prepared part's declared scope of it.
+  assert.match(b, /aWriterSrc, "addon", undefined, aJob && aJob\.budget[,)]/, "the page call runs with no clock under a job");
 });
 
 test("cancel and budget are re-asked before the page call and before the publish", () => {
