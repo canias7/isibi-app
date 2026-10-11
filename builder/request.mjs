@@ -52,7 +52,7 @@ import { heldList, heldParts, wordsIn, readContext, EDIT_LAYERS } from "./site-a
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { outcomeOf } from "./site-reply.mjs";
-import { readTargets, inferNeeds, applyOrder, clearToPrepare } from "./request-plan.mjs";
+import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -1692,6 +1692,11 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
     };
   }
   const imgs = d.layer === "logo" ? files.slice(0, 3) : [];
+  // A PREPARED PART'S DECLARED SCOPE (2026-10-11, after Codex's review): its
+  // step is shown only the pages or tables its route names — its preparation
+  // and its job alike, so what a prepared answer rests on is exactly what its
+  // request holds, and an exact replay is valid whatever changed elsewhere.
+  const scope = p.prep ? prepScope(p) : null;
   return {
     url: "/api/site/" + encodeURIComponent(rec.slug) + "/edit",
     body: {
@@ -1710,6 +1715,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       picker: rec.picker,
       routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       recent: d.layer === "data" && Array.isArray(rec.recent) && rec.recent.length ? rec.recent.slice(0, 3) : undefined,
+      scope: scope || undefined,
       images: imgs.length ? imgs : undefined,
       // AN ADDITION'S MARKED FRAMES TO FILL (round 5): the picture step places
       // each one's purchase, with no model call.
@@ -1783,15 +1789,22 @@ function runsOf(p, runs) {
   return out;
 }
 
-/** A part's run jobs' use of their preparation (`prepUse`, by job id): `[{ job, replayed, rebased, fresh }]`. */
+/**
+ * A part's run jobs' use of their preparation (`prepUse`, by job id):
+ * `[{ job, known, staged, replayed, rebased, fresh }]`. A job whose evidence
+ * is absent or unreadable (`null`) is `known: false` with no counts, and a
+ * count that does not read is `null` — missing evidence is never shown as 0.
+ */
 function prepUseOf(p, prepUse) {
   if (!prepUse || typeof prepUse !== "object") return [];
   const out = [];
-  const n = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+  const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
   for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
     if (!j || j.kind !== "run" || typeof j.id !== "string" || !Object.hasOwn(prepUse, j.id)) continue;
     const u = prepUse[j.id];
-    if (u && typeof u === "object") out.push({ job: j.id, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh) });
+    if (u && typeof u === "object") {
+      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh) });
+    } else out.push({ job: j.id, known: false });
   }
   return out;
 }

@@ -4,20 +4,36 @@
 // non-conflicting targets yet were never prepared together, because the text
 // step was planned as reading every page and the data step every table).
 //
+// AND A PREPARED ANSWER IS REUSED ONLY BY AN EXACT REPLAY OF WHAT ITS MODEL
+// WAS SHOWN (2026-10-11, Codex's review of 1694dc88: a re-base that judged a
+// change elsewhere irrelevant by its words carried a price worked out from an
+// opening hour that had changed in between — 7 applied, 6 correct). A
+// prepared part's step is now shown only its declared scope, says `needs`
+// when what it was asked depends on anything else, and is then asked again
+// with the whole site as it is when its job runs.
+//
 // Through the real request driver, queue consumer and routes, every model
 // answer supplied, no image bought:
 //   IND 1  two text edits on separate pages — the second's text call made
-//          while the first's job is held inside its own; applied after the
-//          first changed its page, the prepared answer is RE-BASED (no second
-//          call), the job's own record says so, and both changes are kept;
+//          while the first's job is held inside its own; its request shows
+//          only its page, and its job replays it EXACTLY (no second call);
 //   IND 2  the same for two row changes in separate tables;
 //   IND 3  controls: the same page, and the same table, still wait (no
-//          preparation of the step) — both changes kept;
-//   IND 4  a changed input: the first part's change now carries the words the
-//          second changes, so the re-base refuses and the job asks the model
-//          again against the site as it is — both changes kept.
+//          preparation of the step) — both changes kept, every job's calls
+//          counted;
+//   IND 4  Codex's stale numeric case: the price is two pounds less than the
+//          Monday opening hour, which the first part changes, and the router
+//          declared no read — the prepared step, shown only its table, says it
+//          needs more; its job asks again with the hours as they now are: 6;
+//   IND 5  a dependency with no shared words (a heading in French);
+//   IND 6  incomplete dependency declarations (a read naming the wrong
+//          target; no targets at all): never a stale value;
+//   IND 7  an image-only prepared record: the job's fresh call is counted;
+//   IND 8  missing evidence stays unknown in the request view, never zero.
 //
-// ⚠ SUPPLIED-MODEL PROOF ONLY.
+// ⚠ SUPPLIED-MODEL PROOF ONLY: the mocks below answer `needs` when what they
+// are asked depends on what they were not shown. Whether a real model does so
+// is not shown here.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, call, T } from "./fixtures/request-flow.mjs";
@@ -65,7 +81,7 @@ const textRoute = (first, second, writes0, writes1, page0, page1) => [
 ];
 
 /** Two text parts; part 0's job held inside its model call until part 1's preparation has made its own. */
-async function twoTexts({ slug, route, message, answer0, answer1, check }) {
+async function twoTexts({ slug, route, message, answer0, answer1, check, between = null }) {
   const held = gate();
   await withPlatform({
     slug, pages: PAGES, progress: true,
@@ -86,19 +102,31 @@ async function twoTexts({ slug, route, message, answer0, answer1, check }) {
     const running = deliver(P, jobs[0]);
     await new Promise((ok) => setTimeout(ok, 50));
     for (const m of preps) await deliver(P, m);
+    if (between) await between(P, r);
     held.open();
     await running;
     const { rec } = await settle(P, r.key);
     await check(P, rec, r, await viewOf(P, r.key));
   });
 }
+/** What a job's evidence says, as the request view serves it. */
+const useOf = (view, n) => {
+  const u = view.parts[n].prepUse;
+  assert.ok(Array.isArray(u) && u.length === 1, "part " + n + "'s job's use of its preparation is not served: " + JSON.stringify(view.parts[n]));
+  return u[0];
+};
+const counts = (u) => ({ known: u.known, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh });
+/** The step's request as its model received it: what it was shown. */
+const content = (args) => String(args.messages[0].content);
+const canAsk = (args) => !!(args.tools && args.tools[0] && args.tools[0].input_schema.properties.needs);
 
-test("IND 1 — TWO TEXT EDITS ON SEPARATE PAGES RUN TOGETHER: the About line's text call is made while the Visit heading's job is held inside its own; applied after the heading changed, the prepared answer is re-based onto the changed site (no second call) and the job's own record says re-based; both changes kept, one charge per job", async () => {
+test("IND 1 — TWO TEXT EDITS ON SEPARATE PAGES RUN TOGETHER: the About line's text call is made while the Visit heading's job is held inside its own, shown only the About page; applied after the heading changed, its job replays that answer exactly (no second call) and its record says so; both changes kept, one charge per job", async () => {
+  const seen = [];
   await twoTexts({
     slug: slugOf("t"), route: textRoute(W_HEAD, W_HOURS, ["page:/visit"], ["page:/about"], "/visit", "/about"),
     message: { first: W_HEAD, second: W_HOURS },
     answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
-    answer1: (args) => ({ edits: [{ id: lineId(args, "about.tsx", HOURS_LINE), to: HOURS_TO }] }),
+    answer1: (args) => { seen.push(content(args)); return { edits: [{ id: lineId(args, "about.tsx", HOURS_LINE), to: HOURS_TO }] }; },
     check: async (P, rec, r, view) => {
       assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
       assert.ok(P.page("visit.tsx").includes(HEAD_TO), "the heading change was lost");
@@ -106,9 +134,13 @@ test("IND 1 — TWO TEXT EDITS ON SEPARATE PAGES RUN TOGETHER: the About line's 
       assert.ok(!P.page("about.tsx").includes(HOURS_LINE));
       assert.equal(calls(P, T.text).length, 2, "the About part's job asked its model again instead of using its preparation");
       assert.equal(rec.parts[1].prep.outcome, "ready", "the About part's text step was not prepared: " + JSON.stringify(rec.parts[1].prep));
-      const use = view.parts[1].prepUse;
-      assert.ok(use && use.length === 1, "the About job's use of its preparation is not served: " + JSON.stringify(view.parts[1]));
-      assert.deepEqual({ replayed: use[0].replayed, rebased: use[0].rebased, fresh: use[0].fresh }, { replayed: 0, rebased: 1, fresh: 0 });
+      // SHOWN ONLY ITS PAGE: no word of the Visit page, the page named as not shown.
+      assert.equal(seen.length, 1);
+      assert.ok(!seen[0].includes("[visit.tsx]") && seen[0].includes("[about.tsx] " + HOURS_LINE), seen[0]);
+      assert.match(seen[0], /NOT SHOWN[\s\S]*visit\.tsx/);
+      assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0 });
+      // PART 0 RAN UNPREPARED: its one call counted fresh, nothing staged.
+      assert.deepEqual(counts(useOf(view, 0)), { known: true, staged: "no", replayed: 0, rebased: 0, fresh: 1 });
       const st = (Array.isArray(view.parts[1].prepRuns) ? view.parts[1].prepRuns : [view.parts[1].prepRun]).map((x) => x && x.step).find((s) => s && s.calls > 0);
       const run0 = view.parts[0].runs[0];
       assert.ok(st && st.from < run0.to && run0.from < st.to, "the About step did not run during the heading's job: " + JSON.stringify({ st, run0 }));
@@ -129,24 +161,24 @@ const bakeryDb = () => rowsDb({
 });
 const W_MON = "open the bakery at 8 on Mondays", W_RYE = "make the Dark Rye £5.50";
 
-async function twoRows({ slug, writes0, writes1, prepares = true, check }) {
+async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE, answer1 = null, rye = 5.5, prepares = true, check }) {
   const db = bakeryDb();
   const held = gate();
   await withPlatform({
     slug, pages: PAGES, db, progress: true,
     answers: {
       route: [
-        { intent: "edit", layer: "data", alsoAsked: [W_RYE], targets: [{ change: 0, writes: writes0 }, { change: 1, writes: writes1 }] },
+        { intent: "edit", layer: "data", alsoAsked: [second], targets: targets || [{ change: 0, writes: writes0 }, { change: 1, writes: writes1 }] },
         { intent: "edit", layer: "data" },
       ],
       write_row_changes: async (args) => {
         if (asked(args).includes(W_MON)) { await within(held.p, prepares ? 4000 : 300); await new Promise((ok) => setTimeout(ok, 30)); return { changes: [{ table: "hours", id: 1, values: { opens: "08:00" } }] }; }
         held.open();
-        return { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
+        return answer1 ? answer1(args) : { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
       },
     },
   }, async (P) => {
-    const r = await sendMessage(P, { message: W_MON + ", and " + W_RYE + "." });
+    const r = await sendMessage(P, { message: W_MON + ", and " + second + "." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const preps = take(P, "request-prep");
     const jobs = jobsQueued(P);
@@ -159,21 +191,23 @@ async function twoRows({ slug, writes0, writes1, prepares = true, check }) {
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.equal(db.rows("hours")[0].opens, "08:00", "the hours change was lost");
-    assert.equal(Number(db.rows("loaves").find((l) => l.id === 2).price), 5.5, "the loaves change was lost");
+    assert.equal(Number(db.rows("loaves").find((l) => l.id === 2).price), rye, "the Dark Rye's price is not the one the site as it is calls for");
     for (const j of P.jobsOf(r.key)) assert.ok(reserveOf(P, j.id).length <= 1, j.op + " charged more than once");
     await check(P, rec, r, await viewOf(P, r.key));
   });
 }
 
-test("IND 2 — TWO ROW CHANGES IN SEPARATE TABLES RUN TOGETHER: the loaves change is chosen while the hours change's job is held inside its own; applied after the hours table changed, the prepared answer is re-based (no second call), the job's record says so, both changes kept", async () => {
+test("IND 2 — TWO ROW CHANGES IN SEPARATE TABLES RUN TOGETHER: the loaves change is chosen while the hours change's job is held inside its own, shown only the loaves; applied after the hours table changed, its job replays that answer exactly (no second call), the record says so, both changes kept", async () => {
   await twoRows({
     slug: slugOf("d"), writes0: ["data:hours"], writes1: ["data:loaves"],
+    answer1: (args) => {
+      assert.ok(!content(args).includes("TABLE hours") && content(args).includes("TABLE loaves"), "the loaves step was shown another table: " + content(args));
+      return { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
+    },
     check: async (P, rec, r, view) => {
       assert.equal(calls(P, "write_row_changes").length, 2, "the loaves job asked its model again instead of using its preparation");
       assert.equal(rec.parts[1].prep.outcome, "ready", JSON.stringify(rec.parts[1].prep));
-      const use = view.parts[1].prepUse;
-      assert.ok(use && use.length === 1, JSON.stringify(view.parts[1]));
-      assert.deepEqual({ replayed: use[0].replayed, rebased: use[0].rebased, fresh: use[0].fresh }, { replayed: 0, rebased: 1, fresh: 0 });
+      assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0 });
       const v = overlapVerdict([{ sent: true, request: { key: r.key, final: view } }]);
       assert.equal(v.ok, true, v.why);
     },
@@ -202,6 +236,10 @@ test("IND 3 — CONFLICTS STILL WAIT: two text edits on the SAME page, and two r
     }
     assert.ok(P.page("visit.tsx").includes(HEAD_TO) && P.page("visit.tsx").includes("We are on Quay Street."), "a change on the shared page was lost");
     assert.equal(calls(P, T.text).length, 2);
+    // EVERY CALL ACCOUNTED FOR: each job's own made and replayed calls.
+    const made = [0, 1].map((n) => useOf(view, n)).reduce((k, u) => k + u.fresh, 0);
+    const prepCalls = [view.parts[1].prepRun, ...(view.parts[1].prepRuns || [])].filter(Boolean).reduce((k, x) => Math.max(k, (x.step && x.step.calls) || 0), 0);
+    assert.equal(made + prepCalls, 2, JSON.stringify(view.parts.map((p) => p.prepUse)));
   });
   // THE SAME TABLE.
   const db = bakeryDb();
@@ -226,21 +264,117 @@ test("IND 3 — CONFLICTS STILL WAIT: two text edits on the SAME page, and two r
   });
 });
 
-test("IND 4 — A CHANGED INPUT IS ASKED AGAIN: the heading's change now carries the very words the About part changes, so its prepared answer is not re-based — the About job asks its model against the site as it now is (the record says fresh), and both changes are kept", async () => {
-  const CLASH_TO = "Open from 9 on weekdays — come to the harbour bakery";
+// ── A PRICE WORKED OUT FROM WHAT ANOTHER PART CHANGES (Codex's reproduction) ──
+//
+// The supplied model works out what it is shown, as a model does: shown the
+// hours, the Dark Rye costs two pounds less than the Monday opening hour; not
+// shown them, it says it needs more (`needs`, on the scoped tool) — and with
+// no such way out it would have to answer from what it saw.
+const W_RYE_HOUR = "set the Dark Rye's price to two pounds less than the Monday opening hour";
+const ryeFromHours = (args) => {
+  const m = /day="Monday", opens="(\d+):/.exec(content(args));
+  if (!m) {
+    assert.ok(canAsk(args), "shown no hours and given no way to say so: " + content(args));
+    return { needs: true, changes: [] };
+  }
+  return { changes: [{ table: "loaves", id: 2, values: { price: Number(m[1]) - 2 } }] };
+};
+
+test("IND 4 — A RESULT WORKED OUT FROM ANOTHER PART'S CHANGE IS NEVER REUSED STALE (Codex's reproduction): the hours change moves Monday from 09:00 to 08:00, the router declares no read for the price part, its preparation runs beside the hours job — shown only the loaves, it needs more; its job asks again with the hours as they now are and sets 6, not 7, and its record counts one replayed call and one fresh", async () => {
+  await twoRows({
+    slug: slugOf("n"), writes0: ["data:hours"], writes1: ["data:loaves"], second: W_RYE_HOUR, answer1: ryeFromHours, rye: 6,
+    check: async (P, rec, r, view) => {
+      assert.equal(rec.parts[1].prep.outcome, "ready", "the price part was not prepared beside the hours job: " + JSON.stringify(rec.parts[1].prep));
+      assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 1 });
+      // THE FRESH CALL SAW THE HOURS AS THEY NOW ARE; THE PREPARED ONE SAW NONE.
+      const rye = calls(P, "write_row_changes").filter((c) => c.text.includes(W_RYE_HOUR.slice(0, 30)) && !c.text.split("WHAT THEY ASKED FOR\n")[1].startsWith(W_MON));
+      assert.ok(rye.some((c) => !c.text.includes("TABLE hours") && c.props.includes("needs")), "no scoped call for the price part");
+      assert.ok(rye.at(-1).text.includes('opens="08:00"'), "the price part's last call was not shown the hours as they now are");
+    },
+  });
+});
+
+test("IND 5 — A DEPENDENCY WITH NO SHARED WORDS: the About heading is to say in French what the Visit heading says, and the Visit heading changes first — no word of the change appears in the answer, the router declared no read; the prepared step, shown only the About page, needs more and its job asks again: the French follows the new heading", async () => {
+  const W_FR = "on the About page make the Our story heading say in French what the Visit page heading says";
+  const FR = { [HEAD]: "Venez a la boulangerie", [HEAD_TO]: "Venez a la boulangerie du port" };
   await twoTexts({
-    slug: slugOf("x"), route: textRoute(W_HEAD, W_HOURS, ["page:/visit"], ["page:/about"], "/visit", "/about"),
-    message: { first: W_HEAD, second: W_HOURS },
-    answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: CLASH_TO }] }),
-    answer1: (args) => ({ edits: [{ id: lineId(args, "about.tsx", HOURS_LINE), to: HOURS_TO }] }),
+    slug: slugOf("f"), route: textRoute(W_HEAD, W_FR, ["page:/visit"], ["page:/about"], "/visit", "/about"),
+    message: { first: W_HEAD, second: W_FR },
+    answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
+    answer1: (args) => {
+      const line = content(args).split("\n").find((l) => /^\d+\. \[visit\.tsx\] Come to the/.test(l));
+      if (!line) { assert.ok(canAsk(args)); return { needs: true, edits: [] }; }
+      return { edits: [{ id: lineId(args, "about.tsx", "Our story"), to: FR[line.replace(/^\d+\. \[visit\.tsx\] /, "")] }] };
+    },
     check: async (P, rec, r, view) => {
       assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.ok(P.page("visit.tsx").includes(CLASH_TO));
+      assert.ok(P.page("visit.tsx").includes(HEAD_TO));
+      assert.ok(P.page("about.tsx").includes(FR[HEAD_TO]), "the French does not follow the heading as it now is: " + P.page("about.tsx"));
+      assert.ok(!P.page("about.tsx").includes(FR[HEAD] + "<"), "the stale French was applied");
+      assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 1 });
+    },
+  });
+});
+
+test("IND 6 — INCOMPLETE DEPENDENCY DECLARATIONS ARE NEVER PROOF OF INDEPENDENCE: a read naming the wrong target, and no targets at all for the price part — either way the price is worked out from the hours as they are when its job runs: 6", async () => {
+  // A READ NAMED, BUT NOT THE ONE IT NEEDS.
+  await twoRows({
+    slug: slugOf("i1"), second: W_RYE_HOUR, answer1: ryeFromHours, rye: 6,
+    targets: [{ change: 0, writes: ["data:hours"] }, { change: 1, writes: ["data:loaves"], reads: ["page:/about"] }],
+    check: async (P, rec, r, view) => {
+      const u = useOf(view, 1);
+      assert.equal(u.known, true);
+      assert.equal(u.rebased, 0);
+    },
+  });
+  // NO TARGETS FOR THE PRICE PART AT ALL.
+  await twoRows({
+    slug: slugOf("i2"), second: W_RYE_HOUR, answer1: ryeFromHours, rye: 6,
+    targets: [{ change: 0, writes: ["data:hours"] }],
+    check: async (P, rec, r, view) => {
+      const u = useOf(view, 1);
+      assert.equal(u.known, true);
+      assert.equal(u.rebased, 0);
+    },
+  });
+});
+
+test("IND 7 — AN IMAGE-ONLY PREPARED RECORD: the About part's preparation is left holding only a picture; its job has no answer to replay and asks its model — the call is counted fresh (1), never left at 0 beside a call made", async () => {
+  await twoTexts({
+    slug: slugOf("img"), route: textRoute(W_HEAD, W_HOURS, ["page:/visit"], ["page:/about"], "/visit", "/about"),
+    message: { first: W_HEAD, second: W_HOURS },
+    answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
+    answer1: (args) => ({ edits: [{ id: lineId(args, "about.tsx", HOURS_LINE), to: HOURS_TO }] }),
+    between: async (P, r) => {
+      const rec = P.record(r.key);
+      const k = rec.parts[1].prep && rec.parts[1].prep.key;
+      assert.ok(typeof k === "string" && P.objects.has(k), "the About part's preparation was not kept: " + JSON.stringify(rec.parts[1].prep));
+      const o = P.objects.get(k);
+      const v = JSON.parse(o.body);
+      v.run = { calls: [], images: [{ d: "a loaf on the counter", url: "https://ind.example/loaf.png" }] };
+      o.body = JSON.stringify(v);
+    },
+    check: async (P, rec, r, view) => {
+      assert.deepEqual(statuses(rec), ["done", "done"]);
       assert.ok(P.page("about.tsx").includes(HOURS_TO));
-      assert.equal(calls(P, T.text).length, 3, "the About job used a prepared answer although a change elsewhere carried its words");
-      const use = view.parts[1].prepUse;
-      assert.ok(use && use.length === 1, JSON.stringify(view.parts[1]));
-      assert.deepEqual({ rebased: use[0].rebased, fresh: use[0].fresh }, { rebased: 0, fresh: 1 });
+      assert.equal(calls(P, T.text).length, 3, "the About job did not ask its model");
+      assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 0, rebased: 0, fresh: 1 });
+    },
+  });
+});
+
+test("IND 8 — MISSING EVIDENCE IS UNKNOWN, NEVER ZERO: a job whose record of its calls is gone is served as not known, with no counts", async () => {
+  await twoTexts({
+    slug: slugOf("gone"), route: textRoute(W_HEAD, W_HOURS, ["page:/visit"], ["page:/about"], "/visit", "/about"),
+    message: { first: W_HEAD, second: W_HOURS },
+    answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
+    answer1: (args) => ({ edits: [{ id: lineId(args, "about.tsx", HOURS_LINE), to: HOURS_TO }] }),
+    check: async (P, rec, r, view) => {
+      assert.equal(useOf(view, 1).known, true, "CONTROL: the evidence was there before it was removed");
+      const job = rec.parts[1].jobs.find((j) => j.kind === "run");
+      assert.ok(P.objects.delete("jobs/prepared/" + job.id + ".use.json"), "the evidence was not where the Worker keeps it");
+      const again = await viewOf(P, r.key);
+      assert.deepEqual(useOf(again, 1), { job: job.id, known: false });
     },
   });
 });

@@ -119,9 +119,12 @@ test("record then replay: each answer once, a different request goes live, pictu
 test("readPrepared keeps only what reads; keys", () => {
   assert.deepEqual(readPrepared("{bad"), { calls: [], images: [] });
   assert.deepEqual(readPrepared({ calls: [{ h: "x", reply: {} }, { h: "a".repeat(64), reply: null }], images: [{ d: 1, url: "u" }] }), { calls: [], images: [] });
+  // NOTHING PREPARED: the live send is still made through the replayer, so the
+  // call is counted fresh (2026-10-11, Codex: returning `send` itself left
+  // `missed` at 0 beside a call made).
   const empty = replayer(null);
   const f = async () => 1;
-  assert.equal(empty.wrap(f), f, "nothing prepared: the live send unchanged");
+  assert.notEqual(empty.wrap(f), f);
   assert.equal(prepKey("s", "k", 2, 3), "requests/s/k/prep/p2-3.json");
   assert.equal(jobPrepKey("j1"), "jobs/prepared/j1.json");
 });

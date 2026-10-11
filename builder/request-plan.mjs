@@ -136,13 +136,16 @@ export function impliedWrites(route) {
  * declared that narrowly — then it reads, and is planned as reading, the whole
  * of what its model is shown.
  *
- * The model is still shown everything (the text step every page's words, the
- * data step every table): what narrows is what the step DEPENDS on. A prepared
- * answer is carried onto a site that changed outside this scope only by a
- * re-base that proves the change cannot bear on it
- * (`builder/prepared-rebase.mjs`); any other change is asked of the model
- * again. Never for rules, a look, a menu or an addition, whose reach the model
- * decides inside the step.
+ * A PREPARED PART'S STEP IS SHOWN ONLY THIS SCOPE (2026-10-11, after Codex's
+ * review; `jobBody` carries it, `site-apply.mjs` `scopedText`/`scopedData`
+ * honour it): its model sees the scope's pages or tables and only the names of
+ * the rest, and says `needs` when what it was asked depends on anything not
+ * shown — then it is asked again with the whole site as it is when its job
+ * runs. So what a prepared answer rests on is exactly its request, and only an
+ * exact replay reuses one. Planning may therefore treat the step as depending
+ * on its scope alone: a dependency the router left out cannot make a reused
+ * answer stale, only a fresh one asked. Never for rules, a look, a menu or an
+ * addition, whose reach the model decides inside the step.
  */
 export function prepScope(part) {
   if (!part || part.phase === "route" || !part.route || part.route.op === "addon" || part.route.intent === "addon") return null;

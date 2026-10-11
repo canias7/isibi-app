@@ -46,8 +46,6 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
-import { rebaserFor } from "./builder/prepared-rebase.mjs";
-import { prepScope } from "./builder/request-plan.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
@@ -18357,40 +18355,59 @@ async function stagePrepared(env, id) {
     if (!share) return;
     const staged = readPrepared(share);
     if (!staged.calls.length && !staged.images.length) return;
-    // THE STEP'S DECLARED SCOPE RIDES WITH ITS ANSWERS (2026-10-11): the job may
-    // re-base an answer onto a site changed only outside it (`rebaserFor`).
-    const scope = isRoute ? null : prepScope(p);
-    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ ...staged, ...(scope ? { scope } : {}) }), { httpMetadata: { contentType: "application/json" } });
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: prepared answers not staged for", id, errorClassForLog(e)); }
+}
+
+/**
+ * A REQUEST PART'S DECLARED SCOPE, as its job body carries it (`jobBody`,
+ * `prepScope`): `{ pages: ["/visit"] }` or `{ tables: ["loaves"] }`, or null.
+ * Anything else is no scope — the step is shown the whole site.
+ */
+function stepScopeOf(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const names = (a) => (Array.isArray(a) && a.length && a.length <= 32 && a.every((x) => typeof x === "string" && x && x.length <= 200) ? a.slice() : null);
+  const pages = names(v.pages), tables = names(v.tables);
+  if (pages && !tables && pages.every((x) => x.startsWith("/"))) return { pages };
+  if (tables && !pages) return { tables };
+  return null;
 }
 
 /** Where a job's use of its preparation is kept. */
 const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
 /**
- * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), answers
- * re-based onto a site changed only outside the step's scope (`rebased`),
- * calls made by a model now (`fresh`), and pictures reused. Never throws.
+ * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), calls
+ * made by a model now (`fresh`), pictures reused, and whether a preparation
+ * was staged for it at all (`staged`: "yes", "no", or "unreadable"). `rebased`
+ * is kept in the shape and is always 0 — nothing re-bases an answer any more.
+ * Written for every request job, staged or not, from the replayer's own
+ * counts. Never throws.
  */
-async function keepPrepUse(env, id, used) {
+async function keepPrepUse(env, id, used, staged) {
   try {
     const u = used && typeof used === "object" ? used : {};
-    const n = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
-    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 1, job: id, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 2, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: could not keep the preparation's use for", id, errorClassForLog(e)); }
 }
-/** Each run job's use of its preparation, by job id, for a request's view — read, never written onto the request. */
+/**
+ * Each run job's use of its preparation, by job id, for a request's view —
+ * read, never written onto the request. A job whose evidence is absent or
+ * cannot be read is listed as `null`: unknown, never zero.
+ */
 async function prepUseForRequest(env, rec) {
   const out = {};
   if (!rec || !Array.isArray(rec.parts)) return out;
   for (const p of rec.parts) {
     for (const j of Array.isArray(p.jobs) ? p.jobs : []) {
       if (!j || j.kind !== "run" || !isJobId(j.id) || Object.hasOwn(out, j.id)) continue;
+      out[j.id] = null;
       try {
         const o = await env.SITES_BUCKET.get(prepUseKey(j.id));
         if (!o) continue;
         const v = JSON.parse(await o.text());
-        if (v && v.job === j.id) out[j.id] = { replayed: v.replayed, rebased: v.rebased, fresh: v.fresh };
-      } catch { /* unread: left out, never guessed */ }
+        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh };
+      } catch { /* unread: unknown, never guessed */ }
     }
   }
   return out;
@@ -19271,17 +19288,23 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // ITS PART'S PREPARATION, WHEN ONE WAS STAGED FOR IT (2026-10-08): calls
     // whose request is exactly one prepared are answered from it; any other is
     // made now. Read wherever the job runs — the key is the job's own.
+    //
+    // EVERY REQUEST JOB COUNTS ITS CALLS (2026-10-11, after Codex's review):
+    // a job with nothing staged, or a record that cannot be read, runs through
+    // an empty replayer, so each call it makes is counted fresh and its
+    // evidence says what was staged — never a missing count read as zero.
+    let staged = requestOf ? "no" : null;
     try {
       const po = await env.SITES_BUCKET.get(jobPrepKey(id));
       if (po) {
-        const raw = JSON.parse(await po.text());
-        const staged = readPrepared(raw);
-        // A DECLARED SCOPE (`prepScope`, staged with the answers) lets an answer
-        // be re-based onto a site changed only outside it; none, exact only.
-        const rebase = raw && raw.scope && typeof raw.scope === "object" ? rebaserFor(raw.scope) : null;
-        if (staged.calls.length || staged.images.length) jctx.replay = replayer(staged, { rebase });
+        const got = readPrepared(JSON.parse(await po.text()));
+        if (got.calls.length || got.images.length) { jctx.replay = replayer(got); staged = "yes"; }
       }
-    } catch (e) { console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e)); }
+    } catch (e) {
+      staged = requestOf ? "unreadable" : null;
+      console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e));
+    }
+    if (!jctx.replay && requestOf) jctx.replay = replayer(null);
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
     // and with any retry of this job.
@@ -19310,8 +19333,9 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL NOW
     // (2026-10-11): kept under the job's own id, durable, so a later reader —
     // the request's view, a live check — sees reuse directly instead of
-    // inferring it from timing. Written only when a preparation was staged.
-    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used());
+    // inferring it from timing. Written for every job a preparation was staged
+    // for, and every request job (`staged` says which).
+    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes");
     const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
     //
@@ -29599,7 +29623,7 @@ async function handleRequest(request, env, ctx) {
                 // answer is the `{ order, dir }` argument to `useRows`. Read on
                 // the request the lane already pays for, so asking costs
                 // nothing on a build that never mentions the order.
-              }, { instruction: eInstruction, tables: dTables, recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc, model: eQuickModel });
+              }, { instruction: eInstruction, tables: dTables, recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (dOut.ask) return stepAsk("data", dOut.ask);
 
@@ -30662,8 +30686,10 @@ async function handleRequest(request, env, ctx) {
               }
               const eParts = eTextParts.parts;
               const eFiles = editableFiles(eSrc, eParts);
+              // A REQUEST PART'S DECLARED SCOPE (2026-10-11): shown only its
+              // pages first, as its preparation was (`scopedText`).
               const out = await runTextEdit({ send: eQuick() },
-                { instruction: eInstruction, pages: eFiles, model: eQuickModel });
+                { instruction: eInstruction, pages: eFiles, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (out.ask) return stepAsk("text", out.ask);
               // `escalate` false with `ok` false is the one case that is NOT a

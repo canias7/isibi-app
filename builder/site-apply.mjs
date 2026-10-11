@@ -172,24 +172,106 @@ const SYSTEM =
  * compile. `site-text.mjs` still refuses the edit if the source has moved under
  * it; this makes that the second line of defence rather than the first.
  */
-export function textRequest({ instruction, items, model = TEXT_MODEL }) {
+export function textRequest({ instruction, items, others = null, model = TEXT_MODEL }) {
   const list = (Array.isArray(items) ? items : []).slice(0, MAX_TEXT_ITEMS);
   const lines = list.map((it, i) => i + ". [" + it.path + "] " + it.text);
+  // A SCOPED REQUEST (`others`, the pages not shown): see `scopedText`.
+  const hidden = Array.isArray(others) ? others : null;
   return {
     model,
     max_tokens: TEXT_MAX_TOKENS,
-    tools: [TEXT_TOOL],
+    tools: [hidden ? withNeeds(TEXT_TOOL) : TEXT_TOOL],
     tool_choice: { type: "tool", name: "write_text_edits" },
     system: [{ type: "text", text: SYSTEM }],
     messages: [{
       role: "user",
       content:
         "THE TEXT ON THEIR SITE\n" + lines.join("\n") +
+        (hidden ? "\n\n" + notShown("page", hidden) : "") +
         // WHOLE (2026-10-03): the route keeps a site's message to the size policy
         // (input-budget.mjs); a cut here hid an instruction written at its end.
         "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
     }],
   };
+}
+
+// ── A STEP SHOWN ONLY ITS DECLARED SCOPE (2026-10-11, after Codex's review) ──
+//
+// Work prepared beside another part's job is reused only for a request that is
+// byte for byte the one it was answered for (`builder/prepared.mjs`). The text
+// step is shown every page's words and the data step every table, so once an
+// earlier part changes anything at all, the later part's request differs and
+// its preparation is asked again — and an answer carried across that change by
+// judging the difference irrelevant was shown to be wrong: a price set from an
+// opening hour that changed in between (Codex's reproduction, an omitted read).
+//
+// So a request part whose route names only pages (or only tables) is SHOWN
+// only those, with the names of the rest and one way out: `needs`, set when
+// doing what was asked depends on anything not shown. What its answer can rest
+// on is then exactly what its request holds, so an exact replay is a valid one
+// whatever changed elsewhere, and a change inside the scope is a different
+// request, asked again. An answer that needs more is asked again with the
+// whole site, as it is now (`runTextEdit`, `runDataEdit`). The route decides
+// the scope (`prepScope` in `request-plan.mjs`); nothing here reads words.
+
+/** The field a scoped request's tool gains: the way out when what is shown is not enough. */
+const NEEDS_FIELD = {
+  type: "boolean",
+  description:
+    "Set to true, and change nothing, when doing what they asked depends on anything you were NOT shown here, or " +
+    "should change something there too. You will then be shown the whole site and asked again. Never guess at " +
+    "what you were not shown.",
+};
+function withNeeds(tool) {
+  return { ...tool, input_schema: { ...tool.input_schema, properties: { ...tool.input_schema.properties, needs: NEEDS_FIELD } } };
+}
+function notShown(kind, names) {
+  return kind === "page"
+    ? "NOT SHOWN\nOnly some of their pages are listed above. The site also has: " + names.join(", ") +
+      ". If what they asked for depends on any of those pages, or belongs on them too, set needs instead of answering."
+    : "NOT SHOWN\nOnly some of what the site stores is listed above. It also stores: " + names.join(", ") +
+      ". If what they asked for depends on any of those, set needs instead of answering.";
+}
+/** Did a scoped answer say it needs what it was not shown? */
+export function needsOf(reply) {
+  const use = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use") : null;
+  return !!(use && use.input && typeof use.input === "object" && use.input.needs === true);
+}
+/** Two calls' usage as one, for a step that asked again with the whole site. */
+function addUsage(a, b) {
+  return { in: a.in + b.in, out: a.out + b.out, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite, model: b.model };
+}
+/** A route's page file, as TanStack's flat routes name it (`site-add.mjs` `fileOfRoute`). */
+export function fileOfPagePath(r) {
+  if (typeof r !== "string" || !r.startsWith("/")) return "";
+  if (r === "/") return "index.tsx";
+  return r.slice(1).split("/").join(".") + ".tsx";
+}
+/**
+ * THE TEXT A SCOPED STEP IS SHOWN: the words of the pages its route names and,
+ * from every other page, each line that is word for word one of theirs — the
+ * step's own rule changes every copy of the same thing, so it sees the copies.
+ * Null — shown the whole site — when a named page has no words here, or when
+ * nothing would be left out.
+ */
+export function scopedText(items, scope) {
+  const files = scope && Array.isArray(scope.pages) ? [...new Set(scope.pages.map(fileOfPagePath).filter(Boolean))] : [];
+  if (!files.length) return null;
+  const own = new Set(items.filter((it) => files.includes(it.path)).map((it) => it.text));
+  if (!files.every((f) => items.some((it) => it.path === f))) return null;
+  const shown = items.filter((it) => files.includes(it.path) || own.has(it.text));
+  const rest = items.filter((it) => !shown.includes(it));
+  if (!rest.length) return null;
+  return { shown, others: [...new Set(rest.map((it) => it.path))] };
+}
+/** THE TABLES A SCOPED STEP IS SHOWN, or null — the whole site — when a named table is not here or none would be left out. */
+export function scopedData(tables, scope) {
+  const names = scope && Array.isArray(scope.tables) ? [...new Set(scope.tables.filter((t) => typeof t === "string" && t))] : [];
+  if (!names.length) return null;
+  const shown = tables.filter((t) => names.includes(t.name));
+  const others = tables.filter((t) => !names.includes(t.name)).map((t) => t.name);
+  if (shown.length !== names.length || !others.length) return null;
+  return { shown, others, names };
 }
 
 /**
@@ -342,7 +424,7 @@ export function textUsage(reply, model = TEXT_MODEL) {
  * A THROW ESCALATES TOO, and bills nothing: `usage` is null on that path, the
  * same our-fault rule the build path follows.
  */
-export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL } = {}) {
+export async function runTextEdit(deps, { instruction, pages, scope = null, model = TEXT_MODEL } = {}) {
   const items = textItems(pages);
   if (!items.length) return { ok: false, escalate: true, reason: "no-text", usage: null };
   // A PARTIAL LIST SHOWN AS COMPLETE IS THE BUG THIS LAYER'S DESIGN AVOIDS,
@@ -357,9 +439,19 @@ export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL
   // rewrites every page from the whole source and gets it right — expensive, and
   // the right answer for the 2% of sites that reach here.
   if (items.length > MAX_TEXT_ITEMS) return { ok: false, escalate: true, reason: "too-much-text", usage: null };
-  let reply;
+  // SHOWN ITS SCOPE FIRST when its route names one (`scopedText`); asked again
+  // with every page, as they are now, when its answer needs more.
+  const sc = scopedText(items, scope);
+  let shown = sc ? sc.shown : items;
+  let reply, widened = false, first = null;
   try {
-    reply = await deps.send(textRequest({ instruction, items, model }));
+    reply = await deps.send(textRequest({ instruction, items: shown, others: sc ? sc.others : null, model }));
+    if (sc && needsOf(reply)) {
+      first = textUsage(reply, model);
+      widened = true;
+      shown = items;
+      reply = await deps.send(textRequest({ instruction, items, model }));
+    }
   } catch (e) {
     // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
     // every sibling lane already follows, and the look layer states outright:
@@ -379,13 +471,16 @@ export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = textUsage(reply, model);
+  const usage = first ? addUsage(first, textUsage(reply, model)) : textUsage(reply, model);
+  const seen = sc ? { seen: widened ? "widened" : "scope" } : {};
   // A QUESTION BACK (2026-10-02): the model could not tell which wording is
   // meant without a detail they left out. Nothing is changed; the route asks it.
   const ask = askOf(reply);
-  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
-  const edits = readTextEdits(reply, items);
-  if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage };
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage, ...seen };
+  // CHECKED AGAINST WHAT IT WAS SHOWN: a scoped answer can name only the lines
+  // of the pages in its scope.
+  const edits = readTextEdits(reply, shown);
+  if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage, ...seen };
   const ed = applyEdits(pages, edits);
   // A REFUSAL FROM `applyEdits` IS NOT AN ESCALATION, and it is DEFENSIVE rather
   // than a path this function can reach on its own: the offsets it sends are the
@@ -397,8 +492,8 @@ export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL
   // It must NOT go up the ladder: the rung above would be working from the same
   // out-of-date copy, so retrying is what fixes it and a bigger lane is not.
   // Nothing is published either way; `ok:false` is the whole contract.
-  if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage };
-  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage };
+  if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage, ...seen };
+  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage, ...seen };
 }
 
 // ── THE DATA LAYER: the content the site STORES ──────────────────────────────
@@ -691,20 +786,23 @@ export function dataMaxTokens(tables) {
   return Math.min(LIST_ANSWER_MAX_TOKENS, DATA_MAX_TOKENS + Math.ceil((dataDigest(list).length + 80 * rows) / ECHO_CHARS_PER_TOKEN));
 }
 
-export function dataRequest({ instruction, tables, recent, lists, model = DATA_MODEL }) {
+export function dataRequest({ instruction, tables, recent, lists, others = null, model = DATA_MODEL }) {
   // THE LISTS BLOCK IS OMITTED WHEN THERE ARE NONE, so a caller that does not
   // pass the pages sends exactly the request it sent before this existed.
   const order = sortDigest(lists, tables);
+  // A SCOPED REQUEST (`others`, the tables not shown): see `scopedData`.
+  const hidden = Array.isArray(others) ? others : null;
   return {
     model,
     max_tokens: dataMaxTokens(tables),
-    tools: [DATA_TOOL],
+    tools: [hidden ? withNeeds(DATA_TOOL) : DATA_TOOL],
     tool_choice: { type: "tool", name: "write_row_changes" },
     system: [{ type: "text", text: DATA_SYSTEM }],
     messages: [{
       role: "user",
       content: "WHAT THIS SITE STORES\n" + dataDigest(tables) + recentBlock(recent) +
         (order ? "\n\n" + order : "") +
+        (hidden ? "\n\n" + notShown("table", hidden) : "") +
         // WHOLE (2026-10-03): the route keeps a site's message to the size policy
         // (input-budget.mjs); a cut here hid an instruction written at its end.
         "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
@@ -947,16 +1045,33 @@ export function dataUsage(reply, model = DATA_MODEL) {
  * and matched none of them does NOT escalate: the rungs above cannot change a
  * row either, so sending them up spends ~25 credits to fail differently.
  */
-export async function runDataEdit(deps, { instruction, tables, recent, pages, model = DATA_MODEL } = {}) {
+export async function runDataEdit(deps, { instruction, tables, recent, pages, scope = null, model = DATA_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
   if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
   // WHAT ORDER EACH LIST COMES OUT IN, which is a fact about the PAGES and not
   // about the rows. Absent pages means the block is omitted and this behaves
   // exactly as it did before ordering existed.
   const lists = sortSlots(pages);
-  let reply;
+  // SHOWN ITS SCOPE FIRST when its route names one (`scopedData`): those
+  // tables, the rows just removed from them and their lists; asked again with
+  // everything the site stores, as it is now, when its answer needs more.
+  const sc = scopedData(usable, scope);
+  let view = sc ? sc.shown : usable;
+  let reply, widened = false, first = null;
   try {
-    reply = await deps.send(dataRequest({ instruction, tables: usable, recent, lists, model }));
+    reply = await deps.send(sc
+      ? dataRequest({
+        instruction, tables: sc.shown, model, others: sc.others,
+        recent: Array.isArray(recent) ? recent.filter((r) => r && sc.names.includes(r.table)) : recent,
+        lists: lists.filter((l) => sc.names.includes(l.table)),
+      })
+      : dataRequest({ instruction, tables: usable, recent, lists, model }));
+    if (sc && needsOf(reply)) {
+      first = dataUsage(reply, model);
+      widened = true;
+      view = usable;
+      reply = await deps.send(dataRequest({ instruction, tables: usable, recent, lists, model }));
+    }
   } catch (e) {
     // OUR MODEL CALL FAILED, SO THIS IS REPORTED AND NOT ESCALATED — the rule
     // every sibling lane already follows, and the look layer states outright:
@@ -976,7 +1091,7 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
-  const usage = dataUsage(reply, model);
+  const usage = first ? addUsage(first, dataUsage(reply, model)) : dataUsage(reply, model);
   // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): with no count
   // of changes, a list stopped part way would write some rows and drop the
   // rest without a word. Failed as a call that did not answer — ours.
@@ -989,7 +1104,9 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
   // without a detail they left out. No row is written; the route asks it.
   const ask = askOf(reply);
   if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
-  const changes = readDataChanges(reply, usable);
+  // CHECKED AGAINST WHAT IT WAS SHOWN: a scoped answer can name only the
+  // tables in its scope.
+  const changes = readDataChanges(reply, view);
 
   // ── WHAT ORDER A LIST COMES OUT IN ────────────────────────────────────────
   //
@@ -1002,7 +1119,7 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
   // disagreeing with itself — the failure `orderingMoved` can report and cannot
   // fix. Nothing here is a model call: the column came back with the reply that
   // was already paid for.
-  const asked = readSortChange(reply, usable);
+  const asked = readSortChange(reply, view);
   // A COLUMN THE TABLE DOES NOT HAVE NEVER REACHES `applySort`, so nothing can
   // be rewritten to a sort that would 400 and empty the list.
   const want = asked && !asked.refused ? asked : null;

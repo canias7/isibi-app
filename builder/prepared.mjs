@@ -38,7 +38,7 @@ function canonical(v) {
   return v;
 }
 
-/** The deciding fields of a request, and nothing else — what a fingerprint is taken over, and what a recorded call keeps. */
+/** The deciding fields of a request, and nothing else — what a fingerprint is taken over. */
 export function decidingOf(req) {
   const pick = {};
   for (const k of DECIDING) if (req && Object.hasOwn(req, k) && req[k] !== undefined) pick[k] = req[k];
@@ -67,11 +67,7 @@ export function recorder() {
     wrap(send) {
       return async (req) => {
         const reply = await send(req);
-        // THE REQUEST ITSELF IS KEPT TOO (`q`, 2026-10-11): a step whose scope
-        // is declared may re-base an answer onto a site that changed only
-        // outside that scope (`builder/prepared-rebase.mjs`), which needs what
-        // the answer was made from, not only its fingerprint.
-        try { calls.push({ h: await requestHash(req), q: decidingOf(req), reply }); } catch { /* an answer that cannot be kept is made again by the job */ }
+        try { calls.push({ h: await requestHash(req), reply }); } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
       };
     },
@@ -91,7 +87,7 @@ export function readPrepared(raw) {
   if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [] }; } }
   const ok = v && typeof v === "object" && !Array.isArray(v);
   const calls = ok && Array.isArray(v.calls) ? v.calls.filter((c) => c && typeof c.h === "string" && /^[0-9a-f]{64}$/.test(c.h) && c.reply && typeof c.reply === "object")
-    .map((c) => (c.q && typeof c.q === "object" && !Array.isArray(c.q) ? c : { h: c.h, reply: c.reply })) : [];
+    .map((c) => ({ h: c.h, reply: c.reply })) : [];
   const images = ok && Array.isArray(v.images) ? v.images.filter((i) => i && typeof i.d === "string" && typeof i.url === "string" && i.url) : [];
   return { calls, images };
 }
@@ -123,16 +119,20 @@ export const unfinishedBuy = (raw) => readBuys(raw).find((b) => b.state === "buy
  * back a picture bought for the same description. `used()` says how many of
  * each were answered from the record, for the job's trace.
  */
-export function replayer(prepared, { rebase = null } = {}) {
+export function replayer(prepared) {
   const { calls, images } = readPrepared(prepared);
   const spent = new Set();
   const spentImg = new Set();
-  let hits = 0, imageHits = 0, misses = 0, rebased = 0;
+  let hits = 0, imageHits = 0, misses = 0;
   return {
-    // `calls` answered exactly, `rebased` answered by re-basing a prepared
-    // answer onto a site changed only outside the step's scope, `missed` made
-    // fresh by a model now.
-    used: () => ({ calls: hits, rebased, images: imageHits, missed: misses }),
+    // `calls` answered exactly, `missed` made by a model now. NOTHING ELSE
+    // REUSES AN ANSWER (2026-10-11, after Codex's review): a re-base that
+    // carried an answer onto a changed request by judging the change
+    // irrelevant was shown to carry a stale value; a step that may run beside
+    // another is shown only its declared scope instead (`site-apply.mjs`
+    // `scopedText`, `scopedData`), so its exact request is what its answer
+    // rests on. `rebased` stays in the shape, always 0.
+    used: () => ({ calls: hits, rebased: 0, images: imageHits, missed: misses }),
     /**
      * IS THIS PICTURE ONE ITS PREPARATION BOUGHT? Such a picture sits in the
      * owner's uploads before the job places it, so a step that lists the
@@ -140,24 +140,16 @@ export function replayer(prepared, { rebase = null } = {}) {
      * and the list is part of the request the preparation's answer was made for.
      */
     hides: (url) => typeof url === "string" && images.some((i) => i.url === url),
+    // EVERY CALL IS COUNTED (2026-10-11, after Codex's review): with no
+    // recorded call to match — a preparation that kept only pictures, or none —
+    // each call is still made through here, so `missed` counts it. Returning
+    // `send` itself left a fresh call uncounted beside `missed: 0`.
     wrap(send) {
-      if (!calls.length) return send;
       return async (req) => {
         let h = "";
-        try { h = await requestHash(req); } catch { h = ""; }
+        if (calls.length) { try { h = await requestHash(req); } catch { h = ""; } }
         const at = h ? calls.findIndex((c, i) => !spent.has(i) && c.h === h) : -1;
         if (at >= 0) { spent.add(at); hits++; return calls[at].reply; }
-        // NO EXACT ANSWER: one made for the same step on a site that changed
-        // only outside the step's declared scope, re-based onto this request
-        // when — and only when — the re-base proves it safe; else made now.
-        if (typeof rebase === "function") {
-          for (let i = 0; i < calls.length; i++) {
-            if (spent.has(i) || !calls[i].q) continue;
-            let out = null;
-            try { out = rebase(calls[i].q, calls[i].reply, decidingOf(req)); } catch { out = null; }
-            if (out && typeof out === "object") { spent.add(i); rebased++; return out; }
-          }
-        }
         misses++;
         return send(req);
       };
