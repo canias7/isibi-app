@@ -249,7 +249,10 @@ number of steps selected for preparation, not the number running at once.
   always started before its turn. It is kept as the guard against a step's
   call being made twice.
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: on the records commit (pending at writing; read and stamped in the next commit).
+- **Required CI** on `803ab88e` (the code of `3e5d1a4b` plus the records and
+  pin): unit tests 38164179258 `success`, site build 38164179163 `success`.
+  On `00ee1c40`, unit tests 38162995081 was `failure`: the two cases fixed in
+  `3e5d1a4b`. Site build 38162995087 was `success`.
 
 ## 7. Not verified live
 

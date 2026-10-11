@@ -52,7 +52,8 @@ offline**: the provider-truncation replay (round 8).
     and kept as a guard.
   - The first full suite showed 2 failures caused by this change, both fixed
     in `3e5d1a4b`. Full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`.
-  - CI: in the history's §6.
+  - CI on `803ab88e`: unit 38164179258 and site build 38164179163 `success`
+    (unit on `00ee1c40` failed on the two cases `3e5d1a4b` fixes).
 - **Remaining gaps** (history §5):
   - additions making a page, function, API or job still wait on every page;
   - Build-path refusals are not marked (a failed build replays nothing);
@@ -445,8 +446,8 @@ since. Add new ones there.
   the pin `43652f925edb50f7`.
 - **Verified offline**: red check (7 new cases fail on `fb50298e`, 22
   controls pass); sweep 12 of 13 (one unreachable survivor kept as a guard);
-  full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`; doc tests 32/32; CI in the
-  history's §6.
+  full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`; doc tests 32/32; CI unit
+  38164179258 and site build 38164179163 green on `803ab88e`.
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, real model call or real image. Remaining gaps are in the history's
   §5.
