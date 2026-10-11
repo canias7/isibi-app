@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
+import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildFlagsVerdict, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -436,9 +436,15 @@ test("UNEXPLAINED SPENDING CANNOT PASS, through runBuildCheck: a balance that mo
 
 const NI = BUILD_CHECK_NO_IMAGES;
 const NI_SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "src/routes/index.tsx", source: pageSrc(["hero-split", "card"]) + "function P(){ return <main><h1>Saltmarsh</h1><p>Forty British cheeses.</p></main> }\n" }], parts: [] };
-const RT = (imagePurchases, status = 200) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
+// THE ACCOUNT'S BUILD FLAGS AS THE RUNTIME ROUTE ANSWERS THEM (worker.js,
+// GET /api/site/runtime): page bands for everyone on, the rest off.
+const FLAGS = { design: false, graph: false, bandsEveryone: true, bands: true };
+const RT = (imagePurchases, status = 200, flags = FLAGS) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...flags, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
+// THE BALANCE AT THE BATCH CAP (100), and a build of 30 inside its estimate of 40.
 const niStub = (over = {}) => stub({
   runtime: RT(false),
+  balance: async function () { return this.calls.some((c) => c === "post") ? 70 : 100; },
+  ledgerWindow: async (from, to) => { assert.equal(from, 430); assert.equal(to, 432); return rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -18 }]); },
   existing: async () => FREE(),
   post: async function (t, body) { this.calls.push("post"); assert.equal(body.slug, NI.slug); assert.equal(body.brief, NI.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
   poll: async (t, job) => ({ status: 200, json: { ok: true, slug: NI.slug, progress: [{ n: 0, ms: 1000, text: "I'm laying out your cheese counter's page." }] } }),
@@ -475,6 +481,50 @@ test("NO PHOTOGRAPH, THE REFUSALS: a Worker that still buys photographs, one tha
   assert.equal(r.sent, false);
   assert.match(r.stopped, /preflight passed and nothing is sent/);
   assert.deepEqual(r.imagesOff, { status: 200, imagePurchases: false });
+  assert.deepEqual(r.flags, { ok: true, modes: ["page bands at once (for everyone)"] });
+});
+
+test("NO PHOTOGRAPH, THE PREREQUISITES READ BEFORE ANYTHING IS PAID: the account's own flags, unchanged — no image-free parallel mode on, bands only through the canary list, flags not reported, or the balance above the cap each stop the press before it sends; one mode on passes", async () => {
+  const off = { design: false, graph: false, bandsEveryone: false, bands: false };
+  for (const [flags, re] of [
+    [off, /no image-free parallel mode is on for this account.*nothing is sent — no flag is switched on to make it pass/],
+    [{ ...off, bands: true }, /bands only through a canary list that may name the site rather than the account/],
+    [{ design: false, graph: false }, /does not report every build flag/],
+  ]) {
+    const s = niStub({ runtime: RT(false, 200, flags) });
+    const r = await runBuildCheck(s, { spec: NI, spend: true });
+    assert.equal(r.sent, false, JSON.stringify(flags));
+    assert.match(r.stopped, re);
+    assert.ok(!s.calls.includes("post"), "the build was sent");
+    assert.ok(!s.calls.some((c) => /flag|secret|set/i.test(c)), "a flag was changed");
+  }
+  for (const k of ["design", "graph", "bandsEveryone"]) {
+    assert.equal(buildFlagsVerdict({ status: 200, json: { ...off, [k]: true } }).ok, true, `${k} alone was refused`);
+  }
+  assert.equal(buildFlagsVerdict({ status: 503, json: null }).ok, false);
+  assert.equal(buildFlagsVerdict(null).ok, false);
+  // CODEX'S CASE: a balance of 971 against a budget of 40.
+  const rich = niStub({ balance: async () => 971 });
+  const r = await runBuildCheck(rich, { spec: NI, spend: true });
+  assert.equal(r.sent, false);
+  assert.match(r.stopped, /above this press's hard cap of 100/);
+  assert.ok(!rich.calls.includes("post"));
+});
+
+test("NO PHOTOGRAPH, A CHARGE ABOVE THE ESTIMATE FAILS: Codex's simulated build of 60 against a budget of 40 is not a pass, through buildMoneyVerdict and through runBuildCheck — the estimate is no bound, the balance is", async () => {
+  const at = (balance, id) => ({ ok: true, balance, id });
+  const sixty = buildMoneyVerdict({ start: at(100, 430), end: at(40, 432), rows: rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -48 }]), job: JOB, max: 40 });
+  assert.equal(sixty.ok, false);
+  assert.match(sixty.why, /the build took 60, more than this press's budget of 40 \(only the balance bounded it\)/);
+  assert.equal(buildMoneyVerdict({ start: at(100, 430), end: at(60, 432), rows: rowsOf([{ ref: `build:${JOB}:pages`, delta: -40 }]), job: JOB, max: 40 }).ok, true, "CONTROL: exactly the estimate passes");
+  const rec = await runBuildCheck(niStub({
+    balance: async function () { return this.calls.some((c) => c === "post") ? 40 : 100; },
+    ledgerWindow: async () => rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -48 }]),
+  }), { spec: NI, spend: true });
+  const money = rec.checks.find((c) => /whole balance move explained/.test(c.name));
+  assert.equal(money.ok, false);
+  assert.match(money.why, /more than this press's budget of 40/);
+  assert.equal(rec.ok, false);
 });
 
 test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap from the page bands, no image stored or placed, no photograph check claimed — and each missing result fails: an image stored, a photograph placed, an overlap only photographs could show", async () => {

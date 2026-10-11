@@ -1,0 +1,59 @@
+{
+  "batch": "acceptance-split-1",
+  "probes": [
+    {
+      "id": "S1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Wholesale page heading 'Bread for the counter' to 'Bread for your counter', and change the Tasting Evenings page heading 'Join the waiting list' to 'Join our waiting list'.",
+      "intended": null,
+      "basis": "recorded, not judged: does the real router batch two independent page headings into one answer, or hold one back as a part (acc-pages-real)",
+      "note": "Page/page. By the router's instructions, expected batched (one text answer can change both); that is the code's reading, not live evidence."
+    },
+    {
+      "id": "S2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Dark Rye's price to £5.30, and change the Sea Salt Focaccia's price to £4.60.",
+      "intended": null,
+      "basis": "recorded, not judged: two rows of one table (the bakery has one display table, so no two-table pair exists here)",
+      "note": "Table/table within one table. Expected batched (one data answer can change both rows); routed only, never applied."
+    },
+    {
+      "id": "S3",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Wholesale page heading 'Daily bread for Bristol cafés' to 'Daily bread for Bristol cafés and delis', and change the Country White's price to £4.90.",
+      "intended": null,
+      "basis": "recorded, not judged: acc-page-table's own message — press it only if the router holds one change back as a part",
+      "note": "Page/table. Expected split (no one answer makes both)."
+    },
+    {
+      "id": "S4",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Walnut Levain's price to £6.30, and change the home page heading 'Fed every morning since 2019' to 'Fed by hand every morning since 2019'.",
+      "intended": null,
+      "basis": "recorded, not judged: acc-table-page's own message — press it only if the router holds one change back as a part",
+      "note": "Table/page. Expected split."
+    },
+    {
+      "id": "S5",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Seeded Wholemeal's price to £5.50, and change the Order page heading 'Pick a loaf and a time to collect it' so it says exactly the same as the main heading on our Visit page.",
+      "intended": null,
+      "basis": "recorded, not judged: acc-needs's own message — whether the heading is a held part (it can then be shown only its page) and whether a read is named",
+      "note": "If the heading is not held back, or its read is named, the step is never narrowed and the missing-context behavior cannot be observed by acc-needs."
+    },
+    {
+      "id": "S6",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90.",
+      "intended": null,
+      "basis": "recorded, not judged: acc-mixed's own message — which changes the router holds back as parts",
+      "note": "Mixed Edit/Add-on with a dependent menu link."
+    }
+  ]
+}

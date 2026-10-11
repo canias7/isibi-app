@@ -97,16 +97,45 @@ export const BUILD_CHECK = Object.freeze({
  * takes in one place; the balance at the press bounds it (`cap`).
  */
 export const BUILD_CHECK_NO_IMAGES = Object.freeze({
+  // BOUND BY THE BALANCE (2026-10-11, corrected on Codex's review of
+  // 542a6c34, whose preflight sent from 971 with a budget of 40): the build
+  // is one charge the server takes at most the balance for, so the press
+  // sends nothing unless the account holds no more than the batch cap
+  // (`ACCEPTANCE_CAP` in canary-ui.mjs, 100). And it sends nothing unless an
+  // image-free parallel mode is on for this account (`buildFlagsVerdict`).
   slug: "saltmarsh-cheese-counter",
   brief: "I run a cheese counter called Saltmarsh in the covered market in Lewes. We sell about forty British cheeses, cut to order, and a few chutneys and oatcakes to go with them. We're open Tuesday to Saturday, nine till four, and we make up cheese boards for parties if people order two days ahead. I want one page that tells people what we sell, when we're open, and how to order a board. No photographs please, just words, a clear layout and our prices for the boards: small £25, medium £40, large £60.",
   images: "none",
   runtimeSlug: "fold-lane-bakery",
   budget: 40,
-  cap: 1018,
+  cap: 100,
   pollMs: 6_000,
   followMs: 25 * 60_000,
   laterReadMs: 60_000,
 });
+
+/**
+ * CAN THIS ACCOUNT'S FIRST BUILD SHOW IMAGE-FREE WORK AT ONCE? (2026-10-11,
+ * the owner: *"inspect the actual account flags, preserve the existing flags
+ * and Build page/component limits, and require measurable overlap from
+ * supported image-free work; do not pay for a run whose required parallel
+ * modes are unavailable or enable flags just to manufacture a pass."*) Read
+ * off `/api/site/runtime` on a site the account owns, whose answers are
+ * booleans about the account: the design's agents at once (`design`, keyed on
+ * the account) or as a graph (`graph`), or the page's bands for everyone
+ * (`bandsEveryone`). A `bands` that is true only for a named canary cannot be
+ * told apart from one naming the site asked about rather than the account, so
+ * it does not count. Nothing here changes a flag. `{ ok, modes, why }`.
+ */
+export function buildFlagsVerdict(rt) {
+  if (!rt || rt.status !== 200 || !rt.json || typeof rt.json !== "object") return { ok: false, modes: [], why: `the runtime route could not be read (${rt ? rt.status || "nothing" : "not read"}), so the account's build flags are not known` };
+  const j = rt.json;
+  const flags = ["design", "graph", "bandsEveryone", "bands"];
+  if (flags.some((k) => typeof j[k] !== "boolean")) return { ok: false, modes: [], why: "the runtime route does not report every build flag as true or false" };
+  const modes = [j.design && "design agents at once", j.graph && "the design as a graph", j.bandsEveryone && "page bands at once (for everyone)"].filter(Boolean);
+  if (!modes.length) return { ok: false, modes, why: `no image-free parallel mode is on for this account (design ${j.design}, graph ${j.graph}, bands for everyone ${j.bandsEveryone}${j.bands ? ", bands only through a canary list that may name the site rather than the account" : ""}): a first build here would show no measurable overlap, so nothing is sent — no flag is switched on to make it pass` };
+  return { ok: true, modes, why: "" };
+}
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -369,7 +398,7 @@ export function buildNoImageVerdict({ pages, uploads, slug } = {}) {
  * once, and the build's net more than nothing. Anything unstable, unread,
  * partial or unexplained fails.
  */
-export function buildMoneyVerdict({ start, end, rows, job } = {}) {
+export function buildMoneyVerdict({ start, end, rows, job, max } = {}) {
   const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
   const stable = (r) => !!(r && r.ok === true && num(r.balance) !== null && Number.isInteger(r.id) && r.id >= 0);
   if (!stable(start) || !stable(end)) return bad("the balance and the ledger's last row could not be read together, steadily, at both ends");
@@ -396,6 +425,10 @@ export function buildMoneyVerdict({ start, end, rows, job } = {}) {
   const twice = [...debits].filter(([, n]) => n > 1).map(([ref, n]) => `${ref} ×${n}`);
   if (twice.length) return bad(`a charge was taken twice: ${twice.join(", ")}`, facts);
   if (!(net > 0)) return bad(`the build took ${net}; a first build is charged`, facts);
+  // MORE THAN ITS BUDGET FAILS THE PRESS (2026-10-11): the budget is an
+  // estimate, never a bound — the balance is — but a charge past it is a
+  // finding, not a pass.
+  if (Number.isFinite(max) && net > max) return bad(`the build took ${net}, more than this press's budget of ${max} (only the balance bounded it)`, facts);
   return { ok: true, why: "", ...facts };
 }
 
@@ -493,6 +526,12 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
     record.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined };
     const why = imageRefusalOf(rt);
     if (why) refuse = `${why} — nothing is sent`;
+    // ITS PARALLEL MODES, READ BEFORE ANYTHING IS PAID FOR.
+    if (!refuse) {
+      const fl = buildFlagsVerdict(rt);
+      record.flags = { ok: fl.ok, modes: fl.modes };
+      if (!fl.ok) refuse = fl.why;
+    }
   }
   if (refuse) { record.stopped = refuse; log(`STOPPED: ${refuse}`); return record; }
   if (!spend) { record.stopped = "spend is not yes — the preflight passed and nothing is sent"; log(record.stopped); return record; }
@@ -550,7 +589,7 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
     ? buildNoImageVerdict({ pages, uploads: up, slug: spec.slug })
     : buildPhotoVerdict({ pages, served: site && site.html, bytes, uploads: up, steps: tr.steps, slug: spec.slug });
   checks.push(...ph.checks);
-  const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job });
+  const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job, max: spec.budget });
   checks.push({ name: `the whole balance move explained by the complete ledger window, the build's charges each taken once: moved ${money.spent ?? "?"}, recorded ${money.recorded ?? "?"} (this build ${money.net ?? "?"}, other rows ${money.other ?? "?"})`, ok: money.ok, why: money.why });
   record.unverified = spec.images === "none" ? [] : [PURCHASE_UNVERIFIED];
   record.money = money;

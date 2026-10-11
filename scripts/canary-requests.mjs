@@ -361,7 +361,7 @@ export function reuseVerdict(steps, want = {}) {
       if (!["yes", "no", "unreadable"].includes(u.staged)) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: what was staged does not read (${JSON.stringify(u.staged)})`);
       for (const k of ["replayed", "rebased", "fresh"]) if (!whole(u[k])) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: ${k} is not a count (${JSON.stringify(u[k])})`);
       if (whole(u.rebased) && u.rebased > 0) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: rebased ${u.rebased} — nothing may re-base an answer`);
-      jobs.push({ part: p.n, job: u.job, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh });
+      jobs.push({ part: p.n, job: u.job, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh, scoped: u.scoped, needs: u.needs });
     }
     for (const j of runJobs) if (!uses.some((u) => u && u.job === j)) bad.push(`part ${p.n} job ${j.slice(0, 8)}: ran with no evidence of its calls`);
   }
@@ -386,14 +386,19 @@ export function reuseVerdict(steps, want = {}) {
 
 /**
  * DID THE MODEL ASK FOR WHAT IT WAS NOT SHOWN, OR GUESS? (2026-10-11, the
- * real-model case.) Read off the evidence, never claimed: for the part named
- * by its words, `asked-again` when its prepared job replayed an answer and
- * then asked a model now (the scoped step said `needs`, or its request
- * changed); `exact` when it reused its prepared answer unchanged (no request
- * for more — right only if what it applied is right, which the final-state
- * checks judge); `not-prepared` when no preparation was staged (the router
- * declared the read, or the part waited); `unknown` otherwise. An
- * observation for the record: it passes nothing and fails nothing.
+ * real-model case; corrected on Codex's review of 542a6c34: an extra model
+ * call alone proves nothing — a request that changed is asked again too.)
+ * Read only off DIRECT evidence the job records itself: how many of its step
+ * calls were shown only the step's scope (`scoped`), and how many of those
+ * answers set `needs` (`needs`, the model's own answer):
+ *   asked         `needs` ≥ 1 — the model said it needed what it was not shown;
+ *   did-not-ask   scoped ≥ 1 and `needs` 0 — it answered from its scope; the
+ *                 final state shows whether that answer was right;
+ *   not-scoped    scoped 0 — the step saw the whole site (the part was not
+ *                 prepared, the router named the read, or the changes were
+ *                 batched), so it never had the chance to ask;
+ *   unknown       no evidence, or evidence without those counts.
+ * An observation for the record: it passes nothing and fails nothing.
  */
 export function needsObservation(steps, stem) {
   const v = reuseVerdict(steps, {});
@@ -406,11 +411,43 @@ export function needsObservation(steps, stem) {
   if (!part) return { seen: "unknown", why: "the part was not found in the request's view" };
   const u = arrOf(v.jobs).filter((j) => j.part === part.n);
   if (!u.length) return { seen: "unknown", part: part.n, why: v.why || "no evidence for the part's job" };
-  const x = u[u.length - 1];
-  if (x.staged !== "yes") return { seen: "not-prepared", part: part.n, evidence: x };
-  if (x.replayed >= 1 && x.fresh >= 1) return { seen: "asked-again", part: part.n, evidence: x };
-  if (x.replayed >= 1 && x.fresh === 0) return { seen: "exact", part: part.n, evidence: x };
-  return { seen: "unknown", part: part.n, evidence: x };
+  const whole = (x) => Number.isInteger(x) && x >= 0;
+  const scoped = u.every((x) => whole(x.scoped)) ? u.reduce((s, x) => s + x.scoped, 0) : null;
+  const needs = u.every((x) => whole(x.needs)) ? u.reduce((s, x) => s + x.needs, 0) : null;
+  if (scoped === null || needs === null) return { seen: "unknown", part: part.n, why: "the job's evidence carries no count of scoped calls or of answers that said needs" };
+  if (needs >= 1) return { seen: "asked", part: part.n, scoped, needs };
+  if (scoped >= 1) return { seen: "did-not-ask", part: part.n, scoped, needs };
+  return { seen: "not-scoped", part: part.n, scoped, needs };
+}
+
+/**
+ * WHAT THE REAL ROUTER MADE OF THE MESSAGE (2026-10-11), off the press's own
+ * record of the first message: its routing answer (`alsoAsked`) and the
+ * request's last view.
+ *   batched            one part: one step made every change in one call;
+ *   parts-in-turn      several parts, none of whose prepared work overlapped
+ *                      another's job or step by recorded intervals;
+ *   parts-concurrent   several parts, with a prepared step overlapping other
+ *                      work (`overlapVerdict`) — concurrency, by intervals;
+ *   unknown            no view, or no routing answer.
+ * An observation: what is REQUIRED is judged elsewhere (the final state, the
+ * evidence). Batching is never reported as parallel work.
+ */
+export function routingShape(steps) {
+  const list = arrOf(steps);
+  const first = list[0];
+  if (!first || first.sent !== true) return { shape: "unknown", why: "the first message was not sent" };
+  const key = first.request && typeof first.request.key === "string" ? first.request.key : "";
+  const finals = list.filter((x) => x && x.request && x.request.key === key && x.request.final).map((x) => x.request.final);
+  const view = finals.length ? finals[finals.length - 1] : null;
+  if (!view) return { shape: "unknown", why: "the request's view was never read" };
+  const parts = arrOf(view.parts).filter((p) => p && typeof p === "object");
+  const route = arrOf(first.network).find((e) => e && e.method === "POST" && e.path === "/api/site/route");
+  // The router writes "none" when it holds nothing back.
+  const held = (route && route.res && typeof route.res === "object" ? listOf(route.res.alsoAsked) : []).filter((x) => typeof x === "string" && x.trim() && x.trim().toLowerCase() !== "none");
+  if (parts.length <= 1) return { shape: "batched", parts: parts.length, held };
+  const ov = overlapVerdict(steps);
+  return { shape: ov.ok ? "parts-concurrent" : "parts-in-turn", parts: parts.length, held, ...(ov.ok ? { said: ov.said } : { why: ov.why }) };
 }
 
 /**
@@ -1249,11 +1286,14 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   }
   // THE REAL MODEL'S ANSWER TO WHAT IT WAS NOT SHOWN: recorded, judged by the final state, never passed on its own.
   const needs = spec && spec.expect && spec.expect.needs && typeof spec.expect.needs === "object" ? needsObservation(steps, spec.expect.needs.part) : null;
+  // WHAT THE REAL ROUTER MADE OF IT: recorded, never a check.
+  const shape = spec && spec.expect && spec.expect.shape === true ? routingShape(steps) : null;
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
   const unverified = [...(o.unverified || [])];
-  if (needs) unverified.push(`whether the real model asks for context it was not shown instead of guessing: observed "${needs.seen}"${Number.isInteger(needs.part) ? ` for part ${needs.part}` : ""} — ONE SAMPLE, an observation, not a measured rate`);
-  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}) };
+  if (needs) unverified.push(`whether the real model asks for context it was not shown instead of guessing: observed "${needs.seen}"${Number.isInteger(needs.part) ? ` for part ${needs.part}` : ""}${needs.seen === "asked" ? " (its own answer said needs)" : ""} — ONE SAMPLE, an observation, not a measured rate`);
+  if (shape) unverified.push(`what the real router made of the message: ${shape.shape}${Number.isInteger(shape.parts) ? ` (${shape.parts} part(s))` : ""} — recorded, not judged`);
+  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}) };
 }

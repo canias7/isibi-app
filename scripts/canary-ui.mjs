@@ -161,6 +161,22 @@ const FOCACCIA_ROW_R3 = Object.freeze({
   shown: Object.freeze({ ...D1_ROW.shown, before: "£4.60", after: "£4.70" }),
 });
 
+// ── THE ACCEPTANCE BATCH'S SPENDING BOUND (2026-10-11, corrected) ──────────
+//
+// THE ONLY ENFORCED BOUND IS THE ACCOUNT'S BALANCE. The server's charge
+// functions refuse what the balance cannot cover, in one statement on the
+// account row (`use_credits` and the edit reserve take `balance >= cost` or
+// nothing; `credit_debit` at most what is there), so net credits spent from a
+// balance of B are at most B — whatever the browser, the press or its runner
+// does, however many jobs finish between reads, and through routing, retries
+// and running work alike (`test/acceptance-spend-bound.test.mjs`). Every
+// acceptance press sends nothing unless the balance is at most this cap
+// (`capRefusal`), so the owner sets the building account's balance to exactly
+// this before the batch, and the batch as a whole can spend no more. Model
+// calls a preparation makes are the platform's provider cost, not credits,
+// and are not bounded by it.
+export const ACCEPTANCE_CAP = 100;
+
 // ── THE ACCEPTANCE BATCH'S TABLES (2026-10-11) ─────────────────────────────
 //
 // `loaves` as a visitor's read answered it on 2026-10-11 (seven rows, the
@@ -992,32 +1008,41 @@ export const UI_SCENARIOS = Object.freeze({
   // supported parallel work … Include a real-model case that checks whether
   // the model requests missing context instead of guessing."*
   //
-  // WHAT THE REAL ROUTER SPLITS: a message becomes several parts only for what
-  // its routing answer holds back (`planParts`), and one text answer can change
-  // headings on several pages, one data answer rows in several tables — so two
-  // headings, or two prices, are ONE part with nothing to run beside it. An
-  // independent page edit and an independent table edit are two parts (a
-  // heading and a price, as run 119 and lv-parallel showed), and which one runs
-  // first is the router's choice; the held one is prepared beside it, shown
-  // only its page or its table (`scopedText`, `scopedData`), and its job
-  // replays that answer exactly. A1 leads with the heading, A2 with the price,
-  // so between them the page scope and the table scope are each likely to be
-  // the prepared one; the evidence says which (`reuseVerdict`).
+  // WHAT THE REAL ROUTER DOES WITH TWO INDEPENDENT CHANGES IS NOT ASSUMED
+  // (corrected 2026-10-11, on Codex's review of 542a6c34). By its own
+  // instructions and `planParts`, a message becomes several parts only for
+  // what its routing answer holds back, and one text answer can change
+  // headings on several pages (one data answer rows in several tables) — so
+  // two headings, or two prices, are EXPECTED to be batched into one call.
+  // That is the code's reading, not live evidence: the routing-only batch
+  // `acceptance-split-1` (scripts/router-probes) asks the real router each of
+  // these messages first, for routing alone, and records whether it batched
+  // them or held one back as a part. `acc-pages-real` then runs two page
+  // headings through the real flow and records which shape it took
+  // (`routingShape`): batched, parts run one after another, or parts that ran
+  // together — concurrency is claimed only for the last, by recorded
+  // intervals and per-job evidence. A table/table pair cannot be run whole on
+  // these sites: each has one display table, and this press's row check reads
+  // one row (the probe records the router's answer for two rows of `loaves`).
+  // Press A1 and A2 only once the probe shows the real router holding the
+  // price (or the heading) back as a part; otherwise there is nothing to run
+  // beside anything, and they would test nothing they claim.
   //
   // EVERY ONE BUYS NO IMAGE (`images: "none"`): nothing is sent unless the live
-  // Worker refuses every photograph purchase (`IMAGE_PURCHASES=off`).
-  // EVERY ONE IS STOPPED AT ITS BUDGET (`spendWall`): once the press's spend
-  // reaches `budget`, the request's own Stop files no further job; a job
-  // already running finishes, so the most it can spend is `ceiling` (the
-  // budget and the largest single job its walls allow). Run in the order
-  // A1, A2, A3, A4 (each starts from the table the one before left).
+  // Worker refuses every photograph purchase (`IMAGE_PURCHASES=off`, which
+  // applies to EVERY customer while it is off).
+  // EVERY ONE IS BOUND BY THE BALANCE (`cap: ACCEPTANCE_CAP`): nothing is sent
+  // unless the account holds no more than the cap. `budget` is the estimate's
+  // top, which the balance must cover; spending past it fails the press's
+  // verdict, but only the balance bounds it. Run in the order A1, A2, A3, A4
+  // (each starts from the table the one before left).
   //
   // A1 — AN INDEPENDENT PAGE EDIT AND TABLE EDIT, HEADING FIRST. ABOUT 4-9:
   // the message's routing 1-3, the heading's text job 1-2, the price part's
   // routing 1-3 and its data job 1.
   "acc-page-table": Object.freeze({
     site: "fold-lane-bakery", request: true, images: "none",
-    budget: 12, ceiling: 14, fundsFirst: true,
+    budget: 12, cap: ACCEPTANCE_CAP, fundsFirst: true,
     layers: Object.freeze(["text", "data"]),
     row: A1_ROW,
     expect: Object.freeze({
@@ -1035,7 +1060,7 @@ export const UI_SCENARIOS = Object.freeze({
   // browser-closed recovery, judged on the same evidence. ABOUT 4-9.
   "acc-table-page": Object.freeze({
     site: "fold-lane-bakery", request: true, images: "none",
-    budget: 12, ceiling: 14, fundsFirst: true,
+    budget: 12, cap: ACCEPTANCE_CAP, fundsFirst: true,
     layers: Object.freeze(["text", "data"]),
     row: A2_ROW,
     expect: Object.freeze({
@@ -1051,17 +1076,19 @@ export const UI_SCENARIOS = Object.freeze({
   }),
   // A3 — THE REAL MODEL AND WHAT IT WAS NOT SHOWN. The heading must say what
   // another page says, and the message does not give the words: a step shown
-  // only the Order page cannot know them. If the router names no read, the
-  // heading's step is prepared shown only /order and must answer `needs`
-  // (then it is asked again with every page) rather than guess; if the router
-  // names the read, the part is never narrowed. Either way the final state
-  // must hold the Visit page's main heading, read live on 2026-10-11 as
-  // "Come and see us". What the model did is RECORDED (`needsObservation`) and
-  // stays UNVERIFIED until this press has run: one sample is not a rate.
+  // only the Order page cannot know them. If the router names no read and the
+  // heading's part is prepared, its step is shown only /order and may answer
+  // `needs` (then it is asked again with every page); if the router names the
+  // read, or batches both changes, the step is never narrowed and could not
+  // ask. The final state must hold the Visit page's main heading, read live
+  // on 2026-10-11 as "Come and see us". What the model did is RECORDED from
+  // direct evidence — the job's own count of scoped calls and of answers that
+  // said `needs` (`needsObservation`) — never inferred from an extra call,
+  // and stays UNVERIFIED until this press has run: one sample is not a rate.
   // ABOUT 4-11: as A1, and a second text call when the step asks for more.
   "acc-needs": Object.freeze({
     site: "fold-lane-bakery", request: true, images: "none",
-    budget: 14, ceiling: 17, fundsFirst: true,
+    budget: 14, cap: ACCEPTANCE_CAP, fundsFirst: true,
     layers: Object.freeze(["text", "data"]),
     row: A3_ROW,
     expect: Object.freeze({
@@ -1083,7 +1110,7 @@ export const UI_SCENARIOS = Object.freeze({
   // data job 1. The largest single job, the add-on, is about 19.
   "acc-mixed": Object.freeze({
     site: "fold-lane-bakery", request: true, images: "none",
-    budget: 34, ceiling: 53, fundsFirst: true, addon: true,
+    budget: 34, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
     layers: Object.freeze(["text", "data", "nav", "page"]),
     row: A4_ROW,
     expect: Object.freeze({
@@ -1095,6 +1122,28 @@ export const UI_SCENARIOS = Object.freeze({
     covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite"]),
     steps: Object.freeze([
       Object.freeze({ say: "Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90.", ms: 25 * 60_000 }),
+    ]),
+  }),
+  // A5 — TWO PAGE HEADINGS, THROUGH THE REAL ROUTER: what it does is recorded,
+  // never assumed (`routingShape`). Both headings must land. No concurrency
+  // is required: a batched answer is the expected, efficient outcome, and is
+  // recorded as batching, never as parallel work. ABOUT 3-6: the routing 1-3
+  // and one text job 1-2 when batched; a second part's routing 1-3 if split.
+  "acc-pages-real": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 8, cap: ACCEPTANCE_CAP, fundsFirst: true,
+    layers: Object.freeze(["text"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/wholesale", from: "Bread for the counter", to: "Bread for your counter" }),
+        Object.freeze({ route: "/tasting-evenings", from: "Join the waiting list", to: "Join our waiting list" }),
+      ]),
+      reuse: Object.freeze({}),
+      shape: true,
+    }),
+    covers: Object.freeze(["several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Change the Wholesale page heading 'Bread for the counter' to 'Bread for your counter', and change the Tasting Evenings page heading 'Join the waiting list' to 'Join our waiting list'.", ms: 10 * 60_000 }),
     ]),
   }),
 });
@@ -1367,39 +1416,15 @@ export function requestWall(view, scenario, step) {
 }
 
 /**
- * WHAT A REQUEST'S JOBS HAVE BEEN CHARGED, off its own view (`charged` per
- * part, from each ended job's row): `{ sum, unknown }`. A part whose charge
- * cannot be told (`null`) makes the whole unknown — never read as 0.
+ * SPENT PAST ITS ESTIMATE? (2026-10-11) A scenario's `budget` is the top of
+ * its estimate, never a bound — the balance is (`ACCEPTANCE_CAP`). A press
+ * that spent more than it fails on that, so a run that cost more than its
+ * estimate is a finding, not a pass. A spend that cannot be read fails too.
  */
-export function chargedSum(view) {
-  let sum = 0, unknown = false;
-  for (const p of view && Array.isArray(view.parts) ? view.parts : []) {
-    if (!p || typeof p !== "object") continue;
-    if (p.charged === null) { unknown = true; continue; }
-    if (Number.isInteger(p.charged) && p.charged >= 0) sum += p.charged;
-  }
-  return { sum, unknown };
-}
-
-/**
- * THE SPEND WALL (2026-10-11, the acceptance batch: *"enforceable spending
- * caps"*). While a message runs, the press reads its request's view; once
- * what the press has spent — the balance it started with less the balance at
- * this message's send, this message's routing charge, and what the request's
- * jobs have been charged since the send — reaches the scenario's budget, the
- * request is stopped with its own Stop, so the server files no further job.
- * A job already running finishes and is charged, so the press can spend at
- * most its budget plus the largest single job its walls allow (`ceiling`).
- * A charge that cannot be told stops it too. `{ n: -1, why }` or null.
- */
-export function spendWall(view, { budget, start, atSend, routed, baseline = 0 } = {}) {
-  if (!(Number.isFinite(budget) && budget > 0)) return null;
-  if (!(Number.isFinite(start) && Number.isFinite(atSend) && start >= 0 && atSend >= 0)) return { n: -1, why: "the balance at the send could not be read, so the press's spend is not known" };
-  const c = chargedSum(view);
-  if (c.unknown) return { n: -1, why: "a part's charge could not be told, so the press's spend is not known" };
-  const route = Number.isInteger(routed) && routed >= 0 ? routed : 0;
-  const spent = (start - atSend) + route + Math.max(0, c.sum - (Number.isInteger(baseline) ? baseline : 0));
-  return spent >= budget ? { n: -1, why: `the press has spent ${spent} of its ${budget}-credit budget` } : null;
+export function overBudgetVerdict({ own, budget } = {}) {
+  if (!(Number.isFinite(budget) && budget > 0)) return { ok: true, why: "", skipped: true };
+  if (!(Number.isFinite(own) && own >= 0)) return { ok: false, why: "this press's own spend could not be read, so whether it stayed within its estimate is not known" };
+  return own > budget ? { ok: false, why: `spent ${own}, more than its estimate of ${budget} — only the balance bounded it` } : { ok: true, why: "" };
 }
 
 /**
@@ -3032,16 +3057,10 @@ export async function runUi(opts) {
     const last = r.request.trail[r.request.trail.length - 1];
     if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts) || JSON.stringify(last.prep || []) !== JSON.stringify(prep)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts, ...(prep.length ? { prep } : {}) });
   };
-  // EVERY WALL AT ONCE: where a part may go, and what the press may spend.
-  const wallOf = (view, step, r) => {
-    const hit = requestWall(view, scenario, step);
-    if (hit) return hit;
-    const key = view && typeof view.key === "string" ? view.key : "";
-    const prior = rec.steps.filter((x) => x && x !== r && x.request && x.request.key === key && x.request.final);
-    const baseline = prior.length ? chargedSum(prior[prior.length - 1].request.final).sum : 0;
-    const route = Number.isInteger(r.netFrom) ? routeCallOf(rec.network.slice(r.netFrom)) : null;
-    return spendWall(view, { budget: scenario.budget, start: rec.balance.start, atSend: r.balanceBefore, routed: route && route.res ? route.res.cost : undefined, baseline });
-  };
+  // WHERE A PART MAY GO. (A polling threshold on spend was removed on
+  // 2026-10-11: it reacts only after a charge lands, so it never bounded
+  // anything. The bound is the balance — `capRefusal`, `ACCEPTANCE_CAP`.)
+  const wallOf = (view, step) => requestWall(view, scenario, step);
   const wallHit = (r, key, hit) => {
     r.request.wall = hit;
     rec.blocked.push({ ms: Date.now() - t0, method: "STOP", path: `request ${key} part ${hit.n}`, why: hit.why });
@@ -3132,7 +3151,7 @@ export async function runUi(opts) {
           const v = await page.evaluate(requestViewInPage, { slug, key }).catch(() => null);
           if (v && v.ok && v.request) { view = v.request; noteView(r, view); if (v.reply) r.request.reply = v.reply; }
         }
-        const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
+        const hit = view && !r.request.wall ? wallOf(view, step) : null;
         if (hit) {
           wallHit(r, key, hit);
           r.request.stop = await page.evaluate(stopRequestInPage, { slug, key }).catch(() => ({ status: 0, ok: false, state: "" }));
@@ -3263,7 +3282,7 @@ export async function runUi(opts) {
       view = list ? list.find((q) => q && q.key === key) || null : null;
       a.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true } : {}) });
       if (view) noteView(r, view);
-      const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
+      const hit = view && !r.request.wall ? wallOf(view, step) : null;
       if (hit) {
         wallHit(r, key, hit);
         const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);
@@ -3371,7 +3390,7 @@ export async function runUi(opts) {
       const lines = view ? (Array.isArray(view.parts) ? view.parts : []).reduce((n, p) => n + (p && Array.isArray(p.progress) ? p.progress.length : 0), 0) : 0;
       f.away.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true, lines } : {}) });
       if (view) noteView(r, view);
-      const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
+      const hit = view && !r.request.wall ? wallOf(view, step) : null;
       if (hit) {
         wallHit(r, key, hit);
         const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);

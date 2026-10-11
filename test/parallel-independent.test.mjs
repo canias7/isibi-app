@@ -116,6 +116,10 @@ const useOf = (view, n) => {
   return u[0];
 };
 const counts = (u) => ({ known: u.known, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh });
+// THE DIRECT EVIDENCE OF THE MODEL ASKING (v3, 2026-10-11): how many scoped
+// answers the job's steps took, and how many of them said `needs` — counted
+// where the step reads the answer, never inferred from a call count.
+const seenOf = (u) => ({ scoped: u.scoped, needs: u.needs });
 /** The step's request as its model received it: what it was shown. */
 const content = (args) => String(args.messages[0].content);
 const canAsk = (args) => !!(args.tools && args.tools[0] && args.tools[0].input_schema.properties.needs);
@@ -141,6 +145,8 @@ test("IND 1 — TWO TEXT EDITS ON SEPARATE PAGES RUN TOGETHER: the About line's 
       assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0 });
       // PART 0 RAN UNPREPARED: its one call counted fresh, nothing staged.
       assert.deepEqual(counts(useOf(view, 0)), { known: true, staged: "no", replayed: 0, rebased: 0, fresh: 1 });
+      assert.deepEqual(seenOf(useOf(view, 1)), { scoped: 1, needs: 0 }, "the prepared step's scoped answer, which did not say needs");
+      assert.deepEqual(seenOf(useOf(view, 0)), { scoped: 0, needs: 0 }, "an unprepared step is never scoped");
       const st = (Array.isArray(view.parts[1].prepRuns) ? view.parts[1].prepRuns : [view.parts[1].prepRun]).map((x) => x && x.step).find((s) => s && s.calls > 0);
       const run0 = view.parts[0].runs[0];
       assert.ok(st && st.from < run0.to && run0.from < st.to, "the About step did not run during the heading's job: " + JSON.stringify({ st, run0 }));
@@ -286,6 +292,7 @@ test("IND 4 — A RESULT WORKED OUT FROM ANOTHER PART'S CHANGE IS NEVER REUSED S
     check: async (P, rec, r, view) => {
       assert.equal(rec.parts[1].prep.outcome, "ready", "the price part was not prepared beside the hours job: " + JSON.stringify(rec.parts[1].prep));
       assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 1 });
+      assert.deepEqual(seenOf(useOf(view, 1)), { scoped: 1, needs: 1 }, "the scoped answer said needs, and the evidence does not say so");
       // THE FRESH CALL SAW THE HOURS AS THEY NOW ARE; THE PREPARED ONE SAW NONE.
       const rye = calls(P, "write_row_changes").filter((c) => c.text.includes(W_RYE_HOUR.slice(0, 30)) && !c.text.split("WHAT THEY ASKED FOR\n")[1].startsWith(W_MON));
       assert.ok(rye.some((c) => !c.text.includes("TABLE hours") && c.props.includes("needs")), "no scoped call for the price part");
@@ -312,6 +319,7 @@ test("IND 5 — A DEPENDENCY WITH NO SHARED WORDS: the About heading is to say i
       assert.ok(P.page("about.tsx").includes(FR[HEAD_TO]), "the French does not follow the heading as it now is: " + P.page("about.tsx"));
       assert.ok(!P.page("about.tsx").includes(FR[HEAD] + "<"), "the stale French was applied");
       assert.deepEqual(counts(useOf(view, 1)), { known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 1 });
+      assert.deepEqual(seenOf(useOf(view, 1)), { scoped: 1, needs: 1 }, "the scoped answer said needs, and the evidence does not say so");
     },
   });
 });

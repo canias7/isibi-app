@@ -18377,6 +18377,18 @@ function stepScopeOf(v) {
   return null;
 }
 
+/**
+ * A STEP SHOWN ONLY ITS SCOPE, COUNTED ON ITS JOB (2026-10-11): `scoped` for
+ * every such call, `needs` when the model's answer then said it needed what it
+ * was not shown — the direct evidence the acceptance press reads, never
+ * inferred from a call count. A preparation's own context counts its own.
+ */
+function noteSeen(jctx, seen) {
+  if (!jctx || typeof jctx !== "object") return;
+  jctx.scoped = (Number(jctx.scoped) || 0) + 1;
+  if (seen === "widened") jctx.needs = (Number(jctx.needs) || 0) + 1;
+}
+
 /** Where a job's use of its preparation is kept. */
 const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
 /**
@@ -18387,11 +18399,12 @@ const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
  * Written for every request job, staged or not, from the replayer's own
  * counts. Never throws.
  */
-async function keepPrepUse(env, id, used, staged) {
+async function keepPrepUse(env, id, used, staged, seen = {}) {
   try {
     const u = used && typeof used === "object" ? used : {};
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
-    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 2, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    const sc = seen && typeof seen === "object" ? seen : {};
+    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 3, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), scoped: n(sc.scoped), needs: n(sc.needs), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: could not keep the preparation's use for", id, errorClassForLog(e)); }
 }
 /**
@@ -18410,7 +18423,7 @@ async function prepUseForRequest(env, rec) {
         const o = await env.SITES_BUCKET.get(prepUseKey(j.id));
         if (!o) continue;
         const v = JSON.parse(await o.text());
-        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh };
+        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh, scoped: v.scoped, needs: v.needs };
       } catch { /* unread: unknown, never guessed */ }
     }
   }
@@ -19339,7 +19352,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // the request's view, a live check — sees reuse directly instead of
     // inferring it from timing. Written for every job a preparation was staged
     // for, and every request job (`staged` says which).
-    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes");
+    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 });
     const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
     //
@@ -29589,6 +29602,8 @@ async function handleRequest(request, env, ctx) {
               let dCost = 0, dBilled = false;
               const dOut = await runDataEdit({
                 send: eQuick(),
+                // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
+                seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
                 before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
@@ -30695,7 +30710,7 @@ async function handleRequest(request, env, ctx) {
               const eFiles = editableFiles(eSrc, eParts);
               // A REQUEST PART'S DECLARED SCOPE (2026-10-11): shown only its
               // pages first, as its preparation was (`scopedText`).
-              const out = await runTextEdit({ send: eQuick() },
+              const out = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
                 { instruction: eInstruction, pages: eFiles, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (out.ask) return stepAsk("text", out.ask);

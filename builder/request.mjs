@@ -1803,7 +1803,10 @@ function prepUseOf(p, prepUse) {
     if (!j || j.kind !== "run" || typeof j.id !== "string" || !Object.hasOwn(prepUse, j.id)) continue;
     const u = prepUse[j.id];
     if (u && typeof u === "object") {
-      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh) });
+      // `scoped` and `needs` (2026-10-11): what the step was shown, and how
+      // often the model's own answer said it needed more; absent on evidence
+      // written before them, and then null — never 0.
+      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh), scoped: n(u.scoped), needs: n(u.needs) });
     } else out.push({ job: j.id, known: false });
   }
   return out;

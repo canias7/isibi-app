@@ -62,7 +62,7 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -422,7 +422,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // IN EVERY STATE THE PRODUCT NAMES (`TASK_STATES`), read from it rather than listed twice.
       return say(tool, { tasks: tasks.map((t) => ({ id: t.id, ...Object.fromEntries(TASK_STATES.map((k) => [k, "(" + k + ") " + t.words])) })) }, usage);
     }
-    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a) : new Response("no stub for this routing call", { status: 503 }); }
+    // A CALL'S OWN USAGE (`usageFor`, 2026-10-11): a case may make a call
+    // cost what it likes — the money is priced from it — to show the ledger,
+    // not an estimate, is what bounds a charge.
+    const priced = () => (typeof usageFor === "function" ? usageFor(tool, args) : null);
+    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a, priced()) : new Response("no stub for this routing call", { status: 503 }); }
     if (tool === T.lane) {
       const field = Object.keys(props)[0] || "";
       if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
@@ -437,7 +441,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a);
     }
     if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
-    return say(tool, await answerFor(tool, args));
+    return say(tool, await answerFor(tool, args), priced());
   }
   // NEON, FOR A SITE THAT PROVISIONS (`provisions`): every control-plane call,
   // the projects made, the two rows as claimed; `neonFaults` fail or hang the

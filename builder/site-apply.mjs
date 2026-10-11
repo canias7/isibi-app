@@ -471,6 +471,7 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
+  if (sc && typeof deps.seen === "function") { try { deps.seen(widened ? "widened" : "scope"); } catch { /* the caller's own note */ } }
   const usage = first ? addUsage(first, textUsage(reply, model)) : textUsage(reply, model);
   const seen = sc ? { seen: widened ? "widened" : "scope" } : {};
   // A QUESTION BACK (2026-10-02): the model could not tell which wording is
@@ -1091,6 +1092,10 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, sc
     // are read off the real failure rather than guessed at.
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
+  // WHAT THE STEP WAS SHOWN, TOLD TO THE CALLER (2026-10-11): its scope
+  // alone, or its scope and then — the answer having said `needs` — the whole
+  // site. The job counts these as direct evidence of what the model asked.
+  if (sc && typeof deps.seen === "function") { try { deps.seen(widened ? "widened" : "scope"); } catch { /* the caller's own note */ } }
   const usage = first ? addUsage(first, dataUsage(reply, model)) : dataUsage(reply, model);
   // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): with no count
   // of changes, a list stopped part way would write some rows and drop the

@@ -393,6 +393,24 @@ export function answerSaid(body) {
   return bits.join(" · ");
 }
 
+/**
+ * WHAT THE ROUTER MADE OF A MESSAGE OF SEVERAL CHANGES (2026-10-11): one
+ * answer that holds nothing back is BATCHED — one step makes every change in
+ * one call, nothing to run beside anything; one that holds a change back
+ * makes PARTS, each its own step, which may then be prepared together. Read
+ * off the answer alone: whether parts later ran together is a press's
+ * finding, never this one's.
+ */
+export function shapeSaid(body) {
+  const a = body && typeof body === "object" ? body : null;
+  if (!a || typeof a.intent !== "string") return "unreadable";
+  if (a.intent === "clarify") return "a question back (neither batched nor split)";
+  // The router writes "none" when it holds nothing back.
+  const list = typeof a.alsoAsked === "string" ? [a.alsoAsked] : Array.isArray(a.alsoAsked) ? a.alsoAsked : [];
+  const held = list.filter((x) => typeof x === "string" && x.trim() && x.trim().toLowerCase() !== "none").map((x) => x.trim()).join(" | ");
+  return held ? `parts: one answer, holding back ${JSON.stringify(held.slice(0, 120))} as its own part` : "batched: one answer for every change (one step, nothing held back)";
+}
+
 /** The batch's report, one block per probe and a summary, for the log and the evidence. */
 export function probesReport({ name, sha256, records, stopped, cost }) {
   const lines = [`ROUTING-ONLY BATCH ${name} (sha256 ${String(sha256 || "").slice(0, 16)}…): ${records.length} routed${stopped ? `, then stopped at ${stopped.at}` : ""}`, ""];
@@ -401,6 +419,7 @@ export function probesReport({ name, sha256, records, stopped, cost }) {
     lines.push(`  ${r.id}  ${JSON.stringify(r.message)}${r.attached ? "  (file attached)" : ""}`);
     if (r.given) lines.push(`      given    ${r.given}`);
     lines.push(`      answer   ${r.body ? answerSaid(r.body) : "(none)"}   cost ${r.body && Number.isFinite(r.body.cost) ? r.body.cost : "?"}`);
+    lines.push(`      shape    ${shapeSaid(r.body)}`);
     lines.push(`      decision ${d ? `${d.source}${d.reasons.length ? ": " + d.reasons.join(", ") : ""}${d.raw ? `  (the model said intent=${d.raw.intent} layer=${d.raw.layer})` : ""}` : "(unreadable)"}`);
     const v = r.verdict || {};
     const diff = v.kind === "differs" ? `: ${v.diffs.map((x) => `${x.key} ${x.got}, intended ${x.want}`).join("; ")}` : "";

@@ -54,7 +54,7 @@ import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from ".
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
 // AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
 // and the tab every message went from.
-import { failureVerdict, refundedVerdict, sameTab } from "./canary-ui.mjs";
+import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
 import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
@@ -1374,6 +1374,11 @@ if (UI_ASK) {
       const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window, prior });
       requests.money = money;
       check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
+      // PAST ITS ESTIMATE IS A FINDING (2026-10-11): the budget is never a bound.
+      if (Number.isFinite(UI_ASK.scenario.budget)) {
+        const ob = overBudgetVerdict({ own: money.own, budget: UI_ASK.scenario.budget });
+        check(`this press spent no more than its estimate of ${UI_ASK.scenario.budget} (a finding if not; the balance is the bound)`, ob.ok, ob.why);
+      }
       // THE MONEY AFTER OBSERVATION STOPPED (2026-10-08, run 107): the check
       // above is a snapshot; a request still open goes on charging. After one
       // explicit wait, every later ledger row that is this press's is read and

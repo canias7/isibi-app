@@ -9,38 +9,45 @@
 //
 // What is here:
 //   - each scenario as written: site, messages word for word, walls, budget
-//     and ceiling, no image, the table record each starts from (chained);
-//   - `reuseVerdict` on every shape of evidence, and `needsObservation`;
-//   - the spend wall and the image refusal, pure;
+//     and the batch's balance cap, no image, the table record each starts
+//     from (chained);
+//   - `reuseVerdict` on every shape of evidence, `needsObservation` (direct
+//     evidence only) and `routingShape` (batched, parts in turn, parts
+//     concurrent);
+//   - the image refusal and the over-estimate verdict, pure;
 //   - acc-page-table through the REAL canary driver (`runUi`) against the
 //     stand-in app: the positive press, then one negative control at a time —
 //     no concurrency, evidence missing, a count missing, fresh where exact was
 //     required, a run job with no evidence at all, the requested change never
-//     made — and the image and spend guards stopping the press.
+//     made — the image guard stopping the press, and the verdicts unchanged
+//     when the polls are late, lost, or see several jobs finish at once.
+//
+// THE POLLING THRESHOLD IS GONE (2026-10-11, round 3, Codex on 542a6c34): it
+// reacted only after a charge appeared and could not see jobs finishing
+// between reads. The enforced bound is the account's balance, set to the
+// batch cap and refused above it (test/acceptance-spend-bound.test.mjs).
 //
 // ⚠ SUPPLIED ANSWERS ONLY. Nothing here shows what the live router, a real
 // model or the live Worker does.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UI_SCENARIOS, readUiScenario, spendWall, chargedSum, imageRefusal } from "../scripts/canary-ui.mjs";
-import { reuseVerdict, needsObservation, overlapVerdict, requestBatchVerdict } from "../scripts/canary-requests.mjs";
+import { UI_SCENARIOS, readUiScenario, imageRefusal, overBudgetVerdict, capRefusal, ACCEPTANCE_CAP } from "../scripts/canary-ui.mjs";
+import { reuseVerdict, needsObservation, overlapVerdict, requestBatchVerdict, routingShape } from "../scripts/canary-requests.mjs";
 import { rqApp, drive, view, part, RQ_KEY, SITE } from "./fixtures/canary-rq-app.mjs";
 
 const ACC = ["acc-page-table", "acc-table-page", "acc-needs", "acc-mixed"];
+// acc-pages-real changes no row (two headings); it is checked on its own below.
 const failed = (checks) => checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.why}`);
 
 // ── THE SCENARIOS AS WRITTEN ─────────────────────────────────────────────────
 
-test("THE BATCH AS WRITTEN: four scenarios on the bakery, in request mode, each buying no image, each with a budget its funds check needs and a ceiling of its budget and its largest single job; their messages word for word", () => {
+test("THE BATCH AS WRITTEN: four scenarios on the bakery, in request mode, each buying no image, each with a budget its funds check needs and the batch's balance cap — no ceiling claimed; their messages word for word", () => {
   const says = {
     "acc-page-table": ["Change the Wholesale page heading 'Daily bread for Bristol cafés' to 'Daily bread for Bristol cafés and delis', and change the Country White's price to £4.90."],
     "acc-table-page": ["Change the Walnut Levain's price to £6.30, and change the home page heading 'Fed every morning since 2019' to 'Fed by hand every morning since 2019'."],
     "acc-needs": ["Change the Seeded Wholemeal's price to £5.50, and change the Order page heading 'Pick a loaf and a time to collect it' so it says exactly the same as the main heading on our Visit page."],
     "acc-mixed": ["Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90."],
   };
-  // THE LARGEST SINGLE JOB EACH SCENARIO'S WALLS ALLOW, measured: a text job 2
-  // (3 with a second call after `needs`), a data job 1, an add-on about 19.
-  const largest = { "acc-page-table": 2, "acc-table-page": 2, "acc-needs": 3, "acc-mixed": 19 };
   for (const k of ACC) {
     const sc = UI_SCENARIOS[k];
     assert.ok(sc, `no ${k}`);
@@ -49,8 +56,8 @@ test("THE BATCH AS WRITTEN: four scenarios on the bakery, in request mode, each 
     assert.equal(sc.request, true);
     assert.equal(sc.images, "none", `${k} may buy an image`);
     assert.equal(sc.fundsFirst, true);
-    assert.equal(sc.cap, undefined, `${k}: the spend wall is its cap, not the balance`);
-    assert.equal(sc.ceiling, sc.budget + largest[k], `${k}: the ceiling is not its budget and its largest job`);
+    assert.equal(sc.cap, ACCEPTANCE_CAP, `${k}: not bound by the balance cap`);
+    assert.equal(sc.ceiling, undefined, `${k}: a ceiling nothing enforces`);
     assert.deepEqual(sc.steps.map((s) => s.say), says[k]);
     for (const s of sc.steps) assert.doesNotMatch(s.say, /photo|picture|image/i, `${k} asks for a picture`);
     assert.ok(sc.expect.reuse && typeof sc.expect.reuse === "object", `${k} does not read the per-job evidence`);
@@ -146,35 +153,68 @@ test("NEGATIVE — reuseVerdict refuses what the scenario asks for and did not h
   assert.equal(reuseVerdict(stepOf([P0(), late]), { exact: 1 }).ok, true, "CONTROL: without `overlapped`, the same evidence passes");
 });
 
-test("needsObservation: asked again, reused unchanged, never prepared, or unknown — recorded for the real-model case, never passed or failed on its own; the press's verdict lists it as unverified", () => {
+test("needsObservation: direct evidence only — the step's own answer said needs, a scoped answer did not, the step was never scoped, or the counts are missing; an extra model call alone is never read as asking; the press lists it as unverified", () => {
   const PN = (u) => part(1, "change the Order page heading so it says the same as the Visit heading", "done", { runs: [{ job: "t1", from: 7000, to: 9000 }], prepUse: [u] });
-  assert.equal(needsObservation(stepOf([P0(), PN(use("t1", { fresh: 1 }))]), "order page heading").seen, "asked-again");
-  assert.equal(needsObservation(stepOf([P0(), PN(use("t1"))]), "order page heading").seen, "exact");
-  assert.equal(needsObservation(stepOf([P0(), PN(use("t1", { staged: "no", replayed: 0, fresh: 1 }))]), "order page heading").seen, "not-prepared");
-  assert.equal(needsObservation(stepOf([P0(), PN({ job: "t1", known: false })]), "order page heading").seen, "unknown");
+  const seen = (u) => needsObservation(stepOf([P0(), PN(u)]), "order page heading").seen;
+  assert.equal(seen(use("t1", { replayed: 1, fresh: 1, scoped: 2, needs: 1 })), "asked");
+  assert.equal(seen(use("t1", { scoped: 1, needs: 0 })), "did-not-ask");
+  assert.equal(seen(use("t1", { staged: "no", replayed: 0, fresh: 1, scoped: 0, needs: 0 })), "not-scoped");
+  // AN EXTRA CALL ALONE (fresh 1 beside a replay) WITH NO COUNT OF needs: not "asked".
+  assert.equal(seen(use("t1", { fresh: 1 })), "unknown", "an extra model call was read as the model asking");
+  assert.equal(seen(use("t1", { fresh: 1, scoped: 1, needs: null })), "unknown");
+  assert.equal(seen({ job: "t1", known: false }), "unknown");
   assert.equal(needsObservation(stepOf([P0()]), "order page heading").seen, "unknown");
   const spec = { steps: [{ say: "x" }], expect: { reuse: {}, needs: { part: "order page heading" } } };
-  const v = requestBatchVerdict({ spec, steps: stepOf([P0(), PN(use("t1", { fresh: 1 }))]) });
-  assert.equal(v.needs.seen, "asked-again");
-  assert.ok(v.unverified.some((u) => /asks for context it was not shown instead of guessing: observed "asked-again" for part 1 — ONE SAMPLE/.test(u)), JSON.stringify(v.unverified));
+  const v = requestBatchVerdict({ spec, steps: stepOf([P0(), PN(use("t1", { fresh: 1, scoped: 2, needs: 1 }))]) });
+  assert.equal(v.needs.seen, "asked");
+  assert.ok(v.unverified.some((u) => /asks for context it was not shown instead of guessing: observed "asked" for part 1 \(its own answer said needs\) — ONE SAMPLE/.test(u)), JSON.stringify(v.unverified));
   assert.ok(!v.checks.some((c) => /context it was not shown/.test(c.name)), "the observation was made a check");
   const named = v.checks.find((c) => /every job's use of its preparation is recorded and reads/.test(c.name));
   assert.ok(named && named.ok, JSON.stringify(named));
 });
 
-// ── THE SPEND WALL AND THE IMAGE REFUSAL ─────────────────────────────────────
+test("routingShape: one part is BATCHED (never parallel work); several parts are concurrent only by recorded intervals, otherwise in turn; no view or no send is unknown — recorded, never a check", () => {
+  const ROUTED = (held) => ({ method: "POST", path: "/api/site/route", res: { intent: "edit", layer: "text", alsoAsked: held } });
+  const st = (parts, held = "none") => [{ sent: true, network: [ROUTED(held)], request: { key: K, final: view(K, parts, { ended: true }) } }];
+  const one = routingShape(st([P0()]));
+  assert.equal(one.shape, "batched");
+  assert.deepEqual(one.held, []);
+  const two = routingShape(st([P0(), P1()], "change the Country White's price"));
+  assert.equal(two.shape, "parts-concurrent", JSON.stringify(two));
+  assert.deepEqual(two.held, ["change the Country White's price"]);
+  const late = P1({ prepRun: { seq: 1, from: 6050, to: 6090, outcome: "ready", step: { from: 6060, to: 6090, calls: 1 } } });
+  assert.equal(routingShape(st([P0(), late])).shape, "parts-in-turn");
+  assert.equal(routingShape([{ sent: false }]).shape, "unknown");
+  assert.equal(routingShape([{ sent: true, request: { key: K } }]).shape, "unknown");
+  // THE VERDICT RECORDS IT AS UNVERIFIED AND MAKES NO CHECK OF IT.
+  const spec = { steps: [{ say: "x" }], expect: { reuse: {}, shape: true } };
+  const v = requestBatchVerdict({ spec, steps: st([P0()]) });
+  assert.equal(v.shape.shape, "batched");
+  assert.ok(v.unverified.some((u) => /what the real router made of the message: batched \(1 part\(s\)\) — recorded, not judged/.test(u)), JSON.stringify(v.unverified));
+  assert.ok(!v.checks.some((c) => /real router made/.test(c.name)));
+  // acc-pages-real: the real router's page/page answer, recorded, nothing demanded of it.
+  const pr = UI_SCENARIOS["acc-pages-real"];
+  assert.equal(pr.expect.shape, true);
+  assert.equal(pr.expect.overlap, undefined, "acc-pages-real demands concurrency the router may not make");
+  assert.deepEqual({ ...pr.expect.reuse }, {});
+  assert.equal(pr.images, "none");
+  assert.equal(pr.cap, ACCEPTANCE_CAP);
+});
 
-test("spendWall: the balance spent before the send, this message's routing and what the request's jobs were charged since — stopped at the budget; a charge that cannot be told stops it; an earlier message's charges are not counted twice", () => {
-  const v = (charged) => view(K, charged.map((c, i) => part(i, "w" + i, "done", { charged: c })));
-  assert.equal(spendWall(v([2, 1]), { budget: 12, start: 100, atSend: 100, routed: 2 }), null);
-  assert.match(spendWall(v([8, 2]), { budget: 12, start: 100, atSend: 100, routed: 2 }).why, /spent 12 of its 12-credit budget/);
-  assert.match(spendWall(v([1]), { budget: 12, start: 100, atSend: 90, routed: 1 }).why, /spent 12/);
-  assert.match(spendWall(v([1, null]), { budget: 12, start: 100, atSend: 100, routed: 1 }).why, /could not be told/);
-  assert.match(spendWall(v([1]), { budget: 12, start: -1, atSend: 100 }).why, /could not be read/);
-  assert.equal(spendWall(v([9]), { budget: 12, start: 100, atSend: 91, routed: 1, baseline: 9 }), null, "the earlier message's job was counted twice");
-  assert.equal(spendWall(v([99]), { budget: undefined, start: 100, atSend: 100 }), null, "a scenario with no budget has no wall");
-  assert.deepEqual(chargedSum(v([2, 3])), { sum: 5, unknown: false });
-  assert.deepEqual(chargedSum(v([2, null])), { sum: 2, unknown: true });
+// ── THE BALANCE CAP, THE OVER-ESTIMATE VERDICT AND THE IMAGE REFUSAL ─────────
+
+test("overBudgetVerdict: a press's own spend above its estimate FAILS and says only the balance bounded it; within it passes; an unreadable spend fails; no estimate is skipped", () => {
+  assert.equal(overBudgetVerdict({ own: 8, budget: 9 }).ok, true);
+  assert.equal(overBudgetVerdict({ own: 9, budget: 9 }).ok, true);
+  const over = overBudgetVerdict({ own: 41, budget: 9 });
+  assert.equal(over.ok, false);
+  assert.match(over.why, /spent 41, more than its estimate of 9 — only the balance bounded it/);
+  assert.equal(overBudgetVerdict({ own: null, budget: 9 }).ok, false);
+  assert.equal(overBudgetVerdict({ own: NaN, budget: 9 }).ok, false);
+  assert.equal(overBudgetVerdict({ own: 3, budget: undefined }).skipped, true);
+  // THE CAP IS THE BALANCE: refused above it, before anything is sent.
+  assert.match(capRefusal({ now: 101, cap: ACCEPTANCE_CAP }), /hard cap of 100/);
+  assert.equal(capRefusal({ now: 100, cap: ACCEPTANCE_CAP }), "");
 });
 
 test("imageRefusal: only the live Worker's own `imagePurchases: false` lets a no-image press send", () => {
@@ -293,17 +333,42 @@ test("END TO END, OFFLINE — THE IMAGE GUARD: a Worker that still buys photogra
   }
 });
 
-test("END TO END, OFFLINE — THE SPEND WALL: once the press's spend reaches its budget while the request runs, the driver presses the request's own Stop, and no further job is filed", async () => {
-  // THE HEADING'S JOB CHARGED 10: with the routing's 2, the budget of 12 is reached.
-  const { h, run } = press({ v: { charged: [10, 1] } });
-  const rec = await run();
-  assert.ok(h.calls.some((c) => /stop/.test(c)), "the request was not stopped: " + JSON.stringify(h.calls));
-  assert.ok(rec.blocked.some((b) => b.method === "STOP" && /spent 12 of its 12-credit budget/.test(b.why)), JSON.stringify(rec.blocked));
-  assert.equal(h.server.views[0].stop, true);
-  // CONTROL: the same press under its budget is never stopped.
-  const ok = press();
-  await ok.run();
-  assert.ok(!ok.h.calls.some((c) => /stop/.test(c)));
+test("END TO END, OFFLINE — LATE, LOST AND COARSE POLLING: every job finished before the first read, a read that answers nothing, both parts ending between two reads — the same verdict, from the recorded intervals and per-job evidence, never from when the press looked; and no Stop is ever pressed by a polling threshold", async () => {
+  const base = verdictOf(await press().run());
+  const sig = (v) => JSON.stringify({ ok: v.ok, reuse: failed(named(v, REUSE)), overlap: failed(named(v, OVERLAP)), exact: v.reuse && v.reuse.exact });
+  const vs = views();
+  const variants = {
+    "nothing seen until all ended": [vs[3]],
+    "both parts end between two reads": [vs[0], vs[3]],
+    "a read that answers nothing, then the end": [vs[0], null, vs[3]],
+  };
+  for (const [name, seq] of Object.entries(variants)) {
+    let io = null;
+    const h = rqApp({ replies: REPLIES, send: () => ({ request: { key: K, views: seq.map((x) => x || vs[0]) }, route: { intent: "edit", layer: "text" } }), shown: () => io.lines() });
+    io = loaves(h, true);
+    const rec = await drive(h, AP, { balanceNow: async () => 30, rows: { owner: io.owner, pub: io.pub, patch: io.patch }, siteOrigin: SITE, shownMs: 50, stepMs: 4_000, stepCapMs: 4_000, runtimeNow: RT_OFF });
+    assert.equal(rec.stopped, null, `${name}: ${JSON.stringify(rec.stopped)}`);
+    assert.equal(sig(verdictOf(rec)), sig(base), `${name}: the verdict moved with the polling`);
+    assert.ok(!h.calls.some((c) => /stop/.test(c)), `${name}: a Stop was pressed`);
+  }
+  // CHARGES FAR ABOVE THE ESTIMATE, SEVERAL AT ONCE: the press does not stop
+  // the request on a polled sum (nothing there to enforce); its own spend is
+  // judged after the end by overBudgetVerdict, and the balance cap is what
+  // bounded it.
+  const big = press({ v: { charged: [60, 40] } });
+  await big.run();
+  assert.ok(!big.h.calls.some((c) => /stop/.test(c)), "a polling threshold pressed Stop");
+  assert.equal(overBudgetVerdict({ own: 2 + 60 + 40, budget: AP.budget }).ok, false);
+});
+
+test("THE PRESS REFUSES ABOVE THE CAP: a balance of 971 sends nothing; 100 sends", async () => {
+  const hi = press({ balance: 971 });
+  const r = await hi.run();
+  assert.equal(r.sent, 0);
+  assert.match(r.stopped && r.stopped.msg, /hard cap of 100/);
+  assert.equal(hi.h.server.key, "");
+  const ok = press({ balance: 100 });
+  assert.equal((await ok.run()).sent, 1);
 });
 
 test("THE WIRING: the press hands the driver the runtime reader on the site it presses, and the free runtime line prints whether photographs are bought", async () => {
@@ -311,4 +376,25 @@ test("THE WIRING: the press hands the driver the runtime reader on the site it p
   const press = fs.readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
   assert.ok(press.includes('freshSession: signIn, runtimeNow: () => call("GET", `/api/site/runtime?slug=${encodeURIComponent(CANARY)}`) });'), "the driver is not handed the runtime reader");
   assert.ok(press.includes("imagePurchases=${(runtime.json || {}).imagePurchases}"), "the free runtime line does not print the image switch");
+  // A PRESS THAT SPENT PAST ITS ESTIMATE FAILS ITS OWN CHECK, read from its own charges.
+  const own = press.indexOf("const money = ownMoneyVerdict(");
+  const ob = press.indexOf("const ob = overBudgetVerdict({ own: money.own, budget: UI_ASK.scenario.budget });");
+  assert.ok(own > 0 && ob > own, "the over-estimate check is gone or reads no spend");
+  assert.ok(press.includes("      if (Number.isFinite(UI_ASK.scenario.budget)) {\n        const ob = overBudgetVerdict("), "the over-estimate check is not asked for every scenario with an estimate");
+  assert.ok(press.slice(ob, ob + 300).includes("ob.ok, ob.why);"), "the over-estimate verdict is not made a check");
+});
+
+test("THE ROUTING PROBE FIRST: acceptance-split-1 reads, records every acceptance message's real routing unjudged (intended null), and its report tells one answer for every change (batched) from an answer that holds a change back (parts); a question back is neither", async () => {
+  const fs = await import("node:fs");
+  const { readProbeBatch, shapeSaid } = await import("../scripts/canary-probes.mjs");
+  const r = readProbeBatch(fs.readFileSync(new URL("../scripts/router-probes/acceptance-split-1.json", import.meta.url), "utf8"), "acceptance-split-1");
+  assert.equal(r.ok, true, r.msg);
+  assert.ok(r.batch.probes.every((p) => p.intended === null && p.site === "fold-lane-bakery"));
+  const says = r.batch.probes.map((p) => p.message);
+  for (const k of ["acc-pages-real", "acc-page-table", "acc-table-page", "acc-needs", "acc-mixed"]) assert.ok(says.includes(UI_SCENARIOS[k].steps[0].say), `${k}'s message is not probed first`);
+  assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: "none" }), /^batched/);
+  assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: "change the price" }), /^parts/);
+  assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: ["change the price"] }), /^parts/);
+  assert.match(shapeSaid({ intent: "clarify" }), /neither batched nor split/);
+  assert.equal(shapeSaid(null), "unreadable");
 });
