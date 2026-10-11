@@ -21,7 +21,7 @@
 // supplied model answers and a stand-in image service; no network.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { platform, sendMessage, settle, deliver, call, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, settle, deliver, call, tick, T } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc, SOURCE_KEY, PARTS_KEY } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
@@ -142,7 +142,7 @@ const prepUseOf = (view, n) => (view.parts[n].prepUse || [])[0] || null;
  * at: `photoAt` is the photograph's work (its purchase, or its designer), and
  * `faqAt` the component's (its designer, or its page writer).
  */
-async function twoParts({ slug, first, meet, photoAt, faqAt, targets = null, twice = false, between = null, refuse = false, pages = PAGES, setup = null, faqParts = null, check }) {
+async function twoParts({ slug, first, meet, photoAt, faqAt, targets = null, twice = false, between = null, refuse = false, pages = PAGES, setup = null, faqParts = null, faqExtra = null, check }) {
   const photoFirst = first === "photo";
   const route0 = {
     intent: "addon",
@@ -165,7 +165,12 @@ async function twoParts({ slug, first, meet, photoAt, faqAt, targets = null, twi
       [T.pages]: async (args) => {
         // THE WRITER WRITES THE PAGE IT WAS SHOWN: a heading changed under it
         // (PI 6) is kept, as a real writer keeps what it was not asked about.
-        if (!writesPhoto(args)) { if (faqAt === "pages") await meet.arrive("faq"); return { pages: [{ path: "src/routes/about.tsx", source: textOf(args).includes("Our story so far") ? ABOUT_WITH_FAQ.replace("Our story", "Our story so far") : ABOUT_WITH_FAQ }], ...(faqParts ? { parts: faqParts } : {}) }; }
+        if (!writesPhoto(args)) {
+          if (faqAt === "pages") await meet.arrive("faq");
+          const about = { path: "src/routes/about.tsx", source: textOf(args).includes("Our story so far") ? ABOUT_WITH_FAQ.replace("Our story", "Our story so far") : ABOUT_WITH_FAQ };
+          const more = faqExtra ? faqExtra(args) : {};
+          return { pages: [about, ...(more.pages || [])], ...(more.remove ? { remove: more.remove } : {}), ...(more.parts ? { parts: more.parts } : faqParts ? { parts: faqParts } : {}) };
+        }
         return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }] };
       },
     },
@@ -204,12 +209,16 @@ const bothLanded = (P) => {
   assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
   assert.equal(P.imageLog.length, 1, "the photograph was bought twice");
   assert.equal(uploads(P).length, 1);
+  // NO CHARGE TWICE, whoever made the photograph (a job, or a preparation).
+  const refs = P.ledger.map((e) => e.ref);
+  assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
 };
 
-test("PI 2 — IMAGE FIRST, TWO PARTS: the photograph is bought (the first part's job) while the component is designed (the second part's preparation), the component's addition replayed exactly by its job; both land, bought once, nothing designed twice", async () => {
+test("PI 2 — IMAGE FIRST, TWO PARTS: the photograph is GENERATED (the first part's job) while the component's pages are written (the second part's preparation), the component's addition replayed exactly by its job; both land, bought once, nothing designed twice", async () => {
   const meet = rendezvous(["photo", "faq"]);
   await twoParts({
-    slug: slugOf("p2"), first: "photo", meet, photoAt: "image", faqAt: "designer",
+    // THE IMAGE GENERATION MEETS THE COMPONENT'S PAGE WRITER (its substantive work).
+    slug: slugOf("p2"), first: "photo", meet, photoAt: "image", faqAt: "pages",
     check: async (P, rec, r, view) => {
       assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
       assert.deepEqual(meet.met, { photo: true, faq: true }, "the component waited for the photograph: " + JSON.stringify(meet));
@@ -220,10 +229,12 @@ test("PI 2 — IMAGE FIRST, TWO PARTS: the photograph is bought (the first part'
   });
 });
 
-test("PI 3 — COMPONENT FIRST, TWO PARTS: the component's pages are written (the first part's job) while the photograph is designed (the second part's preparation); both land, bought once, nothing designed twice", async () => {
+test("PI 3 — COMPONENT FIRST, TWO PARTS: the component's pages are written (the first part's job) while the photograph is GENERATED (the second part's preparation buys it, under the part's own purchase); its job reuses it — both land, bought once, nothing designed twice", async () => {
   const meet = rendezvous(["photo", "faq"]);
   await twoParts({
-    slug: slugOf("p3"), first: "faq", meet, photoAt: "designer", faqAt: "pages",
+    // THE PHOTOGRAPH'S OWN GENERATION, NOT ITS DESIGNER (Codex on d7a00395):
+    // the image call meets the component's page writer.
+    slug: slugOf("p3"), first: "faq", meet, photoAt: "image", faqAt: "pages",
     check: async (P, rec, r, view) => {
       assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
       assert.deepEqual(meet.met, { photo: true, faq: true }, "the photograph waited for the component: " + JSON.stringify(meet));
@@ -384,22 +395,31 @@ const HOME_WITH_HOURS = "import { createFileRoute } from '@tanstack/react-router
   + "function Page(){ return <main><section className=\"hero\"><h1>Harbour Loaf</h1></section><OpeningHours /></main> }\n";
 const PAGES_WITH_PART = [{ path: "index.tsx", source: HOME_WITH_HOURS }, { path: "visit.tsx", source: VISIT }, { path: "about.tsx", source: ABOUT }];
 
-test("PI 11 — A SCOPED PART IS SHOWN ITS OWN PAGES, AND WHAT IT WAS NOT SHOWN IT CANNOT REPLACE: the component's picker, designer and page writer (prepared beside the photograph's job) are never told the Visit heading, the home page's own component or its source; a component of that name returned by its writer is refused and the stored one kept; both changes land, replayed exactly", async () => {
+test("PI 11 — A SCOPED PART IS SHOWN ITS OWN PAGES, AND WHAT IT WAS NOT SHOWN IT CANNOT REPLACE: the component's picker, designer and page writer (prepared beside the photograph's job) are never told the Visit heading, the home page's own component or its source; a scoped answer returning that component is never applied — the writer is asked again with the whole site, and the stored component is kept; both changes land", async () => {
   const meet = rendezvous(["photo", "faq"]);
   const REWRITE = "export function OpeningHours(){ return <section><p>Closed.</p></section> }\n";
   await twoParts({
     slug: slugOf("p11"), first: "photo", meet, photoAt: "image", faqAt: "designer",
     pages: PAGES_WITH_PART,
     setup: (P) => { const k = PARTS_KEY(P.slug); P.objects.set(k, { ...P.objects.get(k), body: JSON.stringify([{ name: "opening-hours", source: HOURS_SRC }]), etag: "e-parts" }); },
-    faqParts: [{ name: "opening-hours", source: REWRITE }],
+    // RETURNED ONLY BY A WRITER THAT HAS NOT SEEN IT (2026-10-11, Codex on
+    // d7a00395): that answer is never applied; the writer asked again with the
+    // whole site in front of it leaves the component alone.
+    faqExtra: (args) => (textOf(args).includes("hours-band") ? {} : { parts: [{ name: "opening-hours", source: REWRITE }] }),
     check: async (P, rec, r, view) => {
       assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
       assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
-      replayedExactly(view, 1);
+      // ITS ANSWER REACHED A COMPONENT IT WAS NOT SHOWN, SO IT WAS ASKED AGAIN:
+      // the picker and designer replayed, the writer asked fresh.
+      const u = prepUseOf(view, 1);
+      assert.ok(u && u.replayed >= 2 && u.fresh >= 1, JSON.stringify(u));
       // THE COMPONENT PART'S OWN REQUESTS, told apart by its own words.
       const asked = (m) => (/What they asked to add:\n([^\n]*)/.exec(m.text) || [])[1] || "";
       const design = P.modelLog.filter((m) => m.tool === T.design && /questions section/.test(asked(m)));
-      const writer = P.modelLog.filter((m) => m.tool === T.pages && /questions section/.test(m.text) && !m.text.includes("@@IMG:" + BENCH));
+      const writers = P.modelLog.filter((m) => m.tool === T.pages && /questions section/.test(m.text) && !m.text.includes("@@IMG:" + BENCH));
+      // THE SCOPED ASK (its preparation's) saw nothing else; the ask after it saw the whole site.
+      const writer = writers.slice(0, 1);
+      assert.ok(writers.slice(1).some((m) => m.text.includes("hours-band")), "the writer was never asked again with the component in front of it");
       // THE OBSERVERS ARE ALIVE: both were asked, and the writer was shown its own page.
       assert.ok(design.length >= 1 && writer.length >= 1, JSON.stringify(P.modelLog.map((m) => m.tool)));
       assert.ok(writer.every((m) => m.text.includes("Our story")), "the writer was not shown its own page");
@@ -414,4 +434,149 @@ test("PI 11 — A SCOPED PART IS SHOWN ITS OWN PAGES, AND WHAT IT WAS NOT SHOWN 
       bothLanded(P);
     },
   });
+});
+
+// ── THE SCOPED WRITER'S OUTPUT BOUNDARY (Codex on d7a00395) ─────────────────
+// A writer shown only About that writes, or takes away, a page it was not
+// shown. Answered here only while that page is NOT in its request: a writer
+// re-asked with the whole site in front of it writes About alone.
+const HOME_SHOWN = (args) => textOf(args).includes('className=\\"hero\\"');
+const HOME_TOUCHED = "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/')({ component: Page })\n"
+  + "function Page(){ return <main><section className=\"hero-wide\"><h1>Harbour Loaf</h1></section></main> }\n";
+
+for (const [name, extra] of [
+  ["changes the home page it was never shown", (args) => (HOME_SHOWN(args) ? {} : { pages: [{ path: "src/routes/index.tsx", source: HOME_TOUCHED }] })],
+  ["takes away the Visit page it was never shown", (args) => (textOf(args).includes("Come to the bakery") ? {} : { remove: ["/visit"] })],
+]) {
+  test("PI 12 — THE SCOPED WRITER " + name.toUpperCase() + ": that answer is never applied — the writer is asked again with the whole site as it is now, and only what that answer writes is applied; every page it was not shown is as it was", async () => {
+    const meet = rendezvous(["photo", "faq"]);
+    await twoParts({
+      slug: slugOf("p12"), first: "photo", meet, photoAt: "image", faqAt: "designer",
+      faqExtra: extra,
+      check: async (P, rec, r, view) => {
+        assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+        assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
+        // THE UNSEEN PAGES, AS THEY WERE.
+        assert.equal(P.page("index.tsx"), HOME, "the home page the scoped writer was never shown was changed");
+        assert.ok(P.page("visit.tsx"), "the Visit page the scoped writer was never shown was taken away");
+        bothLanded(P);
+        // AND THE WRITER WAS ASKED AGAIN WITH THE SITE IN FRONT OF IT.
+        const faqWriters = P.modelLog.filter((m) => m.tool === T.pages && /questions section/.test(m.text) && !m.text.includes("@@IMG:" + BENCH));
+        assert.ok(faqWriters.some((m) => m.text.includes("Come to the bakery") && m.text.includes("hero")), "the writer was never shown the pages its answer touched");
+        const u = prepUseOf(view, 1);
+        assert.ok(u && u.fresh >= 1, "the boundary answer was replayed rather than asked again: " + JSON.stringify(u));
+      },
+    });
+  });
+}
+
+// ── CAPACITY BEFORE SPENDING (Codex on d7a00395) ────────────────────────────
+const seedUploads = (P, n) => { for (let i = 0; i < n; i++) P.objects.set("uploads/" + P.slug + "/seed" + i + ".jpg", { body: "x", etag: "s" + i, at: 0 }); };
+async function oneAddition({ slug, uploadsBefore = 0, imageWith = null, pagesWith = null, check }) {
+  await withPlatform({
+    slug, pages: PAGES, images: true, replies: true, balance: 400,
+    imageWith,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["component", "photo"] },
+      "add:photo": PHOTO_ANSWER,
+      "add:component": COMPONENT_ANSWER,
+      [T.pages]: async (args, n) => (pagesWith ? pagesWith(args, n) : { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
+    },
+  }, async (P) => {
+    seedUploads(P, uploadsBefore);
+    globalThis.__p14 = () => uploads(P).length;
+    const r = await sendMessage(P, { message: "Add a photo of the workshop bench to the Visit page, and add a questions section to the About page." });
+    await check(P, r);
+  });
+}
+
+test("PI 13 — A FULL LIBRARY IS CHECKED BEFORE ANYTHING IS BOUGHT: with 200 files already stored, the photograph is never asked of the image service and nothing is stored; the component still lands", async () => {
+  await oneAddition({
+    slug: slugOf("p13"), uploadsBefore: 200,
+    check: async (P, r) => {
+      const { rec } = await settle(P, r.key);
+      assert.equal(P.imageLog.length, 0, "the image service was asked with no room in the library");
+      assert.equal(uploads(P).length, 200, "a file was stored past the library's limit");
+      assert.ok(P.page("about.tsx").includes("Do you deliver?"), JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    },
+  });
+});
+
+test("PI 14 — ONE FILE OF ROOM IS ENOUGH FOR ONE PHOTOGRAPH, AND ITS OWN STORED FILE IS NEVER COUNTED AGAINST IT: with 199 files the photograph is bought once beside the page writer, stored as the 200th, and placed", async () => {
+  await oneAddition({
+    slug: slugOf("p14"), uploadsBefore: 199,
+    // THE WRITER ANSWERS ONLY ONCE THE EARLY PHOTOGRAPH IS STORED, so the image
+    // step counts the library with that file already in it.
+    pagesWith: async () => {
+      for (let i = 0; i < 100 && !(globalThis.__p14 && globalThis.__p14() >= 200); i++) await new Promise((ok) => setTimeout(ok, 10));
+      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+    },
+    check: async (P, r) => {
+      const { rec } = await settle(P, r.key);
+      assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.notDone])));
+      assert.equal(P.imageLog.length, 1);
+      assert.equal(uploads(P).length, 200);
+      assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
+    },
+  });
+});
+
+// ── AN EARLY TASK'S WHOLE LIFE (Codex on d7a00395) ──────────────────────────
+test("PI 15 — THE PAGE WRITER FAILS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the job waits for the purchase it began (within the image step's own wait) and the part's outcome says the photograph was saved and is not on the site; nothing is generated again, and nothing is charged for it", { timeout: 30000 }, async () => {
+  let release; const held = new Promise((ok) => { release = ok; });
+  await oneAddition({
+    slug: slugOf("p15"),
+    imageWith: async () => { await held; return null; },
+    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 529"), { status: 529 }); },
+    check: async (P, r) => {
+      const { rec } = await settle(P, r.key);
+      for (let i = 0; i < 3; i++) await settle(P, r.key);
+      assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.imageLog.length, 1, "the photograph was generated again");
+      assert.equal(uploads(P).length, 1);
+      // THE JOB'S OWN ANSWER, WRITTEN AFTER THE PURCHASE IT BEGAN HAD ENDED.
+      const jobs = [...P.jobs.values()].filter((j) => j.op === "addon");
+      assert.equal(jobs.length, 1, "the addition ran again: " + jobs.length);
+      const res = jobs[0].result || {};
+      const answer = typeof res.body === "string" ? JSON.parse(res.body) : (res.body || res);
+      const out = answer.outcome;
+      assert.ok(out && out.photos === 1 && out.state === "unpublished", "the outcome does not say one photograph was saved and is not on the site: " + JSON.stringify(jobs[0].result).slice(0, 800));
+      // NOTHING LEFT CHARGED FOR AN ADDITION THAT DID NOT GO THROUGH.
+      assert.equal(P.ledger.filter((e) => String(e.ref).split("#")[0] === jobs[0].id).reduce((a, e) => a + e.delta, 0), 0, JSON.stringify(P.ledger));
+      const purchases = [...P.objects.keys()].filter((k) => k.includes("/purchases/"));
+      for (const k of purchases) assert.notEqual(JSON.parse(P.objects.get(k).body).state, "buying", "a purchase was left buying: " + k);
+    },
+  });
+});
+
+test("PI 16 — THE PAGE WRITER FAILS AND THE PHOTOGRAPH OUTLASTS THE IMAGE STEP'S WAIT: the part is held on that purchase (never ended as if nothing were out); when it lands, the part runs again, reuses it, and finishes — one generation, one stored file", { timeout: 30000 }, async () => {
+  let release; const held = new Promise((ok) => { release = ok; });
+  let writes = 0;
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => real(fn, Number(ms) >= 30000 ? 30 : ms, ...a);
+  try {
+    await oneAddition({
+      slug: slugOf("p16"),
+      imageWith: async () => { await held; return null; },
+      pagesWith: async () => {
+        writes++;
+        if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+        return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+      },
+      check: async (P, r) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain", "the part was not held on the purchase still out: " + JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+        release();
+        for (let i = 0; i < 50 && !([...P.objects.keys()].some((k) => k.startsWith("uploads/" + P.slug + "/"))); i++) await new Promise((ok) => real(ok, 20));
+        let rec = null;
+        for (let i = 0; i < 4; i++) { await tick(P); rec = (await settle(P, r.key)).rec; if (rec && rec.parts[0].status === "done") break; }
+        assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+        assert.equal(P.imageLog.length, 1, "the photograph was generated again");
+        assert.equal(uploads(P).length, 1);
+        assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
+      },
+    });
+  } finally { globalThis.setTimeout = real; }
 });

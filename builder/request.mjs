@@ -1017,7 +1017,11 @@ function settle(rec, p, job, row, now) {
     if (left) p.left = left;
     p.outcome = { job: job.id, kind: "asked" }; return;
   }
-  if (read.act === "refusal" && read.error === "purchase-unconfirmed") {
+  // …AND A STEP THAT DID NOT GO THROUGH WHILE A PURCHASE IT BEGAN WAS STILL
+  // OUT (2026-10-11, Codex on d7a00395: an addition's photograph begun beside
+  // its page writer, which then failed): held on that purchase, never ended as
+  // if nothing were out; once it is known the step runs again and reuses it.
+  if (read.act === "refusal" && (read.error === "purchase-unconfirmed" || heldOf(ans.body).length > 0)) {
     // HELD ON A PURCHASE NOBODY CAN TELL (2026-10-09, round 3): its job
     // published and charged nothing; the part waits, recoverable.
     job.end.act = "uncertain";

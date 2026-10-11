@@ -1614,7 +1614,12 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // sources reach the plan; the spelling of the variable is not the property.
   const plan = call.match(/plan: ([A-Za-z]+)\.length \? \{ components: \1 \} : null/);
   assert.ok(plan, "the kit parts are not handed to the page call: " + call);
-  const planBuild = b.slice(b.indexOf("const " + plan[1] + " = "), gen);
+  // RE-ANCHORED 2026-10-11 (Codex on d7a00395): the plan is built in one place,
+  // `aWriterFor`, so a scoped writer asked again with the whole site is shown
+  // everything with it — read from that function to the page call.
+  const planAt = b.indexOf(plan[1] + " = [...aFold.components]");
+  assert.ok(planAt > 0 && planAt < gen, "the plan's construction could not be found before the page call");
+  const planBuild = b.slice(planAt, gen);
   assert.match(planBuild, /aFold\.components/, "the addition's own components do not reach the page call's plan");
   // RE-ANCHORED 2026-10-11: the pages the writer is shown (`aWriterSrc`, the
   // site or a prepared part's scope of it).

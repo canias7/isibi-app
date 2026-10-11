@@ -2856,7 +2856,7 @@ async function framesFor(env, slug) {
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, frames = null }) {
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, frames = null, own = null }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -2885,7 +2885,10 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   let libraryRoom = null;
   try {
     const objs = await siteUploadList(env, slug);
-    const room = Math.max(0, MAX_FILES_PER_SITE - objs.length);
+    // A FILE THIS SAME PURCHASE ALREADY STORED (`own`, its purchase ids:
+    // bought beside the pages, or by the part's preparation) is one of these
+    // photographs, never a second one in the way of them.
+    const room = Math.max(0, MAX_FILES_PER_SITE - objs.filter((o) => !(own && o && own.has(o.purchase))).length);
     libraryRoom = room;
     if (room < affordable) affordable = room;
   } catch (e) { console.error("upload headroom check failed:", slug, e && e.name, e && e.message); }
@@ -17731,10 +17734,14 @@ export function readPrepTask(body) {
 const PREP_RUN_MS = 8 * 60 * 1000;
 
 /** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
-async function replayPrepared(env, ctx, rec, url, body, prec) {
+async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false } = {}) {
   const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug, ...(prec ? { rec: prec } : {}) });
+  // RUNNING BESIDE ANOTHER PART'S JOB (2026-10-11): what lets a step buy its
+  // pictures here, so they are made while that job works. With nothing beside
+  // it, its own job buys them, as before — never spent on a guess earlier.
+  prep.beside = beside === true;
   const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
   EDIT_JOBS.set(secret, prep);
   let res;
@@ -18027,6 +18034,54 @@ async function partPurchases(env, { slug, key, n }) {
  * ended. `key` and `n` name whose purchases they are — a request part's, or a
  * build's (`n` 0).
  */
+/**
+ * AN ADDITION'S EARLY PHOTOGRAPHS, AT ITS END (2026-10-11, Codex on d7a00395).
+ *
+ * The photographs an addition begins beside its page writer (`startBuildPhotos`)
+ * are its own logical purchases, durable on their records. Whatever way the
+ * route ends, they are waited for within the image step's own wait (the job's
+ * clock less the publish reserve), so nothing is left running behind an answer
+ * that says nothing of it:
+ *
+ *   - a preparation's end: what it bought is on its attempt's notes, for the
+ *     part's job to reuse;
+ *   - an answer that did not go through (a failure, a question): one that was
+ *     stored is told as saved in the uploads and not on the site (the failure
+ *     outcome's `photos`); one still being made when the wait ends is handed
+ *     on as `held` — the request holds the part on exactly that purchase and
+ *     runs it again once it is known, reusing it, never making it twice.
+ *
+ * A finished addition is answered as it was: its image step joined them.
+ */
+async function earlyPhotosEnd(box, res) {
+  const t = box && box.task;
+  if (!t || !(res instanceof Response)) return res;
+  const plan = photoWait(box.clock);
+  if (plan.wait === "all") await t.settled.catch(() => {});
+  else if (plan.wait === "race") {
+    let timer = null;
+    await Promise.race([t.settled.catch(() => {}), new Promise((ok) => { timer = setTimeout(ok, plan.ms); })]);
+    clearTimeout(timer);
+  }
+  if (box.prep) return res;
+  let body = null;
+  try { body = await res.clone().json(); } catch { return res; }
+  if (!body || typeof body !== "object" || body.ok === true) return res;
+  const done = new Set(t.results.map((r) => r.d + "\n" + r.k));
+  const stored = t.results.filter((r) => r && r.url).length;
+  const held = [...t.pending.keys()].filter((key) => !done.has(key) && t.idents.has(key))
+    .map((key) => { const x = t.idents.get(key); return { id: x.id, d: String(x.d || ""), why: "in-flight" }; });
+  if (!stored && !held.length) return res;
+  const out = { ...body };
+  if (stored && out.outcome && typeof out.outcome === "object") {
+    const o = { ...out.outcome, photos: (Number(out.outcome.photos) || 0) + stored };
+    if (o.state === "none") o.state = "unpublished";
+    out.outcome = o;
+  }
+  if (held.length) out.held = [...(Array.isArray(out.held) ? out.held : []), ...held];
+  return Response.json(out, { status: res.status, headers: res.headers });
+}
+
 function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
   const seen = new Map();
   return async (prompt, onIdentity = null) => {
@@ -18077,24 +18132,30 @@ const BUILD_PHOTOS_RESERVE = 60;
  * the balance less a reserve for the pages themselves. Answers `{ pending,
  * settled, started }`; `settled` resolves to each purchase's ending.
  */
-function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null, part = 0, reserve = BUILD_PHOTOS_RESERVE }) {
+function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null, part = 0, reserve = BUILD_PHOTOS_RESERVE, buyer: given = null }) {
   const pending = new Map();
   const list = Array.isArray(brief) ? brief.filter((s) => s && typeof s === "object" && !ownShot(s) && shotKey(s.describe)) : [];
   let n = imagesAffordable(list.length, { balance, reserve, usd: SITE_PHOTO_USD });
   if (Number.isInteger(room)) n = Math.min(n, Math.max(0, room));
   // `part` IS THE LOGICAL PURCHASE'S PART (2026-10-11): an addition that is a
   // request's part buys under that part, so its later step joins these.
-  const buyer = purchaseBuyer(env, { slug, key, n: part, owner });
+  // `buyer`: ANOTHER WAY TO BUY THE SAME LOGICAL PURCHASE (2026-10-11) — a
+  // preparation's, which notes each purchase on its attempt before making it.
+  const buyer = given || purchaseBuyer(env, { slug, key, n: part, owner });
   const seen = new Map();
   const results = [];
+  // EACH PURCHASE'S IDENTITY, AS ITS BUYER TOLD IT BEFORE ANY WAITING: what
+  // an exit that cannot wait for it hands on, so the part is held on exactly
+  // that purchase and nothing is bought again on a guess.
+  const idents = new Map();
   for (const s of list.slice(0, Math.max(0, n))) {
     const d = shotKey(s.describe);
     const k = seen.get(d) || 0;
     seen.set(d, k + 1);
-    const p = buyer(d).then((r) => { results.push({ d, ...r }); return r; }, () => { results.push({ d, url: null, error: "threw" }); return { url: null }; });
+    const p = buyer(d, (x) => { if (x && typeof x.id === "string") idents.set(d + "\n" + k, x); }).then((r) => { results.push({ d, k, ...r }); return r; }, () => { results.push({ d, k, url: null, error: "threw" }); return { url: null }; });
     pending.set(d + "\n" + k, p);
   }
-  return { pending, started: pending.size, results, settled: Promise.allSettled([...pending.values()]).then(() => results) };
+  return { pending, idents, started: pending.size, results, settled: Promise.allSettled([...pending.values()]).then(() => results) };
 }
 
 /**
@@ -18268,7 +18329,8 @@ async function runRequestPrep(env, ctx, task) {
         // on the part with the outcome, so a reader can tell the step's work
         // from the routing's and lay it beside another part's job.
         stepAt = Date.now();
-        const r = await replayPrepared(env, ctx, rec, url, body, runPhase);
+        const beside = (work.parts || []).some((q) => q && q.n !== n && (q.status === "queued" || q.status === "started"));
+        const r = await replayPrepared(env, ctx, rec, url, body, runPhase, { beside });
         stepEnd = Date.now();
         // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
         A.live.run.images = runPhase.images.slice();
@@ -33359,7 +33421,10 @@ async function handleRequest(request, env, ctx) {
             const aAskOut = { request: "", round: 1, attached: false, context: [] };
             // AND ITS REPLY IS WRITTEN THERE (2026-10-03), the edit route's ending.
             const aReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
-            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
+            // THE PHOTOGRAPHS BEGUN BESIDE THE PAGE WRITER (2026-10-11): every
+            // way out of this route ends with them accounted for (`earlyPhotosEnd`).
+            const aEarlyPhotos = { task: null, prep: false, clock: null };
+            return replyEnding(env, await askReport(env, await heldReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -33418,6 +33483,8 @@ async function handleRequest(request, env, ctx) {
             // of it, answered from the record where its requests are unchanged.
             const aPrep = !!(aJob && aJob.prepare === true);
             if (aPrep) editTracePrep = true;
+            aEarlyPhotos.prep = aPrep;
+            aEarlyPhotos.clock = aJob && aJob.budget;
             const aPrepStop = () => { aJob.reached = (Number(aJob.reached) || 0) + 1; return Response.json({ ok: false, error: "prepared", ours: true }); };
             const aKeepAnswer = (...a) => (aPrep ? Promise.resolve() : saveAddonAnswer(...a));
             aReplyOut.job = !!aJob;
@@ -36082,14 +36149,25 @@ async function handleRequest(request, env, ctx) {
                 if (v && typeof v === "object" && typeof v.path === "string") aDest.push(pageId(v.path));
               }
             }
-            const aWriterScoped = !!aScope && aDest.every((r) => r && aScope.includes(r));
+            // `let`, AND SET IN ONE PLACE (`aWriterFor`): a scoped writer whose
+            // answer reaches past its scope is asked again with the whole site
+            // (below), and everything it is shown moves with it.
+            let aWriterScoped = false, aWriterSrc = aSrc, aWriterParts = aStoredParts, aHiddenParts = [], aSentParts = null, aPlanComponents = [];
+            const aWriterFor = (scoped) => {
+              aWriterScoped = scoped;
+              aWriterSrc = scoped ? aView : aSrc;
+              aWriterParts = scoped ? aViewParts : aStoredParts;
+              // THE STORED COMPONENTS A SCOPED WRITER WAS NOT SHOWN, by name: they
+              // are protected as a withheld one is, without being listed.
+              aHiddenParts = scoped && aStoredParts ? aStoredParts.filter((p) => p && !aViewParts.includes(p)).map((p) => String(p.name || "").toLowerCase()) : [];
+              aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok });
+              aPlanComponents = [...aFold.components];
+              for (const b of Object.values(pageComponents(aWriterSrc))) {
+                for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
+              }
+            };
+            aWriterFor(!!aScope && aDest.every((r) => r && aScope.includes(r)));
             if (aScope && !aWriterScoped) aMark("scope", "widened", { outside: aDest.filter((r) => !r || !aScope.includes(r)).length });
-            const aWriterSrc = aWriterScoped ? aView : aSrc;
-            const aWriterParts = aWriterScoped ? aViewParts : aStoredParts;
-            // THE STORED COMPONENTS A SCOPED WRITER WAS NOT SHOWN, by name: they
-            // are protected as a withheld one is, without being listed.
-            const aHiddenParts = aWriterScoped && aStoredParts ? aStoredParts.filter((p) => p && !aViewParts.includes(p)).map((p) => String(p.name || "").toLowerCase()) : [];
-            const aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok });
             // THE KIT SIGNATURES THIS REQUEST NEEDS: what the addition
             // declares, plus what the pages being edited already import.
             // `modules`, NEVER `kit` — the first is `seat-map` and the second
@@ -36097,10 +36175,6 @@ async function handleRequest(request, env, ctx) {
             // first. Measured: handing it the export names answers "" for
             // every one, which from outside reads as the site importing
             // nothing at all.
-            const aPlanComponents = [...aFold.components];
-            for (const b of Object.values(pageComponents(aWriterSrc))) {
-              for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
-            }
             // ── THE PHOTOGRAPHS THIS CHANGE WILL BUY (2026-09-17) ───────────
             //
             // `aFold.photos` is the `photo` designer's own `{page, describe}`
@@ -36228,7 +36302,7 @@ async function handleRequest(request, env, ctx) {
             // on a change that worked it is alarming about nothing; what they
             // CAN act on — a page that did not survive, a component that was
             // not replaced — already has its own sentence.
-            const aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
+            let aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
             if (aPagesSent.withheld.length) {
               // EVERY ONE (2026-10-07): twelve were kept for the record.
               aUnseenPages = aPagesSent.withheld.slice();
@@ -36248,14 +36322,76 @@ async function handleRequest(request, env, ctx) {
               : aJob && aJob.prepare !== true && typeof aJob.id === "string" && aJob.id ? { slug: ownerSlug, key: "job-" + aJob.id, n: 0, owner: "job:" + aJob.id }
               : !aJob && isRequestKey(ab && ab.idem) ? { slug: ownerSlug, key: "post-" + ab.idem, n: 0, owner: "post:" + ab.idem }
               : null;
+            // ── WHOSE PURCHASE AN EARLY PHOTOGRAPH IS, AND WHETHER IT MAY BEGIN ──
+            //
+            // (2026-10-11, Codex on d7a00395.) A job's (`aBuyAs`), or — when
+            // it runs beside another part's job (`beside`) — a preparation's
+            // for the same request part (`aJob.rec.part`), which notes each
+            // purchase on its attempt before making it: the image is made
+            // while the other part's pages are written, and the part's own job
+            // finds it bought. Begun only when every one of them
+            // passes the image step's own gates first: the balance (`aShots`
+            // is already cut by it), the job's clock, and room in the library,
+            // counting only files that are not these same purchases.
+            const aEarlyPart = aBuyAs ? { slug: aBuyAs.slug, key: aBuyAs.key, n: aBuyAs.n }
+              : aPrep && aJob.beside === true && aJob.rec && aJob.rec.part && typeof aJob.rec.part.key === "string" ? aJob.rec.part : null;
+            let aOwnIds = null;
+            let aRoom = null;
+            if (aShots.length && aEarlyPart) {
+              const seenD = new Map();
+              aOwnIds = new Set(await Promise.all(aShots.map((sh) => {
+                const d = shotKey(sh.describe);
+                const k = seenD.get(d) || 0;
+                seenD.set(d, k + 1);
+                return purchaseId(aEarlyPart.slug, aEarlyPart.key, aEarlyPart.n, d, k);
+              })));
+              try {
+                const objs = await siteUploadList(env, ownerSlug);
+                aRoom = Math.max(0, MAX_FILES_PER_SITE - objs.filter((o) => !aOwnIds.has(o.purchase)).length);
+              } catch { aRoom = null; }
+            }
+            const aEarlyOk = !!aEarlyPart && aShots.length > 0 && aRoom !== null && aRoom >= aShots.length && photoWait(aJob && aJob.budget).buy;
             let aPhotoTask = null;
-            if (aShots.length && aBuyAs && !aPrep) {
-              aPhotoTask = startBuildPhotos(env, { slug: aBuyAs.slug, brief: aShots, balance: aBalance, key: aBuyAs.key, owner: aBuyAs.owner, part: aBuyAs.n, reserve: 0 });
+            if (aEarlyOk) {
+              const aPrepBuy = aPrep ? jobImage(aJob, async (dd, meta) => (await makeSitePhoto(env, ownerSlug, dd, meta)).url) : null;
+              aPhotoTask = startBuildPhotos(env, {
+                slug: aEarlyPart.slug, brief: aShots, balance: aBalance, key: aEarlyPart.key, owner: aBuyAs ? aBuyAs.owner : aJob.owner, part: aEarlyPart.n, reserve: 0, room: aRoom,
+                buyer: aPrepBuy ? async (d) => { const url = await aPrepBuy(d); return url ? { url } : { url: null }; } : null,
+              });
+              aEarlyPhotos.task = aPhotoTask;
               aMark("photos", "alongside", { started: aPhotoTask.started });
               // NOT HELD BY THE JOB'S END: one still in flight when the job ends
               // is what the image step's own wait already makes of a late call
               // — its claim is on its record, never bought again on a guess.
             }
+            // ── A SCOPED WRITER'S OUTPUT BOUNDARY (2026-10-11, Codex on d7a00395) ─
+            //
+            // Its request holds only its scope, so a page it was not shown, a
+            // page it would take away, or a stored component it was never shown
+            // is not something it may write: matching a prepared request says
+            // nothing about what the answer WRITES. Such an answer is never
+            // applied. The writer is asked again with the whole site as it is
+            // now (a request no preparation made, so a job asks a model), and
+            // only that answer goes on to the merge and its existing walls.
+            const aBreach = (input) => {
+              const out = [];
+              if (!aWriterScoped || !input || typeof input !== "object") return out;
+              const was = new Map(aSrc.map((p) => [pageId(p && p.path), String((p && p.source) || "")]));
+              for (const p of Array.isArray(input.pages) ? input.pages : []) {
+                const id = p && typeof p.path === "string" ? pageId(p.path) : null;
+                if (id && was.has(id) && !aScope.includes(id) && was.get(id) !== String((p && p.source) || "")) out.push("page:" + id);
+              }
+              for (const r of Array.isArray(input.remove) ? input.remove : []) {
+                const id = typeof r === "string" ? pageId(r) : null;
+                if (id && was.has(id) && !aScope.includes(id)) out.push("remove:" + id);
+              }
+              for (const p of Array.isArray(input.parts) ? input.parts : []) {
+                const n = String((p && p.name) || "").toLowerCase();
+                if (n && aHiddenParts.includes(n)) out.push("part:" + n);
+              }
+              return out;
+            };
+            for (let aPass = 0; ; aPass++) {
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
@@ -36399,6 +36535,13 @@ async function handleRequest(request, env, ctx) {
                   : "The builder is busy — try again in a moment.",
                 upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
               }, 503);
+            }
+            const aOver = aPass === 0 ? aBreach(aGen && aGen.input) : [];
+            if (!aOver.length) break;
+            aMark("scope", "breach", { reached: aOver.length });
+            aWriterFor(false);
+            aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
+            if (aPagesSent.withheld.length) aUnseenPages = aPagesSent.withheld.slice();
             }
 
             // `knownRoutes` for the same reason as the page-edit lane: without
@@ -37189,6 +37332,7 @@ async function handleRequest(request, env, ctx) {
                   // never buys one whose outcome is unknown. Nothing places its
                   // frames later — no request holds it — and its reply says so.
                   buy: aBuyAs ? purchaseBuyer(env, { ...aBuyAs, pending: aPhotoTask ? aPhotoTask.pending : null }) : null,
+                  own: aOwnIds,
                   // A REQUEST PART'S FRAME WAITING ON A PURCHASE NOBODY CAN TELL
                   // (2026-10-09, round 5) is published marked, and the part is
                   // held on it: once the purchase is known, a placement step
@@ -38265,7 +38409,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part }), "addon", aReplyOut);
+            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

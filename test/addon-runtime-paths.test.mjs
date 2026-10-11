@@ -166,9 +166,9 @@ async function withPlatform(opts, fn, { frames = null, env = {}, isolate = false
 }
 
 /** The message, its store failing on every try of the addition; answers the first settle. */
-async function heldAddition(P, run = (key) => settle(P, key)) {
+async function heldAddition(P, run = (key) => settle(P, key), { fails = 3 } = {}) {
   const r = await sendMessage(P, { message: MSG });
-  for (let i = 0; i < 3; i++) P.failPut(isUpload(P));
+  for (let i = 0; i < fails; i++) P.failPut(isUpload(P));
   const s1 = await run(r.key);
   return { r, s1 };
 }
@@ -302,7 +302,11 @@ test("RT 4 — FIRED INTO THE SITE'S CONTAINER (`JOB_RUNNER_EVERYONE`): the cons
       }
       return P.record(key);
     };
-    const { r } = await heldAddition(P, drive);
+    // THE STORE FAILS FOR LONGER (2026-10-11): fired jobs run beside each
+    // other, so the photograph's own preparation buys it while the other
+    // part's job works; its store and the job's retry of it must both fail
+    // for the frame to be held as this case means it to be.
+    const { r } = await heldAddition(P, drive, { fails: 6 });
     const rec1 = P.record(r.key);
     assert.deepEqual(statuses(rec1), ["done", "uncertain"], JSON.stringify(rec1.parts.map((p) => [p.status, p.why, p.notDone])));
     assert.ok(ran.length >= 2, "no job was fired: " + JSON.stringify(ran));

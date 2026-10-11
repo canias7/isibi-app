@@ -252,7 +252,14 @@ test("AND THE DECISION IS ACTUALLY WIRED — all three answers are acted on", ()
   // The layer twelve features in this repo have shipped dead in: `photoWait` can
   // be perfectly correct and its answer discarded, and the symptom would be
   // exactly what it exists to prevent.
-  const fn = CODE.slice(CODE.indexOf("async function buySitePhotos("), CODE.indexOf("async function injectGameAssets("));
+  // RE-ANCHORED 2026-10-11: the slice ends at the function after the image
+  // step (`siteDbConfigured`), not far down the file — two later readers of the
+  // clock (an addition's photographs begun early, and their end) are their own
+  // functions, each reading it once.
+  const fnAt = CODE.indexOf("async function buySitePhotos(");
+  const fnEnd = CODE.indexOf("function siteDbConfigured(", fnAt);
+  assert.ok(fnAt > 0 && fnEnd > fnAt, "the image step's bounds could not be found");
+  const fn = CODE.slice(fnAt, fnEnd);
   assert.ok(fn.length > 400, "buySitePhotos is gone");
   assert.match(fn, /photoWait\(clock\)/, "the image step no longer asks how long it may wait");
   assert.match(fn, /=== "all"[\s\S]{0,80}await shots;/, "the no-clock answer is not acted on");

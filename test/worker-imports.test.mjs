@@ -199,7 +199,9 @@ test("the comment blanker does not eat the file it is meant to read", () => {
 
   // The span they used to swallow must be readable.
   assert.ok(code.includes("servedAtRoot(url.pathname)"), "the hostname-rewrite guard is invisible to the scan");
-  assert.ok(code.includes("MAX_FILES_PER_SITE - objs.length"), "the upload-headroom trim is invisible to the scan");
+  // RE-ANCHORED 2026-10-11: the headroom counts only files that are not this
+  // same purchase's own (`own`).
+  assert.ok(code.includes("MAX_FILES_PER_SITE - objs.filter("), "the upload-headroom trim is invisible to the scan");
 });
 
 test("the scan can see worker.js and the site modules at all", () => {
