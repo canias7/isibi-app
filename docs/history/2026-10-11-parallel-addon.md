@@ -573,3 +573,81 @@ call, balance or flag change.
   and a mocked image service.
 - `PHOTO_RUNNING_MS` (300 seconds) is reasoned from the image call's own
   limits, not measured on real calls.
+
+## 8. Round 5 — every held purchase recovered by itself
+
+Codex passed 178 focused tests on `4079bb38`; the individual recovery states,
+the stale-press protections and the image/component overlap hold. Two mocked
+reproductions showed one incomplete flow, with two shots — one call's answer
+lost, the other made while the upload store was down — the store then back
+and three server sweeps run, nobody pressing anything:
+
+- **the unknown one first**: the made picture stayed `generated`, with no
+  upload — the driver's look (`purchasesKnown`) returned at the first
+  purchase it could not tell and never reached the second;
+- **the unknown one second**: the made picture was saved (bought, one
+  upload), but the page was still shown it as `store-pending` / saving — the
+  reason it was first held with stayed authoritative.
+
+**Commits**: `c4fad5d7` (the change and its tests), `a631c9b0` (acceptance
+pin, predicted image `47981cf0b832bfad`), with records after. No merge,
+deploy, container build, paid call, real image, fal call or balance change.
+
+### What changed
+
+- **Every held purchase is looked at and moved on by itself, on every look**
+  (`purchasesKnown`): a made picture is saved, a landed one recorded, and an
+  unknown, still-running or unreadable one never stops another being saved.
+  Each one's outcome now is told (`saved`, `ended`, `store-pending`,
+  `source-unreachable`) and recorded on the part (`heldReasons`). The part
+  goes on only when every purchase is known — then it runs again and places
+  them, reusing each.
+- **What the page is shown is each purchase as it is now.** New states:
+  `saved` (stored, waiting to be placed with the rest of the part — placed is
+  the part itself, done), `again` (released by the customer, bought again
+  when the part runs; it was shown as nothing before) and `ended`. Card
+  labels: "Picture saved, placing it next", "Buying the picture again next",
+  "Picture purchase ended"; the part shows the most uncertain of its
+  purchases, and the buy-again only for an unknown one.
+
+### Evidence
+
+- `test/purchase-recovery-card.test.mjs` RC 10–17, mocked providers, network
+  blocked, the browser closed (only the server's sweeps run):
+  - RC 10 / RC 11: both orderings — three sweeps save the made picture
+    (never made again), the page is shown it `saved` and the other `unknown`,
+    the part held; the customer's buy-again releases only the unknown one,
+    and the part finishes with both placed (three generations, never four),
+    every message after the press delivered twice;
+  - RC 12: one still running beside one made — the made one saved and shown
+    saved, the other shown running; when the call lands the part finishes by
+    itself, two generations, no charge twice;
+  - RC 13: the new states and labels, pure;
+  - RC 14: a running one lands on its own beside an unknown one — shown
+    saved past its running time, never as unknown;
+  - RC 15: a landed purchase whose record writes were lost, beside an
+    unknown one — found, recorded bought, shown saved;
+  - RC 16 / RC 17: a made picture that can no longer be fetched, or whose
+    record cannot be read, ahead of another made picture — in one sweep the
+    other is saved.
+  - RC 7 also reads the view after its press: the released one `again`, the
+    made one `saving`, the part held.
+- Each picture's own call is chosen by its words in the stand-in, so which
+  one is lost or held does not depend on the order the calls leave in.
+- **Red check**: on `4079bb38`'s code RC 10–13 fail and RC 1–9 pass.
+- **Mutation sweep** (`run9`, 6 files, green baseline 82): 11 product
+  mutants, **9 killed**; the control survived. The two survivors are
+  equivalent: the report from a save that just finished, and from a landed
+  photograph just found, each write the record `bought`, which the next look
+  reports as saved — and every read of the request takes that look first.
+- **Focused files**: 92 of 92 across the seven recovery and parallel files.
+- **Full suite** on `c4fad5d7`: `10494 / 10494 / 0 / 0` locally (`10486`
+  before; the 8 new cases are RC 10–17). Doc tests 32 of 32.
+
+### Still not shown live
+
+- Real mixed held purchases, the sweeps on the live Worker, and the card on
+  a real page; `PHOTO_RUNNING_MS` remains reasoned, not measured.
+- The requests list route (`/api/site/requests/<slug>`) reads records
+  without moving them on, so a part it shows can lag the purchase states
+  until the next sweep or request read.

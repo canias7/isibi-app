@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; the recovery card follows each purchase's state; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; the recovery card follows each purchase's state; every held purchase recovered by itself; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,13 +10,34 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`a8bee8af`** (round 4, the recovery card, on Codex's review of
-  `2454494b`), with records after (`d7edc66c` and the commit carrying this
-  note). Its predicted image is **`12c7c953c370f188`** (205 inputs; not
+  **`c4fad5d7`** (round 5, independent recovery, on Codex's review of
+  `4079bb38`), with records after (`a631c9b0` and the commit carrying this
+  note). Its predicted image is **`47981cf0b832bfad`** (205 inputs; not
   built).
 - **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
   picture in this round was a mock. No paid call, merge, deploy or container
   build.
+
+**Round 5** (`c4fad5d7`; `docs/history/2026-10-11-parallel-addon.md` §8).
+Codex passed 178 focused tests on `4079bb38`; two mocked reproductions (two
+shots, one answer lost, one made while the store was down, store back, three
+sweeps, no press) showed the driver stopping at the first unknown purchase
+(the made picture never saved) and, in the other order, the saved picture
+still shown as saving.
+- **Every held purchase is now recovered by itself on every look**: made
+  pictures saved, landed ones recorded, whatever the others are; the part
+  goes on only when all are known.
+- **The page is shown each purchase as it is now**: new `saved` ("Picture
+  saved, placing it next"), `again` (released, "Buying the picture again
+  next") and `ended`; placed is the part itself, done.
+- **Evidence**: RC 10–17 (both orderings over three sweeps with the browser
+  closed, then buy-again and completion; running beside made, completing by
+  itself with duplicate delivery; running landing beside unknown;
+  lost-record landing; unfetchable or unreadable ahead of a made picture);
+  red on `4079bb38` for RC 10–13; sweep 9 of 11 product mutants killed (2
+  equivalent); full suite `10494 / 10494 / 0 / 0`. CI: below, once read.
+- **Still not live**: real mixed held purchases, the live sweeps, the card
+  on a real page; the requests list route can show states one sweep late.
 
 **Round 4** (`a8bee8af`; `docs/history/2026-10-11-parallel-addon.md` §7).
 Codex passed 169 focused tests on `2454494b`. **Closed as fixed offline**:
@@ -166,7 +187,7 @@ chooses well; real images.
 - Optional, not needed for the parallel-work claims: `acc-needs`,
   `acc-mixed`, and the image-free Build.
 - **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `12c7c953c370f188`), wait
+  customer while off; P2 needs it), merge (image `47981cf0b832bfad`), wait
   15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
 **The decision you need to make first**: the only enforced bound on any
@@ -196,6 +217,26 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 5: every held purchase recovered by itself (offline; not deployed, not pressed)
+
+- **You**: Codex passed 178 focused tests on `4079bb38`. Fix the remaining
+  mixed-purchase recovery: the driver stopped at the first unknown purchase
+  (a made picture never saved), and a saved one kept its old hold reason on
+  the page. Recover every purchase independently, keep the part held while
+  any is unresolved, distinguish saved from saving and placed, keep the
+  same asset, identity, duplicate protection and charging.
+- **Done** (`c4fad5d7`): `purchasesKnown` inspects and advances every
+  purchase and reports each one's outcome; the part records them; the view
+  and card gain `saved`, `again` and `ended`.
+- **Verified offline**: RC 10–17 green, red on the previous code for RC
+  10–13; sweep 9 of 11 product mutants killed (2 equivalent, explained);
+  92 of 92 focused; full suite `10494 / 10494 / 0 / 0`; image predicted
+  `47981cf0b832bfad` (`a631c9b0` moves the pin).
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image.
 
 ---
 
