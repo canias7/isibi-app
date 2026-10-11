@@ -197,6 +197,9 @@ test("RR 4 — AN ORDINARY DESIGNER QUESTION: the first answer asks and writes b
   await withPlatform({ slug: slugOf("4"), pages: PAGES, replies: true, balance: 400, answers: answers(async () => { n++; return n === 1 ? { ...Q, requirements: [R(COLL), R(SEARCH)] } : FAQ("/about", []); }, j.fn) }, async (P) => {
     const r = await sendMessage(P, { message: "Please " + ASK + "." });
     await settle(P, r.key);
+    const held = heldOf(P)[0];
+    assert.ok(held && held.requirements.length === 2, "the requirements written beside the question were not held");
+    assert.ok(held.requirements.every((x) => x.status === "unsupported"), "a held requirement still claims a design that was never built: " + JSON.stringify(held.requirements));
     await answer(P, r.key, "Below");
     const o = await outcome(P, r.key);
     assertJudged(j.sent, [COLL, SEARCH]);
@@ -254,17 +257,20 @@ test("RR 6 — THE JUDGE ASKS: its question pauses the part with every requireme
   });
 });
 
-test("RR 7 — REPEATED QUESTIONS: the correction asks, the resumed designer asks again with no requirements, then designs listing none — both requirements survive both pauses, judged and told", { timeout: 30000 }, async () => {
+test("RR 7 — REPEATED QUESTIONS: the correction asks, the resumed designer asks again with a new requirement beside its question, then designs listing none — all three survive, the latest pause's record is the one staged, all judged and told", { timeout: 30000 }, async () => {
   const j = judgeLog();
   let n = 0;
-  await withPlatform({ slug: slugOf("7"), pages: PAGES, replies: true, balance: 400, answers: answers(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [R(COLL), R(SEARCH)]) : n === 2 ? Q : n === 3 ? Q2 : FAQ("/about", []); }, j.fn) }, async (P) => {
+  await withPlatform({ slug: slugOf("7"), pages: PAGES, replies: true, balance: 400, answers: answers(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [R(COLL), R(SEARCH)]) : n === 2 ? Q : n === 3 ? { ...Q2, requirements: [R(NUMBER)] } : FAQ("/about", []); }, j.fn) }, async (P) => {
     const r = await sendMessage(P, { message: "Please " + ASK + "." });
     await settle(P, r.key);
     await answer(P, r.key, "Below");
+    // THE SECOND PAUSE HOLDS WHAT IT WAS HANDED AND WHAT IT FOUND: three, and
+    // its part's next job is staged from it, the latest — not from the first.
+    assert.deepEqual(heldOf(P).map((h) => h.requirements.length).sort(), [2, 3], "the second pause did not hold what it was handed beside what it found");
     await answer(P, r.key, "One list");
     const o = await outcome(P, r.key);
-    assertJudged(j.sent, [COLL, SEARCH]);
-    assertBoth(o, [COLL, SEARCH]);
+    assertJudged(j.sent, [COLL, SEARCH, NUMBER]);
+    assertBoth(o, [COLL, SEARCH, NUMBER]);
     assert.equal(n, 4);
     once(P);
   });
@@ -370,5 +376,119 @@ test("RR 11 — THE DURABLE RECORD: the paused job holds both requirements under
     assert.deepEqual(s.requirements.map((x) => x.id).sort(), held[0].requirements.map((x) => x.id).sort());
     const o = await outcome(P, r.key);
     assertBoth(o, [COLL, SEARCH]);
+  });
+});
+
+test("RR 5b — THE PAGE WRITER ASKS AFTER A CORRECTED DESIGN: the refused answer listed both, the correction only collapsible (searchable carried); the writer asks; on the resume the refused answer is never replayed and the designer, asked again, lists only collapsible — searchable is restored from what the writer's pause held", { timeout: 30000 }, async () => {
+  const j = judgeLog();
+  let n = 0, w = 0;
+  await withPlatform({
+    slug: slugOf("5b"), pages: PAGES, replies: true, balance: 400,
+    answers: answers(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [R(COLL), R(SEARCH)]) : FAQ("/about", [R(COLL)]); }, j.fn, {
+      [T.pages]: async () => { w++; return w === 1 ? { pages: [], question: { text: "Should the answers start open?", options: ["Open", "Closed"] } } : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_CARDS }] }; },
+    }),
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + ASK + "." });
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", why(s1.rec));
+    const held = heldOf(P)[0];
+    assert.ok(held && held.asked === "pages", "the writer's pause held nothing");
+    assert.deepEqual(held.requirements.map((x) => x.need).sort(), [COLL, SEARCH].sort());
+    await answer(P, r.key, "Closed");
+    const o = await outcome(P, r.key);
+    assertJudged(j.sent, [COLL, SEARCH]);
+    assertBoth(o, [COLL, SEARCH]);
+    assert.equal(o.notDone.length, 2, "told twice: " + JSON.stringify(o.notDone));
+    once(P);
+  });
+});
+
+test("RR 12 — A JUDGE'S QUESTION, THEN A PICKER THAT LEAVES THE KIND OUT: the answer reaches the picker, which (as a model may) no longer picks the component; the held requirements of that step are still restored, judged and told unfinished — a model's omission is never a cancellation", { timeout: 30000 }, async () => {
+  const sent = [];
+  let k = 0, picks = 0;
+  const judge = (args) => {
+    k++;
+    const text = textOf(args);
+    const at = text.indexOf("The requirements the designers wrote down, one per line:\n");
+    const lines = at < 0 ? [] : text.slice(at).split("\n").slice(1).filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+    sent.push(lines);
+    if (k === 1) return { verdicts: [], question: { text: "Do you mean a search box on the page?", options: ["Yes", "No"] } };
+    return { verdicts: lines.map((e) => ({ id: e.id, follows: "asked", carried: "no", reason: "nothing was built for it" })) };
+  };
+  const db = rowsDb({ tables: {} });
+  const W_TABLE = "add a signups table with a name column";
+  await withPlatform({
+    slug: slugOf("12"), pages: PAGES, replies: true, balance: 400, db,
+    answers: answers(async () => FAQ("/about", [R(COLL), R(SEARCH)]), judge, {
+      [T.adds]: async () => { picks++; return picks === 1 ? { kinds: ["table", "component"], scopes: [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: ASK, uses: [] }] } : { kinds: ["table"], scopes: [{ kind: "table", words: W_TABLE, uses: [] }] }; },
+      "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }] }, seed: [] }] },
+    }),
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + ASK + "." });
+    await settle(P, r.key);
+    assert.equal(heldOf(P)[0].asked, "requirements");
+    await answer(P, r.key, "Yes");
+    const o = await outcome(P, r.key);
+    assert.equal(picks, 2, "the picker was not asked again with the answer");
+    assertJudged(sent, [COLL, SEARCH]);
+    assert.equal(o.status, "partial", why(o.rec));
+    assert.deepEqual(o.notDone, [COLL, SEARCH].sort());
+    once(P);
+  });
+});
+
+test("RR 13 — A SECOND PAUSE BEFORE THE HELD STEP RUNS: the judge asks (both held); the answer reaches the picker, which asks a question of its own before any designer runs; that pause holds what it was handed though no step used it; after both answers both requirements are judged and told", { timeout: 30000 }, async () => {
+  const sent = [];
+  let k = 0, picks = 0, n = 0;
+  const judge = (args) => {
+    k++;
+    const text = textOf(args);
+    const at = text.indexOf("The requirements the designers wrote down, one per line:\n");
+    const lines = at < 0 ? [] : text.slice(at).split("\n").slice(1).filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+    sent.push(lines);
+    if (k === 1) return { verdicts: [], question: { text: "Do you mean a search box on the page?", options: ["Yes", "No"] } };
+    return { verdicts: lines.map((e) => ({ id: e.id, follows: "asked", carried: "no", reason: "the answers are static cards" })) };
+  };
+  await withPlatform({
+    slug: slugOf("13"), pages: PAGES, replies: true, balance: 400,
+    answers: answers(async () => { n++; return FAQ("/about", n === 1 ? [R(COLL), R(SEARCH)] : []); }, judge, {
+      [T.adds]: async () => { picks++; return picks === 2 ? { kinds: [], question: { text: "Is this one section or a new page?", options: ["A section", "A page"] } } : { kinds: ["component"], scopes: [{ kind: "component", words: ASK, uses: [] }] }; },
+    }),
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + ASK + "." });
+    await settle(P, r.key);
+    await answer(P, r.key, "Yes");
+    const held = heldOf(P);
+    assert.equal(held.length, 2, "the picker's pause did not hold what it was handed");
+    assert.ok(held.some((h) => h.asked === "pick" && h.requirements.length === 2), JSON.stringify(held.map((h) => [h.asked, h.requirements.length])));
+    await answer(P, r.key, "A section");
+    const o = await outcome(P, r.key);
+    assertJudged(sent, [COLL, SEARCH]);
+    assertBoth(o, [COLL, SEARCH]);
+    once(P);
+  });
+});
+
+test("RR 14 — A HELD HAND-OFF TO A LATER STEP REACHES THAT STEP: the refused component answer handed the QR step a requirement; the correction asks; on the resume the component lists none, the held hand-off is reconciled at the component's turn and handed to the QR designer, which runs after it", { timeout: 30000 }, async () => {
+  const j = judgeLog();
+  const HAND = "A code on the About page opens the questions";
+  const W_QR = "a QR code that opens the questions";
+  let n = 0;
+  const qrSeen = [];
+  await withPlatform({
+    slug: slugOf("14"), pages: PAGES, replies: true, balance: 400,
+    answers: answers(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [R(COLL), { need: HAND, basis: "asked", words: QUOTE, status: "elsewhere", step: "qr" }]) : n === 2 ? Q : FAQ("/about", []); }, j.fn, {
+      [T.adds]: { kinds: ["component", "qr"], scopes: [{ kind: "component", words: ASK, uses: [] }, { kind: "qr", words: W_QR, uses: [] }] },
+      "add:qr": async (args) => { qrSeen.push(textOf(args)); return { qr: { name: "questions", points: "/about", label: "Our questions", page: "/about" } }; },
+    }),
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + ASK + ", and " + W_QR + "." });
+    await settle(P, r.key);
+    assert.ok(heldOf(P)[0].requirements.some((x) => x.need === HAND && x.status === "elsewhere" && x.step === "qr"), "the hand-off was not held as a hand-off");
+    await answer(P, r.key, "Below");
+    await outcome(P, r.key);
+    assert.ok(qrSeen.length >= 1, "the QR designer never ran");
+    assert.ok(qrSeen[qrSeen.length - 1].includes(HAND), "the held hand-off was not handed to the QR designer");
+    assert.ok(j.sent.flat().some((e) => e.need === HAND), "the held hand-off never reached the judge");
   });
 });
