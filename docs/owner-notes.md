@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: Add-on designers start when what they use is ready; a clarification redoes only the work it reaches; earlier rounds' input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: a cut-off answer is never replayed; ready work past a question, schema-only additions, scoped Look/Rules/Page parts, a multi-step edit's steps prepared together, the add-on writer may ask; earlier rounds' scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,12 +10,67 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`9070e706`** (round 7, the scheduler and continuation), pin
-  `acdf4748`, records after. Its predicted image is **`4b8665dd0256e3f9`**
-  (205 inputs; not built; was `9d5c417c92c65f99`).
+  **`a87060ba`** (round 8), pin `7b9d77f4`, records after. Its predicted image is
+  **`494735051df65e57`** (205 inputs; not built; was `4b8665dd0256e3f9`).
 - **Balance 971**, untouched. **Build flags**, the 1-page / 15-component
   limits, untouched. Every provider mocked. No paid call, fal call, merge,
   deploy or container build. Explanations stay model-written.
+
+**Round 8** (`a87060ba`; `docs/history/2026-10-11-unusable-answers-generality.md`).
+Codex passed 111 focused tests on `648964d5` with CI green. **Closed as fixed
+offline**: the independent-function wait, the ready-component wait and
+successful-answer reuse across a question.
+- **Fixed first — a cut-off answer replayed after a question.** In Codex's
+  repro a component's reply was cut off at `max_tokens` beside the table's
+  question. It was kept, then replayed after "No", and the request failed.
+  Now every recorded answer is judged at the one shared boundary (record,
+  stage, read, replay):
+  - an unfinished reply (cut off, paused, out of context), an error body or
+    malformed content is kept with its verdict for diagnosis and never
+    replayed; records stored before the rule are judged when read;
+  - a complete answer keeps its meaning: a design, a question, a refusal, or
+    prose that changes nothing;
+  - only jobs that paused (a question, or a purchase nobody could tell) have
+    their answers staged.
+- **Fixed — the generality gaps, by shared rules:**
+  - *ready designers keep going when another asks*, and their answers are
+    kept;
+  - *a table nobody on the site can read or write, with no page named*,
+    writes no page;
+  - *named Rules changes* are shown only their tables (`needs` widens);
+    *named Look and Page parts* are planned on what they read, so they
+    prepare beside parts writing other pages;
+  - *a multi-step edit* prepares a later step's model work beside the earlier
+    ones when no earlier step writes what it reads. Writes stay in order, the
+    replay must be exact, and nothing is bought ahead;
+  - *the add-on page writer* may ask; only it is asked again.
+- **Evidence** (mocked; real driver, queue, routes):
+  - UA 0–6: the boundary; Codex's repro; stored records; usable reuse;
+    checked against what a call read; duplicates and restart; the Edit
+    equivalent.
+  - SCH 5, SCH 6; GN 1 (+ control), GN 2, GN 3, GN 3b, GN 4, GN 5, GN 5b,
+    GN 6.
+  - Tests revised for rules this round changes: BATCH, readPrepared keys,
+    list-sort order, prepScope, the writer contract.
+  - Red: exactly the 14 new behaviour cases fail on `648964d5`; 21 controls pass.
+    Sweep: 20 of 21 product mutants killed, control survived; the one survivor
+    (staging from any earlier job) guards a path no current flow reaches. The
+    first full suite showed 19 failures, each traced and fixed (the access-
+    grounded pageless rule, clear-ahead steps with their own answers, three
+    tests encoding changed rules, one re-anchored guard). Full suite `10532 / 10532 / 0 / 0` on the committed code.
+    CI on `7b9d77f4`: unit 38158754597 and site build 38158754632 `success`.
+- **Remaining gaps** (history §4):
+  - a schema-making addition as its own part is still planned as reading
+    every page;
+  - a page rewrite is shown its siblings in full;
+  - unnamed look, rules and page parts are still unscoped;
+  - in-job step preparation is limited to at most 3 clear-ahead steps;
+  - an answer complete at the provider but rejected by its step is not
+    marked at the boundary (paused-only staging covers the failure case).
+- **Live-unverified**: nothing deployed or pressed. These are unmeasured:
+  real providers' cut-offs beside questions, real table access choices,
+  real routers' target naming, in-job prepare/turn match rates, and when a
+  real page writer asks. **The universal feature is not declared finished.**
 
 **Round 7** (`9070e706`; `docs/history/2026-10-11-scheduler-continuation.md`).
 Codex passed 188 focused tests on `44344896` with CI green. **Closed as fixed
@@ -322,6 +377,33 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 8: a cut-off answer is never replayed; the generality gaps closed (offline; not deployed, not pressed)
+
+- **You**: one combined continuation and general parallelism batch. Close
+  the independent-function wait, ready-component wait and answer-reuse
+  findings as fixed offline. Fix Codex's reproduction first: a cut-off
+  component reply kept beside a table's question and replayed after "No".
+  Fix it at the shared record/stage/replay boundary, records already stored
+  included, with failing-first tests. Then continue the generality gaps by
+  shared rules:
+  - ready work past a question;
+  - schema-only additions;
+  - scoped Look, Rules and Page;
+  - concurrent step preparation in a multi-step Edit;
+  - the writer stage that could not ask.
+  Update the inventory; all providers mocked; commit, push, record.
+- **Done**: `a87060ba` (the change and its tests), `7b9d77f4` (pin
+  `494735051df65e57`), and the records commit carrying this entry.
+- **Verified offline**: red check (14 new cases fail on `648964d5`, 21
+  controls pass); sweep 20 of 21 (one unreachable survivor); full suite
+  `10532 / 10532 / 0 / 0`; CI unit 38158754597 and site build 38158754632 green on
+  `7b9d77f4`.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. Remaining gaps are in the history's
+  §4.
 
 ---
 
