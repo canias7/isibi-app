@@ -481,7 +481,40 @@ test("NO PHOTOGRAPH, THE REFUSALS: a Worker that still buys photographs, one tha
   assert.equal(r.sent, false);
   assert.match(r.stopped, /preflight passed and nothing is sent/);
   assert.deepEqual(r.imagesOff, { status: 200, imagePurchases: false });
-  assert.deepEqual(r.flags, { ok: true, modes: ["page bands at once (for everyone)"] });
+  assert.deepEqual(r.flags, { ok: true, modes: ["page bands at once (for everyone)"], read: { design: false, graph: false, bandsEveryone: true, bands: true } });
+  assert.deepEqual(r.unmet, []);
+});
+
+test("NO PHOTOGRAPH, THE FREE REHEARSAL AT A BALANCE A PAID PRESS REFUSES (Codex on 23861838): at 971 it still reads the runtime, reports the image switch and the account's flags, and lists EVERY unmet prerequisite — never only the first; nothing is sent, and a paid press at 971 refuses before its one paid call", async () => {
+  const off = { design: false, graph: false, bandsEveryone: false, bands: false };
+  // AT 971, EVERYTHING ELSE MET: one unmet prerequisite, the cap — and the flags reported.
+  const s = niStub({ balance: async () => 971 });
+  const r = await runBuildCheck(s, { spec: NI, spend: false });
+  assert.equal(r.sent, false);
+  assert.ok(!s.calls.includes("post"));
+  assert.deepEqual(r.imagesOff, { status: 200, imagePurchases: false }, "the image switch was not read");
+  assert.deepEqual(r.flags, { ok: true, modes: ["page bands at once (for everyone)"], read: { design: false, graph: false, bandsEveryone: true, bands: true } }, "the flags were not read");
+  assert.deepEqual(r.unmet, ["the balance is within the hard cap of 100"]);
+  assert.match(r.stopped, /^spend is not yes — nothing is sent; a paid press would refuse: the balance, 971, is above this press's hard cap of 100$/);
+  // AT 971, NO MODE ON, PHOTOGRAPHS STILL BOUGHT, THE SLUG TAKEN: all four listed.
+  const all = niStub({ balance: async () => 971, runtime: RT(true, 200, off), existing: async () => ({ ...FREE(), backends: { status: 200, rows: [{ slug: NI.slug }] } }) });
+  const r2 = await runBuildCheck(all, { spec: NI, spend: false });
+  assert.deepEqual(r2.unmet, ["the balance is within the hard cap of 100", "the slug is free", "the live Worker buys no photograph", "an image-free parallel mode is already on for this account"]);
+  for (const re of [/hard cap of 100/, /already a site/, /still buys photographs/, /no image-free parallel mode is on/]) assert.match(r2.stopped, re);
+  assert.deepEqual(r2.flags.read, off);
+  assert.deepEqual(r2.prereqs.map((p) => p.ok), [true, true, false, false, false, false]);
+  // THE RUNTIME UNREADABLE: unknown, never a value — both runtime prerequisites unmet.
+  const dark = await runBuildCheck(niStub({ balance: async () => 971, runtime: RT(false, 503) }), { spec: NI, spend: false });
+  assert.deepEqual(dark.flags.read, { design: null, graph: null, bandsEveryone: null, bands: null });
+  assert.ok(dark.unmet.includes("the live Worker buys no photograph") && dark.unmet.includes("an image-free parallel mode is already on for this account"));
+  // THE STRICT CHECK: the same press with spend yes refuses before the paid call.
+  const paid = niStub({ balance: async () => 971 });
+  const rp = await runBuildCheck(paid, { spec: NI, spend: true });
+  assert.equal(rp.sent, false);
+  assert.ok(!paid.calls.includes("post"), "the build was sent at 971");
+  assert.match(rp.stopped, /hard cap of 100 — nothing is sent$/);
+  // CONTROL: within the cap and every prerequisite met, the rehearsal passes.
+  assert.match((await runBuildCheck(niStub(), { spec: NI, spend: false })).stopped, /preflight passed and nothing is sent/);
 });
 
 test("NO PHOTOGRAPH, THE PREREQUISITES READ BEFORE ANYTHING IS PAID: the account's own flags, unchanged — no image-free parallel mode on, bands only through the canary list, flags not reported, or the balance above the cap each stop the press before it sends; one mode on passes", async () => {

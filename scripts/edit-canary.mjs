@@ -54,7 +54,7 @@ import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from ".
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
 // AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
 // and the tab every message went from.
-import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict } from "./canary-ui.mjs";
+import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
 import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
@@ -525,17 +525,28 @@ if (PROBES) {
     console.error(`REFUSING TO ROUTE: ${PG.why}. Nothing was charged.`);
     process.exit(1);
   }
+  // AN ACCEPTANCE BATCH'S PAID PREFLIGHT (2026-10-11, round 4) — the same
+  // one every acceptance press uses: the floor below, and no more than the
+  // acceptance cap. Read in a rehearsal too, and every unmet item reported.
+  const floor = PROBE_COST_MAX * probes.length;
+  const pre = PROBES.batch.acceptance ? acceptancePreflight({ balance: balBefore, need: floor }) : [];
+  const unmet = pre.filter((x) => !x.ok);
+  for (const x of pre) console.log(`  ${x.ok ? "MET  " : "UNMET"}  ${x.name}${x.ok ? "" : ` — ${x.why}`}`);
   // A REHEARSAL STOPS HERE, having read and checked everything a paid press
   // would, routed nothing and charged nothing.
   const rehearsal = SPEND !== true;
   if (rehearsal) {
-    record({ rehearsal: true, records: [] });
-    console.log("\nREHEARSAL — spend is not yes, so no message was routed. Nothing was charged.");
+    record({ rehearsal: true, records: [], ...(PROBES.batch.acceptance ? { acceptance: true, unmet: unmet.map((x) => x.why) } : {}) });
+    console.log(`\nREHEARSAL — spend is not yes, so no message was routed. Nothing was charged.${unmet.length ? ` A paid press would refuse: ${unmet.map((x) => x.why).join("; ")}.` : ""}`);
     process.exit(0);
+  }
+  if (unmet.length) {
+    record({ stopped: { at: null, why: unmet.map((x) => x.why).join("; ") }, records: [], acceptance: true, unmet: unmet.map((x) => x.why) });
+    console.error(`REFUSING TO ROUTE: ${unmet.map((x) => x.why).join("; ")}. Paid acceptance is blocked: no separate test budget exists. Nothing was charged.`);
+    process.exit(1);
   }
   // A FLOOR, NOT A CAP: the batch's upper estimate must be on the balance
   // before the first call, so a batch is never cut short by its own cost.
-  const floor = PROBE_COST_MAX * probes.length;
   if (!(balBefore >= floor)) {
     record({ stopped: { at: null, why: `balance ${balBefore} below the upper estimate ${floor}` }, records: [] });
     console.error(`REFUSING TO ROUTE: the balance (${balBefore < 0 ? "unreadable" : balBefore}) is below the batch's upper estimate of ${floor} credits. Nothing was charged.`);

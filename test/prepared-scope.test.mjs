@@ -226,3 +226,63 @@ test("requestView: a job's evidence served with its counts; a job with none is n
     { job: "job-c", known: true, staged: null, replayed: null, rebased: null, fresh: null, scoped: null, needs: null },
   ]);
 });
+
+// ── THE SCOPED ANSWER NOTED WHEN IT ARRIVES (2026-10-11, round 4) ───────────
+// Codex: `deps.seen` ran only after the widened call succeeded, so a scoped
+// answer that said `needs: true` followed by a second call that threw left no
+// evidence at all. Now each scoped answer is noted the moment it is received,
+// with its own explicit `needs`; the outcome, the retry and the charge are
+// unchanged (a failed call is still `reason: "send"`, `usage: null`).
+const NEED_TEXT = tool("write_text_edits", { needs: true, edits: [] });
+const NEED_DATA = tool("write_row_changes", { needs: true, changes: [] });
+const boom = () => { const e = new Error("upstream 529"); e.status = 529; return e; };
+
+test("runTextEdit notes the scoped answer when it arrives: needs then a failing widened call keeps `needs`; needs then success keeps it once; a scoped answer without needs is `scope`; a first call that fails notes nothing; unscoped notes nothing", async () => {
+  const run = async (answers, scope = { pages: ["/about"] }) => {
+    const seen = [];
+    let i = 0;
+    const out = await runTextEdit({ send: async () => { const a = answers[i++]; if (a instanceof Error) throw a; return a; }, seen: (x) => seen.push(x) }, { instruction: ASK, pages: PAGES, scope });
+    return { out, seen, calls: i };
+  };
+  // FAILURE: the scoped answer asked, the widened call threw.
+  const f = await run([NEED_TEXT, boom()]);
+  assert.deepEqual(f.seen, ["needs"], "the answer that asked for context left no evidence");
+  assert.equal(f.calls, 2);
+  assert.equal(f.out.ok, false);
+  assert.equal(f.out.reason, "send");
+  assert.equal(f.out.usage, null, "a failed call is billed now");
+  // POSITIVE: the scoped answer asked, the widened call answered.
+  const p = await run([NEED_TEXT, tool("write_text_edits", { edits: [] })]);
+  assert.deepEqual(p.seen, ["needs"], "the asking answer counted other than once");
+  // A SCOPED ANSWER THAT DID NOT ASK.
+  const s = await run([tool("write_text_edits", { edits: [] })]);
+  assert.deepEqual(s.seen, ["scope"]);
+  // THE FIRST CALL FAILED: no answer was received, so nothing is claimed.
+  const n = await run([boom()]);
+  assert.deepEqual(n.seen, []);
+  assert.equal(n.out.reason, "send");
+  // UNSCOPED: never a scoped answer.
+  const u = await run([tool("write_text_edits", { edits: [] })], null);
+  assert.deepEqual(u.seen, []);
+});
+
+test("runDataEdit notes the scoped answer when it arrives, the same way: needs then a failing widened call keeps `needs`, writes nothing and bills nothing; the controls as for text", async () => {
+  const run = async (answers, scope = { tables: ["loaves"] }) => {
+    const seen = [], wrote = [];
+    let i = 0;
+    const out = await runDataEdit({ send: async () => { const a = answers[i++]; if (a instanceof Error) throw a; return a; }, apply: async (c) => { wrote.push(c); return true; }, seen: (x) => seen.push(x) }, { instruction: RYE, tables: TABLES, scope });
+    return { out, seen, wrote, calls: i };
+  };
+  const f = await run([NEED_DATA, boom()]);
+  assert.deepEqual(f.seen, ["needs"], "the answer that asked for context left no evidence");
+  assert.equal(f.calls, 2);
+  assert.equal(f.out.reason, "send");
+  assert.equal(f.out.usage, null);
+  assert.deepEqual(f.wrote, []);
+  const p = await run([NEED_DATA, tool("write_row_changes", { changes: [{ table: "loaves", id: 2, values: { price: 7 } }] })]);
+  assert.deepEqual(p.seen, ["needs"]);
+  assert.equal(p.wrote.length, 1);
+  assert.deepEqual((await run([tool("write_row_changes", { changes: [] })])).seen, ["scope"]);
+  assert.deepEqual((await run([boom()])).seen, []);
+  assert.deepEqual((await run([tool("write_row_changes", { changes: [] })], null)).seen, []);
+});

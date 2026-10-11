@@ -144,6 +144,9 @@ export function readProbeBatch(text, name) {
   if (!j || typeof j !== "object" || Array.isArray(j)) return { ok: false, msg: "the batch file is not an object" };
   if (j.batch !== name) return { ok: false, msg: `the file names the batch ${JSON.stringify(j.batch)}, not "${name}"` };
   if (!Array.isArray(j.probes) || !j.probes.length) return { ok: false, msg: "the batch has no probes" };
+  // AN ACCEPTANCE BATCH (2026-10-11, round 4) is held to the acceptance
+  // presses' paid preflight (`acceptancePreflight`): true, or absent.
+  if (j.acceptance !== undefined && j.acceptance !== true) return { ok: false, msg: "acceptance is true, or left out" };
   if (j.probes.length > MAX_PROBES) return { ok: false, msg: `the batch has ${j.probes.length} probes; one press routes at most ${MAX_PROBES}` };
   const seen = new Set();
   const probes = [];
@@ -170,7 +173,7 @@ export function readProbeBatch(text, name) {
     }
     probes.push({ id: p.id, site: p.site, name: p.name || "", message: p.message, attached: p.attached === true, given: p.given || "", intended: p.intended, basis: p.basis, note: p.note || "" });
   }
-  return { ok: true, batch: { name, probes }, sha256: createHash("sha256").update(text).digest("hex") };
+  return { ok: true, batch: { name, probes, acceptance: j.acceptance === true }, sha256: createHash("sha256").update(text).digest("hex") };
 }
 
 // ── THE WALL ───────────────────────────────────────────────────────────────

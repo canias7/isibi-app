@@ -171,10 +171,11 @@ const FOCACCIA_ROW_R3 = Object.freeze({
 // does, however many jobs finish between reads, and through routing, retries
 // and running work alike (`test/acceptance-spend-bound.test.mjs`). Every
 // acceptance press sends nothing unless the balance is at most this cap
-// (`capRefusal`), so the owner sets the building account's balance to exactly
-// this before the batch, and the batch as a whole can spend no more. Model
-// calls a preparation makes are the platform's provider cost, not credits,
-// and are not bounded by it.
+// (`capRefusal`, `acceptancePreflight`). IT IS A REFUSAL, NOT A TEST BUDGET
+// (round 4): no separate test budget exists, and lowering the account's whole
+// balance is not the answer to one, so at today's balance every paid
+// acceptance press refuses and paid acceptance stays blocked. Model calls a
+// preparation makes are the platform's provider cost, not credits.
 export const ACCEPTANCE_CAP = 100;
 
 // ── THE ACCEPTANCE BATCH'S TABLES (2026-10-11) ─────────────────────────────
@@ -1612,6 +1613,26 @@ export function fundsRefusal({ now, budget }) {
  * with. A scenario that names a cap (`cap`) makes that its bound by sending
  * nothing while the balance is above it. None named, nothing is asked.
  */
+/**
+ * THE PAID PREFLIGHT EVERY ACCEPTANCE ENTRY POINT SHARES (2026-10-11, round
+ * 4: Codex found the routing-only acceptance batch checking only a minimum
+ * balance, and proceeding at 971). Each `{ name, ok, why }`, every one
+ * reported — the balance read, enough for the press's estimate (`need`), and
+ * no more than `ACCEPTANCE_CAP`. NOT A TEST BUDGET: none exists. Above the cap
+ * a paid acceptance press refuses, which keeps paid acceptance blocked at
+ * today's balance; nobody is asked to lower their balance to get past it.
+ */
+export function acceptancePreflight({ balance, need }) {
+  const read = Number.isFinite(balance) && balance >= 0;
+  const cap = capRefusal({ now: read ? balance : NaN, cap: ACCEPTANCE_CAP });
+  const enough = Number.isFinite(need) && need > 0 ? (read ? balance >= need : false) : true;
+  return [
+    { name: "the balance was read", ok: read, why: read ? "" : "the balance could not be read" },
+    { name: `the balance covers the estimate${Number.isFinite(need) ? ` of ${need}` : ""}`, ok: enough, why: enough ? "" : read ? `the balance (${balance}) does not cover the estimate of ${need}` : "the balance could not be read" },
+    { name: `the balance is within the acceptance cap of ${ACCEPTANCE_CAP}`, ok: read && !cap, why: read ? cap : "the balance could not be read" },
+  ];
+}
+
 export function capRefusal({ now, cap }) {
   if (cap === undefined || cap === null) return "";
   if (!(Number.isFinite(cap) && cap > 0)) return "the scenario's hard cap is not a number";

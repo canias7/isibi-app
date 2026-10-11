@@ -167,7 +167,7 @@ const bakeryDb = () => rowsDb({
 });
 const W_MON = "open the bakery at 8 on Mondays", W_RYE = "make the Dark Rye £5.50";
 
-async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE, answer1 = null, rye = 5.5, prepares = true, check }) {
+async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE, answer1 = null, rye = 5.5, prepares = true, want = ["done", "done"], check }) {
   const db = bakeryDb();
   const held = gate();
   await withPlatform({
@@ -195,7 +195,7 @@ async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE,
     held.open();
     await running;
     const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(statuses(rec), want, JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.equal(db.rows("hours")[0].opens, "08:00", "the hours change was lost");
     assert.equal(Number(db.rows("loaves").find((l) => l.id === 2).price), rye, "the Dark Rye's price is not the one the site as it is calls for");
     for (const j of P.jobsOf(r.key)) assert.ok(reserveOf(P, j.id).length <= 1, j.op + " charged more than once");
@@ -383,6 +383,68 @@ test("IND 8 — MISSING EVIDENCE IS UNKNOWN, NEVER ZERO: a job whose record of i
       assert.ok(P.objects.delete("jobs/prepared/" + job.id + ".use.json"), "the evidence was not where the Worker keeps it");
       const again = await viewOf(P, r.key);
       assert.deepEqual(useOf(again, 1), { job: job.id, known: false });
+    },
+  });
+});
+
+// ── A SCOPED ANSWER THAT ASKED, THEN A WIDENED CALL THAT FAILED (round 4) ────
+// Codex: the evidence was noted only after the widened call succeeded, so here
+// the job saved `scoped: 0, needs: 0` beside an answer that had asked. Through
+// the real driver, queue consumer, job and request view: the job's replayed
+// scoped answer says `needs`, its widened (fresh) call throws, and the saved
+// evidence still says the answer asked. The part fails as any failed model
+// call does; nothing about its outcome or charge changes.
+/** The job's evidence as the Worker saved it (`jobs/prepared/<id>.use.json`). */
+async function savedUse(P, id) {
+  const k = "jobs/prepared/" + id + ".use.json";
+  assert.ok(typeof id === "string" && P.objects.has(k), "no saved evidence for job " + id);
+  const o = P.objects.get(k);
+  const text = typeof o === "string" ? o : o && typeof o.text === "function" ? await o.text() : o && o.body !== undefined ? (typeof o.body === "string" ? o.body : new TextDecoder().decode(o.body)) : JSON.stringify(o);
+  return JSON.parse(text);
+}
+const failWidened = () => { const e = new Error("upstream 529"); e.status = 529; throw e; };
+
+test("IND 9 — DATA: the scoped answer said needs and the job's widened call failed — the saved job evidence and the request view say scoped 1, needs 1 (never 0, never not-scoped); the price is left as it was", async () => {
+  let wide = 0;
+  await twoRows({
+    slug: slugOf("nf"), writes0: ["data:hours"], writes1: ["data:loaves"], second: W_RYE_HOUR, rye: 5.2, want: ["done", "failed"],
+    answer1: (args) => {
+      if (!/day="Monday", opens=/.test(content(args))) return { needs: true, changes: [] };
+      if (++wide >= 2) failWidened(); // the preparation's own widened call answers; the job's fails
+      return { changes: [{ table: "loaves", id: 2, values: { price: 7 } }] };
+    },
+    check: async (P, rec, r, view) => {
+      assert.equal(rec.parts[1].prep.outcome, "ready", JSON.stringify(rec.parts[1].prep));
+      assert.deepEqual(seenOf(useOf(view, 1)), { scoped: 1, needs: 1 }, "the answer that asked for context left no evidence");
+      const saved = await savedUse(P, view.parts[1].prepUse[0].job);
+      assert.equal(saved.v, 3);
+      assert.equal(saved.scoped, 1);
+      assert.equal(saved.needs, 1);
+    },
+  });
+});
+
+test("IND 10 — TEXT: the same for the text step — its scoped answer said needs, the job's widened call failed; the saved evidence and the view say scoped 1, needs 1, and the About line is unchanged", async () => {
+  const W_FR = "on the About page make the Our story heading say in French what the Visit page heading says";
+  let wide = 0;
+  await twoTexts({
+    slug: slugOf("tf"), route: textRoute(W_HEAD, W_FR, ["page:/visit"], ["page:/about"], "/visit", "/about"),
+    message: { first: W_HEAD, second: W_FR },
+    answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
+    answer1: (args) => {
+      const line = content(args).split("\n").find((l) => /^\d+\. \[visit\.tsx\] Come to the/.test(l));
+      if (!line) return { needs: true, edits: [] };
+      if (++wide >= 2) failWidened();
+      return { edits: [{ id: lineId(args, "about.tsx", "Our story"), to: "Venez" }] };
+    },
+    check: async (P, rec, r, view) => {
+      assert.equal(rec.parts[1].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.ok(P.page("visit.tsx").includes(HEAD_TO));
+      assert.ok(P.page("about.tsx").includes("Our story") && !P.page("about.tsx").includes("Venez"), P.page("about.tsx"));
+      assert.deepEqual(seenOf(useOf(view, 1)), { scoped: 1, needs: 1 }, "the answer that asked for context left no evidence");
+      const saved = await savedUse(P, view.parts[1].prepUse[0].job);
+      assert.equal(saved.scoped, 1);
+      assert.equal(saved.needs, 1);
     },
   });
 });

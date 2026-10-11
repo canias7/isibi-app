@@ -18386,7 +18386,7 @@ function stepScopeOf(v) {
 function noteSeen(jctx, seen) {
   if (!jctx || typeof jctx !== "object") return;
   jctx.scoped = (Number(jctx.scoped) || 0) + 1;
-  if (seen === "widened") jctx.needs = (Number(jctx.needs) || 0) + 1;
+  if (seen === "needs") jctx.needs = (Number(jctx.needs) || 0) + 1;
 }
 
 /** Where a job's use of its preparation is kept. */
@@ -19346,13 +19346,15 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     } finally {
       EDIT_JOBS.delete(job.secret);
       if (beat) { clearInterval(beat); beat = null; }
+      // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL
+      // NOW (2026-10-11): kept under the job's own id, durable, so a later
+      // reader — the request's view, a live check — sees reuse directly instead
+      // of inferring it from timing. Written for every job a preparation was
+      // staged for, and every request job (`staged` says which). IN THE
+      // FINALLY (round 4): a handler that throws after a scoped answer said
+      // `needs` still leaves that answer's evidence behind.
+      if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 });
     }
-    // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL NOW
-    // (2026-10-11): kept under the job's own id, durable, so a later reader —
-    // the request's view, a live check — sees reuse directly instead of
-    // inferring it from timing. Written for every job a preparation was staged
-    // for, and every request job (`staged` says which).
-    if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 });
     const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
     //

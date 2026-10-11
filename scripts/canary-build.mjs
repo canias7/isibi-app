@@ -481,6 +481,22 @@ export function buildPreflight({ balance, budget, cap, existing }) {
   return "";
 }
 
+/**
+ * EVERY PREREQUISITE THE PRESS CAN READ WITHOUT PAYING (2026-10-11, round 4),
+ * each `{ name, ok, why }` — never only the first that fails, so a rehearsal
+ * shows everything a paid press would refuse on.
+ */
+export function buildPrerequisites({ balance, budget, cap, existing }) {
+  const read = num(balance) !== null;
+  const f = slugFreeVerdict(existing);
+  return [
+    { name: "the balance was read", ok: read, why: read ? "" : "the balance could not be read" },
+    { name: `the balance covers the estimate of ${budget}`, ok: read && balance >= budget, why: read ? `the balance, ${balance}, does not cover this press's budget of ${budget}` : "the balance could not be read" },
+    { name: `the balance is within the hard cap of ${cap}`, ok: read && balance <= cap, why: read ? `the balance, ${balance}, is above this press's hard cap of ${cap}` : "the balance could not be read" },
+    { name: "the slug is free", ok: f.free, why: f.why },
+  ];
+}
+
 /** THE BALANCE AND THE LEDGER'S LAST ROW, TOGETHER: the balance read between two equal last-row ids, tried three times. */
 export async function stableReading(io) {
   for (let i = 0; i < 3; i++) {
@@ -517,24 +533,37 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   const start = startReading.ok ? startReading.balance : null;
   const existing = await io.existing(spec.slug);
   record.existing = existing;
-  let refuse = buildPreflight({ balance: start, budget: spec.budget, cap: spec.cap, existing });
   record.balanceStart = start;
-  // NO PHOTOGRAPH MAY BE BOUGHT (`images: "none"`): read before anything is
-  // sent, rehearsal or not; anything but the Worker's own "off" refuses.
-  if (!refuse && spec.images === "none") {
+  // EVERY PREREQUISITE, READ BEFORE ANYTHING IS PAID FOR AND REPORTED WHOLE
+  // (2026-10-11, round 4). The runtime route is a free read, so it is asked
+  // whatever the balance says: a rehearsal at a balance the press would refuse
+  // still reports the image switch and the account's flags, and lists every
+  // prerequisite that is not met rather than the first. A paid press refuses
+  // on any of them before its one paid call.
+  const prereqs = buildPrerequisites({ balance: start, budget: spec.budget, cap: spec.cap, existing });
+  if (spec.images === "none") {
     const rt = typeof io.runtime === "function" ? await io.runtime(sender.token, spec.runtimeSlug) : null;
     record.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined };
     const why = imageRefusalOf(rt);
-    if (why) refuse = `${why} — nothing is sent`;
-    // ITS PARALLEL MODES, READ BEFORE ANYTHING IS PAID FOR.
-    if (!refuse) {
-      const fl = buildFlagsVerdict(rt);
-      record.flags = { ok: fl.ok, modes: fl.modes };
-      if (!fl.ok) refuse = fl.why;
-    }
+    prereqs.push({ name: "the live Worker buys no photograph", ok: !why, why });
+    const fl = buildFlagsVerdict(rt);
+    const j = rt && rt.json && typeof rt.json === "object" ? rt.json : {};
+    record.flags = { ok: fl.ok, modes: fl.modes, read: Object.fromEntries(["design", "graph", "bandsEveryone", "bands"].map((k) => [k, typeof j[k] === "boolean" ? j[k] : null])) };
+    prereqs.push({ name: "an image-free parallel mode is already on for this account", ok: fl.ok, why: fl.why });
   }
-  if (refuse) { record.stopped = refuse; log(`STOPPED: ${refuse}`); return record; }
-  if (!spend) { record.stopped = "spend is not yes — the preflight passed and nothing is sent"; log(record.stopped); return record; }
+  record.prereqs = prereqs;
+  for (const p of prereqs) log(`  ${p.ok ? "MET  " : "UNMET"}  ${p.name}${p.ok ? "" : ` — ${p.why}`}`);
+  const unmet = prereqs.filter((p) => !p.ok);
+  record.unmet = unmet.map((p) => p.name);
+  if (!spend) {
+    record.stopped = unmet.length
+      ? `spend is not yes — nothing is sent; a paid press would refuse: ${unmet.map((p) => p.why).join("; ")}`
+      : "spend is not yes — the preflight passed and nothing is sent";
+    log(record.stopped);
+    return record;
+  }
+  // THE STRICT CHECK BEFORE THE PAID CALL: any prerequisite unmet, nothing is sent.
+  if (unmet.length) { record.stopped = `${unmet.map((p) => p.why).join("; ")} — nothing is sent`; log(`STOPPED: ${record.stopped}`); return record; }
   record.ledgerMark = startReading.id;
   const accepted = await A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug }));
   record.sent = true;
