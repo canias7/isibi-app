@@ -181,8 +181,9 @@ test("readProbeBatch: an acceptance batch says `acceptance: true`, or leaves it 
 
 test("THE CURRENT INSTRUCTIONS ARE KEPT APART FROM THE HISTORY: docs/acceptance-current.md names the current predicted image and no superseded one, says paid acceptance is blocked, and asks for no balance change; the history's instruction sections are marked historical and point to it", () => {
   const cur = readFileSync(path.join(REPO, "docs/acceptance-current.md"), "utf8");
-  assert.match(cur, /f9c4097ed179c5f8/);
-  for (const old of ["62b0dae10edebdf5", "9547695841a6c5ac"]) assert.ok(!cur.includes(old), `the current instructions still name ${old}`);
+  // THE CURRENT PREDICTION (2026-10-11, on the parallel-work change 82194718).
+  assert.match(cur, /d8f11fccd7446ba8/);
+  for (const old of ["62b0dae10edebdf5", "9547695841a6c5ac", "f9c4097ed179c5f8"]) assert.ok(!cur.includes(old), `the current instructions still name ${old}`);
   assert.match(cur, /Paid acceptance is blocked/);
   assert.match(cur, /Not an option\*\*: lowering or resetting the account's balance/);
   assert.match(cur, /Real images are unverified/);

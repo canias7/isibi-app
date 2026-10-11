@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, acceptance round 5: round 4 closed as verified offline; the handler-throws case covered; current instructions separated from history; one live proposal and the spending decision it needs; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; offline, nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,32 +9,50 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code `fdc678ca`
-  (round 4); tests and documents `d4689dd2` (this round), with records after.
-  Its predicted image is **`f9c4097ed179c5f8`** (not built).
-- **Balance 971**, untouched; **Build flags** untouched. fal off limits.
-  Real images unverified. No paid call, merge, deploy or container build.
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`82194718`**
+  (this round), with records after. Its predicted image is
+  **`d8f11fccd7446ba8`** (205 inputs; not built).
+- **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
+  picture in this round was a mock. No paid call, merge, deploy or container
+  build.
 
-**Closed, verified offline** (Codex on `72c49a5e`: 81 focused tests, CI
-green, independent checks): the probe batch's paid preflight, the Build
-rehearsal reporting every prerequisite, and `needs` evidence kept when the
-answer arrives.
+**This round** (`docs/history/2026-10-11-parallel-addon.md`)
+- **Reproduced first**, as committed failing cases through the real driver,
+  queue consumer, routes and job runner. Each independent pair meets at a
+  rendezvous: a mocked call that cannot finish until the other has started.
+  - Inside one Add-on, the designers ran one after another, and the
+    photograph was bought only after the pages were written.
+  - Across two parts, the second could not be prepared beside the first in
+    either order (image first, or component first).
+- **Fixed, inside one Add-on**:
+  - Designers that do not depend on each other start together. An early
+    answer is used only if its request is still exactly the one it would get
+    in its turn; a hand-off from an earlier designer makes it be asked again.
+  - The photograph is bought while the pages are written. Placing it still
+    waits for both.
+- **Fixed, between parts**:
+  - An Add-on whose every change lands on pages the router named is scoped to
+    those pages. Its model calls are shown only those pages' composition,
+    headings, photographs and components, and every other component is
+    protected by name.
+  - A picture or new component placed on another page no longer holds it
+    back. The conflict check is unchanged.
+  - A wrong or stale preparation is still asked again: with scoping off, the
+    second part's job asked all 3 calls fresh.
+- **Found and fixed on the way**: a refused picture was asked for a second
+  time when the image step joined the early purchase. The Build path shared
+  that code.
+- **Evidence**:
+  - 11 route cases and 1 judgment case;
+  - red checks against the old code;
+  - a sweep: 23 of 24 mutants killed, the one survivor equivalent and
+    explained at the code;
+  - full suite `10463 / 10463 / 0 / 0`.
 
-**This round**
-- **CI on `72c49a5e`**: unit tests 38129426568 green; site build 38129426790
-  green (all eight jobs).
-- **CI on `6030bbc4`** (this round's tests, documents and records, one push):
-  unit tests 38130707653 green (5 m 0 s). Site build did not run: the push
-  touched no path it watches.
-- **The handler-throws case is covered** (IND 11): after the scoped answer
-  said `needs`, the job's handler throws out of `handleRequest`. The saved
-  evidence and the request view still say the answer asked, and the part is
-  retried as before. With the old placement, the test fails.
-- **The instructions you would follow are now one file**,
-  [`docs/acceptance-current.md`](acceptance-current.md), with the current
-  image `f9c4097ed179c5f8`. The batch plan in `docs/history/` is marked as
-  history; its old image `62b0dae10edebdf5` stays there only as the
-  record. A test keeps a superseded image out of the current file.
+**Still unverified live**: everything above, with a real model and the live
+Worker; whether the real router splits such a message into two parts or
+batches it into one Add-on; whether a designer shown only its own pages still
+chooses well; real images.
 
 **The live proposal** (`docs/acceptance-current.md` §3–§5; not approved)
 - **Two paid presses are necessary**, about **10–30 credits**:
@@ -47,7 +65,7 @@ answer arrives.
 - Optional, not needed for the parallel-work claims: `acc-needs`,
   `acc-mixed`, and the image-free Build.
 - **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `f9c4097ed179c5f8`), wait
+  customer while off; P2 needs it), merge (image `d8f11fccd7446ba8`), wait
   15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
 **The decision you need to make first**: the only enforced bound on any
@@ -66,8 +84,9 @@ Lowering or resetting your balance is not one of the options.
 
 **Remaining**
 - Paid acceptance blocked pending your decision.
-- Unverified live: the router's batching, scoped exact reuse, the model's
-  `needs`, the image-free Build's overlap, real images.
+- Unverified live: the router's batching, scoped exact reuse (for edits and
+  now for Add-ons), the model's `needs`, the image-free Build's overlap,
+  real images.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -76,6 +95,25 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Independent tasks run together inside an Add-on and between Add-on parts (offline; not deployed, not pressed)
+
+- **You**: Codex checked `ecb7484a`: parallel work only partly implemented.
+  Inside an Add-on the designers ran in turn and the photograph was bought
+  after the pages; an image-first two-part request blocked the component.
+  Fix the scheduling and input scoping, with tests that cannot pass unless
+  both tasks are really running, and no paid calls.
+- **Done** (`82194718`): designers start together and are checked against
+  their exact request; the photograph is bought beside the page writer;
+  Add-on parts are scoped to the pages they name, in the plan and in what
+  their model calls are shown; a refused picture is no longer asked twice.
+- **Verified offline**: PI 1–11 and JUDGE 18; red checks; sweep 23 of 24
+  (the survivor is equivalent and explained); full suite
+  `10463 / 10463 / 0 / 0`; image predicted `d8f11fccd7446ba8`.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. fal untouched.
 
 ---
 
