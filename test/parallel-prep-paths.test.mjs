@@ -588,9 +588,10 @@ test("R11 API — AN OUTSIDE CONNECTION beside a held text edit: designed while 
       answers: { [T.adds]: { kinds: ["api"] }, "add:api": { api: [{ name: "flour_prices", url: "https://example.com/flour.json", method: "GET" }] }, [T.pages]: { pages: [{ path: "src/routes/index.tsx", source: HOME_PIC.replace("</section>", "<p>Today's flour prices, from our supplier.</p></section>") }] } },
     },
     check: {
-      // A CONNECTION ALWAYS PUBLISHES, so it reaches the page writer: its
-      // preparation stops before the writer while the Visit page is changing,
-      // and the writer is asked once, at its job, against the edited page.
+      // A CONNECTION ALWAYS PUBLISHES, so it reaches the page writer — but its
+      // preparation stops before its first reserve and write (it has a schema
+      // to apply), which is before the writer: the writer is asked once, at
+      // its job, against the edited page.
       before: (P) => assert.equal(calls(P, T.pages).length, 0, "the page writer was asked while the page beside it was still changing"),
       after: (P) => { assert.equal(calls(P, T.pages).length, 1); assert.ok(calls(P, T.pages)[0].text.includes(VISIT_TO), "the writer was not shown the Visit page as the edit left it"); assert.ok(P.page("visit.tsx").includes(VISIT_TO)); },
     },

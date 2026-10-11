@@ -315,14 +315,14 @@ function newPageDesign(part) {
  * copies the design of the pages beside it — would be asked against pages
  * about to change, so the preparation runs the picker and designers and stops
  * before the writer. The job asks the writer against the pages as they then are.
- * …AND A SCHEMA-ONLY ADDITION (`schemaOnly`): its designers read no page, but
- * one that must publish (an outside connection, a public function) or that a
- * designer decides to show still reaches the page writer, so the same holds.
- * A pageless one never reaches the writer, and this changes nothing for it.
+ * (A schema-only addition needs no such rule: a preparation that has a table,
+ * function, connection or job to apply stops before its first reserve and
+ * write, which is before the page writer, so its writer is always the job's.
+ * Measured by a sweep mutant, round 11.)
  */
 export function designOnly(parts, n, ended) {
   const me = parts[n];
-  if (!me || me.phase === "route" || !me.route || !(newPageDesign(me) || schemaOnly(me))) return false;
+  if (!me || me.phase === "route" || !me.route || !newPageDesign(me)) return false;
   for (const m of applyOrder(parts)) {
     if (m === n) return false;
     const q = parts[m];
