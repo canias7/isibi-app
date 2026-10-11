@@ -60,8 +60,11 @@ token designed again, and two concurrent copies of one retry both designed.
 - **Related suites**: 343 of 343; workflow guards 52 of 52.
 - **Full suite on `1b8af002`'s code**: `10380 / 10380 / 0 / 0` locally
   (355 s).
-- **CI**: one push carries code and records, and its run is read to
-  completion below.
+- **CI on `2fa1b662`** (code plus records, one push, nothing pushed
+  while it ran):
+  - unit tests 38097387927 green in 5 m 21 s (past the old 5-minute
+    limit);
+  - site build 38097387853 green.
 - **Image**: production `8d6dbcea93252fbb` → `c55a9a5b92e96f9c` (205
   inputs). Nothing is built.
 

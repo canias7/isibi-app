@@ -942,6 +942,15 @@ On `7ed68ed3`'s code, RC 26 fails with "both copies of the retry designed:
   inputs, 174 paths). This replaces round 5's `42bf628bceb7ed5b`. Predicted,
   not built.
 
+### CI
+
+- **On `2fa1b662`** (code `1b8af002` plus records, one push):
+  - unit tests 38097387927: green, 00:08:06 → 00:13:27 UTC (5 m 21 s,
+    which the old 5-minute limit would have cut off);
+  - site build 38097387853: green.
+- Nothing else was pushed while they ran. The per-step log could not be
+  read from this session, so the run's totals are not quoted here.
+
 ### Remaining limitations
 
 - **A copy refused the lease while the winner has not yet started** puts the
