@@ -725,12 +725,11 @@ test("PI 20 — THE PICTURE IS MADE, ITS STORE FAILS, AND THE PAGE WRITER FAILS:
   });
 });
 
-test("PI 21 — A QUESTION AFTER THE HELD PURCHASE IS KNOWN: the part, run again once the stored picture is saved, asks the customer something; the answer resumes it through the same purchase — the same picture placed, never generated again", { timeout: 30000 }, async () => {
+test("PI 21 — THE RUN AFTER THE HELD PURCHASE IS KNOWN REUSES WHAT WAS FINISHED: the picker's and both designers' answers are replayed from the run that ended held (never asked of a model again — 2026-10-11, the continuation round), only the page writer that failed is asked again, and the same stored picture is placed — never generated again; done, charged once", { timeout: 30000 }, async () => {
   let writes = 0;
   await oneAddition({
     slug: slugOf("p21"),
     setup: (P) => failUploads(P, 3),
-    addsWith: (args, n) => (n === 1 ? { kinds: [], question: { text: "Should the photograph show the bench or the whole workshop?", options: ["The bench", "The whole workshop"] } } : { kinds: ["component", "photo"] }),
     pagesWith: async () => {
       writes++;
       if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
@@ -739,16 +738,16 @@ test("PI 21 — A QUESTION AFTER THE HELD PURCHASE IS KNOWN: the part, run again
     check: async (P, r) => {
       const s1 = await settle(P, r.key);
       assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-      const asked = await settleUntil(P, r.key, (x) => x.parts[0].status === "waiting");
-      assert.equal(asked.parts[0].status, "waiting", JSON.stringify(asked.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 1);
-      const q = P.question();
-      assert.ok(q && q.id, "no question was kept");
-      await sendMessage(P, { message: "The bench", ask: { id: q.id, chosen: true } });
       const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done");
       assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 1, "the picture was generated again after the answer");
+      assert.equal(P.imageLog.length, 1, "the picture was generated again");
       assert.equal(uploads(P).length, 1);
+      // REUSED, NOT ASKED AGAIN: one picker call and one call per designer in all.
+      assert.equal(P.modelLog.filter((m) => m.tool === T.adds).length, 1, "the picker was asked again");
+      assert.equal(designCalls(P), 2, "a designer was asked again");
+      assert.equal(writes, 2, "only the page writer that failed is asked again");
+      const refs = P.ledger.map((e) => e.ref);
+      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
       placed(P);
     },
   });
@@ -907,9 +906,12 @@ test("PI 27 — designWaits: a kind waits only for what it uses, shares words wi
   assert.deepEqual(designWaits(["table", "component"], { uses: { table: [], component: ["table"] } }).component, ["table"]);
   // One phrase for two kinds ("a booking page" is a page and a table).
   assert.deepEqual(designWaits(["table", "page"], { scopes: { table: "a booking page", page: "a booking page" }, uses: { table: [], page: [] } }).page, ["table"]);
-  // The schema chain is kept whatever the picker said: a function is written against the table, a job runs the function.
-  const chain = designWaits(["table", "function", "job", "component"], { uses: { table: [], function: [], job: [], component: [] } });
-  assert.deepEqual(chain, { table: [], function: ["table"], job: ["table", "function"], component: [] });
+  // NO CHAIN BY CATEGORY (the scheduler round): a function that reads no table and a job that runs no new function wait for nothing…
+  const free = designWaits(["table", "function", "job", "component"], { uses: { table: [], function: [], job: [], component: [] } });
+  assert.deepEqual(free, { table: [], function: [], job: [], component: [] });
+  // …and a function that reads the new table, and a job that runs the new function, say so and wait — transitively.
+  const chain = designWaits(["table", "function", "job"], { uses: { table: [], function: ["table"], job: ["function"] } });
+  assert.deepEqual(chain, { table: [], function: ["table"], job: ["table", "function"] });
   // Transitive: a QR code on a new page that shows a new table is shown both.
   assert.deepEqual(designWaits(["table", "page", "qr"], { uses: { table: [], page: ["table"], qr: ["page"] } }).qr, ["table", "page"]);
   // Unread (no `uses`): every earlier kind that changes what a designer is shown — as before.
@@ -995,22 +997,23 @@ for (const textFirst of [true, false]) {
   });
 }
 
-test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started beside it) ANSWERS: nothing is applied — no table made, nothing charged for the addition; the answer resumes the addition whole, the two designers again at the same time, and the table is made once", { timeout: 30000 }, async () => {
+test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started beside it) ANSWERS: nothing is applied — no table made, nothing charged for the addition; the answer resumes only the work it reaches — the questions designer is asked again, shown the answer, while the table's finished design is replayed, never asked of a model twice; the table made once", { timeout: 30000 }, async () => {
   const { rowsDb } = await import("./fixtures/rows-db.mjs");
   const first = rendezvous(["add:table", "add:component"]);
-  const again = rendezvous(["add:table", "add:component"]);
   const db = rowsDb({ tables: {} });
   let compN = 0, tableN = 0;
+  const compAsked = [];
   const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
   await withPlatform({
     slug: slugOf("p30"), pages: PAGES, replies: true, balance: 400, db,
     answers: {
       route: { intent: "addon" },
       [T.adds]: { kinds: ["table", "component"], scopes },
-      "add:table": async () => { tableN++; await (tableN === 1 ? first : again).arrive("add:table"); return SIGNUPS_TABLE; },
-      "add:component": async () => {
+      "add:table": async () => { tableN++; await first.arrive("add:table"); return SIGNUPS_TABLE; },
+      "add:component": async (args) => {
         compN++;
-        await (compN === 1 ? first : again).arrive("add:component");
+        compAsked.push(JSON.stringify(args.messages || []));
+        await first.arrive("add:component");
         return compN === 1 ? { question: { text: "Should the questions go before or after the story?", options: ["Before", "After"] } } : ABOUT_FAQ_ANSWER;
       },
       [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
@@ -1025,13 +1028,54 @@ test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started 
     assert.equal(P.ledger.filter((e) => e.reason === "reserve").length, 0, "the addition was charged beside a question: " + JSON.stringify(P.ledger));
     const q = P.question();
     assert.ok(q && q.id, "no question was kept");
+    assert.equal(q.by, "add:component", "the question does not say which designer asked it");
     await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
     const s2 = await settle(P, r.key);
     assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.deepEqual(again.met, { "add:table": true, "add:component": true }, "the resumed designs did not overlap");
     assert.equal(creates(), 1, "the table was not made exactly once");
     assert.ok(P.page("about.tsx").includes("Do you deliver?"));
-    assert.equal(tableN, 2);
+    // ONLY THE WORK THE ANSWER REACHES WAS ASKED AGAIN.
+    assert.equal(tableN, 1, "the table's finished design was asked of a model again");
     assert.equal(compN, 2);
+    assert.match(compAsked[1], /After/, "the questions designer was not shown the answer");
+    // ONE CHARGE: the replayed design is billed once, by the job that used it.
+    const refs = P.ledger.map((e) => e.ref);
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});
+
+test("PI 31 — THE SAME QUESTION, ANSWERED, WITH EVERY MESSAGE AFTER THE ANSWER DELIVERED TWICE AT ONCE (a redelivery while the kept answers wait): the table's finished design is still replayed, never asked again; the table is made once, the page published once, one charge per job", { timeout: 30000 }, async () => {
+  const { rowsDb } = await import("./fixtures/rows-db.mjs");
+  const db = rowsDb({ tables: {} });
+  let compN = 0, tableN = 0;
+  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
+  await withPlatform({
+    slug: slugOf("p31"), pages: PAGES, replies: true, balance: 400, db,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["table", "component"], scopes },
+      "add:table": async () => { tableN++; return SIGNUPS_TABLE; },
+      "add:component": async () => { compN++; return compN === 1 ? { question: { text: "Before or after the story?", options: ["Before", "After"] } } : ABOUT_FAQ_ANSWER; },
+      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
+    },
+  }, async (P) => {
+    const creates = () => db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length;
+    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + "." });
+    await settle(P, r.key);
+    const q = P.question();
+    assert.ok(q && q.id && q.by === "add:component");
+    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
+    // EVERY QUEUED MESSAGE, TWICE AT ONCE, UNTIL NOTHING IS LEFT.
+    for (let round = 0; round < 12 && P.queue.length; round++) {
+      const msgs = P.queue.splice(0);
+      await Promise.all(msgs.flatMap((m) => [deliver(P, m), deliver(P, { ...m, body: JSON.parse(JSON.stringify(m.body)) })]));
+    }
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(tableN, 1, "the table's finished design was asked of a model again");
+    assert.equal(creates(), 1, "the table was not made exactly once");
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"));
+    const refs = P.ledger.map((e) => e.ref);
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
 });

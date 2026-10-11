@@ -245,7 +245,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
@@ -286,7 +286,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, designWaits, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -5922,7 +5922,12 @@ function makePrepCtx({ id, budget, uid = "", slug = "", rec = recorder() }) {
 }
 
 /** A job's model transport: recorded under a preparation, answered from its staged preparation under a job, unchanged otherwise. */
-const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec.wrap(send) : job && job.replay ? job.replay.wrap(send) : send);
+// A REQUEST JOB ALSO KEEPS EVERY ANSWER IT GOT (`keep`, 2026-10-11, the
+// continuation round): replayed or made now, under the exact request sent —
+// so when the job ends asking the customer something, the part's next job can
+// replay each call whose request is unchanged (`stagePrepared`).
+const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec.wrap(send)
+  : job && job.replay ? (job.keep ? job.keep.wrap(job.replay.wrap(send)) : job.replay.wrap(send)) : send);
 /**
  * THE SAME FOR A TRANSPORT CALLED `(keys, req, budget)` — the page writer's
  * (2026-10-09): one request in, its answer out, recorded or replayed by the
@@ -6767,6 +6772,7 @@ async function askReport(env, res, ctx) {
       round, question: ask, request, held: ofPart ? [] : Array.isArray(c.held) ? c.held : [], at: Date.now(),
       attached: c.attached === true, context: told, note,
       ...(ofPart ? { requestKey: c.requestKey, part: c.part } : {}),
+      ...(top && typeof body.by === "string" && ASKER_RE.test(body.by) ? { by: body.by } : {}),
     });
     let kept = false;
     let queued = false;
@@ -6779,6 +6785,7 @@ async function askReport(env, res, ctx) {
       out.clarify = {
         id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}),
         ...(ofPart ? { request: rec.request, stage: rec.stage, round: rec.round, queued } : {}),
+        ...(rec.by ? { by: rec.by } : {}),
       };
     } else notKept("clarify-unkept", "I needed to ask you something about that part — " + ask.text + " — but couldn't keep track of the question just now, so I left it alone. What was left of your request is back in your message box: add the detail and send it, and I'll make it.", request);
   }
@@ -17697,7 +17704,7 @@ async function offerRequestQuestions(env, rec, etag) {
         id: q.id, uid: cur.uid, slug: cur.slug, stage: q.stage || "route", round: q.round || 1,
         question: { text: q.text, options: q.options || [] }, request: q.request, held: [], at: Date.now(),
         attached: (cur.files || []).length > 0 || cur.attached === true, context: cur.context, note: q.note,
-        requestKey: cur.key, part: p.n,
+        requestKey: cur.key, part: p.n, ...(q.by ? { by: q.by } : {}),
       });
       if (!ask) continue;
       if (!(await storeAskIfFree(env.SITES_BUCKET, ask))) break;
@@ -18479,6 +18486,60 @@ async function runRequestPrep(env, ctx, task) {
  * job with nothing staged makes its calls, as any job does.
  */
 async function stagePrepared(env, id) {
+  await stagePreparation(env, id);
+  await stageKept(env, id);
+}
+
+/**
+ * WHAT THE PART'S EARLIER RUN JOBS ALREADY GOT ANSWERED, staged for this one
+ * (2026-10-11, the continuation round). A job that ended asking the customer
+ * something kept every answer it got (`jobKeptKey`); when the part runs again
+ * with their answer, each call whose request is byte for byte one an earlier
+ * job made — the same inputs, the same answers shown — is answered from that
+ * record, and any other is made now. So a question costs only the work it
+ * really changes: a designer, lane or step whose request the answer did not
+ * reach is never asked again, and one whose request it did reach always is.
+ *
+ * ONLY FROM A JOB THAT CHARGED NOTHING (`end.cost === 0`): a replayed answer
+ * keeps its usage and is billed by the job that uses it, so an answer an
+ * earlier job was already billed for is never staged — no call is paid twice.
+ * Run jobs only: a routing is made again, shown the answer. Best effort and
+ * idempotent: a redelivered staging adds nothing already staged.
+ */
+async function stageKept(env, id) {
+  try {
+    const o = await env.SITES_BUCKET.get(editJobKey(id));
+    if (!o) return;
+    const job = readEditJob(JSON.parse(await o.text()));
+    if (!job) return;
+    let b = null;
+    try { b = JSON.parse(String(job.body || "")); } catch { b = null; }
+    const want = readRequestOf(b && b.request);
+    if (!want) return;
+    if (/\/api\/site\/route(?![\w/-])/.test(String(job.url || ""))) return;
+    const { rec } = await loadRequest(env, job.slug, want.key);
+    const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
+    if (!p || !Array.isArray(p.jobs)) return;
+    const earlier = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end && j.end.cost === 0);
+    if (!earlier.length) return;
+    const add = [];
+    for (const j of earlier) {
+      const got = await readJsonTried(env, jobKeptKey(j.id));
+      if (!got.ok || !got.obj || got.malformed || !got.v) continue;
+      for (const c of readPrepared(got.v).calls) add.push(c);
+    }
+    if (!add.length) return;
+    let cur = { calls: [], images: [] };
+    const po = await env.SITES_BUCKET.get(jobPrepKey(id));
+    if (po) cur = readPrepared(JSON.parse(await po.text()));
+    const have = new Set(cur.calls.map((c) => c.h));
+    const fresh = add.filter((c) => !have.has(c.h) && (have.add(c.h), true));
+    if (!fresh.length) return;
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ calls: [...cur.calls, ...fresh], images: cur.images }), { httpMetadata: { contentType: "application/json" } });
+  } catch (e) { console.error("edit queue: earlier answers not staged for", id, errorClassForLog(e)); }
+}
+
+async function stagePreparation(env, id) {
   try {
     const o = await env.SITES_BUCKET.get(editJobKey(id));
     if (!o) return;
@@ -18565,6 +18626,8 @@ function noteSeen(jctx, seen) {
 
 /** Where a job's use of its preparation is kept. */
 const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
+// EVERY ANSWER A REQUEST JOB GOT, under the exact request it sent (`keep`).
+const jobKeptKey = (id) => "jobs/prepared/" + id + ".kept.json";
 /**
  * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), calls
  * made by a model now (`fresh`), pictures reused, and whether a preparation
@@ -19498,6 +19561,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       console.error("edit queue: prepared answers unreadable for", id, "— the job makes its calls", errorClassForLog(e));
     }
     if (!jctx.replay && requestOf) jctx.replay = replayer(null);
+    if (requestOf) jctx.keep = recorder();
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
     // and with any retry of this job.
@@ -19530,6 +19594,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // FINALLY (round 4): a handler that throws after a scoped answer said
       // `needs` still leaves that answer's evidence behind.
       if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 });
+      // …AND EVERY ANSWER IT GOT (2026-10-11): durable before the job's end is
+      // recorded, so a question it ended on can be answered after a restart
+      // and the part's next job still replays what this one finished.
+      if (jctx.keep && jctx.keep.calls.length) {
+        try { await env.SITES_BUCKET.put(jobKeptKey(id), JSON.stringify({ calls: jctx.keep.calls }), { httpMetadata: { contentType: "application/json" } }); }
+        catch (e) { console.error("edit queue: could not keep the answers of", id, errorClassForLog(e)); }
+      }
     }
     const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
@@ -26594,7 +26665,8 @@ async function handleRequest(request, env, ctx) {
           // one still needed, has no room: the answer is refused the same
           // way, the question still waiting (`answers-full`), rather than
           // kept by forgetting one they gave.
-          const rPair = { q: rWaiting.question.text, a: String(rb.message || "").trim() };
+          // …WITH WHO ASKED IT, when one call did (`by`), so the answer is shown where it belongs.
+          const rPair = { q: rWaiting.question.text, a: String(rb.message || "").trim(), ...(rWaiting.by ? { by: rWaiting.by } : {}) };
           rContext = appendAnswer(rWaiting.context, rPair);
           if (!rContext && readContext([rPair]) === null) {
             return Response.json({
@@ -31228,6 +31300,11 @@ async function handleRequest(request, env, ctx) {
                   model: modelsFor(eb && eb.picker).design,
                 });
                 const eLaneCalls = new Map();
+                // A QUESTION FROM ONE LANE WAITS FOR THE OTHERS ALREADY ASKED
+                // (2026-10-11, the continuation round): their answers are kept
+                // with the job (`keep`), so when the question is answered the
+                // lanes it did not reach are replayed, never asked again.
+                const eSettleLanes = () => Promise.allSettled([...eLaneCalls.values()]);
                 for (const field of pickedFields) {
                   if (eRemoves.remove.includes(field)) continue;
                   const ctx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
@@ -31268,7 +31345,7 @@ async function handleRequest(request, env, ctx) {
                     // than one entry. The whole look step asks and changes nothing
                     // — every lane it already ran is set aside with it, as for a
                     // model that is down: half a look change is worse than none.
-                    if (off.ask) return stepAsk("look", off.ask);
+                    if (off.ask) { await eSettleLanes(); return stepAsk("look", off.ask); }
                     if (!off.ok || !off.matched.length) {
                       editTrace.mark("lane:" + field, "take-off-none", { named: off.targets.length });
                       return Response.json({
@@ -31310,7 +31387,7 @@ async function handleRequest(request, env, ctx) {
                   // change without a detail they left out. The look step asks
                   // and changes nothing, on the same rule — the lanes it already
                   // ran are set aside, and the answer resumes the step whole.
-                  if (ran.ask) return stepAsk("look", ran.ask);
+                  if (ran.ask) { await eSettleLanes(); return stepAsk("look", ran.ask); }
                   if (ran.value === undefined) continue;
                   // ── ONE CODE OF SEVERAL (2026-09-03) ──────────────────────
                   //
@@ -33638,14 +33715,29 @@ async function handleRequest(request, env, ctx) {
             // list cannot be read: refused below, before anything runs.
             const aCtxAll = readContext(ab && ab.context);
             const aCtxShown = shownContext(aCtxAll || []);
+            // WHAT EACH DESIGNER WAITS FOR, once the picker has answered (`aWaits`, below).
+            let aWaitsHeld = {};
+            const aWaitsLive = () => aWaitsHeld;
             // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
             // job's clock reaches all of them — the picker, one designer per
             // kind, the seed net — without one chance per call to forget it.
             // `aJob` is null on the synchronous path and `quickSend` keeps its
             // flat ceiling, exactly as before. AND SO DO THE ANSWERS
             // (`clarifyTransport`), as on the edit route.
+            // AN ANSWER TO ONE DESIGNER'S QUESTION (`by: "add:component"`,
+            // 2026-10-11, the continuation round) is shown to that designer,
+            // to the designers that use its result, and to every call that is
+            // not a designer or the picker (the judge, the page writer); never
+            // to the picker or a designer it does not reach — so their requests
+            // are the ones they made before the question, and the part's next
+            // job replays them (`stageKept`) instead of asking again.
+            const aShownTo = (what) => {
+              const kind = typeof what === "string" && what.startsWith("add:") ? what.slice(4) : null;
+              const reach = what === "pick_adds" ? [] : kind ? ["add:" + kind, ...((aWaitsLive()[kind]) || []).map((w) => "add:" + w)] : null;
+              return reach === null ? aCtxShown : aCtxShown.filter((p) => !p.by || reach.includes(p.by));
+            };
             const aQuick = (what = "") => clarifyTransport(jobSend(aJob, quickSend(env, what, aJob && aJob.budget)), {
-              shown: () => aCtxShown,
+              shown: () => aShownTo(what),
               all: () => aCtxAll || [],
               part: aPartShown,
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
@@ -35310,6 +35402,7 @@ async function handleRequest(request, env, ctx) {
             // the rest at once. A kind the picker said nothing about waits for
             // every earlier kind that changes the site, as before.
             const aWaits = designWaits(aDesigning, { scopes: aScopes, uses: aPicked.uses || {} });
+            aWaitsHeld = aWaits;
             const aDecided = new Set();
             const aDesignReq = (k, site, brief) => JSON.stringify(addRequest({ kind: k, message: aInstruction, site, model: aModels.quick, brief }));
             // THE SITE AS THIS DESIGNER USES IT: the whole of it when it waits
@@ -35326,32 +35419,95 @@ async function handleRequest(request, env, ctx) {
               if (at < 0 || !waits) return [];
               return aDesigning.slice(0, at).filter((j) => aChanges(j) && !waits.includes(j));
             };
-            const aSiteFor = (k) => {
+            // ── A DESIGNER STARTS WHEN WHAT IT USES IS READY (2026-10-11, the
+            //    scheduler round, after Codex's review of 44344896) ─────────────
+            //
+            // A designer used to be marked decided only when the loop below
+            // reached it in kind order, so a component using a new page waited
+            // for an unrelated table listed before the page. Now each early
+            // answer is checked the moment it lands (`aLanded`): one that can
+            // be used is cleaned against the site it was shown, and that result
+            // is what its dependents are shown when they start — at once, while
+            // anything unrelated is still out. Its official result comes later,
+            // in order, and a dependent's early answer is still used only when
+            // its request is byte for byte the one built from the official
+            // results (`aTakeEarly`): a provisional result that differs from
+            // the official one only costs a fresh call, never a wrong design.
+            const aReady = new Map();
+            // A DECIDED KIND'S OFFICIAL FOLDED RESULT, or undefined (it folded nothing).
+            const aOfficial = (j) => { const f = aFolded.find((x) => x.kind === j); return f ? f.value : undefined; };
+            // …OR, FOR ONE NOT DECIDED YET, ITS READY EARLY RESULT.
+            const aProvisional = (j) => (aDecided.has(j) ? aOfficial(j) : (aReady.has(j) ? aReady.get(j) : undefined));
+            // THE SITE AS DESIGNER `k` USES IT, from the results `valueOf`
+            // gives for the kinds it waits for (in run order); the whole site,
+            // the same object, when it waits for every earlier site-changer
+            // and every one of them is decided.
+            const aViewFor = (k, valueOf) => {
               const left = aUnshown(k);
-              if (!left.length) return aSite;
-              const waits = aWaits[k];
+              if (!left.length && valueOf === aOfficial) return aSite;
+              const waits = aWaits[k] || [];
               const st = { spec: aBaseline, names: { tables: [], functions: [], jobFns: [], apis: [], jobs: [] }, pages: [] };
-              for (const f of aFolded) if (waits.includes(f.kind)) aFoldInto(st, f.kind, f.value);
-              return { ...siteFacts(st.spec, st.names, st.pages), unshown: left.map((j) => ({ kind: j, words: typeof aScopes[j] === "string" ? aScopes[j] : "" })) };
+              for (const j of aDesigning) {
+                if (!waits.includes(j)) continue;
+                const v = valueOf(j);
+                if (v !== undefined) aFoldInto(st, j, v);
+              }
+              const facts = siteFacts(st.spec, st.names, st.pages);
+              return left.length ? { ...facts, unshown: left.map((j) => ({ kind: j, words: typeof aScopes[j] === "string" ? aScopes[j] : "" })) } : facts;
             };
+            const aSiteFor = (k) => aViewFor(k, aOfficial);
             // IT SAID IT NEEDS WHAT IT WAS NOT SHOWN: from now on it waits for,
             // and is shown, every earlier kind — the old order, for this kind.
             const aWiden = (k) => { aWaits[k] = aDesigning.slice(0, Math.max(0, aDesigning.indexOf(k))).filter(aChanges); };
             const aEarly = new Map();
-            // EVERY DESIGNER WHOSE INPUTS ARE ALL DECIDED, started now (a kind
-            // that is not in the designing list — none today — starts alone).
-            const aStartReady = (k) => {
-              for (const j of aDesigning.includes(k) ? aDesigning : [k]) {
-                if (aEarly.has(j) || aDecided.has(j)) continue;
-                if (!(aWaits[j] || []).every((w) => aDecided.has(w))) continue;
-                const site = aSiteFor(j);
+            // NOTHING IS STARTED ONCE THE LOOP HAS ENDED (an answer, a question,
+            // a refusal): a late readiness never begins work nobody will take.
+            let aLoopDone = false;
+            // A KIND WHOSE TURN HAS BEGUN is never started again early: its own
+            // turn makes or takes its one call.
+            const aTaken = new Set();
+            // IS EVERY KIND THIS ONE USES READY — decided, or its early answer
+            // checked and usable? A kind that asked, failed, or said it needs
+            // more is never ready early: its turn decides it.
+            // …AND NOTHING LANDED AND NOT YET DECIDED HAS HANDED IT A
+            // REQUIREMENT (`aHandsTo`): that hand-off is judged at its giver's
+            // turn and joins this designer's brief, so it starts after that.
+            const aHandsTo = new Map();
+            const aInputsReady = (j) => (aWaits[j] || []).every((w) => aDecided.has(w) || aReady.has(w))
+              && ![...aHandsTo].some(([g, to]) => !aDecided.has(g) && to.includes(j));
+            // EVERY DESIGNER WHOSE INPUTS ARE READY, started now, whatever is
+            // still out before it in the list.
+            const aStartReady = () => {
+              if (aLoopDone) return;
+              for (const j of aDesigning) {
+                if (aEarly.has(j) || aDecided.has(j) || aTaken.has(j)) continue;
+                if (!aInputsReady(j)) continue;
+                const site = aViewFor(j, aProvisional);
                 const brief = requirementBrief(aReq.filter((r) => r.judged), j);
                 aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);
-                aEarly.set(j, {
-                  site, req: aDesignReq(j, site, brief),
-                  p: runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief }).catch((e) => ({ failed: true, error: e })),
-                });
+                const p = runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief })
+                  .catch((e) => ({ failed: true, error: e }))
+                  .then((ran) => { aLanded(j, site, ran); return ran; });
+                aEarly.set(j, { site, req: aDesignReq(j, site, brief), p });
               }
+            };
+            // AN EARLY ANSWER LANDED: when it designed something usable, its
+            // result — cleaned against the site it was shown — is ready for
+            // the designers that use it, and they start now. Never thrown: a
+            // check that cannot be made leaves the kind for its turn.
+            const aLanded = (j, site, ran) => {
+              try {
+                if (aDecided.has(j) || aReady.has(j)) return;
+                if (!ran || ran.failed || ran.ask) return;
+                if (Array.isArray(ran.needs) && ran.needs.some((n) => aUnshown(j).includes(n))) return;
+                const handed = Object.keys(handoffsByStep(Array.isArray(ran.requirements) ? ran.requirements : []));
+                if (handed.length) aHandsTo.set(j, handed);
+                if (ran.value === undefined) { aReady.set(j, undefined); aStartReady(); return; }
+                const clean = cleanAdd(j, ran.value, { ...site, today: aToday });
+                if (!clean || !clean.ok) return;
+                aReady.set(j, aChanges(j) ? clean.value : undefined);
+                aStartReady();
+              } catch { /* its turn decides it */ }
             };
             // IT NEEDS A RESULT IT WAS NOT SHOWN (`needs`, 2026-10-11): asked
             // again, once, with the whole site as decided so far — every
@@ -35375,7 +35531,8 @@ async function handleRequest(request, env, ctx) {
             // still byte for byte the one it would be asked now — the same site
             // facts and the same hand-off brief. Otherwise it is asked again.
             const aTakeEarly = (k, brief) => {
-              aStartReady(k);
+              aStartReady();
+              aTaken.add(k);
               const e = aEarly.get(k);
               aEarly.delete(k);
               if (!e) return null;
@@ -35384,6 +35541,8 @@ async function handleRequest(request, env, ctx) {
               aMark("add:" + k, "start", { again: true });
               return null;
             };
+            // THE LOOP'S END, HOWEVER IT ENDS, stops new early starts (`aLoopDone`).
+            try {
             for (const k of aKinds) {
               // THE SAME READER THE SET-ASIDE LIST USED, so a kind cannot be
               // skipped there and designed here (or the reverse).
@@ -35676,6 +35835,7 @@ async function handleRequest(request, env, ctx) {
                 for (const j of Array.isArray(clean.value) ? clean.value : []) if (j && j.at) j.tz = aTz;
               }
             }
+            } finally { aLoopDone = true; }
             // HOP 7 OF EIGHT: the developer-facing record, beside the raw
             // replies run 28 is the reason for. Everything the customer is not
             // told — the counts, the unreadable entries, the invalid property
@@ -35733,9 +35893,13 @@ async function handleRequest(request, env, ctx) {
             // Nothing was designed into the site, applied or charged for it —
             // and the designers' calls are ours, as on every way a step asks.
             if (aStepAsk) {
+              // THE DESIGNERS ALREADY ASKED FINISH FIRST (2026-10-11): their
+              // answers are kept with the job, so the answer to this question
+              // resumes only the work it reaches (`stageKept`).
+              await Promise.allSettled([...aEarly.values()].map((e) => e.p));
               aAskOut.request = aInstruction;
               await aEnded("asked", aRecord());
-              return Response.json({ ok: false, error: "clarify", layer: "addon", kind: aStepAsk.kind, cost: 0, unchanged: true, ask: aStepAsk.ask, msg: aStepAsk.ask.text });
+              return Response.json({ ok: false, error: "clarify", layer: "addon", kind: aStepAsk.kind, ...(ADD_KINDS.includes(aStepAsk.kind) ? { by: "add:" + aStepAsk.kind } : {}), cost: 0, unchanged: true, ask: aStepAsk.ask, msg: aStepAsk.ask.text });
             }
             if (!aAnswers.length) {
               // THE SHAPE THIS WAS BUILT FOR. Every designer declined, so there

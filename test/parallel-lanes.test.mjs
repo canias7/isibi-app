@@ -70,21 +70,37 @@ test("PL 1 — TWO LOOK LANES IN ONE CHANGE (a description and the business name
   });
 });
 
-test("PL 2 — ONE LANE ASKS A QUESTION WHILE THE OTHER ANSWERS: the whole look step asks and changes nothing (the other lane's answer is set aside, never applied or charged as done)", { timeout: 30000 }, async () => {
+test("PL 2 — ONE LANE ASKS A QUESTION WHILE THE OTHER ANSWERS: the whole look step asks and changes nothing; the answer resumes only the lane it reaches — the description lane's finished answer is replayed, never asked of a model again, the name lane is asked again with the answer — both land, one charge", { timeout: 30000 }, async () => {
+  let descN = 0, brandN = 0;
+  const brandAsked = [];
+  const ASK = { text: "Should the ampersand be written out as 'and'?", options: ["Keep &", "Write and"] };
   await withPlatform({
     slug: slugOf("2"),
     answers: {
       route: { intent: "edit", layer: "look" },
-      [T.pick]: PICK,
-      "lane:description": NEW_DESC,
-      "lane:brand": { question: { text: "Should the ampersand be written out as 'and'?", options: ["Keep &", "Write and"] } },
+      // THE PICKER, ASKED AGAIN WITH THE ANSWER, NAMES IT FOR THE NAME'S CHANGE ONLY.
+      [T.pick]: (args, n) => (n === 0 ? PICK : { fields: ["description", "brand"], scopes: [{ part: "description", words: DESC, answers: [] }, { part: "brand", words: BRAND, answers: [1] }] }),
+      "lane:description": async (args) => { descN++; return NEW_DESC; },
+      "lane:brand": async (args) => { brandN++; brandAsked.push(JSON.stringify(args.messages || [])); return brandN === 1 ? { question: ASK } : NEW_BRAND; },
     },
   }, async (P) => {
     const before = { ...P.look() };
     const r = await sendMessage(P, { message: DESC + ", and " + BRAND + "." });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "waiting", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
     assert.equal(P.look().description, before.description, "the other lane's answer was applied beside a question");
     assert.equal(P.look().brand, before.brand);
+    const q = P.question();
+    assert.ok(q && q.id, "no question was kept");
+    await sendMessage(P, { message: "Keep &", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, NEW_DESC);
+    assert.equal(P.look().brand, NEW_BRAND);
+    assert.equal(descN, 1, "the description lane's finished answer was asked of a model again");
+    assert.equal(brandN, 2);
+    assert.match(brandAsked[1], /Keep &/, "the name lane was not shown the answer");
+    const refs = P.ledger.map((e) => e.ref);
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
 });

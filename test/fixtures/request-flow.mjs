@@ -152,6 +152,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const sent = [];
   const rpcLog = [];
   const modelLog = [];
+  const jobsRegistered = [];
   const counts = {};
   const nextN = (k) => { counts[k] = (counts[k] || 0) + 1; return counts[k] - 1; };
   const hangs = [];
@@ -588,6 +589,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
     if (url.includes("/rest/v1/site_aliases")) return resp([]);
+    // A SCHEDULED JOB'S REGISTRATION (2026-10-11): kept, one row per job, so a
+    // case can read what was registered.
+    if (url.includes("/rest/v1/site_functions")) {
+      if (method === "POST") { try { const rows = JSON.parse(String((init && init.body) || "[]")); for (const r of Array.isArray(rows) ? rows : [rows]) jobsRegistered.push(r); } catch { /* unread */ } return new Response(null, { status: 201 }); }
+      return resp([]);
+    }
     // THE CRON'S OTHER SWEEPS (round 4), answered as an account with none of
     // their work waiting: scheduled functions, pending domains, the webhook
     // queue, the rebuild queue — so a tick asks for nothing unexpected.
@@ -661,7 +668,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const inflight = new Set();
   const track = (p) => { inflight.add(p); p.then(() => inflight.delete(p), () => inflight.delete(p)); return p; };
   const P = {
-    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, replyLog, progressLog, tasksLog, hung, filed, imageLog,
+    slug, env, bucket, objects, jobs, ledger, credits, queue, sent, rpcLog, modelLog, jobsRegistered, replyLog, progressLog, tasksLog, hung, filed, imageLog,
     now, run, track, unexpected, downloadLog,
     /** The next `times` downloads of a made picture whose address `match(url)` accepts fail (503, or a lost connection with `throws`). */
     failDownload(match, { times = 1, throws = false } = {}) { downloadFaults.push({ match, times, throws }); },

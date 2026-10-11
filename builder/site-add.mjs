@@ -1643,9 +1643,11 @@ export function readAddUses(reply, kinds) {
  *   - the kinds the picker says it USES (`readAddUses`);
  *   - the kinds that share its words — one phrase asking for two kinds ("a
  *     booking page" is a `page` and a `table`) is one thing to build;
- *   - for a SCHEMA kind, every schema kind before it: a function, connection
- *     or job is written against the schema it is shown, so the chain from a
- *     table to its function and on to a job is kept by what each one consumes;
+ *   - (NOT, since the scheduler round of 2026-10-11, every schema kind before
+ *     a schema kind: a function that reads no table — `SELECT 42` — waited
+ *     for an unrelated table. A function reading a new table, or a job running
+ *     a new function, says so in `uses`, and one that did not and needed it
+ *     answers `needs` and is asked again with it shown);
  *   - and the kinds THOSE wait for, so a designer is never shown a result
  *     without what that result was built on.
  *
@@ -1669,7 +1671,7 @@ export function designWaits(kinds, { scopes = {}, uses = {} } = {}) {
     const said = Object.hasOwn(uses, k) && Array.isArray(uses[k]) ? uses[k] : null;
     const direct = said === null
       ? before
-      : before.filter((j) => said.includes(j) || sameWords(j, k) || (SPEC_OF_KIND[k] && SPEC_OF_KIND[j]));
+      : before.filter((j) => said.includes(j) || sameWords(j, k));
     const all = new Set(direct);
     for (const j of direct) for (const i of out[j] || []) all.add(i);
     out[k] = list.filter((j) => all.has(j));

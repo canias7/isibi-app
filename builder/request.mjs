@@ -513,6 +513,7 @@ function askOf(v) {
     ...(typeof v.request === "string" && v.request.trim() ? { request: v.request.trim() } : {}),
     ...(typeof v.stage === "string" && v.stage ? { stage: v.stage } : {}),
     ...(Number.isInteger(v.round) && v.round > 0 ? { round: v.round } : {}),
+    ...(typeof v.by === "string" && /^[a-z]+:[a-z]{1,24}$/.test(v.by) ? { by: v.by } : {}),
     queued: v.queued === true,
   };
 }

@@ -128,6 +128,8 @@ export const ASK_STATUSES = Object.freeze(["pending", "answered", "cancelled", "
 
 /** Which step asked: the router, one of the nine edit steps, or the add-on. */
 export const ASK_STAGES = Object.freeze(["route", ...EDIT_LAYERS, "addon"]);
+/** One call inside a step, by name — `add:component` (`packAsk`'s `by`). */
+export const ASKER_RE = /^[a-z]+:[a-z]{1,24}$/;
 
 /**
  * THE FIELD EVERY STEP'S TOOL CARRIES. Optional, and described by purpose only
@@ -217,7 +219,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 // its answer resumes that part, on the server, and nothing else. Both or
 // neither; a question with neither is an ordinary one, read as it always was.
 export const REQUEST_KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
-export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note, requestKey, part } = {}) {
+export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note, requestKey, part, by } = {}) {
   const q = usableAsk(question);
   const parts = heldList(held);
   const req = typeof request === "string" ? request.trim() : "";
@@ -241,10 +243,16 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
   if (note !== undefined && (typeof note !== "string" || !note.trim() || note.trim().length > MAX_NOTE_CHARS)) return null;
   const ofRequest = requestKey !== undefined || part !== undefined;
   if (ofRequest && (typeof requestKey !== "string" || !REQUEST_KEY_RE.test(requestKey) || !Number.isInteger(part) || part < 0)) return null;
+  // WHO ASKED (2026-10-11, the continuation round): the one call inside the
+  // step whose question this is — `add:component` — so its answer is shown to
+  // that call and what depends on it, and every other call's request stays as
+  // it was (`ASKER_RE`). Absent: the answer is the whole step's, as before.
+  if (by !== undefined && (typeof by !== "string" || !ASKER_RE.test(by))) return null;
   return {
     v: 2, id, uid, slug, stage, round, question: q, request: req, held: parts, at, status, attached, context: told,
     ...(note === undefined ? {} : { note: note.trim() }),
     ...(ofRequest ? { requestKey, part } : {}),
+    ...(by === undefined ? {} : { by }),
   };
 }
 

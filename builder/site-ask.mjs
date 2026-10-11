@@ -2465,7 +2465,11 @@ export function readContext(v) {
     // EACH ONE MESSAGE (2026-10-03): a question as the builder asked it, whole,
     // and an answer as they gave it — the size policy's bound for both.
     if (!q || !a || q.length > MAX_INPUT_CHARS || a.length > MAX_ANSWER_CHARS) return null;
-    out.push(p.handled === true ? { q, a, handled: true } : { q, a });
+    // WHO ASKED IT, when one call inside a step did (`packAsk`'s `by`): read
+    // strictly — anything else makes the list unread, never a shorter one.
+    if (p.by !== undefined && (typeof p.by !== "string" || !/^[a-z]+:[a-z]{1,24}$/.test(p.by))) return null;
+    const by = p.by === undefined ? {} : { by: p.by };
+    out.push(p.handled === true ? { q, a, handled: true, ...by } : { q, a, ...by });
   }
   return out;
 }
