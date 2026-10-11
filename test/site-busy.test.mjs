@@ -687,7 +687,13 @@ test("the editable copy: four editing readers read through the repairing reader,
   // edited words, a recompile — through a bare read, so a copy one version
   // behind the live site was edited and published over it. Both read through
   // the checked repairing reader now, and stop when it is not the live version.
-  assert.equal(bare.length, 7, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  //
+  // RE-ANCHORED 2026-10-11 — 7 → 8 (round 11), AND THE EIGHTH IS A REQUEST'S
+  // PAGE LABELS. Accepting a request reads each page's headline once, so its
+  // Add-on parts identify pages by what they said when the message was read.
+  // It only reads labels: it never publishes and never opens a page for an edit.
+  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
   assert.ok(/withinMs\(loadSiteSource\(env, slug\)\.then\(sitePageRoutes\)/.test(W), "the router's page list is no longer the bare, bounded, addresses-only read");
