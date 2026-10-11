@@ -146,6 +146,9 @@ be wrapped (it asserted the defect).
 - **Full suite**: `10405 / 10405 / 0 / 0` locally, on the code of
   `c5f4cb45`.
 - **Doc tests**: 32 of 32.
+- **CI on `178fd0a7`** (code plus records, one push, nothing pushed while it
+  ran): unit tests 38120608188 green (5 m 19 s); site build 38120608244
+  green (all nine jobs).
 
 ## 4. Remaining gaps
 

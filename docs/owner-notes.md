@@ -56,8 +56,9 @@ is in git; the dated entries further down are the full story.*
 - **Sweep**: 27 of 27 killed, and the comment control survived.
 - **Related suites**: 577 of 577. **Doc tests**: 32 of 32.
 - **Full suite**: `10405 / 10405 / 0 / 0` locally.
-- **CI**: run on the push of the code and these records together; read
-  after it finishes and recorded in a records-only update.
+- **CI on `178fd0a7`** (code plus records, one push, nothing pushed while
+  it ran): unit tests 38120608188 green (5 m 19 s); site build 38120608244
+  green (all nine jobs).
 - **Image**: production `8d6dbcea93252fbb` → `771ff668c8624677` (205
   inputs). Not built.
 
