@@ -8,6 +8,15 @@
 > and these records. **The only enforced bound is the account balance** (§6).
 > Sections 1, 3 to 6 and 8 below are rewritten to the current truth, and
 > round 3 is §9.
+>
+> **Corrected again by round 4 (§10, after Codex's review of `23861838`).**
+> Round 3 told the owner to set the account's whole balance to 100 before
+> each stage. **That is withdrawn: lowering or resetting the account balance
+> is not a test budget, and no separate test budget exists yet.** Every paid
+> acceptance entry point (the request presses, the image-free Build and now
+> the routing-only probe batch) refuses while the balance is above 100, so
+> at today's balance **paid acceptance is blocked**, and stays blocked until a
+> real test budget exists. Nothing here asks for the balance to change.
 
 Codex reviewed `5504bb55`: 164 focused tests passed, CI green, and
 independent checks confirmed the stale-value correction and the image-only
@@ -103,7 +112,7 @@ that finds anything else refuses before sending. The headings and the table
 were read live and free on 2026-10-11; the Wholesale and Tasting Evenings
 headings were read again, free, for round 3.
 
-**Stage 1** (the owner sets the balance to exactly 100 first):
+**Stage 1** (blocked: see §6):
 
 | Order | Press | The message | What it shows | Estimate |
 |---|---|---|---|---|
@@ -113,7 +122,7 @@ headings were read again, free, for round 3.
 | 3 | `acc-table-page` | *Change the Walnut Levain's price to £6.30, and change the home page heading 'Fed every morning since 2019' to 'Fed by hand every morning since 2019'.* (tab closed, fresh session) | **only if probe S4 made parts**: as 2, and progress | 4–12 |
 | 4 | `acc-needs` | *Change the Seeded Wholemeal's price to £5.50, and change the Order page heading 'Pick a loaf and a time to collect it' so it says exactly the same as the main heading on our Visit page.* | /order heading becomes "Come and see us"; Seeded 5.4 → 5.5; evidence; **whether the model asked, read from its own answer, recorded and unverified** | 4–14 |
 
-**Stage 2** (the owner sets the balance to exactly 100 again):
+**Stage 2** (blocked: see §6):
 
 | Order | Press | The message | What it shows | Estimate |
 |---|---|---|---|---|
@@ -152,8 +161,9 @@ with two photographs, which this one cannot buy).
    already be on: if none is, it stops saying so and naming each flag's
    value, and its saved record holds `flags`. **Nothing is switched on for
    the test**; with none on, the Build stays unrun.
-7. **Set the building account's balance to exactly 100** before stage 1, and
-   again before stage 2.
+7. **A separate test budget** (§6, §10). None exists; until one does,
+   every paid press above refuses and only the free rehearsals can be
+   pressed. Lowering the account's balance is not the step.
 
 ## 5. The presses (each the owner's, in order)
 
@@ -195,11 +205,13 @@ before the next press.
   covers routing, running jobs, retries, redelivered messages and work
   prepared at the same time, and it does not depend on a browser being open
   or on the test runner surviving.
-- **What the press adds**: every acceptance press and the image-free Build
-  send nothing while the balance is above `ACCEPTANCE_CAP` (100), and
-  nothing unless it covers the press's estimate. With the owner setting the
-  balance to exactly 100 before each stage, **each stage spends at most 100
-  credits, and the batch at most 200** if both stages are pressed in full.
+- **What the presses add**: every acceptance entry point (the request
+  presses, the image-free Build and the routing-only probe batch) sends
+  nothing while the balance is above `ACCEPTANCE_CAP` (100), and nothing
+  unless it covers the press's estimate (`acceptancePreflight`,
+  `buildPrerequisites`). **This is a refusal, not a test budget.** The
+  balance it would rely on is the whole account's, and lowering it is not a
+  way to make one. At today's balance every paid acceptance press refuses.
 - **Provider cost is not credits**: preparation model calls are platform
   cost, recorded per request (`provCost`), not taken from the balance.
 - **What is no longer claimed**: no polling threshold, no per-press
@@ -209,8 +221,10 @@ before the next press.
 - **No image can be bought**: the switch is checked in the Worker and in
   every container job before the image service is called, and every press
   refuses unless the live Worker reports it off.
-- **If the balance is not set to 100** the presses refuse, and paid
-  acceptance stays blocked.
+- **Paid acceptance is blocked (round 4).** No separate test budget exists.
+  Until there is one, only the free rehearsals run: each reads its
+  prerequisites and reports every one a paid press would refuse on. Making a
+  test budget is a billing change, not part of this correction.
 
 ## 7. Rehearsed offline (supplied answers)
 
@@ -398,3 +412,122 @@ and the `prepUse` evidence checks were verified and are kept. Found:
 - **The Build's flags** are the account's as they stand. If none of the
   three modes is on, the Build stays unrun.
 - **Two substantive steps at once** remain unshown live.
+
+## 10. Round 4 — Codex's review of `23861838`
+
+Codex: 66 focused tests passed and CI was green; additional offline
+reproductions found three gaps.
+1. **The routing-only `acceptance-split-1` branch** of
+   `scripts/edit-canary.mjs` checked only a minimum balance and **routed at
+   971**, despite the plan's 100-credit restriction.
+2. **The Build's "free" prerequisite rehearsal at 971 returned no flags**:
+   `runBuildCheck` refused on the balance before it called the runtime.
+3. **`runTextEdit` and `runDataEdit` noted the scoped answer only after the
+   widened call succeeded**: a scoped answer that said `needs: true`
+   followed by a widened call that threw left no evidence.
+
+And the owner: **remove the instructions to lower or reset the account
+balance**. No separate test budget exists; record that gap and keep paid
+acceptance blocked, without changing balances or starting a billing
+redesign.
+
+**Commits**: `fdc678ca` (code), with records after.
+
+**What changed**:
+- **One paid preflight for every acceptance entry point**
+  (`acceptancePreflight` in `scripts/canary-ui.mjs`): the balance read,
+  enough for the estimate, no more than `ACCEPTANCE_CAP`; every item
+  reported. The probe batch file now says `"acceptance": true`
+  (`readProbeBatch` accepts true or nothing), and the probe branch applies
+  the preflight before any routing call. In a rehearsal it reports what a
+  paid press would refuse on; a paid press with anything unmet refuses with
+  *Paid acceptance is blocked: no separate test budget exists*, saves the
+  unmet items, and routes nothing.
+- **The Build reads every prerequisite before deciding**
+  (`buildPrerequisites` and `runBuildCheck`): the balance read, enough for the
+  estimate, within the cap, the slug free, and, for the image-free Build,
+  the image switch and the account's flags. The runtime route is a free read,
+  so it is asked whatever the balance says. The record carries `prereqs`,
+  `unmet`, `imagesOff` and `flags` (with each flag's raw value, `null` when
+  not read). A rehearsal lists **every** unmet prerequisite. A paid press
+  refuses on any of them **before its one paid call** (the strict check).
+- **The scoped answer is evidence when it arrives** (`builder/site-apply.mjs`):
+  each step notes `deps.seen("needs" | "scope")` right after the scoped
+  answer is received, with that answer's own explicit `needs`, before any
+  widened call. A widened call that then throws cannot erase it. The job's
+  evidence is written in the job handler's `finally` (`worker.js`), so it is
+  kept however the handler ends. Execution, retries and charging are
+  unchanged: a failed call is still `reason: "send"` with `usage: null`.
+- **Records and workflow descriptions**: no instruction to set, lower or reset
+  the balance. Both workflow descriptions say paid acceptance is blocked
+  with no test budget.
+
+**Tests** (offline; every network call stubbed or in-process):
+- `test/acceptance-entry-points.test.mjs` (new, 9 cases). The **real
+  scripts** run in a child process under an in-process network stub
+  (`test/fixtures/canary-stub.mjs`, and the new
+  `test/fixtures/build-check-stub.mjs` for `scripts/build-check.mjs`):
+  - the shared preflight;
+  - **probe, paid, at 971**: exit 1, no routing call, the refusal and the
+    unmet item saved, and no wording asking for a balance change;
+  - **probe, rehearsal, at 971**: exit 0, no routing call, what a paid
+    press would refuse on;
+  - probe controls: at 96 every message is routed once; at 10 it refuses
+    before routing;
+  - **Build, rehearsal, at 971**: the runtime is read, the image switch and
+    flags are recorded, the cap is listed as unmet, and the build is never
+    posted;
+  - Build, rehearsal, nothing ready: all three unmet items listed;
+  - **Build, paid, at 971**: never posted. Control: within the cap with
+    everything met, the paid call is made (to the stub);
+  - the request presses carry the same cap, and their driver-level refusal
+    at 971 is in `test/canary-acceptance.test.mjs`;
+  - no workflow or acceptance script tells the owner to change their
+    balance, and the probe batch is marked as acceptance.
+- `test/canary-build.test.mjs` (+1): the rehearsal at 971 through
+  `runBuildCheck`: flags and image switch read, every unmet item listed (the
+  cap; the cap, slug, photographs and modes together), an unreadable runtime
+  giving `null` flags, and the strict paid refusal.
+- `test/prepared-scope.test.mjs` (+2), text and data: needs then a failing
+  widened call notes `needs` (outcome `send`, no usage, nothing written);
+  needs then success notes it once; a scoped answer without needs is
+  `scope`; a first call that fails notes nothing; unscoped notes nothing.
+- `test/parallel-independent.test.mjs` (+2, IND 9 data and IND 10 text),
+  through the real driver, queue consumer, job and view: the job's
+  replayed scoped answer says `needs` and its widened call throws. **The
+  saved job evidence** (`jobs/prepared/<id>.use.json`, v3) **and the request
+  view both say `scoped: 1, needs: 1`**, the part fails as a failed call
+  does, and nothing it would have changed is changed.
+
+**Verification**:
+- **Red check on `23861838`**: the old real canary routed all 6 probes at
+  971 (exit 0); the old real Build script at 971 made no runtime read and
+  saved no flags; IND 9 and IND 10 and both new unit cases fail (the
+  evidence says no `needs`); the Build rehearsal cases fail.
+- **Sweep**: 16 of 16 mutants killed, both comment-only controls survived,
+  every file restored by checksum. One survivor in the first pass (the probe
+  reader accepting any `acceptance` value) was killed by an added case. The
+  mutants cover the shared preflight's cap and estimate items, the probe
+  branch's refusal and its use of the preflight, the batch flag and its
+  validation, the Build's runtime read being gated on the balance (Codex's
+  defect), its strict refusal, its listing of every unmet item, its cap and
+  estimate items and its flag record, both receipt-time notes, the Worker's
+  `needs` counter and the saved `needs`.
+- **Related suites**: 1,669 of 1,669 before the last added case; the
+  entry-point file 10 of 10. Doc tests 32 of 32.
+- **Full suite**: `10434 → 10449`, `10449 / 10449 / 0 / 0` locally on the
+  code of `fdc678ca`.
+- **Image prediction**: production `8d6dbcea93252fbb` → `f9c4097ed179c5f8`
+  (205 inputs). Not built.
+- **CI**: recorded after the push.
+
+**Remaining blockers**:
+- **No separate test budget exists, so paid acceptance is blocked.** Every
+  paid acceptance press refuses at today's balance. Making a test budget is a
+  billing change for another round.
+- The evidence write moved into the job handler's `finally` is not exercised
+  by a test where the handler itself throws; the tested downstream failure
+  is the widened model call.
+- Carried: the real router's batching, the model asking for missing context
+  and two substantive steps at once are unverified live; real images
+  unverified.

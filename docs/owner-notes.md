@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, acceptance batch round 3: the false spending guarantees removed; the balance is the only bound; Build prerequisites checked first; the real router's batching probed first; nothing pressed)
+## Current handoff — read this first (2026-10-11, acceptance round 4: every acceptance entry point refuses above 100, paid acceptance blocked with no test budget; the Build rehearsal reports every prerequisite; the model's `needs` kept when it arrives; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,98 +10,64 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Codex reviewed `542a6c34`: 58 focused tests, CI green; the image-purchase
-    guard and the `prepUse` evidence checks verified, and kept.
-  - This round: `958cd703` (code), with records after.
+  - Codex reviewed `23861838`: 66 focused tests, CI green, three gaps
+    reproduced offline.
+  - This round: `fdc678ca` (code), with records after.
 - **fal is funded and off limits.** Nothing bought, nothing retried.
-- **Balance 971**, untouched. No paid call, merge, deploy or container build.
+- **Balance 971**, untouched. No paid call, routing, merge, deploy or
+  container build.
 
-**What I got wrong last round, and what replaces it**
-- **The spend wall and the ceilings were not limits.** The wall acted only
-  after a charge showed up, and could miss several jobs finishing between
-  two reads; each ceiling was a past job cost that nothing enforced. The
-  image-free Build would have sent from your balance of 971, and its money
-  check passed a build charged 60 against an estimate of 40. All removed.
-- **The only enforced bound is the account balance.** The server takes every
-  charge in one statement that refuses what the balance cannot cover, so a
-  balance of B can lose at most B, whatever runs, retries or is prepared at
-  once, with no browser or test runner involved. Every acceptance press and
-  the Build now **send nothing while the balance is above 100**. **You set it
-  to exactly 100 before each stage**; if you don't, they refuse and paid
-  acceptance stays blocked.
-- **A press that spends more than its estimate now fails its own check.**
-  Nothing stops it part way: the balance does.
+**Paid acceptance is blocked**
+- **No separate test budget exists.** Every paid acceptance entry point (the
+  request presses, the image-free Build and the routing-only probe batch)
+  refuses while the balance is above 100. At your balance of 971, every
+  one of them refuses.
+- **I withdrew the instruction to set your balance to 100.** Lowering or
+  resetting your account's balance is not a test budget, and no record or
+  workflow asks for it any more.
+- Making a real test budget is a billing change, left for another round as
+  you asked. Until then only the free rehearsals can be pressed.
 
-**This round** (`docs/history/2026-10-11-acceptance-batch.md` §9)
-- **The Build checks its prerequisites first.** It reads your account's own
-  flags and refuses, at no cost, unless one image-free parallel mode is
-  already on (`design`, `graph` or bands for everyone). Nothing is switched
-  on to make it pass; its page and component limits are unchanged.
-- **The batch follows the real router.** A routing-only probe
-  (`acceptance-split-1`, nothing applied) asks the router every message
-  first, and says for each whether it was **batched** (one answer, one step
-  for every change: not parallel work) or made **parts**. A new press,
-  `acc-pages-real`, sends two headings on two pages and demands no
-  concurrency: it records what the router did. The heading-and-price presses
-  run only if the probe shows the router splitting them. Concurrency is
-  claimed only from recorded intervals between parts.
-- **"Did the model ask for what it wasn't shown?" is read from its own
-  answer**: each job now counts the scoped answers its steps took and how
-  many said `needs`. An extra model call alone no longer counts as asking.
-- **Table/table**: neither demo site has two tables visitors can read, so
-  it is probed through routing only (two rows of one table).
-
-**The batch, in two stages** (estimates, not limits)
-
-| Stage | Press | Estimate |
-|---|---|---|
-| 1 | routing probe `acceptance-split-1` | 6–18 |
-| 1 | `acc-pages-real` (two headings, two pages) | 2–8 |
-| 1 | `acc-page-table`, only if the probe made parts | 4–12 |
-| 1 | `acc-table-page`, only if the probe made parts (tab closed, fresh session) | 4–12 |
-| 1 | `acc-needs` (the model's answer to missing context, unverified) | 4–14 |
-| 2 | `acc-mixed` (a new page, its waiting menu link, a price) | 17–34 |
-| 2 | Build `check-no-images` | 11–40 |
-
-About 48–138 in all. **Each stage spends at most 100** (the balance you
-set), so at most 200 if both run in full.
-
-**What you would do, in order** (the plan file has every box)
-1. Approve the batch.
-2. Set the secret `IMAGE_PURCHASES` = `off`. **This stops photographs for
-   every customer while it is off, not only the tests.**
-3. Merge the branch (one deploy; the image rolls to `62b0dae10edebdf5`,
-   predicted, not built). Wait 15–20 minutes.
-4. Press the free runtime check: the new sha, the new image,
-   `imagePurchases=false`. For the Build, its free rehearsal (spend not yes)
-   shows whether a parallel mode is on.
-5. Set the balance to exactly 100. Press stage 1 in order; stop at the first
-   failure.
-6. Set the balance to exactly 100 again. Press stage 2.
-7. Decide whether to put `IMAGE_PURCHASES` back to `on`.
+**This round** (`docs/history/2026-10-11-acceptance-batch.md` §10)
+- **The routing-only probe batch** routed all six messages at 971, checking
+  only a minimum balance. It is now marked as an acceptance batch and uses
+  the same paid preflight as every other acceptance press. At 971 it
+  refuses before any routing call; a rehearsal says what a paid press would
+  refuse on.
+- **The Build's free rehearsal** at 971 used to stop on the balance before
+  reading anything else, so it showed no flags. It now reads every
+  prerequisite (the balance, the slug, the image switch and your account's
+  parallel modes) and **lists every unmet one**. A paid press still refuses
+  on any of them before its one paid call.
+- **"Did the model ask for what it wasn't shown?"**: an answer that said
+  `needs` used to leave no evidence if the follow-up call then failed. It
+  is now noted the moment the answer arrives, and the job's evidence is
+  saved however the job ends. Nothing about execution, retries or charging
+  changed.
 
 **Verification (offline)**
-- **New**: the spending bound through the real request flow with no browser
-  (charges far above every estimate, room for one job with every message
-  delivered twice); late, lost and coarse polling; several completions
-  between reads; the Build's prerequisites; the router's shape; direct
-  `needs` evidence through the real Worker path.
-- **Red check on `542a6c34`**: the Build sends at 971; the money check passes
-  60 against 40; the scenarios carry ceilings and no cap.
-- **Sweep**: 27 of 27 killed, both controls survived.
-- **Related suites** 1,652 of 1,652; doc tests 32 of 32.
-- **Full suite**: `10434 / 10434 / 0 / 0` locally on the code of
-  `958cd703`.
-- **CI on `87a48491`** (code plus records, one push, nothing pushed while it ran): unit tests 38126054995 green (4 m 41 s); site build 38126055016 green (all eight jobs).
+- **New**: the real canary and Build scripts run under in-process network
+  stubs at 971, 96 and 10 (`test/acceptance-entry-points.test.mjs`); the
+  Build rehearsal through `runBuildCheck`; the receipt-time notes for text
+  and data, positive and failing; and IND 9 and IND 10 through the real job
+  and request view, where the saved evidence and the view both say the
+  answer asked.
+- **Red check on `23861838`**: the old canary routed 6 probes at 971; the old
+  Build rehearsal made no runtime read and saved no flags; and the evidence
+  lost the `needs`.
+- **Sweep**: 16 of 16 killed, both controls survived.
+- **Full suite**: `10449 / 10449 / 0 / 0` locally on the code of
+  `fdc678ca`. Doc tests 32 of 32.
+- **Image prediction**: `8d6dbcea93252fbb` → `f9c4097ed179c5f8`, not built.
+- **CI**: recorded after the push.
 
-**Remaining gaps**
-- No per-request or per-press cap on the server: the bound is the balance
-  you set.
-- The real router's batching, and the model asking for missing context, are
-  unverified until pressed (one sample each).
-- If none of the Build's parallel modes is on for your account, the Build
-  stays unrun.
-- Real images unverified; two substantive steps at once never shown live.
+**Remaining blockers**
+- **No separate test budget: paid acceptance is blocked.**
+- The evidence write moved into the job handler's `finally` is not tested
+  with a handler that itself throws; the tested failure is the follow-up
+  model call.
+- Still unverified live: the real router's batching, the model asking for
+  missing context, two substantive steps at once, and real images.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -110,6 +76,28 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Acceptance round 4: one paid preflight everywhere, the full Build rehearsal, `needs` kept at receipt (offline; not deployed, not pressed)
+
+- **You**: Codex reviewed `23861838`. Make the paid preflight the same at
+  every acceptance entry point, the routing-only probes included, and test
+  the real entry points with the network stubbed. Remove the instructions to
+  lower or reset your balance: no test budget exists, so record that and keep
+  paid acceptance blocked. Let the Build's rehearsal report the image switch,
+  the flags and every unmet prerequisite. Record a scoped answer's `needs`
+  when it arrives, through later failures.
+- **Corrected**: round 3 told you to set your balance to 100 before each
+  stage. That is withdrawn.
+- **Done** (`fdc678ca`): `acceptancePreflight` in every entry point; the
+  probe batch marked as acceptance; `buildPrerequisites` and the full
+  rehearsal; the receipt-time notes and the evidence written in the job's
+  `finally`; the workflow wording.
+- **Verified offline**: red check on `23861838`, sweep 16 of 16, full suite
+  `10449 / 10449 / 0 / 0`.
+- **Not done**: any press, routing, merge, deploy, container build, balance
+  change, model call or image. fal untouched.
 
 ---
 
