@@ -443,6 +443,10 @@ versions: they close the clock-gate gap recorded in §5, below.
 - **Full suite** on `ed113138`: `10477 / 10477 / 0 / 0` locally (`10469`
   before; the 8 new cases are PI 17–21, PI 22 and its control, and PI 23).
   The three doc tests stay 32 of 32.
+- **Required CI**: site build 38143149597 on `ed113138`; unit tests
+  38143184967 on `afa0f4e4` and 38143684213 on `aa691d00`, all `success`
+  (`ed113138`'s own unit run was cancelled by the next push; the code is
+  the same).
 - **Image**: the predicted image moves `15fd0e0ba5555f38` →
   **`eb7e55f950c105cc`** (205 inputs, 174 paths, on `ed113138`; not built).
   `docs/acceptance-current.md` and its guard name the new id.

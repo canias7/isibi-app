@@ -49,7 +49,10 @@ and a known ending is never made again by the same request.
 - **Evidence**: sweep 19 mutants, 15 killed, both controls survived, the
   4 surviving mutants explained (a buyer that throws and two identity
   fallbacks no route reaches; one error string nothing reads); full suite
-  `10477 / 10477 / 0 / 0`; doc tests 32 of 32. CI: below, once read.
+  `10477 / 10477 / 0 / 0`; doc tests 32 of 32. CI green: site build
+  38143149597 on `ed113138`; unit tests 38143184967 on `afa0f4e4` and
+  38143684213 on `aa691d00` (the same code; `ed113138`'s own unit run was
+  cancelled by the next push).
 - **Still not live**: a real refusal, lost answer or store failure. The
   page's buy-again button still shows for a picture made and not yet saved
   (the view now carries the reason; the page does not read it yet).
