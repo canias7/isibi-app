@@ -217,3 +217,5 @@ replaces.
   - a dead preparation never stale.
 - **Parallel and request suites**: 333 of 333.
 - **Full suite**: `10385 / 10385 / 0 / 0` locally (350 s).
+- **CI on `9ec30b31`** (code `88aca4c3` plus records, one push): unit tests
+  38100732819 green (5 m 16 s); site build 38100732863 green.

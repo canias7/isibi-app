@@ -56,7 +56,9 @@ is in git; the dated entries further down are the full story.*
 - **Sweep**: 6 of 6 killed, and the comment control survived.
 - **Parallel and request suites**: 333 of 333.
 - **Full suite on `88aca4c3`'s code**: `10385 / 10385 / 0 / 0` locally.
-- **CI**: one push carries code and records; recorded when the run ends.
+- **CI on `9ec30b31`** (code `88aca4c3` plus records, one push, nothing
+  pushed while it ran): unit tests 38100732819 green (5 m 16 s); site build
+  38100732863 green.
 - **Image**: production `8d6dbcea93252fbb` → `b6ddb38fa003055e` (205
   inputs). Nothing is built.
 
