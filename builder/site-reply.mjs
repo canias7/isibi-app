@@ -658,6 +658,7 @@ function heldPhotoFacts(F, list, inRequest) {
     if (!(h && typeof h.d === "string" && h.d.trim())) return;
     const made = h.why === "store-pending";
     const state = made ? "was made and is not saved yet; the same picture is saved later, never made again"
+      : h.why === "source-unreachable" ? "was made, but the image service no longer hands it over, so it cannot be saved; whether it ever will is not known, and it was not bought again"
       : h.why === "in-flight" ? "was still being made when this step stopped, so it was not asked for again"
         : "was being bought and whether that purchase went through cannot be told yet, so it was not bought again";
     const next = inRequest

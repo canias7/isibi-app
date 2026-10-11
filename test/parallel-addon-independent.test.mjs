@@ -671,7 +671,9 @@ test("PI 19 — THE IMAGE CALL'S ANSWER IS LOST AND THE PAGE WRITER FAILS: the p
       // THE PAGE'S VIEW OF THE PART: held, on that picture, for that reason.
       const v = await viewOf(P, r.key);
       assert.equal(v.parts[0].status, "uncertain");
-      assert.deepEqual(v.parts[0].purchases, [{ d: BENCH, why: "unconfirmed" }]);
+      assert.deepEqual(v.parts[0].purchases, [{ d: BENCH, why: "unconfirmed", state: "unknown" }]);
+      assert.equal(v.parts[0].purchaseState, "unknown");
+      assert.equal(v.parts[0].buyAgain, true);
       // THE DRIVER LOOKS AGAIN AND STILL CANNOT TELL: nothing is bought on a guess.
       const s2 = await settleUntil(P, r.key, () => false, { rounds: 3 });
       assert.equal(s2.parts[0].status, "uncertain");

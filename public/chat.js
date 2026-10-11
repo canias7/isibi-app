@@ -10394,7 +10394,7 @@ function siteRequestBuyAgain(origin, key, n) {
   if (!s || !s.slug) return;
   const st = siteReqState(origin, key);
   const p = st && st.view && Array.isArray(st.view.parts) ? st.view.parts.find((x) => x && x.n === n) : null;
-  if (!p || p.status !== 'uncertain' || (st.rebuying || []).includes(n)) return;
+  if (!p || p.status !== 'uncertain' || p.buyAgain === false || (st.rebuying || []).includes(n)) return;
   st.rebuying = (st.rebuying || []).concat([n]);
   sitesSave();
   if (siteOpenId === origin) renderSites();
@@ -10516,6 +10516,24 @@ const SITE_REQ_STATUS = {
   // HELD ON A PICTURE PURCHASE NOBODY CAN TELL (2026-10-09, round 3).
   uncertain: 'Checking a picture purchase',
 };
+// A HELD PART, BY WHAT ITS PURCHASES ARE NOW (2026-10-11, the recovery card):
+// the server reads each one's reason (`purchaseState`, the most uncertain of
+// them). A picture made and not saved yet is saved by itself, and one still
+// being made is waited for — neither is a purchase in doubt, and neither is
+// offered a buy-again. A view from before this field reads as in doubt, which
+// is what it said then; the server reads the records again on any press.
+const SITE_REQ_HELD = {
+  unknown: 'Checking a picture purchase',
+  running: 'Picture still being made',
+  saving: 'Saving a picture already made',
+  placing: 'Putting the picture in',
+};
+const SITE_REQ_HELD_ADDED = {
+  unknown: 'still being confirmed',
+  running: 'still being made',
+  saving: 'being saved',
+  placing: 'being put in',
+};
 // A PART BEING WORKED ON BESIDE ANOTHER (2026-10-08, the parallel-tasks batch):
 // its model work is running, or done and waiting its turn to be applied. Its
 // line is the model's "doing" line — never "done" until its own job applied it.
@@ -10544,7 +10562,9 @@ function siteRequestHTML(m, site) {
     if (status === 'expired' && p.why === 'purchase-unconfirmed') label = 'Picture purchase not confirmed';
     // AN ADDITION ALREADY LIVE WHOSE PHOTO FRAMES WAIT (2026-10-09, round 5):
     // added, never shown as nothing done; the photos follow by themselves.
-    if (status === 'uncertain' && p.published === true) label = 'Added — photo' + (p.waitingPhotos === 1 ? '' : 's') + ' still being confirmed';
+    const held = status === 'uncertain' ? (Object.hasOwn(SITE_REQ_HELD, p.purchaseState) ? p.purchaseState : 'unknown') : '';
+    if (held) label = SITE_REQ_HELD[held];
+    if (held && p.published === true) label = 'Added — photo' + (p.waitingPhotos === 1 ? '' : 's') + ' ' + SITE_REQ_HELD_ADDED[held];
     if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
     const left = (status === 'cancelled' || status === 'failed') && typeof p.left === 'string' && Object.hasOwn(SITE_REQ_LEFT, p.left) ? SITE_REQ_LEFT[p.left] : null;
     if (left) label = left[status];
@@ -10562,8 +10582,9 @@ function siteRequestHTML(m, site) {
     // ITS SAY-SO TO BUY AGAIN (2026-10-09, round 3), while it is held on a
     // purchase nobody can tell: never pressed for the customer, and it says
     // that it may cost a second time.
+    // OFFERED ONLY FOR A PURCHASE NOBODY CAN TELL (`buyAgain`, 2026-10-11).
     const buying = (st.rebuying || []).includes(p.n);
-    const again = status === 'uncertain'
+    const again = held === 'unknown' && p.buyAgain !== false
       ? (buying ? '<span class="st-req-status">Starting…</span>'
         : '<button type="button" class="st-opt st-req-go" data-req-buy="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Buy the picture again (may cost again)</span></button>') : '';
     return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +

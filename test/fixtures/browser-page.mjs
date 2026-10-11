@@ -55,6 +55,9 @@ const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approv
 const REQ_LEFT = cutStatement("\nconst SITE_REQ_LEFT = {", "\n};\n", "unconfirmed");
 // …AND OF A PART PREPARED BESIDE ANOTHER PART'S JOB (2026-10-08, the parallel-tasks batch).
 const REQ_PREP = cutStatement("\nconst SITE_REQ_PREP = {", "\n};\n", "prepared:");
+// …AND OF A PART HELD ON A PICTURE PURCHASE, BY ITS STATE (2026-10-11, the recovery card).
+const REQ_HELD = cutStatement("\nconst SITE_REQ_HELD = {", "\n};\n", "saving:");
+const REQ_HELD_ADDED = cutStatement("\nconst SITE_REQ_HELD_ADDED = {", "\n};\n", "saving:");
 // WHICH OF A TASK'S LINES EACH OF THOSE STATUSES SHOWS (2026-10-06).
 const REQ_SAID = cutStatement("\nconst SITE_SAID_FOR = {", "\n};\n", "notdone");
 
@@ -73,6 +76,8 @@ const FNS = [...new Set([
   // message's key, following a request, its card, Stop and the rewrite go-ahead.
   "siteMessageKey", "siteUnsentBack", "siteRequestOf", "siteReqState", "siteReqSay", "siteRequestStart", "siteRequestFollow",
   "siteRequestStop", "siteRequestApprove", "siteRequestsCheck", "siteRequestHTML",
+  // AND A HELD PART'S BUY-AGAIN PRESS (2026-10-11, the recovery card).
+  "siteRequestBuyAgain",
   // EACH REQUEST'S MESSAGES WITH THAT REQUEST (2026-10-05): its own, its
   // card where it falls in time, and a message put after the last of its own.
   "siteReqOwnMsg", "siteReqMsgAt", "siteReqCardAt", "siteReqCard", "siteReqPut",
@@ -142,6 +147,8 @@ const SRC = [
   REQ_STATUS,
   REQ_LEFT,
   REQ_PREP,
+  REQ_HELD,
+  REQ_HELD_ADDED,
   REQ_SAID,
   "function wireThread(thread, site) {" + CLICKS + "}",
   "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",

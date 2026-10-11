@@ -262,7 +262,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -17970,7 +17970,7 @@ function heldPurchase(unknown) {
  * finished on the picture the service already made, and known once stored; a
  * record that cannot be read is not known.
  */
-async function purchasesKnown(env, slug, key, n, held) {
+async function purchasesKnown(env, slug, key, n, held, seen = null) {
   if (!held.length) return false;
   for (const h of held) {
     const pk = purchaseKey(slug, key, n, h.id);
@@ -17985,7 +17985,11 @@ async function purchasesKnown(env, slug, key, n, held) {
     if (!rec || rec.id !== h.id) return false;
     if (rec.state === "generated") {
       const f = await finishGenerated(env, { slug, pk, id: h.id, got, rec, owner: "driver" });
-      if (f.pending) return false;
+      // WHY IT IS STILL NOT SAVED (2026-10-11, the recovery card): our store
+      // failing leaves the same picture to be saved; its source no longer
+      // answering means it cannot be fetched again, and nobody can tell
+      // whether it ever will — the customer's buy-again is then the way on.
+      if (f.pending) { if (typeof seen === "function") seen(h.id, f.stage === "download" ? "source-unreachable" : "store-pending"); return false; }
       continue;
     }
     if (rec.state !== "buying") continue;
@@ -17998,33 +18002,76 @@ async function purchasesKnown(env, slug, key, n, held) {
 }
 
 /**
- * RELEASE A HELD PART'S PURCHASES, on the customer's say-so: each one still
- * `buying` becomes `released` (on its etag), then the request is moved on.
- * `{ status, rec }`: 404 not theirs, 409 not held, 503 a purchase that could
- * not be released (nothing moved), 200 released.
+ * RELEASE A HELD PART'S PURCHASES, on the customer's say-so — ONLY THOSE
+ * NOBODY CAN TELL, READ AGAIN FIRST (2026-10-11, the recovery card). The card
+ * the customer pressed may be stale, and a part may hold purchases in
+ * different states, so each one's own record is read now and decides:
+ *   generated        made and not stored: the same picture is saved now
+ *                    (`finishGenerated`) — never released, never made again;
+ *   buying, stored   it landed: recorded bought;
+ *   buying, running  still within its call's own time: left running;
+ *   buying, unknown  released, knowing it may cost a second time;
+ *   anything else    already known (bought, ended, released, never begun).
+ * A release is one conditional write on the record's etag. One that loses to
+ * another writer reads the record again — a second press that raced the
+ * first finds it released and does nothing more. Then the request is moved
+ * on, and the part runs again once every purchase it holds is known.
+ * `{ status, rec, released, kept }`: 404 not theirs, 409 not held, 503 a
+ * record that could not be read or written, 200 otherwise — `released` how
+ * many were let go, `kept` each one left as it is (`saving`, `saved`,
+ * `running`).
  */
-async function releaseHeldPurchases(env, ctx, { slug, key, uid, n }) {
+async function releaseHeldPurchases(env, ctx, { slug, key, uid, n, now = Date.now() }) {
   const at = await loadRequest(env, slug, key);
   if (!at.rec || at.rec.uid !== uid) return { status: 404 };
   const p = at.rec.parts[n];
   if (!p || p.status !== "uncertain") return { status: 409, rec: at.rec };
+  const heldAt = p.purchase ? p.purchase.at : NaN;
+  let released = 0;
+  const kept = [];
   for (const h of heldPurchases(p)) {
     const pk = purchaseKey(slug, key, n, h.id);
-    const got = await readJsonTried(env, pk);
-    if (!got.ok) return { status: 503, rec: at.rec };
-    const cur = got.obj && !got.malformed ? readPurchase(got.v) : null;
-    // A PICTURE ALREADY MADE AND NOT STORED (`generated`, round 4) is released
-    // too, on the customer's word: they have chosen to buy it again.
-    if (cur && cur.state !== "buying" && cur.state !== "generated") continue;
-    let put = null;
-    try {
-      put = await env.SITES_BUCKET.put(pk, JSON.stringify({ v: 1, id: h.id, d: h.d, slug, key, n, state: "released", by: "customer:" + uid, at: Date.now() }),
-        { httpMetadata: { contentType: "application/json" }, onlyIf: got.obj ? { etagMatches: got.etag } : { etagDoesNotMatch: "*" } });
-    } catch { put = null; }
-    if (!put) return { status: 503, rec: at.rec };
+    let done = false;
+    for (let round = 0; round < 3 && !done; round++) {
+      const got = await readJsonTried(env, pk);
+      if (!got.ok) return { status: 503, rec: at.rec };
+      const cur = got.obj && !got.malformed ? readPurchase(got.v) : null;
+      if (cur && cur.id !== h.id) return { status: 503, rec: at.rec };
+      // NEVER BEGUN: nothing to release — the next step claims it and buys it once.
+      if (!got.obj) { done = true; break; }
+      if (cur && cur.state === "generated") {
+        const f = await finishGenerated(env, { slug, pk, id: h.id, got, rec: cur, owner: "customer:" + uid });
+        // ITS SOURCE NO LONGER ANSWERS: the picture cannot be fetched to be
+        // saved, so it is released below like any purchase nobody can tell.
+        // Our own store failing is not that: the same picture is saved later.
+        if (!(f.pending && f.stage === "download")) {
+          kept.push({ d: h.d, state: f.url ? "saved" : f.none ? "ended" : "saving" });
+          done = true; break;
+        }
+      }
+      if (cur && cur.state !== "buying" && cur.state !== "generated") { done = true; break; }
+      if (cur && cur.state === "buying") {
+        const url = await purchasedPhoto(env, slug, h.id);
+        if (url) {
+          try { await env.SITES_BUCKET.put(pk, JSON.stringify({ ...got.v, state: "bought", url, found: true, at: now }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } }); } catch { /* found again the same way */ }
+          kept.push({ d: h.d, state: "saved" });
+          done = true; break;
+        }
+        if (heldPurchaseState(h, heldAt, now) === "running") { kept.push({ d: h.d, state: "running" }); done = true; break; }
+      }
+      // NOBODY CAN TELL (a record still `buying`, or one that does not read):
+      // released on the customer's word, on the etag just read.
+      let put = null;
+      try {
+        put = await env.SITES_BUCKET.put(pk, JSON.stringify({ v: 1, id: h.id, d: h.d, slug, key, n, state: "released", by: "customer:" + uid, at: now }),
+          { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } });
+      } catch { put = null; }
+      if (put) { released++; done = true; }
+    }
+    if (!done) return { status: 503, rec: at.rec };
   }
   const moved = await advanceRequest(env, ctx, slug, key, "buy-again");
-  return { status: 200, rec: moved || at.rec };
+  return { status: 200, rec: moved || at.rec, released, kept };
 }
 
 /** The ids of every purchase begun for one request part, read off its records' keys; an unreadable listing hides nothing. */
@@ -18576,7 +18623,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       // customer. One still unknown keeps it held.
       for (const p of base.parts) {
         if (p.status !== "uncertain") continue;
-        if (await purchasesKnown(env, slug, key, p.n, heldPurchases(p))) { const moved = purchaseResolved(base, p.n); if (moved) base = moved; }
+        const seen = new Map();
+        if (await purchasesKnown(env, slug, key, p.n, heldPurchases(p), (id, why) => seen.set(id, why))) { const moved = purchaseResolved(base, p.n); if (moved) base = moved; }
+        else if (seen.size) { const noted = heldReasons(base, p.n, seen); if (noted) base = noted; }
       }
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
@@ -27055,7 +27104,7 @@ async function handleRequest(request, env, ctx) {
           const bView = bOut.rec ? requestView(bOut.rec) : undefined;
           if (bOut.status === 409) return Response.json({ ok: false, error: "not-held", request: bView }, { status: 409 });
           if (bOut.status === 503) return Response.json({ ok: false, error: "could not release the purchase", request: bView }, { status: 503 });
-          return Response.json({ ok: true, request: bView });
+          return Response.json({ ok: true, released: bOut.released, kept: bOut.kept, request: bView });
         }
         if (rlm) {
           if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });

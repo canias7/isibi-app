@@ -1089,6 +1089,56 @@ export function purchaseResolved(record, n, now = Date.now()) {
 export const heldPurchases = (p) => (p && p.status === "uncertain" && p.purchase && Array.isArray(p.purchase.held) ? p.purchase.held : []);
 
 /**
+ * HOW LONG A PURCHASE CAN STILL BE RUNNING after its part was held: the image
+ * call's own limit (120 seconds), its three 30-second downloads and the store,
+ * with room. Past it, a purchase that was still being made has no running
+ * call left, and nobody can tell how it ended.
+ */
+export const PHOTO_RUNNING_MS = 300000;
+
+/**
+ * WHAT ONE HELD PURCHASE IS NOW, read from the reason its record gave
+ * (2026-10-11, the recovery card):
+ *   saving   made, not stored yet — the same picture is saved, never made again;
+ *   running  still being made, within the call's own time;
+ *   placing  the purchase is known; its frame could not be read just now;
+ *   unknown  begun and not known to have ended — only the customer's
+ *            buy-again begins it again, knowing it may cost twice.
+ */
+export function heldPurchaseState(h, heldAt, now = Date.now()) {
+  const why = h && typeof h.why === "string" ? h.why : "";
+  if (why === "store-pending") return "saving";
+  if (why === "frames-unreachable") return "placing";
+  if (why === "in-flight" && Number.isFinite(heldAt) && now - heldAt < PHOTO_RUNNING_MS) return "running";
+  return "unknown";
+}
+
+/**
+ * A HELD PART'S PURCHASES WITH THE REASON NOW OBSERVED for each (`seen`, id →
+ * reason): a made picture whose store failed (`store-pending`), or whose
+ * source no longer answers (`source-unreachable`). The time it was held is
+ * kept. Null when nothing changed.
+ */
+export function heldReasons(record, n, seen) {
+  const p0 = record && record.parts ? record.parts[n] : null;
+  if (!p0 || p0.status !== "uncertain" || !(seen instanceof Map) || !p0.purchase || !Array.isArray(p0.purchase.held)) return null;
+  if (!p0.purchase.held.some((h) => seen.has(h.id) && seen.get(h.id) !== h.why)) return null;
+  const rec = clone(record);
+  const p = rec.parts[n];
+  p.purchase.held = p.purchase.held.map((h) => (seen.has(h.id) ? { ...h, why: String(seen.get(h.id)).slice(0, 40) } : h));
+  rec.rev = (Number(rec.rev) || 0) + 1;
+  return rec;
+}
+
+/** A held part's purchases, each with its state, and the part's own: the most uncertain of them (unknown, running, saving, placing). */
+export function heldPurchaseView(p, now = Date.now()) {
+  const at = p && p.purchase ? p.purchase.at : NaN;
+  const list = heldPurchases(p).map((h) => ({ d: h.d, ...(h.why ? { why: h.why } : {}), state: heldPurchaseState(h, at, now) }));
+  const state = ["unknown", "running", "saving", "placing"].find((x) => list.some((h) => h.state === x)) || null;
+  return { list, state, buyAgain: list.some((h) => h.state === "unknown") };
+}
+
+/**
  * WHAT ONE JOB'S OWN OUTCOME IS, FOR ITS CARD (2026-10-06, the owner: *"Derive
  * the displayed state and model-written summary from the actual outcome across
  * Edit and Add-on, covering partial results, clarification, handoffs and
@@ -1820,7 +1870,7 @@ function prepUseOf(p, prepUse) {
   return out;
 }
 
-export function requestView(rec, { progress = null, said = null, runs = null, prepUse = null } = {}) {
+export function requestView(rec, { progress = null, said = null, runs = null, prepUse = null, now = Date.now() } = {}) {
   // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
   // run carries it (`routedCost`) only when part 0 ran on the answer that
   // accepted the message and its job's reply was written; a part 0 routed
@@ -1861,7 +1911,10 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // purchase nobody can tell, by its description.
       // AND WHY, AS ITS RECORD GIVES IT (2026-10-11): a picture made and not
       // saved yet (`store-pending`) is not one whose purchase is unknown.
-      ...(p.status === "uncertain" ? { purchases: heldPurchases(p).map((h) => ({ d: h.d, ...(h.why ? { why: h.why } : {}) })) } : {}),
+      // EACH ONE'S STATE AND THE PART'S (2026-10-11, the recovery card): what
+      // the card says, and whether a buy-again is offered at all — only for
+      // a purchase nobody can tell.
+      ...(p.status === "uncertain" ? ((hv) => ({ purchases: hv.list, purchaseState: hv.state, buyAgain: hv.buyAgain }))(heldPurchaseView(p, now)) : {}),
       // AN ADDITION ALREADY LIVE WHOSE FRAMES WAIT ON THEIR PHOTOGRAPHS (round
       // 5): published, so never shown as nothing done.
       ...(p.place && p.published ? { published: true, waitingPhotos: (p.place.photos || []).length } : {}),
