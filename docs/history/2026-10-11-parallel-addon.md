@@ -317,3 +317,144 @@ passes on both.
   survivor above).
 - A preparation buys early **only beside another part's live job**; a part
   prepared alone still buys in its job, as before.
+
+## 6. Round 3 — Codex's review of `902fc7f0`: two purchase-lifecycle gaps
+
+Codex passed 114 focused tests on `902fc7f0` independently: real image
+generation overlaps the component writer in both orders, and the scoped-page
+and capacity regressions hold. Two gaps remained, both one rule — **a
+JavaScript promise that settled is not a purchase whose outcome is known, and
+an outcome that is known is not made again by a later step of the same
+request**. **Commits**: `ed113138` (the change and its tests), with records
+after. No merge, deploy, container build, paid call, real image, fal call,
+balance or flag change.
+
+### The gaps, each a failing case first (red on `902fc7f0`'s code)
+
+1. **A refusal asked again** (PI 17; PI 18, every message delivered twice).
+   `twoParts({ first: "faq", photoAt: "image", faqAt: "pages", refuse: true
+   })`: the photograph's preparation, beside the component's page writer,
+   was refused, and the part's own job asked the image service again —
+   `purchaseOnce` read the `none` record as "may be begun again". PO 8
+   (`test/purchase-outcomes.test.mjs`) asserted exactly that second call; it
+   is converted (below).
+2. **A settled promise counted as a known purchase** (PI 19, PI 20, PI 21).
+   `earlyPhotosEnd` put every result into its `done` set, so a result marked
+   `unknown` was never held:
+   - PI 19 — the image call's answer lost (a connection reset) and the page
+     writer 529s: the request ended failed, the purchase left `buying`, and
+     nothing held;
+   - PI 20 — the first three upload writes fail and the writer 529s: the
+     picture made, its source on the record (`generated`), the request ended
+     failed and nothing finished storing it;
+   - PI 21 — PI 20's lifecycle through a question: once stored, the part
+     runs again, asks the customer something, and the answer resumes it.
+
+PI 23 (the reply facts) was red too. PI 22 and its control pass on both
+versions: they close the clock-gate gap recorded in §5, below.
+
+### What changed
+
+- **A purchase that ended with nothing is definitive for the rest of its
+  request** (`purchaseOnce`). A refusal the image service answered, or a
+  picture made and found unusable, is read as `none` by whoever meets it
+  next — the part's job after its preparation, a redelivery, a step run
+  again after a question — and never begun again on a read.
+  - **Only the customer's explicit buy-again begins it again**
+    (`released`), as before; PI 19 uses it and it works unchanged.
+  - **An ending the image service never saw is not one** (`asked: false` on
+    the record): no key, the image-purchase switch off, an empty
+    description. Nothing was asked, made or paid for, so it may be begun once
+    that has changed. The existing Build case that first runs with no key
+    and then resumes with one (`build-batch-8` case 2) needs exactly this;
+    it failed under the first cut of the rule and passes under this one.
+- **An early task is read by each purchase's ending, not its promise**
+  (`earlyPhotosEnd`): stored (told as saved and not on the site); ended with
+  nothing (no hold); unknown, with its own reason (`unconfirmed`,
+  `store-pending`, an unreadable record); a buyer that threw (`unconfirmed`);
+  no ending yet (`in-flight`). Every held purchase keeps its identity — from
+  its buyer, its result, or computed from whose purchase it is and what it
+  is (`identOf`) — so the request holds the part on exactly it.
+  - The existing driver then does the rest, unchanged: `purchasesKnown`
+    finishes a `generated` purchase on the **same picture** (downloaded
+    again from its source, stored, never generated again), and the part runs
+    again and reuses it.
+- **What the customer is told follows the purchase's state.**
+  - The request view names each held picture **with its reason** (`why`),
+    so a picture made and not saved yet is not shown as a purchase nobody
+    can tell.
+  - A failed addition's reply facts name each held picture by its reason
+    (`heldPhotoFacts`): made and not saved yet (saved later, never made
+    again, no buy-again offered), or not known (not bought again; buy-again
+    named with its cost); in a request, carried on by itself. A failure
+    whose cause is ours (a provider 529, say) is a technical answer with no
+    model-written reply, as before; the card reads the view.
+- **The clock gate on early buying has a test** (PI 22). The platform's
+  injected clock moves the job's own clock while the designers answer; the
+  production limits are untouched. With 80 seconds left (below the publish
+  reserve plus the slowest shot) nothing is asked of the image service and
+  the job stops at its publish gate for time, charging nothing; with 400
+  seconds (past the publish gate's 255) the same addition buys once and
+  publishes. Removing the gate makes PI 22 fail: the early purchase starts
+  and lands after the job's answer.
+  - PI 22 waits a moment before reading, because such a purchase is not
+    waited for by the route (its clock says no wait); without that wait the
+    removed gate's purchase landed in the next case's stand-ins instead.
+
+### Adapted, not weakened
+
+- **PO 8 converted**: it asserted that a refusal recorded by the preparation
+  let the part's job ask again (two provider calls). It now asserts the
+  refusal is final: one call, nothing stored, the other task done, the
+  picture's own job netting to nothing.
+- **Three pins re-anchored**: `image-purchase-switch` (the switch's
+  refusal now says `asked: false`), `wiring` (the one silent ending, the
+  empty prompt, now says `asked: false`), and PUR 4 (the view's held
+  purchase now carries its reason).
+
+### Evidence
+
+- `test/parallel-addon-independent.test.mjs`: 25 cases, all green (PI 17–23
+  new; PI 22 has a control). With PO 8, the build resume, PUR 4 and the two
+  pins: 121 of 121 across the six files touched.
+- **Red check** (`902fc7f0`'s product code, this round's tests, in a
+  throwaway worktree): PI 17, 18, 19, 20, 21, 23 and PO 8 fail; PI 22 and
+  its control pass on both (the gate existed; PI 22 proves its removal is
+  seen).
+- **Mutation sweep** (`run7`, 10 test files, from a green baseline of 164):
+  19 mutants, **15 killed**, both comment-only controls survived. Every
+  rule above is killed: the refusal kept, `asked: false` honoured at the
+  key, the switch, the record and the reader, the unknown reason held (and
+  held with its own reason, not a generic one), `in-flight` held, the view's
+  reason, the reply facts and their buy-again clause, and the clock gate.
+  The survivors:
+  - **a buyer that threw is held** (`threw` → `unconfirmed`): no route
+    reaches it — `purchaseBuyer` never throws (its own failures end in
+    `purchaseOnce`'s states), and the prep buyer's ending is the
+    preparation's to tell. Kept as the conservative reading.
+  - **the identity fallbacks** (from the result, and `identOf`), two
+    mutants: every buyer tells its identity before waiting, so no case has
+    a purchase without one. Kept so that a buyer that does not tell it is
+    still held by the identity it must have.
+  - **the reused refusal's own reason** (`error: "photo " + why`): what a
+    reused ending says in the image step's error field; the reply's
+    photograph facts read the refusal from the requirement verdicts, not
+    this text.
+- **Full suite** on `ed113138`: `10477 / 10477 / 0 / 0` locally (`10469`
+  before; the 8 new cases are PI 17–21, PI 22 and its control, and PI 23).
+  The three doc tests stay 32 of 32.
+- **Image**: the predicted image moves `15fd0e0ba5555f38` →
+  **`eb7e55f950c105cc`** (205 inputs, 174 paths, on `ed113138`; not built).
+  `docs/acceptance-current.md` and its guard name the new id.
+
+### Still not shown live
+
+- Everything here runs through the real driver, consumer, routes and job
+  runner with supplied model answers and a mocked image service, the network
+  blocked. A real refusal, a real lost image answer and a real store failure
+  have not been seen live.
+- The buy-again button on a held part is offered for any held purchase,
+  including one made and not saved yet (`store-pending`), where the picture
+  exists and saving it is retried by itself; the view now carries the reason,
+  and the page does not yet read it (a page change, not made in this round).
+- Real router splitting, real writers and real images remain as in §5.

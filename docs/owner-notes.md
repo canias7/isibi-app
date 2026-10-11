@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; offline, nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,12 +10,49 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`ef8ea26d`** (round 2, on Codex's review of `d7a00395`), with records
-  after. Its predicted image is **`15fd0e0ba5555f38`** (205 inputs; not
-  built).
+  **`ed113138`** (round 3, on Codex's review of `902fc7f0`), with records
+  after (`afa0f4e4` and the commit carrying this note). Its predicted image
+  is **`eb7e55f950c105cc`** (205 inputs; not built).
 - **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
   picture in this round was a mock. No paid call, merge, deploy or container
   build.
+
+**Round 3** (`ed113138`; `docs/history/2026-10-11-parallel-addon.md` §6).
+Codex passed 114 focused tests on `902fc7f0` and found two purchase-lifecycle
+gaps; each is now a failing case first (PI 17–21, PI 23 and PO 8 red on the
+old code). One rule closes both: a settled promise is not a known purchase,
+and a known ending is never made again by the same request.
+- **A refusal stays refused.** With the component first and the photograph's
+  preparation refused beside its page writer, the part's own job used to ask
+  the image service again. Now a refusal the service answered (or a picture
+  made and found unusable) is that purchase's definitive outcome for the
+  whole request — job, redelivery, a step run again after a question. Only
+  your buy-again begins it again. An ending the service never saw (no key,
+  purchases switched off, empty description) is marked `asked: false` and
+  may still be bought later (PI 17, PI 18 with every message twice, PO 8
+  converted from asserting the second call).
+- **An unknown purchase is held, by identity and reason.** A lost image
+  answer beside a failing page writer used to end the request failed with
+  the purchase left `buying`; a picture made whose upload failed ended failed
+  with nothing finishing it. Now each early purchase is read by its own
+  ending: unknown (`unconfirmed`), made-not-saved (`store-pending`), still
+  running, or a buyer that threw are all held. The part is held; a made
+  picture is saved later from its source (never generated again) and the
+  part reuses it; an unknown one waits for your buy-again (PI 19, PI 20 with
+  every message redelivered, PI 21 through a question and its answer).
+- **What you are told follows the state.** The request view names each
+  held picture with its reason; a failed addition's reply facts say it by
+  that reason (PI 23).
+- **The clock-gate gap is closed** (PI 22 and control): the job's own clock,
+  moved by the test platform's injected clock, with production limits
+  untouched; removing the gate fails PI 22.
+- **Evidence**: sweep 19 mutants, 15 killed, both controls survived, the
+  4 surviving mutants explained (a buyer that throws and two identity
+  fallbacks no route reaches; one error string nothing reads); full suite
+  `10477 / 10477 / 0 / 0`; doc tests 32 of 32. CI: below, once read.
+- **Still not live**: a real refusal, lost answer or store failure. The
+  page's buy-again button still shows for a picture made and not yet saved
+  (the view now carries the reason; the page does not read it yet).
 
 **Round 2** (`ef8ea26d`; `docs/history/2026-10-11-parallel-addon.md` §5).
 Codex's four findings on `d7a00395`, each a failing case first (PI 3, PI 11,
@@ -95,7 +132,7 @@ chooses well; real images.
 - Optional, not needed for the parallel-work claims: `acc-needs`,
   `acc-mixed`, and the image-free Build.
 - **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `15fd0e0ba5555f38`), wait
+  customer while off; P2 needs it), merge (image `eb7e55f950c105cc`), wait
   15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
 **The decision you need to make first**: the only enforced bound on any
@@ -125,6 +162,29 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 3: a refused picture stays refused; an unknown purchase is held (offline; not deployed, not pressed)
+
+- **You**: Codex passed 114 focused tests on `902fc7f0`. Close two
+  purchase-lifecycle gaps: a refused image asked for again by the part's
+  job; `earlyPhotosEnd` treating an `unknown` result as done, so a lost
+  answer or a failed store ended the request with nothing held. Failing
+  regressions first; recovery, duplicate delivery and clarification; close
+  the clock-gate test gap with an injected clock if practical.
+- **Done** (`ed113138`): a service-answered ending is definitive for the
+  request (only buy-again releases it; `asked: false` endings stay
+  retryable); every early purchase is held by its identity and reason until
+  known; the view and reply facts carry the reason; PI 22 tests the clock
+  gate.
+- **Verified offline**: 7 cases red on `902fc7f0`; 25 PI cases green;
+  sweep 15 of 19 killed (both controls survived); full suite `10477 / 10477 / 0 /
+  0`; image predicted `eb7e55f950c105cc` (`afa0f4e4` moves the acceptance
+  pin).
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image; the page's reading of the held
+  reason.
 
 ---
 
