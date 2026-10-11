@@ -286,7 +286,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, designWaits, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -28015,8 +28015,11 @@ async function handleRequest(request, env, ctx) {
             // repeated-question threshold and the total-answer limit; at either,
             // the question goes to the customer and nothing beside it is done
             // (2026-10-03, the owner's third review).
-            const eQuick = (what = "") => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
-              shown: () => eCtx,
+            // `ctx` FIXES WHAT ONE CALL IS SHOWN (2026-10-11): a call started
+            // beside others (the look door's lanes) is shown its own answers,
+            // never whichever `eCtx` the loop has moved on to.
+            const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
+              shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
               part: ePartShown,
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
@@ -31181,6 +31184,56 @@ async function handleRequest(request, env, ctx) {
                 // EACH LANE IS SHOWN THE ANSWERS ITS OWN CHANGE NEEDS (2026-10-02,
                 // `toldBy`), the step's own between lanes and after the last.
                 const eLookCtx = eCtx;
+                // ── AND EVERY ACTING LANE IS ASKED AT ONCE (2026-10-11) ──────
+                //
+                // The parallel-work goal: *"independent tasks … should actively
+                // run at the same time."* No lane reads another's answer — each
+                // is shown its own words, its own field's stored value and (the
+                // stylesheet lane) the site's styling — so their calls start
+                // together here, each with its own answers fixed (`eQuick`'s
+                // `ctx`), and the loop below takes them in the picked order,
+                // with every exit exactly as before: a failure or a question
+                // from any lane sets the whole step aside, the answers of the
+                // others unused and uncharged. A removal is not a call (or is
+                // the take-off call, made in its turn).
+                const eLaneArgs = (field) => ({
+                  field,
+                  // ITS OWN WORDS WHEN THE PICKER SCOPED THEM, never another
+                  // change's: run 52's description lane was handed the Visit
+                  // move beside its own sentence.
+                  message: (eAsks && typeof eAsks[field] === "string" && eAsks[field]) || eInstruction,
+                  // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
+                  // stylesheet in R2; every other acting lane is a key on
+                  // the stored look — and every one of those is on
+                  // `EDIT_FIELDS`, which is what `mergeLook` reads below, so
+                  // what is read here and what is written there cannot
+                  // disagree about where a field lives.
+                  //
+                  // COUNTED IN PROSE UNTIL 2026-08-29 ("all seven of those"),
+                  // which went stale the moment `behavior` began acting and
+                  // said nothing about it. A count of a derived set is a
+                  // second copy of that set; the property is that they are
+                  // ALL on `EDIT_FIELDS`, and that is what is written now.
+                  value: field === "css" ? priorCss : (priorLook || {})[field],
+                  // THE SITE'S OWN STYLING, ON THE ONE LANE THAT STYLES.
+                  // Every other acting lane edits a short string or a list
+                  // and a stylesheet would be noise in front of it.
+                  // THE MAP FIRST, THE THEME SECOND, and the order is the
+                  // job: the lane's first decision is WHICH element, and
+                  // only then WHAT COLOUR. Both are context and neither is
+                  // the value being edited.
+                  note: field === "css"
+                    ? [landmarkNote(eMarks), themeNote(themeSheet)].filter(Boolean).join("\n\n")
+                    : "",
+                  model: modelsFor(eb && eb.picker).design,
+                });
+                const eLaneCalls = new Map();
+                for (const field of pickedFields) {
+                  if (eRemoves.remove.includes(field)) continue;
+                  const ctx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
+                  editTrace.mark("lane:" + field, "start");
+                  eLaneCalls.set(field, runLane({ send: eQuick("lane", ctx) }, eLaneArgs(field)).catch((e) => ({ field, value: undefined, usage: null, failed: true, error: e })));
+                }
                 for (const field of pickedFields) {
                   eCtx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
                   // ── A REMOVAL FROM A LIST NAMES WHAT GOES (2026-10-02, W2) ──
@@ -31240,41 +31293,8 @@ async function handleRequest(request, env, ctx) {
                     editTrace.mark("lane:" + field, "removed");
                     continue;
                   }
-                  editTrace.mark("lane:" + field, "start");
-                  const ran = await runLane(
-                    { send: eQuick("lane") },
-                    {
-                      field,
-                      // ITS OWN WORDS WHEN THE PICKER SCOPED THEM, never another
-                      // change's: run 52's description lane was handed the Visit
-                      // move beside its own sentence.
-                      message: (eAsks && typeof eAsks[field] === "string" && eAsks[field]) || eInstruction,
-                      // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
-                      // stylesheet in R2; every other acting lane is a key on
-                      // the stored look — and every one of those is on
-                      // `EDIT_FIELDS`, which is what `mergeLook` reads below, so
-                      // what is read here and what is written there cannot
-                      // disagree about where a field lives.
-                      //
-                      // COUNTED IN PROSE UNTIL 2026-08-29 ("all seven of those"),
-                      // which went stale the moment `behavior` began acting and
-                      // said nothing about it. A count of a derived set is a
-                      // second copy of that set; the property is that they are
-                      // ALL on `EDIT_FIELDS`, and that is what is written now.
-                      value: field === "css" ? priorCss : (priorLook || {})[field],
-                      // THE SITE'S OWN STYLING, ON THE ONE LANE THAT STYLES.
-                      // Every other acting lane edits a short string or a list
-                      // and a stylesheet would be noise in front of it.
-                      // THE MAP FIRST, THE THEME SECOND, and the order is the
-                      // job: the lane's first decision is WHICH element, and
-                      // only then WHAT COLOUR. Both are context and neither is
-                      // the value being edited.
-                      note: field === "css"
-                        ? [landmarkNote(eMarks), themeNote(themeSheet)].filter(Boolean).join("\n\n")
-                        : "",
-                      model: modelsFor(eb && eb.picker).design,
-                    },
-                  );
+                  // STARTED ABOVE WITH THE OTHER LANES; taken here, in order.
+                  const ran = await eLaneCalls.get(field);
                   editTrace.mark("lane:" + field, ran.failed ? "fail" : "ok",
                     { chars: typeof ran.value === "string" ? ran.value.length : 0,
                       answered: ran.value !== undefined });
@@ -33889,6 +33909,38 @@ async function handleRequest(request, env, ctx) {
             // cannot tell which new page is "the gallery" cannot place a
             // section on it any better than one that never heard of it.
             const aNewPages = [];
+            // ONE FOLD OF A DECIDED KIND INTO WHAT LATER DESIGNERS ARE SHOWN
+            // (2026-10-11): a schema kind into the proposal and its new names,
+            // a `page` into the planned pages. `st` is `{spec, names, pages}`;
+            // the loop folds into the whole site, `aSiteFor` into a designer's
+            // own view of it, in the same order (`aFolded`).
+            const aFolded = [];
+            const aFoldInto = (st, k, value) => {
+              const tier = SPEC_OF_KIND[k];
+              if (tier) {
+                st.spec = proposedSpec(st.spec, k, value);
+                for (const item of Array.isArray(value) ? value : []) {
+                  const one = k === "table" ? (item && item.table) : item;
+                  if (!one || !one.name) continue;
+                  // ONLY A NAME THE SITE DID NOT ALREADY HAVE (2026-09-14). The
+                  // cleaner answers `exists` for a table, function, connection
+                  // or job this message names again, and `siteNote` prints
+                  // "being added by this same change" against every proposed
+                  // name — so an EXTENSION of a stored table was described to
+                  // the next designer as a table the site has never had.
+                  if (item && item.exists === true) continue;
+                  if (!st.names[tier].includes(one.name)) st.names[tier].push(one.name);
+                  if (k === "function" && one.internal === true && !st.names.jobFns.includes(one.name)) st.names.jobFns.push(one.name);
+                }
+              }
+              if (k === "page") {
+                for (const item of Array.isArray(value) ? value : []) {
+                  if (!item || typeof item.path !== "string" || !item.path) continue;
+                  if (st.pages.some((p) => p.path === item.path)) continue;
+                  st.pages.push({ path: item.path, name: typeof item.name === "string" ? item.name : "" });
+                }
+              }
+            };
             // ── THE SITE'S OWN COMPONENTS, READ ONCE (2026-09-17) ──────────
             //
             // `look.tsx` is the cumulative DECLARATION list and says nothing
@@ -33942,7 +33994,9 @@ async function handleRequest(request, env, ctx) {
             // import, and whatever this change itself declares (`own`).
             const aViewTsx = (tsx, own) => (!aScope ? tsx : (Array.isArray(tsx) ? tsx : []).filter((t) => t && (aViewUses.includes(aNameKey(t.name)) || (own && own(t)))));
             if (aScope) aMark("scope", "pages", { pages: aScope.length, shown: aView.length, parts: aViewParts ? aViewParts.length : null });
-            const siteFacts = (spec) => ({
+            // THE NAMES AND PAGES ARE ARGUMENTS (2026-10-11), so a designer can be
+            // shown the site with only the results it uses (`aSiteFor`, below).
+            const siteFacts = (spec, names = aNewNames, pages = aNewPages) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
@@ -33952,7 +34006,7 @@ async function handleRequest(request, env, ctx) {
               // implementation; this is the plan, one call old. Folding the
               // two would make a section land on a page with no source and
               // tell the designer to go and copy it.
-              planned: aNewPages.map((p) => ({ ...p })),
+              planned: pages.map((p) => ({ ...p })),
               // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
@@ -34030,7 +34084,7 @@ async function handleRequest(request, env, ctx) {
               // WHICH OF THE NAMES ABOVE THIS MESSAGE IS STILL BUILDING.
               // `siteNote` marks each one, so a designer can rely on it and
               // still know it is not there yet.
-              proposed: { ...aNewNames },
+              proposed: { ...names },
             });
             // WHAT `cleanAdd` AND `siteNote` ARE HANDED IS ONE OBJECT, so the
             // destination a designer was offered and the destination the
@@ -35244,34 +35298,88 @@ async function handleRequest(request, env, ctx) {
             // when that request is EXACTLY the one it was asked. Otherwise (an
             // earlier kind handed it something) it is asked again, and the early
             // answer is set aside unbilled: only the answer used is counted.
-            const aChangesSite = (k) => !!SPEC_OF_KIND[k] || k === "page";
+            //
+            // …AND EACH IS SHOWN ONLY WHAT IT USES (2026-10-11, Codex on
+            // adbb7ad7: a table nothing shows held a static questions section
+            // back, because every designer was shown every result decided
+            // before it). `designWaits` says, from the picker's own answer
+            // (what each kind uses, and the words it was asked in) and from
+            // what a schema kind is written against, which earlier kinds each
+            // designer is built on; it is shown the site with THOSE results
+            // folded in (`aSiteFor`) and started the moment they are decided —
+            // the rest at once. A kind the picker said nothing about waits for
+            // every earlier kind that changes the site, as before.
+            const aWaits = designWaits(aDesigning, { scopes: aScopes, uses: aPicked.uses || {} });
+            const aDecided = new Set();
             const aDesignReq = (k, site, brief) => JSON.stringify(addRequest({ kind: k, message: aInstruction, site, model: aModels.quick, brief }));
-            const aEarly = new Map();
-            const aStartFrom = (k) => {
+            // THE SITE AS THIS DESIGNER USES IT: the whole of it when it waits
+            // for every result folded so far (the same object, byte for byte),
+            // otherwise the stored site with only its own results folded in.
+            // The earlier kinds it is NOT shown are named on its note
+            // (`unshown`, from `designWaits` alone, so the request is the same
+            // bytes whenever it is built), and it may answer that it `needs`
+            // one: then it is asked again with them (`aWiden`, below).
+            const aChanges = (j) => !!SPEC_OF_KIND[j] || j === "page";
+            const aUnshown = (k) => {
               const at = aDesigning.indexOf(k);
-              for (const j of at < 0 ? [k] : aDesigning.slice(at)) {
-                if (!aEarly.has(j)) {
-                  const site = aSite;
-                  const brief = requirementBrief(aReq.filter((r) => r.judged), j);
-                  aMark("add:" + j, "start");
-                  aEarly.set(j, {
-                    site, req: aDesignReq(j, site, brief),
-                    p: runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief }).catch((e) => ({ failed: true, error: e })),
-                  });
-                }
-                if (aChangesSite(j)) break;
+              const waits = Object.hasOwn(aWaits, k) ? aWaits[k] : null;
+              if (at < 0 || !waits) return [];
+              return aDesigning.slice(0, at).filter((j) => aChanges(j) && !waits.includes(j));
+            };
+            const aSiteFor = (k) => {
+              const left = aUnshown(k);
+              if (!left.length) return aSite;
+              const waits = aWaits[k];
+              const st = { spec: aBaseline, names: { tables: [], functions: [], jobFns: [], apis: [], jobs: [] }, pages: [] };
+              for (const f of aFolded) if (waits.includes(f.kind)) aFoldInto(st, f.kind, f.value);
+              return { ...siteFacts(st.spec, st.names, st.pages), unshown: left.map((j) => ({ kind: j, words: typeof aScopes[j] === "string" ? aScopes[j] : "" })) };
+            };
+            // IT SAID IT NEEDS WHAT IT WAS NOT SHOWN: from now on it waits for,
+            // and is shown, every earlier kind — the old order, for this kind.
+            const aWiden = (k) => { aWaits[k] = aDesigning.slice(0, Math.max(0, aDesigning.indexOf(k))).filter(aChanges); };
+            const aEarly = new Map();
+            // EVERY DESIGNER WHOSE INPUTS ARE ALL DECIDED, started now (a kind
+            // that is not in the designing list — none today — starts alone).
+            const aStartReady = (k) => {
+              for (const j of aDesigning.includes(k) ? aDesigning : [k]) {
+                if (aEarly.has(j) || aDecided.has(j)) continue;
+                if (!(aWaits[j] || []).every((w) => aDecided.has(w))) continue;
+                const site = aSiteFor(j);
+                const brief = requirementBrief(aReq.filter((r) => r.judged), j);
+                aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);
+                aEarly.set(j, {
+                  site, req: aDesignReq(j, site, brief),
+                  p: runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief }).catch((e) => ({ failed: true, error: e })),
+                });
               }
             };
-            // THIS KIND'S EARLY ANSWER, OR NULL: started now with the kinds
-            // after it (`aStartFrom`), and used only when its request is still
-            // byte for byte the one it would be asked now — the same site facts
-            // and the same hand-off brief. Otherwise it is asked again.
+            // IT NEEDS A RESULT IT WAS NOT SHOWN (`needs`, 2026-10-11): asked
+            // again, once, with the whole site as decided so far — every
+            // earlier kind is decided by its turn. Both calls were real work,
+            // so both are on the bill; the first answer is never used. An
+            // answer that names nothing it was not shown is the answer.
+            const aNeedsAgain = async (k, first, brief) => {
+              const left = aUnshown(k);
+              const needed = !first.failed && !first.ask && Array.isArray(first.needs) ? first.needs.filter((n) => left.includes(n)) : [];
+              if (!needed.length) return first;
+              if (first.usage) aDesignUsage.push(first.usage);
+              aMark("add:" + k, "needs", { needs: needed });
+              aWiden(k);
+              // WHAT IT WAS REALLY SHOWN for the answer used: this call's.
+              aShown[aShown.length - 1] = { kind: k, ...shownSchema(aSiteFor(k)) };
+              aMark("add:" + k, "start", { again: true, needs: needed });
+              return runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief });
+            };
+            // THIS KIND'S EARLY ANSWER, OR NULL: started as soon as what it uses
+            // was decided (`aStartReady`), and used only when its request is
+            // still byte for byte the one it would be asked now — the same site
+            // facts and the same hand-off brief. Otherwise it is asked again.
             const aTakeEarly = (k, brief) => {
-              aStartFrom(k);
+              aStartReady(k);
               const e = aEarly.get(k);
               aEarly.delete(k);
               if (!e) return null;
-              if (e.req === aDesignReq(k, aSite, brief)) return e.p;
+              if (e.req === aDesignReq(k, aSiteFor(k), brief)) return e.p;
               // A SECOND START, MARKED AS ONE (the trace keeps start, ok and fail).
               aMark("add:" + k, "start", { again: true });
               return null;
@@ -35314,12 +35422,17 @@ async function handleRequest(request, env, ctx) {
               // ABOVE THE CALL, NOT BELOW IT: `aSite` is a `let` that the loop
               // rebuilds from this kind's own answer, so a digest taken after
               // the await would record the OUTPUT wearing the input's name.
-              aShown.push({ kind: k, ...shownSchema(aSite) });
-              // THIS KIND AND, WHILE NOTHING BEFORE THEM CAN CHANGE THE SITE, THE
-              // KINDS AFTER IT, started now; this one's early answer used only
-              // when its request is exactly the one it would be asked now.
+              aShown.push({ kind: k, ...shownSchema(aSiteFor(k)) });
+              // THIS KIND AND EVERY KIND WHOSE INPUTS ARE DECIDED, started now;
+              // this one's early answer used only when its request is exactly
+              // the one it would be asked now.
               const aEarlyOne = aTakeEarly(k, aBrief);
-              const ran = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick, brief: aBrief });
+              const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief });
+              // IT NEEDS A RESULT IT WAS NOT SHOWN: asked again with it (`aNeedsAgain`).
+              const ran = await aNeedsAgain(k, ranFirst, aBrief);
+              // DECIDED: what waits on it starts at the next kind's turn, once
+              // its result below is folded in.
+              aDecided.add(k);
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
               // BELOW IT. A coverage list read after the decline check, after
               // the cleaner's refusal or after the truncation check is a list
@@ -35527,21 +35640,15 @@ async function handleRequest(request, env, ctx) {
               // One accumulation now (2026-09-14), rebuilt from the proposal,
               // so every later designer sees everything decided so far and
               // `siteNote` marks each of them as being added by this change.
+              //
+              // ONE FOLD FOR BOTH HALVES (`aFoldInto`, 2026-10-11), kept in
+              // order (`aFolded`) so a designer shown only the results it uses
+              // is shown them folded exactly as here (`aSiteFor`).
               if (tier) {
-                aProposed = proposedSpec(aProposed, k, clean.value);
-                for (const item of Array.isArray(clean.value) ? clean.value : []) {
-                  const one = k === "table" ? (item && item.table) : item;
-                  if (!one || !one.name) continue;
-                  // ONLY A NAME THE SITE DID NOT ALREADY HAVE (2026-09-14). The
-                  // cleaner answers `exists` for a table, function, connection
-                  // or job this message names again, and `siteNote` prints
-                  // "being added by this same change" against every proposed
-                  // name — so an EXTENSION of a stored table was described to
-                  // the next designer as a table the site has never had.
-                  if (item && item.exists === true) continue;
-                  if (!aNewNames[tier].includes(one.name)) aNewNames[tier].push(one.name);
-                  if (k === "function" && one.internal === true && !aNewNames.jobFns.includes(one.name)) aNewNames.jobFns.push(one.name);
-                }
+                const st = { spec: aProposed, names: aNewNames, pages: aNewPages };
+                aFoldInto(st, k, clean.value);
+                aProposed = st.spec;
+                aFolded.push({ kind: k, value: clean.value });
                 aSite = siteFacts(aProposed);
               }
               // ── AND THE FRONTEND HALF (2026-09-17) ──────────────────────
@@ -35557,11 +35664,8 @@ async function handleRequest(request, env, ctx) {
               // into a spec list, which a page is not. This is its own
               // branch for that reason rather than by omission.
               if (k === "page") {
-                for (const item of Array.isArray(clean.value) ? clean.value : []) {
-                  if (!item || typeof item.path !== "string" || !item.path) continue;
-                  if (aNewPages.some((p) => p.path === item.path)) continue;
-                  aNewPages.push({ path: item.path, name: typeof item.name === "string" ? item.name : "" });
-                }
+                aFoldInto({ spec: aProposed, names: aNewNames, pages: aNewPages }, k, clean.value);
+                aFolded.push({ kind: k, value: clean.value });
                 aSite = siteFacts(aProposed);
               }
               // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the

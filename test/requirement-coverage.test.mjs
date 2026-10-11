@@ -429,7 +429,7 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   };
   // RE-ANCHORED 2026-10-11 (the parallel-work goal): one statement, the
   // designer's early answer when its request is unchanged or a call made now.
-  const runAt = at("const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "the designer call");
+  const runAt = at("const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "the designer call");
   // HOP 3 IS ABOVE EVERY EXIT BELOW IT. A list collected after the decline
   // check, after the cleaner's refusal or after the truncation check is a list
   // that vanishes in exactly the three cases worth reading it in.
@@ -707,7 +707,7 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // sees what the ones before it proposed. `aSpec` became the function's own
   // `spec` parameter for the same reason: read off the accumulating proposal,
   // never off the stored baseline alone.
-  const factsAt = W.indexOf("const siteFacts = (spec) => ({");
+  const factsAt = W.indexOf("const siteFacts = (spec, names = aNewNames, pages = aNewPages) => ({");
   assert.ok(factsAt > 0, "the site facts are not built from a spec — the designers cannot be shown the proposal");
   const siteLit = W.slice(factsAt, W.indexOf("});", factsAt));
   assert.ok(siteLit.length > 500, "the site literal could not be read: " + siteLit.length);
@@ -716,7 +716,10 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // is the old behaviour wearing a function's name.
   assert.ok((W.match(/siteFacts\(a(?:Baseline|Proposed)\)/g) || []).length >= 2,
     "the site facts are built once — a later designer is shown the site as it was before this message");
-  assert.match(W, /aProposed = proposedSpec\(aProposed, k, clean\.value\)/, "the proposal never accumulates");
+  // ONE FOLD SINCE 2026-10-11 (`aFoldInto`, shared with a designer's own view
+  // of the site): it accumulates the proposal, and the loop keeps the result.
+  assert.match(W, /st\.spec = proposedSpec\(st\.spec, k, value\)/, "the proposal never accumulates");
+  assert.match(W, /aFoldInto\(st, k, clean\.value\);\s*aProposed = st\.spec;/, "the proposal never accumulates");
   assert.match(W, /const aBaseline = aSpec;/, "the stored baseline is not kept apart from the proposal");
   assert.match(W, /import \{[^}]*\btableFacts\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "tableFacts is called and never imported");
 });

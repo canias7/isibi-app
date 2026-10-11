@@ -359,7 +359,7 @@ test("every field the edit path refuses to create has a kind here, and the route
   // RE-ANCHORED 2026-09-14: `const aSite = {` became `const siteFacts = (spec)
   // => ({` — the facts are REBUILT after each kind, so a designer sees what the
   // ones before it proposed rather than the stored site alone.
-  const factsAt = b.indexOf("const siteFacts = (spec) => ({");
+  const factsAt = b.indexOf("const siteFacts = (spec, names = aNewNames, pages = aNewPages) => ({");
   assert.ok(factsAt > 0, "the site facts are no longer built from a spec");
   const siteLit = b.slice(factsAt, b.indexOf("});", factsAt));
   assert.match(siteLit, /\burl: aUrl,/, "the site note is not handed the address");
@@ -372,7 +372,7 @@ test("every field the edit path refuses to create has a kind here, and the route
   // moment the loop ends and before a decline can return — then read back by
   // the owner through the answer route with `kind=addon`.
   // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
-  const runAt = at(b, "const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
+  const runAt = at(b, "const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ANCHORED ON THE CALL, NOT ON ITS ARGUMENT LIST. This read the whole literal
   // and went red on 2026-09-13 for an honest extra argument — the coverage
   // record — reporting the keep as gone when it had only grown. The property is
@@ -671,7 +671,10 @@ test("one property per tool, named by the kind, nothing required at the top, the
     // RE-ANCHORED 2026-10-05 (run 101): and its suggestions — the extras a
     // designer thought of, kept apart from the requirements and designed by
     // nobody — beside the coverage list, on the kinds that answer one.
-    const want = (REQUIREMENT_ADDS.includes(k) ? [k, "requirements", "suggestions"] : [k]).concat("question");
+    // RE-ANCHORED 2026-10-11 (the parallel-work goal): and `needs`, the one way
+    // a designer shown less of the site says it needs a result it was not
+    // shown — on every kind designed beside others (all but `row`).
+    const want = (REQUIREMENT_ADDS.includes(k) ? [k, "requirements", "suggestions"] : [k]).concat("question", k === "row" ? [] : ["needs"]);
     assert.deepEqual(Object.keys(t.input_schema.properties).sort(), want.slice().sort(),
       k + ": the tool has a property that is neither the kind nor this step's own metadata");
     if (REQUIREMENT_ADDS.includes(k)) {
@@ -1421,7 +1424,7 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // every kind on the accumulated proposal. `aSpec` became the parameter for
   // the same reason — reading the baseline here would show the fifth designer
   // the site as it was before the first one ran.
-  const site = b.slice(at(b, "const siteFacts = (spec) => ({", "site"), at(b, "hasDatabase: !!adb,", "site end"));
+  const site = b.slice(at(b, "const siteFacts = (spec, names = aNewNames, pages = aNewPages) => ({", "site"), at(b, "hasDatabase: !!adb,", "site end"));
   for (const key of ["columns:", "functions:", "jobFns:", "apis:", "jobs:"]) assert.ok(site.includes(key), "the site note is not handed " + key);
   assert.match(site, /jobFns: \(\(spec && spec\.functions\) \|\| \[\]\)\.filter\(\(f\) => f && f\.name && f\.internal\)/, "`jobFns` is not the INTERNAL functions");
   // …AND WHICH OF THEM THIS MESSAGE IS STILL BUILDING, so a designer can rely
@@ -1429,7 +1432,8 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // than on `site`: that window closes at `hasDatabase`, which sits ABOVE this
   // line — the recorded "a window running to a named neighbour" trap, met
   // writing the assertion rather than reading one.
-  assert.match(b, /proposed: \{ \.\.\.aNewNames \}/, "the note cannot tell a stored name from one being added right now");
+  // `names` IS `aNewNames` unless a designer is shown its own view (2026-10-11).
+  assert.match(b, /proposed: \{ \.\.\.names \}/, "the note cannot tell a stored name from one being added right now");
   assert.match(site, /c\.name \+ \(c\.type \? " " \+ c\.type : ""\)/, "a column is not printed with its type");
   // THE FUNCTION DESIGNER'S ANSWERS REACH THE JOB DESIGNER: appended to the
   // site's lists as they are cleaned, the internal ones to `jobFns`, under
@@ -1453,9 +1457,13 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // cleaned items fold into the proposal and the facts are rebuilt from it, so
   // EVERY later designer sees everything decided so far — the function reaching
   // the job designer included, which is what these three lines were for.
-  assert.match(feed, /aProposed = proposedSpec\(aProposed, k, clean\.value\)/, "a designed item never joins the proposal");
+  // ONE FOLD SINCE 2026-10-11 (`aFoldInto`), shared with a designer's own view
+  // of the site (`aSiteFor`): the loop folds into the whole site with it.
+  const fold = b.slice(at(b, "const aFoldInto = (st, k, value) => {", "fold"), at(b, "const aFoldInto = (st, k, value) => {", "fold") + 2500);
+  assert.match(feed, /aFoldInto\(st, k, clean\.value\);\s*aProposed = st\.spec;/, "a designed item never joins the proposal");
+  assert.match(fold, /st\.spec = proposedSpec\(st\.spec, k, value\)/, "a designed item never joins the proposal");
   assert.match(feed, /aSite = siteFacts\(aProposed\)/, "the next designer is not shown what this one designed");
-  assert.match(feed, /if \(k === "function" && one\.internal === true && !aNewNames\.jobFns\.includes\(one\.name\)\) aNewNames\.jobFns\.push\(one\.name\)/,
+  assert.match(fold, /if \(k === "function" && one\.internal === true && !st\.names\.jobFns\.includes\(one\.name\)\) st\.names\.jobFns\.push\(one\.name\)/,
     "an internal function does not join `jobFns`, or a public one does");
   // …AND `jobFns` REMAINS THE INTERNAL ONES ONLY, which is the half a job's
   // cleaner reads: the engine drops a job naming any other function, silently.
@@ -1575,7 +1583,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // now and the first tier designed MAKES the database, so what follows the
   // fold is the provision, then the schema work, then the look merge.
   // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
-  const run = at(b, "const ran = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
+  const run = at(b, "const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke: the
   // site handed to the cleaner is `aSite` PLUS `today`, the site's own local
   // date, for the one-time job's past-date refusal. `aSite` is rebuilt from the

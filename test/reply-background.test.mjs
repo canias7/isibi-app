@@ -467,7 +467,20 @@ test("BG11 — what the job did, in one word, rides every read while its reply i
   const gate = new Promise((ok) => { release = ok; });
   // THE ADDITION FAILS: its designer makes nothing. Both parts' replies are held.
   const answers = { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } };
-  await withPlatform({ slug: slugOf("bg11"), replies: true, answers, replyWith: async () => { await gate; } }, async (P) => {
+  // EACH WRITER'S ARRIVAL AT ITS CALL, as it happens (2026-10-11, CI run
+  // 38148556722): this waited a fixed 200 event-loop turns, but the way to a
+  // writer runs through work the turns do not measure (hashing, the stand-in
+  // store), so a slow runner could reach the count before the third writer
+  // arrived. The wait is now on the arrivals themselves.
+  let arrived = 0;
+  const waiting = [];
+  const arrive = () => { arrived++; for (const w of waiting.splice(0)) w(); };
+  const reached = (n, ms = 30000) => new Promise((ok) => {
+    const t = setTimeout(ok, ms);
+    const check = () => { if (arrived >= n) { clearTimeout(t); ok(); } else waiting.push(check); };
+    check();
+  });
+  await withPlatform({ slug: slugOf("bg11"), replies: true, answers, replyWith: async () => { arrive(); await gate; } }, async (P) => {
     const r = await sendMessage(P, { message: MESSAGE });
     // EVERY REPLY HELD BESIDE THE WORK: both parts' and the request's own.
     const asked = [];
@@ -477,7 +490,7 @@ test("BG11 — what the job did, in one word, rides every read while its reply i
     assert.deepEqual([asked.includes(edit.id), asked.includes(addon.id)], [true, true], "both parts' replies were not asked for: " + JSON.stringify(asked));
     assert.equal(addon.state, "failed");
     // EACH WRITER AT ITS CALL, held there, before any read is counted.
-    for (let i = 0; i < 200 && writes(P) < asked.length; i++) await new Promise((ok) => setImmediate(ok));
+    await reached(asked.length);
     const calls = writes(P);
     assert.equal(calls, asked.length, "a held reply never reached its writer");
     const pe = await poll(P, edit.id);

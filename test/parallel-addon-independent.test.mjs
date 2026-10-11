@@ -807,3 +807,231 @@ test("PI 23 — A FAILED ADDITION'S REPLY FACTS NAME EACH HELD PICTURE BY ITS RE
   // CONTROL: no held picture, no such fact.
   assert.equal(addonReplyFacts({ ...body("x"), held: [] }, { inRequest: true }).facts.filter((f) => f.kind === "pending").length, 0);
 });
+
+// ── A TABLE AND A COMPONENT THAT NEED NOTHING FROM EACH OTHER (Codex, on adbb7ad7) ──
+//
+// Codex: one addition asking for an empty signups table (a `name` column, no
+// page shows it) and a static questions section on the About page completed,
+// with each designer asked once — but one after the other, because a table
+// (like every schema kind and a `page`) changed the site facts every later
+// designer was shown, so nothing after it could start until it was decided.
+// A designer is now shown only what it uses: the results of the kinds the
+// picker says it uses, of the kinds that share its words, and — for a schema
+// kind — the schema the kinds before it decided. Everything else it is shown
+// as the site stands, so it starts at once.
+const W_TABLE = "add a signups table with a name column";
+const W_ABOUT_FAQ = "add a questions section to the About page";
+const SIGNUPS_TABLE = { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }] }, seed: [] }] };
+const ABOUT_FAQ_ANSWER = { component: [{ page: "/about", where: "after the story", does: "answers common questions", components: ["card"] }] };
+// THE SITE AS THE DESIGNER WAS SHOWN IT: the note above the customer's words
+// (which name the table either way).
+const askedText = (args) => { const t = JSON.stringify((args && args.messages) || []); const at = t.indexOf("What they asked to add"); return at < 0 ? t : t.slice(0, at); };
+async function tableAndFaq({ key, message, kinds, scopes, met, component = ABOUT_FAQ_ANSWER }) {
+  const { rowsDb } = await import("./fixtures/rows-db.mjs");
+  const designers = met;
+  const seen = {};
+  const db = rowsDb({ tables: {} });
+  const out = await withPlatform({
+    slug: slugOf(key), pages: PAGES, replies: true, balance: 400, db,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds, scopes },
+      "add:table": async (args) => { seen.table = askedText(args); await designers.arrive("add:table"); return SIGNUPS_TABLE; },
+      "add:component": async (args) => {
+        seen.component = askedText(args); (seen.components = seen.components || []).push(seen.component);
+        await designers.arrive("add:component");
+        return typeof component === "function" ? component(seen.components.length) : component;
+      },
+      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message });
+    const { rec } = await settle(P, r.key);
+    const creates = db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length;
+    return { P, rec, about: P.page("about.tsx"), designs: designCalls(P), pagesAsked: pageCalls(P), creates };
+  });
+  return { ...out, seen };
+}
+
+for (const [label, message, kinds] of [
+  ["table first", "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + ".", ["table", "component"]],
+  ["questions first", "Please " + W_ABOUT_FAQ + ", and " + W_TABLE + ".", ["component", "table"]],
+]) {
+  test("PI 24 (" + label + ") — A TABLE NOTHING SHOWS AND A STATIC QUESTIONS SECTION, IN ONE ADDITION: the two designers run at the same time; both results land, each designer is asked once, and the questions designer is shown the site without the new table", { timeout: 30000 }, async () => {
+    const met = rendezvous(["add:table", "add:component"]);
+    const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
+    const r = await tableAndFaq({ key: "tf" + kinds[0][0], message, kinds, scopes, met });
+    assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(met.met, { "add:table": true, "add:component": true }, "the designers ran one after the other: " + JSON.stringify(met));
+    assert.ok(r.about.includes("Do you deliver?"), r.about);
+    assert.equal(r.creates, 1, "the signups table was not created exactly once");
+    assert.equal(r.designs, 2, "a designer was asked twice");
+    assert.equal(r.pagesAsked, 1);
+    // ITS INPUT IS THE SITE AS IT STANDS: the table being added is not in it.
+    assert.doesNotMatch(r.seen.component.replace(/This same change is ALSO designing[^.]*\./, ""), /signups/, "the questions designer was shown the new table");
+    // …AND IS TOLD WHAT IT IS NOT SHOWN, so an answer that needs it can say so.
+    assert.match(r.seen.component, /This same change is ALSO designing, at the same time, what this note does NOT show you: a `table`/);
+  });
+}
+
+test("PI 25 — A FORM THAT SAVES INTO THE TABLE BEING ADDED (the picker says it uses the table): the form's designer waits for the table, is shown it, and is asked once — a real dependency is never started early", { timeout: 30000 }, async () => {
+  const met = rendezvous(["add:table", "add:component"], 600);
+  const W_FORM = "a sign-up form on the About page that saves into it";
+  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_FORM, uses: ["table"] }];
+  const r = await tableAndFaq({
+    key: "tfd", message: "Please " + W_TABLE + ", and " + W_FORM + ".", kinds: ["table", "component"], scopes, met,
+    component: { component: [{ page: "/about", where: "after the story", does: "collects names into signups", components: ["card"] }] },
+  });
+  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
+  assert.equal(met.met["add:table"], false, "the form's designer started before the table it saves into was decided");
+  assert.match(r.seen.component, /signups/, "the form's designer was not shown the table it uses");
+  assert.equal(r.designs, 2);
+});
+
+test("PI 26 — THE PICKER SAYS NOTHING ABOUT WHAT A KIND USES: the old order stands — the questions designer waits for the table and is shown it, asked once", { timeout: 30000 }, async () => {
+  const met = rendezvous(["add:table", "add:component"], 600);
+  const scopes = [{ kind: "table", words: W_TABLE }, { kind: "component", words: W_ABOUT_FAQ }];
+  const r = await tableAndFaq({ key: "tfu", message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + ".", kinds: ["table", "component"], scopes, met });
+  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
+  assert.equal(met.met["add:table"], false);
+  assert.match(r.seen.component, /signups/);
+  assert.equal(r.designs, 2);
+});
+
+// ── WHAT EACH DESIGNER WAITS FOR, AS A RULE (`designWaits`) ─────────────────
+test("PI 27 — designWaits: a kind waits only for what it uses, shares words with, or (a schema kind) is written against; and for what those wait for; a kind the picker said nothing about waits as before", async () => {
+  const { designWaits, readAddUses } = await import("../builder/site-add.mjs");
+  // Independent: nothing waits.
+  assert.deepEqual(designWaits(["table", "component"], { scopes: { table: "a signups table", component: "a questions section" }, uses: { table: [], component: [] } }), { table: [], component: [] });
+  // Declared use.
+  assert.deepEqual(designWaits(["table", "component"], { uses: { table: [], component: ["table"] } }).component, ["table"]);
+  // One phrase for two kinds ("a booking page" is a page and a table).
+  assert.deepEqual(designWaits(["table", "page"], { scopes: { table: "a booking page", page: "a booking page" }, uses: { table: [], page: [] } }).page, ["table"]);
+  // The schema chain is kept whatever the picker said: a function is written against the table, a job runs the function.
+  const chain = designWaits(["table", "function", "job", "component"], { uses: { table: [], function: [], job: [], component: [] } });
+  assert.deepEqual(chain, { table: [], function: ["table"], job: ["table", "function"], component: [] });
+  // Transitive: a QR code on a new page that shows a new table is shown both.
+  assert.deepEqual(designWaits(["table", "page", "qr"], { uses: { table: [], page: ["table"], qr: ["page"] } }).qr, ["table", "page"]);
+  // Unread (no `uses`): every earlier kind that changes what a designer is shown — as before.
+  assert.deepEqual(designWaits(["table", "page", "component", "photo"], {}), { table: [], page: ["table"], component: ["table", "page"], photo: ["table", "page"] });
+  // Only earlier kinds, and only ones that change the site facts.
+  assert.deepEqual(designWaits(["component", "photo"], { uses: { component: ["photo"], photo: ["component"] } }), { component: [], photo: [] });
+  // The reader: a non-list is unread, a non-string or unpicked kind refused, never coerced.
+  const reply = (scopes) => ({ content: [{ type: "tool_use", input: { kinds: ["table", "component"], scopes } }] });
+  assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: "table" }]), ["table", "component"]), {});
+  assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: [["table"], "job", "table"] }]), ["table", "component"]), { component: ["table"] });
+  assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: [] }, { kind: "component", words: "y", uses: ["table"] }]), ["table", "component"]), { component: [] });
+});
+
+test("PI 28 — THE PICKER SAID THE QUESTIONS SECTION USES NOTHING, BUT ITS DESIGNER NEEDS THE TABLE: it answers `needs` and designs nothing; it is asked again, once, shown the table — the first answer is never used, and the table is created once", { timeout: 30000 }, async () => {
+  const met = rendezvous(["add:table", "add:component"]);
+  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
+  const r = await tableAndFaq({
+    key: "tfn", message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + ".", kinds: ["table", "component"], scopes, met,
+    component: (n) => (n === 1 ? { needs: ["table"] } : ABOUT_FAQ_ANSWER),
+  });
+  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
+  assert.deepEqual(met.met, { "add:table": true, "add:component": true }, "the first designs did not overlap");
+  assert.equal(r.seen.components.length, 2, "the designer that needed the table was not asked again, or was asked more than once more");
+  assert.doesNotMatch(r.seen.components[0].replace(/This same change is ALSO designing[^.]*\./, ""), /signups/);
+  assert.match(r.seen.components[1], /signups \(name text\)[^\n]*being added by this same change/, "the second ask was not shown the table");
+  assert.doesNotMatch(r.seen.components[1], /does NOT show you/);
+  assert.equal(r.designs, 3);
+  assert.equal(r.creates, 1);
+  assert.ok(r.about.includes("Do you deliver?"), r.about);
+});
+
+// ── A TEXT EDIT AND A COMPONENT ADDITION, AS SEPARATE PARTS, IN EITHER ORDER ──
+//
+// No picture anywhere: a heading changed on Visit and a questions section
+// added to About, two parts of one message. Neither reads what the other
+// writes (the addition is scoped to About, `addonScope`; the text step to
+// Visit, `prepScope`), so the second part is prepared while the first part's
+// job runs, and its job replays that preparation exactly.
+//
+// (A TABLE-ONLY addition is not such a pair today: every table addition runs
+// the page writer, which must return a page and may choose any — its reach is
+// the model's choice inside the step, so it is planned as reading every page.)
+const W_VISIT_HEAD = "make the Visit heading say Come to the harbour bakery";
+const visitLine = (args) => {
+  const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[visit.tsx] Come to the bakery"));
+  return Number(String(at || "-1.").split(".")[0]);
+};
+for (const textFirst of [true, false]) {
+  test("PI 29 (" + (textFirst ? "text first" : "questions first") + ") — A HEADING CHANGED ON VISIT AND A QUESTIONS SECTION ADDED TO ABOUT, AS TWO PARTS: the second part's model work runs while the first part's does; its job replays its preparation exactly; both land, nothing asked twice, one charge per job", { timeout: 30000 }, async () => {
+    const meet = rendezvous(["text", "faq"]);
+    const TEXT_W = ["page:/visit"];
+    const route0 = textFirst
+      ? { intent: "edit", layer: "text", page: "/visit", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: TEXT_W }, { change: 1, writes: FAQ_TARGETS }] }
+      : { intent: "addon", alsoAsked: [W_VISIT_HEAD], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: TEXT_W }] };
+    const route1 = textFirst ? { intent: "addon" } : { intent: "edit", layer: "text", page: "/visit" };
+    await withPlatform({
+      slug: slugOf("p29" + (textFirst ? "t" : "f")), pages: PAGES, replies: true, balance: 400,
+      answers: {
+        route: (args, n) => (n === 0 ? route0 : route1),
+        [T.text]: async (args) => { await meet.arrive("text"); return { edits: [{ id: visitLine(args), to: "Come to the harbour bakery" }] }; },
+        [T.adds]: { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
+        "add:component": async () => { await meet.arrive("faq"); return ABOUT_FAQ_ANSWER; },
+        [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
+      },
+    }, async (P) => {
+      const r = await sendMessage(P, { message: "Please " + (textFirst ? W_VISIT_HEAD + ", and " + W_ABOUT_FAQ : W_ABOUT_FAQ + ", and " + W_VISIT_HEAD) + "." });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      const first = P.queue.splice(0);
+      await Promise.all(first.map((m) => deliver(P, m)));
+      const { rec } = await settle(P, r.key);
+      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.deepEqual(meet.met, { text: true, faq: true }, "one part's model work waited for the other's: " + JSON.stringify(meet));
+      assert.match(P.page("visit.tsx"), /Come to the harbour bakery/);
+      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+      assert.equal(designCalls(P), 1, "the questions section was designed twice");
+      assert.equal(P.modelLog.filter((m) => m.tool === T.text).length, 1, "the text step was asked twice");
+      const view = await viewOf(P, r.key);
+      const u = prepUseOf(view, 1);
+      assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, "the second part's job did not replay its preparation exactly: " + JSON.stringify(view.parts[1]));
+      const refs = P.ledger.map((e) => e.ref);
+      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+    });
+  });
+}
+
+test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started beside it) ANSWERS: nothing is applied — no table made, nothing charged for the addition; the answer resumes the addition whole, the two designers again at the same time, and the table is made once", { timeout: 30000 }, async () => {
+  const { rowsDb } = await import("./fixtures/rows-db.mjs");
+  const first = rendezvous(["add:table", "add:component"]);
+  const again = rendezvous(["add:table", "add:component"]);
+  const db = rowsDb({ tables: {} });
+  let compN = 0, tableN = 0;
+  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
+  await withPlatform({
+    slug: slugOf("p30"), pages: PAGES, replies: true, balance: 400, db,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["table", "component"], scopes },
+      "add:table": async () => { tableN++; await (tableN === 1 ? first : again).arrive("add:table"); return SIGNUPS_TABLE; },
+      "add:component": async () => {
+        compN++;
+        await (compN === 1 ? first : again).arrive("add:component");
+        return compN === 1 ? { question: { text: "Should the questions go before or after the story?", options: ["Before", "After"] } } : ABOUT_FAQ_ANSWER;
+      },
+      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
+    },
+  }, async (P) => {
+    const creates = () => db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length;
+    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + "." });
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(first.met, { "add:table": true, "add:component": true }, "the first designs did not overlap");
+    assert.equal(creates(), 0, "the table was made beside a question");
+    assert.equal(P.ledger.filter((e) => e.reason === "reserve").length, 0, "the addition was charged beside a question: " + JSON.stringify(P.ledger));
+    const q = P.question();
+    assert.ok(q && q.id, "no question was kept");
+    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(again.met, { "add:table": true, "add:component": true }, "the resumed designs did not overlap");
+    assert.equal(creates(), 1, "the table was not made exactly once");
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"));
+    assert.equal(tableN, 2);
+    assert.equal(compN, 2);
+  });
+});

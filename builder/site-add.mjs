@@ -1470,8 +1470,23 @@ export function pickTool(kinds = ADD_KINDS) {
                 description: "The words of their message that ask for this kind, copied exactly as they wrote them — " +
                   "a phrase or a clause, never a summary, a paraphrase or a kind's name.",
               },
+              // WHAT THIS KIND'S DESIGN USES OF THE OTHERS (2026-10-11, the
+              // parallel-work goal): each kind's designer is shown the results
+              // of the kinds named here, and is started as soon as they are
+              // decided — every other designer at once. Required, so an entry
+              // that says nothing is unread and its kind waits as it always did.
+              uses: {
+                type: "array",
+                maxItems: MAX_ADDS,
+                items: { type: "string", enum: list },
+                description: "The OTHER kinds you name here whose result this one is built on — `table` for a form or a page " +
+                  "that saves into or shows a table this same message adds; `page` for a section, a code or a link on a " +
+                  "page this same message adds; `function` for a job that runs a function it adds. Empty when this kind " +
+                  "stands on its own (a questions section next to a table nothing on it shows uses nothing). When you " +
+                  "cannot tell, name it: a kind that uses another waits for it, one that does not starts at once.",
+              },
             },
-            required: ["kind", "words"],
+            required: ["kind", "words", "uses"],
           },
           description:
             "For EACH kind you name, the words of their message that ask for it, copied exactly — one entry per kind. " +
@@ -1595,6 +1610,73 @@ export function readAddScopes(reply, kinds) {
   return out;
 }
 
+/**
+ * WHAT EACH PICKED KIND'S DESIGN USES OF THE OTHERS, as `{ kind: [kinds] }`
+ * (2026-10-11): only for a kind the picker named, the first entry for it, and
+ * only when that entry carries a `uses` LIST — a missing or non-list field is
+ * unread, never "uses nothing", so its kind waits as before (`designWaits`).
+ * A name that is not a string, or not one of the picked kinds, is refused.
+ */
+export function readAddUses(reply, kinds) {
+  const picked = (Array.isArray(kinds) ? kinds : []).filter((k) => typeof k === "string" && k);
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && Array.isArray(use.input.scopes) ? use.input.scopes : [];
+  const out = {};
+  for (const s of raw) {
+    if (!s || typeof s !== "object" || typeof s.kind !== "string" || !picked.includes(s.kind) || Object.hasOwn(out, s.kind)) continue;
+    if (!Array.isArray(s.uses)) continue;
+    out[s.kind] = picked.filter((k) => k !== s.kind && s.uses.some((u) => typeof u === "string" && u === k));
+  }
+  return out;
+}
+
+/**
+ * WHICH EARLIER KINDS EACH DESIGNER WAITS FOR, AND IS SHOWN THE RESULTS OF
+ * (2026-10-11, the parallel-work goal, after Codex's check of adbb7ad7).
+ *
+ * The owner: *"Only work that genuinely needs another task's result should
+ * wait."* Every designer used to be shown everything decided before it, so a
+ * schema kind or a `page` held every later designer back whatever it asked
+ * for. Now a kind waits for, and is shown, exactly:
+ *
+ *   - the kinds the picker says it USES (`readAddUses`);
+ *   - the kinds that share its words — one phrase asking for two kinds ("a
+ *     booking page" is a `page` and a `table`) is one thing to build;
+ *   - for a SCHEMA kind, every schema kind before it: a function, connection
+ *     or job is written against the schema it is shown, so the chain from a
+ *     table to its function and on to a job is kept by what each one consumes;
+ *   - and the kinds THOSE wait for, so a designer is never shown a result
+ *     without what that result was built on.
+ *
+ * A kind whose use the picker did not say waits for every earlier kind that
+ * changes the site facts (a schema kind or a `page`), exactly as before.
+ * Only an EARLIER kind can be waited for — the kinds are designed in
+ * `ADD_KINDS` order — and only one that changes what a designer is shown.
+ * Returns `{ kind: [earlier kinds, in run order] }` for every kind given.
+ */
+export function designWaits(kinds, { scopes = {}, uses = {} } = {}) {
+  const list = (Array.isArray(kinds) ? kinds : []).filter((k) => typeof k === "string" && Object.hasOwn(ADDS, k));
+  const changes = (k) => !!SPEC_OF_KIND[k] || k === "page";
+  const norm = (w) => (typeof w === "string" ? w.toLowerCase().replace(/\s+/g, " ").trim() : "");
+  const sameWords = (a, b) => {
+    const x = norm(scopes[a]), y = norm(scopes[b]);
+    return !!x && !!y && (x.includes(y) || y.includes(x));
+  };
+  const out = {};
+  list.forEach((k, at) => {
+    const before = list.slice(0, at).filter(changes);
+    const said = Object.hasOwn(uses, k) && Array.isArray(uses[k]) ? uses[k] : null;
+    const direct = said === null
+      ? before
+      : before.filter((j) => said.includes(j) || sameWords(j, k) || (SPEC_OF_KIND[k] && SPEC_OF_KIND[j]));
+    const all = new Set(direct);
+    for (const j of direct) for (const i of out[j] || []) all.add(i);
+    out[k] = list.filter((j) => all.has(j));
+  });
+  return out;
+}
+
 /** Usage in the four kinds `pageCredits` prices, tagged with the model we sent. */
 export function addUsage(reply, model) {
   const u = (reply && reply.usage) || null;
@@ -1626,7 +1708,7 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
   // A QUESTION BACK (2026-10-02): what is to be added cannot be told without a
   // detail they left out. The caller asks it before anything runs.
   const picked = readAdds(reply, kinds);
-  return { kinds: picked, scopes: readAddScopes(reply, picked), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
+  return { kinds: picked, scopes: readAddScopes(reply, picked), uses: readAddUses(reply, picked), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
 }
 
 /* --------------------------------------------------------------- the design */
@@ -1694,6 +1776,26 @@ export function addTool(kind) {
         "do not guess: ask them that one thing instead.",
     };
   }
+  // ── A DESIGNER SHOWN LESS OF THE SITE MAY SAY IT NEEDS MORE (2026-10-11) ──
+  //
+  // A designer started beside others is shown the site without their results
+  // (`designWaits`), and the note names what it is not shown. When what it was
+  // asked for rests on one of those, it says so here and designs nothing; the
+  // route then asks it again with the whole site as decided so far. The same
+  // contract as a prepared edit step's `needs` (2026-10-11, exact reuse): an
+  // answer rests only on what its request held.
+  // NOT ON `row`: a list entry is never designed beside other kinds (the
+  // route sets it aside and asks for it on its own), so nothing is unshown.
+  if (kind !== "row") properties.needs = {
+    type: "array",
+    maxItems: MAX_ADDS,
+    items: { type: "string", enum: ADD_KINDS },
+    description:
+      "ONLY when the note says this same change is ALSO designing something NOT SHOWN to you: if what you are " +
+      "asked to design needs its result (a form saving into a table being added, a section on a page being " +
+      "added), name its kind here and design nothing — you will be asked again with it shown. Otherwise leave " +
+      "this out.",
+  };
   // ── AND THE DESIGNER MAY ASK (2026-10-02, the owner's review: *"Extend
   //    clarification into … add-on designers that currently cannot ask when
   //    missing details become apparent after picking the path"*) ─────────────
@@ -1925,6 +2027,19 @@ export function siteNote(site) {
     lines.push("This same change is ALSO adding " + (coming.length === 1 ? "a page" : coming.length + " pages") + ", which do not exist yet: " +
       coming.map((p) => p.path + (p.name ? " (\"" + p.name.replace(/"/g, "'") + "\")" : "")).join(", ") +
       ". A code may open one and a section may sit on one — they go live with this change. There is no source to read for them.");
+  }
+  // ── WHAT THIS SAME CHANGE IS DESIGNING THAT THIS NOTE LEAVES OUT (2026-10-11) ──
+  //
+  // A designer started beside the others is shown the site without their
+  // results (`designWaits`); it is told which, by kind and in their own words,
+  // so an answer that needs one says so (`needs`) instead of guessing. Absent
+  // when nothing is left out, so a note that shows everything reads as before.
+  const unshown = (Array.isArray(s.unshown) ? s.unshown : [])
+    .filter((u) => u && typeof u.kind === "string" && u.kind).slice(0, MAX_ADDS);
+  if (unshown.length) {
+    lines.push("This same change is ALSO designing, at the same time, what this note does NOT show you: " +
+      unshown.map((u) => "a `" + u.kind + "`" + (typeof u.words === "string" && u.words.trim() ? " (\"" + str(u.words, 160).replace(/"/g, "'") + "\")" : "")).join(", ") +
+      ". If what you are asked to design needs one of their results, name its kind in `needs` and design nothing.");
   }
   // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one copies the
   // first's design), so a component designer can name the component a like
@@ -2308,7 +2423,11 @@ export function readAddAnswer(reply, kind) {
   // with any past the tool's limit kept for the record (2026-10-07).
   const suggestionsOver = [];
   const suggestions = cleanSuggestions(input ? input.suggestions : null, suggestionsOver);
-  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped, suggestions, suggestionsOver };
+  // WHAT IT SAYS IT NEEDS AND WAS NOT SHOWN (2026-10-11): kind names only,
+  // a non-string refused, never coerced.
+  const needs = input && Array.isArray(input.needs)
+    ? ADD_KINDS.filter((k) => input.needs.some((n) => typeof n === "string" && n === k)) : [];
+  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped, suggestions, suggestionsOver, needs };
 }
 
 /**
@@ -2353,6 +2472,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
     reqSkipped: answer.skipped,
     suggestions: answer.suggestions,
     suggestionsOver: answer.suggestionsOver,
+    needs: answer.needs,
     usage: addUsage(reply, model),
     failed: false,
     raw: reply,
