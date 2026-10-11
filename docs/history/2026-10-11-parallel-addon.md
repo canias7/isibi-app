@@ -195,3 +195,123 @@ the renamed inputs. Build and Edit concurrency (`build-parallel`,
   planned inputs. If one lands beside a scoped preparation, its request no
   longer matches and the job asks again. It costs calls and is never a
   wrong change.
+
+## 5. Round 2 — Codex's review of `d7a00395`: four gaps, fixed together
+
+Codex passed 99 focused tests on `d7a00395` independently, then reproduced
+four gaps with mocked providers. **Commits**: `ef8ea26d` (the change and its
+tests), with records after. No merge, deploy, container build, paid call,
+real image, fal call, balance or flag change.
+
+### The four gaps, each a failing case first (red on `d7a00395`'s code)
+
+1. **PI 3 strengthened** (`first: "faq", photoAt: "image", faqAt: "pages"`).
+   The component's writer timed out waiting for the image generation, which
+   only began afterwards, in the photograph part's job; overlapping its
+   designer was not enough. PI 2 was strengthened the same way
+   (`faqAt: "pages"`).
+2. **The scoped writer's output boundary** (PI 12, both ways; PI 11). An
+   About writer that also returned `index.tsx`, or took a page away, had that
+   applied (`replayed 3, fresh 0`). `aPagesSent.withheld` only covered the
+   scoped input list.
+3. **Capacity before spending** (PI 13). With 200 files the early path called
+   the image service and stored a 201st. PI 14 (199 files) is the control,
+   green before and after.
+4. **An early task's whole life** (PI 15, PI 16). With the image call held
+   and the page writer throwing, the request ended failed with a purchase
+   left `buying`; released later, the upload was stored and the request never
+   said so.
+
+Red check: with `d7a00395`'s `worker.js` and `builder/request.mjs` and this
+round's tests, PI 3, PI 11, both PI 12, PI 13, PI 15 and PI 16 fail; PI 14
+passes on both.
+
+### What changed
+
+- **A photograph can be made in its part's preparation**, under the part's
+  logical purchase. This uses the preparation's own buyer (`rec.image`), which
+  notes the purchase on its attempt before making it.
+  - It happens only when the preparation runs **beside another part's live
+    job** (`beside`: a part queued or started). That is when it overlaps
+    something; otherwise the job buys exactly as before.
+  - The part's job finds the purchase `bought` and reuses it: one
+    generation, no second charge.
+  - In PI 3 the image call meets the component's page writer.
+- **Every way the add-on route ends joins the photographs it began**
+  (`earlyPhotosEnd`), within the image step's own wait:
+  - a preparation leaves them on its attempt's notes;
+  - a failure or a question reports a stored one as saved in the uploads
+    and not on the site (the failure outcome's `photos`, state
+    `unpublished`);
+  - one still being made when the wait ends is handed on as `held`.
+- **The driver holds the part on that purchase**: a refusal naming `held`
+  is held like `purchase-unconfirmed`. Once the purchase is known, the part
+  runs again, reusing it (PI 16: one generation, one file, placed).
+  - Each early purchase's identity is recorded before any waiting
+    (`startBuildPhotos` keeps `idents`).
+- **Capacity, balance and clock come before spending**. An early purchase
+  begins only when every shot passes the image step's gates first:
+  - the balance (the shots are already cut by it);
+  - the job's clock (`photoWait(...).buy`);
+  - room in the library.
+  - Room counts only files that are not this part's own purchases (their
+    ids), in the early start and in the image step (`buySitePhotos`'s new
+    `own`). A file this part already stored is never counted against it
+    twice.
+- **The scoped writer's output boundary** (`aBreach`). A scoped writer whose
+  answer changes an existing page outside its scope, takes one away, or
+  returns a stored component it was never shown, is not applied. The writer
+  is asked again with the whole site as it is now (`aWriterFor(false)`), and
+  only that answer reaches the merge and its existing walls.
+  - Exact request matching alone no longer stands in for checking what the
+    answer writes.
+  - PI 11 now asserts this re-ask instead of the earlier refusal.
+
+### Evidence
+
+- `test/parallel-addon-independent.test.mjs`: 17 cases, all green. New this
+  round: PI 12 (two cases), PI 13, PI 14, PI 15 and PI 16; PI 2, PI 3 and
+  PI 11 strengthened. Every pair still meets at a rendezvous that cannot
+  finish until both have started.
+- **Adapted, not weakened**: RT 4 (`test/addon-runtime-paths.test.mjs`) runs
+  its jobs fired into the container, so the photograph's preparation now
+  buys beside the other part's job. Its store fault was raised from 3 to 6
+  failures, so that the frame is still held as the case intends.
+- **Four source pins re-anchored to the new code**:
+  - `site-add` (the plan built in `aWriterFor`);
+  - `ship-anyway` (the image step's slice now ends at its own function);
+  - `worker-imports` (the headroom expression);
+  - PI 11's own assertions.
+- **Mutation sweep**: 22 product mutants, **18 killed**, both controls
+  survived. The survivors:
+  - **the clock gate on early buying** (`photoWait(...).buy`). No route test
+    reaches a job whose clock lets the editing gate pass but not a purchase:
+    the job's budget depends on its delivery and a test cannot set it. The
+    image step's own identical gate still bounds what is placed and charged.
+    **Recorded as a gap.**
+  - **the room check** (`aRoom >= aShots.length`). Equivalent for one
+    photograph, because the early task's own room cap enforces it.
+  - **the early count's own-file exclusion**. Equivalent in outcome: the
+    image step counts again with the same exclusion.
+  - **the guard skipping a finished addition**. Equivalent: a finished
+    addition's photographs were joined by the image step, and it has no
+    failure outcome to add to.
+
+- **Full suite** on `ef8ea26d`'s code: `10469 / 10469 / 0 / 0` locally
+  (`10463` before this round; the 6 new cases are PI 12's two, PI 13, PI 14,
+  PI 15 and PI 16). The three doc tests stay
+  32 of 32.
+- **Image**: the predicted image moves `d8f11fccd7446ba8` →
+  **`15fd0e0ba5555f38`** (205 inputs, 174 paths, on `ef8ea26d`; not built).
+  `docs/acceptance-current.md` and its guard name the new id.
+- **Required CI** on the branch: recorded in owner-notes once read.
+
+### Still not shown live
+
+- The real router splitting a request into these parts, real page writers
+  and real image generation: every overlap here is with supplied answers and
+  a mocked image service, with the network blocked.
+- **The clock gate on early buying** has no route test (the sweep's
+  survivor above).
+- A preparation buys early **only beside another part's live job**; a part
+  prepared alone still buys in its job, as before.

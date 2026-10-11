@@ -9,14 +9,41 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`82194718`**
-  (this round), with records after. Its predicted image is
-  **`d8f11fccd7446ba8`** (205 inputs; not built).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
+  **`ef8ea26d`** (round 2, on Codex's review of `d7a00395`), with records
+  after. Its predicted image is **`15fd0e0ba5555f38`** (205 inputs; not
+  built).
 - **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
   picture in this round was a mock. No paid call, merge, deploy or container
   build.
 
-**This round** (`docs/history/2026-10-11-parallel-addon.md`)
+**Round 2** (`ef8ea26d`; `docs/history/2026-10-11-parallel-addon.md` §5).
+Codex's four findings on `d7a00395`, each a failing case first (PI 3, PI 11,
+PI 12 ×2, PI 13, PI 15, PI 16 red on the old code; PI 14 the green control):
+- **The image generation now runs beside the component writer, in either
+  order** (PI 2 and PI 3 meet the image call with the page writer). A
+  photograph part prepared beside another part's live job buys in its
+  preparation, under its logical purchase; its job reuses it. One
+  generation, one charge, unique ledger refs.
+- **A scoped writer's real output is checked**: an answer that changes or
+  removes a page outside its scope, or returns a component it was not
+  shown, is not applied; the writer is asked again with the whole site as
+  it is now (PI 11, PI 12 both ways).
+- **The gates come before an early purchase**: balance, the job's clock and
+  room in the library. A part's own stored files are not counted twice.
+  200 files: no image call (PI 13); 199: bought (PI 14).
+- **An early task's whole life**: every way the add-on route ends joins it.
+  A failure says a stored photograph is saved and not on the site; one still
+  being made is held, and the part runs again once it is known, reusing it
+  (PI 15, PI 16: one generation).
+- **Evidence**: 17 PI cases; sweep 18 of 22 killed, both controls survived,
+  the 4 survivors explained (3 equivalent; the clock gate has no route
+  test); full suite `10469 / 10469 / 0 / 0`; doc tests 32 of 32. CI: below,
+  once read.
+- **Still not live**: the real router, real writers, real images; a
+  preparation buys early only beside another part's live job.
+
+**Round 1** (`82194718`, `300b56b4`, `d7a00395`)
 - **Reproduced first**, as committed failing cases through the real driver,
   queue consumer, routes and job runner. Each independent pair meets at a
   rendezvous: a mocked call that cannot finish until the other has started.
@@ -67,7 +94,7 @@ chooses well; real images.
 - Optional, not needed for the parallel-work claims: `acc-needs`,
   `acc-mixed`, and the image-free Build.
 - **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `d8f11fccd7446ba8`), wait
+  customer while off; P2 needs it), merge (image `15fd0e0ba5555f38`), wait
   15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
 **The decision you need to make first**: the only enforced bound on any
@@ -97,6 +124,27 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 2: early photographs bounded and joined; scoped writers kept to their scope (offline; not deployed, not pressed)
+
+- **You**: Codex passed 99 focused tests on `d7a00395` and found four gaps:
+  PI 3 had to meet the image generation with the component writer; the
+  scoped writer's output was not checked; an early purchase skipped the
+  capacity, balance and clock gates; an early task had no failure or
+  restart path. Fix them together, failing cases first, no paid calls.
+- **Done** (`ef8ea26d`): a photograph part prepared beside another part's
+  live job buys in its preparation and its job reuses it; scoped answers
+  that write outside their scope are asked again with the whole site; the
+  gates run first and own files are not counted twice; every route ending
+  joins the early purchase, and a still-running one holds the part.
+- **Verified offline**: 7 cases red on the old code; 17 PI cases green;
+  sweep 18 of 22 (4 survivors explained); full suite `10469 / 10469 / 0 /
+  0`; image predicted `15fd0e0ba5555f38`.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. fal untouched. The clock gate on
+  early buying has no route test.
 
 ---
 
