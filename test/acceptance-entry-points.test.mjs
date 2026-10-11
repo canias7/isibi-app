@@ -181,9 +181,9 @@ test("readProbeBatch: an acceptance batch says `acceptance: true`, or leaves it 
 
 test("THE CURRENT INSTRUCTIONS ARE KEPT APART FROM THE HISTORY: docs/acceptance-current.md names the current predicted image and no superseded one, says paid acceptance is blocked, and asks for no balance change; the history's instruction sections are marked historical and point to it", () => {
   const cur = readFileSync(path.join(REPO, "docs/acceptance-current.md"), "utf8");
-  // THE CURRENT PREDICTION (2026-10-11, on round 10's code 79a94d3f).
-  assert.match(cur, /c84110ecba368cb9/);
-  for (const old of ["62b0dae10edebdf5", "9547695841a6c5ac", "f9c4097ed179c5f8", "d8f11fccd7446ba8", "15fd0e0ba5555f38", "eb7e55f950c105cc", "12c7c953c370f188", "47981cf0b832bfad", "9d5c417c92c65f99", "4b8665dd0256e3f9", "494735051df65e57", "43652f925edb50f7"]) assert.ok(!cur.includes(old), `the current instructions still name ${old}`);
+  // THE CURRENT PREDICTION (2026-10-11, on round 11's code 90dc6a00).
+  assert.match(cur, /2b5ff083fe725602/);
+  for (const old of ["62b0dae10edebdf5", "9547695841a6c5ac", "f9c4097ed179c5f8", "d8f11fccd7446ba8", "15fd0e0ba5555f38", "eb7e55f950c105cc", "12c7c953c370f188", "47981cf0b832bfad", "9d5c417c92c65f99", "4b8665dd0256e3f9", "494735051df65e57", "43652f925edb50f7", "c84110ecba368cb9"]) assert.ok(!cur.includes(old), `the current instructions still name ${old}`);
   assert.match(cur, /Paid acceptance is blocked/);
   assert.match(cur, /Not an option\*\*: lowering or resetting the account's balance/);
   assert.match(cur, /Real images are unverified/);

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: a corrected answer takes the whole path; a step starts when what it reads has been written; earlier rounds' refused-answer boundary, refilling pool, unusable-answer boundary, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: requirement identity across a correction; an addition designed beside unrelated edits; earlier rounds' corrected-answer path, step readiness, refused-answer boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,12 +9,75 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`79a94d3f`**
-  (round 10), then the records and pin commit. Its predicted image is
-  **`c84110ecba368cb9`** (205 inputs; not built; was `43652f925edb50f7`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`90dc6a00`**
+  (round 11), then the records and pin commit. Its predicted image is
+  **`2b5ff083fe725602`** (205 inputs; not built; was `c84110ecba368cb9`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 11** (`c44dd774`, `2c7e33b1`, `90dc6a00`;
+`docs/history/2026-10-11-requirement-identity-target-discovery.md`). Codex
+passed 168 focused tests on `7f5e753b`, and those fixes are kept. Two new
+reproductions showed a requested requirement lost when a refused Add-on
+answer was corrected.
+- **Fixed — a correction no longer drops a distinct requirement.**
+  - *Failure 1*: both requirements under one quote ("collapsible and
+    searchable answers"); the correction kept only collapsible, and
+    searchable vanished. A quote grounds a requirement; it is not its
+    identity.
+  - *Failure 2*: collapsible was `component#0` in the refused answer and
+    searchable `component#0` in the correction. Each attempt numbers its own,
+    so the ids collided.
+  - *Now*: an earlier requirement counts as replaced only when that is
+    established: the designer marks it (`replaces`, after being shown the
+    earlier ids), the same hand-off is answered, or the need is identical.
+    Anything uncertain, such as a paraphrase or a shared quote, is kept and
+    judged, so the worst case is one requirement told twice, never one lost.
+    Carried entries get fresh, collision-free ids (`<step>#s<n>`); hand-offs
+    stay hand-offs.
+- **The Add-on parallel-work gap — page additions no longer wait on unrelated
+  edits.** Round 10's dependency came from what the picker and designers were
+  shown, not from what the tasks need.
+  - Pages are still identified by their content. Each page's headline is
+    recorded **when the message is read** and handed to the Add-on part, so
+    another part's heading change no longer changes the addition's request.
+  - The picker is shown no photographs.
+  - A new page is designed on the page list, the look, the menu, its own
+    tables and what the pages are built from (`kits`; words and an existing
+    frame's photograph do not change that).
+  - While an earlier part still writes page content, the addition's
+    preparation is design only: picker and designers beside it, the page
+    writer once at its job against the finished pages.
+  - Functions, APIs and jobs have their own target kinds, so they are planned
+    on their own targets, not the whole site.
+  - A declared read of a page, or of a table an earlier part changes, still
+    waits. That is a real dependency, and both have a control test.
+- **Evidence** (mocked; real driver, queue, routes, job runner; judge inputs,
+  stored records, final statuses and reply-writer facts checked):
+  - **RI 0–7**: the control, both failures, reordered and several,
+    hand-offs, clarification and resume, the needs re-ask, and duplicate
+    delivery.
+  - **CA 3, 3b, 8**.
+  - **R11 PAGE, LABELS, FUNCTION, JOB and API**, beside a held **text** edit
+    (not only a photograph), with PAGE and FUNCTION controls.
+  - Red: on `7f5e753b`, 17 fail and the controls pass.
+  - Full suite `10575 / 10575 / 0 / 0` on `90dc6a00`.
+  - Sweep (`sweep16`): 17 of 19 killed, control survived. One survivor is
+    equivalent today (other designers' ids can never share a step prefix).
+    The other showed a design-only arm for schema-only additions could never
+    run: their preparation already stops before the writer. It was dropped
+    (`90dc6a00`).
+  - CI: see the dated entry.
+- **Remaining gaps** (history §5):
+  - labels are taken at acceptance;
+  - uncertain equivalence errs toward telling twice;
+  - a new page's writer and any structural page change are real waits;
+  - an untargeted routing is whole-site until routed;
+  - round 10's Build-refusal, 3-call and unused-preparation gaps.
+- **Live-unverified**: nothing deployed or pressed. Real images are
+  unverified, and fal was not used. **The universal feature is not declared
+  finished.**
 
 **Round 10** (`79a94d3f`; `docs/history/2026-10-11-corrected-answers-readiness.md`).
 Codex passed 157 focused tests on `4074eb38` with CI green, and reproduced
@@ -487,6 +550,37 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 11: requirement identity across a correction; an addition designed beside unrelated edits (offline; not deployed, not pressed)
+
+- **You**: one combined batch.
+  - Codex passed 168 focused tests on `7f5e753b`; keep those fixes.
+  - Fix requirement identity and correction reconciliation universally, so
+    distinct requirements, collision-free ids and valid hand-offs are kept,
+    replacement counts only when established, and uncertain equivalence never
+    discards work. Verify both reproductions and the control, plus reordered
+    and multiple requirements, corrected hand-offs, clarification and resume,
+    dependency re-asks and duplicate delivery.
+  - Then the Add-on gaps: separate target discovery from design and writing
+    while still identifying pages by content; cover page, function, API and
+    job additions beside unrelated edits, with non-image overlap tests and
+    real-dependency controls.
+  - Everything mocked; commit, push, record.
+- **Done**: `c44dd774` (the change and its tests), `2c7e33b1` (a re-anchored
+  reader), `90dc6a00` (a redundant rule dropped after the sweep), and the
+  commit carrying these records and the pin `2b5ff083fe725602`.
+- **Verified offline**:
+  - red check (17 fail on `7f5e753b`, controls pass);
+  - sweep 17 of 19, the control survived and both survivors were examined
+    (history §6);
+  - full suite `10575 / 10575 / 0 / 0`;
+  - doc tests 32/32;
+  - CI: __CI__
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, paid or fal call, or real image. Remaining gaps are in the
+  history's §5.
 
 ---
 
