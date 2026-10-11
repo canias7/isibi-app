@@ -462,3 +462,111 @@ versions: they close the clock-gate gap recorded in §5, below.
   exists and saving it is retried by itself; the view now carries the reason,
   and the page does not yet read it (a page change, not made in this round).
 - Real router splitting, real writers and real images remain as in §5.
+
+## 7. Round 4 — the recovery card follows each purchase's state
+
+Codex passed 169 focused tests on `2454494b`. **The two purchase-lifecycle
+findings of round 3 are closed as fixed offline** (a refused image asked for
+again; an unknown early purchase counted as done), and the image/component
+overlap in both orders stays as it was. What remained was the recovery
+handoff documented in §6: the card showed one status and one action for every
+held purchase. **Commits**: `a8bee8af` (the change and its tests), with
+records after. No merge, deploy, container build, paid call, real image, fal
+call, balance or flag change.
+
+### What changed
+
+- **Each held purchase has a state, read by the server** (`heldPurchaseState`
+  in `builder/request.mjs`), and the view carries it per purchase and for the
+  part (`purchaseState`, the most uncertain of them; `buyAgain`, true only
+  when one is unknown):
+  - `saving` — made and not stored yet: the same picture is saved by itself;
+  - `running` — still being made, **only within the image call's own time**
+    (`PHOTO_RUNNING_MS`, 300 seconds: the 120-second call, its three
+    30-second downloads and the store, with room); past it, nobody can tell;
+  - `placing` — the purchase is known and its frame could not be read just
+    now;
+  - `unknown` — begun and not known to have ended, or made but no longer
+    handed over by the image service (`source-unreachable`, below).
+- **The card shows that state** (`siteRequestHTML`): "Saving a picture
+  already made", "Picture still being made", "Putting the picture in", or
+  "Checking a picture purchase" — and **the cost-aware "Buy the picture
+  again (may cost again)" only for an unknown purchase**. An addition already
+  live says which ("Added — photo being saved"). These are fixed status and
+  button labels; the conversational explanations stay model-written from the
+  reply facts. A view kept from before these fields reads as unknown, which
+  is what it said then. The page does not post a press for a part whose
+  view offers no buy-again, and two clicks post once (the existing
+  `rebuying` guard).
+- **A press reads every purchase record again before acting**
+  (`releaseHeldPurchases`), so a stale card or a part with purchases in
+  different states never lets a made picture go or buys a running one again:
+  - made and not stored (`generated`): the same picture is saved now, never
+    released — unless its source no longer hands it over (the download
+    fails), when it is released like any purchase nobody can tell;
+  - still `buying` with its photograph stored: recorded bought;
+  - still `buying` within its running time: left running;
+  - still `buying` otherwise (or a record that does not read): released, on
+    its etag;
+  - anything else: already known.
+  - A release that loses to another writer reads the record again, so a
+    second press that raced the first finds it released and does nothing
+    more; the answer says how many were released and which were kept, and
+    their state.
+- **The driver records what it observes** while finishing a made picture
+  (`heldReasons`): our store failing keeps `store-pending`; the source no
+  longer answering becomes `source-unreachable`, which the card shows as
+  unknown with the buy-again, and the reply facts tell by that reason.
+  Recovery with the browser closed is the driver's own sweep, as before.
+
+### Evidence
+
+- `test/purchase-recovery-card.test.mjs`, 9 cases, all through the real
+  driver, routes, job runner and page code with a mocked image service and
+  the network blocked:
+  - RC 1: each state from its reason, `running` only within its time, the
+    part's state the most uncertain, the reason the driver observes kept;
+  - RC 2: the card's label and button for each state, mixed, an addition
+    already live, and a view kept from before these fields;
+  - RC 3: two clicks post once; a part offering no buy-again posts nothing;
+  - RC 4: stored-but-unsaved — `saving`, no button; a stale press releases
+    nothing and keeps the made picture; with no page open, the driver saves
+    the same picture once storage answers (one generation);
+  - RC 5: still running — `running`, no button; a press releases nothing;
+    the call lands and the part finishes (one generation);
+  - RC 6: unknown pressed twice at once — released once, neither press
+    fails, bought again exactly once;
+  - RC 7: mixed (one made-not-saved, one unknown) — a press releases only
+    the unknown one; both photographs placed, three generations, never four;
+  - RC 8: a made picture whose source no longer hands it over turns
+    `unknown` and is released by a press;
+  - RC 9: a purchase that landed but whose record never said so (its later
+    writes lost), pressed after its running time — recorded bought, nothing
+    released, never bought again.
+- **Adapted**: the page fixture (`test/fixtures/browser-page.mjs`) carries
+  the two new label tables and `siteRequestBuyAgain`; two view pins (PI 19,
+  PUR 4) now include the state. PO 10 (made, source gone, buy-again buys
+  once) passes unchanged under the new rule.
+- **Red check**: on `2454494b`'s code the new file does not load (its
+  exports and the card's tables do not exist there); per-rule evidence is
+  the sweep.
+- **Mutation sweep** (`run8`, 6 test files, from a green baseline of 74):
+  17 product mutants, **all 17 killed**; both comment-only controls
+  survived. The one first survivor — the press's check for a photograph
+  already stored — was killed by adding RC 9.
+- **Full suite** on `a8bee8af`: `10486 / 10486 / 0 / 0` locally (`10477`
+  before; the 9 new cases are RC 1–9). The three doc tests stay 32 of 32.
+- **Image**: the predicted image moves `eb7e55f950c105cc` →
+  **`12c7c953c370f188`** (205 inputs, 174 paths, on `a8bee8af`; not
+  built). `d7edc66c` moves the acceptance pin.
+- **The card, as drawn** (screenshot shown in the chat, rendered in
+  Chromium from the page's own code): saving, running, unknown, mixed, and
+  an addition already live with its photo being saved.
+
+### Still not shown live
+
+- A real stored-but-unsaved, still-running or unknown purchase, the card on
+  a real page, and a real press. Everything here uses supplied model answers
+  and a mocked image service.
+- `PHOTO_RUNNING_MS` (300 seconds) is reasoned from the image call's own
+  limits, not measured on real calls.

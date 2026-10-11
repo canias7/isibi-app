@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; the recovery card follows each purchase's state; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,12 +10,41 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`ed113138`** (round 3, on Codex's review of `902fc7f0`), with records
-  after (`afa0f4e4` and the commit carrying this note). Its predicted image
-  is **`eb7e55f950c105cc`** (205 inputs; not built).
+  **`a8bee8af`** (round 4, the recovery card, on Codex's review of
+  `2454494b`), with records after (`d7edc66c` and the commit carrying this
+  note). Its predicted image is **`12c7c953c370f188`** (205 inputs; not
+  built).
 - **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
   picture in this round was a mock. No paid call, merge, deploy or container
   build.
+
+**Round 4** (`a8bee8af`; `docs/history/2026-10-11-parallel-addon.md` §7).
+Codex passed 169 focused tests on `2454494b`. **Closed as fixed offline**:
+round 3's two purchase-lifecycle findings (a refused image asked again; an
+unknown early purchase counted as done). The image/component overlap in both
+orders is unchanged. What remained was the recovery card:
+- **The card follows each purchase's state**, which the server now reads
+  from the record's reason: "Saving a picture already made" (made, not
+  stored — the same picture is saved by itself), "Picture still being made"
+  (only within the image call's own time, 300 seconds), "Putting the
+  picture in", or "Checking a picture purchase". **The cost-aware buy-again
+  is offered only for a purchase nobody can tell.** Labels and the button
+  are fixed UI; the explanations stay model-written.
+- **A press reads every record again first**, so a stale card or a part
+  with mixed purchases never lets a made picture go or re-buys a running
+  one: a made picture is saved now; a landed one is recorded bought; a
+  running one is left; only an unknown one is released. Two presses at once
+  release it once. A made picture whose source no longer hands it over
+  turns unknown (the driver records `source-unreachable`) and can be
+  released.
+- **Evidence**: RC 1–9 (stored-but-unsaved with a stale press and the
+  browser closed, still running, unknown pressed twice, mixed, source gone,
+  landed-but-unrecorded, the card's states, clicks sent once); sweep 17 of
+  17 product mutants killed, both controls survived; full suite `10486 /
+  10486 / 0 / 0`; doc tests 32 of 32; the card screenshot shown in chat.
+  CI: below, once read.
+- **Still not live**: real held purchases, the card on a real page, a real
+  press; the 300-second running bound is reasoned, not measured.
 
 **Round 3** (`ed113138`; `docs/history/2026-10-11-parallel-addon.md` §6).
 Codex passed 114 focused tests on `902fc7f0` and found two purchase-lifecycle
@@ -135,7 +164,7 @@ chooses well; real images.
 - Optional, not needed for the parallel-work claims: `acc-needs`,
   `acc-mixed`, and the image-free Build.
 - **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `eb7e55f950c105cc`), wait
+  customer while off; P2 needs it), merge (image `12c7c953c370f188`), wait
   15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
 **The decision you need to make first**: the only enforced bound on any
@@ -165,6 +194,30 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 4: the recovery card follows each purchase's state (offline; not deployed, not pressed)
+
+- **You**: Codex passed 169 focused tests on `2454494b`. Close round 3's
+  two findings as fixed offline, keep the overlap in both orders, and finish
+  the recovery card: one status and one buy-again for every held purchase;
+  make state and action follow the purchase, recheck records on the server
+  before acting, keep browser-closed recovery and duplicate-click
+  protection, show it, record it, then stop for review.
+- **Done** (`a8bee8af`): per-purchase state in the view and on the card;
+  buy-again only for an unknown purchase; a press that rereads every
+  record (made pictures saved, landed ones recorded, running ones left,
+  only unknown ones released, a raced press re-read); an unreachable source
+  recorded and released on a press.
+- **Verified offline**: RC 1–9 green; sweep 17 of 17 product mutants
+  killed (both controls survived); full suite `10486 / 10486 / 0 / 0`;
+  image predicted `12c7c953c370f188` (`d7edc66c` moves the pin); the card
+  screenshot shown in chat.
+- **Closed as fixed offline**: round 3's refused-image and
+  unknown-early-purchase findings.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. Stopped for your review.
 
 ---
 
