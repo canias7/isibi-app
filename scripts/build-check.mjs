@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import { ownerSession } from "./owner-session.mjs";
-import { runBuildCheck, BUILD_CHECK, windowComplete } from "./canary-build.mjs";
+import { runBuildCheck, BUILD_CHECK, BUILD_CHECK_NO_IMAGES, windowComplete } from "./canary-build.mjs";
 import { uploadsOf } from "./canary-requests.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -16,6 +16,8 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const SPEND = String(process.env.OWNER_SPEND || "").trim().toLowerCase() === "yes";
+// THE IMAGE-FREE CHECK (2026-10-11): `mode: check-no-images`.
+const SPEC = String(process.env.OWNER_MODE || "").trim().toLowerCase() === "check-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK;
 const LOG_FILE = "build-check.json";
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
@@ -98,6 +100,8 @@ export async function main() {
       catch { return { status: 0 }; }
     },
     uploads: async (token, slug) => uploadsOf(await get(`/api/site/${encodeURIComponent(slug)}/uploads`, token)),
+    // THE LIVE WORKER'S SWITCHES, on a site the account owns (free).
+    runtime: (token, slug) => get(`/api/site/runtime?slug=${encodeURIComponent(slug)}`, token),
     // THE WINDOW, READ WHOLE: the exact count asked for, and the answer's
     // range must describe every row it served (`0-(n-1)/n`, or `*/0`).
     ledgerWindow: async (from, to) => {
@@ -110,8 +114,8 @@ export async function main() {
       } catch { return { ok: false, complete: false, rows: null }; }
     },
   };
-  console.log(`THE FIRST-BUILD CHECK: slug ${BUILD_CHECK.slug}, budget ${BUILD_CHECK.budget}, hard cap ${BUILD_CHECK.cap}, spend ${SPEND ? "yes" : "no"}`);
-  const rec = await runBuildCheck(io, { spend: SPEND });
+  console.log(`THE FIRST-BUILD CHECK${SPEC === BUILD_CHECK_NO_IMAGES ? " (no photographs)" : ""}: slug ${SPEC.slug}, budget ${SPEC.budget}, hard cap ${SPEC.cap}, spend ${SPEND ? "yes" : "no"}`);
+  const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND });
   fs.writeFileSync(LOG_FILE, JSON.stringify(rec, null, 2));
   if (rec.stopped) { console.log(`\n${rec.stopped}`); return rec.sent ? 1 : 0; }
   console.log(`\nTHE BUILD'S TIMELINE: ${rec.order || "(no trace)"}`);

@@ -27,6 +27,24 @@
 // the caller's half; this module decides what to ask for and what to do with the
 // answer.
 
+/**
+ * THE IMAGE-PURCHASE SWITCH (2026-10-11, the owner: *"Enforce the
+ * image-spending restriction in the execution path rather than relying only
+ * on wording in the prompt"*). `IMAGE_PURCHASES` = "off" refuses every
+ * photograph purchase at the one place one is made (`makeSitePhoto` in
+ * worker.js, which every build, edit, add-on, placement and preparation path
+ * reaches), before any request leaves for the image service: nothing is made,
+ * so nothing is paid, and each caller sees the ordinary `refused` outcome it
+ * already reports. Anything else — unset included — leaves purchases as they
+ * were. `/api/site/runtime` reports it, and a press that must buy no image
+ * sends nothing unless it reads off.
+ */
+export function imagePurchasesOn(env) {
+  const v = env && typeof env.IMAGE_PURCHASES === "string" ? env.IMAGE_PURCHASES.trim().toLowerCase() : "";
+  return v !== "off";
+}
+export const IMAGE_PURCHASES_OFF = "image purchases are switched off (IMAGE_PURCHASES=off)";
+
 
 import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
 // THE KEY GRAMMAR IS `site-picture.mjs`' AND IS IMPORTED RATHER THAN RESTATED —

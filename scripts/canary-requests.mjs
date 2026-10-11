@@ -319,6 +319,101 @@ export function overlapVerdict(steps) {
 }
 
 /**
+ * WHAT EACH JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL NOW
+ * (2026-10-11, the acceptance batch), off the request's own last view — each
+ * part's `prepUse`, written by the job itself (`jobs/prepared/<id>.use.json`)
+ * and served per run job: `{ job, known, staged, replayed, rebased, fresh }`.
+ *
+ * EVERY RUN JOB MUST HAVE EVIDENCE THAT READS. A job listed `known: false`, a
+ * run job with no entry at all, a count that is not a whole number, `staged`
+ * outside yes / no / unreadable, or any `rebased` above 0 (nothing re-bases
+ * any more) fails — missing evidence is never read as zero.
+ *
+ * Then what the scenario asks for (`want`):
+ *   exact    at least this many jobs answered EXACTLY from a preparation
+ *            (staged yes, replayed ≥ 1, fresh 0) — work prepared beside
+ *            another job and reused with no model call;
+ *   fresh    at least this many prepared jobs that replayed and ALSO asked a
+ *            model now (staged yes, replayed ≥ 1, fresh ≥ 1): an answer that
+ *            needed more, or a request that changed, asked again;
+ *   overlapped  the exact reuse must be by a part whose prepared step
+ *            overlapped another part's job or step (`overlapVerdict`), so
+ *            the reuse is of concurrent work.
+ * `{ ok, why, jobs, exact, fresh, said }`.
+ */
+export function reuseVerdict(steps, want = {}) {
+  const list = arrOf(steps);
+  const first = list[0];
+  if (!first || first.sent !== true) return { ok: false, why: "the first message was not sent", jobs: [] };
+  const key = first.request && typeof first.request.key === "string" ? first.request.key : "";
+  const finals = list.filter((x) => x && x.request && x.request.key === key && x.request.final && typeof x.request.final === "object").map((x) => x.request.final);
+  const view = finals.length ? finals[finals.length - 1] : null;
+  if (!key || !view) return { ok: false, why: "missing evidence: the request's view was never read", jobs: [] };
+  const whole = (v) => Number.isInteger(v) && v >= 0;
+  const jobs = [], bad = [];
+  for (const p of arrOf(view.parts)) {
+    if (!p || typeof p !== "object") continue;
+    const runJobs = arrOf(p.runs).map((r) => r && typeof r.job === "string" ? r.job : "").filter(Boolean);
+    const uses = arrOf(p.prepUse);
+    for (const u of uses) {
+      if (!u || typeof u !== "object" || typeof u.job !== "string") { bad.push(`part ${p.n}: an entry that does not read`); continue; }
+      if (u.known !== true) { bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: no evidence of its calls (not known)`); continue; }
+      if (!["yes", "no", "unreadable"].includes(u.staged)) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: what was staged does not read (${JSON.stringify(u.staged)})`);
+      for (const k of ["replayed", "rebased", "fresh"]) if (!whole(u[k])) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: ${k} is not a count (${JSON.stringify(u[k])})`);
+      if (whole(u.rebased) && u.rebased > 0) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: rebased ${u.rebased} — nothing may re-base an answer`);
+      jobs.push({ part: p.n, job: u.job, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh });
+    }
+    for (const j of runJobs) if (!uses.some((u) => u && u.job === j)) bad.push(`part ${p.n} job ${j.slice(0, 8)}: ran with no evidence of its calls`);
+  }
+  if (!jobs.length && !bad.length) bad.push("missing evidence: no job's use of its preparation was served");
+  const valid = (x) => x.staged === "yes" && whole(x.replayed) && whole(x.fresh);
+  const exact = jobs.filter((x) => valid(x) && x.replayed >= 1 && x.fresh === 0);
+  const fresh = jobs.filter((x) => valid(x) && x.replayed >= 1 && x.fresh >= 1);
+  const out = { jobs, exact: exact.map((x) => x.part), fresh: fresh.map((x) => x.part) };
+  if (bad.length) return { ok: false, why: bad.join("; "), ...out };
+  const needExact = Number.isInteger(want.exact) ? want.exact : 0;
+  const needFresh = Number.isInteger(want.fresh) ? want.fresh : 0;
+  if (exact.length < needExact) return { ok: false, why: `${exact.length} job(s) answered exactly from a preparation; ${needExact} required (${JSON.stringify(jobs)})`, ...out };
+  if (fresh.length < needFresh) return { ok: false, why: `${fresh.length} prepared job(s) asked a model again; ${needFresh} required (${JSON.stringify(jobs)})`, ...out };
+  if (want.overlapped === true && needExact > 0) {
+    const ov = overlapVerdict(steps);
+    const parts = new Set([...(ov.overlaps || []).map((o) => o.prepPart), ...(ov.together || []).flatMap((t) => t.parts)]);
+    if (!exact.some((x) => parts.has(x.part))) return { ok: false, why: `no job answered exactly was a part whose prepared step overlapped other work (exact: parts ${JSON.stringify(out.exact)}; overlapping: ${JSON.stringify([...parts])})`, ...out };
+  }
+  const said = `${jobs.length} job(s) with evidence; exact reuse by part(s) ${JSON.stringify(out.exact)}; asked again by part(s) ${JSON.stringify(out.fresh)}`;
+  return { ok: true, why: "", said, ...out };
+}
+
+/**
+ * DID THE MODEL ASK FOR WHAT IT WAS NOT SHOWN, OR GUESS? (2026-10-11, the
+ * real-model case.) Read off the evidence, never claimed: for the part named
+ * by its words, `asked-again` when its prepared job replayed an answer and
+ * then asked a model now (the scoped step said `needs`, or its request
+ * changed); `exact` when it reused its prepared answer unchanged (no request
+ * for more — right only if what it applied is right, which the final-state
+ * checks judge); `not-prepared` when no preparation was staged (the router
+ * declared the read, or the part waited); `unknown` otherwise. An
+ * observation for the record: it passes nothing and fails nothing.
+ */
+export function needsObservation(steps, stem) {
+  const v = reuseVerdict(steps, {});
+  const list = arrOf(steps);
+  const key = list[0] && list[0].request ? list[0].request.key : "";
+  const finals = list.filter((x) => x && x.request && x.request.key === key && x.request.final).map((x) => x.request.final);
+  const view = finals.length ? finals[finals.length - 1] : null;
+  const want = String(stem || "").toLowerCase();
+  const part = view ? arrOf(view.parts).find((p) => p && typeof p.words === "string" && p.words.toLowerCase().includes(want)) : null;
+  if (!part) return { seen: "unknown", why: "the part was not found in the request's view" };
+  const u = arrOf(v.jobs).filter((j) => j.part === part.n);
+  if (!u.length) return { seen: "unknown", part: part.n, why: v.why || "no evidence for the part's job" };
+  const x = u[u.length - 1];
+  if (x.staged !== "yes") return { seen: "not-prepared", part: part.n, evidence: x };
+  if (x.replayed >= 1 && x.fresh >= 1) return { seen: "asked-again", part: part.n, evidence: x };
+  if (x.replayed >= 1 && x.fresh === 0) return { seen: "exact", part: part.n, evidence: x };
+  return { seen: "unknown", part: part.n, evidence: x };
+}
+
+/**
  * THE REQUEST'S TIMELINE, READABLE (2026-10-09, run 117's diagnosis), so the
  * press's own log shows why a check passed or failed without the evidence
  * artifact: every part's preparation attempts — claimed (`sent`), taken,
@@ -1145,9 +1240,20 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
     timeline = v.timeline || null;
     checks.push({ name: "message 1: a part's prepared step ran while another part's job or prepared step was executing, by their recorded intervals", ok: v.ok, why: v.ok ? v.said : v.why });
   }
+  // WHAT EACH JOB REUSED AND WHAT IT ASKED A MODEL NOW (2026-10-11), for a press that asks.
+  let reuse = null;
+  if (spec && spec.expect && spec.expect.reuse && typeof spec.expect.reuse === "object") {
+    const w = spec.expect.reuse;
+    reuse = reuseVerdict(steps, w);
+    checks.push({ name: `message 1: every job's use of its preparation is recorded and reads${w.exact ? `; at least ${w.exact} answered exactly from work prepared${w.overlapped ? " beside other work" : ""}` : ""}${w.fresh ? `; at least ${w.fresh} asked a model again` : ""}`, ok: reuse.ok, why: reuse.ok ? reuse.said : reuse.why });
+  }
+  // THE REAL MODEL'S ANSWER TO WHAT IT WAS NOT SHOWN: recorded, judged by the final state, never passed on its own.
+  const needs = spec && spec.expect && spec.expect.needs && typeof spec.expect.needs === "object" ? needsObservation(steps, spec.expect.needs.part) : null;
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
-  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified: o.unverified || [], ...(timeline ? { timeline } : {}) };
+  const unverified = [...(o.unverified || [])];
+  if (needs) unverified.push(`whether the real model asks for context it was not shown instead of guessing: observed "${needs.seen}"${Number.isInteger(needs.part) ? ` for part ${needs.part}` : ""} — ONE SAMPLE, an observation, not a measured rate`);
+  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}) };
 }

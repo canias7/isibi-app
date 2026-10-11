@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { BUILD_CHECK, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
+import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -360,7 +360,7 @@ test("THE FREE REHEARSAL AND THE REFUSALS: with spend not yes, or the balance ou
 
 test("THE WIRING: build-as-owner hands `check` to the build check before its own validation; the workflow offers it with its spend box and keeps its record", () => {
   const owner = fs.readFileSync(ROOT + "scripts/build-as-owner.mjs", "utf8");
-  const hook = owner.indexOf('if (MODE === "check") {');
+  const hook = owner.indexOf('if (MODE === "check" || MODE === "check-no-images") {');
   const own = owner.indexOf('if (!EMAIL) fail("OWNER_EMAIL is not set");');
   assert.ok(hook > 0 && own > 0 && hook < own, "the check is not reached before build-as-owner's own validation");
   assert.ok(owner.includes('const { main } = await import("./build-check.mjs");'));
@@ -368,10 +368,10 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   const hand = owner.indexOf("if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = ANON_KEY;");
   assert.ok(hand > hook && hand < owner.indexOf('await import("./build-check.mjs")') && owner.indexOf("const ANON_KEY") < hook, "the anon key is not handed to the check");
   const wf = fs.readFileSync(ROOT + ".github/workflows/build-as-owner.yml", "utf8");
-  assert.ok(wf.includes("options: [edit, build, check]"));
+  assert.ok(wf.includes("options: [edit, build, check, check-no-images]"));
   // A CHECK DISPATCHED FROM THE BRANCH never waits for a deploy of its own commit.
   const wait = wf.indexOf("- name: wait for this push's deploy");
-  assert.ok(wait > 0 && wf.slice(wait, wait + 120).includes("if: github.event.inputs.mode != 'check'"), "the deploy wait would block the check");
+  assert.ok(wait > 0 && wf.slice(wait, wait + 160).includes("if: github.event.inputs.mode != 'check' && github.event.inputs.mode != 'check-no-images'"), "the deploy wait would block the check");
   assert.ok(wf.includes("OWNER_SPEND: ${{ github.event.inputs.spend || 'no' }}"));
   assert.ok(wf.includes("            build-check.json"));
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
@@ -431,3 +431,85 @@ test("UNEXPLAINED SPENDING CANNOT PASS, through runBuildCheck: a balance that mo
   assert.ok(good.checks.every((c) => !/browser[- ]closed test\)$/.test(c.name) || /not a browser-closed test/.test(c.name)));
 });
 
+
+// ── THE FIRST BUILD WITH NO PHOTOGRAPH (2026-10-11, the acceptance batch) ────
+
+const NI = BUILD_CHECK_NO_IMAGES;
+const NI_SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "src/routes/index.tsx", source: pageSrc(["hero-split", "card"]) + "function P(){ return <main><h1>Saltmarsh</h1><p>Forty British cheeses.</p></main> }\n" }], parts: [] };
+const RT = (imagePurchases, status = 200) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
+const niStub = (over = {}) => stub({
+  runtime: RT(false),
+  existing: async () => FREE(),
+  post: async function (t, body) { this.calls.push("post"); assert.equal(body.slug, NI.slug); assert.equal(body.brief, NI.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
+  poll: async (t, job) => ({ status: 200, json: { ok: true, slug: NI.slug, progress: [{ n: 0, ms: 1000, text: "I'm laying out your cheese counter's page." }] } }),
+  source: async () => ({ status: 200, json: NI_SRC }),
+  served: async () => ({ status: 200, html: "<main><h1>Saltmarsh</h1></main>" }),
+  uploads: async () => ({ ok: true, files: [] }),
+  ...over,
+});
+
+test("NO PHOTOGRAPH, THE SPEC: a fresh slug, a brief that asks for none, the image switch required, the budget inside the cap; the brief names no photograph to buy", () => {
+  assert.equal(NI.images, "none");
+  assert.notEqual(NI.slug, BUILD_CHECK.slug);
+  assert.match(NI.brief, /No photographs please/);
+  assert.equal(NI.runtimeSlug, "fold-lane-bakery");
+  assert.ok(NI.budget > 0 && NI.budget <= NI.cap);
+  assert.equal(imageRefusalOf({ status: 200, json: { imagePurchases: false } }), "");
+  assert.match(imageRefusalOf({ status: 200, json: { imagePurchases: true } }), /still buys photographs/);
+  assert.match(imageRefusalOf({ status: 200, json: {} }), /does not report/);
+  assert.match(imageRefusalOf({ status: 503, json: null }), /could not be read/);
+  assert.match(imageRefusalOf(null), /not read/);
+});
+
+test("NO PHOTOGRAPH, THE REFUSALS: a Worker that still buys photographs, one that does not say, and an unreadable runtime each stop the press before anything is sent; with the switch off and spend not yes, the preflight passes and nothing is sent", async () => {
+  for (const [rt, re] of [[RT(true), /still buys photographs/], [RT(undefined), /does not report/], [RT(false, 500), /could not be read/], [undefined, /could not be read/]]) {
+    const s = niStub({ runtime: rt });
+    const r = await runBuildCheck(s, { spec: NI, spend: true });
+    assert.equal(r.sent, false);
+    assert.match(r.stopped, re);
+    assert.match(r.stopped, /nothing is sent/);
+    assert.ok(!s.calls.includes("post"), "the build was sent");
+  }
+  const s = niStub();
+  const r = await runBuildCheck(s, { spec: NI, spend: false });
+  assert.equal(r.sent, false);
+  assert.match(r.stopped, /preflight passed and nothing is sent/);
+  assert.deepEqual(r.imagesOff, { status: 200, imagePurchases: false });
+});
+
+test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap from the page bands, no image stored or placed, no photograph check claimed — and each missing result fails: an image stored, a photograph placed, an overlap only photographs could show", async () => {
+  const rec = await runBuildCheck(niStub(), { spec: NI, spend: true });
+  assert.equal(rec.stopped, "");
+  assert.equal(rec.sent, true);
+  const names = rec.checks.map((c) => c.name);
+  assert.ok(names.includes("the site's uploads hold no image: no photograph was bought"), JSON.stringify(names));
+  assert.ok(!names.some((n) => /serves an image|placed or recorded unused/.test(n)), "a photograph check was claimed for a build that may buy none");
+  const own = (re) => failed(rec.checks).filter((f) => re.test(f));
+  assert.deepEqual(own(/photograph|image|independent build work/), []);
+  assert.equal(rec.overlap.by, "bands");
+  assert.deepEqual(rec.unverified, []);
+  // AN IMAGE STORED.
+  const bought = await runBuildCheck(niStub({ uploads: async () => ({ ok: true, files: [{ name: "x.jpg", kind: "image" }] }) }), { spec: NI, spend: true });
+  assert.ok(failed(bought.checks).some((f) => /no photograph was bought/.test(f)));
+  // A PHOTOGRAPH PLACED.
+  const placed = await runBuildCheck(niStub({ source: async () => ({ status: 200, json: { ...NI_SRC, pages: photoPage([`/u/${NI.slug}/aaaa1111bbbb2222cccc3333dddd4444.jpg`]) } }) }), { spec: NI, spend: true });
+  assert.ok(failed(placed.checks).some((f) => /places none of the site's own photographs/.test(f)));
+  // UPLOADS UNREAD: never "none".
+  const unread = await runBuildCheck(niStub({ uploads: async () => ({ ok: false, why: "503" }) }), { spec: NI, spend: true });
+  assert.ok(failed(unread.checks).some((f) => /uploads were read, and hold no image/.test(f)));
+  // ONLY PHOTOGRAPHS OVERLAPPED: not shown for a build that may buy none.
+  const photosOnly = [{ s: "design" }, { s: "photos-alongside", started: 1 }, { s: "gen" }, { s: "img" }, { s: "photos-wait", open: 1 }, { s: "photos-joined", unused: 0 }, { s: "compile" }, { s: "pages" }];
+  const ov = await runBuildCheck(niStub({ trace: async () => ({ steps: photosOnly, done: true, ok: true }) }), { spec: NI, spend: true });
+  assert.ok(failed(ov.checks).some((f) => /independent build work ran at once.*no recorded overlap/.test(f)), JSON.stringify(failed(ov.checks)));
+  assert.equal(buildOverlapVerdict(photosOnly).by, "photos", "CONTROL: the same trace overlaps by photographs for a build that may buy them");
+  assert.equal(buildNoImageVerdict({ pages: NI_SRC.pages, uploads: { ok: true, files: [] }, slug: NI.slug }).checks.every((c) => c.ok), true);
+});
+
+test("NO PHOTOGRAPH, THE WIRING: `check-no-images` reaches this spec and its runtime reader; the workflow offers it and keeps the deploy wait off it", () => {
+  const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
+  assert.ok(bc.includes('String(process.env.OWNER_MODE || "").trim().toLowerCase() === "check-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK'));
+  assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND })"));
+  assert.ok(bc.includes("runtime: (token, slug) => get(`/api/site/runtime?slug=${encodeURIComponent(slug)}`, token),"));
+  const owner = fs.readFileSync(ROOT + "scripts/build-as-owner.mjs", "utf8");
+  assert.ok(owner.includes('if (MODE === "check" || MODE === "check-no-images") {'));
+});

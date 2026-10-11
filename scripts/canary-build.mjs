@@ -57,6 +57,14 @@ import { buildStepFacts } from "../builder/site-progress.mjs";
 import { photosOf } from "./canary-additions.mjs";
 import { photoPath, servedPhotos } from "./canary-requests.mjs";
 
+/** The live Worker's own word on photographs (`/api/site/runtime`): "" only when it says none are bought. Kept here, not imported from the browser press, so this module loads without a browser. */
+export function imageRefusalOf(rt) {
+  if (!rt || rt.status !== 200 || !rt.json || typeof rt.json !== "object") return `the runtime route could not be read (${rt ? rt.status || "nothing" : "not read"}), so whether photographs can be bought is not known`;
+  if (rt.json.imagePurchases === false) return "";
+  if (rt.json.imagePurchases === true) return "the live Worker still buys photographs (IMAGE_PURCHASES is not off)";
+  return "the live Worker does not report whether it buys photographs (deployed before the switch)";
+}
+
 /**
  * THE PRESS, by the owner's demo-site rule (the site stays). ABOUT 30-65: a
  * first build has measured 11-45 (runs 21-37, `ashgrove-1` 45 with two
@@ -69,6 +77,31 @@ export const BUILD_CHECK = Object.freeze({
   slug: "copperleaf-tea-room",
   brief: "I run a small tea room in York called Copperleaf, on a cobbled lane near the Minster. We bake everything ourselves every morning: scones, a lemon drizzle, a dark ginger cake and a rotating tart. We serve loose-leaf teas from a copper urn and sell the same teas by the bag to take home. Twenty-two seats, open Wednesday to Sunday, ten till five, and we take bookings for afternoon tea for two to eight people. I want one page that shows people the room and the cakes with proper photographs, tells them when we are open and how to book, and lists our teas and prices.",
   budget: 70,
+  cap: 1018,
+  pollMs: 6_000,
+  followMs: 25 * 60_000,
+  laterReadMs: 60_000,
+});
+
+/**
+ * THE FIRST BUILD WITH NO PHOTOGRAPH BOUGHT (2026-10-11, the acceptance
+ * batch: image-free, under Build's existing flags and limits). The same press
+ * on a fresh slug, a brief that asks for no photographs, and two guards on top:
+ * nothing is sent unless the live Worker refuses every photograph purchase
+ * (`IMAGE_PURCHASES=off`, read off `/api/site/runtime` on a site the account
+ * owns), and the build must store no image and place none of its own
+ * (`buildNoImageVerdict`). Its overlap must then come from the page bands or
+ * the design's agents — never from photographs, which it may not buy.
+ * ABOUT 11-30: first builds measured 11-45, the top with two photographs
+ * (about 19 each), which this one cannot buy. A build is one charge the server
+ * takes in one place; the balance at the press bounds it (`cap`).
+ */
+export const BUILD_CHECK_NO_IMAGES = Object.freeze({
+  slug: "saltmarsh-cheese-counter",
+  brief: "I run a cheese counter called Saltmarsh in the covered market in Lewes. We sell about forty British cheeses, cut to order, and a few chutneys and oatcakes to go with them. We're open Tuesday to Saturday, nine till four, and we make up cheese boards for parties if people order two days ahead. I want one page that tells people what we sell, when we're open, and how to order a board. No photographs please, just words, a clear layout and our prices for the boards: small £25, medium £40, large £60.",
+  images: "none",
+  runtimeSlug: "fold-lane-bakery",
+  budget: 40,
   cap: 1018,
   pollMs: 6_000,
   followMs: 25 * 60_000,
@@ -131,7 +164,7 @@ export function traceSteps(steps) {
  *   the page writing.
  * Otherwise it fails and says what the trace held.
  */
-export function buildOverlapVerdict(steps, { slackMs = 1000 } = {}) {
+export function buildOverlapVerdict(steps, { slackMs = 1000, photos = true } = {}) {
   const st = traceSteps(steps);
   const seen = [];
   const pair = (s, count) => {
@@ -149,7 +182,9 @@ export function buildOverlapVerdict(steps, { slackMs = 1000 } = {}) {
     seen.push(num(s.agents) !== null ? `design ${JSON.stringify({ agents: s.agents, agentMs: s.agentMs, waveMs: s.waveMs })}` : "design in a single call (no agents)");
     if (p) return { ok: true, by: "design", why: "", detail: `${p.n} design agents at once: their calls took ${p.agentMs} ms in all inside a ${p.waveMs} ms wave`, seen };
   }
-  const along = st.find((x) => x.s === "photos-alongside" && num(x.started) >= 1);
+  // A BUILD THAT MAY BUY NO PHOTOGRAPH (`photos: false`) is never shown to
+  // overlap by one.
+  const along = photos ? st.find((x) => x.s === "photos-alongside" && num(x.started) >= 1) : null;
   const gen = along ? st.find((x) => x.s === "gen" && x.i > along.i) : null;
   const back = gen ? st.find((x) => (x.s === "fonts" || x.s === "img") && x.i > gen.i) : null;
   const wait = back ? st.find((x) => x.s === "photos-wait" && x.i > back.i && num(x.open) >= 1) : null;
@@ -304,6 +339,24 @@ export function buildPhotoVerdict({ pages, served, bytes, uploads, steps, slug, 
   return { checks: out, placed: stored };
 }
 
+/**
+ * NO PHOTOGRAPH BOUGHT (`BUILD_CHECK_NO_IMAGES`): the site's uploads read
+ * whole hold no image, and the stored page places none of the site's own.
+ * Unread uploads fail — never read as "none".
+ */
+export function buildNoImageVerdict({ pages, uploads, slug } = {}) {
+  const out = [];
+  const add = check(out);
+  const placed = [...new Set(arr(pages).flatMap((p) => [...photosOf(p && p.source, slug).keys()].map((u) => photoPath(u, slug)).filter(Boolean)))].sort();
+  add("the page places none of the site's own photographs", placed.length === 0, `it places ${JSON.stringify(placed)}`);
+  if (!(uploads && uploads.ok === true && Array.isArray(uploads.files))) add("the site's uploads were read, and hold no image", false, uploads && uploads.why ? uploads.why : "not read");
+  else {
+    const images = uploads.files.filter((f) => f && f.kind === "image").map((f) => f.name).sort();
+    add("the site's uploads hold no image: no photograph was bought", images.length === 0, `stored ${JSON.stringify(images)}`);
+  }
+  return { checks: out, placed };
+}
+
 // ── THE MONEY ────────────────────────────────────────────────────────────────
 
 /**
@@ -431,8 +484,16 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   const start = startReading.ok ? startReading.balance : null;
   const existing = await io.existing(spec.slug);
   record.existing = existing;
-  const refuse = buildPreflight({ balance: start, budget: spec.budget, cap: spec.cap, existing });
+  let refuse = buildPreflight({ balance: start, budget: spec.budget, cap: spec.cap, existing });
   record.balanceStart = start;
+  // NO PHOTOGRAPH MAY BE BOUGHT (`images: "none"`): read before anything is
+  // sent, rehearsal or not; anything but the Worker's own "off" refuses.
+  if (!refuse && spec.images === "none") {
+    const rt = typeof io.runtime === "function" ? await io.runtime(sender.token, spec.runtimeSlug) : null;
+    record.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined };
+    const why = imageRefusalOf(rt);
+    if (why) refuse = `${why} — nothing is sent`;
+  }
   if (refuse) { record.stopped = refuse; log(`STOPPED: ${refuse}`); return record; }
   if (!spend) { record.stopped = "spend is not yes — the preflight passed and nothing is sent"; log(record.stopped); return record; }
   record.ledgerMark = startReading.id;
@@ -476,7 +537,7 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   const checks = [];
   checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status }));
   checks.push(...buildShapeVerdict(sourceBody).checks);
-  const ov = buildOverlapVerdict(tr.steps);
+  const ov = buildOverlapVerdict(tr.steps, { photos: spec.images !== "none" });
   checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : ov.why });
   record.overlap = ov;
   const order = buildOrderVerdict(tr);
@@ -485,11 +546,13 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   const pv = buildProgressVerdict(polls);
   checks.push(...pv.checks);
   record.lines = pv.lines;
-  const ph = buildPhotoVerdict({ pages, served: site && site.html, bytes, uploads: up, steps: tr.steps, slug: spec.slug });
+  const ph = spec.images === "none"
+    ? buildNoImageVerdict({ pages, uploads: up, slug: spec.slug })
+    : buildPhotoVerdict({ pages, served: site && site.html, bytes, uploads: up, steps: tr.steps, slug: spec.slug });
   checks.push(...ph.checks);
   const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job });
   checks.push({ name: `the whole balance move explained by the complete ledger window, the build's charges each taken once: moved ${money.spent ?? "?"}, recorded ${money.recorded ?? "?"} (this build ${money.net ?? "?"}, other rows ${money.other ?? "?"})`, ok: money.ok, why: money.why });
-  record.unverified = [PURCHASE_UNVERIFIED];
+  record.unverified = spec.images === "none" ? [] : [PURCHASE_UNVERIFIED];
   record.money = money;
   record.balanceEnd = end;
   record.checks = checks;

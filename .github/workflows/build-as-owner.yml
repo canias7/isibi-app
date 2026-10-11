@@ -69,9 +69,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'build | edit | check (the first-build check on copperleaf-tea-room: one fresh build followed from a fresh sign-in and judged on its page, components, recorded overlap, order, progress lines, photographs and charges; sends nothing unless spend is yes and the balance is between 70 and 1018)'
+        description: 'build | edit | check (the first-build check on copperleaf-tea-room: one fresh build followed from a fresh sign-in and judged on its page, components, recorded overlap, order, progress lines, photographs and charges; sends nothing unless spend is yes and the balance is between 70 and 1018) | check-no-images (the same check on saltmarsh-cheese-counter with no photograph: sends nothing unless the live Worker buys none, IMAGE_PURCHASES off, and the balance is between 40 and 1018)'
         type: choice
-        options: [edit, build, check]
+        options: [edit, build, check, check-no-images]
         default: edit
       spend:
         description: 'check only: yes sends the build (it is charged); no runs the free preflight and stops.'
@@ -410,7 +410,7 @@ jobs:
       # branch whose own commit is never deployed, against deployed main, so
       # this wait could only time out and stop the job before the check ran.
       - name: wait for this push's deploy
-        if: github.event.inputs.mode != 'check'
+        if: github.event.inputs.mode != 'check' && github.event.inputs.mode != 'check-no-images'
         run: |
           # ASK deploy.yml FOR ITS OWN RUNS. Never `actions/runs?head_sha=` plus
           # a find-by-name: that asks for the first page of EVERY workflow on

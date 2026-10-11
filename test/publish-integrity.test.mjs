@@ -799,6 +799,10 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     async: true, runner: true,
     asyncOn: true, asyncEveryone: true, runnerOn: true, runnerEveryone: false,
     runnerBindings: true, runnerKeyed: true,
+    // `imagePurchases` arrived 2026-10-11 with the image-purchase switch
+    // (`IMAGE_PURCHASES`, a deploy secret with a workflow fallback): true
+    // here, since nothing sets it off.
+    imagePurchases: true,
     bands: false, bandsEveryone: false,
     design: false, designEveryone: false,
     graph: false, graphEveryone: false,

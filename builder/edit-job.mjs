@@ -1028,6 +1028,9 @@ export const JOB_ENV_NAMES = [
   // THE PROGRESS SWITCH (2026-10-06): a job records its milestones only with
   // it on — so without it here a job in the container would record nothing.
   "PROGRESS_REPLIES",
+  // THE IMAGE-PURCHASE SWITCH (2026-10-11): a job in the container buys its
+  // photographs there, so without it here the switch would stop at the Worker.
+  "IMAGE_PURCHASES",
 ];
 
 /** The subset of `env` a job is handed: the names above, strings only. */

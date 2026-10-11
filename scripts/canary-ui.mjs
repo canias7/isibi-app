@@ -161,6 +161,27 @@ const FOCACCIA_ROW_R3 = Object.freeze({
   shown: Object.freeze({ ...D1_ROW.shown, before: "£4.60", after: "£4.70" }),
 });
 
+// ── THE ACCEPTANCE BATCH'S TABLES (2026-10-11) ─────────────────────────────
+//
+// `loaves` as a visitor's read answered it on 2026-10-11 (seven rows, the
+// focaccia at 4.7, which lv-parallel kept). The batch runs in order and keeps
+// what each press changes (the demo-site rule), so each press starts from the
+// table the one before it left: a press that finds anything else refuses at
+// its start, before anything is sent.
+const LOAVES_R4 = Object.freeze(LOAVES_R3.map((r) => (r.id === 6 ? Object.freeze({ ...r, price: 4.7 }) : r)));
+const withPrice = (rows, id, price) => Object.freeze(rows.map((r) => (r.id === id ? Object.freeze({ ...r, price }) : r)));
+const LOAVES_A2 = withPrice(LOAVES_R4, 1, 4.9);
+const LOAVES_A3 = withPrice(LOAVES_A2, 5, 6.3);
+const LOAVES_A4 = withPrice(LOAVES_A3, 3, 5.5);
+const loafRow = (id, name, from, to, record) => Object.freeze({
+  ...D1_ROW, id, match: Object.freeze({ name }), from, to, restore: false, record,
+  shown: Object.freeze({ ...D1_ROW.shown, before: "£" + Number(from).toFixed(2), after: "£" + Number(to).toFixed(2) }),
+});
+const A1_ROW = loafRow(1, "Country White", "4.8", "4.9", LOAVES_R4);
+const A2_ROW = loafRow(5, "Walnut Levain", "6.2", "6.3", LOAVES_A2);
+const A3_ROW = loafRow(3, "Seeded Wholemeal", "5.4", "5.5", LOAVES_A3);
+const A4_ROW = loafRow(4, "Olive & Rosemary", "5.8", "5.9", LOAVES_A4);
+
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
 // What the site is kept for, read at 2026-09-27 07:59:28Z with a visitor's
@@ -961,6 +982,121 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // ── THE FINAL ACCEPTANCE BATCH (2026-10-11, prepared, not pressed) ────────
+  //
+  // The owner, after Codex verified the exact-reuse correction on 5504bb55:
+  // *"prepare the final acceptance batch using the existing harness: make its
+  // verdicts consume per-job prepUse evidence … Prepare image-free scenarios
+  // covering independent page edits, independent table edits, a dependent
+  // task, mixed Edit/Add-on work, browser-closed recovery and first Build's
+  // supported parallel work … Include a real-model case that checks whether
+  // the model requests missing context instead of guessing."*
+  //
+  // WHAT THE REAL ROUTER SPLITS: a message becomes several parts only for what
+  // its routing answer holds back (`planParts`), and one text answer can change
+  // headings on several pages, one data answer rows in several tables — so two
+  // headings, or two prices, are ONE part with nothing to run beside it. An
+  // independent page edit and an independent table edit are two parts (a
+  // heading and a price, as run 119 and lv-parallel showed), and which one runs
+  // first is the router's choice; the held one is prepared beside it, shown
+  // only its page or its table (`scopedText`, `scopedData`), and its job
+  // replays that answer exactly. A1 leads with the heading, A2 with the price,
+  // so between them the page scope and the table scope are each likely to be
+  // the prepared one; the evidence says which (`reuseVerdict`).
+  //
+  // EVERY ONE BUYS NO IMAGE (`images: "none"`): nothing is sent unless the live
+  // Worker refuses every photograph purchase (`IMAGE_PURCHASES=off`).
+  // EVERY ONE IS STOPPED AT ITS BUDGET (`spendWall`): once the press's spend
+  // reaches `budget`, the request's own Stop files no further job; a job
+  // already running finishes, so the most it can spend is `ceiling` (the
+  // budget and the largest single job its walls allow). Run in the order
+  // A1, A2, A3, A4 (each starts from the table the one before left).
+  //
+  // A1 — AN INDEPENDENT PAGE EDIT AND TABLE EDIT, HEADING FIRST. ABOUT 4-9:
+  // the message's routing 1-3, the heading's text job 1-2, the price part's
+  // routing 1-3 and its data job 1.
+  "acc-page-table": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 12, ceiling: 14, fundsFirst: true,
+    layers: Object.freeze(["text", "data"]),
+    row: A1_ROW,
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/wholesale", from: "Daily bread for Bristol cafés", to: "Daily bread for Bristol cafés and delis" })]),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+    }),
+    covers: Object.freeze(["several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Change the Wholesale page heading 'Daily bread for Bristol cafés' to 'Daily bread for Bristol cafés and delis', and change the Country White's price to £4.90.", ms: 12 * 60_000 }),
+    ]),
+  }),
+  // A2 — THE SAME SHAPE, PRICE FIRST, SENT WITH ITS TAB CLOSED once a progress
+  // line shows and followed to its end in a fresh browser session: the
+  // browser-closed recovery, judged on the same evidence. ABOUT 4-9.
+  "acc-table-page": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 12, ceiling: 14, fundsFirst: true,
+    layers: Object.freeze(["text", "data"]),
+    row: A2_ROW,
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/", from: "Fed every morning since 2019", to: "Fed by hand every morning since 2019" })]),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+      progress: true,
+    }),
+    covers: Object.freeze(["several-parts", "closed-tab", "progress-each-part"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Change the Walnut Levain's price to £6.30, and change the home page heading 'Fed every morning since 2019' to 'Fed by hand every morning since 2019'.", away: "fresh", ms: 14 * 60_000 }),
+    ]),
+  }),
+  // A3 — THE REAL MODEL AND WHAT IT WAS NOT SHOWN. The heading must say what
+  // another page says, and the message does not give the words: a step shown
+  // only the Order page cannot know them. If the router names no read, the
+  // heading's step is prepared shown only /order and must answer `needs`
+  // (then it is asked again with every page) rather than guess; if the router
+  // names the read, the part is never narrowed. Either way the final state
+  // must hold the Visit page's main heading, read live on 2026-10-11 as
+  // "Come and see us". What the model did is RECORDED (`needsObservation`) and
+  // stays UNVERIFIED until this press has run: one sample is not a rate.
+  // ABOUT 4-11: as A1, and a second text call when the step asks for more.
+  "acc-needs": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 14, ceiling: 17, fundsFirst: true,
+    layers: Object.freeze(["text", "data"]),
+    row: A3_ROW,
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/order", from: "Pick a loaf and a time to collect it", to: "Come and see us" })]),
+      reuse: Object.freeze({}),
+      needs: Object.freeze({ part: "order page heading" }),
+    }),
+    covers: Object.freeze(["several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Change the Seeded Wholemeal's price to £5.50, and change the Order page heading 'Pick a loaf and a time to collect it' so it says exactly the same as the main heading on our Visit page.", ms: 12 * 60_000 }),
+    ]),
+  }),
+  // A4 — MIXED EDIT AND ADD-ON, WITH A DEPENDENT PART. A new page (the add-on,
+  // no photograph, no form, no table), a menu link to it (it needs the page,
+  // so it waits), and a price (independent: prepared beside the add-on's job,
+  // shown only its table, replayed exactly). ABOUT 17-31: routing 1-3; the
+  // add-on with its page 12-18 and its requirement judgment about 1; the menu
+  // part's routing 1-3 and menu step 1-2; the price part's routing 1-3 and
+  // data job 1. The largest single job, the add-on, is about 19.
+  "acc-mixed": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 34, ceiling: 53, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "data", "nav", "page"]),
+    row: A4_ROW,
+    expect: Object.freeze({
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["bulk", "minimum"]) })]),
+      menu: Object.freeze({ page: 0 }),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90.", ms: 25 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -1228,6 +1364,56 @@ export function requestWall(view, scenario, step) {
     if (adds && p.addition !== true) return { n: p.n, why: "a part routed to an edit that is not an addition the add-on step handed over" };
   }
   return null;
+}
+
+/**
+ * WHAT A REQUEST'S JOBS HAVE BEEN CHARGED, off its own view (`charged` per
+ * part, from each ended job's row): `{ sum, unknown }`. A part whose charge
+ * cannot be told (`null`) makes the whole unknown — never read as 0.
+ */
+export function chargedSum(view) {
+  let sum = 0, unknown = false;
+  for (const p of view && Array.isArray(view.parts) ? view.parts : []) {
+    if (!p || typeof p !== "object") continue;
+    if (p.charged === null) { unknown = true; continue; }
+    if (Number.isInteger(p.charged) && p.charged >= 0) sum += p.charged;
+  }
+  return { sum, unknown };
+}
+
+/**
+ * THE SPEND WALL (2026-10-11, the acceptance batch: *"enforceable spending
+ * caps"*). While a message runs, the press reads its request's view; once
+ * what the press has spent — the balance it started with less the balance at
+ * this message's send, this message's routing charge, and what the request's
+ * jobs have been charged since the send — reaches the scenario's budget, the
+ * request is stopped with its own Stop, so the server files no further job.
+ * A job already running finishes and is charged, so the press can spend at
+ * most its budget plus the largest single job its walls allow (`ceiling`).
+ * A charge that cannot be told stops it too. `{ n: -1, why }` or null.
+ */
+export function spendWall(view, { budget, start, atSend, routed, baseline = 0 } = {}) {
+  if (!(Number.isFinite(budget) && budget > 0)) return null;
+  if (!(Number.isFinite(start) && Number.isFinite(atSend) && start >= 0 && atSend >= 0)) return { n: -1, why: "the balance at the send could not be read, so the press's spend is not known" };
+  const c = chargedSum(view);
+  if (c.unknown) return { n: -1, why: "a part's charge could not be told, so the press's spend is not known" };
+  const route = Number.isInteger(routed) && routed >= 0 ? routed : 0;
+  const spent = (start - atSend) + route + Math.max(0, c.sum - (Number.isInteger(baseline) ? baseline : 0));
+  return spent >= budget ? { n: -1, why: `the press has spent ${spent} of its ${budget}-credit budget` } : null;
+}
+
+/**
+ * THE IMAGE-PURCHASE REFUSAL (2026-10-11): a scenario that must buy no image
+ * (`images: "none"`) sends nothing unless the live Worker says photographs are
+ * not bought at all (`/api/site/runtime`'s `imagePurchases: false`, the
+ * `IMAGE_PURCHASES=off` switch enforced at the one purchase point). Unread,
+ * missing or true refuses.
+ */
+export function imageRefusal(rt) {
+  if (!rt || rt.status !== 200 || !rt.json || typeof rt.json !== "object") return `the runtime route could not be read (${rt ? rt.status || "nothing" : "not read"}), so whether photographs can be bought is not known`;
+  if (rt.json.imagePurchases === false) return "";
+  if (rt.json.imagePurchases === true) return "the live Worker still buys photographs (IMAGE_PURCHASES is not off)";
+  return "the live Worker does not report whether it buys photographs (deployed before the switch)";
 }
 
 /**
@@ -2754,6 +2940,9 @@ export async function runUi(opts) {
     // (`DELETE /api/site/request/<slug>/<key>`), sent only when a part is
     // routed where the message may not go. Read every `awayEveryMs`.
     requestsNow = null, stopNow = null, awayEveryMs = UI_AWAY_EVERY_MS,
+    // THE LIVE WORKER'S SWITCHES (`GET /api/site/runtime?slug=`, free), read
+    // before message 1 of a scenario that must buy no image (`images: "none"`).
+    runtimeNow = null,
     // THE LEAST TIME A REQUEST'S REPLIES GET ONCE IT HAS ENDED (`watchReplies`).
     replyFloorMs = UI_REPLY_FLOOR_MS,
     askShownMs = UI_ASK_SHOWN_MS,
@@ -2842,6 +3031,16 @@ export async function runUi(opts) {
     const prep = (Array.isArray(view.parts) ? view.parts : []).filter((p) => p && (p.prep === "preparing" || p.prep === "prepared")).map((p) => [p.n, p.prep]);
     const last = r.request.trail[r.request.trail.length - 1];
     if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts) || JSON.stringify(last.prep || []) !== JSON.stringify(prep)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts, ...(prep.length ? { prep } : {}) });
+  };
+  // EVERY WALL AT ONCE: where a part may go, and what the press may spend.
+  const wallOf = (view, step, r) => {
+    const hit = requestWall(view, scenario, step);
+    if (hit) return hit;
+    const key = view && typeof view.key === "string" ? view.key : "";
+    const prior = rec.steps.filter((x) => x && x !== r && x.request && x.request.key === key && x.request.final);
+    const baseline = prior.length ? chargedSum(prior[prior.length - 1].request.final).sum : 0;
+    const route = Number.isInteger(r.netFrom) ? routeCallOf(rec.network.slice(r.netFrom)) : null;
+    return spendWall(view, { budget: scenario.budget, start: rec.balance.start, atSend: r.balanceBefore, routed: route && route.res ? route.res.cost : undefined, baseline });
   };
   const wallHit = (r, key, hit) => {
     r.request.wall = hit;
@@ -2933,7 +3132,7 @@ export async function runUi(opts) {
           const v = await page.evaluate(requestViewInPage, { slug, key }).catch(() => null);
           if (v && v.ok && v.request) { view = v.request; noteView(r, view); if (v.reply) r.request.reply = v.reply; }
         }
-        const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+        const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
         if (hit) {
           wallHit(r, key, hit);
           r.request.stop = await page.evaluate(stopRequestInPage, { slug, key }).catch(() => ({ status: 0, ok: false, state: "" }));
@@ -3064,7 +3263,7 @@ export async function runUi(opts) {
       view = list ? list.find((q) => q && q.key === key) || null : null;
       a.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true } : {}) });
       if (view) noteView(r, view);
-      const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+      const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
       if (hit) {
         wallHit(r, key, hit);
         const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);
@@ -3172,7 +3371,7 @@ export async function runUi(opts) {
       const lines = view ? (Array.isArray(view.parts) ? view.parts : []).reduce((n, p) => n + (p && Array.isArray(p.progress) ? p.progress.length : 0), 0) : 0;
       f.away.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true, lines } : {}) });
       if (view) noteView(r, view);
-      const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+      const hit = view && !r.request.wall ? wallOf(view, step, r) : null;
       if (hit) {
         wallHit(r, key, hit);
         const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);
@@ -3445,6 +3644,15 @@ export async function runUi(opts) {
         if (why) { stop(`step ${n}`, `${why} — nothing is sent`); break; }
         log(`  waiting, and answerable: part ${r.answering.part} of request ${r.answering.key} asks "${r.answering.text}"`);
       }
+      // NO IMAGE MAY BE BOUGHT (`images: "none"`, 2026-10-11): nothing is sent
+      // — rehearsal or not — unless the live Worker refuses every purchase.
+      if (n === 1 && scenario.images === "none") {
+        const rt = typeof runtimeNow === "function" ? await Promise.resolve().then(() => runtimeNow()).catch(() => null) : null;
+        const why = imageRefusal(rt);
+        rec.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined, ok: !why };
+        if (why) { stop(`step ${n}`, `${why} — nothing is sent`); break; }
+        log("  photographs: the live Worker buys none (IMAGE_PURCHASES off)");
+      }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);
         stop("rehearsal", `spend is not yes: message ${n} is typed${step.attach ? " with its file attached" : ""} and NOT sent`);
@@ -3485,7 +3693,7 @@ export async function runUi(opts) {
         if (why) { stop(`step ${n}`, `the named question changed before sending: ${why} — nothing is sent`); break; }
       }
       const before = typed.messages.length;
-      const netFrom = rec.network.length;
+      const netFrom = r.netFrom = rec.network.length;
       const sentAt = r.sentAt = Date.now();
       current = step;
       await page.click("#stSend");

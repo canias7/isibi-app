@@ -216,6 +216,7 @@ jobs:
             MODEL_REPLIES
             PROGRESS_REPLIES
             REQUEST_FLOW
+            IMAGE_PURCHASES
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -417,6 +418,14 @@ jobs:
           # page then drives its steps exactly as before, which is what the UI
           # canary checks. Set the secret to `on` and redeploy to switch it on.
           REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'off' }}
+          # ── WHETHER A PHOTOGRAPH IS BOUGHT AT ALL (2026-10-11) ─────────────
+          #
+          # `off` refuses every photograph purchase before it leaves for the
+          # image service (builder/site-images.mjs `imagePurchasesOn`), in the
+          # Worker and in every container job; `/api/site/runtime` reports it.
+          # ON BY DEFAULT, so production is unchanged. Set the secret to `off`
+          # and redeploy before a press that must buy no image.
+          IMAGE_PURCHASES: ${{ secrets.IMAGE_PURCHASES || 'on' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for

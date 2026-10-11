@@ -457,7 +457,7 @@ const rAsync = (runtime.json || {}).async;
 const rRunner = (runtime.json || {}).runner;
 
 console.log(`  build-health  ${health.status}  deploy=${hDeploy.slice(0, 12) || "(none)"}  image=${hImage || "(none/unstamped)"}`);
-console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}`);
+console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}  imagePurchases=${(runtime.json || {}).imagePurchases}`);
 if (CONTROL) console.log(`  control       ${cRuntime.status}  ${CONTROL} async=${cAsync}`);
 
 /** Floored at 7 on BOTH sides, so a short expectation cannot pass by being short. */
@@ -955,7 +955,7 @@ if (UI_ASK) {
     list: () => call("GET", `/api/site/requests/${encodeURIComponent(CANARY)}`),
     stop: (key) => call("DELETE", `/api/site/request/${encodeURIComponent(CANARY)}/${encodeURIComponent(key)}`),
   };
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop, freshSession: signIn });
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop, freshSession: signIn, runtimeNow: () => call("GET", `/api/site/runtime?slug=${encodeURIComponent(CANARY)}`) });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
   if (!recoverOnly) {

@@ -170,7 +170,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2768,6 +2768,10 @@ async function makeSitePhoto(env, slug, prompt, meta = null) {
     // description was never going to become a picture, and reporting it would set
     // `images.error` on builds where nothing failed.
     if (!p) return told({ stage: "empty" });
+    // THE IMAGE-PURCHASE SWITCH (2026-10-11): off, nothing leaves for the
+    // image service — `refused`, which every caller already reports as a
+    // picture not made and not paid for (`imagePurchasesOn`).
+    if (!imagePurchasesOn(env)) return told({ stage: "refused", error: IMAGE_PURCHASES_OFF });
     const asked = await askSitePhoto(env, p);
     if (asked.stage !== "generated") return told(asked);
     if (meta && typeof meta.generated === "function") { try { await meta.generated(asked.source); } catch { /* the stored picture's tag still answers it */ } }
@@ -25518,6 +25522,9 @@ async function handleRequest(request, env, ctx) {
         asyncEveryone: editAsyncEveryone(env),
         runnerOn: jobRunnerOn(env),
         runnerEveryone: jobRunnerEveryone(env),
+        // WOULD A PHOTOGRAPH BE BOUGHT AT ALL (2026-10-11)? False when
+        // `IMAGE_PURCHASES` is off: every purchase is refused before it leaves.
+        imagePurchases: imagePurchasesOn(env),
         // The two bindings and the key a fire needs after the flags say yes.
         runnerBindings: bindings,
         runnerKeyed: keyed,
