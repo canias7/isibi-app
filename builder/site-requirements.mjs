@@ -569,7 +569,7 @@ export function groundRequirements(list, { asked = [], known = [] } = {}) {
  * that no entry of `now` or of `taken` (every id already in play) has, so no
  * two requirements in one request ever share an id.
  */
-export function carrySuperseded(prev, now, taken = []) {
+export function carrySuperseded(prev, now, taken = [], { keepIds = false } = {}) {
   const list = (Array.isArray(now) ? now : []).filter((r) => r && typeof r === "object");
   const replaced = new Set(list.map((r) => (typeof r.replaces === "string" ? r.replaces : "")).filter(Boolean));
   const answered = new Set(list.map((r) => (typeof r.answers === "string" ? r.answers : "")).filter(Boolean));
@@ -581,10 +581,11 @@ export function carrySuperseded(prev, now, taken = []) {
     if (typeof r.id === "string" && replaced.has(r.id)) continue;
     if (typeof r.answers === "string" && r.answers && answered.has(r.answers)) continue;
     if (plain(r.need) && needs.has(plain(r.need))) continue;
-    const owner = typeof r.from === "string" && r.from ? r.from : (typeof r.id === "string" && r.id.includes("#") ? r.id.slice(0, r.id.indexOf("#")) : "step");
-    let n = 0;
-    while (ids.has(owner + "#s" + n)) n++;
-    const id = owner + "#s" + n;
+    const owner = ownerOf(r);
+    // A HELD REQUIREMENT KEEPS ITS ID where no entry in play has it
+    // (`keepIds`, round 12), so it is the same requirement across a pause.
+    let id = keepIds && typeof r.id === "string" && /^[a-z]+#s?\d+$/.test(r.id) && !ids.has(r.id) ? r.id : "";
+    if (!id) { let n = 0; while (ids.has(owner + "#s" + n)) n++; id = owner + "#s" + n; }
     ids.add(id);
     needs.add(plain(r.need));
     const { by, item, kind, answers, replaces, ...rest } = r;
@@ -599,6 +600,61 @@ export function carrySuperseded(prev, now, taken = []) {
     }
   }
   return out;
+}
+
+/** The step that wrote a requirement: its `from`, or its id's prefix. */
+export function ownerOf(r) {
+  return r && typeof r.from === "string" && r.from ? r.from : (r && typeof r.id === "string" && r.id.includes("#") ? r.id.slice(0, r.id.indexOf("#")) : "step");
+}
+
+// ── REQUIREMENTS HELD ACROSS A PAUSE (round 12) ─────────────────────────────
+//
+// A part that stops on the customer's question keeps every requirement it had
+// grounded in their words, with its id, under the job's own id; the part's next
+// job is handed them, so the answer resumes the work WITH them — never by
+// hoping the next model answer repeats each one. Only the requirement itself
+// is kept: no design, no claim of coverage that a design made.
+const HELD_FIELDS = ["need", "status", "basis", "words", "id", "from", "step", "answers", "why"];
+export const MAX_HELD = 60;
+
+/** The requirements to keep across a pause: plain fields only, each with an id and a need, at most `MAX_HELD`. */
+export function holdRequirements(list) {
+  const out = [];
+  const seen = new Set();
+  for (const r of Array.isArray(list) ? list : []) {
+    if (!r || typeof r !== "object" || typeof r.need !== "string" || !r.need.trim() || typeof r.id !== "string" || !r.id) continue;
+    if (!COVERAGE.includes(r.status) || seen.has(r.id)) continue;
+    seen.add(r.id);
+    const e = {};
+    for (const k of HELD_FIELDS) if (typeof r[k] === "string" && r[k]) e[k] = r[k].slice(0, k === "need" || k === "words" || k === "why" ? 400 : 80);
+    // A `covered` claim pointed at a design that was never built: held as
+    // what was asked, with no coverage.
+    if (e.status === "covered") { e.status = "unsupported"; e.why = "the design that claimed it was not built before the question"; }
+    if (r.superseded === true) e.superseded = true;
+    out.push(e);
+    if (out.length >= MAX_HELD) break;
+  }
+  return out;
+}
+
+/** A held record as stored: `{ requirements, asked }` — anything unreadable is no requirement, never a guess. */
+export function readHeld(v) {
+  const o = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  if (!o) return { list: [], asked: "" };
+  return { list: holdRequirements(o.requirements), asked: typeof o.asked === "string" ? o.asked.slice(0, 40) : "" };
+}
+
+/**
+ * WHAT A RESUMED DESIGNER IS SHOWN (round 12): the requirements its step had
+ * before the customer's answer, by id, so it can mark the one an entry
+ * restates (`replaces`). One it does not list is still asked for — only what
+ * the customer said can take it away.
+ */
+export function heldNote(list) {
+  const rows = (Array.isArray(list) ? list : []).filter((r) => r && typeof r.id === "string" && typeof r.need === "string");
+  if (!rows.length) return "";
+  return "\nBefore the customer answered your question, this part already had these requirements from what they asked. For each requirement you list now that restates one of them, put its id in `replaces`; one you do not list is still something they asked for, unless their answer says they no longer want it:\n"
+    + rows.map((r) => "- " + r.id + ": " + r.need.replace(/\s+/g, " ").slice(0, 200)).join("\n");
 }
 
 /**

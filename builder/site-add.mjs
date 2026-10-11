@@ -2507,7 +2507,15 @@ export async function runAdd(deps, { kind, message, site, model, brief = "", fee
   // A QUESTION BACK (2026-10-02): asked instead of designing, so no design is
   // read beside it. The raw reply still rides out, for the record.
   const ask = askOf(reply);
-  if (ask) return { kind, value: undefined, ...none, usage: addUsage(reply, model), failed: false, raw: reply, ask };
+  // …WITH WHAT IT SAID THEY ASKED FOR (round 12): requirements written beside a
+  // question are grounded and held across the pause like any other, so the
+  // answer resumes the work with them. Its design, if any, is never read.
+  if (ask) {
+    let asked = null;
+    try { asked = readAddAnswer(reply, kind); } catch { asked = null; }
+    const reqs = asked && Array.isArray(asked.requirements) ? asked.requirements : [];
+    return { kind, value: undefined, ...none, requirements: reqs, reqSkipped: asked && Array.isArray(asked.skipped) ? asked.skipped : [], usage: addUsage(reply, model), failed: false, raw: reply, ask };
+  }
   const answer = readAddAnswer(reply, kind);
   return {
     kind,

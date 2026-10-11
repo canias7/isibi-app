@@ -291,7 +291,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly } from "./builder/request-plan.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL } from "./builder/request.mjs";
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, readHeld, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -18554,6 +18554,44 @@ async function runRequestPrep(env, ctx, task) {
 async function stagePrepared(env, id) {
   await stagePreparation(env, id);
   await stageKept(env, id);
+  await stageHeld(env, id);
+}
+
+/**
+ * WHAT THE PART HAD BEEN ASKED FOR WHEN IT PAUSED (round 12), staged for this
+ * job. A job that ended on the customer's question (or on a purchase nobody
+ * could tell yet) kept every requirement it had grounded in their words, with
+ * its id (`jobHeldKey`); the latest such job of the SAME request part is the
+ * one whose list holds everything outstanding (each paused job holds what it
+ * was handed and did not resolve, beside what it found). Read from the job
+ * records of this request's part — never from the site's latest answer, which
+ * any other addition may have written since. Best effort and idempotent.
+ */
+async function stageHeld(env, id) {
+  try {
+    const o = await env.SITES_BUCKET.get(editJobKey(id));
+    if (!o) return;
+    const job = readEditJob(JSON.parse(await o.text()));
+    if (!job) return;
+    let b = null;
+    try { b = JSON.parse(String(job.body || "")); } catch { b = null; }
+    const want = readRequestOf(b && b.request);
+    if (!want) return;
+    if (/\/api\/site\/route(?![\w/-])/.test(String(job.url || ""))) return;
+    const { rec } = await loadRequest(env, job.slug, want.key);
+    const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
+    if (!p || !Array.isArray(p.jobs)) return;
+    const paused = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end
+      && (j.end.act === "clarify" || j.end.act === "uncertain"));
+    for (let i = paused.length - 1; i >= 0; i--) {
+      const got = await readJsonTried(env, jobHeldKey(paused[i].id));
+      if (!got.ok || !got.obj || got.malformed || !got.v) continue;
+      const held = readHeld(got.v);
+      if (!held.list.length) continue;
+      await env.SITES_BUCKET.put(jobHeldInKey(id), JSON.stringify({ requirements: held.list, asked: held.asked, from: paused[i].id }), { httpMetadata: { contentType: "application/json" } });
+      return;
+    }
+  } catch (e) { console.error("edit queue: held requirements not staged for", id, errorClassForLog(e)); }
 }
 
 /**
@@ -18705,6 +18743,10 @@ function noteSeen(jctx, seen) {
 const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
 // EVERY ANSWER A REQUEST JOB GOT, under the exact request it sent (`keep`).
 const jobKeptKey = (id) => "jobs/prepared/" + id + ".kept.json";
+// THE REQUIREMENTS A PAUSED JOB HELD (round 12), written by that job, and the
+// ones staged for the part's next job, read by it — each under its own job id.
+const jobHeldKey = (id) => "jobs/prepared/" + id + ".held.json";
+const jobHeldInKey = (id) => "jobs/prepared/" + id + ".held-in.json";
 /**
  * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), calls
  * made by a model now (`fresh`), pictures reused, and whether a preparation
@@ -19645,6 +19687,14 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     }
     if (!jctx.replay && requestOf) jctx.replay = replayer(null);
     if (requestOf) jctx.keep = recorder();
+    // WHAT ITS PART WAS ASKED FOR BEFORE IT PAUSED (round 12): staged under this
+    // job's own id (`stageHeld`); unreadable is none, and the job says so.
+    if (requestOf) {
+      try {
+        const ho = await env.SITES_BUCKET.get(jobHeldInKey(id));
+        if (ho) jctx.heldIn = readHeld(JSON.parse(await ho.text()));
+      } catch (e) { console.error("edit queue: held requirements unreadable for", id, errorClassForLog(e)); }
+    }
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
     // and with any retry of this job.
@@ -19683,6 +19733,12 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       if (jctx.keep && jctx.keep.calls.length) {
         try { await env.SITES_BUCKET.put(jobKeptKey(id), JSON.stringify({ calls: jctx.keep.calls }), { httpMetadata: { contentType: "application/json" } }); }
         catch (e) { console.error("edit queue: could not keep the answers of", id, errorClassForLog(e)); }
+      }
+      // …AND THE REQUIREMENTS IT HELD WHEN IT PAUSED (round 12), durable before
+      // its end is recorded, so its part's next job resumes with them.
+      if (jctx.held && Array.isArray(jctx.held.requirements) && jctx.held.requirements.length) {
+        try { await env.SITES_BUCKET.put(jobHeldKey(id), JSON.stringify(jctx.held), { httpMetadata: { contentType: "application/json" } }); }
+        catch (e) { console.error("edit queue: could not keep the requirements of", id, errorClassForLog(e)); }
       }
     }
     const bodyText = await res.text().catch(() => "");
@@ -33862,6 +33918,29 @@ async function handleRequest(request, env, ctx) {
             // A PART OF A LONGER REQUEST (2026-10-03), as on the edit route.
             const aPart = aJob ? readRequestOf(ab && ab.request) : null;
             const aPartShown = () => (aPart ? { original: aPart.original, done: aPart.done } : null);
+            // ── WHAT THIS PART WAS ASKED FOR BEFORE IT PAUSED (round 12) ──────
+            //
+            // Codex's review of 6c2d3887: a correction asked "Above or below the
+            // story?", and after "Below" the resumed designer was the only
+            // source of requirements — one that repeated only collapsible lost
+            // searchable, one that repeated neither finished "done". Now the
+            // paused job holds every requirement it had (`aHold`), its part's
+            // next job is handed them (`aHeldIn`), and each is reconciled with
+            // the designer of its step as that step answers, or carried as it
+            // is when that step does not run. Only the judge — shown the
+            // customer's answers — can set one aside; a model leaving one out
+            // never does.
+            const aHeldIn = aJob && aJob.heldIn && Array.isArray(aJob.heldIn.list) ? aJob.heldIn : { list: [], asked: "" };
+            const aHeldUsed = new Set();
+            const aHeldFor = (k) => aHeldIn.list.filter((r) => !aHeldUsed.has(r.id) && ownerOf(r) === k);
+            // Shown only to the designer whose question was answered: its request
+            // changed with the answer anyway, and every other designer's stays
+            // the one it made before, so its kept answer is replayed.
+            const aHeldShown = (k) => (aHeldIn.asked === k ? heldNote(aHeldFor(k)) : "");
+            const aHold = (live, asked) => {
+              if (!aJob) return;
+              aJob.held = { requirements: holdRequirements([...(Array.isArray(live) ? live : []), ...aHeldIn.list.filter((r) => !aHeldUsed.has(r.id))]), asked: typeof asked === "string" ? asked : "" };
+            };
             if (aPart) { aAskOut.requestKey = aPart.key; aAskOut.part = aPart.part; aReplyOut.inRequest = true; }
             if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
               // AN ADDITION POSTED STRAIGHT TO THIS ROUTE (round 7) — the router's
@@ -34627,6 +34706,7 @@ async function handleRequest(request, env, ctx) {
             // resumes this whole request.
             if (aPicked.ask) {
               aAskOut.request = aInstruction;
+              aHold([], "pick");
               return Response.json({ ok: false, error: "clarify", layer: "addon", cost: 0, unchanged: true, ask: aPicked.ask, msg: aPicked.ask.text });
             }
             // An empty or invalid picker answer establishes no broader request.
@@ -34852,6 +34932,20 @@ async function handleRequest(request, env, ctx) {
             // the ones that designed something. Read off the runner's result,
             // which carries both arrays on every return including its failures.
             const aReq = [];
+            // WHAT WAS HELD FOR A STEP THAT DID NOT RUN THIS TIME (round 12):
+            // carried as it is, so the judge hears it beside the rest.
+            const aRestoreLeft = () => {
+              const left = aHeldIn.list.filter((r) => !aHeldUsed.has(r.id));
+              for (const r of left) aHeldUsed.add(r.id);
+              if (left.length) for (const r of carrySuperseded(groundRequirements(left, aGrounding).list, aReq, aReq.map((x) => x.id), { keepIds: true })) aReq.push(r);
+            };
+            // …AND WHAT WAS HELD FOR A STEP THAT DID RUN, reconciled with its
+            // answer and keeping its ids where nothing else has them.
+            const aHeldCarry = (k, now) => {
+              const mine = aHeldFor(k);
+              for (const r of mine) aHeldUsed.add(r.id);
+              return mine.length ? carrySuperseded(groundRequirements(mine, aGrounding).list, now, aReq.map((x) => x.id), { keepIds: true }) : [];
+            };
             const aReqSkipped = [];
             // WHAT THEIR WORDS DO NOT HOLD UP, AND THE EXTRAS OFFERED INSTEAD
             // (2026-10-05, run 101): a declared requirement is kept only when
@@ -35676,7 +35770,7 @@ async function handleRequest(request, env, ctx) {
                 if (aAskedBy && (j === aAskedBy || (aWaits[j] || []).includes(aAskedBy))) continue;
                 if (!aInputsReady(j)) continue;
                 const site = aViewFor(j, aProvisional);
-                const brief = requirementBrief(aReq.filter((r) => r.judged), j);
+                const brief = requirementBrief(aReq.filter((r) => r.judged), j) + aHeldShown(j);
                 aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);
                 const p = runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief })
                   .catch((e) => ({ failed: true, error: e }))
@@ -35760,8 +35854,11 @@ async function handleRequest(request, env, ctx) {
                 if (jh.failed) { await aEnded("failed"); return aDown(jh.error, jh.incomplete ? aUnfinished : "The builder is busy — try again in a moment."); }
                 if (jh.ask) { aStepAsk = { kind: k, ask: jh.ask }; break; }
               }
-              const aBrief = requirementBrief(aReq.filter((r) => r.judged), k);
-              if (aBrief) aTold.add(k);
+              const aBriefHanded = requirementBrief(aReq.filter((r) => r.judged), k);
+              if (aBriefHanded) aTold.add(k);
+              // THE DESIGNER WHOSE QUESTION WAS ANSWERED is shown what its step
+              // already had (round 12), by id, so it can say which it restates.
+              const aBrief = aBriefHanded + aHeldShown(k);
               // ── WHAT THIS DESIGNER WAS REALLY SHOWN (2026-09-15) ──────────
               //
               // Owner, after run 48: *"Recover the actual designer input if it
@@ -35832,6 +35929,9 @@ async function handleRequest(request, env, ctx) {
               // not counted, not handed on, never reported to them as set up,
               // unconfirmed or missing — and the designer's extras kept apart.
               const aGround = groundRequirements(ran.requirements, aGrounding);
+              // WHAT THIS STEP HAD BEFORE THE PAUSE (round 12), reconciled first
+              // and keeping its ids; then what a refused answer had.
+              for (const r of aHeldCarry(k, aGround.list)) aGround.list.push(r);
               for (const r of aSupersededReq ? carrySuperseded(groundRequirements(aSupersededReq, aGrounding).list, aGround.list, aReq.map((x) => x.id)) : []) aGround.list.push(r);
               for (const r of aGround.list) aReq.push(r);
               for (const r of aGround.ungrounded) aUngrounded.push(r);
@@ -35884,6 +35984,7 @@ async function handleRequest(request, env, ctx) {
                 // (2026-10-05): a judgment that fails, asks or does not finish
                 // here leaves the requirements unjudged and untold — the
                 // refusal is the answer, and it says nothing was added.
+                aRestoreLeft();
                 if (aReq.length) await aJudge(aReq.slice());
                 return aFail({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k) }, 422);
               }
@@ -36116,6 +36217,7 @@ async function handleRequest(request, env, ctx) {
             // stops here as a designer's failed call does, and one that asks is
             // the addition's question. Skipped when a step already asked: the
             // whole addition is designed again with the answer.
+            if (!aStepAsk) aRestoreLeft();
             const aFinalJudge = !aStepAsk && aReq.length ? await aJudge(aReq.slice()) : null;
             if (aFinalJudge && aFinalJudge.ask) aStepAsk = { kind: "requirements", ask: aFinalJudge.ask };
             await aSaveAnswer();
@@ -36138,6 +36240,7 @@ async function handleRequest(request, env, ctx) {
                 if (aEarly.size === out) break;
               }
               aAskOut.request = aInstruction;
+              aHold(aReq, aStepAsk.kind);
               await aEnded("asked", aRecord());
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: aStepAsk.kind, ...(ADD_KINDS.includes(aStepAsk.kind) ? { by: "add:" + aStepAsk.kind } : {}), cost: 0, unchanged: true, ask: aStepAsk.ask, msg: aStepAsk.ask.text });
             }
@@ -37169,6 +37272,7 @@ async function handleRequest(request, env, ctx) {
             if (aGen && aGen.ask) {
               aMark("pages", "ask");
               aAskOut.request = aInstruction;
+              aHold(aReq, "pages");
               await aEnded("asked", aRecord());
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: "pages", by: "add:pages", cost: 0, unchanged: true, ask: aGen.ask, msg: aGen.ask.text });
             }

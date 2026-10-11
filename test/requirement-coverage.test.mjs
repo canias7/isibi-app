@@ -515,8 +515,12 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // RE-ANCHORED 2026-10-05: the brief is composed from what the judgment kept
   // (`aReq.filter((r) => r.judged)` — an extra or an unjudged entry is never
   // handed on to be built), and `aTold` is still filled only where it is.
-  assert.match(W, /const aBrief = requirementBrief\(aReq\.filter\(\(r\) => r\.judged\), k\);\s*\n\s*if \(aBrief\) aTold\.add\(k\);/,
+  // RE-ANCHORED 2026-10-11 (round 12): the hand-off brief is `aBriefHanded`;
+  // what was held across a pause is appended after `aTold` is filled, so a
+  // step is still recorded as told only where hand-offs were composed for it.
+  assert.match(W, /const aBriefHanded = requirementBrief\(aReq\.filter\(\(r\) => r\.judged\), k\);\s*\n\s*if \(aBriefHanded\) aTold\.add\(k\);/,
     "a step is recorded as told without the brief being composed, or the brief is composed and not recorded");
+  assert.match(W, /const aBrief = aBriefHanded \+ aHeldShown\(k\);/, "the designer is no longer handed the composed brief");
   // ── AND THE COMPOSER READS WHAT REALLY HAPPENED ──────────────────────────
   //
   // RE-ANCHORED 2026-09-14. This used to check that the composer did not
