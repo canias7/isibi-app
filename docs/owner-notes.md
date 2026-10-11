@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, Build recovery round 6: a retry's token is no longer permission to execute; offline, not deployed)
+## Current handoff — read this first (2026-10-11, parallel work reconciled across Edit, Add-on and Build; two reuse defects fixed; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,79 +10,74 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Round 4: `0cc457de`.
-  - Round 5: `6777ce1c`, records to `7ed68ed3`.
-  - Round 6: `1b8af002`, with records after.
-- **fal is not being topped up.** The tests use image mocks, and real
-  images are unverified.
+  - Build recovery rounds 1–6 end at `5aa4d052`. Codex checked them: 141
+    focused tests, both duplicate-retry reproductions and 22 parallel tests
+    pass. **That correction is closed.**
+  - This round: `88aca4c3`, with records after.
+- **fal HAS been topped up, and that balance is off limits** (your
+  correction; the earlier "not being topped up" was wrong). No real image
+  generation and no image retries; mocks only. Real images stay
+  unverified.
 - **Balance 971**, untouched.
 
-**Round 6** (`docs/history/2026-10-10-build-reconnect.md`, "Round 6")
-
-Codex passed 139 focused tests on `7ed68ed3`. Kept: the fallback's billing
-and the lost-write recovery. Fixed: a retry carrying a started attempt's
-token designed again, and two concurrent copies of one retry both designed.
-
-- **Logical attempt versus permission.** The execution record keeps the
-  token (the logical attempt) and gains a holder: the one delivery, named by
-  its own lease, allowed to execute.
-  - A lost write counts as this delivery's own only if the holder matches.
-  - Only the holder can mark the record started.
-  - A retry takes over its own unstarted attempt only with a write
-    conditional on what it read, so one copy wins.
-  - A started attempt is never joined.
-- **A refused lease is honoured first.** These stop a delivery before any
-  design, deposit or container launch:
-  - another delivery's live lease;
-  - a failed handoff from the lease a retry named;
-  - an ended row.
-  
-  The consumer waits with the job kept unless the execution is active or
-  revoked; the container runner stops.
-- **The unit-test job's timeout is now 10 minutes.**
+**This round** (`docs/history/2026-10-11-parallel-reconciliation.md`)
+- **The one kind of concurrency**: a part's model calls are prepared beside
+  another part's running job, and its writes stay one at a time (one job
+  per request, one writer per site). A job reuses a prepared answer only
+  for a byte-identical request.
+- **What overlaps**:
+  - Edit routing, and the text, menu, picture, look, page, data and rules
+    steps;
+  - Add-on design and page writing;
+  - Build photos, fonts and translations beside page generation. The Build
+    designer and band splits are flag-gated and off by default.
+- **What can never overlap, by design**:
+  - two page-writing parts;
+  - **two data-layer steps** (found this round: they read every table).
+- **New offline coverage** (`test/parallel-coverage.test.mjs`):
+  - **PC 1**: run 119's shape, judged by the recorded intervals.
+  - **PC 2**: two non-image steps (a look lane and a menu change) prepared
+    at once inside a third part's job.
+  - **PC 3**: a dependent held still while its prerequisite's job is held
+    mid-call.
+  - **PC 4**: a row-change preparation delivered twice at once.
+  - **PC 5**: a dead row-change preparation recovered by the cron alone.
+- **Two defects fixed** (`88aca4c3`):
+  - **A part's step was asked of its model twice.** A part prepared while
+    still to be routed was prepared again after its routing ran, as a
+    fresh attempt. It now names the earlier attempt, and its answers are
+    replayed.
+  - **A replayed answer was counted as model work** in a step's recorded
+    calls. Model calls and replays are now separate (`replayed`).
 
 **Verification (offline)**
-- **RC 26** (stateful rows, every copy reading the envelope before
-  deletion):
-  - two concurrent copies give one designer call, one won and one refused
-    handoff, one valid holder, one deposit under `build:<job>`, and no
-    work from the loser;
-  - a copy arriving after its attempt started does nothing, with its
-    handoff refused or its lease lapsed;
-  - with no row, only one copy passes the record, including the two
-    interleavings that defeat each layer alone.
-- **Guards**: one guard was restated (it asserted that a leased row never
-  stopped the build), and a refused-runner case was added.
-- **Red check on `7ed68ed3`'s code**: "both copies of the retry designed:
-  2".
-- **Sweep**: 10 of 10 killed (two only after cases (d) and (e) were
-  added), and the comment control survived.
-- **Related suites**: 343 of 343; workflow guards 52 of 52.
-- **Full suite on `1b8af002`'s code**: `10380 / 10380 / 0 / 0` locally
-  (355 s).
-- **CI on `2fa1b662`** (code plus records, one push, nothing pushed
-  while it ran):
-  - unit tests 38097387927 green in 5 m 21 s (past the old 5-minute
-    limit);
-  - site build 38097387853 green.
-- **Image**: production `8d6dbcea93252fbb` → `c55a9a5b92e96f9c` (205
+- **Red check on `5aa4d052`'s code**: PC 2 fails ("the menu step was asked
+  again").
+- **Sweep**: 6 of 6 killed, and the comment control survived.
+- **Parallel and request suites**: 333 of 333.
+- **Full suite on `88aca4c3`'s code**: `10385 / 10385 / 0 / 0` locally.
+- **CI**: one push carries code and records; recorded when the run ends.
+- **Image**: production `8d6dbcea93252fbb` → `b6ddb38fa003055e` (205
   inputs). Nothing is built.
 
-**Remaining limitations**
-- **A copy refused the lease before the winner starts** leaves the job's
-  envelope back with a re-sent message. That later delivery finds the
-  execution active, stops, and deletes the envelope on read.
-- **With no row, a winning copy is refused its deposit** (`no-job`), under
-  the SQL contract.
-- **From round 5**:
-  - an unstarted attempt holds its job up to 5 minutes;
-  - past 7 re-sends only the stale sweep re-sends;
-  - no test observes the fallback lease's heartbeat.
-- **From earlier rounds**:
-  - execution records are never swept;
-  - an executor older than `BUILD_JOB_MS` is treated as gone;
-  - builds accepted before round 1 aren't listed;
-  - real images, real-model wording and live runs are unverified.
+**Passed live** (production presses; none on this branch's code):
+- run 119: one data step 19.9 s inside another part's job, every change
+  kept, a question tied to its part, recovery with the tab closed, and the
+  progress checks;
+- runs 113 and 117: changes kept, questions, and the closed tab;
+- runs 105 and 107: progress.
+
+**Remaining blockers to "parallel work complete"**
+1. **Nothing since deploy 2191 is deployed or pressed**, including Build
+   recovery rounds 1–6 and this round.
+2. **Two substantive steps at once has never run live** (PC 2's shape).
+3. **No press can show reuse**: the view does not say that a job answered
+   from its preparation.
+4. **The Add-on and the first Build have never passed a parallel press.**
+   The Add-on photo press failed, and the first-Build check was never
+   pressed. Both used photographs, which are now off limits, so a
+   photo-free variant is the only live path open.
+5. **Real images stay unverified** (your decision).
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -91,6 +86,25 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work reconciled; two reuse defects fixed (offline; not deployed)
+
+- **You**: close the duplicate-execution correction (Codex passed
+  `5aa4d052`), reconcile the parallel evidence across Edit, Add-on and
+  Build, add focused offline tests only for real gaps, and correct fal
+  (topped up, off limits, mocks only).
+- **Done**:
+  - the evidence map (`docs/history/2026-10-11-parallel-reconciliation.md`);
+  - five new offline cases (PC 1–5);
+  - two fixes found by PC 2 (`88aca4c3`): a re-prepared part asked its
+    model twice, and a replayed answer was counted as model work;
+  - the fal preference corrected (`4f3c29f5`).
+- **Verified offline**: red check (PC 2 fails on `5aa4d052`), sweep (6 of
+  6), suites (333 of 333) and the full suite (10,385 of 10,385).
+- **Not done**: merge, deploy, container build, paid calls or image
+  generation.
 
 ---
 
