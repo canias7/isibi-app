@@ -304,7 +304,9 @@ passes on both.
 - **Image**: the predicted image moves `d8f11fccd7446ba8` →
   **`15fd0e0ba5555f38`** (205 inputs, 174 paths, on `ef8ea26d`; not built).
   `docs/acceptance-current.md` and its guard name the new id.
-- **Required CI** on the branch: recorded in owner-notes once read.
+- **Required CI** on `6356083c` (the records on `ef8ea26d`): unit tests
+  38139938283 and site build 38139938215, both `success` (read from each
+  run's own `conclusion`).
 
 ### Still not shown live
 

@@ -38,8 +38,9 @@ PI 12 ×2, PI 13, PI 15, PI 16 red on the old code; PI 14 the green control):
   (PI 15, PI 16: one generation).
 - **Evidence**: 17 PI cases; sweep 18 of 22 killed, both controls survived,
   the 4 survivors explained (3 equivalent; the clock gate has no route
-  test); full suite `10469 / 10469 / 0 / 0`; doc tests 32 of 32. CI: below,
-  once read.
+  test); full suite `10469 / 10469 / 0 / 0`; doc tests 32 of 32. CI on `6356083c`
+  (the records on `ef8ea26d`): unit tests 38139938283 and site build
+  38139938215 green.
 - **Still not live**: the real router, real writers, real images; a
   preparation buys early only beside another part's live job.
 
