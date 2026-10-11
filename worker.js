@@ -262,7 +262,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
-  nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -286,10 +286,12 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { designOnly as planDesignOnly } from "./builder/request-plan.mjs";
+import { PART_TERMINAL as REQ_PART_TERMINAL } from "./builder/request.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -17793,7 +17795,7 @@ function stepNeeds(steps, i) {
 }
 
 /** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
-async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, buy = true, pages = null } = {}) {
+async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, buy = true, pages = null, designOnly = false } = {}) {
   const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug, ...(prec ? { rec: prec } : {}) });
@@ -17811,6 +17813,8 @@ async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, 
   // the store still holds the site as the message arrived. Handed the job's
   // own pages, the preparation reads exactly what its turn will read.
   if (Array.isArray(pages)) prep.pages = pages.map((p) => ({ ...p }));
+  // AN ADDITION PREPARED DESIGN ONLY stops before its page writer (round 11).
+  prep.designOnly = designOnly === true;
   const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
   EDIT_JOBS.set(secret, prep);
   let res;
@@ -18499,7 +18503,9 @@ async function runRequestPrep(env, ctx, task) {
         // from the routing's and lay it beside another part's job.
         stepAt = Date.now();
         const beside = (work.parts || []).some((q) => q && q.n !== n && (q.status === "queued" || q.status === "started"));
-        const r = await replayPrepared(env, ctx, rec, url, body, runPhase, { beside });
+        // DESIGN ONLY while an earlier part still changes a page its writer reads.
+        const designFirst = planDesignOnly(work.parts || [], n, (q) => REQ_PART_TERMINAL.includes(q.status));
+        const r = await replayPrepared(env, ctx, rec, url, body, runPhase, { beside, designOnly: designFirst });
         stepEnd = Date.now();
         // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
         A.live.run.images = runPhase.images.slice();
@@ -18886,7 +18892,13 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   if (!attachmentsWhole(rb.images)) return null;
   // THIS ACCEPTANCE'S OWN ID, on its copies and on its record (`attemptId`).
   const attempt = newAttempt();
+  // WHAT EACH PAGE CALLS ITSELF NOW, as the message is understood (round 11),
+  // kept on the request: a read that fails or times out keeps nothing, and the
+  // addition then identifies pages by their live headlines, as before.
+  let labels = null;
+  try { labels = await withinMs(loadSiteSource(env, slug).then((pp) => pageLabels(Array.isArray(pp) ? pp : [], [])), ROUTE_PAGES_MS, "request labels:", slug); } catch { labels = null; }
   const draft = newRequest({
+    labels,
     key, uid, slug, message,
     picker: typeof rb.picker === "string" ? rb.picker : "",
     tz: typeof rb.tz === "string" ? rb.tz : "",
@@ -34246,6 +34258,13 @@ async function handleRequest(request, env, ctx) {
             if (aScope) aMark("scope", "pages", { pages: aScope.length, shown: aView.length, parts: aViewParts ? aViewParts.length : null });
             // THE NAMES AND PAGES ARE ARGUMENTS (2026-10-11), so a designer can be
             // shown the site with only the results it uses (`aSiteFor`, below).
+            const aLabelsAt = (() => {
+              const at = aPart ? readLabels(ab && ab.labels) : null;
+              if (!at) return {};
+              // Only the pages this part is shown: a scoped part never hears another page's label.
+              const have = new Set((aView || []).map((p) => routeOf(p && p.path)).filter(Boolean));
+              return Object.fromEntries(Object.entries(at).filter(([r]) => have.has(r)));
+            })();
             const siteFacts = (spec, names = aNewNames, pages = aNewPages) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
@@ -34260,7 +34279,11 @@ async function handleRequest(request, env, ctx) {
               // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
-              labels: pageLabels(aView, aLook.pages),
+              // …AS THE REQUEST WAS UNDERSTOOD (round 11): a request part's job
+              // carries each page's label from when the message was read, and
+              // those win for the pages the site still has — another part's
+              // headline change never changes this addition's request.
+              labels: { ...pageLabels(aView, aLook.pages), ...aLabelsAt },
               // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one
               // copies the first's design): the kit components and the site's
               // own parts each page imports, so the component designer can
@@ -34585,7 +34608,10 @@ async function handleRequest(request, env, ctx) {
               // told to the picker, which may ask for them (its question field)
               // when what they asked for depends on them. An answer that brings
               // them joins the request's files.
-              { message: aInstruction, current: siteNote(aSite), model: aModels.quick, handOver: handOverLine(aHand), filesMissing: !!(aPart && ab && ab.filesMissing === true) },
+              // THE PICKER IS SHOWN WHAT IT NAMES KINDS FROM (round 11): the pages,
+              // what each calls itself and is built from, the tables — not the
+              // photographs, which only the photograph designer chooses among.
+              { message: aInstruction, current: siteNote(noteFor("pick", aSite)), model: aModels.quick, handOver: handOverLine(aHand), filesMissing: !!(aPart && ab && ab.filesMissing === true) },
             );
             aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });
             // EVERY USAGE ON ONE BILL: the picker's and each add's, priced
@@ -35789,7 +35815,9 @@ async function handleRequest(request, env, ctx) {
                 if (ran.usage) aDesignUsage.push(ran.usage);
                 aKept.push({ kind: k, answered: true, superseded: clean.why, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
                 aSupersededReq = ran.requirements;
-                const aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")";
+                // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
+                // so the correction can say which requirement it restates.
+                const aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
                 const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
                 ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
                 clean = aCleanOf(ran);
@@ -35804,7 +35832,7 @@ async function handleRequest(request, env, ctx) {
               // not counted, not handed on, never reported to them as set up,
               // unconfirmed or missing — and the designer's extras kept apart.
               const aGround = groundRequirements(ran.requirements, aGrounding);
-              for (const r of aSupersededReq ? carrySuperseded(groundRequirements(aSupersededReq, aGrounding).list, aGround.list) : []) aGround.list.push(r);
+              for (const r of aSupersededReq ? carrySuperseded(groundRequirements(aSupersededReq, aGrounding).list, aGround.list, aReq.map((x) => x.id)) : []) aGround.list.push(r);
               for (const r of aGround.list) aReq.push(r);
               for (const r of aGround.ungrounded) aUngrounded.push(r);
               for (const t of Array.isArray(ran.suggestions) ? ran.suggestions : []) {
@@ -37004,6 +37032,11 @@ async function handleRequest(request, env, ctx) {
               // A UNION, in the addition's order first: `siteComponentApi`
               // drops what is already in the cached core, so the only cost is
               // the signatures of what this site really uses.
+              // PREPARED DESIGN ONLY (round 11): an earlier part still changes a
+              // page this writer copies its design from, so the writer is the
+              // job's, against the pages as they then are. The picker's and
+              // designers' answers are recorded; nothing is written.
+              if (aPrep && aJob.designOnly === true) return aPrepStop();
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,

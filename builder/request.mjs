@@ -233,7 +233,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
  * the routing call's own answer, handed back whole to a retry of the same
  * message (the same key) so a lost response is never routed or charged twice.
  */
-export function newRequest({ key, uid, slug, message, picker = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", at = Date.now() } = {}) {
+export function newRequest({ key, uid, slug, message, picker = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", labels = null, at = Date.now() } = {}) {
   if (!isRequestKey(key) || typeof uid !== "string" || !uid || !isRequestSlug(slug)) return null;
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > MAX_INPUT_CHARS) return null;
@@ -245,6 +245,12 @@ export function newRequest({ key, uid, slug, message, picker = "", tz = "", dige
     picker: typeof picker === "string" ? picker : "",
     tz: typeof tz === "string" ? tz.slice(0, 64) : "",
     digest: plain(digest) ? digest : null,
+    // WHAT EACH PAGE CALLED ITSELF WHEN THE MESSAGE WAS UNDERSTOOD (2026-10-11,
+    // round 11): the identity the customer's words were read against. An
+    // addition's picker and designers find "the booking page" by it, and a
+    // headline changed by another part of this same request never changes
+    // their request (`readLabels`).
+    labels: readLabels(labels),
     recent: Array.isArray(recent) && recent.length ? recent.slice(0, 3) : null,
     files: Array.isArray(files) ? files.filter((f) => plain(f) && typeof f.key === "string") : [],
     attached: attached === true,
@@ -259,6 +265,19 @@ export function newRequest({ key, uid, slug, message, picker = "", tz = "", dige
     state: "running", ended: false, endedAt: null,
   };
   return settleState(rec);
+}
+
+/** A page-label snapshot read strictly: `{ "/path": "label" }`, at most 200, each a short string; null otherwise. */
+export function readLabels(v) {
+  if (!plain(v)) return null;
+  const out = {};
+  let n = 0;
+  for (const [k, l] of Object.entries(v)) {
+    if (typeof k !== "string" || !/^\/[a-z0-9/_-]{0,80}$/i.test(k) || typeof l !== "string" || !l.trim()) continue;
+    if (++n > 200) break;
+    out[k] = l.trim().slice(0, 80);
+  }
+  return n ? out : null;
 }
 
 /** A stored record read back, or `null`: the shape is checked, never assumed. */
@@ -1744,6 +1763,9 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       url: "/api/site/" + encodeURIComponent(rec.slug) + "/addon",
       body: {
         instruction: runs, picker: rec.picker, idem: key, tz: rec.tz,
+        // THE PAGES AS THEY WERE IDENTIFIED (`labels`, round 11), on its
+        // preparation and its job alike, so both make the same request.
+        ...(readLabels(rec.labels) ? { labels: readLabels(rec.labels) } : {}),
         alsoAsked: heldWire(held),
         handOver: plain(d.handOver) ? d.handOver : undefined,
         askRound, putOff, context,

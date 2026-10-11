@@ -107,15 +107,28 @@ test("CA 2 — A REQUIREMENT ONLY THE REFUSED ANSWER LISTED IS NOT LOST: the fir
   });
 });
 
-test("CA 3 — A CHANGED REQUIREMENT: the refused answer and the correction quote the same words with different wording; only the correction's is told, once", { timeout: 30000 }, async () => {
+test("CA 3 — A CHANGED REQUIREMENT, MARKED: the correction rewords the asked-for requirement and says which earlier one it restates (`replaces`); only the correction's is told, once (round 11: a shared quote alone no longer means a replacement)", { timeout: 30000 }, async () => {
   judged = [];
   let n = 0;
   const NEW_NEED = "A visitor can show or hide each answer";
-  await withPlatform({ slug: slugOf("3"), pages: PAGES, replies: true, balance: 400, answers: one(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [REQ()]) : FAQ("/about", [REQ(NEW_NEED)]); }) }, async (P) => {
+  await withPlatform({ slug: slugOf("3"), pages: PAGES, replies: true, balance: 400, answers: one(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [REQ()]) : FAQ("/about", [{ ...REQ(NEW_NEED), replaces: "component#0" }]); }) }, async (P) => {
     const r = await sendMessage(P, { message: "Please " + ASK + "." });
     const { rec } = await settle(P, r.key);
     assert.equal(rec.parts[0].status, "partial", why(rec));
     assert.deepEqual(notDoneNeeds(rec), [NEW_NEED]);
+    once(P);
+  });
+});
+
+test("CA 3b — A REWORDED REQUIREMENT, NOT MARKED: same quoted words, different wording, no `replaces` — the equivalence is uncertain, so both are kept and told; nothing they asked for is dropped on a guess", { timeout: 30000 }, async () => {
+  judged = [];
+  let n = 0;
+  const NEW_NEED = "A visitor can show or hide each answer";
+  await withPlatform({ slug: slugOf("3b"), pages: PAGES, replies: true, balance: 400, answers: one(async () => { n++; return n === 1 ? FAQ("/does-not-exist", [REQ()]) : FAQ("/about", [REQ(NEW_NEED)]); }) }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + ASK + "." });
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.parts[0].status, "partial", why(rec));
+    assert.deepEqual(notDoneNeeds(rec).sort(), [NEED, NEW_NEED].sort());
     once(P);
   });
 });
@@ -199,12 +212,24 @@ test("CA 7 — DUPLICATE DELIVERY AND RESTART OVER CODEX'S REPRODUCTION: every q
   });
 });
 
-test("CA 8 — carrySuperseded: a requirement the correction no longer lists is carried unsupported and superseded, never with its old claim of covering; the same quoted words or the same hand-off answered is the same requirement", () => {
-  const prev = [REQ(), { need: "x", basis: "needed", words: "w", answers: "table#0", status: "covered" }];
-  assert.deepEqual(carrySuperseded(prev, [REQ("Reworded")]).map((r) => r.need), ["x"]);
-  const [c] = carrySuperseded([REQ()], []);
-  assert.equal(c.status, "unsupported");
-  assert.equal(c.superseded, true);
-  assert.ok(!("by" in c) && !("item" in c) && !("kind" in c));
-  assert.deepEqual(carrySuperseded(prev, [{ answers: "table#0", words: "other" }]).map((r) => r.need), [NEED]);
+test("CA 8 — carrySuperseded: a requirement replaced only where that is established (marked `replaces`, the same hand-off answered, the same need word for word); a shared quote is not identity; carried entries get fresh ids no other entry has; a `covered` claim is carried unsupported without its reference, an `elsewhere` hand-off is carried as a hand-off", () => {
+  const A = { id: "component#0", from: "component", need: "Each answer opens and closes", basis: "asked", words: "collapsible and searchable answers", status: "covered", by: "x", item: "/about", kind: "page" };
+  const B = { id: "component#1", from: "component", need: "Answers can be searched", basis: "asked", words: "collapsible and searchable answers", status: "covered" };
+  // A SHARED QUOTE IS NOT A REPLACEMENT: the correction keeps A only; B is carried.
+  assert.deepEqual(carrySuperseded([A, B], [{ ...A }]).map((r) => r.need), [B.need]);
+  // SAME WORDS, NEW WORDING, NOT MARKED: kept.
+  assert.deepEqual(carrySuperseded([A], [{ id: "component#0", need: "Show or hide each answer", words: A.words, status: "covered" }]).map((r) => r.need), [A.need]);
+  // MARKED: replaced.
+  assert.deepEqual(carrySuperseded([A], [{ id: "component#0", need: "Show or hide each answer", words: A.words, status: "covered", replaces: "component#0" }]), []);
+  // THE SAME HAND-OFF ANSWERED: replaced.
+  assert.deepEqual(carrySuperseded([{ ...A, answers: "table#0" }], [{ id: "component#0", need: "x", answers: "table#0", status: "covered" }]), []);
+  // FRESH IDS: never the correction's, never one already in play.
+  const c = carrySuperseded([A, B], [{ id: "component#0", need: "New", status: "covered" }], ["component#s0"]);
+  assert.deepEqual(c.map((r) => r.id), ["component#s1", "component#s2"]);
+  assert.ok(c.every((r) => r.superseded === true && r.status === "unsupported" && !("by" in r) && !("item" in r) && !("kind" in r) && !("answers" in r)));
+  // AN `elsewhere` HAND-OFF IS STILL A HAND-OFF.
+  const h = carrySuperseded([{ id: "component#2", from: "component", need: "Each question is stored", basis: "needed", words: "searchable", status: "elsewhere", step: "table" }], []);
+  assert.equal(h[0].status, "elsewhere");
+  assert.equal(h[0].step, "table");
+  assert.equal(h[0].id, "component#s0");
 });

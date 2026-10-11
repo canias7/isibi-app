@@ -37,7 +37,6 @@ const changedSince = (P, was) => { const now = siteEtags(P); return [...new Set(
 /** The site's own stored objects holding `text` — not a request's or a job's records, where a preparation keeps its answers. */
 const siteObjectsWith = (P, text) => [...P.objects.entries()].filter(([k, o]) => !/^(requests|jobs)\//.test(k) && typeof o.body === "string" && o.body.includes(text)).map(([k]) => k);
 const statuses = (rec) => rec.parts.map((p) => p.status);
-const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + "#") && e.reason === "reserve").map((e) => -e.delta);
 
 const HOME_PIC = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1><SafeImage src=\"\" alt=\"A loaf on the counter\" ratio=\"4/3\" /><p>Bread from the harbour, every morning.</p></section>");
 const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>Come to the bakery</h1><p>We are on Harbour Street.</p></section>");
@@ -49,6 +48,13 @@ const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for",
 const SPEC = { tables: [{ name: "loaves", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }], read: "public", write: "none" }] };
 const loavesDb = () => rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify(SPEC) } });
 const RYE = "make the Dark Rye £5.50";
+const VISIT_LINE = "We are on Harbour Street.";
+const VISIT_TO = "We are on Harbour Street, by the quay.";
+const TEXT_WORDS = "on the Visit page, say we are on Harbour Street by the quay";
+const lineId = (args, file, line) => {
+  const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[" + file + "] " + line));
+  return Number(String(at || "-1.").split(".")[0]);
+};
 
 /**
  * ONE CASE. `first` is the task whose job runs first and is HELD inside its
@@ -64,11 +70,16 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
   const seen = new Promise((ok) => { markerSeen = ok; });
   let opened = null;
   const hold = async () => { opened = await Promise.race([seen.then(() => true), new Promise((ok) => setTimeout(() => ok(false), 4000))]); };
-  const firstRoute = first.kind === "data"
-    ? { intent: "edit", layer: "data", alsoAsked: [other.words], targets: [{ change: 0, writes: ["data:" + (first.table || "loaves")] }, ...(other.writes ? [{ change: 1, writes: other.writes }] : [])] }
-    : { intent: "edit", layer: "picture", ...(first.page ? { page: first.page } : {}), alsoAsked: [other.words], targets: [{ change: 0, writes: ["images", ...(first.page ? ["page:" + first.page] : [])] }, ...(other.writes ? [{ change: 1, writes: other.writes }] : [])] };
+  const otherReads = other.reads ? { reads: other.reads } : {};
+  const firstRoute = first.kind === "text"
+    ? { intent: "edit", layer: "text", page: "/visit", alsoAsked: [other.words], targets: [{ change: 0, writes: ["page:/visit"] }, ...(other.writes ? [{ change: 1, writes: other.writes, ...otherReads }] : [])] }
+    : first.kind === "data"
+    ? { intent: "edit", layer: "data", alsoAsked: [other.words], targets: [{ change: 0, writes: ["data:" + (first.table || "loaves")] }, ...(other.writes ? [{ change: 1, writes: other.writes, ...otherReads }] : [])] }
+    : { intent: "edit", layer: "picture", ...(first.page ? { page: first.page } : {}), alsoAsked: [other.words], targets: [{ change: 0, writes: ["images", ...(first.page ? ["page:" + first.page] : [])] }, ...(other.writes ? [{ change: 1, writes: other.writes, ...otherReads }] : [])] };
   const answers = { route: [firstRoute, other.route], choose_pictures: PICTURE, ...other.answers };
   const ft = first.table || "loaves";
+  // A HELD TEXT EDIT (round 11): the Visit line reworded, its model answer held.
+  if (first.kind === "text") answers[T.text] = async (args) => { await hold(); return { edits: [{ id: lineId(args, "visit.tsx", first.line || VISIT_LINE), to: first.to || VISIT_TO }] }; };
   if (first.kind === "data") answers.write_row_changes = async () => { await hold(); return { changes: ft === "loaves" ? [{ table: "loaves", id: 2, values: { price: 5.5 } }] : [{ table: ft, id: 1, values: { opens: "08:00" } }] }; };
   const tool = other.marker;
   const orig = answers[tool];
@@ -77,7 +88,7 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     slug, pages: PAGES, images: true, ...(db ? { db } : {}), answers,
     ...(first.kind === "photo" ? { imageWith: hold } : {}),
   }, async (P) => {
-    const words = first.kind === "data" ? (first.table === "hours" ? "open the bakery at 8 on Mondays" : RYE) : PHOTO;
+    const words = first.kind === "text" ? TEXT_WORDS : first.kind === "data" ? (first.table === "hours" ? "open the bakery at 8 on Mondays" : RYE) : PHOTO;
     const r = await sendMessage(P, { message: words + ", and " + other.words + "." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const prep = P.queue.filter((m) => m.body.kind === "request-prep");
@@ -90,6 +101,9 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     // writes no stored object (a row change), every object of the site but a
     // request's or a job's records is exactly as it was — not written and
     // put back, not written at all.
+    // (A held text edit is released by the other task's call and publishes
+    // the Visit page while the preparation is still running, so its cases
+    // check what the preparation wrote in `check.before`.)
     const strict = first.kind === "data";
     const before = strict ? siteEtags(P) : null;
     await deliver(P, prep[0]);
@@ -97,15 +111,25 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     const mid = P.record(r.key).parts[1].prep;
     if (check && check.before) await check.before(P);
     await running;
-    assert.equal(opened, true, "the other task's own work was not done while the first task's job was inside its own: " + JSON.stringify(mid));
-    assert.equal(mid.outcome, "ready", "the other task's step was not prepared: " + JSON.stringify(mid));
+    // A REAL DEPENDENCY (`other.waits`): the other task's own work is NOT done
+    // while the first task's job is inside its own — the hold runs out.
+    if (other.waits) assert.equal(opened, false, "the other task's work was done before what it reads was written: " + JSON.stringify(mid));
+    else assert.equal(opened, true, "the other task's own work was not done while the first task's job was inside its own: " + JSON.stringify(mid));
+    if (other.prepared !== false && !other.waits) assert.equal(mid.outcome, "ready", "the other task's step was not prepared: " + JSON.stringify(mid));
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
     // THE SUBSTANTIVE CALL ONCE: made by the preparation, answered to the job.
     const logged = other.logged || tool;
     if (other.once !== false) assert.equal(calls(P, logged).length, 1, logged + " was not asked exactly once (the preparation's call, answered to the job)");
     assert.equal(P.imageLog.length, first.kind === "photo" ? 1 : 0);
-    for (const j of P.jobsOf(r.key)) assert.ok(reserveOf(P, j.id).length <= 1, j.op + " charged more than once");
+    // Each job charged once — or, where the route bills in stages (`other.seqs`:
+    // an addition that applies a schema and then publishes takes #1 before the
+    // apply and #4 after the publish), each stage once.
+    for (const j of P.jobsOf(r.key)) {
+      const rows = P.ledger.filter((e) => e.ref.startsWith(j.id + "#") && e.reason === "reserve").map((e) => e.ref.slice(e.ref.indexOf("#")));
+      if (other.seqs && j.op === "addon") assert.deepEqual(rows, other.seqs, "the addition's stages were not each charged once");
+      else assert.ok(rows.length <= 1, j.op + " charged more than once: " + JSON.stringify(rows));
+    }
     if (check && check.after) await check.after(P, rec, r);
   });
 }
@@ -444,6 +468,131 @@ test("SCHEMA-ONLY — A TABLE ADDED AS STORAGE (the router names only `new-data:
         assert.equal(db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length, 1);
         assert.equal(calls(P, T.pages).length, 0, "a page writer was asked for a table nothing shows");
       },
+    },
+  });
+});
+
+// ── ROUND 11: ADDITIONS BESIDE UNRELATED EDITS, NOT ONLY BESIDE A PHOTOGRAPH ──
+// The first task is a TEXT edit on the Visit page, its model answer held: it
+// writes a page's words, which no new page's design, table, function, API or
+// job reads. Each addition below is designed (and, with no page to write,
+// finished) while that edit is held; a new page's writer — which copies the
+// pages beside it — waits for the edit and is asked once, at its job.
+
+const GALLERY = { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } };
+
+test("R11 PAGE — A NEW PAGE BESIDE A HELD TEXT EDIT: its picker and designer are answered while the Visit line is being reworded (its preparation is design only); its page writer is asked once, at its job, after the edit applied — and both changes land", async () => {
+  await overlapCase({
+    slug: slugOf("r11p"), first: { kind: "text" },
+    other: { words: "add a gallery page", writes: ["new-page:/gallery", "menu"], route: { intent: "addon" }, marker: "add:page", logged: T.design, answers: GALLERY },
+    check: {
+      before: (P) => {
+        assert.ok(!P.pages().includes("gallery.tsx"), "the preparation added the page");
+        assert.equal(calls(P, T.pages).length, 0, "the page writer was asked while the page beside it was still changing");
+        assert.equal(calls(P, T.adds).length, 1, "the picker was not answered beside the edit");
+      },
+      after: (P) => {
+        assert.ok(P.pages().includes("gallery.tsx"));
+        assert.ok(P.page("visit.tsx").includes(VISIT_TO), "the text edit was lost");
+        assert.equal(calls(P, T.adds).length, 1, "the picker was asked again");
+        assert.equal(calls(P, T.pages).length, 1, "the page writer was not asked exactly once");
+      },
+    },
+  });
+});
+
+test("R11 LABELS — A HEADLINE CHANGED BY AN EARLIER PART does not change the addition's request: the picker and designer still identify the Visit page by what it said when the message was read (\"Come to the bakery\"), never the edit's new words, and are asked once", async () => {
+  const NEW_HEAD = "Find the bakery";
+  await overlapCase({
+    slug: slugOf("r11l"), first: { kind: "text", line: "Come to the bakery", to: NEW_HEAD },
+    other: { words: "add a gallery page", writes: ["new-page:/gallery", "menu"], route: { intent: "addon" }, marker: "add:page", logged: T.design, answers: GALLERY },
+    check: {
+      after: (P) => {
+        assert.ok(P.page("visit.tsx").includes(NEW_HEAD), "the heading edit was lost");
+        for (const tool of [T.adds, T.design]) {
+          const c = calls(P, tool);
+          assert.equal(c.length, 1, tool + " was asked again");
+          assert.match(c[0].text, /\/visit \("Come to the bakery"\)/, tool + " lost the page's label: identification by content is gone");
+          assert.ok(!c[0].text.includes(NEW_HEAD), tool + " was shown the edit's unfinished words");
+        }
+        assert.ok(!calls(P, T.adds)[0].text.includes("/u/"), "the picker was shown photographs");
+      },
+    },
+  });
+});
+
+test("R11 PAGE control — A REAL DEPENDENCY: the same addition declaring that it reads the Visit page waits for the text edit (its designer is not asked while the edit is held), then lands once", async () => {
+  await overlapCase({
+    slug: slugOf("r11pc"), first: { kind: "text" },
+    other: { words: "add a gallery page styled like the Visit page", writes: ["new-page:/gallery", "menu"], reads: ["page:/visit"], route: { intent: "addon" }, marker: "add:page", logged: T.design, waits: true, answers: GALLERY },
+    check: { after: (P) => { assert.ok(P.pages().includes("gallery.tsx")); assert.ok(P.page("visit.tsx").includes(VISIT_TO)); } },
+  });
+});
+
+const FN_COUNT = { name: "count_loaves", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
+const madeFn = (db, name) => db.log().filter((q) => new RegExp("create (or replace )?function[^(]*" + name, "i").test(q.query)).length;
+
+test("R11 FUNCTION — A FUNCTION OVER A STORED TABLE beside a held text edit: designed while the Visit line is being reworded, made by its own job once, no page writer asked", async () => {
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("r11f"), db, first: { kind: "text" },
+    other: {
+      words: "add a function that counts the loaves", writes: ["new-function:count_loaves"], reads: ["data:loaves"], route: { intent: "addon" }, marker: "add:function", logged: T.design,
+      answers: { [T.adds]: { kinds: ["function"] }, "add:function": { function: [FN_COUNT] } },
+    },
+    check: {
+      before: () => assert.equal(madeFn(db, "count_loaves"), 0, "the preparation made the function"),
+      after: (P) => { assert.equal(madeFn(db, "count_loaves"), 1); assert.equal(calls(P, T.pages).length, 0); assert.ok(P.page("visit.tsx").includes(VISIT_TO)); },
+    },
+  });
+});
+
+test("R11 FUNCTION control — A REAL DEPENDENCY: a function reading the loaves table waits while an earlier part changes a loaf (its designer is not asked while that change is held), then is made once", async () => {
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("r11fc"), db, first: { kind: "data" },
+    other: {
+      words: "add a function that counts the loaves", writes: ["new-function:count_loaves"], reads: ["data:loaves"], route: { intent: "addon" }, marker: "add:function", logged: T.design, waits: true,
+      answers: { [T.adds]: { kinds: ["function"] }, "add:function": { function: [FN_COUNT] } },
+    },
+    check: { after: () => assert.equal(madeFn(db, "count_loaves"), 1) },
+  });
+});
+
+test("R11 JOB — A SCHEDULED JOB AND ITS FUNCTION beside a held text edit: both designed while the Visit line is being reworded, registered by their own job once", async () => {
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("r11j"), db, first: { kind: "text" },
+    other: {
+      words: "count the loaves every night", writes: ["new-function:count_loaves", "new-job:nightly_count"], reads: ["data:loaves"], route: { intent: "addon" }, marker: "add:function", logged: T.design, once: false,
+      answers: { [T.adds]: { kinds: ["function", "job"] }, "add:function": { function: [FN_COUNT] }, "add:job": { job: [{ name: "nightly_count", fn: "count_loaves", everyMinutes: 1440 }] } },
+    },
+    check: {
+      after: (P, rec) => {
+        assert.equal(madeFn(db, "count_loaves"), 1);
+        assert.equal(calls(P, T.design).length, 2, "a designer was asked again");
+        assert.equal(calls(P, T.pages).length, 0);
+        assert.ok(P.page("visit.tsx").includes(VISIT_TO));
+        assert.deepEqual(statuses(rec), ["done", "done"]);
+      },
+    },
+  });
+});
+
+test("R11 API — AN OUTSIDE CONNECTION beside a held text edit: designed while the Visit line is being reworded, added by its own job once", async () => {
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("r11a"), db, first: { kind: "text" },
+    other: {
+      words: "add a connection that fetches our flour supplier's price list", writes: ["new-api:flour_prices"], route: { intent: "addon" }, marker: "add:api", logged: T.design, seqs: ["#1", "#4"],
+      answers: { [T.adds]: { kinds: ["api"] }, "add:api": { api: [{ name: "flour_prices", url: "https://example.com/flour.json", method: "GET" }] }, [T.pages]: { pages: [{ path: "src/routes/index.tsx", source: HOME_PIC.replace("</section>", "<p>Today's flour prices, from our supplier.</p></section>") }] } },
+    },
+    check: {
+      // A CONNECTION ALWAYS PUBLISHES, so it reaches the page writer: its
+      // preparation stops before the writer while the Visit page is changing,
+      // and the writer is asked once, at its job, against the edited page.
+      before: (P) => assert.equal(calls(P, T.pages).length, 0, "the page writer was asked while the page beside it was still changing"),
+      after: (P) => { assert.equal(calls(P, T.pages).length, 1); assert.ok(calls(P, T.pages)[0].text.includes(VISIT_TO), "the writer was not shown the Visit page as the edit left it"); assert.ok(P.page("visit.tsx").includes(VISIT_TO)); },
     },
   });
 });

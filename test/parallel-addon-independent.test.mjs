@@ -300,8 +300,13 @@ test("PI 6 — A STALE PREPARED ANSWER IS STILL REJECTED: the component's prepar
       assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
       const u = prepUseOf(view, 1);
       assert.ok(u && u.staged === "yes", JSON.stringify(view.parts[1]));
-      assert.equal(u.replayed, 0, "a prepared answer was reused for a request it was not made for: " + JSON.stringify(u));
-      assert.ok(u.fresh >= 3, JSON.stringify(u));
+      // (round 11) The picker and designer are shown each page's headline as
+      // the request was understood, so their requests are unchanged and their
+      // answers replayed exactly; the writer, which reads the About page's
+      // source, is asked again against the page as it now is.
+      assert.equal(u.replayed, 2, "only the unchanged picker and designer requests may be replayed: " + JSON.stringify(u));
+      assert.ok(u.fresh >= 1, "the writer, whose input changed, was not asked again: " + JSON.stringify(u));
+      assert.ok(P.page("about.tsx").includes("Our story so far"), "the change made in between was lost");
       assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
       assert.equal(P.imageLog.length, 1);
     },
@@ -370,7 +375,10 @@ test("PI 9 — AN ADDITION'S SCOPE IS DECLARED ONLY WHERE EVERY WRITE LANDS ON A
   assert.equal(addonScope(planPart(0, ["page:/visit"], [], { route: { layer: "text", page: "/visit" } })), null);
   // WHAT THE STEP IS PLANNED AS READING follows the scope.
   assert.deepEqual(stepInputs(planPart(0, PHOTO_TARGETS)), ["pagelist", "theme", "page:/visit"]);
-  assert.deepEqual(stepInputs(planPart(0, ["new-page:/gallery"])), ["pagelist", "theme", "menu", "pages", "images"]);
+  // A NEW PAGE (round 11) is designed on the page list, the look, the menu and
+  // what pages are built from; its writer's read of the pages is `designOnly`'s.
+  assert.deepEqual(stepInputs(planPart(0, ["new-page:/gallery"])), ["pagelist", "theme", "menu", "kits"]);
+  assert.deepEqual(stepInputs(planPart(0, ["new-page:/gallery"], ["page:/"])), ["pagelist", "theme", "menu", "pages", "images"], "a declared read keeps the whole site");
 });
 
 test("PI 10 — WHAT A PART PLACES LANDS ON THE PAGES IT NAMES: a photograph or a new component on Visit does not hold back a scoped addition on About, in either order; on the same page, with no page named, or as a change to an existing component it does", () => {

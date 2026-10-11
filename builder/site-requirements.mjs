@@ -323,6 +323,21 @@ export const REQUIREMENT_ITEM = {
         + "LEAVE IT OUT unless you are answering one of those — never invent one, and never use it for a "
         + "requirement you are raising yourself.",
     },
+    // ── WHICH OF YOUR LAST ANSWER'S REQUIREMENTS THIS ONE RESTATES ─────────
+    //
+    // (2026-10-11, round 11, after Codex's review of 7f5e753b.) Only when a
+    // design is asked for again after a refusal: the earlier answer's
+    // requirements are listed by id, and the model says which one an entry
+    // restates. That is what establishes a replacement — never a shared quote,
+    // which only grounds a requirement in their words, and never a position.
+    replaces: {
+      type: "string",
+      description: "Only when you are answering AGAIN after your last answer could not be used, and the request "
+        + "lists your last answer's requirements by id: the id of the one this entry restates (the same thing they "
+        + "asked for, however you word it now), copied exactly. LEAVE IT OUT for a requirement that is new, and for "
+        + "one that is only from the same sentence of theirs — two different things they asked for in one sentence "
+        + "are two requirements.",
+    },
     why: {
       type: "string",
       description:
@@ -465,6 +480,10 @@ export function cleanRequirements(raw, from = "") {
     // "nobody did this" into "it is configured".
     const ans = str(r.answers, 80);
     if (e.status === "covered" && ans) e.answers = ans;
+    // WHICH EARLIER REQUIREMENT IT RESTATES, as said (`replaces`): an id of the
+    // last answer's, read only by the correction's reconcile (`carrySuperseded`).
+    const rep = str(r.replaces, 80);
+    if (rep) e.replaces = rep;
     if (e.status === "unsupported" && !e.why) {
       const why = str(r.why, MAX_WHY);
       e.why = why || "no reason was given";
@@ -528,27 +547,70 @@ export function groundRequirements(list, { asked = [], known = [] } = {}) {
  * (`worker.js`, the add-on loop). The design, suggestions and skipped entries
  * of the refused answer are superseded — the record keeps them for diagnosis —
  * but a requirement it grounded in what the customer wrote is still something
- * the customer asked for. One the correction no longer lists is carried, marked
- * `unsupported` (the design that is used does not say it handles it) and
- * `superseded`, so the judge hears it and the customer is told; it is never
- * claimed covered by a design nobody will build. The same requirement is the
- * same quoted words (or the same hand-off answered), compared as `plain` text.
- * Both lists are already grounded (`groundRequirements`).
+ * the customer asked for. `prev` and `now` are both grounded lists.
+ *
+ * ONE REQUIREMENT REPLACES ANOTHER ONLY WHERE THAT IS ESTABLISHED (round 11,
+ * Codex's review of 7f5e753b). A quote grounds a requirement; it is not its
+ * identity — "collapsible and searchable answers" grounds two. And an id is
+ * only a position inside one answer: the refused answer's `component#0` and the
+ * correction's `component#0` are unrelated. So a correction's entry replaces an
+ * earlier one when it says so (`replaces`, the earlier id, shown to it), when
+ * both answer the same hand-off (`answers`), or when it states the same need
+ * word for word. Anything less certain — a paraphrase it did not mark — is
+ * kept: told twice is recoverable, a requirement dropped is not.
+ *
+ * WHAT IS CARRIED, AND AS WHAT:
+ * - a `covered` claim is void (the design that made it is not built): carried
+ *   `unsupported`, without its reference or its hand-off answer;
+ * - an `elsewhere` hand-off is still a valid request to another step: carried
+ *   as it is, so that step is handed it;
+ * - an `unsupported` entry is carried as it is.
+ * Each carried entry is `superseded: true` and gets a FRESH id (`<step>#s<n>`)
+ * that no entry of `now` or of `taken` (every id already in play) has, so no
+ * two requirements in one request ever share an id.
  */
-export function carrySuperseded(prev, now) {
-  const key = (r) => (typeof r.answers === "string" && r.answers ? "a:" + r.answers : "w:" + plain(r.words));
-  const have = new Set((Array.isArray(now) ? now : []).filter((r) => r && typeof r === "object").map(key));
+export function carrySuperseded(prev, now, taken = []) {
+  const list = (Array.isArray(now) ? now : []).filter((r) => r && typeof r === "object");
+  const replaced = new Set(list.map((r) => (typeof r.replaces === "string" ? r.replaces : "")).filter(Boolean));
+  const answered = new Set(list.map((r) => (typeof r.answers === "string" ? r.answers : "")).filter(Boolean));
+  const needs = new Set(list.map((r) => plain(r.need)).filter(Boolean));
+  const ids = new Set([...list.map((r) => r.id), ...(Array.isArray(taken) ? taken : [])].filter((x) => typeof x === "string"));
   const out = [];
   for (const r of Array.isArray(prev) ? prev : []) {
     if (!r || typeof r !== "object") continue;
-    const k = key(r);
-    if (have.has(k)) continue;
-    have.add(k);
-    const { by, item, kind, step, ...rest } = r;
-    void by; void item; void kind; void step;
-    out.push({ ...rest, status: "unsupported", why: "the design that is used does not say it handles this", superseded: true });
+    if (typeof r.id === "string" && replaced.has(r.id)) continue;
+    if (typeof r.answers === "string" && r.answers && answered.has(r.answers)) continue;
+    if (plain(r.need) && needs.has(plain(r.need))) continue;
+    const owner = typeof r.from === "string" && r.from ? r.from : (typeof r.id === "string" && r.id.includes("#") ? r.id.slice(0, r.id.indexOf("#")) : "step");
+    let n = 0;
+    while (ids.has(owner + "#s" + n)) n++;
+    const id = owner + "#s" + n;
+    ids.add(id);
+    needs.add(plain(r.need));
+    const { by, item, kind, answers, replaces, ...rest } = r;
+    void replaces;
+    if (r.status === "covered") {
+      void by; void item; void kind; void answers;
+      out.push({ ...rest, id, status: "unsupported", why: "the design that is used does not say it handles this", superseded: true });
+    } else {
+      const c = { ...r, id, superseded: true };
+      delete c.replaces;
+      out.push(c);
+    }
   }
   return out;
+}
+
+/**
+ * THE EARLIER ANSWER'S REQUIREMENTS, AS A CORRECTION IS SHOWN THEM (round 11):
+ * one line each, by id, so it can say which one an entry restates (`replaces`).
+ * Empty when there were none.
+ */
+export function supersededNote(prev) {
+  const rows = (Array.isArray(prev) ? prev : []).filter((r) => r && typeof r === "object" && typeof r.id === "string" && typeof r.need === "string");
+  if (!rows.length) return "";
+  return "\nYour last answer listed these requirements. For each requirement you list now that restates one of them, put its id in `replaces`; one you no longer list is still something they asked for, and they will be told so:\n"
+    + rows.map((r) => "- " + r.id + ": " + r.need.replace(/\s+/g, " ").slice(0, 200)).join("\n");
 }
 
 /**

@@ -36,11 +36,14 @@
 // structured answer, the site's own inventory, or the code's own wiring.
 
 /** The resource kinds a target may name. `site` is the whole site — what a part with no readable target is taken to touch. */
-export const TARGET_KINDS = Object.freeze(["page", "new-page", "menu", "footer", "header", "theme", "identity", "data", "new-data", "component", "new-component", "images", "pagelist", "site"]);
+// FUNCTIONS, CONNECTIONS AND SCHEDULES BY NAME (2026-10-11, round 11): an
+// addition that makes one was a change with no readable target — the whole
+// site — so it waited for every part and every part waited for it.
+export const TARGET_KINDS = Object.freeze(["page", "new-page", "menu", "footer", "header", "theme", "identity", "data", "new-data", "component", "new-component", "function", "new-function", "api", "new-api", "job", "new-job", "images", "pagelist", "site"]);
 /** Kinds that name one thing, after a colon. */
-const NAMED = new Set(["page", "new-page", "data", "new-data", "component", "new-component"]);
+const NAMED = new Set(["page", "new-page", "data", "new-data", "component", "new-component", "function", "new-function", "api", "new-api", "job", "new-job"]);
 /** What a kind that creates something makes, as the kind that later refers to it. */
-const MADE_AS = Object.freeze({ "new-page": "page", "new-data": "data", "new-component": "component" });
+const MADE_AS = Object.freeze({ "new-page": "page", "new-data": "data", "new-component": "component", "new-function": "function", "new-api": "api", "new-job": "job" });
 const SITE = "site";
 
 const PATH_RE = /^\/[a-z0-9][a-z0-9/_-]{0,80}$|^\/$/;
@@ -232,6 +235,8 @@ export function stepInputs(part) {
   // writer again — never this.
   const aw = schemaOnly(part);
   if (aw) return ["pagelist", "theme", ...aw];
+  const np = newPageDesign(part);
+  if (np) return ["pagelist", "theme", "menu", "kits", ...np];
   if (part.route.op === "addon") return ["pagelist", "theme", "menu", "pages", "images"];
   if (layer === "text") return ["pages"];
   if (layer === "nav") return ["menu", "pagelist"];
@@ -259,17 +264,72 @@ export function stepInputs(part) {
   return [SITE];
 }
 
-/** An addition's tables when every write the router named is a table and it reads nothing; null otherwise. */
+/**
+ * A BACKEND-ONLY ADDITION'S OWN INPUTS (round 9 for tables; round 11 for
+ * functions, connections and schedules): every write the router named is a
+ * table, a stored function, an outside connection or a schedule — made or
+ * changed — and every read it declared is one of those too. Its designers read
+ * the stored schema; what it is planned on is the things it names, by name.
+ * Null otherwise.
+ */
+const BACKEND = ["data", "new-data", "function", "new-function", "api", "new-api", "job", "new-job"];
+const kindOf = (w) => (w.includes(":") ? w.slice(0, w.indexOf(":")) : w);
 function schemaOnly(part) {
+  if (!(part.route.op === "addon" || part.route.intent === "addon")) return null;
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  const reads = Array.isArray(t.reads) ? t.reads.map(readTarget).filter(Boolean) : [];
+  if (!named.length || !named.every((w) => BACKEND.includes(kindOf(w)) && w.includes(":"))) return null;
+  if (!reads.every((w) => BACKEND.includes(kindOf(w)) && w.includes(":"))) return null;
+  // ITS OWN THINGS, by name: a row written to another table, or another
+  // function, is not its input. Another table's SCHEMA changed beside it (a
+  // rule) is in its request, and the job's exact-request check asks it again.
+  return [...new Set([...named, ...reads].map((w) => (MADE_AS[kindOf(w)] || kindOf(w)) + ":" + w.slice(w.indexOf(":") + 1)))];
+}
+
+/**
+ * A NEW PAGE'S DESIGN INPUTS beyond the page list, look and menu (round 11):
+ * its own tables, when every write the router named is a new page, a section
+ * or picture on a page, the menu or a table, and it declares no reads. Its
+ * picker and designers identify the site's pages by what each calls itself as
+ * the request was understood (`labels`, kept on the request) and see what each
+ * page is BUILT from (`kits`) — never the pages' live words or photographs.
+ * Its page writer reads the pages beside it; that is `designOnly`'s to hold.
+ */
+function newPageDesign(part) {
   if (!(part.route.op === "addon" || part.route.intent === "addon")) return null;
   const t = part.targets && typeof part.targets === "object" ? part.targets : {};
   if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
   const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
-  if (!named.length || !named.every((w) => w.startsWith("data:") || w.startsWith("new-data:"))) return null;
-  // ITS OWN TABLES, by name: a row written to another table is not its input.
-  // Another table's SCHEMA changed beside it (a rule) is in its request, and
-  // the job's exact-request check asks it again — never this.
-  return [...new Set(named.map((w) => "data:" + w.slice(w.indexOf(":") + 1)))];
+  if (!named.some((w) => w.startsWith("new-page:"))) return null;
+  const ok = (w) => w.startsWith("new-page:") || w.startsWith("page:") || w.startsWith("component:") || w.startsWith("new-component:")
+    || w === "images" || w === "menu" || w.startsWith("data:") || w.startsWith("new-data:");
+  if (!named.every(ok)) return null;
+  return [...new Set(named.filter((w) => w.startsWith("data:") || w.startsWith("new-data:")).map((w) => "data:" + w.slice(w.indexOf(":") + 1)))];
+}
+
+/**
+ * IS THIS ADDITION'S PREPARATION DESIGN ONLY? (round 11) A new page planned on
+ * its design inputs (`newPageDesign`): while an earlier part in the apply order
+ * that has not ended still changes a page's content, its page writer — which
+ * copies the design of the pages beside it — would be asked against pages
+ * about to change, so the preparation runs the picker and designers and stops
+ * before the writer. The job asks the writer against the pages as they then are.
+ * …AND A SCHEMA-ONLY ADDITION (`schemaOnly`): its designers read no page, but
+ * one that must publish (an outside connection, a public function) or that a
+ * designer decides to show still reaches the page writer, so the same holds.
+ * A pageless one never reaches the writer, and this changes nothing for it.
+ */
+export function designOnly(parts, n, ended) {
+  const me = parts[n];
+  if (!me || me.phase === "route" || !me.route || !(newPageDesign(me) || schemaOnly(me))) return false;
+  for (const m of applyOrder(parts)) {
+    if (m === n) return false;
+    const q = parts[m];
+    if (!q || ended(q)) continue;
+    if (effectiveTargets(q).writes.some((w) => partFeeds(q, w, "pages"))) return true;
+  }
+  return false;
 }
 
 /** A named page change's inputs, or null when it is not one page named that narrowly. */
@@ -306,6 +366,14 @@ function lookInputs(part) {
  * (measured, 2026-10-11).
  */
 function partFeeds(q, write, input) {
+  // WHAT A PAGE IS BUILT FROM (`kits`, round 11) changes with its structure —
+  // a section, a component, a layout — never with its words or the photograph
+  // in an existing frame: a text step and a picture step leave it as it was.
+  if (input === "kits") {
+    const layer = q && q.route && typeof q.route.layer === "string" ? q.route.layer : "";
+    if (write.startsWith("page:")) return !(layer === "text" || layer === "picture");
+    return write === SITE || ["new-page", "component", "new-component", "header", "footer"].includes(kindOf(write));
+  }
   if (input.startsWith("page:") && (write === "images" || write.startsWith("new-component:"))) {
     const on = pagesWritten(q);
     if (on.length) return on.includes(input);

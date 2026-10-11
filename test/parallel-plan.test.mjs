@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readTarget, readTargets, impliedWrites, effectiveTargets, conflicts, inferNeeds, applyOrder, clearToPrepare, stepInputs, pagePath } from "../builder/request-plan.mjs";
+import { readTarget, readTargets, impliedWrites, effectiveTargets, conflicts, inferNeeds, applyOrder, clearToPrepare, stepInputs, pagePath, designOnly } from "../builder/request-plan.mjs";
 import { requestHash, recorder, replayer, readPrepared, prepKey, jobPrepKey } from "../builder/prepared.mjs";
 
 const part = (n, o = {}) => ({ n, at: o.at ?? n, needs: o.needs || [], status: o.status || "ready", phase: o.phase || "run", route: o.route || null, targets: o.targets || null });
@@ -278,13 +278,15 @@ test("the progress writer is told what a task being prepared has actually reache
   assert.doesNotMatch(said({ seq: 1, for: 1, phase: "run", state: "done", outcome: "ready", at: now }), /add a gallery page” \(finished/);
 });
 
-test("an addition is not prepared beside an earlier picture: a picture placed is written into a page, and an addition's page writer reads the pages and its designers the pictures (control: beside a stored row's change it is)", () => {
+test("a new page is DESIGNED beside an earlier picture, and its writer waits: a picture placed is written into a page the writer copies, but changes no page's structure, and the picker and designers are shown no photographs (round 11; control: beside a stored row's change it is prepared whole)", () => {
   const ended = (p) => p.status === "done";
   const pic = part(0, { route: { layer: "picture" } });
   const add = part(1, { route: { op: "addon" }, targets: { writes: ["new-page:/gallery"], reads: [] } });
-  assert.equal(clearToPrepare([pic, add], 1, ended), false);
+  assert.equal(clearToPrepare([pic, add], 1, ended), true);
+  assert.equal(designOnly([pic, add], 1, ended), true, "the writer was prepared against a page about to change");
   const row = part(0, { route: { layer: "data" }, targets: { writes: ["data:hours"], reads: [] } });
   assert.equal(clearToPrepare([row, add], 1, ended), true, "CONTROL: an addition beside a row change of a list it does not add to");
+  assert.equal(designOnly([row, add], 1, ended), false, "CONTROL: a row change writes no page");
   const text = part(1, { route: { layer: "text" }, targets: { writes: ["page:/"], reads: [] } });
   assert.equal(clearToPrepare([pic, text], 1, ended), false, "a picture placed is a page the text step reads");
 });

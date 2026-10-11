@@ -950,7 +950,9 @@ const TARGETS = {
     "page paths and table names: page:/path (an existing page's content), new-page:/path (a page this change " +
     "creates), menu (the site's shared navigation), header, footer, theme (colours, fonts and the site-wide look), " +
     "identity (the site's name, description, logo or icon), data:table (a table's rows or columns), new-data:table " +
-    "(a table this change creates), component:Name, new-component:Name, and site when a change can reach anything. " +
+    "(a table this change creates), component:Name, new-component:Name, function:name, new-function:name (a stored " +
+    "function this change creates), api:name, new-api:name (an outside connection it creates), job:name, new-job:name " +
+    "(a schedule it creates), and site when a change can reach anything. " +
     "Name every shared part a change reaches, even when its words do not mention it. Leave a change out only when " +
     "you cannot tell what it touches.",
   items: {

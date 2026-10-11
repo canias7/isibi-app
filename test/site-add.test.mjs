@@ -366,7 +366,9 @@ test("every field the edit path refuses to create has a kind here, and the route
   // …AND WHAT EACH PAGE CALLS ITSELF (run 28), out of the stored source and
   // the stored plan, so "the booking page" is findable among routes.
   // RE-ANCHORED 2026-10-11: `aView`, the pages or a prepared part's scope of them.
-  assert.match(siteLit, /\blabels: pageLabels\(aView, aLook\.pages\),/, "the site note is not handed the pages' own headlines");
+  // RE-ANCHORED 2026-10-11 (round 11): the request's labels, as the message was
+  // understood, over the stored ones for the pages this part is shown.
+  assert.match(siteLit, /\blabels: \{ \.\.\.pageLabels\(aView, aLook\.pages\), \.\.\.aLabelsAt \},/, "the site note is not handed the pages' own headlines");
   assert.match(W, /import \{[^}]*\bpageLabels\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "pageLabels is called and never imported");
   // …AND EVERY DESIGNER'S RAW REPLY IS KEPT, on the site's own store, the
   // moment the loop ends and before a decline can return — then read back by
