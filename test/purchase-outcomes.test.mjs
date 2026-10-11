@@ -303,7 +303,12 @@ test("PO 7 — the service answers 500 after the call: unknown too, held, not bo
 
 // ── CONTROL: A REFUSAL IS AN ENDING ────────────────────────────────────────
 
-test("PO 8 — CONTROL: the service REFUSES (422, nothing made): recorded `none`, so the part's job may buy it — two provider calls (the first made nothing), one stored photograph, both tasks done, charged once", async () => {
+// CONVERTED 2026-10-11 (Codex on 902fc7f0). This case asserted that a refusal
+// recorded by the preparation let the part's job ask the service again — the
+// second generation Codex reproduced. A refusal the service answered is now
+// the purchase's definitive outcome for the rest of its request; only the
+// customer's buy-again begins it again.
+test("PO 8 — the service REFUSES (422, nothing made): recorded `none`, the purchase's definitive ending — the part's job reads it and never asks the service again: one provider call, nothing stored, the other task done, nothing left charged for the picture", async () => {
   await withPlatform({ slug: slugOf("o8"), ...BASE({ imageWith: (e, i) => (i === 0 ? new Response(JSON.stringify({ detail: "rejected" }), { status: 422, headers: { "content-type": "application/json" } }) : undefined) }) }, async (P) => {
     const r = await sendMessage(P, { message: MSG });
     await deliver(P, takePrep(P));
@@ -311,11 +316,16 @@ test("PO 8 — CONTROL: the service REFUSES (422, nothing made): recorded `none`
     assert.equal(purchases(P)[0].state, "none", "a refusal was not recorded as an ending");
     assert.equal(P.downloadLog.length, 0, "a refusal was downloaded");
     const { rec } = await settle(P, r.key);
-    finished(P, r, rec);
-    shownIsStored(P);
-    assert.equal(P.imageLog.length, 2);
-    assert.equal(uploads(P).length, 1);
-    assert.equal(chargedOf(P, r.key, 1), 1);
+    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.notEqual(rec.parts[1].status, "done", "a refused picture was called done");
+    assert.ok(P.page("visit.tsx").includes(TIKTOK_TO));
+    assert.equal(P.imageLog.length, 1, "the refused picture was asked for again");
+    assert.equal(uploads(P).length, 0);
+    assert.deepEqual(purchases(P).map((x) => x.state), ["none"]);
+    // THE PICTURE'S OWN JOB NETS TO NOTHING (its routing is the routing's charge).
+    const ids = jobsOfPart(P, r.key, 1).filter((j) => !/\/api\/site\/route(?![\w/-])/.test(String(P.bodyOf(j.id) ? P.bodyOf(j.id).url : j.url || ""))).map((j) => j.id);
+    assert.equal(ids.length, 1, "the picture's step ran " + ids.length + " times");
+    assert.equal(P.ledger.filter((e) => ids.includes(String(e.ref).split("#")[0])).reduce((a, e) => a + e.delta, 0), 0, JSON.stringify(P.ledger));
   });
 });
 

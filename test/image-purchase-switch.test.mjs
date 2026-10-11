@@ -87,7 +87,7 @@ test("the switch reads only `off` as off; it reaches every container job; the de
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const make = worker.indexOf("async function makeSitePhoto(");
   const ask = worker.indexOf("await askSitePhoto(env, p)", make);
-  const guard = worker.indexOf("if (!imagePurchasesOn(env)) return told({ stage: \"refused\", error: IMAGE_PURCHASES_OFF });", make);
+  const guard = worker.indexOf("if (!imagePurchasesOn(env)) return told({ stage: \"refused\", error: IMAGE_PURCHASES_OFF, asked: false });", make);
   assert.ok(make > 0 && ask > 0 && guard > make && guard < ask, "the switch is not checked before the image service is asked");
   assert.equal((worker.match(/await askSitePhoto\(/g) || []).length, 1, "a second path asks the image service");
   assert.equal((worker.match(/fal\.run\//g) || []).length, 1, "a second path posts to the image service");

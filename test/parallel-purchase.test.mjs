@@ -190,7 +190,8 @@ test("PUR 4 — Codex's second reproduction: the first purchase is held past its
     const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
     const p1 = v.body.request.parts[1];
     assert.equal(p1.status, "uncertain");
-    assert.deepEqual(p1.purchases, [{ d: "a sourdough loaf on a wooden counter" }]);
+    // AND WHY, AS THE PURCHASE'S RECORD GIVES IT (2026-10-11): begun, its outcome not known.
+    assert.deepEqual(p1.purchases, [{ d: "a sourdough loaf on a wooden counter", why: "unconfirmed" }]);
     // AND WHAT THE CUSTOMER IS TOLD, as the page asks for the held job's reply:
     // its facts say it is held, not given up, and how it moves on.
     const heldJob = jobsOfPart(P, r.key, 1).find((j) => (P.answerOf(j) || {}).error === "purchase-unconfirmed");

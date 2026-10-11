@@ -230,5 +230,9 @@ export function readPurchase(raw) {
     by: typeof v.by === "string" ? v.by : "", at: Number.isFinite(v.at) ? v.at : 0,
     ...(v.state === "bought" ? { url: v.url } : {}),
     ...(v.state === "generated" ? { source: v.source } : {}),
+    // HOW A PURCHASE ENDED WITH NOTHING (2026-10-11): its reason, read by
+    // whoever meets that ending next.
+    ...(v.state === "none" && typeof v.why === "string" && v.why ? { why: v.why.slice(0, 40) } : {}),
+    ...(v.state === "none" && v.asked === false ? { asked: false } : {}),
   };
 }

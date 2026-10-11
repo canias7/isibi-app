@@ -1577,9 +1577,11 @@ test("a picture that could not be made says WHY, and the caller carries it", () 
   const silent = exits.filter((e) => !["generated", "stored"].includes(e[1]) && !/error:/.test(e[0]));
   assert.deepEqual(silent.map((e) => e[0]), [], "a failure exit reports no reason");
   const mk = fn.slice(fn.indexOf("async function makeSitePhoto"));
-  const quiet = [...mk.matchAll(/told\(\{ stage: "([a-z]+)" \}\)/g)];
+  // (2026-10-11) `asked: false` beside it says the service never saw it; it
+  // is not a reason, so the ending stays the one silent one.
+  const quiet = [...mk.matchAll(/told\(\{ stage: "([a-z]+)"(?:, asked: false)? \}\)/g)];
   assert.deepEqual(quiet.map((m) => m[1]), ["empty"], "a silent ending other than the empty prompt");
-  assert.match(mk.slice(0, mk.indexOf('told({ stage: "empty" })')), /imagePrompt\(prompt\)/,
+  assert.match(mk.slice(0, mk.indexOf('told({ stage: "empty", asked: false })')), /imagePrompt\(prompt\)/,
     "the one silent exit is not the empty-prompt case any more");
   assert.match(mk, /error: scrubProvider\(/, "the reason is handed back unscrubbed");
 

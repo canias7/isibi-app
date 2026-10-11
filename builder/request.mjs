@@ -1859,7 +1859,9 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       ...(leftValue(p.left) && p.status !== "done" ? { left: leftValue(p.left) } : {}),
       // WHAT A HELD PART WAITS ON (2026-10-09, round 3): each picture whose
       // purchase nobody can tell, by its description.
-      ...(p.status === "uncertain" ? { purchases: heldPurchases(p).map((h) => ({ d: h.d })) } : {}),
+      // AND WHY, AS ITS RECORD GIVES IT (2026-10-11): a picture made and not
+      // saved yet (`store-pending`) is not one whose purchase is unknown.
+      ...(p.status === "uncertain" ? { purchases: heldPurchases(p).map((h) => ({ d: h.d, ...(h.why ? { why: h.why } : {}) })) } : {}),
       // AN ADDITION ALREADY LIVE WHOSE FRAMES WAIT ON THEIR PHOTOGRAPHS (round
       // 5): published, so never shown as nothing done.
       ...(p.place && p.published ? { published: true, waitingPhotos: (p.place.photos || []).length } : {}),

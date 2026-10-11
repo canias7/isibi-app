@@ -21,7 +21,9 @@
 // supplied model answers and a stand-in image service; no network.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { platform, sendMessage, settle, deliver, call, tick, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, settle, deliver, call, tick, pump, T } from "./fixtures/request-flow.mjs";
+import { EDIT_JOB_MS } from "../builder/edit-job.mjs";
+import { addonReplyFacts } from "../builder/site-reply.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc, SOURCE_KEY, PARTS_KEY } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
@@ -473,19 +475,20 @@ for (const [name, extra] of [
 
 // ── CAPACITY BEFORE SPENDING (Codex on d7a00395) ────────────────────────────
 const seedUploads = (P, n) => { for (let i = 0; i < n; i++) P.objects.set("uploads/" + P.slug + "/seed" + i + ".jpg", { body: "x", etag: "s" + i, at: 0 }); };
-async function oneAddition({ slug, uploadsBefore = 0, imageWith = null, pagesWith = null, check }) {
+async function oneAddition({ slug, uploadsBefore = 0, imageWith = null, pagesWith = null, addsWith = null, photoWith = null, setup = null, check }) {
   await withPlatform({
     slug, pages: PAGES, images: true, replies: true, balance: 400,
     imageWith,
     answers: {
       route: { intent: "addon" },
-      [T.adds]: { kinds: ["component", "photo"] },
-      "add:photo": PHOTO_ANSWER,
+      [T.adds]: addsWith || { kinds: ["component", "photo"] },
+      "add:photo": photoWith || PHOTO_ANSWER,
       "add:component": COMPONENT_ANSWER,
       [T.pages]: async (args, n) => (pagesWith ? pagesWith(args, n) : { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
     },
   }, async (P) => {
     seedUploads(P, uploadsBefore);
+    if (setup) setup(P);
     globalThis.__p14 = () => uploads(P).length;
     const r = await sendMessage(P, { message: "Add a photo of the workshop bench to the Visit page, and add a questions section to the About page." });
     await check(P, r);
@@ -579,4 +582,226 @@ test("PI 16 — THE PAGE WRITER FAILS AND THE PHOTOGRAPH OUTLASTS THE IMAGE STEP
       },
     });
   } finally { globalThis.setTimeout = real; }
+});
+
+// ── A PURCHASE'S OUTCOME, NOT ITS PROMISE (Codex on 902fc7f0) ──────────────
+//
+// Two gaps in one rule: a JavaScript promise that settled is not a purchase
+// whose outcome is known, and an outcome that IS known is not to be made
+// again by a later step of the same request. A refusal the image service
+// answered ends the logical purchase; only the customer's explicit buy-again
+// (`released`) may begin it again. A purchase begun and not known to have
+// ended (`unconfirmed`), or made and not stored (`store-pending`), is held by
+// its identity and reason until it is known — never counted as done, never
+// bought again on a guess.
+const purchasesOf = (P) => [...P.objects.keys()].filter((k) => k.includes("/purchases/")).map((k) => JSON.parse(String(P.objects.get(k).body)));
+const runJobs = (rec, n) => (rec.parts[n].jobs || []).filter((j) => j.kind === "run").map((j) => j.id);
+const netFor = (P, ids) => P.ledger.filter((e) => ids.includes(String(e.ref).split("#")[0])).reduce((a, e) => a + e.delta, 0);
+const placed = (P) => assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
+const lostCall = () => { throw new TypeError("fetch failed: connection reset"); };
+const failUploads = (P, times) => { for (let i = 0; i < times; i++) P.failPut((k) => k.startsWith("uploads/" + P.slug + "/")); };
+// WHAT THE CUSTOMER IS TOLD: the job's own answer names the held purchase by
+// its identity and reason, which the request holds the part on.
+const heldTold = (P, id, why) => {
+  const job = [...P.jobs.values()].filter((j) => j.op === "addon")[0];
+  const res = job.result || {};
+  const body = typeof res.body === "string" ? JSON.parse(res.body) : (res.body || res);
+  assert.deepEqual((body.held || []).map((h) => [h.id, h.why]), [[id, why]], JSON.stringify(body).slice(0, 600));
+};
+const settleUntil = async (P, key, want, { rounds = 6, twice = false } = {}) => {
+  let rec = null;
+  for (let i = 0; i < rounds; i++) {
+    await tick(P);
+    if (twice) await pump(P, { twice: true });
+    rec = (await settle(P, key)).rec;
+    if (rec && want(rec)) break;
+  }
+  return rec;
+};
+
+test("PI 17 — A REFUSED PICTURE STAYS REFUSED FOR THE REST OF ITS REQUEST: component first, the photograph's preparation (beside the component's page writer) is refused by the image service; the part's own job reads that ending on the purchase's record and never asks the service again — the component lands, the photograph's part fails, and nothing is charged for it", async () => {
+  const meet = rendezvous(["photo", "faq"]);
+  await twoParts({
+    slug: slugOf("p17"), first: "faq", meet, photoAt: "image", faqAt: "pages", refuse: true,
+    check: async (P, rec) => {
+      assert.deepEqual(meet.met, { photo: true, faq: true }, "the refused generation did not run beside the component's page writer: " + JSON.stringify(meet));
+      assert.equal(P.imageLog.length, 1, "the refused picture was asked for again by the part's own job");
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(rec.parts[1].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["none"]);
+      assert.equal(uploads(P).length, 0);
+      assert.equal(netFor(P, runJobs(rec, 1)), 0, "a charge was left for a picture that was not made: " + JSON.stringify(P.ledger));
+    },
+  });
+});
+
+test("PI 18 — THE SAME, EVERY MESSAGE DELIVERED TWICE AT ONCE: the refusal is still asked of the image service exactly once — neither the redelivered preparation nor the redelivered job begins it again", async () => {
+  const meet = rendezvous(["photo", "faq"]);
+  await twoParts({
+    slug: slugOf("p18"), first: "faq", meet, photoAt: "image", faqAt: "pages", refuse: true, twice: true,
+    check: async (P, rec) => {
+      assert.equal(P.imageLog.length, 1, "a redelivery asked for the refused picture again");
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(rec.parts[1].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["none"]);
+    },
+  });
+});
+
+test("PI 19 — THE IMAGE CALL'S ANSWER IS LOST AND THE PAGE WRITER FAILS: the part is HELD on that purchase (its id, `unconfirmed`), never failed as if nothing were out and never bought again by the driver; only the customer's buy-again begins it again — then it is made, placed, and the request finishes", { timeout: 30000 }, async () => {
+  let writes = 0;
+  await oneAddition({
+    slug: slugOf("p19"),
+    imageWith: async (entry, n) => (n === 0 ? lostCall() : null),
+    pagesWith: async () => {
+      writes++;
+      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+    },
+    check: async (P, r) => {
+      const s1 = await settle(P, r.key);
+      const p0 = s1.rec.parts[0];
+      assert.equal(p0.status, "uncertain", "the part was not held on the purchase whose outcome is unknown: " + JSON.stringify([p0.status, p0.why]));
+      const recs = purchasesOf(P);
+      assert.deepEqual(recs.map((x) => x.state), ["buying"]);
+      assert.deepEqual((p0.purchase.held || []).map((h) => [h.id, h.why]), [[recs[0].id, "unconfirmed"]], JSON.stringify(p0.purchase));
+      assert.equal(netFor(P, runJobs(s1.rec, 0)), 0, JSON.stringify(P.ledger));
+      heldTold(P, recs[0].id, "unconfirmed");
+      // THE PAGE'S VIEW OF THE PART: held, on that picture, for that reason.
+      const v = await viewOf(P, r.key);
+      assert.equal(v.parts[0].status, "uncertain");
+      assert.deepEqual(v.parts[0].purchases, [{ d: BENCH, why: "unconfirmed" }]);
+      // THE DRIVER LOOKS AGAIN AND STILL CANNOT TELL: nothing is bought on a guess.
+      const s2 = await settleUntil(P, r.key, () => false, { rounds: 3 });
+      assert.equal(s2.parts[0].status, "uncertain");
+      assert.equal(P.imageLog.length, 1, "the purchase was begun again without the customer's say-so");
+      // THE CUSTOMER'S EXPLICIT BUY-AGAIN: the one way it is begun again.
+      const b = await call(P, "POST", "/api/site/request/" + P.slug + "/" + r.key + "/buy-again", { part: 0 });
+      assert.equal(b.status, 200, JSON.stringify(b.body));
+      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done");
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.imageLog.length, 2);
+      assert.equal(uploads(P).length, 1);
+      placed(P);
+    },
+  });
+});
+
+test("PI 20 — THE PICTURE IS MADE, ITS STORE FAILS, AND THE PAGE WRITER FAILS: the part is HELD on that purchase (`store-pending`, its source on the record), never failed; once storage answers, the SAME picture is saved (no second generation), the part runs again — every message redelivered — reuses it, and finishes, charged once", { timeout: 30000 }, async () => {
+  let writes = 0;
+  await oneAddition({
+    slug: slugOf("p20"),
+    setup: (P) => failUploads(P, 3),
+    pagesWith: async () => {
+      writes++;
+      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+    },
+    check: async (P, r) => {
+      const s1 = await settle(P, r.key);
+      const p0 = s1.rec.parts[0];
+      assert.equal(p0.status, "uncertain", "the part was not held on the picture made and not stored: " + JSON.stringify([p0.status, p0.why]));
+      const recs = purchasesOf(P);
+      assert.equal(recs.length, 1);
+      assert.equal(recs[0].state, "generated");
+      assert.match(recs[0].source, /^https:\/\/img\.test\//);
+      assert.deepEqual((p0.purchase.held || []).map((h) => [h.id, h.why]), [[recs[0].id, "store-pending"]], JSON.stringify(p0.purchase));
+      heldTold(P, recs[0].id, "store-pending");
+      assert.equal(uploads(P).length, 0);
+      assert.equal(netFor(P, runJobs(s1.rec, 0)), 0, JSON.stringify(P.ledger));
+      // STORAGE ANSWERS NOW; THE DRIVER FINISHES THE SAME PICTURE.
+      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done", { twice: true });
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.imageLog.length, 1, "the picture was generated again");
+      assert.equal(uploads(P).length, 1);
+      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["bought"]);
+      placed(P);
+      const refs = P.ledger.map((e) => e.ref);
+      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+    },
+  });
+});
+
+test("PI 21 — A QUESTION AFTER THE HELD PURCHASE IS KNOWN: the part, run again once the stored picture is saved, asks the customer something; the answer resumes it through the same purchase — the same picture placed, never generated again", { timeout: 30000 }, async () => {
+  let writes = 0;
+  await oneAddition({
+    slug: slugOf("p21"),
+    setup: (P) => failUploads(P, 3),
+    addsWith: (args, n) => (n === 1 ? { kinds: [], question: { text: "Should the photograph show the bench or the whole workshop?", options: ["The bench", "The whole workshop"] } } : { kinds: ["component", "photo"] }),
+    pagesWith: async () => {
+      writes++;
+      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+    },
+    check: async (P, r) => {
+      const s1 = await settle(P, r.key);
+      assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+      const asked = await settleUntil(P, r.key, (x) => x.parts[0].status === "waiting");
+      assert.equal(asked.parts[0].status, "waiting", JSON.stringify(asked.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.imageLog.length, 1);
+      const q = P.question();
+      assert.ok(q && q.id, "no question was kept");
+      await sendMessage(P, { message: "The bench", ask: { id: q.id, chosen: true } });
+      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done");
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.imageLog.length, 1, "the picture was generated again after the answer");
+      assert.equal(uploads(P).length, 1);
+      placed(P);
+    },
+  });
+});
+
+// ── THE CLOCK BEFORE AN EARLY PURCHASE (the gap recorded on ef8ea26d) ───────
+//
+// The job's own clock, moved by the platform's injected clock while its
+// designers answer: the production limits are untouched. With too little of
+// the job left for a photograph (less than the publish reserve plus the
+// slowest shot), nothing is asked of the image service — neither early nor by
+// the image step. With enough, the same addition buys it once.
+const clockCase = (left) => async () => {
+  let P0 = null;
+  await oneAddition({
+    slug: slugOf("p22"),
+    setup: (P) => { P0 = P; },
+    photoWith: async () => { P0.advance(EDIT_JOB_MS - left); await P0.beatNow(); return PHOTO_ANSWER; },
+    check: async (P, r) => {
+      P0.rec = (await settle(P, r.key)).rec;
+      // WORK THE JOB LEFT RUNNING AFTER ITS ANSWER (a purchase begun and not
+      // waited for) is given time to reach the stand-ins before anything is read.
+      for (let i = 0; i < 20; i++) await new Promise((ok) => setTimeout(ok, 25));
+    },
+  });
+  return P0;
+};
+test("PI 22 — TOO LITTLE OF THE JOB LEFT FOR A PHOTOGRAPH: with 80 seconds of the job's clock left when the designers answer, the photograph is never asked of the image service — the early purchase obeys the same clock gate as the image step", { timeout: 30000 }, async () => {
+  const P = await clockCase(80000)();
+  assert.equal(P.imageLog.length, 0, "a photograph was bought with no time left to place it");
+  // THE JOB ITSELF ENDS AT THE PUBLISH GATE FOR TIME, charging nothing: the
+  // purchase would have been money spent on a change that never went live.
+  assert.deepEqual(P.rec.parts.map((p) => [p.status, p.why]), [["failed", "time"]]);
+  assert.equal(P.ledger.reduce((a, e) => a + e.delta, 0) <= 0 ? 0 : 1, 0, JSON.stringify(P.ledger));
+  assert.equal(purchasesOf(P).length, 0, "a purchase was begun");
+});
+test("PI 22 control — ENOUGH OF THE JOB LEFT: with 400 seconds left (past the publish gate's 255) the same addition buys the photograph once and publishes it", { timeout: 30000 }, async () => {
+  const P = await clockCase(400000)();
+  assert.equal(P.imageLog.length, 1);
+  assert.deepEqual(P.rec.parts.map((p) => p.status), ["done"], JSON.stringify(P.rec.parts.map((p) => [p.status, p.why])));
+  placed(P);
+});
+
+test("PI 23 — A FAILED ADDITION'S REPLY FACTS NAME EACH HELD PICTURE BY ITS REASON: made and not saved yet (saved later, never made again, no buy-again offered), or not known (never bought again; buy-again named with its cost); in a request, carried on by itself", () => {
+  const body = (why) => ({ ok: false, error: "rewrote", cost: 0, msg: "That change would have rewritten your page.", outcome: { state: "none", published: false, database: "none" }, held: [{ id: "a".repeat(24), d: BENCH, why }] });
+  const said = (why, inRequest) => addonReplyFacts(body(why), { inRequest }).facts.filter((f) => f.kind === "pending").map((f) => f.text).join("\n");
+  const saving = said("store-pending", true);
+  assert.match(saving, /made and is not saved yet; the same picture is saved later, never made again/);
+  assert.match(saving, /carries on by itself/);
+  assert.doesNotMatch(saving, /buy the picture again/);
+  const unknown = said("unconfirmed", true);
+  assert.match(unknown, /cannot be told yet, so it was not bought again/);
+  assert.match(unknown, /buy the picture again, which may cost a second time/);
+  assert.match(said("in-flight", true), /still being made when this step stopped/);
+  assert.doesNotMatch(said("unconfirmed", false), /carries on by itself/);
+  // CONTROL: no held picture, no such fact.
+  assert.equal(addonReplyFacts({ ...body("x"), held: [] }, { inRequest: true }).facts.filter((f) => f.kind === "pending").length, 0);
 });

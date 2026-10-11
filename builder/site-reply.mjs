@@ -645,6 +645,29 @@ function heldFacts(F, body, done, inRequest = false) {
   }
 }
 
+/**
+ * A PHOTOGRAPH THIS STEP BEGAN WHOSE PURCHASE IS NOT KNOWN TO HAVE ENDED
+ * (2026-10-11, Codex on 902fc7f0): an addition that did not go through still
+ * names each one it holds (`held`, its description and the reason its record
+ * gives). Told by that reason, beside the step's own failure — the part is
+ * held on it, not given up, and the request carries on by itself once it is
+ * known, so the step's own "try again" is not what happens next.
+ */
+function heldPhotoFacts(F, list, inRequest) {
+  (Array.isArray(list) ? list : []).forEach((h, i) => {
+    if (!(h && typeof h.d === "string" && h.d.trim())) return;
+    const made = h.why === "store-pending";
+    const state = made ? "was made and is not saved yet; the same picture is saved later, never made again"
+      : h.why === "in-flight" ? "was still being made when this step stopped, so it was not asked for again"
+        : "was being bought and whether that purchase went through cannot be told yet, so it was not bought again";
+    const next = inRequest
+      ? " This part is on hold, not given up: once that is known it carries on by itself, reusing the same picture, so they need not send anything again or try again themselves."
+      : " Once that is known the picture is kept for this change, never bought twice.";
+    const last = made ? "" : " If it can never be known, they can say to buy the picture again, which may cost a second time.";
+    F.add("pending", "The photograph " + quote(h.d) + " " + state + "." + next + last, "held:" + i);
+  });
+}
+
 /** The question a step or the router is asking, shown under the reply by the page itself. */
 function questionFact(F, q) {
   if (!q || typeof q.text !== "string" || !q.text.trim()) return;
@@ -1199,6 +1222,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     // none of them: "their site cannot take payments by bank transfer" beside
     // a refused 3D model reached neither the reply nor the screen.
     coverFacts(F, a, { out });
+    heldPhotoFacts(F, a.held, inRequest === true);
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   heldFacts(F, a, a.ok === true, inRequest === true);

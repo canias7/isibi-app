@@ -2642,7 +2642,9 @@ const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
  */
 async function askSitePhoto(env, prompt) {
   // NO KEY, NO CALL: refused before anything leaves, so nothing was made.
-  if (!env.FAL_KEY) return { stage: "refused", error: "photo service not configured" };
+  // `asked: false`: THE SERVICE NEVER SAW IT (2026-10-11), which a purchase's
+  // record keeps apart from a refusal the service answered.
+  if (!env.FAL_KEY) return { stage: "refused", error: "photo service not configured", asked: false };
   let r;
   try {
     r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
@@ -2767,11 +2769,11 @@ async function makeSitePhoto(env, slug, prompt, meta = null) {
     // AN EMPTY PROMPT IS SILENT, and that asymmetry is deliberate: a token with no
     // description was never going to become a picture, and reporting it would set
     // `images.error` on builds where nothing failed.
-    if (!p) return told({ stage: "empty" });
+    if (!p) return told({ stage: "empty", asked: false });
     // THE IMAGE-PURCHASE SWITCH (2026-10-11): off, nothing leaves for the
     // image service — `refused`, which every caller already reports as a
     // picture not made and not paid for (`imagePurchasesOn`).
-    if (!imagePurchasesOn(env)) return told({ stage: "refused", error: IMAGE_PURCHASES_OFF });
+    if (!imagePurchasesOn(env)) return told({ stage: "refused", error: IMAGE_PURCHASES_OFF, asked: false });
     const asked = await askSitePhoto(env, p);
     if (asked.stage !== "generated") return told(asked);
     if (meta && typeof meta.generated === "function") { try { await meta.generated(asked.source); } catch { /* the stored picture's tag still answers it */ } }
@@ -17869,7 +17871,18 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
         }
         return { state: "unknown", id, why: "unconfirmed" };
       }
-      // ENDED WITH NOTHING, OR RELEASED BY THE CUSTOMER: it may be begun again.
+      // ENDED WITH NOTHING (2026-10-11, Codex on 902fc7f0): a refusal the image
+      // service answered, a description never sent, a picture made and found
+      // unusable. That is this purchase's definitive outcome, whoever reads it
+      // next — the same request's job after its preparation, a redelivery, a
+      // step run again after a question — and it is never begun again on a
+      // read. Only the customer's explicit buy-again (`released`) begins it.
+      //
+      // AN ENDING THE SERVICE NEVER SAW is not one (`asked: false`: no key, the
+      // image-purchase switch off, an empty description): nothing was asked,
+      // made or paid for, so it may be begun once that has changed.
+      if (rec.state === "none" && rec.asked !== false) return { state: "none", id, why: rec.why || "ended", reused: true };
+      // RELEASED BY THE CUSTOMER: it may be begun again.
       claim = { etagMatches: got.etag };
     }
     if (!(await mayBuy())) return { state: "none", skipped: true, id };
@@ -17911,8 +17924,11 @@ async function purchaseOnce(env, { slug, key, n, d, k, owner, generate, mayBuy =
     }
     if (stage === "unknown") return { state: "unknown", id, why: "unconfirmed" }; // left `buying`: the call may have been made and paid for
     // REFUSED BY THE SERVICE, NEVER ASKED (an empty description, a balance that
-    // could not pay), OR MADE AND UNUSABLE: it ended with nothing.
-    try { await write("none", { why: stage }, etag ? { etagMatches: etag } : undefined); } catch { /* left buying: the next reader finds nothing stored and holds it */ }
+    // could not pay), OR MADE AND UNUSABLE: it ended with nothing. Whether the
+    // service was asked at all is kept (`asked`): only an ending it answered is
+    // definitive for the rest of the request.
+    const asked = stage !== "unasked" && !(ended && ended.asked === false);
+    try { await write("none", { why: stage, ...(asked ? {} : { asked: false }) }, etag ? { etagMatches: etag } : undefined); } catch { /* left buying: the next reader finds nothing stored and holds it */ }
     return { state: "none", id, why: stage };
   }
   return { state: "unknown", id, why: "unconfirmed" };
@@ -18067,10 +18083,29 @@ async function earlyPhotosEnd(box, res) {
   let body = null;
   try { body = await res.clone().json(); } catch { return res; }
   if (!body || typeof body !== "object" || body.ok === true) return res;
-  const done = new Set(t.results.map((r) => r.d + "\n" + r.k));
+  // A SETTLED PROMISE IS NOT A KNOWN PURCHASE (2026-10-11, Codex on
+  // 902fc7f0). Each purchase this task began is read by its own ending:
+  //   stored            its photograph is in the uploads (told below);
+  //   ended             known to have ended with nothing (a refusal, a picture
+  //                     found unusable): nothing to hold;
+  //   unknown           begun and not known to have ended (`unconfirmed`),
+  //                     made and not stored (`store-pending`), a record that
+  //                     could not be read: held with that reason;
+  //   threw             its buyer gave no ending at all: held, `unconfirmed`;
+  //   still running     no ending yet: held, `in-flight`.
+  // Every held purchase keeps its identity, so the request holds the part on
+  // exactly it, and finishes or reuses it once known — never buys it again.
+  const ended = new Map(t.results.map((r) => [r.d + "\n" + r.k, r]));
   const stored = t.results.filter((r) => r && r.url).length;
-  const held = [...t.pending.keys()].filter((key) => !done.has(key) && t.idents.has(key))
-    .map((key) => { const x = t.idents.get(key); return { id: x.id, d: String(x.d || ""), why: "in-flight" }; });
+  const held = [];
+  for (const key of t.pending.keys()) {
+    const r = ended.get(key);
+    if (r && r.url) continue;
+    const why = !r ? "in-flight" : r.unknown ? String(r.why || "unconfirmed") : r.error === "threw" ? "unconfirmed" : null;
+    if (!why) continue;
+    const x = t.idents.get(key) || (r && typeof r.id === "string" ? r : null) || await t.identOf(key);
+    if (x && typeof x.id === "string") held.push({ id: x.id, d: String(x.d || ""), why });
+  }
   if (!stored && !held.length) return res;
   const out = { ...body };
   if (stored && out.outcome && typeof out.outcome === "object") {
@@ -18111,7 +18146,9 @@ function purchaseBuyer(env, { slug, key, n, owner, pending = null }) {
     // frame with it, so a later step fills exactly that frame.
     if (out.state === "unknown") return { url: null, unknown: true, id: out.id, d, k, why: out.why };
     if (out.state === "bought") return { url: out.url, ...(out.recovered ? { recovered: true } : {}) };
-    return { url: null, ...(made.error ? { error: made.error } : {}) };
+    // AN ENDING ALREADY ON THE RECORD (`reused`) is told by its own reason, as
+    // the attempt that ended it told it.
+    return { url: null, ...(made.error ? { error: made.error } : out.reused && out.why ? { error: "photo " + out.why } : {}) };
   };
 }
 
@@ -18133,6 +18170,7 @@ const BUILD_PHOTOS_RESERVE = 60;
  * settled, started }`; `settled` resolves to each purchase's ending.
  */
 function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null, part = 0, reserve = BUILD_PHOTOS_RESERVE, buyer: given = null }) {
+  const key0 = key;
   const pending = new Map();
   const list = Array.isArray(brief) ? brief.filter((s) => s && typeof s === "object" && !ownShot(s) && shotKey(s.describe)) : [];
   let n = imagesAffordable(list.length, { balance, reserve, usd: SITE_PHOTO_USD });
@@ -18155,7 +18193,14 @@ function startBuildPhotos(env, { slug, brief, balance, key, owner, room = null, 
     const p = buyer(d, (x) => { if (x && typeof x.id === "string") idents.set(d + "\n" + k, x); }).then((r) => { results.push({ d, k, ...r }); return r; }, () => { results.push({ d, k, url: null, error: "threw" }); return { url: null }; });
     pending.set(d + "\n" + k, p);
   }
-  return { pending, idents, started: pending.size, results, settled: Promise.allSettled([...pending.values()]).then(() => results) };
+  // AN IDENTITY ITS BUYER NEVER TOLD (the call threw first): the same one,
+  // from whose purchase it is and what it is — it is fixed by those alone.
+  const identOf = async (key) => {
+    const at = key.lastIndexOf("\n");
+    const d = key.slice(0, at), k = Number(key.slice(at + 1));
+    try { return { id: await purchaseId(slug, key0, part, d, k), d, k }; } catch { return null; }
+  };
+  return { pending, idents, identOf, started: pending.size, results, settled: Promise.allSettled([...pending.values()]).then(() => results) };
 }
 
 /**
