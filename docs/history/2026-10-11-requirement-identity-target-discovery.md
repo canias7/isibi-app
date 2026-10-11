@@ -291,7 +291,7 @@ a new first task, so the overlap is not image-only.
 - **Full suite** on `90dc6a00`: `10575 / 10575 / 0 / 0` (+16 over round 10's
   10559).
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: __CI__
+- **Required CI**: unit tests 38170978007 `success` and site build 38170977996 `success` (every job, including the four `site-build.mjs` shards), both on `7294647d` (the code of `90dc6a00` plus these records and the pin). The earlier unit run on `c44dd774` was `cancelled` by the newer push, not failed; unit 38169878635 on `2c7e33b1` and site build 38169573102 on `c44dd774` were `success`.
 
 ## 7. Not verified live
 

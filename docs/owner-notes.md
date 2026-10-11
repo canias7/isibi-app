@@ -68,7 +68,8 @@ answer was corrected.
     The other showed a design-only arm for schema-only additions could never
     run: their preparation already stops before the writer. It was dropped
     (`90dc6a00`).
-  - CI: see the dated entry.
+  - CI: unit 38170978007 and site build 38170977996 `success` on `7294647d`
+    (the code of `90dc6a00`).
 - **Remaining gaps** (history §5):
   - labels are taken at acceptance;
   - uncertain equivalence errs toward telling twice;
@@ -577,7 +578,7 @@ since. Add new ones there.
     (history §6);
   - full suite `10575 / 10575 / 0 / 0`;
   - doc tests 32/32;
-  - CI: __CI__
+  - CI: unit 38170978007 and site build 38170977996 `success` on `7294647d`.
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, paid or fal call, or real image. Remaining gaps are in the
   history's §5.
