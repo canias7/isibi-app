@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, parallel work reconciled across Edit, Add-on and Build; two reuse defects fixed; offline, not deployed)
+## Current handoff — read this first (2026-10-11, independent page edits and table edits run together; per-job reuse evidence; offline, not deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,76 +10,68 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Build recovery rounds 1–6 end at `5aa4d052`. Codex checked them: 141
-    focused tests, both duplicate-retry reproductions and 22 parallel tests
-    pass. **That correction is closed.**
-  - This round: `88aca4c3`, with records after.
-- **fal HAS been topped up, and that balance is off limits** (your
-  correction; the earlier "not being topped up" was wrong). No real image
-  generation and no image retries; mocks only. Real images stay
-  unverified.
+  - Codex passed `625bf4ee` (46 focused tests); the reuse and counting
+    fixes are kept.
+  - This round: `bd635405` and `ebcc1d70`, with records after.
+- **fal is funded and off limits**: no real image generation and no image
+  retries, mocks only. Real images stay unverified.
 - **Balance 971**, untouched.
 
-**This round** (`docs/history/2026-10-11-parallel-reconciliation.md`)
-- **The one kind of concurrency**: a part's model calls are prepared beside
-  another part's running job, and its writes stay one at a time (one job
-  per request, one writer per site). A job reuses a prepared answer only
-  for a byte-identical request.
-- **What overlaps**:
-  - Edit routing, and the text, menu, picture, look, page, data and rules
-    steps;
-  - Add-on design and page writing;
-  - Build photos, fonts and translations beside page generation. The Build
-    designer and band splits are flag-gated and off by default.
-- **What can never overlap, by design**:
-  - two page-writing parts;
-  - **two data-layer steps** (found this round: they read every table).
-- **New offline coverage** (`test/parallel-coverage.test.mjs`):
-  - **PC 1**: run 119's shape, judged by the recorded intervals.
-  - **PC 2**: two non-image steps (a look lane and a menu change) prepared
-    at once inside a third part's job.
-  - **PC 3**: a dependent held still while its prerequisite's job is held
-    mid-call.
-  - **PC 4**: a row-change preparation delivered twice at once.
-  - **PC 5**: a dead row-change preparation recovered by the cron alone.
-- **Two defects fixed** (`88aca4c3`):
-  - **A part's step was asked of its model twice.** A part prepared while
-    still to be routed was prepared again after its routing ran, as a
-    fresh attempt. It now names the earlier attempt, and its answers are
-    replayed.
-  - **A replayed answer was counted as model work** in a step's recorded
-    calls. Model calls and replays are now separate (`replayed`).
+**This round** (`docs/history/2026-10-11-independent-tasks.md`)
+- **Codex's gap, closed offline**: two text edits on separate pages, and two
+  data edits on separate tables, now do their model work at the same time.
+- **The model still sees the whole site.** What narrows is the dependency:
+  `prepScope` gives a text or data step whose route names only pages or
+  only tables those targets alone.
+- **Never narrowed for**:
+  - a step that names no targets, or writes beyond pages or tables;
+  - a step that declares any read;
+  - rules, look, menu, page writer and add-on steps.
+- **The re-base**: when the second part is applied after the first, its
+  prepared answer is re-based onto the changed site only if all of these
+  hold:
+  - everything in its scope is unchanged;
+  - it touches nothing outside its scope;
+  - its words and frame are the same;
+  - nothing changed elsewhere carries the words it changes or writes.
+  
+  Otherwise the job asks the model again, as before.
+- **Durable evidence**: each job that had a preparation records how many
+  calls it replayed, re-based and made fresh
+  (`jobs/prepared/<id>.use.json`). The request view serves it as `prepUse`,
+  so a live check can read reuse directly.
+- **Unchanged**: publication stays one job at a time, recovery, questions
+  per part, model-written progress, and Build's limits and flags.
 
 **Verification (offline)**
-- **Red check on `5aa4d052`'s code**: PC 2 fails ("the menu step was asked
-  again").
-- **Sweep**: 6 of 6 killed, and the comment control survived.
-- **Parallel and request suites**: 333 of 333.
-- **Full suite on `88aca4c3`'s code**: `10385 / 10385 / 0 / 0` locally.
-- **CI on `9ec30b31`** (code `88aca4c3` plus records, one push, nothing
-  pushed while it ran): unit tests 38100732819 green (5 m 16 s); site build
-  38100732863 green.
-- **Image**: production `8d6dbcea93252fbb` → `b6ddb38fa003055e` (205
-  inputs). Nothing is built.
+- **New tests**:
+  - IND 1–4 through the real request flow: concurrent separate-page and
+    separate-table work, re-based with no second call; conflicts that still
+    wait; a changed input asked again. Every change is kept.
+  - Each re-base and scope rule alone.
+- **Red check on `625bf4ee`'s code**: IND 1, IND 2 and IND 4 fail; IND 3
+  (the conflict control) passes.
+- **Sweep**: 18 of 18 killed, and the comment control survived.
+- **Related suites**: 414 of 414.
+- **Full suite**: `10394 / 10394 / 0 / 0` locally.
+- **CI**: one push carries code and records; recorded when it ends.
+- **Image**: production `8d6dbcea93252fbb` → `ca9893133acc43b6` (206
+  inputs). Not built.
 
-**Passed live** (production presses; none on this branch's code):
-- run 119: one data step 19.9 s inside another part's job, every change
-  kept, a question tied to its part, recovery with the tab closed, and the
-  progress checks;
-- runs 113 and 117: changes kept, questions, and the closed tab;
-- runs 105 and 107: progress.
-
-**Remaining blockers to "parallel work complete"**
-1. **Nothing since deploy 2191 is deployed or pressed**, including Build
-   recovery rounds 1–6 and this round.
-2. **Two substantive steps at once has never run live** (PC 2's shape).
-3. **No press can show reuse**: the view does not say that a job answered
-   from its preparation.
-4. **The Add-on and the first Build have never passed a parallel press.**
-   The Add-on photo press failed, and the first-Build check was never
-   pressed. Both used photographs, which are now off limits, so a
-   photo-free variant is the only live path open.
-5. **Real images stay unverified** (your decision).
+**Remaining limitations**
+- **Narrowing covers only text and data steps.**
+- **It depends on the router naming targets.** A dependency in meaning only,
+  sharing no words, is caught only if the router declares the read.
+- **The clash check is lexical and conservative**: it may ask again
+  needlessly, never re-base wrongly on shared words.
+- **Writes stay serialized**, by design.
+- **Nothing is deployed or pressed.** The canary does not yet read
+  `prepUse`.
+- **Carried**:
+  - two substantive steps at once has never run live;
+  - Add-on and first Build have no passing parallel press (photo presses
+    are off limits);
+  - real images are unverified.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -88,6 +80,26 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Independent page and table edits run together; per-job reuse evidence (offline; not deployed)
+
+- **You**: two text edits on separate pages, and two data edits on separate
+  tables, must run together. Narrow dependencies safely, keep necessary
+  context, and add durable per-job evidence of reuse.
+- **Done** (`bd635405`, `ebcc1d70`):
+  - declared-scope narrowing for text and data steps;
+  - a checked re-base of prepared answers onto a site changed only outside
+    the scope;
+  - the per-job record of replayed, re-based and fresh calls, served as
+    `prepUse`;
+  - declared reads never narrowed;
+  - a placed picture feeds page-scoped inputs.
+- **Verified offline**: IND 1–4, the re-base unit cases, a red check, a
+  sweep (18 of 18), suites (414 of 414) and the full suite (10,394 of
+  10,394).
+- **Not done**: merge, deploy, container build, paid calls or images.
 
 ---
 
