@@ -2383,7 +2383,23 @@ export function tableFacts(spec) {
   return out;
 }
 
-export function addRequest({ kind, message, site, model, brief = "" }) {
+// ── WHAT A SCHEMA DESIGNER IS NOT SHOWN (2026-10-11, the validation round) ──
+//
+// A table, an entry, a function, an outside connection or a schedule is made
+// in the database; it neither places a photograph nor copies a page's build.
+// Its designer is not shown the site's photographs or what each page is built
+// from — inputs it never uses, and the ones a page or a picture changed beside
+// it changes: shown them, its request differed from the one prepared beside
+// that work, and it was asked again for nothing.
+const SCHEMA_KINDS = new Set(["table", "row", "function", "api", "job"]);
+function noteFor(kind, site) {
+  if (!SCHEMA_KINDS.has(kind) || !site || typeof site !== "object") return site;
+  const { photos, builtFrom, ...rest } = site;
+  void photos; void builtFrom;
+  return rest;
+}
+
+export function addRequest({ kind, message, site, model, brief = "", feedback = "" }) {
   const tool = addTool(kind);
   return {
     model,
@@ -2395,13 +2411,19 @@ export function addRequest({ kind, message, site, model, brief = "" }) {
     tool_choice: { type: "tool", name: "add_to_site" },
     system: [{ type: "text", cache_control: { type: "ephemeral" }, text: ADD_SYSTEM }],
     messages: [{ role: "user", content:
-      "Their site as it stands:\n" + siteNote(site) +
+      "Their site as it stands:\n" + siteNote(noteFor(kind, site)) +
       "\n\nWhat they asked to add:\n" + String(message || "") +
       // WHAT AN EARLIER STEP IN THIS SAME MESSAGE HANDED TO THIS ONE. Below the
       // ask, because it is a second thing to cover and never a replacement for
       // it; absent entirely when nobody handed this kind anything, so a call
       // that owns none is byte for byte what it was.
-      (brief ? "\n\n" + brief : "") },
+      (brief ? "\n\n" + brief : "") +
+      // WHY ITS LAST ANSWER WAS NOT USED (2026-10-11, the validation round):
+      // the step's own structured reason, once, so the model can put it right,
+      // design nothing, or ask — never the same answer again. Absent on every
+      // first call, so a first request is byte for byte what it was.
+      (feedback ? "\n\nYOUR LAST ANSWER COULD NOT BE USED, so nothing of it was built: " + feedback +
+        "\nAnswer again with that put right. If what they asked cannot be done on this site, design nothing; if it depends on something only they can tell you, ask them (`question`)." : "") },
     ],
   };
 }
@@ -2457,7 +2479,7 @@ export function readAddAnswer(reply, kind) {
  * TRUNCATION IS NAMED, not returned as a half-designed page — the same check
  * the design and pages calls make.
  */
-export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
+export async function runAdd(deps, { kind, message, site, model, brief = "", feedback = "" }) {
   // EVERY RETURN CARRIES BOTH ARRAYS, including the failures. A consumer that
   // has to ask whether this kind answers requirements before it can iterate is
   // a consumer that will one day forget to — and the failure shapes are where
@@ -2466,7 +2488,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
   const none = { requirements: [], reqSkipped: [], suggestions: [], suggestionsOver: [] };
   let reply;
   try {
-    reply = await deps.send(addRequest({ kind, message, site, model, brief }));
+    reply = await deps.send(addRequest({ kind, message, site, model, brief, feedback }));
   } catch (e) {
     return { kind, value: undefined, ...none, usage: null, failed: true, error: e };
   }

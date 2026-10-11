@@ -65,8 +65,8 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
   let opened = null;
   const hold = async () => { opened = await Promise.race([seen.then(() => true), new Promise((ok) => setTimeout(() => ok(false), 4000))]); };
   const firstRoute = first.kind === "data"
-    ? { intent: "edit", layer: "data", alsoAsked: [other.words], targets: [{ change: 0, writes: ["data:" + (first.table || "loaves")] }, { change: 1, writes: other.writes }] }
-    : { intent: "edit", layer: "picture", ...(first.page ? { page: first.page } : {}), alsoAsked: [other.words], targets: [{ change: 0, writes: ["images", ...(first.page ? ["page:" + first.page] : [])] }, { change: 1, writes: other.writes }] };
+    ? { intent: "edit", layer: "data", alsoAsked: [other.words], targets: [{ change: 0, writes: ["data:" + (first.table || "loaves")] }, ...(other.writes ? [{ change: 1, writes: other.writes }] : [])] }
+    : { intent: "edit", layer: "picture", ...(first.page ? { page: first.page } : {}), alsoAsked: [other.words], targets: [{ change: 0, writes: ["images", ...(first.page ? ["page:" + first.page] : [])] }, ...(other.writes ? [{ change: 1, writes: other.writes }] : [])] };
   const answers = { route: [firstRoute, other.route], choose_pictures: PICTURE, ...other.answers };
   const ft = first.table || "loaves";
   if (first.kind === "data") answers.write_row_changes = async () => { await hold(); return { changes: ft === "loaves" ? [{ table: "loaves", id: 2, values: { price: 5.5 } }] : [{ table: ft, id: 1, values: { opens: "08:00" } }] }; };
@@ -243,6 +243,36 @@ test("REVALIDATED — a prepared page rewrite is NOT applied when the site chang
   });
 });
 
+test("REVALIDATED control — A SIBLING PAGE'S WORDS CHANGED between the preparation and the job (the home page's line, not the Visit page): the Visit rewrite is shown only its own page's source and the other pages' NAMES, so its request is unchanged — the prepared answer is applied, the writer asked once, and the home page's change kept (2026-10-11, the validation round)", async () => {
+  const WORDS = "on the Visit page, add a line saying we open at 8";
+  const NEW_VISIT = VISIT.replace("<p>We are on Harbour Street.</p>", "<p>We are on Harbour Street.</p><p>Open from 8 every morning.</p>");
+  const db = loavesDb();
+  let writerCalls = 0;
+  const shown = [];
+  await overlapCase({
+    slug: slugOf("sib"), db, first: { kind: "data" },
+    other: {
+      words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.pages, once: false,
+      answers: { [T.pages]: (args) => { writerCalls++; shown.push(String(args.messages[0].content)); return { pages: [{ path: "src/routes/visit.tsx", source: NEW_VISIT }] }; } },
+    },
+    check: {
+      before: (P) => {
+        const key = [...P.objects.keys()].find((x) => { try { return Array.isArray(JSON.parse(P.objects.get(x).body)) && JSON.parse(P.objects.get(x).body).some((p) => p.path === "index.tsx"); } catch { return false; } });
+        const list = JSON.parse(P.objects.get(key).body);
+        const home = list.find((p) => p.path === "index.tsx");
+        home.source = home.source.replace("Bread from the harbour, every morning.", "Bread from the harbour, baked overnight.");
+        P.objects.set(key, { ...P.objects.get(key), body: JSON.stringify(list), etag: "changed" });
+      },
+      after: (P) => {
+        assert.ok(shown.length >= 1 && !shown[0].includes("Bread from the harbour"), "the rewrite was shown a sibling page's words");
+        assert.equal(writerCalls, 1, "a sibling page's words changing made the rewrite ask again");
+        assert.ok(P.page("visit.tsx").includes("Open from 8"));
+        assert.ok(P.page("index.tsx").includes("baked overnight"), "the sibling's change was lost");
+      },
+    },
+  });
+});
+
 // ── THE PAGE TWEAK (2026-10-09, round 3: the recorded gap) ──────────────────
 
 /** The file a page tweak (`write_tweak`) is shown: its prompt carries it after "THE FILE (". */
@@ -312,6 +342,25 @@ test("GN 2 — A NAMED LOOK (the site description, `identity`) prepared while a 
   });
 });
 
+test("DISCOVERED — A PART THE FIRST ROUTING NAMED NO TARGETS FOR (the site description, asked beside the home page's photograph): until its own routing names what it touches it is taken to touch the whole site; its routing — run beside the photograph's job — names `identity`, and from then its step is prepared there too, answered beside that job and stored by its own (2026-10-11, the validation round)", async () => {
+  const DESC = "change the site description to say we bake overnight sourdough";
+  const NEW_DESC = "Overnight sourdough from a Bristol side street.";
+  await overlapCase({
+    slug: slugOf("disc"), first: { kind: "photo", page: "/" },
+    other: {
+      words: DESC, writes: null, route: { intent: "edit", layer: "look", targets: [{ change: 0, writes: ["identity"] }] }, marker: "lane:description", logged: T.lane,
+      answers: { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": NEW_DESC },
+    },
+    check: {
+      before: (P) => assert.deepEqual(siteObjectsWith(P, NEW_DESC), [], "the preparation stored the look"),
+      after: (P, rec) => {
+        assert.ok(siteObjectsWith(P, NEW_DESC).length > 0, "the look was not stored by its job");
+        assert.deepEqual(rec.parts[1].targets && rec.parts[1].targets.writes, ["identity"], "the part did not take the targets its own routing named");
+      },
+    },
+  });
+});
+
 test("GN 3 — A NAMED RULES CHANGE (`data:loaves`) prepared while a row of ANOTHER table (hours) is changed: it is shown the loaves table only (hours by name), answered beside that job, and applied by its own job — both tables' changes kept", async () => {
   const WORDS = "let signed-in members add loaves";
   const db = twoTables();
@@ -376,6 +425,24 @@ test("GN 4 — A NAMED PAGE CHANGE on Visit prepared while a photograph is place
         assert.equal((P.page("visit.tsx").match(/text-5xl/g) || []).length, 1);
         assert.equal(calls(P, T.pages).length, 0);
         assert.ok(shown.every((x) => /visit/.test(String(x))), "the tweak was shown another page: " + JSON.stringify(shown));
+      },
+    },
+  });
+});
+
+test("SCHEMA-ONLY — A TABLE ADDED AS STORAGE (the router names only `new-data:signups`, no page) is designed while the home page's photograph is bought: its designer reads the stored tables, never the pages the photograph is written into, so it does not wait for that job; the table made by its own job, once, and no page writer asked (2026-10-11, the validation round)", async () => {
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("schema"), db, first: { kind: "photo", page: "/" },
+    other: {
+      words: "add a signups table with a name column", writes: ["new-data:signups"], route: { intent: "addon" }, marker: "add:table", logged: T.design,
+      answers: { [T.adds]: { kinds: ["table"], scopes: [{ kind: "table", words: "add a signups table with a name column" }] }, "add:table": { table: [{ table: { name: "signups", read: "none", write: "none", columns: [{ name: "name", type: "text" }] }, seed: [] }] } },
+    },
+    check: {
+      before: () => assert.equal(db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length, 0, "the preparation made the table"),
+      after: (P) => {
+        assert.equal(db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length, 1);
+        assert.equal(calls(P, T.pages).length, 0, "a page writer was asked for a table nothing shows");
       },
     },
   });

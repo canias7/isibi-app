@@ -223,6 +223,15 @@ export function stepInputs(part) {
   // pages — and what renders on them, which `feeds` answers per page.
   const aScope = addonScope(part);
   if (aScope) return ["pagelist", "theme", ...aScope.pages.map((p) => "page:" + p)];
+  // A SCHEMA-ONLY ADDITION (2026-10-11, the validation round): every write
+  // the router named is a table — one it makes or one it changes — and it
+  // declares no reads. Its picker reads the page list and the look, its
+  // designers the stored tables; no page, menu or picture is its input. A
+  // designer that decides a page should show the table makes its page writer
+  // read pages no plan promised, and the job's exact-request check asks that
+  // writer again — never this.
+  const aw = schemaOnly(part);
+  if (aw) return ["pagelist", "theme", ...aw];
   if (part.route.op === "addon") return ["pagelist", "theme", "menu", "pages", "images"];
   if (layer === "text") return ["pages"];
   if (layer === "nav") return ["menu", "pagelist"];
@@ -236,9 +245,11 @@ export function stepInputs(part) {
   // call: its job's exact-request check decides, never this.
   if (layer === "look") return lookInputs(part) || ["theme", "pages"];
   // A PAGE step: a change the router named for one page is first asked of the
-  // tweak, which is shown that page's file and nothing else; only a rewrite
-  // (the tweak said it cannot) is shown the pages beside it, to copy their
-  // design. NAMED (2026-10-11, the generality round): planned as reading that
+  // tweak, which is shown that page's file and nothing else; a rewrite (the
+  // tweak said it cannot) is shown that page's source too, and the other
+  // pages by NAME only (`priorPagesBlock`, mode "page") — a sibling's words
+  // changing never changes its request (2026-10-11, the validation round,
+  // pinned by "REVALIDATED control"). NAMED (the generality round): planned as reading that
   // page and the page list, so its preparation does not wait for a part
   // writing another page — a rewrite whose siblings changed meanwhile is asked
   // again by its job's exact-request check, never applied stale.
@@ -246,6 +257,19 @@ export function stepInputs(part) {
   // DATA and RULES read the tables.
   if (layer === "data" || layer === "rules") return ["data"];
   return [SITE];
+}
+
+/** An addition's tables when every write the router named is a table and it reads nothing; null otherwise. */
+function schemaOnly(part) {
+  if (!(part.route.op === "addon" || part.route.intent === "addon")) return null;
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!named.length || !named.every((w) => w.startsWith("data:") || w.startsWith("new-data:"))) return null;
+  // ITS OWN TABLES, by name: a row written to another table is not its input.
+  // Another table's SCHEMA changed beside it (a rule) is in its request, and
+  // the job's exact-request check asks it again — never this.
+  return [...new Set(named.map((w) => "data:" + w.slice(w.indexOf(":") + 1)))];
 }
 
 /** A named page change's inputs, or null when it is not one page named that narrowly. */

@@ -45,7 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
-import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase } from "./builder/prepared.mjs";
+import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply } from "./builder/prepared.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
@@ -32991,24 +32991,43 @@ async function handleRequest(request, env, ctx) {
             // from it — billed once, by this job — and any other (an earlier
             // step changed what it reads) is made now. A preparation that fails
             // or does not finish hands over nothing: the step makes its calls.
+            //
+            // A BOUNDED POOL, REFILLED (2026-10-11, the validation round). At
+            // most `STEP_AHEAD_MAX` preparations run AT ONCE — the bound is on
+            // simultaneous work, never on how many steps may be prepared: as
+            // one finishes, the next ready step whose turn has not come starts
+            // in its place. A step whose turn comes before its preparation
+            // started is taken off the queue and makes its own calls, so no
+            // call is ever asked twice for one step.
             const eAhead = new Map();
+            let eStepAt = -1;
             if (eJob && !isPrep && steps.length > 1) {
               if (!eJob.replay) eJob.replay = replayer(null);
-              let ahead = 0;
+              const queue = [];
               steps.forEach((step, i) => {
-                if (i === 0 || ahead >= STEP_AHEAD_MAX || step.withheld || step.remove === true || (typeof step.rename === "string" && step.rename) || !STEP_AHEAD_LAYERS.has(step.layer)) return;
+                if (i === 0 || step.withheld || step.remove === true || (typeof step.rename === "string" && step.rename) || !STEP_AHEAD_LAYERS.has(step.layer)) return;
                 if (!stepClearAhead(steps, i)) return;
-                ahead++;
-                const prec = recorder();
-                const body = {
-                  layer: step.layer, page: step.page || "", instruction: step.instruction || step.ask || eRun,
-                  context: eb && eb.context, ...(Array.isArray(step.told) ? { told: step.told } : {}), picker: eb && eb.picker, ...(eb && eb.request ? { request: eb.request } : {}),
-                };
-                eAhead.set(i, replayPrepared(env, ctx, { uid: ou.id, slug: ownerSlug }, "/api/site/" + encodeURIComponent(ownerSlug) + "/edit", body, prec, { buy: false })
-                  .then(() => prec.calls, () => prec.calls));
+                queue.push(i);
               });
+              let running = 0;
+              const fill = () => {
+                while (running < STEP_AHEAD_MAX && queue.length) {
+                  const i = queue.shift();
+                  if (i <= eStepAt) continue;
+                  const step = steps[i];
+                  running++;
+                  const prec = recorder();
+                  const body = {
+                    layer: step.layer, page: step.page || "", instruction: step.instruction || step.ask || eRun,
+                    context: eb && eb.context, ...(Array.isArray(step.told) ? { told: step.told } : {}), picker: eb && eb.picker, ...(eb && eb.request ? { request: eb.request } : {}),
+                  };
+                  eAhead.set(i, replayPrepared(env, ctx, { uid: ou.id, slug: ownerSlug }, "/api/site/" + encodeURIComponent(ownerSlug) + "/edit", body, prec, { buy: false })
+                    .then(() => prec.calls, () => prec.calls)
+                    .finally(() => { running--; fill(); }));
+                }
+              };
+              fill();
             }
-            let eStepAt = -1;
             for (const step of steps) {
               eStepAt++;
               // ITS PREPARED CALLS, HANDED OVER BEFORE ITS TURN.
@@ -35621,7 +35640,8 @@ async function handleRequest(request, env, ctx) {
                 if (handed.length) aHandsTo.set(j, handed);
                 if (ran.value === undefined) { aReady.set(j, undefined); aStartReady(); return; }
                 const clean = cleanAdd(j, ran.value, { ...site, today: aToday });
-                if (!clean || !clean.ok) return;
+                // REFUSED BY ITS OWN CLEANER: never ready, and never reused.
+                if (!clean || !clean.ok) { if (!clean || clean.why !== "nothing") rejectReply(ran.raw, "add:" + ((clean && clean.why) || "unclean")); return; }
                 aReady.set(j, aChanges(j) ? clean.value : undefined);
                 aStartReady();
               } catch { /* its turn decides it */ }
@@ -35705,7 +35725,7 @@ async function handleRequest(request, env, ctx) {
               const aEarlyOne = aTakeEarly(k, aBrief);
               const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief });
               // IT NEEDS A RESULT IT WAS NOT SHOWN: asked again with it (`aNeedsAgain`).
-              const ran = await aNeedsAgain(k, ranFirst, aBrief);
+              let ran = await aNeedsAgain(k, ranFirst, aBrief);
               // DECIDED: what waits on it starts at the next kind's turn, once
               // its result below is folded in.
               aDecided.add(k);
@@ -35758,7 +35778,30 @@ async function handleRequest(request, env, ctx) {
               // the first, exactly as if it were not there. One place, at the
               // one call that reads it. `cleanAdd` never writes to its site
               // argument (`ctx` is its own), so the spread costs nothing.
-              const clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
+              let clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
+              // ── A REFUSED ANSWER IS NEVER REUSED, AND IS CORRECTED ONCE
+              //    (2026-10-11, the validation round) ────────────────────────
+              //
+              // The cleaner's refusal is the step's own verdict on this reply:
+              // marked, so no record ever gives it again (`rejectReply`), and
+              // the designer is asked once more with the structured reason, to
+              // put it right, design nothing, or ask. Both calls are real work
+              // and both are billed. A second refusal is the answer: the
+              // addition is refused as before — never a loop. A refusal by the
+              // model (nothing designed), a question and a no-op are its
+              // answers and are never retried here.
+              if (!clean.ok && clean.why !== "nothing") {
+                rejectReply(ran.raw, "add:" + clean.why);
+                aMark("add:" + k, "correct", { why: clean.why });
+                const fix = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: addRefusal(clean.why, k) + " (" + clean.why + ")" });
+                if (fix.usage) aDesignUsage.push(fix.usage);
+                if (fix.failed) { await aEnded("failed"); return aDown(fix.error, "The builder is busy — try again in a moment."); }
+                if (fix.ask) { aStepAsk = { kind: k, ask: fix.ask }; break; }
+                if (fix.value === undefined) { aDeclined.push(k); continue; }
+                ran = fix;
+                clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
+                if (!clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
+              }
               if (!clean.ok) {
                 // A REFUSAL CARRIES THE COVERAGE TOO. The model told us what
                 // the change needed before we decided its design was unusable,

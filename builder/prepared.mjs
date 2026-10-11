@@ -96,6 +96,28 @@ export function unusableReply(reply) {
   return "";
 }
 
+// ── AN ANSWER ITS STEP REJECTED IS NOT REUSABLE EITHER (2026-10-11, the
+//    validation round, after Codex's review of fb50298e) ─────────────────────
+//
+// A reply can be complete at the provider and still unusable: a component
+// placed on a page the site does not have passes `unusableReply` and is then
+// refused by its step's own cleaner. Neither the provider's "done" nor an
+// identical request proves such an answer can be given again — replayed, it
+// is refused again, and the work never recovers. So the step that validates a
+// reply MARKS it when it refuses it (`rejectReply`, with the step's own
+// reason), and the recorder carries that verdict into the record exactly as
+// it carries a cut-off: kept for diagnosis, never replayed. The mark is read
+// when the record is written (the job's end, a preparation's save), so a
+// refusal anywhere in the job — an early answer checked as it lands, a turn,
+// a preparation — reaches every reader: staging, replay, continuation.
+const REJECTED = new WeakMap();
+/** A step's own cleaner refused this reply: it is never given again. */
+export function rejectReply(reply, why) {
+  if (reply && typeof reply === "object") REJECTED.set(reply, String(why || "rejected").slice(0, 80));
+}
+/** Why a step refused this reply, or "". */
+export const replyRejected = (reply) => (reply && typeof reply === "object" && REJECTED.get(reply)) || "";
+
 /**
  * A RECORDER: `wrap(send)` makes every call as `send` would and keeps its
  * answer under its request's fingerprint; `image(generate)` keeps each picture
@@ -113,8 +135,12 @@ export function recorder() {
         const reply = await send(req);
         try {
           const h = await requestHash(req);
-          const why = unusableReply(reply);
-          calls.push(why ? { h, reply, unusable: why } : { h, reply });
+          // THE VERDICT IS READ WHEN THE RECORD IS WRITTEN: a cut-off now, or a
+          // refusal by the step that reads this reply later in the job.
+          calls.push({
+            h, reply,
+            get unusable() { return unusableReply(reply) || (replyRejected(reply) ? "rejected:" + replyRejected(reply) : undefined); },
+          });
         } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
       };
