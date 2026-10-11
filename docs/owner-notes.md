@@ -35,7 +35,10 @@ still shown as saving.
   itself with duplicate delivery; running landing beside unknown;
   lost-record landing; unfetchable or unreadable ahead of a made picture);
   red on `4079bb38` for RC 10–13; sweep 9 of 11 product mutants killed (2
-  equivalent); full suite `10494 / 10494 / 0 / 0`. CI: below, once read.
+  equivalent); full suite `10494 / 10494 / 0 / 0`. CI green: site build
+  38147595527 on `c4fad5d7`; unit tests 38147679316 on `a631c9b0` and
+  38148189300 on `1afb2ed7` (the same code; `c4fad5d7`'s own unit run was
+  cancelled by the next push).
 - **Still not live**: real mixed held purchases, the live sweeps, the card
   on a real page; the requests list route can show states one sweep late.
 

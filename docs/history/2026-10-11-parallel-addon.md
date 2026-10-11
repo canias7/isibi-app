@@ -643,6 +643,9 @@ deploy, container build, paid call, real image, fal call or balance change.
 - **Focused files**: 92 of 92 across the seven recovery and parallel files.
 - **Full suite** on `c4fad5d7`: `10494 / 10494 / 0 / 0` locally (`10486`
   before; the 8 new cases are RC 10–17). Doc tests 32 of 32.
+- **Required CI**: site build 38147595527 on `c4fad5d7`; unit tests
+  38147679316 on `a631c9b0` and 38148189300 on `1afb2ed7`, all `success`
+  (`c4fad5d7`'s own unit run was cancelled by the next push).
 
 ### Still not shown live
 
