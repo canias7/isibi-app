@@ -137,10 +137,16 @@ export function recorder() {
           const h = await requestHash(req);
           // THE VERDICT IS READ WHEN THE RECORD IS WRITTEN: a cut-off now, or a
           // refusal by the step that reads this reply later in the job.
-          calls.push({
-            h, reply,
-            get unusable() { return unusableReply(reply) || (replyRejected(reply) ? "rejected:" + replyRejected(reply) : undefined); },
-          });
+          // THE VERDICT IS NOT A FIELD OF THE ENTRY: an entry is its
+          // fingerprint and its answer, nothing else (no copy of the request
+          // rides with it). It is read when asked (`unusable`) and when the
+          // entry is written (`toJSON`), so a refusal made after the call is in
+          // the stored record.
+          const entry = { h, reply };
+          const verdict = () => unusableReply(reply) || (replyRejected(reply) ? "rejected:" + replyRejected(reply) : undefined);
+          Object.defineProperty(entry, "unusable", { get: verdict, enumerable: false });
+          Object.defineProperty(entry, "toJSON", { value: () => { const u = verdict(); return u ? { h, reply, unusable: u } : { h, reply }; }, enumerable: false });
+          calls.push(entry);
         } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
       };
