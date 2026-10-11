@@ -35,7 +35,10 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 10 MINUTES (2026-10-10, the owner's word): the full suite reached the
+    # old 5-minute limit — round 4's green run took 273.7 s, and three runs on
+    # round 5's code were stopped at 300 s inside `npm test`.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

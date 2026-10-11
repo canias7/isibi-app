@@ -162,12 +162,20 @@ export const BUILD_RUN_START_MS = 5 * 60 * 1000;
  * is written just before execution begins, so an attempt that claimed and
  * never started is told apart from one that is running.
  */
-export function packBuildRun({ job, owner, at, token = "", started = false }) {
-  return { v: BUILD_LIVE_VERSION, job, owner, at, ...(isRunToken(token) ? { token } : {}), ...(started ? { started: true } : {}) };
+/**
+ * …AND WHICH DELIVERY MAY EXECUTE IT (round 6, Codex's retry review):
+ * `token` is the logical attempt, which a retry carries and two copies of one
+ * retry share; `holder` is the one delivery that holds exclusive permission
+ * to execute (its own lease name, fresh per delivery). Only the holder marks
+ * the record started, and a lost write is reconciled as this delivery's own
+ * only when the holder is this delivery — never by the token alone.
+ */
+export function packBuildRun({ job, owner, at, token = "", started = false, holder = "" }) {
+  return { v: BUILD_LIVE_VERSION, job, owner, at, ...(isRunToken(token) ? { token } : {}), ...(isRunToken(holder) ? { holder } : {}), ...(started ? { started: true } : {}) };
 }
 export function readBuildRun(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION || !isJobId(raw.job) || !RUN_OWNERS.has(raw.owner)) return null;
-  return { job: raw.job, owner: raw.owner, at: num(raw.at) || 0, token: isRunToken(raw.token) ? raw.token : "", started: raw.started === true };
+  return { job: raw.job, owner: raw.owner, at: num(raw.at) || 0, token: isRunToken(raw.token) ? raw.token : "", holder: isRunToken(raw.holder) ? raw.holder : "", started: raw.started === true };
 }
 /**
  * WHAT ANOTHER ATTEMPT'S RECORD MEANS TO A NEW ARRIVAL (round 5):

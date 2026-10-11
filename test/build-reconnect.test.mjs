@@ -1527,6 +1527,146 @@ test("RC 25 — A GENUINELY ACTIVE COMPETING CONSUMER STAYS PROTECTED: a deliver
   }
 });
 
+// ── ROUND 6 (2026-10-10): A RETRY'S TOKEN IS NOT PERMISSION TO EXECUTE ─────
+
+/**
+ * THE STATE A FIRST DELIVERY LEAVES WHEN ITS CLAIM COULD NOT BE SETTLED: the
+ * row filed and leased to that delivery (`H1`), its record written for the
+ * attempt (`T`) and not started, the job's envelope put back, and the retry
+ * message carrying the attempt and the lease.
+ */
+async function leftForRetry(b, sql, { started = false, holder = "c_holder01", leaseTo = "c_holder01", expired = false } = {}) {
+  await fileRow(sql, JOB_X);
+  await sql.over("https://x/rest/v1/rpc/edit_claim", { body: JSON.stringify({ p_id: JOB_X, p_owner: leaseTo }) });
+  if (expired) sql.expire(JOB_X);
+  await b.put(buildRunKey(JOB_X), JSON.stringify(packBuildRun({ job: JOB_X, owner: "queue", at: Date.now(), token: "c_attempt1", holder, started })));
+  return { token: "c_attempt1", holder: "c_holder01", waits: 1 };
+}
+/** BOTH COPIES READ THE ENVELOPE BEFORE EITHER DELETES IT: the first read waits for the second. */
+function bothReadEnvelope(b, n = 2) {
+  const get = b.get.bind(b);
+  let reads = 0; let open; const gate = new Promise((r) => { open = r; });
+  b.get = async (k) => {
+    if (k !== jobKey(JOB_X) || reads >= n) return get(k);
+    const v = await get(k);
+    if (++reads === n) open(); else await gate;
+    return v;
+  };
+  return () => reads;
+}
+/** A DESIGNER HELD OPEN long enough for any other copy to reach its own. */
+const heldDesign = async () => { for (let i = 0; i < 400; i++) await new Promise((r) => setImmediate(r)); return designOk(); };
+
+test("RC 26 — CODEX'S RETRY REPRODUCTIONS: two copies of one retry, both reading the envelope before either deletes it, reach one designer between them — one lease handoff wins, the other copy does no work; a copy arriving after its attempt started never joins it, whether its handoff is refused or the lease has lapsed; and with no row to serialise them, the record alone admits one copy", async () => {
+  const fired = [];
+  // (a) CONCURRENT COPIES: the lease handoff from the attempt's lease decides.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    const retry = await leftForRetry(b, sql);
+    const reads = bothReadEnvelope(b);
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: heldDesign, over: sql.over, msg: retry, keepJob: true, copies: 2, fire: async () => { fired.push("a"); } });
+    assert.equal(reads(), 2, "the two copies did not both read the envelope — this case is watching nothing");
+    assert.equal(designs.length, 1, "both copies of the retry designed: " + designs.length);
+    const hand = sql.of("edit_handoff").filter((c) => c.args.p_owner === retry.holder);
+    assert.deepEqual(hand.map((c) => c.out.ok), [true, false], "not one won and one refused handoff: " + JSON.stringify(hand.map((c) => c.out)));
+    const run = runOf(b, JOB_X);
+    assert.ok(run.started === true && run.token === retry.token, "the attempt was not started under its own token");
+    assert.equal(run.holder, hand[0].args.p_next, "the record's holder is not the delivery that holds the lease");
+    const debits = sql.of("build_debit");
+    assert.equal(debits.length, 1, "the losing copy reached the deposit: " + debits.length);
+    assert.ok(debits[0].out.ok === true && String(debits[0].args.p_ref).startsWith("build:" + JOB_X));
+    assert.ok(fired.filter((f) => f === "a").length <= 1, "both copies launched work");
+    assert.deepEqual(sql.row(JOB_X).states, ["queued", "claimed"]);
+    assert.ok(jobSends(q).every((m) => m.token === retry.token), "a copy asked again under another attempt");
+  }
+  // (b) ARRIVING AFTER THE FIRST COPY STARTED: its handoff is refused, and
+  // the started record is not joined.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    const retry = await leftForRetry(b, sql, { started: true, holder: "c_winner02", leaseTo: "c_winner02" });
+    const before = b.store.get(buildRunKey(JOB_X));
+    const designs = [];
+    const q = await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over, msg: retry, keepJob: true, fire: async () => { fired.push("b"); } });
+    assert.equal(designs.length, 0, "a copy arriving after its attempt started designed again");
+    assert.equal(sql.of("build_debit").length, 0);
+    assert.ok(!fired.includes("b"), "a refused copy launched the container");
+    const hand = sql.of("edit_handoff");
+    assert.ok(hand.length === 1 && hand[0].out.ok === false && hand[0].out.error === "not-holder", "the handoff was not refused: " + JSON.stringify(hand.map((c) => c.out)));
+    assert.equal(b.store.get(buildRunKey(JOB_X)), before, "the started record was touched");
+    assert.equal(sql.row(JOB_X).lease, "c_winner02", "the running copy's lease was taken");
+    assert.equal(jobSends(q).length, 0, "a copy of a started attempt was asked again");
+  }
+  // (b2) …AND WITH THE LEASE LAPSED: the claim succeeds, but the record is
+  // started by another delivery, so the matching token is still not permission.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    const retry = await leftForRetry(b, sql, { started: true, holder: "c_winner02", leaseTo: "c_winner02", expired: true });
+    const designs = [];
+    await fireInterim(b, JOB_X, ledger(), { designs, onDesign: designOk, over: sql.over, msg: retry, keepJob: true });
+    assert.equal(designs.length, 0, "a matching token joined a started execution");
+    assert.equal(sql.of("build_debit").length, 0);
+    assert.equal(runOf(b, JOB_X).holder, "c_winner02");
+  }
+  // (c) NO ROW TO SERIALISE THEM: both copies reach the record, and only one
+  // conditional takeover of the unstarted attempt can win.
+  {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await b.put(buildRunKey(JOB_X), JSON.stringify(packBuildRun({ job: JOB_X, owner: "queue", at: Date.now(), token: "c_attempt1", holder: "c_holder01" })));
+    const reads = bothReadEnvelope(b);
+    const designs = [];
+    await fireInterim(b, JOB_X, ledger(), { designs, onDesign: heldDesign, over: sql.over, msg: { token: "c_attempt1", holder: "c_holder01", waits: 1 }, keepJob: true, copies: 2 });
+    assert.equal(reads(), 2);
+    assert.equal(sql.of("edit_claim").length, 2, "both copies did not reach the row claim");
+    // ONE COPY GOT PAST THE RECORD: only it reaches the deposit (which the SQL
+    // refuses `no-job`, there being no row, so neither designs at all).
+    const debits = sql.of("build_debit");
+    assert.equal(debits.length, 1, "with no row, both copies passed the record: " + debits.length);
+    assert.equal(debits[0].out.error, "no-job");
+    assert.equal(designs.length, 0);
+    const run = runOf(b, JOB_X);
+    assert.ok(run.started === true && run.holder !== "c_holder01" && run.token === "c_attempt1");
+  }
+  // (d) and (e): THE TWO LAYERS, EACH ON ITS OWN. With no row, copy B is held
+  // at its row claim until copy A has taken the attempt over; then:
+  //   (d) A pauses after its takeover until B has taken it over in turn — A's
+  //       start must find the record no longer its own (only the holder starts);
+  //   (e) A's start waits until B has read the record and reached its own
+  //       takeover, and B's takeover waits until A has started — B's write,
+  //       conditional on what it read, must not land over a started attempt.
+  for (const kind of ["d", "e"]) {
+    const b = buildBucket();
+    const sql = sqlJobs();
+    await b.put(buildRunKey(JOB_X), JSON.stringify(packBuildRun({ job: JOB_X, owner: "queue", at: Date.now(), token: "c_attempt1", holder: "c_holder01" })));
+    bothReadEnvelope(b);
+    const signal = () => { let r; const p = new Promise((res) => { r = res; }); p.fire = r; return p; };
+    const aTook = signal(), bTook = signal(), bAtTake = signal(), aStarted = signal();
+    let aHolder = "";
+    const put = b.put.bind(b);
+    b.put = async (k, v, o) => {
+      if (k !== buildRunKey(JOB_X) || !(o && o.onlyIf && o.onlyIf.etagMatches)) return put(k, v, o);
+      const r = JSON.parse(v);
+      const isA = !aHolder || r.holder === aHolder;
+      if (!r.started && !aHolder) { aHolder = r.holder; const out = await put(k, v, o); aTook.fire(); if (kind === "d") await bTook; return out; }
+      if (!r.started && !isA) { if (kind === "e") { bAtTake.fire(); await aStarted; } const out = await put(k, v, o); bTook.fire(); return out; }
+      if (r.started && isA && kind === "e") { await bAtTake; const out = await put(k, v, o); aStarted.fire(); return out; }
+      return put(k, v, o);
+    };
+    let claims = 0;
+    const over = async (u, init) => { if (String(u).includes("/rpc/edit_claim") && ++claims === 2) await aTook; return sql.over(u, init); };
+    const designs = [];
+    await fireInterim(b, JOB_X, ledger(), { designs, onDesign: heldDesign, over, msg: { token: "c_attempt1", holder: "c_holder01", waits: 1 }, keepJob: true, copies: 2 });
+    assert.ok(aHolder, "(" + kind + ") no copy took the attempt over — this case is watching nothing");
+    const debits = sql.of("build_debit");
+    assert.equal(debits.length, 1, "(" + kind + ") both copies passed the record: " + debits.length);
+    assert.equal(runOf(b, JOB_X).started, true);
+  }
+});
+
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });

@@ -24,7 +24,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { hit, loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { hit, loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
   BUILD_OP, BUILD_BILLING, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, MIN_GEN_BEAT_MS,
   containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound,
@@ -858,10 +858,36 @@ test("…a build with no row runs exactly as before and touches the row no furth
   assert.deepEqual(r.rpc.map((x) => x.fn), ["edit_claim"], "a rowless build tried to close a row");
 });
 
-test("…and a row this consumer could not claim never stops the build, and is still closed", async () => {
+// RESTATED 2026-10-10 (round 6, Codex's retry review). This asserted that a
+// row leased by ANOTHER delivery never stopped the build — the hole two copies
+// of one retry both designed through. A live lease held elsewhere is now
+// honoured before any work: nothing runs, the other holder's row is not
+// closed, and the job's input is kept for a later delivery.
+test("…and a row whose live lease another delivery holds stops the build before any work, closes nothing, and keeps the job", async () => {
   const r = await driveConsumer({ ok: true, claimed: false, state: "claimed", error: "leased" });
-  assert.ok(r.out && r.out.status === 501, "an unclaimed row stopped the build");
-  assert.deepEqual(r.rpc.map((x) => x.fn), ["edit_claim", "edit_refund"]);
+  assert.equal(r.out, null, "a delivery refused the lease still ran the build: " + JSON.stringify(r.out).slice(0, 200));
+  assert.deepEqual(r.rpc.map((x) => x.fn), ["edit_claim"], "a refused delivery touched the other holder's row");
+  const ended = await driveConsumer({ ok: true, claimed: false, state: "done", error: "terminal" });
+  assert.equal(ended.out, null, "a delivery for an ended row still ran the build");
+  assert.deepEqual(ended.rpc.map((x) => x.fn), ["edit_claim"]);
+});
+
+// …AND THE CONTAINER'S RUNNER (round 6): a takeover the row refuses — the
+// lease it names is no longer that holder's — does no work either.
+test("a runner whose takeover the row refuses does no work and closes nothing", async () => {
+  const id = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+  const b = bucket({ [jobKey(id)]: JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief: "a coffee shop" }), uid: USER.id, at: 1 })) });
+  const rpc = [];
+  const restore = stubFetch({ edit_claim: { ok: true, claimed: false, state: "claimed", error: "leased" }, edit_handoff: { ok: false, error: "not-holder" }, edit_refund: { ok: true }, edit_finalize: { ok: true } }, rpc);
+  try {
+    const mod = await loadWorkerModule();
+    assert.equal(typeof mod.runContainerJob, "function", "the runner's entry is not reachable — this case is watching nothing");
+    const ctx = makeCtx();
+    await mod.runContainerJob({ ...ENV_KEYS, SITES_BUCKET: b }, ctx, { kind: "build", id, holder: "c_consumer1" });
+    await Promise.allSettled(ctx.pending);
+    assert.equal(b.store.get(resultKey(id)), undefined, "a refused runner ran the build");
+    assert.deepEqual(rpc.map((x) => x.fn), ["edit_claim", "edit_handoff"], "a refused runner touched the row further");
+  } finally { restore(); }
 });
 
 // ── THE CONTAINER: THE BEAT AND THE REPORT'S BINDING ─────────────────────────
