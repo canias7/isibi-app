@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: an answer its step refused is never given again; a refilling step pool; schema-only parts; earlier rounds' unusable-answer boundary, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: a corrected answer takes the whole path; a step starts when what it reads has been written; earlier rounds' refused-answer boundary, refilling pool, unusable-answer boundary, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,13 +9,73 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`3e5d1a4b`** (round 9: `00ee1c40` and `3e5d1a4b`), then the records and
-  pin commit. Its predicted image is **`43652f925edb50f7`** (205 inputs; not
-  built; was `494735051df65e57`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`79a94d3f`**
+  (round 10), then the records and pin commit. Its predicted image is
+  **`c84110ecba368cb9`** (205 inputs; not built; was `43652f925edb50f7`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 10** (`79a94d3f`; `docs/history/2026-10-11-corrected-answers-readiness.md`).
+Codex passed 157 focused tests on `4074eb38` with CI green, and reproduced
+two failures while their controls passed.
+- **Fixed — a corrected Add-on answer was only half processed.**
+  - *Reproduction*: an About FAQ with collapsible answers. The first answer
+    names `/does-not-exist` with no requirements; the correction names
+    `/about` and lists the collapsible-answer requirement; the writer builds
+    static cards. First-call valid: judged, partial. Through the correction:
+    never judged, "done".
+  - *Now*: the cleaner reads each answer first. A refused one is marked
+    (never replayed), billed, kept as superseded in the record, and corrected
+    once, through the `needs` re-ask so a new dependency is honoured. Then
+    one path processes the final answer: grounding, hand-offs, needs,
+    question, suggestions, skipped entries, usage, trace and stored record.
+  - A requirement only the refused answer listed is carried as `unsupported`
+    (never claimed covered), and a reworded one is told once. A second
+    refusal is still the answer.
+- **Fixed — a step's readiness was decided once.**
+  - *Reproduction*: Visit heading and frame (step 1), Home heading held
+    (step 2), picture for Visit (step 3). The picture waited for Home after
+    Visit had finished.
+  - *Now*: each queued step carries its outstanding prerequisites
+    (`stepNeeds`), and the pool is refilled at the top of every turn, before
+    the turn waits. A newly ready step is prepared against the job's current
+    pages (the store holds the site as the message arrived until the one
+    publish), so its turn replays it.
+  - Bound, ordered writes, exact reuse and once-only application are
+    unchanged; nothing is prepared before its prerequisites apply.
+- **Broad Add-on scopes — corrected claim.**
+  - I tried planning a page addition's *design* beside page-writing parts
+    and measured a redundant picker call in the BATCH case. The designers
+    read each page's **headline**, and the picker reads the **photographs**,
+    both of which those parts write. It is a genuine dependency, so it was
+    reverted.
+  - **Kept**: photographs are shown only to the photo designer, and page
+    builds only to frontend designers.
+  - Narrowing further needs a product decision: stable page names instead of
+    live headlines for the designers to match against.
+- **Evidence** (mocked; real driver, queue, routes, job runner): CA 0–8,
+  SP 6 and its control, plus SP 0–5 again.
+  - Red: on `4074eb38`, CA 1, 3, 5, 7, 8 and SP 6 fail; CA 0, 2, 4, 6,
+    SP 0–5 and the SP 6 control pass.
+  - The first full suite showed 8 failures. Six encoded the reverted
+    design-first rule and passed once it was reverted; two landmark tests
+    were re-anchored on the property they guard.
+  - Full suite `10559 / 10559 / 0 / 0` on `79a94d3f`.
+  - Sweep (`sweep15`): 10 of 10 product mutants killed, the comment-only
+    control survived.
+  - CI: on `79a94d3f` and the records commit, stamped in the next commit.
+- **Remaining gaps** (history §5):
+  - page additions wait on page writes (headlines and photographs);
+  - functions, APIs and jobs with no named table are whole-site until
+    routed;
+  - Build refusals are not marked;
+  - an early-refused designer can make 3 calls in all;
+  - an unused step preparation is ours.
+- **Live-unverified**: nothing deployed or pressed. Real designers'
+  correction behaviour, real routers' step targets and the real gain of
+  turn-time refills are unmeasured. **The universal feature is not declared
+  finished.**
 
 **Round 9** (`00ee1c40`, `3e5d1a4b`; `docs/history/2026-10-11-validation-scheduling.md`).
 Codex passed 203 focused tests on `fb50298e` with CI green. **Closed as fixed
@@ -425,6 +485,36 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 10: a corrected answer takes the whole path; a step starts when what it reads has been written (offline; not deployed, not pressed)
+
+- **You**: one combined batch.
+  - Fix corrected-answer processing in the Add-on loop: the same complete
+    path for original and corrected answers, superseded metadata reconciled
+    without losing what was asked, bounded corrections.
+  - Fix step readiness inside a multi-step Edit: outstanding dependencies
+    tracked, waiting steps reconsidered as prerequisites finish, under the
+    bound.
+  - Address the broad Add-on scopes for page, function, API and job parts.
+  - Mocked providers; commit, push, record, with both reproductions and
+    corrected claims.
+- **Done**: `79a94d3f` (the change and its tests), and the commit carrying
+  these records and the pin `c84110ecba368cb9`.
+- **Verified offline**:
+  - red check (CA 1, 3, 5, 7, 8 and SP 6 fail on `4074eb38`; 11 controls
+    pass);
+  - sweep 10 of 10 (the control survived);
+  - full suite `10559 / 10559 / 0 / 0`;
+  - doc tests 32/32;
+  - CI stamped in the next commit.
+- **Corrected**: the broad scope for page additions is a genuine dependency
+  (headlines, photographs); the design-first attempt was measured and
+  reverted.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. Remaining gaps are in the history's
+  §5.
 
 ---
 
