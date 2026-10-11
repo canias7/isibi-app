@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: a cut-off answer is never replayed; ready work past a question, schema-only additions, scoped Look/Rules/Page parts, a multi-step edit's steps prepared together, the add-on writer may ask; earlier rounds' scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: an answer its step refused is never given again; a refilling step pool; schema-only parts; earlier rounds' unusable-answer boundary, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,11 +10,58 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`a87060ba`** (round 8), pin `7b9d77f4`, records after. Its predicted image is
-  **`494735051df65e57`** (205 inputs; not built; was `4b8665dd0256e3f9`).
-- **Balance 971**, untouched. **Build flags**, the 1-page / 15-component
-  limits, untouched. Every provider mocked. No paid call, fal call, merge,
-  deploy or container build. Explanations stay model-written.
+  **`3e5d1a4b`** (round 9: `00ee1c40` and `3e5d1a4b`), then the records and
+  pin commit. Its predicted image is **`43652f925edb50f7`** (205 inputs; not
+  built; was `494735051df65e57`).
+- **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
+  limits are untouched. Every provider was mocked. No paid call, fal call,
+  merge, deploy or container build. Explanations stay model-written.
+
+**Round 9** (`00ee1c40`, `3e5d1a4b`; `docs/history/2026-10-11-validation-scheduling.md`).
+Codex passed 203 focused tests on `fb50298e` with CI green. **Closed as fixed
+offline**: the provider-truncation replay (round 8).
+- **Fixed — a complete answer its step refused was replayed.** In Codex's
+  repro the component designer placed the FAQ on `/does-not-exist` beside the
+  table's question. Its reply passed the provider check, its cleaner refused
+  it, and after the answer it was replayed and the request failed. Now:
+  - the step that refuses a reply marks it (`rejectReply`), and the record
+    keeps it with a `rejected:` verdict, for diagnosis only: never staged,
+    replayed or handed to a continuation;
+  - at its own turn the designer is asked **once** more, shown the cleaner's
+    reason; a second refusal is final (never a loop);
+  - a design of nothing, a question and a no-op are the model's answers:
+    never marked, never retried.
+- **Fixed — `STEP_AHEAD_MAX` capped how many steps were prepared.** It now
+  bounds how many run **at once** (3), refilled as each finishes. Writes stay
+  in order; replay stays exact; no step is asked twice.
+- **Broad scopes:**
+  - *an addition writing only tables* is planned as reading the page list,
+    the look and its own tables; schema designers are no longer shown
+    photographs or page kit lists, which had made a photo placed beside them
+    change their request;
+  - *page rewrites*: already shown only their page and the others' names
+    (now pinned; a wrong code comment corrected);
+  - *missing targets*: a part takes them from its own routing before its
+    step is scheduled (now pinned).
+- **Evidence** (mocked; real driver, queue, routes, job runner): VA 0–6,
+  SP 0–5, SCHEMA-ONLY, REVALIDATED control, DISCOVERED.
+  - Red: exactly the 7 new behaviour cases fail on `fb50298e`; 22 controls
+    pass.
+  - Sweep: 12 of 13 product mutants killed, the control survived. The
+    survivor (the pool taking a step whose turn began) is unreachable today
+    and kept as a guard.
+  - The first full suite showed 2 failures caused by this change, both fixed
+    in `3e5d1a4b`. Full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`.
+  - CI: in the history's §6.
+- **Remaining gaps** (history §5):
+  - additions making a page, function, API or job still wait on every page;
+  - Build-path refusals are not marked (a failed build replays nothing);
+  - an early-refused designer can make 3 calls in all (early, turn, one
+    correction).
+- **Live-unverified**: nothing deployed or pressed. These are unmeasured: how
+  often real designers name missing pages, and how often one correction
+  fixes it; the real gain of the refilled pool; how often real routers name
+  only tables. **The universal feature is not declared finished.**
 
 **Round 8** (`a87060ba`; `docs/history/2026-10-11-unusable-answers-generality.md`).
 Codex passed 111 focused tests on `648964d5` with CI green. **Closed as fixed
@@ -377,6 +424,32 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 9: an answer its step refused is never given again; a refilling step pool; schema-only parts (offline; not deployed, not pressed)
+
+- **You**: one combined validation, scheduling and scope batch. Close the
+  provider-truncation replay as fixed offline. Fix Codex's two
+  reproductions:
+  - a complete component answer its cleaner refused, replayed after the
+    table's question;
+  - six heading tweaks where freed preparation slots were never refilled.
+  Connect step validation to reuse generally, with structured feedback and
+  no blind retry loops; make the step scheduler a bounded, refilling pool.
+  Finish the broad-scope gaps where practical (schema-only parts, page
+  rewrites and sibling text, missing targets), honestly recorded. All
+  providers mocked; commit, push, record.
+- **Done**: `00ee1c40` (the change and its tests), `3e5d1a4b` (record entry
+  fields; a re-anchored landmark), and the commit carrying these records and
+  the pin `43652f925edb50f7`.
+- **Verified offline**: red check (7 new cases fail on `fb50298e`, 22
+  controls pass); sweep 12 of 13 (one unreachable survivor kept as a guard);
+  full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`; doc tests 32/32; CI in the
+  history's §6.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. Remaining gaps are in the history's
+  §5.
 
 ---
 
