@@ -219,6 +219,9 @@ real request flow, its control, and the wiring.
   `1e853d92`.
 - **Image prediction**: production `8d6dbcea93252fbb` →
   `9547695841a6c5ac` (205 inputs). Not built.
+- **CI on `aa02672f`** (code plus records, one push): unit tests
+  38123355384 green (4 m 56 s); site build 38123355338 green (all eight
+  jobs).
 
 ## 8. What stays open — the completion criteria
 

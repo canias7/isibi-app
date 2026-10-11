@@ -82,8 +82,9 @@ is in git; the dated entries further down are the full story.*
   rehearsal) and the Build file 21 of 21. Doc tests 32 of 32.
 - **Full suite**: `10405 → 10425`, `10425 / 10425 / 0 / 0` locally on the code
   of `1e853d92`.
-- **CI**: on the push of the code and these records together; read after
-  it finishes and recorded in a records-only update.
+- **CI on `aa02672f`** (code plus records, one push, nothing pushed while
+  it ran): unit tests 38123355384 green (4 m 56 s); site build 38123355338
+  green (all eight jobs).
 
 **Remaining completion criteria**
 - **The batch run live**, with each press passing:
