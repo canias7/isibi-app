@@ -183,7 +183,12 @@ preparation is accepted only by exact replay.
 - **Focused**: the parallel, add-on, request and requirement files, 1,466
   cases green before the lanes change; 160 across the four swept files after.
 - **Doc tests** 32 of 32; acceptance entry points green with the new pin.
-- **Full suite and CI**: recorded below once the runs end.
+- **Full suite** on `a8924c3d` (the code of `8b142e85`): `10505 / 10505 /
+  0 / 0` locally (`10494` before; the 11 new cases are PI 24 ×2, PI 25–28,
+  PI 29 ×2, PI 30, PL 1–2).
+- **Required CI**: unit tests 38151391821 on `738277e4` (the same code plus
+  records) `success`; site build 38151359218 on `a8924c3d` `success`
+  (`a8924c3d`'s own unit run, 38151359283, was cancelled by the next push).
 
 ## 7. Fixed, still sequential, live-unverified
 

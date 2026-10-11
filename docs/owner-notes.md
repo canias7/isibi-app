@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: independent tasks inside an Add-on and between Add-on parts run together; purchase lifecycle closed offline; the recovery card follows each purchase's state; every held purchase recovered by itself; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: Add-on designers wait only on the inputs they use; look lanes run together; the operation inventory; earlier rounds' purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,13 +10,60 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`c4fad5d7`** (round 5, independent recovery, on Codex's review of
-  `4079bb38`), with records after (`a631c9b0` and the commit carrying this
-  note). Its predicted image is **`47981cf0b832bfad`** (205 inputs; not
-  built).
-- **Balance 971**, untouched. **Build flags** untouched. fal off limits: every
-  picture in this round was a mock. No paid call, merge, deploy or container
-  build.
+  **`8b142e85`** (round 6, input-scoped Add-on designers and look lanes),
+  pin `a8924c3d`, records after (`738277e4` and the commit carrying this
+  note). Its predicted image is **`9d5c417c92c65f99`** (205 inputs; not
+  built; was `47981cf0b832bfad`).
+- **Balance 971**, untouched. **Build flags**, the 1-page / 15-component
+  limits, untouched. Every provider mocked. No paid call, merge, deploy or
+  container build.
+
+**Round 6** (`8b142e85`; `docs/history/2026-10-11-parallel-dependencies.md`).
+Codex passed 198 focused tests on `adbb7ad7` and reproduced the gap: one
+Add-on with an empty signups table and a static About-page FAQ, both
+orders — both landed, each designer once, but the table's designer had to
+finish before the FAQ's started (schema kinds and `page` blocked every later
+designer by category, and every designer was shown every earlier result).
+- **CI run 38148556722 (job 114496960044)**: BG11 counted event-loop turns
+  before asserting each held reply reached its writer and ran out on the
+  slower runner. It now waits on the writer's arrivals; the assertion is
+  unchanged, no timeout raised.
+- **Fixed — Add-on designers wait by input** (`designWaits`, `aSiteFor`,
+  `aStartReady`): each is shown, and waits for, only what it uses — what
+  the picker says it uses (new required `uses` per scope), kinds asked for
+  in the same words, and the schema chain (table → function → job) by what
+  each is written against. Others start at once on the stored site, told
+  what is not shown, and may answer `needs` to be asked again with it
+  (both calls billed, the first never used). Early answers stay exact-replay
+  checked; no `uses` means the old order.
+- **Fixed — look-door lanes run together** (`eLaneCalls`), each with its
+  own clarification answers; any lane's failure or question still sets the
+  whole step aside.
+- **Evidence** (rendezvous, mocked providers): PI 24 table + FAQ overlap in
+  both orders, the FAQ designer not shown the table, the table made once;
+  PI 25 a form saving into the new table waits and is shown it; PI 26 no
+  `uses` keeps the old order; PI 27 the rule (chain, words, transitive,
+  reader); PI 28 a wrong "uses nothing" caught by `needs`; PI 29 a heading
+  on Visit and a FAQ on About as two parts overlap in both orders with exact
+  replay; PI 30 a question while the other designer answered applies and
+  charges nothing, and the answer resumes it with the table made once; PL 1
+  two lanes together; PL 2 one lane's question sets the step aside. Red on
+  `adbb7ad7` for PI 24 ×2, 27, 28, 30 and PL 1; controls pass. Sweep 16 of
+  16 product mutants killed (15 in the sweep, 1 by the existing lane-answers
+  case), control survived. Full suite `10505 / 10505 / 0 / 0`. CI: unit
+  tests 38151391821 on `738277e4`, site build 38151359218 on `a8924c3d`,
+  both `success`.
+- **Operation inventory** (history §5): what overlaps between parts, inside
+  an Add-on, inside an Edit and in a Build, each with its test.
+- **Still sequential, by reason**: a table/function/API/job addition as its
+  own part (its page writer must return a page and may choose any); look,
+  rules and page steps as parts (unscoped); dispatched rungs inside one edit
+  job (each reads and writes stored state); one Add-on's page writer and its
+  question pausing the whole addition; writes one job at a time.
+- **Live-unverified**: nothing deployed or pressed; whether a real picker
+  fills `uses` and a real designer says `needs` is not shown; the look
+  lanes' real concurrency and provider limits are not measured. **The
+  universal feature is not declared finished.**
 
 **Round 5** (`c4fad5d7`; `docs/history/2026-10-11-parallel-addon.md` §8).
 Codex passed 178 focused tests on `4079bb38`; two mocked reproductions (two
@@ -220,6 +267,27 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 6: Add-on designers wait only on what they use; look lanes run together (offline; not deployed, not pressed)
+
+- **You**: finish the general parallel-work goal across Build, Edit and
+  Add-on: independent tasks do their substantive work at once within the
+  concurrency limit, waiting only on a needed result or a write conflict.
+  First diagnose CI run 38148556722; then fix Codex's table + FAQ
+  rendezvous through a general dependency and input-scoping mechanism;
+  inventory the operations; add focused offline coverage; record fixed,
+  still-sequential and live-unverified gaps.
+- **Done**: `8b142e85` (BG11 waits on arrivals; Add-on designers scoped and
+  started by input; look lanes together), `a8924c3d` (pin
+  `9d5c417c92c65f99`), records `738277e4` and this one.
+- **Verified offline**: red check, sweep 16 of 16, full suite `10505 /
+  10505 / 0 / 0`, CI unit 38151391821 and site build 38151359218 green.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. The table-only addition as a
+  separate part, and look/rules/page steps as parts, still wait (history
+  §7).
 
 ---
 
