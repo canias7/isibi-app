@@ -171,6 +171,9 @@ the renamed inputs. Build and Edit concurrency (`build-parallel`,
 `parallel-independent`, `prepared-scope`) and browser-closed execution
 (`addon-pending-forms`, `addon-queue`) are in it and green.
 
+**CI on `300b56b4`** (the change and its records, one push): unit tests
+38135429070 green; site build 38135429085 green.
+
 ## 4. What stays unverified (live)
 
 - **Nothing here ran against a real model, a real image service or the

@@ -47,7 +47,9 @@ is in git; the dated entries further down are the full story.*
   - red checks against the old code;
   - a sweep: 23 of 24 mutants killed, the one survivor equivalent and
     explained at the code;
-  - full suite `10463 / 10463 / 0 / 0`.
+  - full suite `10463 / 10463 / 0 / 0`;
+  - CI on `300b56b4`: unit tests 38135429070 and site build 38135429085
+    green.
 
 **Still unverified live**: everything above, with a real model and the live
 Worker; whether the real router splits such a message into two parts or
