@@ -58,14 +58,14 @@ focused tests on `6c2d3887` with CI green; round 11's fixes are kept.
   - Sweep (`sweep17`): the first run killed 9 of 15. The 6 survivors were
     paths no case reached, and six cases were added for them (`3a3a313d`).
     The rerun killed **15 of 15**, and the control survived both times.
-  - Full suite `10592 / 10592 / 0 / 0` on `3a3a313d`.
+  - Full suite `10592 / 10592 / 0 / 0` on `3a3a313d`. CI: unit 38185779044
+    and site build 38184558303 `success`.
   - **Consolidated acceptance sweep** over the existing Build/Edit/Add-on
     parallel flows: 37 files, 467 / 467.
     - independent work: 112;
     - genuine dependencies: 92;
     - clarification and resume: 156;
     - partial failure: 107.
-  - CI: see the dated entry.
 - **Remaining work** (history §6):
   - **No open implementation defect** is known in the parallel flows'
     offline behaviour.
@@ -641,7 +641,8 @@ since. Add new ones there.
   - full suite `10592 / 10592 / 0 / 0`;
   - acceptance sweep 467 / 467 across 37 files;
   - doc tests 32/32;
-  - CI: __CI__
+  - CI: unit 38185779044 `success` on `ac7e57d6`; site build 38184558303
+    `success` on `f153bae8`.
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, paid or fal call, or real image. Remaining work is in the
   history's §6.

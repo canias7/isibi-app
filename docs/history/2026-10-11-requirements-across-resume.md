@@ -229,4 +229,4 @@ files are listed in the script kept with the session (`accept12.sh`).
     were killed**.
 - **Full suite** on `3a3a313d`: `10592 / 10592 / 0 / 0` (+17 over round 11's 10575: the 17 RR cases).
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: __CI__
+- **Required CI**: unit tests 38185779044 `success` on `ac7e57d6` (the code of `3a3a313d` plus these records and the pin); site build 38184558303 `success` on `f153bae8`, whose product files `3a3a313d` keeps (site build does not run on a push of documents and tests only); unit 38184558314 on `f153bae8` `success`.
