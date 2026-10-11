@@ -64,7 +64,9 @@ two failures while their controls passed.
   - Full suite `10559 / 10559 / 0 / 0` on `79a94d3f`.
   - Sweep (`sweep15`): 10 of 10 product mutants killed, the comment-only
     control survived.
-  - CI: on `79a94d3f` and the records commit, stamped in the next commit.
+  - CI: unit 38167492883 `success` on `0096c972` (the code of `79a94d3f`),
+    site build 38167153946 `success` on `79a94d3f`; the unit run on
+    `79a94d3f` was cancelled by the newer push, not failed.
 - **Remaining gaps** (history §5):
   - page additions wait on page writes (headlines and photographs);
   - functions, APIs and jobs with no named table are whole-site until
@@ -508,7 +510,7 @@ since. Add new ones there.
   - sweep 10 of 10 (the control survived);
   - full suite `10559 / 10559 / 0 / 0`;
   - doc tests 32/32;
-  - CI stamped in the next commit.
+  - CI unit 38167492883 and site build 38167153946 green.
 - **Corrected**: the broad scope for page additions is a genuine dependency
   (headlines, photographs); the design-first attempt was measured and
   reverted.

@@ -241,7 +241,13 @@ spelling):
   - the route ignoring the job's pages;
   - photographs shown to every designer.
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: on `79a94d3f` and on the records commit, read and stamped in the next commit (in progress at writing).
+- **Required CI**:
+  - unit tests 38167492883 `success` on `0096c972` (the code of `79a94d3f`
+    plus these records and the pin);
+  - site build 38167153946 `success` on `79a94d3f`.
+  - The unit run on `79a94d3f` (38167153958) was `cancelled` by the
+    workflow's own `cancel-in-progress` when `0096c972` was pushed, not by a
+    failure. Site build does not run on a push of documents and tests only.
 
 ## 7. Not verified live
 
