@@ -83,6 +83,8 @@ const textRoute = (first, second, writes0, writes1, page0, page1) => [
 /** Two text parts; part 0's job held inside its model call until part 1's preparation has made its own. */
 async function twoTexts({ slug, route, message, answer0, answer1, check, between = null }) {
   const held = gate();
+  // THE PLATFORM, for an answer that must arm a fault on it mid-job (IND 11).
+  const box = {};
   await withPlatform({
     slug, pages: PAGES, progress: true,
     answers: {
@@ -90,10 +92,11 @@ async function twoTexts({ slug, route, message, answer0, answer1, check, between
       [T.text]: async (args) => {
         if (asked(args).includes(W_HEAD) || asked(args).includes(message.first)) { await within(held.p); await new Promise((ok) => setTimeout(ok, 30)); return answer0(args); }
         held.open();
-        return answer1(args);
+        return answer1(args, box);
       },
     },
   }, async (P) => {
+    box.P = P;
     const r = await sendMessage(P, { message: message.first + ", and " + message.second + "." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const preps = take(P, "request-prep");
@@ -170,6 +173,8 @@ const W_MON = "open the bakery at 8 on Mondays", W_RYE = "make the Dark Rye £5.
 async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE, answer1 = null, rye = 5.5, prepares = true, want = ["done", "done"], check }) {
   const db = bakeryDb();
   const held = gate();
+  // THE PLATFORM, for an answer that must arm a fault on it mid-job (IND 11).
+  const box = {};
   await withPlatform({
     slug, pages: PAGES, db, progress: true,
     answers: {
@@ -180,10 +185,11 @@ async function twoRows({ slug, writes0, writes1, targets = null, second = W_RYE,
       write_row_changes: async (args) => {
         if (asked(args).includes(W_MON)) { await within(held.p, prepares ? 4000 : 300); await new Promise((ok) => setTimeout(ok, 30)); return { changes: [{ table: "hours", id: 1, values: { opens: "08:00" } }] }; }
         held.open();
-        return answer1 ? answer1(args) : { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
+        return answer1 ? answer1(args, box) : { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
       },
     },
   }, async (P) => {
+    box.P = P;
     const r = await sendMessage(P, { message: W_MON + ", and " + second + "." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const preps = take(P, "request-prep");
@@ -447,4 +453,61 @@ test("IND 10 — TEXT: the same for the text step — its scoped answer said nee
       assert.equal(saved.needs, 1);
     },
   });
+});
+
+// ── THE JOB HANDLER ITSELF THROWS AFTER THE SCOPED ANSWER SAID `needs` ──────
+// Round 4 moved the evidence write into the job handler's `finally`, and left
+// it untested with a handler that throws. Here the job's replayed scoped
+// answer says `needs`, its widened call answers, and then the handler throws
+// out of `handleRequest` itself: the edit route's reply throws, and so does
+// the route-level catch's own reply (`Response.json`, made to throw twice for
+// this case only — no product code is touched). The job fails as an escaped
+// throw does ("edit queue: job failed"); the saved evidence and the request
+// view must still say the answer asked.
+test("IND 11 — THE HANDLER THROWS: after the scoped answer said needs, the job handler's own throw escapes handleRequest; the saved job evidence and the request view still say scoped 1, needs 1, and the part is run again as before", async () => {
+  const W_FR = "on the About page make the Our story heading say in French what the Visit page heading says";
+  const orig = Response.json;
+  const errors = [];
+  const origErr = console.error;
+  console.error = (...a) => { errors.push(a.map(String).join(" ")); };
+  let wide = 0, armed = false;
+  try {
+    await twoTexts({
+      slug: slugOf("ht"), route: textRoute(W_HEAD, W_FR, ["page:/visit"], ["page:/about"], "/visit", "/about"),
+      message: { first: W_HEAD, second: W_FR },
+      answer0: (args) => ({ edits: [{ id: lineId(args, "visit.tsx", HEAD), to: HEAD_TO }] }),
+      answer1: (args) => {
+        const line = content(args).split("\n").find((l) => /^\d+\. \[visit\.tsx\] Come to the/.test(l));
+        if (!line) return { needs: true, edits: [] };
+        // THE JOB'S WIDENED CALL (the preparation's is the first): from here
+        // the handler's next two replies throw — the route's, then its catch's.
+        if (++wide === 2 && !armed) {
+          armed = true;
+          let n = 0;
+          Response.json = function () { if (++n >= 2) Response.json = orig; throw new Error("the handler threw"); };
+        }
+        return { edits: [{ id: lineId(args, "about.tsx", "Our story"), to: "Venez" }] };
+      },
+      check: async (P, rec, r, view) => {
+        assert.ok(armed, "the throw was never armed");
+        assert.ok(errors.some((e) => /edit queue: job failed .*the handler threw/.test(e)), "the throw did not escape the handler: " + JSON.stringify(errors.slice(-5)));
+        // RETRIES ARE UNCHANGED: the part's next job ran as it always would.
+        const uses = view.parts[1].prepUse;
+        assert.ok(Array.isArray(uses) && uses.length >= 1, JSON.stringify(view.parts[1]));
+        // THE JOB WHOSE HANDLER THREW: its evidence is saved, and says the answer asked.
+        const thrown = errors.map((e) => /edit queue: job failed ([0-9a-f]{32}) .*the handler threw/.exec(e)).find(Boolean)[1];
+        const u = uses.find((x) => x.job === thrown);
+        assert.ok(u, "no evidence served for the job whose handler threw: " + JSON.stringify(uses));
+        assert.deepEqual({ known: u.known, scoped: u.scoped, needs: u.needs }, { known: true, scoped: 1, needs: 1 }, "the evidence did not survive the handler's throw");
+        assert.ok(uses.some((x) => x.job !== thrown), "the part was not run again after the throw: " + JSON.stringify(uses));
+        const saved = await savedUse(P, thrown);
+        assert.equal(saved.v, 3);
+        assert.equal(saved.scoped, 1);
+        assert.equal(saved.needs, 1);
+      },
+    });
+  } finally {
+    Response.json = orig;
+    console.error = origErr;
+  }
 });

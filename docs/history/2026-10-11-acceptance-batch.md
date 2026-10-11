@@ -1,5 +1,11 @@
 # 2026-10-11 — The final acceptance batch, prepared (not pressed)
 
+> **THIS FILE IS HISTORY, NOT INSTRUCTIONS.** The instructions to follow now,
+> with the current image id (`f9c4097ed179c5f8`), the blocked state and the
+> live proposal, are in [`docs/acceptance-current.md`](../acceptance-current.md).
+> Image ids, stages, budgets and press boxes below are as they stood in each
+> round, kept as written for the record.
+
 > **Corrected by round 3 (`958cd703`, after Codex's review of `542a6c34`).**
 > The spend wall and the per-press ceilings first written here were not
 > bounds: the wall reacted only after charges appeared and could not see
@@ -104,7 +110,9 @@ between reads, so it bounded nothing. It is gone, with its `ceiling` fields.
   step: a heading that must repeat another page's heading, which a step
   shown only its own page cannot know.
 
-## 3. The batch, in order (round 3)
+## 3. The batch, in order (round 3) — HISTORICAL
+
+*Superseded by `docs/acceptance-current.md`; kept as the round-3 record.*
 
 All on **fold-lane-bakery**, in request mode, each buying no image. Each
 row-changing press starts from the table the one before leaves, so a press
@@ -141,7 +149,10 @@ part; a text job 1–2; a data job 1; an add-on with a page 12–18, its
 requirement judgment about 1; a menu step 1–2; a first build 11–45 (the top
 with two photographs, which this one cannot buy).
 
-## 4. What must happen first (the owner's)
+## 4. What must happen first (the owner's) — HISTORICAL
+
+*Superseded: the image id below (`62b0dae10edebdf5`, round 3's prediction) is
+not current. Follow `docs/acceptance-current.md` §5.*
 
 1. Review and approve this batch: the messages, the estimates, the stages.
 2. **Set the repository secret `IMAGE_PURCHASES` to `off`.** **This affects
@@ -165,7 +176,9 @@ with two photographs, which this one cannot buy).
    every paid press above refuses and only the free rehearsals can be
    pressed. Lowering the account's balance is not the step.
 
-## 5. The presses (each the owner's, in order)
+## 5. The presses (each the owner's, in order) — HISTORICAL
+
+*Superseded, image id included. Follow `docs/acceptance-current.md` §5.*
 
 **The probe**, workflow *edit canary*: the routing-only batch box =
 `acceptance-split-1`, spend `yes`. It routes six messages, applies nothing,
@@ -519,7 +532,9 @@ redesign.
   code of `fdc678ca`.
 - **Image prediction**: production `8d6dbcea93252fbb` → `f9c4097ed179c5f8`
   (205 inputs). Not built.
-- **CI**: recorded after the push.
+- **CI on `72c49a5e`** (code plus records, one push, nothing pushed while
+  it ran): unit tests 38129426568 green (5 m 41 s); site build 38129426790
+  green (all eight jobs).
 
 **Remaining blockers**:
 - **No separate test budget exists, so paid acceptance is blocked.** Every
@@ -531,3 +546,37 @@ redesign.
 - Carried: the real router's batching, the model asking for missing context
   and two substantive steps at once are unverified live; real images
   unverified.
+
+## 11. Round 5 — Codex's review of `72c49a5e`: closed, and the last case covered
+
+Codex: 81 focused tests passed, and independent checks confirmed the round-4
+fixes. **The three round-4 findings are closed, verified offline**: the
+probe batch's paid preflight, the Build rehearsal reporting every
+prerequisite, and `needs` evidence kept when the answer arrives.
+
+**The handler-throws case** (round 4's open item) is now covered:
+- **IND 11** (`test/parallel-independent.test.mjs`), text, through the real
+  driver, queue consumer, job and view. The job's replayed scoped answer
+  says `needs`, its widened call answers, and then the handler throws out of
+  `handleRequest` itself: the route's reply throws, and so does the
+  route-level catch's own reply. (`Response.json` is made to throw twice for
+  this case only; no product code is touched.) The job fails as an escaped
+  throw does (*edit queue: job failed … the handler threw*). The saved job
+  evidence (`jobs/prepared/<id>.use.json`, v3) and the request view still say
+  `scoped: 1, needs: 1` for that job. The part is then run again by the
+  existing retry, unchanged.
+- **Red check**: with the evidence write moved back after the `finally` (the
+  placement before round 4), IND 11 fails and IND 9 and 10 still pass.
+  Restored by checksum.
+- **What did not work, for the record**: storage faults after the widened
+  call (failed reads, failed writes, every storage call outside the job's
+  own keys) never made the handler throw. The route catches them, and the
+  part fails as `compile`, with the evidence intact. A genuine escape needed
+  the route's reply and its catch's reply both to fail.
+
+**The instructions are separated from this history**: `docs/acceptance-current.md`
+holds what to follow now (image `f9c4097ed179c5f8`, paid acceptance blocked,
+the minimal live proposal, the spending decision). §3 to §5 here are marked
+historical.
+
+**Commits and results**: see the owner-notes handoff.

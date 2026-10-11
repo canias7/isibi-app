@@ -178,3 +178,15 @@ test("readProbeBatch: an acceptance batch says `acceptance: true`, or leaves it 
   const { acceptance, ...plain } = j; void acceptance;
   assert.equal(readProbeBatch(JSON.stringify(plain), BATCH).batch.acceptance, false);
 });
+
+test("THE CURRENT INSTRUCTIONS ARE KEPT APART FROM THE HISTORY: docs/acceptance-current.md names the current predicted image and no superseded one, says paid acceptance is blocked, and asks for no balance change; the history's instruction sections are marked historical and point to it", () => {
+  const cur = readFileSync(path.join(REPO, "docs/acceptance-current.md"), "utf8");
+  assert.match(cur, /f9c4097ed179c5f8/);
+  for (const old of ["62b0dae10edebdf5", "9547695841a6c5ac"]) assert.ok(!cur.includes(old), `the current instructions still name ${old}`);
+  assert.match(cur, /Paid acceptance is blocked/);
+  assert.match(cur, /Not an option\*\*: lowering or resetting the account's balance/);
+  assert.match(cur, /Real images are unverified/);
+  const hist = readFileSync(path.join(REPO, "docs/history/2026-10-11-acceptance-batch.md"), "utf8");
+  assert.match(hist, /THIS FILE IS HISTORY, NOT INSTRUCTIONS/);
+  for (const h of ["## 3. The batch, in order (round 3) — HISTORICAL", "## 4. What must happen first (the owner's) — HISTORICAL", "## 5. The presses (each the owner's, in order) — HISTORICAL"]) assert.ok(hist.includes(h), `not marked: ${h}`);
+});
