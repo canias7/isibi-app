@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, acceptance round 4: every acceptance entry point refuses above 100, paid acceptance blocked with no test budget; the Build rehearsal reports every prerequisite; the model's `needs` kept when it arrives; nothing pressed)
+## Current handoff — read this first (2026-10-11, acceptance round 5: round 4 closed as verified offline; the handler-throws case covered; current instructions separated from history; one live proposal and the spending decision it needs; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,65 +9,62 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Codex reviewed `23861838`: 66 focused tests, CI green, three gaps
-    reproduced offline.
-  - This round: `fdc678ca` (code), with records after.
-- **fal is funded and off limits.** Nothing bought, nothing retried.
-- **Balance 971**, untouched. No paid call, routing, merge, deploy or
-  container build.
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code `fdc678ca`
+  (round 4); tests and documents `d4689dd2` (this round), with records after.
+  Its predicted image is **`f9c4097ed179c5f8`** (not built).
+- **Balance 971**, untouched; **Build flags** untouched. fal off limits.
+  Real images unverified. No paid call, merge, deploy or container build.
 
-**Paid acceptance is blocked**
-- **No separate test budget exists.** Every paid acceptance entry point (the
-  request presses, the image-free Build and the routing-only probe batch)
-  refuses while the balance is above 100. At your balance of 971, every
-  one of them refuses.
-- **I withdrew the instruction to set your balance to 100.** Lowering or
-  resetting your account's balance is not a test budget, and no record or
-  workflow asks for it any more.
-- Making a real test budget is a billing change, left for another round as
-  you asked. Until then only the free rehearsals can be pressed.
+**Closed, verified offline** (Codex on `72c49a5e`: 81 focused tests, CI
+green, independent checks): the probe batch's paid preflight, the Build
+rehearsal reporting every prerequisite, and `needs` evidence kept when the
+answer arrives.
 
-**This round** (`docs/history/2026-10-11-acceptance-batch.md` §10)
-- **The routing-only probe batch** routed all six messages at 971, checking
-  only a minimum balance. It is now marked as an acceptance batch and uses
-  the same paid preflight as every other acceptance press. At 971 it
-  refuses before any routing call; a rehearsal says what a paid press would
-  refuse on.
-- **The Build's free rehearsal** at 971 used to stop on the balance before
-  reading anything else, so it showed no flags. It now reads every
-  prerequisite (the balance, the slug, the image switch and your account's
-  parallel modes) and **lists every unmet one**. A paid press still refuses
-  on any of them before its one paid call.
-- **"Did the model ask for what it wasn't shown?"**: an answer that said
-  `needs` used to leave no evidence if the follow-up call then failed. It
-  is now noted the moment the answer arrives, and the job's evidence is
-  saved however the job ends. Nothing about execution, retries or charging
-  changed.
+**This round**
+- **CI on `72c49a5e`**: unit tests 38129426568 green; site build 38129426790
+  green (all eight jobs).
+- **The handler-throws case is covered** (IND 11): after the scoped answer
+  said `needs`, the job's handler throws out of `handleRequest`. The saved
+  evidence and the request view still say the answer asked, and the part is
+  retried as before. With the old placement, the test fails.
+- **The instructions you would follow are now one file**,
+  [`docs/acceptance-current.md`](acceptance-current.md), with the current
+  image `f9c4097ed179c5f8`. The batch plan in `docs/history/` is marked as
+  history; its old image `62b0dae10edebdf5` stays there only as the
+  record. A test keeps a superseded image out of the current file.
 
-**Verification (offline)**
-- **New**: the real canary and Build scripts run under in-process network
-  stubs at 971, 96 and 10 (`test/acceptance-entry-points.test.mjs`); the
-  Build rehearsal through `runBuildCheck`; the receipt-time notes for text
-  and data, positive and failing; and IND 9 and IND 10 through the real job
-  and request view, where the saved evidence and the view both say the
-  answer asked.
-- **Red check on `23861838`**: the old canary routed 6 probes at 971; the old
-  Build rehearsal made no runtime read and saved no flags; and the evidence
-  lost the `needs`.
-- **Sweep**: 16 of 16 killed, both controls survived.
-- **Full suite**: `10449 / 10449 / 0 / 0` locally on the code of
-  `fdc678ca`. Doc tests 32 of 32.
-- **Image prediction**: `8d6dbcea93252fbb` → `f9c4097ed179c5f8`, not built.
-- **CI**: recorded after the push.
+**The live proposal** (`docs/acceptance-current.md` §3–§5; not approved)
+- **Two paid presses are necessary**, about **10–30 credits**:
+  - **P1, routing probe `acceptance-split-1`** (6–18): whether the real
+    router splits each message into parts or batches it into one answer.
+  - **P2, `acc-page-table`** (4–12), only if P1 shows parts: a scoped
+    preparation replayed exactly while the other part runs, by recorded
+    intervals, and both changes land. If P1 shows batching for both
+    messages, P2 is skipped and that result is recorded.
+- Optional, not needed for the parallel-work claims: `acc-needs`,
+  `acc-mixed`, and the image-free Build.
+- **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
+  customer while off; P2 needs it), merge (image `f9c4097ed179c5f8`), wait
+  15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
 
-**Remaining blockers**
-- **No separate test budget: paid acceptance is blocked.**
-- The evidence write moved into the job handler's `finally` is not tested
-  with a handler that itself throws; the tested failure is the follow-up
-  model call.
-- Still unverified live: the real router's batching, the model asking for
-  missing context, two substantive steps at once, and real images.
+**The decision you need to make first**: the only enforced bound on any
+paid press is your whole account balance (971), because the server refuses
+only what the balance cannot cover. The presses' 100-credit guard blocks
+them; it is not a budget. Choose:
+- **A.** Accept the balance as the bound for P1 and P2, with a small
+  reviewed opt-in change letting only those two run above 100 when you fill
+  a box naming the balance. Expected 10–30; run 119, the closest past
+  press, spent 12. Neither is a limit.
+- **B.** A separate test budget first (a billing change, for another round);
+  P1 and P2 stay blocked until then.
+- **C.** Nothing live; the parallel-work claims stay verified offline only.
+
+Lowering or resetting your balance is not one of the options.
+
+**Remaining**
+- Paid acceptance blocked pending your decision.
+- Unverified live: the router's batching, scoped exact reuse, the model's
+  `needs`, the image-free Build's overlap, real images.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -76,6 +73,23 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Acceptance round 5: round 4 closed; the handler-throws case covered; current instructions separated (offline; not deployed, not pressed)
+
+- **You**: Codex reviewed `72c49a5e` (81 focused tests, checks confirmed).
+  Close round 4's three findings; record CI; cover the handler-throws case;
+  correct the instructions still naming image `62b0dae10edebdf5`, keeping
+  history apart; give one minimal live proposal and the spending decision.
+- **Closed, verified offline**: round 4's three findings.
+- **Done** (`d4689dd2`): IND 11; `docs/acceptance-current.md`; the batch
+  plan's instruction sections marked historical; a guard on the current
+  image.
+- **Verified offline**: IND 11 red against the old placement; full suite
+  `10451 / 10451 / 0 / 0`; CI on `72c49a5e` green.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, model call or image. fal untouched.
 
 ---
 

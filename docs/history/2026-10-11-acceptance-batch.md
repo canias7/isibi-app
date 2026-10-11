@@ -579,4 +579,9 @@ holds what to follow now (image `f9c4097ed179c5f8`, paid acceptance blocked,
 the minimal live proposal, the spending decision). §3 to §5 here are marked
 historical.
 
-**Commits and results**: see the owner-notes handoff.
+**Commits**: `d4689dd2` (tests and documents), with records after. No product
+code changed; the predicted image stays `f9c4097ed179c5f8`.
+
+**Results**: IND 11 passes, and is red against the old placement; full suite
+`10451 / 10451 / 0 / 0` locally on `d4689dd2`; doc tests 32 of 32. CI on
+`d4689dd2` is recorded in the owner-notes handoff once it completes.
