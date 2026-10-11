@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: Add-on designers wait only on the inputs they use; look lanes run together; the operation inventory; earlier rounds' purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: Add-on designers start when what they use is ready; a clarification redoes only the work it reaches; earlier rounds' input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,13 +10,68 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Code
-  **`8b142e85`** (round 6, input-scoped Add-on designers and look lanes),
-  pin `a8924c3d`, records after (`738277e4` and the commit carrying this
-  note). Its predicted image is **`9d5c417c92c65f99`** (205 inputs; not
-  built; was `47981cf0b832bfad`).
+  **`9070e706`** (round 7, the scheduler and continuation), pin
+  `acdf4748`, records after. Its predicted image is **`4b8665dd0256e3f9`**
+  (205 inputs; not built; was `9d5c417c92c65f99`).
 - **Balance 971**, untouched. **Build flags**, the 1-page / 15-component
-  limits, untouched. Every provider mocked. No paid call, merge, deploy or
-  container build.
+  limits, untouched. Every provider mocked. No paid call, fal call, merge,
+  deploy or container build. Explanations stay model-written.
+
+**Round 7** (`9070e706`; `docs/history/2026-10-11-scheduler-continuation.md`).
+Codex passed 188 focused tests on `44344896` with CI green. **Closed as fixed
+offline**: the table + FAQ overlap (PI 24) and BG11. Two mocked cases showed
+false dependencies that remained, and two existing cases encoded redone work:
+- **Fixed — no dependency by category**: a pure function (reads no table) no
+  longer waits for a table beside it; `designWaits` no longer chains every
+  schema kind to the ones before it. A function over a new table, or a job
+  running a new function, waits because it says it uses it (and `needs`
+  still catches a wrong "uses nothing").
+- **Fixed — a designer starts when what it uses is ready**, not when the
+  loop reaches it in kind order: each early answer is checked as it lands;
+  a usable result is ready for its dependents, which start at once while
+  unrelated work (a slow table) is still out. Official results still come in
+  order and an early answer is used only on an exact request match; a
+  hand-off waits for its giver's turn; nothing is started twice.
+- **Fixed — a question redoes only what it reaches**: every request job
+  keeps the answers it got; the part's next job replays every unchanged
+  call (uncharged earlier jobs only, so nothing is billed twice). The
+  question names its asker, and the answer is shown only to that call,
+  what uses its result, and the judge/page writer — so unrelated finished
+  work sends the same request and is replayed. A step ending on a question
+  first lets work in flight finish so it is kept. Saved answers are
+  validated by the exact request, which carries every input the call used.
+- **Evidence** (mocked providers, real driver/queue/routes): SCH 1 table +
+  pure function + FAQ meet, both orders; SCH 2 the component starts on the
+  page while the slow table is held (released by the component), both
+  orders; SCH 3 genuine table → function → job chains keep their order;
+  SCH 4 a page question after which the page and its component are asked
+  again and the table replayed; PI 30 the table designer called once in all
+  after the component's question; PI 31 the same with every message
+  redelivered; PI 21 the held-purchase re-run replays the picker and
+  designers; PL 2 the other look lane's finished answer replayed. Red on
+  `44344896`: exactly SCH 1 ×2, SCH 2 ×2, SCH 4, PI 21, PI 27, PI 30, PI 31,
+  PL 2; SCH 3 and every other case pass. Sweep: 13 of 14 product mutants
+  killed, control survived; three first survivors were test gaps, closed by
+  **SCH 5** (the table asks while a slow page designer is out: the page's
+  answer is kept, nothing starts after the step ends) and picker counts in
+  PI 30 and SCH 4; the one survivor (earlier *charged* jobs staged too) is
+  unreachable today — every re-run follows an uncharged job — and is kept as
+  the double-billing guard. Full suite `10513 / 10513 / 0 / 0` on
+  `9070e706`'s code. CI on `acdf4748`: unit tests 38154478033 and site
+  build 38154478000 `success`; CI on the records commit (SCH 5 and the picker counts) is read after its push.
+- **Broad scopes reviewed** (history §4): necessary — writes one job at a
+  time, real output dependencies, one publish per addition, the logo's
+  shared frame. Implementation gaps — a schema-only addition as its own
+  part (its page writer may write any page), look and rules steps as parts
+  (unscoped), the page step shown sibling pages in full, dispatched rungs'
+  model work in one edit job, ready designers not started once a question
+  ends the loop, and the add-on page writer unable to ask.
+- **Behaviour note**: the old "question from the picker after a held
+  purchase" path no longer happens — the re-run replays the picker.
+- **Live-unverified**: nothing deployed or pressed; whether a real picker
+  fills `uses` well enough, how often provisional results match the official
+  ones (a mismatch costs a fresh call), and provider concurrency limits are
+  unmeasured. **The universal feature is not declared finished.**
 
 **Round 6** (`8b142e85`; `docs/history/2026-10-11-parallel-dependencies.md`).
 Codex passed 198 focused tests on `adbb7ad7` and reproduced the gap: one
@@ -267,6 +322,31 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 7: designers start when what they use is ready; a question redoes only what it reaches (offline; not deployed, not pressed)
+
+- **You**: one combined scheduler and continuation batch. Close the table +
+  FAQ overlap and BG11 as fixed offline; fix two mocked false dependencies
+  (a pure function waiting for a table; a component on a new page waiting
+  for an unrelated slow table) by readiness and scoped inputs, keeping real
+  dependencies; fix continuation so PI 30 does not redo the table designer
+  and PL 2 keeps the other lane's answer; failing-first tests; review the
+  documented broad scopes; mock every provider; commit, push, record.
+- **Done**: `9070e706` (scheduler, continuation, `by`-scoped answers, tests),
+  `acdf4748` (pin `4b8665dd0256e3f9`), and the records commit carrying this
+  entry.
+- **Verified offline**: red check on `44344896` (exactly the 10 new or
+  rewritten cases fail; SCH 3 and the rest pass), sweep 13 of 14 (one
+  unreachable survivor, SCH 5 added for three), full suite
+  `10513 / 10513 / 0 / 0`, CI unit 38154478033 and site build
+  38154478000 green on `acdf4748`; CI on the records commit (SCH 5 and the picker counts) is read after its push.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, real model call or real image. Remaining gaps are listed in the
+  history's §4 (schema-only additions as parts, unscoped look/rules steps,
+  sibling pages shown in full, rungs in one edit job, no starts after a
+  question ends the loop, the add-on page writer cannot ask).
 
 ---
 

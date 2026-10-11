@@ -1001,14 +1001,14 @@ test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started 
   const { rowsDb } = await import("./fixtures/rows-db.mjs");
   const first = rendezvous(["add:table", "add:component"]);
   const db = rowsDb({ tables: {} });
-  let compN = 0, tableN = 0;
+  let compN = 0, tableN = 0, pickN = 0;
   const compAsked = [];
   const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
   await withPlatform({
     slug: slugOf("p30"), pages: PAGES, replies: true, balance: 400, db,
     answers: {
       route: { intent: "addon" },
-      [T.adds]: { kinds: ["table", "component"], scopes },
+      [T.adds]: async () => { pickN++; return { kinds: ["table", "component"], scopes }; },
       "add:table": async () => { tableN++; await first.arrive("add:table"); return SIGNUPS_TABLE; },
       "add:component": async (args) => {
         compN++;
@@ -1036,6 +1036,7 @@ test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started 
     assert.ok(P.page("about.tsx").includes("Do you deliver?"));
     // ONLY THE WORK THE ANSWER REACHES WAS ASKED AGAIN.
     assert.equal(tableN, 1, "the table's finished design was asked of a model again");
+    assert.equal(pickN, 1, "the picker, which the answer does not reach, was asked again");
     assert.equal(compN, 2);
     assert.match(compAsked[1], /After/, "the questions designer was not shown the answer");
     // ONE CHARGE: the replayed design is billed once, by the job that used it.
