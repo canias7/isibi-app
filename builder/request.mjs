@@ -1246,7 +1246,15 @@ export function nextStep(record, rows = {}, now = Date.now()) {
       // AN ATTEMPT A CONSUMER TOOK AND NEVER ANSWERED is named on the new one
       // (`prev`): what it recorded is reused, and a purchase it began and never
       // finished is never made again blindly (the Worker reads its notes).
-      const prev = prepFor(p) && p.prep.state === "running" ? p.prep.seq : (prepFor(p) && Number.isInteger(p.prep.prev) ? p.prep.prev : null);
+      // …AND AN ATTEMPT MADE FOR THE STEP BEFORE (2026-10-11, the evidence
+      // reconciliation): a part prepared while it was still to be routed has
+      // its step's calls already answered; once its routing ran and it moved to
+      // its step, it is prepared again — naming that attempt, so its answers
+      // are replayed (each only for a byte-identical request) and never asked
+      // of the model a second time.
+      const prev = prepFor(p) && p.prep.state === "running" ? p.prep.seq
+        : (prepFor(p) && Number.isInteger(p.prep.prev) ? p.prep.prev
+          : (p.prep && !prepFor(p) && p.prep.state === "done" && Number.isInteger(p.prep.seq) ? p.prep.seq : null));
       // THE ATTEMPT IT REPLACES IS KEPT AS EVIDENCE (2026-10-09, run 117's
       // diagnosis): when it was sent, taken and answered, and its step —
       // never lost to the new claim (`prepPast`, the last PREP_PAST_KEPT).
@@ -1358,9 +1366,12 @@ export function routedForPrep(record, n, read) {
 /** A preparation's step interval, read strictly: `{ from, to, calls }` with from <= to, or null. */
 export function readPrepStep(step) {
   if (!step || typeof step !== "object") return null;
-  const { from, to, calls } = step;
+  const { from, to, calls, replayed } = step;
   if (!Number.isFinite(from) || !Number.isFinite(to) || to < from || !Number.isInteger(calls) || calls < 0) return null;
-  return { from, to, calls };
+  // `calls` ARE MODEL CALLS MADE (2026-10-11); answers replayed from an earlier
+  // attempt are kept apart (`replayed`), so a step that only replayed is never
+  // read as model work done beside another job.
+  return { from, to, calls, ...(Number.isInteger(replayed) && replayed > 0 ? { replayed } : {}) };
 }
 
 /**

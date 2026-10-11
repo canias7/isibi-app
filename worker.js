@@ -18179,7 +18179,7 @@ function prepAttempt(env, { slug, key, n, seq, owner, prev }) {
       }),
     };
   };
-  return { live, pk, save, phase, unknown };
+  return { live, pk, save, phase, unknown, replayedRun: () => carried.run.used().calls };
 }
 
 /**
@@ -18276,7 +18276,10 @@ async function runRequestPrep(env, ctx, task) {
       const at = await loadRequest(env, slug, key);
       if (!at.rec) return;
       const ok = stored && outcome !== "error" && outcome !== "uncertain";
-      const step = stepAt !== null && stepEnd !== null ? { from: stepAt, to: stepEnd, calls: kept.run.calls.length } : null;
+      // THE STEP'S MODEL CALLS, NOT ITS ANSWERS (2026-10-11): an answer replayed
+      // from the attempt before was asked of no model now, and is counted apart.
+      const replayed = A.replayedRun();
+      const step = stepAt !== null && stepEnd !== null ? { from: stepAt, to: stepEnd, calls: Math.max(0, kept.run.calls.length - replayed), ...(replayed > 0 ? { replayed } : {}) } : null;
       const { record, kept: mine } = notePrepared(at.rec, n, seq, { ok, outcome, key: stored ? A.pk : null, calls, images, owner, step });
       // NOT OURS ANY MORE (taken again after our time ran out): a later
       // attempt's result is never replaced by this one.
