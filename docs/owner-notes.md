@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, prepared answers reused only by exact replay of what the model saw; every call counted; offline, not deployed)
+## Current handoff — read this first (2026-10-11, the final acceptance batch prepared: evidence-reading verdicts, an enforced image switch, five image-free presses ready for your approval; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,75 +10,98 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Codex reviewed `1694dc88`: 65 focused tests passed, and two defects
-    were found.
-  - This round: `c5f4cb45` (the code), with records after.
-- **fal is funded and off limits**: no real image generation and no image
-  retries, mocks only. Real images stay unverified.
-- **Balance 971**, untouched.
+  - Codex verified `5504bb55`: 164 focused tests, CI green. **The
+    stale-value correction and the image-only counting are closed, verified
+    offline.**
+  - This round: `1e853d92` (code), with records after.
+- **fal is funded and off limits.** Nothing bought, nothing retried.
+- **Balance 971**, untouched. No paid call, merge, deploy or container build.
 
-**This round** (`docs/history/2026-10-11-exact-reuse.md`)
-- **The lexical re-base is removed.** It applied 7 where 6 was correct in
-  Codex's reproduction (Monday's opening 09:00 → 08:00, the Dark Rye two
-  pounds less than that hour, the read omitted), and recorded it as
-  re-based. My earlier claim that its word checks prevent wrong reuse was
-  false; the previous history file now says so at the top.
-- **Reuse now rests on exactly what the model was shown.**
-  - A prepared text or data step is shown only the pages or tables its
-    route names, plus the names of the rest. The text step also sees
-    word-for-word copies of its lines on other pages.
-  - It can answer `needs` when the request depends on anything it wasn't
-    shown. It is then asked again with the whole site, as it is when its
-    job runs.
-  - The preparation and the job send the same scoped request, so only an
-    exact replay reuses an answer. Writing jobs run one at a time in order,
-    so that fresh call comes after the work it depends on.
-- **Independent work still overlaps and reuses**: separate pages, and
-  separate tables, are replayed exactly with no second call.
-- **The replayer counts every call.** With nothing recorded, or only
-  pictures, a fresh call is counted (it was left at 0).
-- **Evidence**: every request job records `staged` (yes, no or
-  unreadable), `replayed`, `rebased` (always 0 now) and `fresh`. The view
-  serves a job with no evidence as `known: false`, with no counts, never
-  zeros.
-- **Unchanged**: Build's limits and flags, publication one job at a time,
-  recovery, questions, progress.
+**This round** (`docs/history/2026-10-11-acceptance-batch.md`)
+- **The image-purchase switch, in the execution path**:
+  - `IMAGE_PURCHASES=off` refuses every photograph at the single point where
+    one is bought, before the image service is asked, in the Worker and in
+    container jobs;
+  - the runtime route reports it;
+  - **production keeps buying photographs until you set the secret** (the
+    deploy falls back to `on`);
+  - every acceptance press refuses to send unless the live Worker reports it
+    off.
+- **The press's verdicts now read each job's own evidence**:
+  - every run job must have known, whole-number counts;
+  - exact reuse is told apart from a fresh model call;
+  - missing evidence fails, never counts as zero;
+  - concurrency is still judged by recorded intervals, and every requested
+    change is still checked in the final state.
+- **A spend wall**: once a press's spend reaches its budget while a request
+  runs, it presses the request's own Stop. The most it can spend is its
+  ceiling (the budget plus its largest single job).
+- **The batch, prepared and not pressed**. All on the bakery, no images,
+  run in order:
+
+  | Order | Scenario | What it tests | Budget | Ceiling |
+  |---|---|---|---|---|
+  | 1 | `acc-page-table` | a heading and a price | 12 | 14 |
+  | 2 | `acc-table-page` | a price and a heading, tab closed, fresh session | 12 | 14 |
+  | 3 | `acc-needs` | the real-model case: does the model ask for missing context instead of guessing? **Unverified until run** | 14 | 17 |
+  | 4 | `acc-mixed` | a new page, its menu link that waits for it, and a price | 34 | 53 |
+  | 5 | Build `check-no-images` | an image-free first Build | funds 40 | one build charge |
+
+  **About 40–90 credits** expected in all; the four request presses can
+  spend at most 98.
+- **Why a heading beside a price**: the live router does not split two
+  headings, or two prices, into separate parts. One step makes both, so
+  there is nothing to run in parallel. Independent work is therefore a
+  heading beside a price. Neither demo site has a second display table, so
+  the real-model case uses another page's heading.
+
+**What you would do, in order** (the plan file has every box)
+1. Approve the batch.
+2. Set the secret `IMAGE_PURCHASES` = `off`.
+3. Merge the branch (one deploy; the image rolls to `9547695841a6c5ac`,
+   predicted, not built).
+4. Wait 15–20 minutes.
+5. Press the free runtime check. It must show the new sha, the new image and
+   `imagePurchases=false`.
+6. Press `acc-page-table`, `acc-table-page`, `acc-needs` and `acc-mixed` on
+   *edit canary* (spend yes), then `check-no-images` on *build as owner*
+   (spend yes). Stop at the first failure.
+7. Afterwards, decide whether to put `IMAGE_PURCHASES` back to `on`. While
+   it is off, no customer build gets photographs.
 
 **Verification (offline)**
-- **New regressions**: Codex's stale numeric case (now 6), a dependency
-  with no shared words, incomplete dependency declarations, an image-only
-  preparation, missing evidence, plus the independent/concurrent and
-  dependent/ordered controls. A new pure test file covers the rules one by
-  one.
-- **Red check on `1694dc88`**: the stale case fails with `actual: 7`, the
-  French case applies the stale text, the image-only case records
-  `fresh: 0`.
-- **Sweep**: 27 of 27 killed, and the comment control survived.
-- **Related suites**: 577 of 577. **Doc tests**: 32 of 32.
-- **Full suite**: `10405 / 10405 / 0 / 0` locally.
-- **CI on `178fd0a7`** (code plus records, one push, nothing pushed while
-  it ran): unit tests 38120608188 green (5 m 19 s); site build 38120608244
-  green (all nine jobs).
-- **Image**: production `8d6dbcea93252fbb` → `771ff668c8624677` (205
-  inputs). Not built.
+- **New**: the acceptance rehearsal (13 cases, through the real canary
+  driver, with negative controls for missing concurrency, missing or
+  unreadable evidence, fresh-instead-of-exact, a requested change never
+  made, the image guard and the spend wall); the image-free Build (+4); the
+  switch through the real request flow (3).
+- **Red check on `5504bb55`**: with the switch off, the photograph was still
+  asked of the provider (`actual: 1`).
+- **Sweep**: 24 of 24 killed, and the comment control survived.
+- **Related suites**: the canary files 595 of 595 (with the new
+  rehearsal) and the Build file 21 of 21. Doc tests 32 of 32.
+- **Full suite**: `10405 → 10425`, `10425 / 10425 / 0 / 0` locally on the code
+  of `1e853d92`.
+- **CI**: on the push of the code and these records together; read after
+  it finishes and recorded in a records-only update.
 
-**Remaining gaps**
-- **`needs` is shown only with supplied answers.** Whether a real model
-  says `needs` instead of guessing is not measured. A guess would be wrong
-  for lack of context, not a stale reuse.
-- **A step that says `needs` also asks the whole site during its
-  preparation**, a call its job can't reuse once the site has changed.
-- **Text scoping shows only word-for-word copies** on other pages. The same
-  thing written differently is left to `needs`.
-- **Scoping covers only prepared text and data steps.** Writes stay
-  serialized.
-- **Nothing is deployed or pressed.** The canary does not yet read
-  `prepUse`.
+**Remaining completion criteria**
+- **The batch run live**, with each press passing:
+  - concurrency by intervals;
+  - known, valid evidence with exact reuse where asked;
+  - every requested change in the final state;
+  - no image bought;
+  - spend inside the ceiling.
+- **The real model's answer** to missing context, recorded as one
+  observation, not a rate.
+- **The Build's overlap** must show by bands or design agents on the live
+  flags.
 - **Carried**:
-  - two substantive steps at once has never run live;
-  - Add-on and first Build have no passing parallel press (photo presses
-    are off limits);
-  - real images are unverified.
+  - real images unverified;
+  - two substantive steps at once never shown live;
+  - no server-side cap per request beyond the balance (the spend wall is the
+    press's);
+  - the Build is one charge the press cannot stop part way.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -87,6 +110,31 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — The final acceptance batch prepared; image purchases switchable in the execution path (offline; not deployed, not pressed)
+
+- **You**: Codex verified `5504bb55` (164 focused tests, CI green). Close the
+  stale-value and image-only counting corrections. Prepare the final
+  acceptance batch on the existing harness:
+  - verdicts that read per-job evidence and reject missing evidence;
+  - image-free scenarios and one real-model case, left unverified until run;
+  - offline rehearsal with negative controls;
+  - the image restriction enforced in code;
+  - commands, deploy requirements, costs and caps for your approval.
+- **Closed, verified offline**: the exact-reuse correction (`c5f4cb45`) and
+  its records.
+- **Done** (`1e853d92`):
+  - `IMAGE_PURCHASES` switch, the runtime report and the press's refusal;
+  - `reuseVerdict` and `needsObservation`;
+  - the spend wall;
+  - four request scenarios and the image-free Build check;
+  - the plan in `docs/history/2026-10-11-acceptance-batch.md`.
+- **Verified offline**: the rehearsal and its controls, a red check on
+  `5504bb55`, a sweep (24 of 24), the related suites and the full suite.
+- **Not done**: any press, merge, deploy, container build, model call or
+  image.
 
 ---
 
