@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the final acceptance batch prepared: evidence-reading verdicts, an enforced image switch, five image-free presses ready for your approval; nothing pressed)
+## Current handoff — read this first (2026-10-11, acceptance batch round 3: the false spending guarantees removed; the balance is the only bound; Build prerequisites checked first; the real router's batching probed first; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,99 +10,98 @@ is in git; the dated entries further down are the full story.*
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged.
-  - Codex verified `5504bb55`: 164 focused tests, CI green. **The
-    stale-value correction and the image-only counting are closed, verified
-    offline.**
-  - This round: `1e853d92` (code), with records after.
+  - Codex reviewed `542a6c34`: 58 focused tests, CI green; the image-purchase
+    guard and the `prepUse` evidence checks verified, and kept.
+  - This round: `958cd703` (code), with records after.
 - **fal is funded and off limits.** Nothing bought, nothing retried.
 - **Balance 971**, untouched. No paid call, merge, deploy or container build.
 
-**This round** (`docs/history/2026-10-11-acceptance-batch.md`)
-- **The image-purchase switch, in the execution path**:
-  - `IMAGE_PURCHASES=off` refuses every photograph at the single point where
-    one is bought, before the image service is asked, in the Worker and in
-    container jobs;
-  - the runtime route reports it;
-  - **production keeps buying photographs until you set the secret** (the
-    deploy falls back to `on`);
-  - every acceptance press refuses to send unless the live Worker reports it
-    off.
-- **The press's verdicts now read each job's own evidence**:
-  - every run job must have known, whole-number counts;
-  - exact reuse is told apart from a fresh model call;
-  - missing evidence fails, never counts as zero;
-  - concurrency is still judged by recorded intervals, and every requested
-    change is still checked in the final state.
-- **A spend wall**: once a press's spend reaches its budget while a request
-  runs, it presses the request's own Stop. The most it can spend is its
-  ceiling (the budget plus its largest single job).
-- **The batch, prepared and not pressed**. All on the bakery, no images,
-  run in order:
+**What I got wrong last round, and what replaces it**
+- **The spend wall and the ceilings were not limits.** The wall acted only
+  after a charge showed up, and could miss several jobs finishing between
+  two reads; each ceiling was a past job cost that nothing enforced. The
+  image-free Build would have sent from your balance of 971, and its money
+  check passed a build charged 60 against an estimate of 40. All removed.
+- **The only enforced bound is the account balance.** The server takes every
+  charge in one statement that refuses what the balance cannot cover, so a
+  balance of B can lose at most B, whatever runs, retries or is prepared at
+  once, with no browser or test runner involved. Every acceptance press and
+  the Build now **send nothing while the balance is above 100**. **You set it
+  to exactly 100 before each stage**; if you don't, they refuse and paid
+  acceptance stays blocked.
+- **A press that spends more than its estimate now fails its own check.**
+  Nothing stops it part way: the balance does.
 
-  | Order | Scenario | What it tests | Budget | Ceiling |
-  |---|---|---|---|---|
-  | 1 | `acc-page-table` | a heading and a price | 12 | 14 |
-  | 2 | `acc-table-page` | a price and a heading, tab closed, fresh session | 12 | 14 |
-  | 3 | `acc-needs` | the real-model case: does the model ask for missing context instead of guessing? **Unverified until run** | 14 | 17 |
-  | 4 | `acc-mixed` | a new page, its menu link that waits for it, and a price | 34 | 53 |
-  | 5 | Build `check-no-images` | an image-free first Build | funds 40 | one build charge |
+**This round** (`docs/history/2026-10-11-acceptance-batch.md` §9)
+- **The Build checks its prerequisites first.** It reads your account's own
+  flags and refuses, at no cost, unless one image-free parallel mode is
+  already on (`design`, `graph` or bands for everyone). Nothing is switched
+  on to make it pass; its page and component limits are unchanged.
+- **The batch follows the real router.** A routing-only probe
+  (`acceptance-split-1`, nothing applied) asks the router every message
+  first, and says for each whether it was **batched** (one answer, one step
+  for every change: not parallel work) or made **parts**. A new press,
+  `acc-pages-real`, sends two headings on two pages and demands no
+  concurrency: it records what the router did. The heading-and-price presses
+  run only if the probe shows the router splitting them. Concurrency is
+  claimed only from recorded intervals between parts.
+- **"Did the model ask for what it wasn't shown?" is read from its own
+  answer**: each job now counts the scoped answers its steps took and how
+  many said `needs`. An extra model call alone no longer counts as asking.
+- **Table/table**: neither demo site has two tables visitors can read, so
+  it is probed through routing only (two rows of one table).
 
-  **About 40–90 credits** expected in all; the four request presses can
-  spend at most 98.
-- **Why a heading beside a price**: the live router does not split two
-  headings, or two prices, into separate parts. One step makes both, so
-  there is nothing to run in parallel. Independent work is therefore a
-  heading beside a price. Neither demo site has a second display table, so
-  the real-model case uses another page's heading.
+**The batch, in two stages** (estimates, not limits)
+
+| Stage | Press | Estimate |
+|---|---|---|
+| 1 | routing probe `acceptance-split-1` | 6–18 |
+| 1 | `acc-pages-real` (two headings, two pages) | 2–8 |
+| 1 | `acc-page-table`, only if the probe made parts | 4–12 |
+| 1 | `acc-table-page`, only if the probe made parts (tab closed, fresh session) | 4–12 |
+| 1 | `acc-needs` (the model's answer to missing context, unverified) | 4–14 |
+| 2 | `acc-mixed` (a new page, its waiting menu link, a price) | 17–34 |
+| 2 | Build `check-no-images` | 11–40 |
+
+About 48–138 in all. **Each stage spends at most 100** (the balance you
+set), so at most 200 if both run in full.
 
 **What you would do, in order** (the plan file has every box)
 1. Approve the batch.
-2. Set the secret `IMAGE_PURCHASES` = `off`.
-3. Merge the branch (one deploy; the image rolls to `9547695841a6c5ac`,
-   predicted, not built).
-4. Wait 15–20 minutes.
-5. Press the free runtime check. It must show the new sha, the new image and
-   `imagePurchases=false`.
-6. Press `acc-page-table`, `acc-table-page`, `acc-needs` and `acc-mixed` on
-   *edit canary* (spend yes), then `check-no-images` on *build as owner*
-   (spend yes). Stop at the first failure.
-7. Afterwards, decide whether to put `IMAGE_PURCHASES` back to `on`. While
-   it is off, no customer build gets photographs.
+2. Set the secret `IMAGE_PURCHASES` = `off`. **This stops photographs for
+   every customer while it is off, not only the tests.**
+3. Merge the branch (one deploy; the image rolls to `62b0dae10edebdf5`,
+   predicted, not built). Wait 15–20 minutes.
+4. Press the free runtime check: the new sha, the new image,
+   `imagePurchases=false`. For the Build, its free rehearsal (spend not yes)
+   shows whether a parallel mode is on.
+5. Set the balance to exactly 100. Press stage 1 in order; stop at the first
+   failure.
+6. Set the balance to exactly 100 again. Press stage 2.
+7. Decide whether to put `IMAGE_PURCHASES` back to `on`.
 
 **Verification (offline)**
-- **New**: the acceptance rehearsal (13 cases, through the real canary
-  driver, with negative controls for missing concurrency, missing or
-  unreadable evidence, fresh-instead-of-exact, a requested change never
-  made, the image guard and the spend wall); the image-free Build (+4); the
-  switch through the real request flow (3).
-- **Red check on `5504bb55`**: with the switch off, the photograph was still
-  asked of the provider (`actual: 1`).
-- **Sweep**: 24 of 24 killed, and the comment control survived.
-- **Related suites**: the canary files 595 of 595 (with the new
-  rehearsal) and the Build file 21 of 21. Doc tests 32 of 32.
-- **Full suite**: `10405 → 10425`, `10425 / 10425 / 0 / 0` locally on the code
-  of `1e853d92`.
-- **CI on `aa02672f`** (code plus records, one push, nothing pushed while
-  it ran): unit tests 38123355384 green (4 m 56 s); site build 38123355338
-  green (all eight jobs).
+- **New**: the spending bound through the real request flow with no browser
+  (charges far above every estimate, room for one job with every message
+  delivered twice); late, lost and coarse polling; several completions
+  between reads; the Build's prerequisites; the router's shape; direct
+  `needs` evidence through the real Worker path.
+- **Red check on `542a6c34`**: the Build sends at 971; the money check passes
+  60 against 40; the scenarios carry ceilings and no cap.
+- **Sweep**: 27 of 27 killed, both controls survived.
+- **Related suites** 1,652 of 1,652; doc tests 32 of 32.
+- **Full suite**: `10434 / 10434 / 0 / 0` locally on the code of
+  `958cd703`.
+- **CI**: recorded after the push.
 
-**Remaining completion criteria**
-- **The batch run live**, with each press passing:
-  - concurrency by intervals;
-  - known, valid evidence with exact reuse where asked;
-  - every requested change in the final state;
-  - no image bought;
-  - spend inside the ceiling.
-- **The real model's answer** to missing context, recorded as one
-  observation, not a rate.
-- **The Build's overlap** must show by bands or design agents on the live
-  flags.
-- **Carried**:
-  - real images unverified;
-  - two substantive steps at once never shown live;
-  - no server-side cap per request beyond the balance (the spend wall is the
-    press's);
-  - the Build is one charge the press cannot stop part way.
+**Remaining gaps**
+- No per-request or per-press cap on the server: the bound is the balance
+  you set.
+- The real router's batching, and the model asking for missing context, are
+  unverified until pressed (one sample each).
+- If none of the Build's parallel modes is on for your account, the Build
+  stays unrun.
+- Real images unverified; two substantive steps at once never shown live.
 
 No top-up, paid call, merge, deploy or container build without your word.
 
@@ -111,6 +110,31 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Acceptance batch round 3: the spending claims corrected (offline; not deployed, not pressed)
+
+- **You**: Codex reviewed `542a6c34` (58 focused tests, CI green). Keep the
+  image guard and the `prepUse` checks. Remove the false spending
+  guarantees and give an actually enforced bound, or leave paid acceptance
+  blocked. Make the image-free Build check its prerequisites before
+  spending. Follow the real router for page/page and table/table, keep
+  batching, unsupported cases and verified concurrency apart, and record
+  the model asking for missing context only from direct evidence.
+- **Corrected**: my previous entry and handoff claimed a spend wall and
+  per-press ceilings. **They were not bounds**, and are withdrawn. The
+  enforced bound is the account balance, which every press now requires to
+  be at most 100.
+- **Done** (`958cd703`): the cap on every acceptance press and on the Build;
+  the Build's money check and each press failing above their estimate; the
+  Build's flags read before paying; the router's shape recorded and a
+  routing probe batch; `acc-pages-real`; the per-job `scoped` and `needs`
+  counts.
+- **Verified offline**: red check on `542a6c34`, sweep 27 of 27, related
+  suites, full suite `10434 / 10434 / 0 / 0`.
+- **Not done**: any press, merge, deploy, container build, model call or
+  image. fal untouched.
 
 ---
 
@@ -129,7 +153,7 @@ since. Add new ones there.
 - **Done** (`1e853d92`):
   - `IMAGE_PURCHASES` switch, the runtime report and the press's refusal;
   - `reuseVerdict` and `needsObservation`;
-  - the spend wall;
+  - the spend wall (withdrawn in round 3: it bounded nothing);
   - four request scenarios and the image-free Build check;
   - the plan in `docs/history/2026-10-11-acceptance-batch.md`.
 - **Verified offline**: the rehearsal and its controls, a red check on
