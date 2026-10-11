@@ -1201,3 +1201,12 @@
   - real-image generation stays explicitly **unverified** in every record;
   - the prepared photograph recovery and paid Build check wait without
     blocking anything else.
+- **fal HAS been topped up, and that balance is off limits** (2026-10-11,
+  correcting "fal is not being topped up"): *"I HAVE topped up fal, but that
+  balance is off limits; skip real image generation and image retries, use
+  mocks, and keep real images explicitly unverified."* So:
+  - never say fal is unfunded or empty; it is funded, and not to be spent;
+  - no real image generation and no image retries, in tests, canaries or
+    live presses, until you say otherwise;
+  - image work is tested offline with mocks only;
+  - real images stay explicitly **unverified** in every record.
