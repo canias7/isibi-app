@@ -95,6 +95,7 @@ test("prepScope: a text step's named pages and a data step's named tables — an
   assert.deepEqual(stepInputs(part("text", [], "/about")), ["pages"]);
   assert.equal(prepScope(part("data", ["data:loaves", "menu"])), null, "a write beyond tables");
   assert.equal(prepScope(part("rules", ["data:loaves"])), null, "rules are never narrowed");
+  assert.equal(prepScope({ ...part("text", ["page:/about"], "/about"), targets: { writes: ["page:/about"], reads: ["page:/visit"] } }), null, "a step that declares it reads another page");
   assert.equal(prepScope(part("look", ["identity"])), null);
   assert.equal(prepScope({ ...part("text", ["page:/about"], "/about"), phase: "route" }), null, "a part still to be routed");
 });

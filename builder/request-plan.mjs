@@ -151,6 +151,9 @@ export function prepScope(part) {
   const t = part.targets && typeof part.targets === "object" ? part.targets : {};
   const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
   if (!named.length) return null;
+  // A STEP THAT DECLARES IT READS SOMETHING ("make the About line match the
+  // Visit heading") depends on what it reads: never narrowed.
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
   if (layer === "text") {
     if (!named.every((w) => w.startsWith("page:"))) return null;
     // A TEXT STEP THE ROUTER NAMED ONE PAGE FOR, and the route's own page, are
