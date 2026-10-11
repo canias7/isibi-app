@@ -54,7 +54,9 @@ is in git; the dated entries further down are the full story.*
 - **Sweep**: 18 of 18 killed, and the comment control survived.
 - **Related suites**: 414 of 414.
 - **Full suite**: `10394 / 10394 / 0 / 0` locally.
-- **CI**: one push carries code and records; recorded when it ends.
+- **CI on `e0e20e7e`** (code plus records, one push, nothing pushed while
+  it ran): unit tests 38118494730 green (5 m 22 s); site build 38118494731
+  green.
 - **Image**: production `8d6dbcea93252fbb` → `ca9893133acc43b6` (206
   inputs). Not built.
 

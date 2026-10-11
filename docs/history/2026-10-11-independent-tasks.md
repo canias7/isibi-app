@@ -142,6 +142,9 @@ queue consumer and routes, with supplied answers:
 - **Full suite**: `10394 / 10394 / 0 / 0` locally, on `bd635405` and again
   after `ebcc1d70`.
 
+- **CI on `e0e20e7e`** (one push): unit tests 38118494730 green (5 m 22 s);
+  site build 38118494731 green.
+
 ## 5. Remaining limitations
 
 - **Narrowed only for text and data steps.** Rules, look, menu, page writer
