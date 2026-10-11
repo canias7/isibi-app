@@ -556,6 +556,9 @@ call, balance or flag change.
   already stored — was killed by adding RC 9.
 - **Full suite** on `a8bee8af`: `10486 / 10486 / 0 / 0` locally (`10477`
   before; the 9 new cases are RC 1–9). The three doc tests stay 32 of 32.
+- **Required CI**: site build 38145319772 on `a8bee8af`; unit tests
+  38145408825 on `d7edc66c` and 38145932388 on `591776d3`, all `success`
+  (`a8bee8af`'s own unit run was cancelled by the next push).
 - **Image**: the predicted image moves `eb7e55f950c105cc` →
   **`12c7c953c370f188`** (205 inputs, 174 paths, on `a8bee8af`; not
   built). `d7edc66c` moves the acceptance pin.

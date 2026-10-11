@@ -42,7 +42,9 @@ orders is unchanged. What remained was the recovery card:
   landed-but-unrecorded, the card's states, clicks sent once); sweep 17 of
   17 product mutants killed, both controls survived; full suite `10486 /
   10486 / 0 / 0`; doc tests 32 of 32; the card screenshot shown in chat.
-  CI: below, once read.
+  CI green: site build 38145319772 on `a8bee8af`; unit tests 38145408825
+  on `d7edc66c` and 38145932388 on `591776d3` (the same code; `a8bee8af`'s
+  own unit run was cancelled by the next push).
 - **Still not live**: real held purchases, the card on a real page, a real
   press; the 300-second running bound is reasoned, not measured.
 
