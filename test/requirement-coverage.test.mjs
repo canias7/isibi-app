@@ -459,8 +459,21 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // statement moved. Anchored on the LAST argument, and asserted to exist.
   const tail = W.indexOf("brief: aBrief });", runAt);
   assert.ok(tail > runAt, "the designer call no longer carries the hand-off brief");
-  const runEnd = W.indexOf(";", tail) + 1;
-  assert.ok(runEnd > runAt && runEnd < collect, "the designer call's own end could not be found");
+  const runEnd0 = W.indexOf(";", tail) + 1;
+  assert.ok(runEnd0 > runAt && runEnd0 < collect, "the designer call's own end could not be found");
+  // RE-ANCHORED 2026-10-11 (round 10): the cleaner now reads the answer first,
+  // and corrects a refused one ONCE, between the call and the collect, so the
+  // collect processes whichever answer is final. That one block may branch —
+  // it is the correction — but it can never leave the turn: no `continue`,
+  // `return` or `break` inside it, so the collect after it is still reached by
+  // every answer, the declined one included. The unconditional span is measured
+  // from the block's end.
+  const corrAt = at("let aSupersededReq = null;", "the correction block");
+  const corrEndMark = 'if (clean && !clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);\n              }';
+  const corrEnd = W.indexOf(corrEndMark, corrAt);
+  assert.ok(corrAt > runEnd0 && corrEnd > corrAt && corrEnd < collect, "the correction block is not between the call and the collect");
+  assert.doesNotMatch(W.slice(corrAt, corrEnd), /\b(continue|return|break)\b/, "the correction block can leave the turn before the collect");
+  const runEnd = corrEnd + corrEndMark.length;
   const between = W.slice(runEnd, collect);
   assert.doesNotMatch(between, /\bif\s*\(/, "the collect sits behind a condition — a declined designer's reason is lost again");
   assert.doesNotMatch(between, /[{}]/, "a block opens between the designer call and the collect");

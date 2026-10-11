@@ -238,3 +238,80 @@ test("SP 5 — DUPLICATE DELIVERY AND RESTART: every queued message delivered tw
     once(P);
   });
 });
+
+// ── A STEP WAITING ON AN EARLIER ONE STARTS WHEN THAT ONE HAS APPLIED ────────
+//
+// Codex's review of 4074eb38: the Visit heading and its empty frame are
+// changed (step 1), the unrelated Home heading is changed with its model
+// answer held (step 2), then a picture is chosen for the Visit page (step 3),
+// which reads what step 1 writes. Step 1 finished first, but the picture was
+// never prepared: it had been left off the queue when the queue was made, so it
+// started only after the Home step. With the Visit step removed and the same
+// finished Visit page stored, the picture overlapped Home.
+const VISIT_EMPTY = pageSrc("/visit", "<section className=\"band\"><h1>" + head("visit") + "</h1><SafeImage src=\"\" alt=\"The bakery's front\" ratio=\"4/3\" /></section>");
+const VISIT_DONE = pageSrc("/visit", "<section className=\"band\"><h1 className=\"text-6xl\">" + head("visit") + "</h1><SafeImage src=\"/u/shop/front.jpg\" alt=\"The bakery's front\" ratio=\"4/3\" /></section>");
+const PHOTO_W = "and put a photograph of the bakery's front on the Visit page";
+async function visitHomePicture(k, { withVisitStep }) {
+  const pages = [{ path: "index.tsx", source: PAGES6[0].source }, { path: "visit.tsx", source: withVisitStep ? VISIT_EMPTY : VISIT_DONE }];
+  const log = [];
+  const seen = [];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const tally = {};
+  const scopes = [
+    ...(withVisitStep ? [{ part: "shape", page: "/visit", words: WORDS("visit") }] : []),
+    { part: "shape", page: "/", words: WORDS("home") },
+    { part: "images", page: "/visit", words: PHOTO_W },
+  ];
+  const result = await withPlatform({
+    slug: slugOf(k), pages, images: true, balance: 400,
+    answers: {
+      route: { intent: "edit", layer: "look" },
+      [T.pick]: { fields: ["shape", "images"], scopes },
+      [T.tweak]: async (args) => {
+        const f = shownFile(args);
+        const n = nameOfFile(f);
+        tally[n] = (tally[n] || 0) + 1;
+        log.push("start " + n);
+        // THE HOME STEP'S ANSWER IS HELD until the picture is chosen (or 4 s).
+        if (n === "home") await Promise.race([held, ms(4000)]);
+        log.push("end " + n);
+        let src = String(f.source).replace("<h1>" + head(n) + "</h1>", BIG(n));
+        if (n === "visit") src = src.replace("src=\"\"", "src=\"/u/shop/front.jpg\"");
+        return { source: src };
+      },
+      choose_pictures: async (args) => {
+        log.push("pictures");
+        seen.push(String(args.messages[0].content));
+        release();
+        return { pictures: [{ page: "visit.tsx", alt: "The bakery's front", describe: "the front of a small bakery at dawn" }] };
+      },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: (withVisitStep ? "Please " + WORDS("visit") + ", and " : "Please ") + WORDS("home") + ", " + PHOTO_W + "." });
+    const { rec } = await settle(P, r.key);
+    return { rec, P, page: (f) => P.page(f), images: P.imageLog.length };
+  });
+  return { ...result, log, seen, tally };
+}
+
+test("SP 6 — CODEX'S REPRODUCTION: the picture step waits for the Visit step it reads, and starts the moment that step has applied — overlapping the held, unrelated Home step; it is asked once, shown the frame as the Visit step left it, and every change lands once", { timeout: 60000 }, async () => {
+  const r = await visitHomePicture("6", { withVisitStep: true });
+  assert.equal(r.rec.parts[0].status, "done", why(r.rec));
+  assert.ok(r.log.indexOf("pictures") > r.log.indexOf("end visit"), "the picture step was prepared before the Visit step it reads had applied: " + JSON.stringify(r.log));
+  assert.ok(r.log.indexOf("pictures") < r.log.indexOf("end home"), "the picture step waited for the unrelated Home step: " + JSON.stringify(r.log));
+  assert.equal(r.seen.length, 1, "the picture step was asked more than once");
+  assert.ok(!r.seen[0].includes("(empty"), "the picture step was not shown the frame as the Visit step left it");
+  assert.deepEqual(r.tally, { visit: 1, home: 1 });
+  assert.ok(r.page("index.tsx").includes(BIG("home")));
+  assert.match(r.page("visit.tsx"), /<SafeImage src="\/u\/[^"]+" alt="The bakery's front"/);
+  assert.equal(r.images, 1);
+});
+
+test("SP 6 control — NO VISIT STEP, THE SAME FINISHED VISIT PAGE STORED: the picture step overlaps the held Home step from the start; asked once; both land", { timeout: 60000 }, async () => {
+  const r = await visitHomePicture("6c", { withVisitStep: false });
+  assert.equal(r.rec.parts[0].status, "done", why(r.rec));
+  assert.ok(r.log.indexOf("pictures") < r.log.indexOf("end home"), JSON.stringify(r.log));
+  assert.equal(r.seen.length, 1);
+  assert.equal(r.images, 1);
+});

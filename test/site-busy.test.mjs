@@ -618,7 +618,10 @@ test("the editable copy: four editing readers read through the repairing reader,
   // fifth bare read that publishes — the bare reader's other callers answer a
   // count, a listing or a delete and are named here so a new one is noticed.
   for (const line of [
-    "const eSource = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
+    // RE-ANCHORED 2026-10-11 (round 10): a step prepared inside a job is
+    // handed that job's pages (it publishes nothing — the job does); every
+    // other edit still reads, and goes on to publish, through the repair.
+    ": await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     // CHECKED SINCE 2026-10-08 (H5): read once above `buildArgs`, and a revise
     // whose live pages cannot be confirmed stops before any page is written.

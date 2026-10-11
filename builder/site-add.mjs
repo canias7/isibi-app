@@ -2392,11 +2392,14 @@ export function tableFacts(spec) {
 // it changes: shown them, its request differed from the one prepared beside
 // that work, and it was asked again for nothing.
 const SCHEMA_KINDS = new Set(["table", "row", "function", "api", "job"]);
+// …AND THE SITE'S PHOTOGRAPHS ARE SHOWN ONLY TO THE PHOTOGRAPH DESIGNER
+// (2026-10-11, round 10): its `src` may be one of them, and its cleaner is the
+// one that checks it. A page or section designer never names a photograph's
+// address, and a photograph placed beside it changed its request for nothing.
 function noteFor(kind, site) {
-  if (!SCHEMA_KINDS.has(kind) || !site || typeof site !== "object") return site;
+  if (!site || typeof site !== "object") return site;
   const { photos, builtFrom, ...rest } = site;
-  void photos; void builtFrom;
-  return rest;
+  return { ...rest, ...(kind === "photo" ? { photos } : {}), ...(SCHEMA_KINDS.has(kind) ? {} : { builtFrom }) };
 }
 
 export function addRequest({ kind, message, site, model, brief = "", feedback = "" }) {

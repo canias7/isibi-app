@@ -1592,9 +1592,12 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // it stands down for every kind but the first. The spread at the call is the
   // fix, and the assertion is that the cleaner still gets the site facts AND
   // gets the date.
-  // RE-ANCHORED 2026-10-11 (the validation round): `clean` is `let`, since a
-  // refused answer is corrected once and cleaned again.
-  const clean = at(b, "let clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });", "clean");
+  // RE-ANCHORED 2026-10-11 (round 10): the cleaner reads each answer first
+  // (`aCleanOf`, still handed `aSite` plus `today`), so a corrected answer
+  // takes the one processing path; the landmark is where its verdict is acted
+  // on, after that path has billed and recorded the final answer.
+  assert.ok(b.includes("cleanAdd(k, r.value, { ...aSite, today: aToday })"), "the cleaner is not handed the site facts and the date");
+  const clean = at(b, "return aFail({ ok: false, error: \"add\", kind: k, reason: clean.why", "clean");
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
   const prov = at(b, "adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\"));", "provision");

@@ -289,7 +289,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 import { pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -17776,21 +17776,24 @@ function stepTouches(w, r) {
   return (w === "pages" && r.startsWith("page:")) || (r === "pages" && w.startsWith("page:"));
 }
 /**
- * MAY THIS LATER STEP BE PREPARED BESIDE THE ONES BEFORE IT? Only when none of
- * them writes what it reads: prepared then, its turn would only ask again — a
- * call made for nothing. (Its turn's exact-request check still decides reuse.)
+ * WHAT THIS LATER STEP WAITS FOR: the earlier steps whose writes reach what it
+ * reads (2026-10-11, round 10). Prepared before they apply, its turn would
+ * only ask again — a call made for nothing; prepared after, it reads what they
+ * left. (Its turn's exact-request check still decides reuse.) A withheld step
+ * writes nothing and is never waited for.
  */
-function stepClearAhead(steps, i) {
+function stepNeeds(steps, i) {
   const reads = stepReach(steps[i]).reads;
+  const out = [];
   for (let j = 0; j < i; j++) {
     if (steps[j].withheld) continue;
-    if (stepReach(steps[j]).writes.some((w) => reads.some((r) => stepTouches(w, r)))) return false;
+    if (stepReach(steps[j]).writes.some((w) => reads.some((r) => stepTouches(w, r)))) out.push(j);
   }
-  return true;
+  return out;
 }
 
 /** One route replayed under a preparation's context, answering `{ status, body, prep }`. */
-async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, buy = true } = {}) {
+async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, buy = true, pages = null } = {}) {
   const secret = newReplaySecret((b) => crypto.getRandomValues(b));
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const prep = makePrepCtx({ id, budget: makeEditBudget(PREP_RUN_MS), uid: rec.uid, slug: rec.slug, ...(prec ? { rec: prec } : {}) });
@@ -17803,6 +17806,11 @@ async function replayPrepared(env, ctx, rec, url, body, prec, { beside = false, 
   // own purchase guard — a preparation made for a request an earlier step may
   // still change is never a reason to spend.
   prep.noBuy = buy === false;
+  // A STEP'S PREPARATION READS THE PAGES ITS JOB HOLDS NOW (2026-10-11, round
+  // 10): the earlier steps' changes live in the job until its one publish, so
+  // the store still holds the site as the message arrived. Handed the job's
+  // own pages, the preparation reads exactly what its turn will read.
+  if (Array.isArray(pages)) prep.pages = pages.map((p) => ({ ...p }));
   const req = replayEditRequest({ url: "https://" + APP_ZONE + url, body: JSON.stringify(body), marker: packReplayMarker(id, secret) });
   EDIT_JOBS.set(secret, prep);
   let res;
@@ -28386,7 +28394,11 @@ async function handleRequest(request, env, ctx) {
             //
             // Keep the editable-recovery outcome, then use the strict reader.
             // Malformed state is unreadable, never evidence of absence.
-            const eSource = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            // A STEP PREPARED INSIDE A JOB is handed that job's pages as they
+            // now are (`replayPrepared`, `pages`); everything else reads the store.
+            const eSource = eJob && eJob.prepare === true && Array.isArray(eJob.pages) && eJob.pages.length
+              ? { ok: true, pages: eJob.pages }
+              : await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
               eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
             let eSrc = eSource.pages;
@@ -33001,19 +33013,36 @@ async function handleRequest(request, env, ctx) {
             // call is ever asked twice for one step.
             const eAhead = new Map();
             let eStepAt = -1;
+            // ── READY WHEN WHAT IT READS HAS BEEN WRITTEN (2026-10-11, round 10) ──
+            //
+            // Codex's review of 4074eb38: a step that read what an earlier step
+            // writes was left off the queue for good — checked once, when the
+            // queue was made — so a picture for the Visit page waited for the
+            // unrelated Home step after the Visit step it needed had finished.
+            // Now each queued step carries its prerequisites (`stepNeeds`: the
+            // earlier steps whose writes reach what it reads) and is started
+            // only once every one of them has applied. At the top of every turn
+            // every earlier turn has applied — each rung stores what it changed
+            // as it goes, only the publish waits — so the pool is refilled
+            // there, BEFORE the turn waits on anything, and newly ready work is
+            // prepared against the site as those steps left it.
+            let eFill = () => {};
             if (eJob && !isPrep && steps.length > 1) {
               if (!eJob.replay) eJob.replay = replayer(null);
               const queue = [];
               steps.forEach((step, i) => {
                 if (i === 0 || step.withheld || step.remove === true || (typeof step.rename === "string" && step.rename) || !STEP_AHEAD_LAYERS.has(step.layer)) return;
-                if (!stepClearAhead(steps, i)) return;
-                queue.push(i);
+                queue.push({ i, needs: stepNeeds(steps, i) });
               });
               let running = 0;
               const fill = () => {
-                while (running < STEP_AHEAD_MAX && queue.length) {
-                  const i = queue.shift();
-                  if (i <= eStepAt) continue;
+                for (let q = 0; q < queue.length && running < STEP_AHEAD_MAX;) {
+                  const { i, needs } = queue[q];
+                  // ITS TURN HAS BEGUN: it makes its own calls, never prepared too.
+                  if (i <= eStepAt) { queue.splice(q, 1); continue; }
+                  // A PREREQUISITE NOT YET APPLIED: it waits, and keeps its place.
+                  if (needs.some((j) => j >= eStepAt)) { q++; continue; }
+                  queue.splice(q, 1);
                   const step = steps[i];
                   running++;
                   const prec = recorder();
@@ -33021,15 +33050,17 @@ async function handleRequest(request, env, ctx) {
                     layer: step.layer, page: step.page || "", instruction: step.instruction || step.ask || eRun,
                     context: eb && eb.context, ...(Array.isArray(step.told) ? { told: step.told } : {}), picker: eb && eb.picker, ...(eb && eb.request ? { request: eb.request } : {}),
                   };
-                  eAhead.set(i, replayPrepared(env, ctx, { uid: ou.id, slug: ownerSlug }, "/api/site/" + encodeURIComponent(ownerSlug) + "/edit", body, prec, { buy: false })
+                  eAhead.set(i, replayPrepared(env, ctx, { uid: ou.id, slug: ownerSlug }, "/api/site/" + encodeURIComponent(ownerSlug) + "/edit", body, prec, { buy: false, pages: eSrc })
                     .then(() => prec.calls, () => prec.calls)
                     .finally(() => { running--; fill(); }));
                 }
               };
-              fill();
+              eFill = fill;
             }
             for (const step of steps) {
               eStepAt++;
+              // EVERY EARLIER TURN HAS APPLIED: what waited on them may start now.
+              eFill();
               // ITS PREPARED CALLS, HANDED OVER BEFORE ITS TURN.
               if (eAhead.has(eStepAt)) { try { eJob.replay.add(await eAhead.get(eStepAt)); } catch { /* it makes its calls */ } }
               // ── A PAGE OPERATION THAT ALREADY SUCCEEDED IS NOT RUN AGAIN ──
@@ -35651,7 +35682,7 @@ async function handleRequest(request, env, ctx) {
             // earlier kind is decided by its turn. Both calls were real work,
             // so both are on the bill; the first answer is never used. An
             // answer that names nothing it was not shown is the answer.
-            const aNeedsAgain = async (k, first, brief) => {
+            const aNeedsAgain = async (k, first, brief, feedback = "") => {
               const left = aUnshown(k);
               const needed = !first.failed && !first.ask && Array.isArray(first.needs) ? first.needs.filter((n) => left.includes(n)) : [];
               if (!needed.length) return first;
@@ -35661,7 +35692,7 @@ async function handleRequest(request, env, ctx) {
               // WHAT IT WAS REALLY SHOWN for the answer used: this call's.
               aShown[aShown.length - 1] = { kind: k, ...shownSchema(aSiteFor(k)) };
               aMark("add:" + k, "start", { again: true, needs: needed });
-              return runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief });
+              return runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief, ...(feedback ? { feedback } : {}) });
             };
             // THIS KIND'S EARLY ANSWER, OR NULL: started as soon as what it uses
             // was decided (`aStartReady`), and used only when its request is
@@ -35729,6 +35760,41 @@ async function handleRequest(request, env, ctx) {
               // DECIDED: what waits on it starts at the next kind's turn, once
               // its result below is folded in.
               aDecided.add(k);
+              // ── VALIDATED FIRST, THEN PROCESSED ONCE (2026-10-11, round 10) ──
+              //
+              // Codex's review of 4074eb38: the cleaner's correction ran AFTER
+              // this answer's requirements, suggestions, skipped entries, trace
+              // mark and stored record had been taken — so a corrected answer
+              // replaced `ran` with none of that done for it. Its explicitly
+              // requested requirement never reached the judge, and the request
+              // said done when the writer had built ordinary cards.
+              //
+              // Now the cleaner reads the answer first. A refused answer is
+              // marked (never replayed), billed, kept in the record as
+              // superseded, and the designer is asked ONCE more with the
+              // reason — through `aNeedsAgain`, so a correction that says it
+              // needs a result it was not shown is asked again with it. Then
+              // ONE path below processes whichever answer is final: grounding
+              // and hand-offs, suggestions, skipped entries, the question,
+              // usage, the trace and the stored record. A requirement the
+              // refused answer grounded in their words and the correction no
+              // longer lists is carried (`carrySuperseded`), so nothing they
+              // asked for is lost. A second refusal is the answer.
+              const aCleanOf = (r) => (r.failed || r.ask || r.value === undefined ? null : cleanAdd(k, r.value, { ...aSite, today: aToday }));
+              let clean = aCleanOf(ran);
+              let aSupersededReq = null;
+              if (clean && !clean.ok && clean.why !== "nothing") {
+                rejectReply(ran.raw, "add:" + clean.why);
+                aMark("add:" + k, "correct", { why: clean.why });
+                if (ran.usage) aDesignUsage.push(ran.usage);
+                aKept.push({ kind: k, answered: true, superseded: clean.why, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
+                aSupersededReq = ran.requirements;
+                const aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")";
+                const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
+                ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
+                clean = aCleanOf(ran);
+                if (clean && !clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
+              }
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
               // BELOW IT. A coverage list read after the decline check, after
               // the cleaner's refusal or after the truncation check is a list
@@ -35738,6 +35804,7 @@ async function handleRequest(request, env, ctx) {
               // not counted, not handed on, never reported to them as set up,
               // unconfirmed or missing — and the designer's extras kept apart.
               const aGround = groundRequirements(ran.requirements, aGrounding);
+              for (const r of aSupersededReq ? carrySuperseded(groundRequirements(aSupersededReq, aGrounding).list, aGround.list) : []) aGround.list.push(r);
               for (const r of aGround.list) aReq.push(r);
               for (const r of aGround.ungrounded) aUngrounded.push(r);
               for (const t of Array.isArray(ran.suggestions) ? ran.suggestions : []) {
@@ -35778,30 +35845,7 @@ async function handleRequest(request, env, ctx) {
               // the first, exactly as if it were not there. One place, at the
               // one call that reads it. `cleanAdd` never writes to its site
               // argument (`ctx` is its own), so the spread costs nothing.
-              let clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
-              // ── A REFUSED ANSWER IS NEVER REUSED, AND IS CORRECTED ONCE
-              //    (2026-10-11, the validation round) ────────────────────────
-              //
-              // The cleaner's refusal is the step's own verdict on this reply:
-              // marked, so no record ever gives it again (`rejectReply`), and
-              // the designer is asked once more with the structured reason, to
-              // put it right, design nothing, or ask. Both calls are real work
-              // and both are billed. A second refusal is the answer: the
-              // addition is refused as before — never a loop. A refusal by the
-              // model (nothing designed), a question and a no-op are its
-              // answers and are never retried here.
-              if (!clean.ok && clean.why !== "nothing") {
-                rejectReply(ran.raw, "add:" + clean.why);
-                aMark("add:" + k, "correct", { why: clean.why });
-                const fix = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: addRefusal(clean.why, k) + " (" + clean.why + ")" });
-                if (fix.usage) aDesignUsage.push(fix.usage);
-                if (fix.failed) { await aEnded("failed"); return aDown(fix.error, "The builder is busy — try again in a moment."); }
-                if (fix.ask) { aStepAsk = { kind: k, ask: fix.ask }; break; }
-                if (fix.value === undefined) { aDeclined.push(k); continue; }
-                ran = fix;
-                clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
-                if (!clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
-              }
+              // CLEANED ABOVE (`aCleanOf`), and corrected there at most once.
               if (!clean.ok) {
                 // A REFUSAL CARRIES THE COVERAGE TOO. The model told us what
                 // the change needed before we decided its design was unusable,

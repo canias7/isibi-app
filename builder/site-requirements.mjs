@@ -522,6 +522,36 @@ export function groundRequirements(list, { asked = [], known = [] } = {}) {
 }
 
 /**
+ * ── WHAT A REFUSED ANSWER SAID THEY ASKED FOR IS NOT LOST (2026-10-11) ──────
+ *
+ * A designer's answer its step refused is replaced by the one correction
+ * (`worker.js`, the add-on loop). The design, suggestions and skipped entries
+ * of the refused answer are superseded — the record keeps them for diagnosis —
+ * but a requirement it grounded in what the customer wrote is still something
+ * the customer asked for. One the correction no longer lists is carried, marked
+ * `unsupported` (the design that is used does not say it handles it) and
+ * `superseded`, so the judge hears it and the customer is told; it is never
+ * claimed covered by a design nobody will build. The same requirement is the
+ * same quoted words (or the same hand-off answered), compared as `plain` text.
+ * Both lists are already grounded (`groundRequirements`).
+ */
+export function carrySuperseded(prev, now) {
+  const key = (r) => (typeof r.answers === "string" && r.answers ? "a:" + r.answers : "w:" + plain(r.words));
+  const have = new Set((Array.isArray(now) ? now : []).filter((r) => r && typeof r === "object").map(key));
+  const out = [];
+  for (const r of Array.isArray(prev) ? prev : []) {
+    if (!r || typeof r !== "object") continue;
+    const k = key(r);
+    if (have.has(k)) continue;
+    have.add(k);
+    const { by, item, kind, step, ...rest } = r;
+    void by; void item; void kind; void step;
+    out.push({ ...rest, status: "unsupported", why: "the design that is used does not say it handles this", superseded: true });
+  }
+  return out;
+}
+
+/**
  * THE DESIGNER'S SUGGESTIONS (2026-10-05): extras it thought of that they did
  * not ask for and that what they asked works without. Designed and built by
  * nobody, and kept APART from the requirements — never counted, never handed
