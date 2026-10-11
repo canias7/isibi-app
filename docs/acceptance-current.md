@@ -5,13 +5,13 @@ change. The history of how they came to be, including superseded image ids,
 stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md`;
 nothing there is an instruction.*
 
-**As of 2026-10-11, branch `claude/help-needed-ehlwlj`, code `90dc6a00`.**
+**As of 2026-10-11, branch `claude/help-needed-ehlwlj`, code `3a3a313d`.**
 
 ## 1. State
 
 - **Production**: deploy 2191, `main` `f96cbfd5`, image `8d6dbcea93252fbb`.
-- **The branch is unmerged.** Its predicted image is **`2b5ff083fe725602`**
-  (205 inputs, predicted on `90dc6a00`; not built).
+- **The branch is unmerged.** Its predicted image is **`d9800cfea19e7cee`**
+  (205 inputs, predicted on `3a3a313d`; not built).
 - **Paid acceptance is blocked.** Every paid acceptance entry point (the
   request presses, the routing-only probe batch and the image-free Build)
   refuses while the balance is above 100 (`ACCEPTANCE_CAP`). The balance is
@@ -103,19 +103,19 @@ Before anything is implemented or pressed, choose one:
 4. **Merge the branch to `main`** (a fast-forward; one deploy run). P1 also
    needs it: a probe routes through the live Worker, so it only measures the
    router that is deployed. The image
-   rolls `8d6dbcea93252fbb` → `2b5ff083fe725602` (predicted, not built). If
-   the merged commit is not `90dc6a00`'s code, the image is predicted again
+   rolls `8d6dbcea93252fbb` → `d9800cfea19e7cee` (predicted, not built). If
+   the merged commit is not `3a3a313d`'s code, the image is predicted again
    first.
 5. Wait 15–20 minutes for the image window.
 6. **The free runtime press** (*edit canary*, every paid box blank or `no`):
-   it must print the new deploy sha, image `2b5ff083fe725602` and
+   it must print the new deploy sha, image `d9800cfea19e7cee` and
    `imagePurchases=false`.
 7. **The free rehearsals** of P1 and P2 (spend not `yes`): each reads its
    prerequisites and reports every one a paid press would refuse on.
 8. **P1**, workflow *edit canary*: *ROUTING-ONLY BATCH* = `acceptance-split-1`;
    *Run the ONE paid edit as well* = `yes`; *Refuse to spend unless the Worker
    reports this deploy sha* = the merge sha; *Refuse to spend unless a cold
-   container reports this image id* = `2b5ff083fe725602`. Every other box
+   container reports this image id* = `d9800cfea19e7cee`. Every other box
    blank.
 9. **P2**, only if P1 allows it: *The site to edit* = `fold-lane-bakery`;
    *RUN A NAMED SCENARIO IN A REAL BROWSER* = `acc-page-table` (or

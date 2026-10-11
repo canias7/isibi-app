@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: requirement identity across a correction; an addition designed beside unrelated edits; earlier rounds' corrected-answer path, step readiness, refused-answer boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-11, the parallel-work goal: requirements held across a clarification and restored on resume; one consolidated acceptance sweep; earlier rounds' requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,12 +9,76 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`90dc6a00`**
-  (round 11), then the records and pin commit. Its predicted image is
-  **`2b5ff083fe725602`** (205 inputs; not built; was `c84110ecba368cb9`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`3a3a313d`**
+  (round 12; product files from `f153bae8`), then the records and pin
+  commit. Its predicted image is **`d9800cfea19e7cee`** (205 inputs; not
+  built; was `2b5ff083fe725602`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 12** (`f153bae8`, `3a3a313d`;
+`docs/history/2026-10-11-requirements-across-resume.md`). Codex passed 217
+focused tests on `6c2d3887` with CI green; round 11's fixes are kept.
+- **Fixed — requirements lost across a clarification and its resume.**
+  - *Reproduction*: About FAQ, collapsible and searchable. The first answer
+    names `/does-not-exist` with both requirements; the correction asks
+    "Above or below the story?"; "Below"; the resumed design is valid; the
+    writer builds static cards. If the resumed design repeated only
+    collapsible, searchable vanished. If it repeated neither, the request
+    said done. RI 5 passed only because its answer repeated both.
+  - *Now, one shared rule*: every add-on pause holds the part's
+    requirements, with their ids, under the paused job's own id. That covers
+    a designer's or correction's question, the picker's, the judge's and the
+    page writer's.
+    - The part's next job is staged that list from the request part's job
+      records, never from the site's latest answer.
+    - Each requirement is reconciled with its step's designer, which is
+      shown them by id (`replaces`), or carried when that step does not run.
+    - A model leaving one out never cancels it. Only the judge, shown your
+      answers, can set one aside.
+    - Requirements written beside a question are kept too. Rejected designs
+      stay unreplayable; only the requirements are held.
+- **Evidence** (mocked; real driver, queue, routes, job runner; judge
+  inputs, durable records, final statuses, stored answer and reply-writer
+  facts checked):
+  - **RR 0–14 (17 cases)**:
+    - the control and both failures;
+    - `replaces` by held id;
+    - designer, page-writer and judge questions;
+    - repeated questions and a second pause before the held step;
+    - a dependency re-ask;
+    - restart and duplicate delivery;
+    - an explicit scope change and its control;
+    - the durable record;
+    - a picker that drops the kind;
+    - a held hand-off reaching a later step.
+  - Red: on `6c2d3887` 11 of the first 13 fail; the control and the
+    writer-after-valid-design case pass.
+  - Sweep (`sweep17`): the first run killed 9 of 15. The 6 survivors were
+    paths no case reached, and six cases were added for them (`3a3a313d`).
+    The rerun killed **15 of 15**, and the control survived both times.
+  - Full suite `10592 / 10592 / 0 / 0` on `3a3a313d`.
+  - **Consolidated acceptance sweep** over the existing Build/Edit/Add-on
+    parallel flows: 37 files, 467 / 467.
+    - independent work: 112;
+    - genuine dependencies: 92;
+    - clarification and resume: 156;
+    - partial failure: 107.
+  - CI: see the dated entry.
+- **Remaining work** (history §6):
+  - **No open implementation defect** is known in the parallel flows'
+    offline behaviour.
+  - **Recorded limits**: labels taken at acceptance; uncertain equivalence
+    told twice; Build refusals unmarked; real waits.
+  - **Awaiting live verification**:
+    - whether real designers mark `replaces`;
+    - whether real judges set aside only on your words;
+    - whether real routers name the new targets;
+    - the real latency gain;
+    - real images.
+- **Live-unverified**: nothing deployed or pressed; fal not used. **The
+  universal feature is not declared finished.**
 
 **Round 11** (`c44dd774`, `2c7e33b1`, `90dc6a00`;
 `docs/history/2026-10-11-requirement-identity-target-discovery.md`). Codex
@@ -551,6 +615,36 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-11 — Parallel work round 12: requirements held across a clarification and restored on resume; one consolidated acceptance sweep (offline; not deployed, not pressed)
+
+- **You**: keep round 11's improvements.
+  - Fix the remaining loss of requirements across clarification and resume
+    as one shared continuation rule. Persist grounded requirements and their
+    ids with the request part before pausing, then restore and reconcile
+    them on resume. Do not depend on the next answer repeating everything,
+    and do not read the per-site latest answer.
+  - Show resumed designers the outstanding requirements. Support explicit
+    scope changes without reading a model's omission as cancellation.
+  - Cover every kind of question, repeats, dependency re-asks, restart and
+    duplicates. Then run one consolidated mocked acceptance sweep, and
+    update the inventory to separate defects from live verification.
+- **Done**:
+  - `f153bae8`: the change and its tests;
+  - `3a3a313d`: cases for the sweep's survivors;
+  - the commit carrying these records and the pin `d9800cfea19e7cee`.
+- **Verified offline**:
+  - red check: 11 of 13 fail on `6c2d3887`; the control passes;
+  - sweep 15 of 15 on the second run, the control surviving;
+  - full suite `10592 / 10592 / 0 / 0`;
+  - acceptance sweep 467 / 467 across 37 files;
+  - doc tests 32/32;
+  - CI: __CI__
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, paid or fal call, or real image. Remaining work is in the
+  history's §6.
 
 ---
 
