@@ -10527,12 +10527,18 @@ const SITE_REQ_HELD = {
   running: 'Picture still being made',
   saving: 'Saving a picture already made',
   placing: 'Putting the picture in',
+  again: 'Buying the picture again next',
+  saved: 'Picture saved, placing it next',
+  ended: 'Picture purchase ended',
 };
 const SITE_REQ_HELD_ADDED = {
   unknown: 'still being confirmed',
   running: 'still being made',
   saving: 'being saved',
   placing: 'being put in',
+  again: 'being bought again',
+  saved: 'saved, placing next',
+  ended: 'not made',
 };
 // A PART BEING WORKED ON BESIDE ANOTHER (2026-10-08, the parallel-tasks batch):
 // its model work is running, or done and waiting its turn to be applied. Its

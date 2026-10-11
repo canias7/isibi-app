@@ -17972,33 +17972,43 @@ function heldPurchase(unknown) {
  */
 async function purchasesKnown(env, slug, key, n, held, seen = null) {
   if (!held.length) return false;
+  // EVERY PURCHASE LOOKED AT AND MOVED ON BY ITSELF (2026-10-11, Codex on
+  // 4079bb38): one nobody can tell (or still running, or a record that does
+  // not read) never stops another from being saved. Each one's outcome now is
+  // told (`seen`), so what the page is shown is what each is now — never the
+  // reason it was first held with. The part goes on only when all are known.
+  const tell = (id, why) => { if (typeof seen === "function") seen(id, why); };
+  let known = true;
   for (const h of held) {
     const pk = purchaseKey(slug, key, n, h.id);
     const got = await readJsonTried(env, pk);
-    if (!got.ok || got.malformed) return false;
+    if (!got.ok || got.malformed) { known = false; continue; }
     // NEVER CLAIMED (round 6): a purchase whose identity was kept when a wait
     // ended before its claim landed. No record means nothing was begun, so it
     // is known — the next step claims it in one conditional write and buys it
     // once; a late claim from the original call then finds that and stops.
     if (!got.obj) continue;
     const rec = readPurchase(got.v);
-    if (!rec || rec.id !== h.id) return false;
+    if (!rec || rec.id !== h.id) { known = false; continue; }
     if (rec.state === "generated") {
       const f = await finishGenerated(env, { slug, pk, id: h.id, got, rec, owner: "driver" });
       // WHY IT IS STILL NOT SAVED (2026-10-11, the recovery card): our store
       // failing leaves the same picture to be saved; its source no longer
       // answering means it cannot be fetched again, and nobody can tell
       // whether it ever will — the customer's buy-again is then the way on.
-      if (f.pending) { if (typeof seen === "function") seen(h.id, f.stage === "download" ? "source-unreachable" : "store-pending"); return false; }
+      if (f.pending) { tell(h.id, f.stage === "download" ? "source-unreachable" : "store-pending"); known = false; continue; }
+      tell(h.id, f.url ? "saved" : "ended");
       continue;
     }
-    if (rec.state !== "buying") continue;
+    if (rec.state === "bought") { tell(h.id, "saved"); continue; }
+    if (rec.state !== "buying") { tell(h.id, rec.state === "none" ? "ended" : rec.state); continue; }
     const url = await purchasedPhoto(env, slug, h.id);
-    if (!url) return false;
+    if (!url) { known = false; continue; }
     try { await env.SITES_BUCKET.put(pk, JSON.stringify({ ...got.v, state: "bought", url, found: true, at: Date.now() }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: got.etag } }); }
     catch { /* found by the next reader the same way */ }
+    tell(h.id, "saved");
   }
-  return true;
+  return known;
 }
 
 /**

@@ -22,7 +22,7 @@
 // supplied model answers and a stand-in image service; no network.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { platform, sendMessage, settle, call, tick, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, settle, call, tick, pump, T } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
@@ -288,6 +288,12 @@ test("RC 7 — MIXED: one purchase made and not saved, one nobody can tell; the 
       const after = purchasesOf(P);
       assert.equal(after.find((x) => x.id === made.id).state, "generated", "the made picture was let go");
       assert.equal(after.filter((x) => x.state === "released").length, 1);
+      // WHAT THE PAGE IS SHOWN NOW: the released one is bought again next, the
+      // made one is still being saved — the part held on it.
+      const va = await viewOf(P, r.key);
+      assert.equal(va.parts[0].status, "uncertain");
+      assert.deepEqual(Object.values(bySd(va)).sort(), ["again", "saving"]);
+      assert.deepEqual([va.parts[0].purchaseState, va.parts[0].buyAgain], ["saving", false]);
       store.down = false;
       let rec = null;
       for (let i = 0; i < 6; i++) { await tick(P); rec = (await settle(P, r.key)).rec; if (rec.parts[0].status === "done") break; }
@@ -362,3 +368,206 @@ test("RC 9 — LANDED, ITS RECORD NEVER SAID SO: the call outlives its running t
     });
   } finally { globalThis.setTimeout = real; }
 });
+
+// ── EVERY PURCHASE RECOVERED ON ITS OWN (Codex on 4079bb38) ─────────────────
+//
+// A part held on two purchases — one nobody can tell, one made while the
+// store was down — was recovered as a whole: the driver's look stopped at the
+// first purchase it could not tell, so a made picture behind it was never
+// saved; and one it did save kept the reason it was held with ("saving") in
+// what the page was shown. Each purchase is now looked at and moved on by
+// itself, every time, and what the page is shown is what each one is now. The
+// part stays held while any of them is not known.
+const isBench = (e) => e.prompt.includes(BENCH.slice(0, 16));
+const bySd = (v) => Object.fromEntries((v.parts[0].purchases || []).map((x) => [x.d, x.state]));
+const sweeps = async (P, n = 3) => { for (let i = 0; i < n; i++) await tick(P); };
+
+for (const [name, lostAt, unknownD, madeD] of [["RC 10", 0, BENCH, SHELF], ["RC 11", 1, SHELF, BENCH]]) {
+  let lost = false;
+  test(name + " — TWO PURCHASES, ONE NOBODY CAN TELL (" + (lostAt === 0 ? "first" : "second") + ") AND ONE MADE WHILE THE STORE WAS DOWN: with the store back and no page open, three sweeps save the made picture — never made again — and the page is shown it as saved while the part stays held on the other; the customer's buy-again then buys only the unknown one, and the part finishes with both placed", { timeout: 30000 }, async () => {
+    await heldAddition({
+      slug: slugOf(name === "RC 10" ? "r10" : "r11"), shots: [BENCH, SHELF], storeDown: true,
+      // THE CALL FOR THAT PICTURE IS THE ONE LOST, by its own words — the order
+      // the calls leave in is the stand-in's, and the held order is the shots'.
+      imageWith: async (e) => { if (e.prompt.includes(unknownD.slice(0, 16)) && !lost) { lost = true; lostCall(); } return null; },
+      check: async (P, r, store) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [unknownD]: "buying", [madeD]: "generated" });
+        // HELD IN THE SHOTS' ORDER: the unknown one first (RC 10) or second (RC 11).
+        assert.equal(s1.rec.parts[0].purchase.held[lostAt].d, unknownD, JSON.stringify(s1.rec.parts[0].purchase.held));
+        assert.equal(P.imageLog.length, 2);
+        // THE STORE ANSWERS AGAIN; THE BROWSER IS CLOSED: only the sweeps run.
+        store.down = false;
+        await sweeps(P);
+        assert.equal(P.record(r.key).parts[0].status, "uncertain", "the part went on with a purchase nobody can tell");
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [unknownD]: "buying", [madeD]: "bought" }, "the made picture was not saved");
+        assert.equal(uploads(P).length, 1);
+        assert.equal(P.imageLog.length, 2, "the made picture was generated again");
+        const v = await viewOf(P, r.key);
+        assert.deepEqual(bySd(v), { [unknownD]: "unknown", [madeD]: "saved" }, "the page was not shown each picture as it is now");
+        assert.deepEqual([v.parts[0].purchaseState, v.parts[0].buyAgain], ["unknown", true]);
+        // THE CUSTOMER'S EXPLICIT BUY-AGAIN: only the unknown one is released.
+        const b = await buyAgain(P, r.key);
+        assert.equal(b.status, 200, JSON.stringify(b.body));
+        assert.equal(b.body.released, 1);
+        assert.deepEqual(b.body.kept, []);
+        let rec = null;
+        for (let i = 0; i < 6; i++) { await tick(P); await pump(P, { twice: true }); rec = (await settle(P, r.key)).rec; if (rec.parts[0].status === "done") break; }
+        assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+        assert.equal(P.imageLog.length, 3, "the made picture was generated again, or the unknown one twice");
+        assert.equal(uploads(P).length, 2);
+        assert.equal((P.page("visit.tsx").match(/<SafeImage src="\/u\//g) || []).length, 2, P.page("visit.tsx"));
+      },
+    });
+  });
+}
+
+test("RC 12 — ONE STILL BEING MADE, ONE MADE WHILE THE STORE WAS DOWN: the sweeps save the made picture and show it saved while the other is shown still being made, the part held; when the call lands the part finishes by itself — every message delivered twice — with exactly two generations and both placed", { timeout: 30000 }, async () => {
+  let release;
+  const held = new Promise((ok) => { release = ok; });
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => real(fn, Number(ms) >= 30000 ? 30 : ms, ...a);
+  try {
+    await heldAddition({
+      slug: slugOf("r12"), shots: [BENCH, SHELF], storeDown: true,
+      // EACH CALL ITS OWN PICTURE (the stand-in names a picture by the calls
+      // made when it answers, so a held call would otherwise answer the same).
+      imageWith: async (e, n) => {
+        if (isBench(e)) await held;
+        return new Response(JSON.stringify({ images: [{ url: "https://img.test/p" + (isBench(e) ? 11 : 12) + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+      check: async (P, r, store) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+        store.down = false;
+        await sweeps(P);
+        assert.equal(P.record(r.key).parts[0].status, "uncertain");
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "buying", [SHELF]: "bought" });
+        const v = await viewOf(P, r.key);
+        assert.deepEqual(bySd(v), { [BENCH]: "running", [SHELF]: "saved" });
+        assert.deepEqual([v.parts[0].purchaseState, v.parts[0].buyAgain], ["running", false]);
+        // THE CALL LANDS; NOBODY PRESSES ANYTHING.
+        release();
+        for (let i = 0; i < 50 && uploads(P).length < 2; i++) await new Promise((ok) => real(ok, 20));
+        let rec = null;
+        for (let i = 0; i < 6; i++) { await tick(P); await pump(P, { twice: true }); rec = (await settle(P, r.key)).rec; if (rec.parts[0].status === "done") break; }
+        assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+        assert.equal(P.imageLog.length, 2, "a picture was generated again");
+        assert.equal(uploads(P).length, 2);
+        assert.equal((P.page("visit.tsx").match(/<SafeImage src="\/u\//g) || []).length, 2, P.page("visit.tsx"));
+        const refs = P.ledger.map((e) => e.ref);
+        assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+      },
+    });
+  } finally { globalThis.setTimeout = real; }
+});
+
+test("RC 13 — SAVED AND ENDED ARE THEIR OWN STATES: a purchase saved and waiting to be placed is `saved`, one known to have ended or released is `ended`; neither is offered a buy-again or outranks one still unsettled, and the card names them", () => {
+  const t0 = 1_000_000;
+  assert.equal(heldPurchaseState({ why: "saved" }, t0, t0), "saved");
+  assert.equal(heldPurchaseState({ why: "ended" }, t0, t0), "ended");
+  assert.equal(heldPurchaseState({ why: "released" }, t0, t0), "again");
+  assert.match(cardFor(heldView("again")).html, />Buying the picture again next</);
+  const rec = (held) => ({ key: "k", state: "waiting", parts: [{ n: 0, words: "w", status: "uncertain", jobs: [], purchase: { held, at: t0 } }] });
+  const id = (c) => c.repeat(24);
+  const v = (held) => requestView(rec(held), { now: t0 + 1000 }).parts[0];
+  assert.deepEqual([v([{ id: id("a"), d: "A", why: "saved" }, { id: id("b"), d: "B", why: "store-pending" }]).purchaseState], ["saving"]);
+  assert.deepEqual([v([{ id: id("a"), d: "A", why: "saved" }, { id: id("b"), d: "B", why: "unconfirmed" }]).purchaseState], ["unknown"]);
+  const allSaved = v([{ id: id("a"), d: "A", why: "saved" }]);
+  assert.deepEqual([allSaved.purchaseState, allSaved.buyAgain], ["saved", false]);
+  const html = cardFor(heldView("saved")).html;
+  assert.match(html, />Picture saved, placing it next</);
+  assert.ok(!hasBuy(html));
+  assert.match(cardFor(heldView("ended")).html, />Picture purchase ended</);
+});
+
+test("RC 14 — ONE STILL BEING MADE LANDS ON ITS OWN WHILE THE OTHER IS UNKNOWN: past its running time, the landed one is shown saved (never as unknown, never offered a buy-again), the part held on the other", { timeout: 30000 }, async () => {
+  let release;
+  const held = new Promise((ok) => { release = ok; });
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => real(fn, Number(ms) >= 30000 ? 30 : ms, ...a);
+  try {
+    await heldAddition({
+      slug: slugOf("r14"), shots: [BENCH, SHELF],
+      imageWith: async (e, n) => {
+        if (isBench(e)) await held; else lostCall();
+        return new Response(JSON.stringify({ images: [{ url: "https://img.test/p" + (isBench(e) ? 11 : 12) + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+      check: async (P, r) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain");
+        release();
+        for (let i = 0; i < 50 && !uploads(P).length; i++) await new Promise((ok) => real(ok, 20));
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "bought", [SHELF]: "buying" });
+        P.advance(PHOTO_RUNNING_MS + 1000);
+        await sweeps(P);
+        const v = await viewOf(P, r.key);
+        assert.equal(v.parts[0].status, "uncertain");
+        assert.deepEqual(bySd(v), { [BENCH]: "saved", [SHELF]: "unknown" });
+        assert.equal(P.imageLog.length, 2);
+      },
+    });
+  } finally { globalThis.setTimeout = real; }
+});
+
+test("RC 15 — LANDED, ITS RECORD NEVER SAID SO, BESIDE ONE NOBODY CAN TELL: the sweeps find its stored photograph and show it saved; the part stays held on the other", { timeout: 30000 }, async () => {
+  let release;
+  const held = new Promise((ok) => { release = ok; });
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => real(fn, Number(ms) >= 30000 ? 30 : ms, ...a);
+  try {
+    await heldAddition({
+      slug: slugOf("r15"), shots: [BENCH, SHELF],
+      imageWith: async (e, n) => {
+        if (isBench(e)) await held; else lostCall();
+        return new Response(JSON.stringify({ images: [{ url: "https://img.test/p" + (isBench(e) ? 11 : 12) + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+      check: async (P, r) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain");
+        for (const st of ["generated", "bought"]) P.failPut((k, body) => k.includes("/purchases/") && String(body).includes('"state":"' + st + '"'));
+        release();
+        for (let i = 0; i < 50 && !uploads(P).length; i++) await new Promise((ok) => real(ok, 20));
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "buying", [SHELF]: "buying" });
+        await sweeps(P);
+        const v = await viewOf(P, r.key);
+        assert.equal(v.parts[0].status, "uncertain");
+        assert.deepEqual(bySd(v), { [BENCH]: "saved", [SHELF]: "unknown" });
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "bought", [SHELF]: "buying" });
+      },
+    });
+  } finally { globalThis.setTimeout = real; }
+});
+
+for (const [name, how] of [["RC 16", "unfetchable"], ["RC 17", "unreadable"]]) {
+  test(name + " — A MADE PICTURE " + (how === "unfetchable" ? "THAT CANNOT BE FETCHED" : "WHOSE RECORD CANNOT BE READ") + " AHEAD OF ANOTHER MADE PICTURE: in ONE sweep, with the store back, the other is saved — never made again — and the first keeps the part held", { timeout: 30000 }, async () => {
+    await heldAddition({
+      slug: slugOf(how === "unfetchable" ? "r16" : "r17"), shots: [BENCH, SHELF], storeDown: true,
+      imageWith: async (e) => new Response(JSON.stringify({ images: [{ url: "https://img.test/p" + (isBench(e) ? 11 : 12) + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } }),
+      check: async (P, r, store) => {
+        const s1 = await settle(P, r.key);
+        assert.equal(s1.rec.parts[0].status, "uncertain");
+        assert.equal(s1.rec.parts[0].purchase.held[0].d, BENCH, "held in the shots' order");
+        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "generated", [SHELF]: "generated" });
+        const bench = purchasesOf(P).find((x) => x.d === BENCH);
+        if (how === "unfetchable") P.failDownload((u) => u === bench.source, { times: 999 });
+        else {
+          const benchKey = [...P.objects.keys()].find((k) => k.includes("/purchases/") && JSON.parse(String(P.objects.get(k).body)).d === BENCH);
+          for (let i = 0; i < 3; i++) P.failGet((k) => k === benchKey);
+        }
+        store.down = false;
+        await tick(P);
+        assert.equal(purchasesOf(P).find((x) => x.d === SHELF).state, "bought", "a purchase ahead of it stopped a made picture being saved");
+        assert.equal(P.record(r.key).parts[0].status, "uncertain");
+        assert.equal(P.imageLog.length, 2);
+        assert.equal(uploads(P).length, 1);
+        if (how === "unfetchable") {
+          const v = await viewOf(P, r.key);
+          assert.deepEqual(bySd(v), { [BENCH]: "unknown", [SHELF]: "saved" });
+          assert.deepEqual(v.parts[0].purchases.map((x) => x.why).sort(), ["saved", "source-unreachable"]);
+        }
+      },
+    });
+  });
+}

@@ -1103,12 +1103,19 @@ export const PHOTO_RUNNING_MS = 300000;
  *   running  still being made, within the call's own time;
  *   placing  the purchase is known; its frame could not be read just now;
  *   unknown  begun and not known to have ended — only the customer's
- *            buy-again begins it again, knowing it may cost twice.
+ *            buy-again begins it again, knowing it may cost twice;
+ *   saved    stored, waiting to be placed with the rest of the part
+ *            (2026-10-11): placed is the part itself, done;
+ *   again    released by the customer: bought again once the part runs;
+ *   ended    known to have ended with nothing.
  */
 export function heldPurchaseState(h, heldAt, now = Date.now()) {
   const why = h && typeof h.why === "string" ? h.why : "";
   if (why === "store-pending") return "saving";
   if (why === "frames-unreachable") return "placing";
+  if (why === "saved") return "saved";
+  if (why === "released") return "again";
+  if (why === "ended") return "ended";
   if (why === "in-flight" && Number.isFinite(heldAt) && now - heldAt < PHOTO_RUNNING_MS) return "running";
   return "unknown";
 }
@@ -1134,7 +1141,7 @@ export function heldReasons(record, n, seen) {
 export function heldPurchaseView(p, now = Date.now()) {
   const at = p && p.purchase ? p.purchase.at : NaN;
   const list = heldPurchases(p).map((h) => ({ d: h.d, ...(h.why ? { why: h.why } : {}), state: heldPurchaseState(h, at, now) }));
-  const state = ["unknown", "running", "saving", "placing"].find((x) => list.some((h) => h.state === x)) || null;
+  const state = ["unknown", "running", "saving", "placing", "again", "saved", "ended"].find((x) => list.some((h) => h.state === x)) || null;
   return { list, state, buyAgain: list.some((h) => h.state === "unknown") };
 }
 
