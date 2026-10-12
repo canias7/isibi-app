@@ -493,3 +493,58 @@ that threw is written as not complete.
 - An accordion that answers outside the region it names, and adds no lines,
   reads as an empty answer. That fails, never passes.
 - Real-model verification of the isolation fix is still owed.
+
+## The isolation release and its one live check (2026-10-12, approved by the owner)
+
+**Release.** Deploy 2197 (`64f17488`, image built `1e30b6fb56b51794` →
+`eda28cb21064287d`, image purchases off), runtime-confirmed by run 140
+(free): both readers `64f174884cf7`, cold container `eda28cb21064287d`,
+`imagePurchases=false`, balance 876. `docs/deploy-record.md`.
+
+**Run 141** (`acc-isolation`, paid, 23:00–23:12 UTC; job 115045009549,
+artifact 11778083871, request `71b20ee3`), pressed once:
+- **Routing**: `edit/text` (cost 3). The router made the Gallery heading the
+  first part and **held back the Bake List addition** as part 1.
+- **Part 0** (`text`): job `1a7fc323`, cost 3, published `ydw4ui`. The
+  Gallery heading reads "Fresh from our ovens".
+- **Part 1** (`addon`): routed (job `c5f97298`, cost 3), then done at
+  `addon` (job `996afba7`, cost 7): `bake-list.tsx` changed, the `kept`
+  guard passed, published `bt5fdp`.
+- **Scope**: every stored-section check passed; no other page, component
+  or table changed; no page added.
+- **Money**: 16 (3 + 3 + 3 + 7), exact, nothing charged twice; 876 → 860.
+- **Overlap**: the Add-on part's preparation ran beside part 0's job for
+  130.3 s.
+- **Two checks failed**:
+  1. **The served section** (a checker bug, not the page). The opened read
+     itself was right: after the press, `/bake-list` held one question,
+     "When is the list updated?" → "Every Monday morning.", complete, none
+     failed. But `servedLines` strips tags with `<[^>]+>`, and the opened
+     page's markup keeps a `>` inside a class attribute
+     (`[&[data-state=open]>svg]:rotate-180`), so attribute text leaked in
+     as a second "section". Re-judged offline with an attribute-aware tag
+     pattern: one section, "When is the list updated? Every Monday
+     morning.", every check ok. Not fixed (the owner said stop); backlog.
+  2. **Reuse** (real). Part 0 was not prepared (`staged no`, fresh 1); the
+     Add-on's preparation was staged and overlapped, but its job replayed 1
+     model answer and **asked 3 again** (`fresh 3`, `scoped 0`; the trace
+     shows `scope:?`). No job answered exactly from a preparation, against
+     1 required. Likely cause, **not verified**: the preparation was taken
+     before part 0 published the Gallery change, so its unscoped answers
+     were judged stale and asked again. Backlog, for a free investigation.
+- **Isolation: unverified.** The router ran the heading first, so the
+  Add-on's page writer ran on a site where the heading had already changed:
+  a stray rewrite of it would have changed nothing, and the `kept` guard
+  could not have been tripped as in run 137. The run therefore does not
+  show the fix live. Per the owner's instruction, not retried.
+- **The other-part markings could not be inspected**: `edit_traces` keeps
+  events and timings (cid, slug, uid, times, ok, failed phase, error
+  fields, events), never prompts, so whether the Add-on's model saw the
+  heading only inside `⟦ANOTHER PART: …⟧` is not readable after the fact.
+- Coverage: edit-and-addon and several-parts covered.
+
+**Afterwards**: `IMAGE_PURCHASES` set back to `on` by the owner; deploy 2198
+(dispatch, image reused), runtime-confirmed by run 142 (free):
+`imagePurchases=true`, both readers `64f174884cf7`, cold container
+`eda28cb21064287d`, balance 860. Build flags and limits untouched. No
+further paid tests.

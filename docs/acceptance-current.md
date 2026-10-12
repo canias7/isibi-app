@@ -15,7 +15,28 @@ and closed. **The K0/K/E/M0/M batch (§4) was approved and run on 2026-10-12
 handoff, and they supersede §4–§6 as a plan. No further paid tests are
 approved.
 
-## 0. Next: the task-isolation release and one live check (proposed, not approved)
+## 0. The task-isolation release and one live check (approved; done 2026-10-12)
+
+**Result** (`docs/history/2026-10-12-acceptance-addon-two-parts.md`, last
+section; `docs/deploy-record.md` 2197 and 2198):
+- **Released**: deploy 2197, `main` `64f17488`, image built
+  `eda28cb21064287d`, image purchases off; runtime-confirmed by run 140.
+- **Run 141** (`acc-isolation`, once, 16 credits exact, 876 → 860):
+  both parts finished in their own scope (the Gallery heading "Fresh from
+  our ovens"; one questions section on `/bake-list`; nothing else changed).
+  - The served-section FAIL is a checker bug (a `>` inside a class
+    attribute), proven offline; the page is right.
+  - The reuse FAIL is real: the Add-on's overlapped preparation replayed 1
+    answer and asked 3 again; the cause is unverified.
+  - **Isolation unverified**: the router ran the heading first, so the
+    Add-on could not repeat run 137's stray rewrite. Not retried.
+  - The other-part markings cannot be read from the traces (no prompts kept).
+- **Restored**: image purchases on, deploy 2198 (image reused),
+  runtime-confirmed by run 142 (`imagePurchases=true`, balance 860).
+- Build flags and limits untouched. No further paid tests.
+
+The proposal as approved follows.
+
 
 **Closed and not reopened**:
 - the accordion and branch checker corrections (`6dae03bc`, `b34707e6`);

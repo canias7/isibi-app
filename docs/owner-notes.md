@@ -1,43 +1,46 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: the accordion correction closed; K/M read free and complete; the isolation release proposed — acc-isolation, about 12–26 credits, one image build; nothing merged, deployed or spent)
+## Current handoff — read this first (2026-10-12: the isolation release deployed and checked once — run 141, 16 credits; both parts in scope, isolation unverified, reuse failed; image purchases back on; stopped)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2196** (`main` `df1dcf30`, image
-  `1e30b6fb56b51794`, image purchases on). **Balance 876.**
-- **Closed**: the accordion and branch checker corrections (`6dae03bc`,
-  `b34707e6`), and all completed parallel-work evidence.
-- **K/M pages read free with the per-question reader.** All five reads are
-  complete, with no failures or truncation. The Visit and Tasting Evenings
-  answers are as asked. Evidence:
-  `docs/history/evidence/2026-10-12-km-open-read/`.
-- **Proposed: the task-isolation release and one live check**
-  (`docs/acceptance-current.md` §0).
-  - **Code**: `83c9015a` (the fix), `6dae03bc` and `b34707e6` (checker),
-    and `ec7d894c` (the `acc-isolation` scenario).
-  - **One container build**: `1e30b6fb56b51794` → `eda28cb21064287d`.
-  - **Image purchases off** for the press (set before the merge), and back
-    on afterwards.
-  - **The request** (on today's site): a questions section on the Bake List
-    ("When is the list updated?" / "Every Monday morning."), and the Gallery
-    heading "Photographs straight from our ovens" changed to "Fresh from our
-    ovens".
-  - **About 12–26 credits.** It needs `acc-isolation` added to the balance
-    opt-in on your word.
-  - **Checks**: both parts finish, each page changed only as asked, the
-    heading's preparation overlapped the Add-on job and was replayed
-    exactly, no double charge. Plus a free trace read of whether the
-    Add-on's model saw the heading only marked.
-- **Still unverified, separately**:
-  - concurrency inside one Add-on;
-  - the missing-context clarification;
-  - the image-free first Build.
-- **Next: your decision on the release.** Nothing is merged, deployed,
-  built or spent until then.
+- **Production is deploy 2198** (`main` `64f17488`, image
+  `eda28cb21064287d`, image purchases on), runtime-confirmed by run 142
+  (free, 23:17 UTC: both readers `64f174884cf7`, cold container
+  `eda28cb21064287d`, `imagePurchases=true`). **Balance 860.** Build flags
+  and limits untouched.
+- **The isolation release** (your approval): deploy 2197 merged
+  `df1dcf30` → `64f17488` and built `1e30b6fb56b51794` →
+  `eda28cb21064287d`, with image purchases off; run 140 confirmed it
+  (`imagePurchases=false`, balance 876).
+- **Run 141, `acc-isolation`, pressed once** (16 credits, exact, 876 → 860):
+  - routing `edit/text` (3): the Gallery heading first, the Bake List
+    addition held back as part 1;
+  - part 0 (`text`, 3): the heading reads "Fresh from our ovens",
+    published `ydw4ui`;
+  - part 1 (`addon`, routed 3, done 7): one questions section on
+    `/bake-list` ("When is the list updated?" → "Every Monday morning."),
+    `kept` passed, published `bt5fdp`;
+  - nothing else changed; no charge twice.
+  - **Served-section FAIL: a checker bug.** A `>` inside a class attribute
+    leaks into the reader; re-judged offline, one section, all ok.
+  - **Reuse FAIL: real.** The Add-on's preparation overlapped part 0 by
+    130.3 s but its job replayed 1 answer and asked 3 again. Cause not
+    verified (likely judged stale after the Gallery publish).
+  - **Isolation: unverified.** The router ran the heading first, so the
+    Add-on could not repeat run 137's stray rewrite. Not retried, as you
+    said.
+  - **The other-part markings cannot be inspected**: traces keep events,
+    not prompts.
+- **Restored**: image purchases on (deploy 2198, image reused), run 142.
+- **Open** (`docs/backlog.md`, first item): the checker fix, the reuse
+  investigation (free), a way to exercise isolation live, and the
+  remaining gaps — concurrency inside one Add-on, the missing-context
+  clarification, the image-free first Build.
+- **Stopped.** No further paid tests; nothing else merged or deployed.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -908,6 +911,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The isolation release deployed and checked once (run 141); image purchases back on
+
+You approved the release and one run. I merged `64f17488` (deploy 2197, the
+container rebuilt to `eda28cb21064287d`, image purchases off) and run 140
+confirmed it. Run 141 sent the prepared message once and cost 16 credits,
+exactly what its four charges add up to (876 → 860). Both parts finished in
+their own scope: the Gallery heading is "Fresh from our ovens", and the Bake
+List has one questions section with "Every Monday morning."; nothing else
+changed. Two checks failed. The served-section one is my reader's bug (a `>`
+inside a class name), and the page is right. The reuse one is real: the
+Add-on's preparation ran beside the heading's job but most of it was asked
+again. The router did the heading first, so the Add-on never had the chance
+to repeat run 137's mistake: isolation is still unverified live, and I did
+not retry. The traces keep no prompts, so the other-part markings cannot be
+read. You turned image purchases back on (deploy 2198) and run 142 confirmed
+`imagePurchases=true`. Stopped there.
 
 ## 2026-10-12 — The accordion correction closed; K/M read free; the isolation release proposed (nothing spent)
 

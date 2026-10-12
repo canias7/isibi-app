@@ -41,6 +41,13 @@ here; take a closed one out of both.**
     batch box; the Add-on's own coverage judge also calls a collapsed
     answer "unseen"; the opened read (now per disclosure, `b34707e6`: each answer kept as it opens, incomplete reads fail) has not run live.
   In full under Backlog below.
+- **The isolation release's live check, run 141 (2026-10-12)**: the
+  served-section reader splits on a `>` inside an attribute (checker bug,
+  proven offline); the Add-on's overlapped preparation was mostly asked
+  again (replayed 1, fresh 3; cause unverified); isolation is still
+  unverified live (the router ran the heading first); a step's model inputs
+  are not kept, so the other-part markings cannot be read after a run. In
+  full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; a preparation does not see
   another request's unapplied writes (never applied stale, our cost); the image provider offers no
@@ -1029,6 +1036,33 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **THE ISOLATION RELEASE'S LIVE CHECK, RUN 141 (2026-10-12;
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, last section).**
+  Deployed in 2197 (`64f17488`); one paid run, 16 credits; not retried.
+  - **Checker: `servedLines` strips tags with `<[^>]+>`**, so a `>` inside a
+    quoted attribute (Tailwind's `[&[data-state=open]>svg]:rotate-180` on
+    the opened accordion) leaks attribute text as a second added section,
+    and a right page fails "exactly one section". An attribute-aware tag
+    pattern re-judged run 141's saved evidence as one section, every check
+    ok. Fix with a test from that evidence (`scripts/canary-requests.mjs`).
+  - **Reuse: the Add-on's preparation was mostly asked again.** Job
+    `996afba7`: staged yes, replayed 1, fresh 3, scoped 0 (`scope:?` in its
+    trace), although the preparation overlapped part 0's job by 130.3 s.
+    Hypothesis, not verified: the preparation was taken before part 0
+    published the Gallery change, and its unscoped answers were judged
+    stale. Needs a free read of the stored preparation record and the
+    staleness test it met.
+  - **Isolation unverified live.** The router put the heading first and
+    held the Add-on back, so the Add-on ran on a site where the heading had
+    already changed; run 137's failure could not recur. Exercising it needs
+    the Add-on to run while the other part's words are still unapplied
+    (the Add-on first, or both at once). Offline proof stands (PI 37).
+  - **The other-part markings are not inspectable**: `edit_traces` keeps
+    events, not prompts, so a run cannot show what a step's model saw.
+  - **Still separate gaps**: concurrency inside one Add-on, the
+    missing-context clarification (`acc-needs`), and the image-free first
+    Build.
 
 - **WHAT PARALLEL TASKS DO NOT COVER YET (2026-10-08, revised after round 9,
   2026-10-09; `docs/history/2026-10-09-parallel-round-9.md` §4).** Closed in

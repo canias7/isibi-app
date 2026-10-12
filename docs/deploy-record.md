@@ -1751,3 +1751,36 @@ and names the wrong person to go and ask.
     `1e30b6fb56b51794`;
   - `imagePurchases=true`;
   - balance 876, nothing charged.
+
+## Deploy 2197 — the task-isolation release, image purchases off (2026-10-12)
+
+- On the owner's approval of the isolation release and one `acc-isolation`
+  run. `main` fast-forwarded `df1dcf30` → **`64f17488`** (36 commits: the
+  isolation fix `83c9015a`, the checker `6dae03bc` and `b34707e6`, the
+  scenario `ec7d894c`, the opt-in `64f17488`, and records).
+  `IMAGE_PURCHASES` was set to `off` before the merge.
+- Run 38316342390 (push, 22:23–22:26 UTC), green. The container image was
+  **built**, as predicted on both ends: `1e30b6fb56b51794` →
+  **`eda28cb21064287d`** (205 inputs; the registry answered 404 for the new
+  id). 27 secrets uploaded; no asset uploads.
+- **Runtime-confirmed by run 140** (free, 22:33 UTC):
+  - both readers answered `64f174884cf7`, and a cold container got
+    `eda28cb21064287d`;
+  - `imagePurchases=false`;
+  - balance 876, nothing charged.
+- Build flags unchanged (`BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE` and
+  `DESIGN_GRAPH_EVERYONE` off), and the 1-page / 15-component limits
+  untouched.
+
+## Deploy 2198 — image purchases back on after run 141 (2026-10-12)
+
+- Run 38321179522 (`workflow_dispatch`, 23:15–23:16 UTC), the owner's
+  manual redeploy of `main` `64f17488`, after `IMAGE_PURCHASES` was set to
+  `on`.
+- The container image was reused (`eda28cb21064287d`, "no changes"). 27
+  secrets uploaded; no asset uploads.
+- **Runtime-confirmed by run 142** (free, 23:17:40 UTC, job 115049977532):
+  - both readers answered `64f174884cf7`, and a cold container got
+    `eda28cb21064287d`;
+  - `imagePurchases=true`, async and the runner on;
+  - balance 860, nothing charged.
