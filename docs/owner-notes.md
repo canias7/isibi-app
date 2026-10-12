@@ -55,7 +55,8 @@ is in git; the dated entries further down are the full story.*
   - **Real-browser control OPEN 3**: two one-at-a-time questions. A wrong or
     missing earlier answer fails although the last answer is right.
   - **Checks**: sweep 12 of 12 killed (control survived), the related canary
-    files 229 / 229, and the full suite `10702 / 10702 / 0 / 0`.
+    files 229 / 229, the full suite `10702 / 10702 / 0 / 0`, and unit CI
+    38310950735 `success` on `4202cbcd`.
 - **A merge would build a new container image** (`1e30b6fb56b51794` →
   `eda28cb21064287d`), because the fix touches image inputs. Nothing was
   merged, deployed, built or spent.
