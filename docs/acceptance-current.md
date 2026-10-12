@@ -2,60 +2,40 @@
 
 *Current instructions only. They are replaced, never appended to, when they
 change. The history of how they came to be, including superseded image ids,
-stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md` and
-`docs/history/2026-10-12-acceptance-addon-free.md`; nothing there is an
+stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md`,
+`docs/history/2026-10-12-acceptance-addon-free.md` and
+`docs/history/2026-10-12-acceptance-addon-next.md`; nothing there is an
 instruction.*
 
-**As of 2026-10-12, branch `claude/help-needed-ehlwlj`. Product code
-`754c4eb4`, reviewed by Codex on `358dff0a`. The acceptance harness changed in
-rounds 16–18 (scripts and tests only, no product code) and was reviewed by
-Codex on `dc3ea241`: the harness repair batch is closed.**
+**As of 2026-10-12, branch `claude/help-needed-ehlwlj`.** P1 and P2 are done
+and closed. The next image-free Add-on batch (§4) is prepared on the branch,
+not pressed, and needs a spending decision (§5).
 
 ## 1. State
 
-- **Production**: deploy 2193 (2026-10-12, 14:03 UTC), `main` **`df1dcf30`**,
-  the opt-in (§5) merged; image `1e30b6fb56b51794` **reused**;
-  **runtime-confirmed by run 127** (14:14 UTC), with
-  **`imagePurchases=false`** and balance 971.
-- **P1 ran** (run 128, 14:24 UTC, 13 credits, balance 971 → 958). S1, S2
-  and S9 came back batched; S3–S8 came back as parts. **S3 made parts, so P2
-  (`acc-page-table`) is next.** S7 was split too (the section held back from
-  the add-on), so `acc-addon-inner` would now test overlap across parts. The
-  full table is in owner-notes.
-- **P2 passed** (run 129, 14:29–14:36 UTC, 8 credits, balance 958 → 950).
-  - The price part's preparation overlapped the heading job by **13.1 s**
-    (recorded intervals), and the price job reused it exactly.
-  - Both changes landed exactly, with nothing else touched.
-  - No duplicate charge: the charges are routing 3, then jobs 3, 1 and 1.
-  - Option A total: 21 credits.
-- **Image purchases are back on**: deploy 2194, a manual redeploy, confirmed
-  by run 130 (14:44 UTC, `imagePurchases=true`, balance 950). **Option A is
-  complete.** B1–B3 and the image-free Build were not run, and they stay
-  behind the 100-credit cap. Before it:
-- deploy 2192 (2026-10-12), `main` **`e1556086`**, image
-  **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
-  from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is
-  byte-identical to the merged file. **Runtime-confirmed by the owner's free
-  press, run 123** (12:58 UTC): both readers `e1556086808c`, a cold container
-  `1e30b6fb56b51794`, async and the runner on, nothing charged (balance 971).
-  The runtime reports **`imagePurchases=true`**: P2 still needs
-  `IMAGE_PURCHASES` set to `off` (§6 step 3). **The probe rehearsal (run 125,
-  free)** read the 9 probes and the bakery's 12 pages, and confirmed that a
-  paid probe would refuse on the 100-credit cap at 971. **The P2 rehearsal
-  (run 126, free)** read Country White at 4.8 (£4.80 on `/order`) and stopped
-  at step 1 because image purchases are on; nothing was sent. The previous production was deploy
-  2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
-- **The branch is merged** (a fast-forward, one deploy run). Records after it
-  live on `claude/help-needed-ehlwlj` and start no deploy.
-- **Paid acceptance is blocked** except for P1 and P2 run with the opt-in box
-  (§5), which is merged and deployed in deploy 2193. Every paid acceptance entry point refuses while the balance is
-  above 100 (`ACCEPTANCE_CAP`); the balance is 971, and nothing here asks for
-  it to change. **No separate test budget exists.** You chose option A for P1
-  and P2 (2026-10-12); the opt-in box that carries it is on the branch.
+- **Production is deploy 2194** (2026-10-12, 14:41–14:42 UTC): a manual
+  redeploy of `main` **`df1dcf30`** that put image purchases back on. Image
+  **`1e30b6fb56b51794`**, unchanged. **Runtime-confirmed by run 130** (14:44
+  UTC): both readers `df1dcf30f5fb`, a cold container `1e30b6fb56b51794`,
+  **`imagePurchases=true`**, nothing charged. `docs/deploy-record.md`.
+- **Balance 950.** Option A spent 21: P1 13 (971 → 958) and P2 8 (958 →
+  950).
+- **P1 and P2 are complete and closed. They are not to be rerun.**
+  - **P1** (run 128): the real router's answer for S1–S9. S1, S2 and S9
+    were batched; S3–S8 were split into parts.
+  - **P2** (run 129, `acc-page-table`): the price part's preparation ran
+    beside the heading job (13.1 s, by recorded intervals) and was replayed
+    exactly. Both changes landed and nothing else changed. No double charge.
+  - The P1/P2 opt-in box (`accept_balance`) admits only those two presses
+    and is **not** extended to anything below.
+- **Paid acceptance is blocked** for everything else: every acceptance press
+  refuses while the balance is above 100 (`ACCEPTANCE_CAP`). The balance is
+  950, and nothing here asks for it to change. **No separate test budget
+  exists.**
 - **Real images are unverified**, and stay so: no test here buys one. fal is
-  off limits. **Every case below is image-free**, the Add-on ones included.
-- **The account's Build flags are left as they are.** Nothing is switched on
-  for a test. The 1-page / 15-component limits are unchanged.
+  off limits. **Every case below is image-free.**
+- **The account's Build flags are left as they are**, and the 1-page /
+  15-component limits are unchanged.
 
 ## 2. The goal, and what is proved offline versus live
 
@@ -82,19 +62,28 @@ press against the deployed Worker, with real models.
 The consolidated offline sweep groups these files: independent work, genuine
 dependencies, clarification and resume, partial failure (§6 gives the counts).
 
+**Shown live** (P1/P2, closed): the real router splits a page change from a
+table change into parts (P1's S3–S8) and batches changes of one kind (S1, S2,
+S9); a part's scoped preparation overlaps another part's job and is replayed
+exactly, both changes land, and nothing is charged twice (P2).
+
 **Still needs live verification**, and only a press can show it:
 
-1. whether the real router splits independent changes into parts or batches
-   them into one answer (P1);
-2. a scoped preparation replayed exactly by its job (`replayed ≥ 1, fresh 0`)
-   while another part runs (P2, B2);
-3. **inside one Add-on, whether the real picker says what each addition uses.**
-   Two designers start together only when the picker states their `uses`;
-   with nothing stated, the old order stands (PI 26). PI 32 shows the overlap
-   with `uses: []` supplied (B1);
-4. whether a real model says `needs` when it lacks context (one sample at most);
-5. the image-free first Build's overlap by bands or design agents;
-6. real images (not proposed: fal is off limits).
+1. **inside one Add-on, two designers running at the same time.** S7 (a page
+   and a section) was split into parts, so it cannot show this. S9 (two
+   sections) came back as one Add-on, but two sections are one kind and one
+   designer, so it cannot either. `acc-addon-kinds` asks for a section and a
+   line, which are two kinds that wait for nothing (§4, K);
+2. **across parts, an Add-on's preparation replayed exactly beside another
+   part's job.** S8 was split into an Edit part and a held Add-on part, and
+   those are independent (`acc-addon-edit`, §4, E). S7's two Add-on parts are
+   **not** independent: the section's picker reads the site's page list,
+   which the new page changes, so it waits (PI 35);
+3. **subsequent**: whether a real model says `needs` when it lacks context
+   (`acc-needs`, one sample at most);
+4. **subsequent**: the image-free first Build's overlap by bands or design
+   agents (only if `design`, `graph` or `bandsEveryone` is already on);
+5. real images (not proposed: fal is off limits).
 
 ## 3. The evidence each live claim needs
 
@@ -109,102 +98,78 @@ Every check reads what the run recorded, never a status or a routing answer.
 | **Reuse** | `reuseVerdict`: per-job `prepUse` (`exact` = staged yes, replayed ≥ 1, fresh 0) | the demanded number of jobs answered exactly from prepared work; a missing record fails |
 | **No duplicate charges** | `moneyVerdict`, `ownMoneyVerdict` (the press's own ledger rows), `laterChargesVerdict` (charges after the request ended), and the read-job ledger (`credit_events` by job id) | each job reserved once, every ledger ref distinct, nothing charged after the end, spend within the estimate |
 
-## 4. The minimal live proposal (P1 and P2 approved under option A; nothing is pressed)
+## 4. The next image-free Add-on batch (prepared, not pressed)
 
-Two paid presses are necessary to verify the remaining parallel-work claims
-(items 1 and 2). The image-free Add-on presses are optional, and each is
-pressed only if its probe allows it.
+Built on P1's real routing results, with nothing forced. Each press records
+what the router and the picker actually did. A claim the run did not reach is
+recorded as not reached, never passed.
 
-| # | Press | What it proves | Estimate |
+| # | Press | What it would establish | Estimate |
 |---|---|---|---|
-| P1 | routing probe `acceptance-split-1` (**9** routing calls, nothing applied) | the real router's answer for every acceptance message, S1–S9: **batched** (one answer: not parallel work) or **parts** | 9–27 |
-| P2 | `acc-page-table` on `fold-lane-bakery`, **only if S3 came back as parts** | the price part's scoped preparation overlaps the heading job by recorded intervals, its job replays it exactly, and both changes land (heading; Country White 4.80 → 4.90) | 4–12 |
-| B1 | `acc-addon-inner` (optional; S7) | **inside one Add-on**: a Delivery page with its menu link and a questions section on the Tasting Evenings page, no photograph, form or table. Both land; afterwards the free read-job lookup on the Add-on's job reads whether the two designers overlapped (§3) | 15–28 (budget 30) |
-| B2 | `acc-addon-edit` (optional; **only if S8 came back as parts**) | **across parts**: a questions section on the Bake List page and the Gallery heading; the held part is prepared beside the other part's job and replayed exactly | 9–20 (budget 22) |
-| B3 | `acc-addon-pair` (optional; S9) | two questions sections on the Visit and Starter pages: what the router made of them is recorded (expected one Add-on); both land; reuse recorded, no overlap demanded | 8–26 (budget 28) |
+| K0 | routing probe **`acceptance-split-2`**: one routing call for K's own message, nothing applied | whether the real router keeps "a questions section on the Visit page **and** one line on the Order page" as **one Add-on** (needed for K) | 1–3 |
+| K | **`acc-addon-kinds`**, only if K0 is one `addon` answer with nothing held back | **inside one Add-on**: the section (`component`) and the line (`words`) are designed at the same time inside the one job, read afterwards free with the *read_job* box on its job (`addonDesignOverlap` must say `overlapped`). Both land with every asked fact (dogs welcome inside; every loaf baked the morning you collect it, no other time of day, no "night before"); every other page byte for byte; no image bought; each job charged once | 9–19 (budget 22) |
+| E | **`acc-addon-edit`** (S8, which P1 showed as parts) | **across parts**: the held Add-on part (a questions section on the Bake List page) is prepared while the Gallery heading's job runs, by recorded intervals, and its job replays that preparation exactly (`replayed ≥ 1, fresh 0`). Both land with every asked fact (updated every Monday morning); nothing else moves; each job charged once | 9–20 (budget 22) |
 
-- **If S3 is batched**, P2 is not pressed. `acc-table-page` (S4) takes its
-  place if S4 made parts, at the same estimate. If both are batched, the
-  result is recorded as *the real router batches these messages; parallel
-  parts are not reachable from them*, and nothing more is spent on them.
-- **B1 needs no split**: its overlap is inside one job. If S7 came back as
-  parts, B1 still runs, and its overlap is judged across parts.
-- **Expected total**: 13–39 for P1 and P2; up to 74 more with B1–B3. These are
-  estimates, not limits.
-- **Optional, not needed for the parallel-work claims**: `acc-needs` (item 4,
-  4–14), `acc-mixed` (an add-on prepared beside a price, its menu link
-  waiting, 17–34), `acc-pages-real` (3–8), and the image-free Build (item 5,
-  11–40). The Build runs only if one of `design`, `graph` or `bandsEveryone`
-  is already on for the account; its free rehearsal says so.
-- Each section's words were read off the live pages on 2026-10-12 as not yet
-  there. A press compares against its own before-read, so the order of B1–B3
-  does not matter.
+- **Why these and not others.**
+  - S7 (`acc-addon-inner`) is split, and its parts depend on each other.
+    PI 35 shows the section's preparation waiting for the new page and the
+    job working it out afresh, so it would show ordering, not concurrency.
+  - S9 (`acc-addon-pair`) is one Add-on of one kind: one designer, nothing
+    to run beside.
+  - Two independent **Add-on** parts would need a message the router splits
+    into two additions that read nothing the other writes. P1 has no such
+    sample: it batched S9's two sections into one answer. The nearest with
+    P1 evidence is E, an Add-on part beside an Edit part.
+- **Why K needs no `uses` from the picker.** Neither a section nor a line
+  changes what another designer is shown; only a table-like kind or a new
+  page does (`designWaits`). PI 34 runs the real route with no `uses` at all
+  and the two designers still meet. The live risk is only routing and kind
+  picking: if K0 splits it, K is not pressed. If the picker answers one kind
+  (two `component`s), the read says one designer and the claim is not
+  reached.
+- **Totals**: K0 + K + E, about **19–42** credits. These are estimates, not
+  limits.
+- **Order**: K0 first. Then K (only if K0 allows it) and E, in either order;
+  each compares against its own before-read. The words each adds were read
+  off the live pages on 2026-10-12 as not there yet.
+- **Subsequent, not in this batch**: `acc-needs` (the missing-context
+  clarification) and the image-free first Build.
 
-## 5. The spending decision: option A, chosen 2026-10-12
+## 5. The spending decision this batch needs
 
-**What is actually enforced**: the server's charge functions refuse any
-charge the balance cannot cover. So **the only enforced bound on a paid press
-is the whole account balance (971)**. No per-press or per-request cap exists
-on the server. The press's own 100-credit refusal is a guard, not a budget.
+**What is enforced**: the server refuses any charge the balance cannot cover,
+so the only enforced bound on a paid press is the whole balance (950). No
+per-press cap exists on the server. The presses' 100-credit refusal blocks
+K0, K and E at 950. **The P1/P2 opt-in does not cover them, and is not
+extended here.**
 
-**You chose A** ("go with A"): the account balance is accepted as the bound
-for **P1 and P2 only** (`acceptance-split-1`, and `acc-page-table` or
-`acc-table-page`). B1–B3 are not included; they stay behind the cap.
-
-**The opt-in, on the branch, not yet reviewed or merged**: a new form box,
-*ACCEPTANCE P1/P2 ONLY* (`accept_balance`). You type your balance in whole
-credits. Then:
-- the press runs above the 100-credit cap **only if the balance read just
-  before the first paid call is exactly that number**; a top-up, a charge or
-  an unreadable balance in between refuses;
-- every other check stands: the estimate, the deploy sha, the image id and,
-  for P2, image purchases off;
-- the box beside any other press, or anything but a whole number, refuses
-  before the sign-in, at no cost;
-- left blank, nothing changes: the cap stands.
-
-It is still not a budget: under it, a press can spend up to the whole
-balance. The estimates (§4) are not limits.
-
-Until the opt-in is reviewed, merged and deployed, **paid acceptance is
-blocked**.
+Before anything is pressed, choose one:
+- **A2.** Accept the balance as the bound for exactly K0, K and E. This needs
+  one small, reviewed change: an opt-in for these three, like P1/P2's. Their
+  worst case is the whole balance.
+- **B.** A separate test budget first (a billing change), with the presses
+  blocked until it exists.
+- **C.** Nothing live. Items 1 and 2 stay shown offline only (PI 34, PI 29).
 
 **Not an option**: lowering or resetting the account's balance.
 
 ## 6. The steps from here (each the owner's)
 
-1. **Done**: the decision (§5, option A, for P1 and P2), and the free checks
-   on deploy 2192 (runs 123, 125, 126).
-2. **Review the opt-in** (§5) on the branch.
-3. **Set the repository secret `IMAGE_PURCHASES` to `off`** just before the
-   merge, so the merge's one deploy carries it. P2 needs it; P1 does not.
-   **This stops photographs for every customer while it is off.**
-4. **Merge the branch to `main`** (a fast-forward; one deploy run, because a
-   workflow changed). The container inputs are unchanged, so the image is
-   expected to be **reused** (`1e30b6fb56b51794`) and no image window is
-   owed. If the deploy log says `built`, wait 15–20 minutes before step 5.
-5. **The free runtime press** (*edit canary*, spend `no`, the new deploy sha
-   and image boxes): it must print the merge sha, image `1e30b6fb56b51794`
-   and `imagePurchases=false`. Read your balance there.
-6. **P1**, workflow *edit canary* from `main`:
-   - *ROUTING-ONLY BATCH* = `acceptance-split-1`;
-   - *ACCEPTANCE P1/P2 ONLY* = your balance, exactly as step 5 read it;
-   - *Run the ONE paid edit as well* = `yes`;
-   - *Refuse to spend unless the Worker reports this deploy sha* = the merge
-     sha;
-   - *Refuse to spend unless a cold container reports this image id* =
-     `1e30b6fb56b51794`;
-   - every other box blank.
-7. **P2**, only if P1's S3 made parts (else `acc-table-page` if S4 did; else
-   neither):
-   - *The site to edit* = `fold-lane-bakery`;
-   - *RUN A NAMED SCENARIO IN A REAL BROWSER* = `acc-page-table`;
-   - *ACCEPTANCE P1/P2 ONLY* = your balance after P1, exactly;
-   - spend `yes`, and the same deploy sha and image boxes.
-8. **Afterwards**, set `IMAGE_PURCHASES` back to `on` and re-run the deploy
-   workflow (it has a manual run). Until then, no customer gets photographs.
-
-B1–B3 are not part of option A: their presses still refuse above the cap.
+1. Review this batch and choose §5's option.
+2. For A2: review and merge the opt-in. The scenarios already exist on the
+   branch; a press can run from the branch, so no deploy is needed for them.
+3. **K0** (routing only; image purchases need not be off for it): run edit
+   canary with *ROUTING-ONLY BATCH* = `acceptance-split-2`, spend `yes`,
+   and the deploy sha and image boxes.
+4. **Set `IMAGE_PURCHASES` to `off`** and re-run the deploy workflow; then
+   the free runtime press must show `imagePurchases=false`. **This stops
+   photographs for every customer while it is off.**
+5. **K** (only if K0 allows it): *The site to edit* = `fold-lane-bakery`,
+   scenario `acc-addon-kinds`, spend `yes`, the deploy and image boxes. Then
+   the free *read_job* press on its Add-on job for the `DESIGNERS` line.
+6. **E**: the same boxes, with scenario `acc-addon-edit`.
+7. **Set `IMAGE_PURCHASES` back to `on`** and re-run the deploy workflow;
+   the free runtime press must show `imagePurchases=true`.
 
 ## 7. Offline verification of this plan (rounds 16 to 18)
 
@@ -229,3 +194,11 @@ B1–B3 are not part of option A: their presses still refuse above the cap.
   served-price controls passed, and CI was green (unit tests 38237458207
   `success` on `dc3ea241`). The acceptance-harness repair batch is closed.
   Nothing completed is to be repeated without a concrete reason.
+- **After P1/P2** (`docs/history/2026-10-12-acceptance-addon-next.md`):
+  - `acc-addon-kinds` and its one-message probe `acceptance-split-2` were
+    added.
+  - PI 34: two kinds in one Add-on with no `uses` meet.
+  - PI 35: S7's parts wait, the section is not prepared beside the page, and
+    its job works afresh.
+  - S7's scenario is left as reviewed and marked not proposed.
+  - No product code changed.

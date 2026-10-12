@@ -1,36 +1,41 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases back on, confirmed by run 130; option A complete)
+## Current handoff — read this first (2026-10-12: production is deploy 2194, balance 950, image purchases restored, P1 and P2 complete and closed; the next image-free Add-on batch is prepared on the branch, not pressed, and needs a spending decision)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2192** (2026-10-12): `main` **`e1556086`**, a
-  fast-forward of 127 commits from `f96cbfd5`, on your word. One deploy run
-  (38241259917), green. The image was built **`1e30b6fb56b51794`** as
-  predicted (205 inputs), and the container moved from `8d6dbcea93252fbb` at
-  11:16:24 UTC. One asset was uploaded (`/chat.js`), and the served file is
-  byte-identical to the merged one. **Runtime-confirmed by your free press,
-  run 123** (12:58 UTC, from `main`): both readers `e1556086808c`, a cold
-  container `1e30b6fb56b51794`, async and the runner on, nothing charged. The
-  runtime reports `imagePurchases=true` (unchanged; P2 would need it `off`). Rollback was verified before the merge
-  (`git revert --no-commit f96cbfd5..e1556086` gives back `f96cbfd5`'s tree).
-  `docs/deploy-record.md`.
-- **The free checks are yours to press.** A session's dispatch answered 403,
-  tried once and not retried. The three presses are below and in the dated
-  entry.
-- **Balance 971**, untouched; no ledger row since 2026-10-10 (row 432).
-  **Build flags** were not changed (the log shows the `*_EVERYONE` flags
-  `off`, as before), and the 1-page / 15-component limits are untouched. No
-  paid call, fal call or image purchase. `IMAGE_PURCHASES` was not changed.
-- **You chose option A** ("go with A"): the account balance is the bound for
-  P1 and P2 only. **The opt-in that carries it is on the branch, for review;
-  not merged, not deployed, nothing pressed or spent.** Until it is merged,
-  paid acceptance stays blocked by the 100-credit guard at 971. The guard was
-  not bypassed, and the balance was not lowered. The steps from here are
-  §6 of `docs/acceptance-current.md`, and the dated entry below.
+- **Production is deploy 2194** (2026-10-12, 14:41–14:42 UTC). It is your
+  manual redeploy of `main` **`df1dcf30`**, which put image purchases back
+  on.
+  - The image is **`1e30b6fb56b51794`**, unchanged.
+  - **Runtime-confirmed by run 130** (14:44 UTC): both readers
+    `df1dcf30f5fb`, a cold container `1e30b6fb56b51794`, and
+    **`imagePurchases=true`**. Nothing was charged.
+  - `docs/deploy-record.md`.
+- **Balance 950.** Option A spent 21: P1 13 and P2 8.
+- **P1 and P2 are complete and closed, and are not to be rerun.**
+  - P1 (run 128) recorded the real router's answer for S1–S9: S1, S2 and S9
+    batched; S3–S8 split into parts.
+  - P2 (run 129) passed:
+    - the price part's preparation overlapped the heading job by 13.1 s and
+      was replayed exactly;
+    - both changes landed, and nothing else changed;
+    - there was no double charge.
+  - The P1/P2 opt-in box admits only those two presses. It is not extended.
+- **Image purchases are restored.** They were off from 14:03 to 14:42 UTC
+  for P2 only.
+- **Build flags and the 1-page / 15-component limits are untouched.** No fal
+  call or image purchase was made.
+- **Next: an image-free Add-on batch, prepared on the branch, not pressed**
+  (`docs/acceptance-current.md` §4–§6, and the dated entry below). It is
+  blocked by the 100-credit guard at 950 until you choose how to bound it
+  (§5).
+- **Subsequent live gaps**, after this batch:
+  - the missing-context clarification (`acc-needs`);
+  - the image-free first Build.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -901,6 +906,78 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The next image-free Add-on batch, after P1's real routing (prepared on the branch; nothing pressed, spent, merged or deployed)
+
+You asked for the next smallest image-free Add-on batch, built on what P1
+actually showed, with P1/P2 kept closed and nothing forced.
+
+**What P1 rules out**:
+- **S7** (a Delivery page and a questions section) came back as two parts,
+  so it cannot show designers running together inside one Add-on.
+- **S7's parts are not independent either.** The section's preparation reads
+  the site's page list, and the new page changes that list, so the section
+  waits.
+  - The offline run (PI 35) shows this: nothing is prepared beside the page,
+    and the section's job works it out afresh.
+  - So S7 would show ordering, not concurrency.
+  - I did not change that rule to make a test pass.
+- **S9** (two questions sections) came back as one Add-on. But two sections
+  are one kind, so there is one designer and nothing to run beside it.
+
+**Proposed** (`docs/acceptance-current.md` §4):
+- **K0, the routing probe `acceptance-split-2`.** One routing call for K's
+  message, and nothing is applied. About 1–3 credits.
+- **K, `acc-addon-kinds`. Inside one Add-on**, pressed only if K0 comes back
+  as one Add-on.
+  - The message asks for a questions section on the Visit page ("Can I bring
+    my dog?", "Dogs are welcome inside.") and one line on the Order page
+    ("Every loaf is baked the morning you collect it.").
+  - Those are two kinds, a section and a line. Neither changes what the
+    other is shown, so both designers start at once without the picker
+    saying anything about them. Offline, PI 34 shows them meet.
+  - Evidence: the free read-job lookup on its job must say `overlapped`, and
+    every asked fact must land, with nothing else moving and one charge per
+    job.
+  - About 9–19 credits.
+- **E, `acc-addon-edit` (S8). Across parts.**
+  - P1 showed it as an Edit part and a held Add-on part, and those parts are
+    independent.
+  - Evidence: the Add-on's preparation runs beside the heading's job, by
+    recorded intervals, and its job replays it exactly. Every fact lands, and
+    there is no duplicate charge.
+  - Offline, PI 29 shows this in both orders.
+  - About 9–20 credits.
+- **About 19–42 credits together.** That is an estimate, not a limit.
+- **Two independent Add-on parts have no P1 evidence**: the router batched
+  S9's two sections into one answer. E is the nearest across-parts case that
+  P1 confirmed.
+
+**Prerequisites**:
+1. **A spending decision.** All three are blocked at 950. The P1/P2 opt-in is
+   not extended. Choose A2 (an opt-in for exactly K0, K and E, reviewed like
+   P1/P2's), B (a test budget) or C (nothing live).
+2. **`IMAGE_PURCHASES` off, with a redeploy, for K and E** (not K0), then
+   back on.
+3. K0 before K.
+4. No deploy is needed for the scenarios themselves: a press can run from
+   the branch.
+
+**Changed**: scripts and tests only, plus the workflow's scenario
+description. No product code changed.
+- `acc-addon-kinds` and `scripts/router-probes/acceptance-split-2.json`.
+- S7's scenario is left exactly as it was reviewed, with a note that it is
+  not proposed.
+- PI 34 and PI 35, and the facts checks for K's line and section.
+- `acceptance-split-1` is untouched, exactly as P1 ran it.
+
+**Checked**:
+- Red check: 7 scenario cases fail on the old scripts.
+- Sweep: 12 of 12 killed, and both comment-only controls survived.
+- Full suite `10678 / 10678 / 0 / 0`.
+
+**Subsequent live gaps**: the missing-context clarification (`acc-needs`) and
+the image-free first Build.
 
 ## 2026-10-12 — Deploy 2194: image purchases switched back on (confirmed by run 130)
 

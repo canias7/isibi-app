@@ -1160,6 +1160,15 @@ export const UI_SCENARIOS = Object.freeze({
   // `acceptance-split-1` comes first: what the real router makes of the
   // message (one Add-on, or parts) is recorded, never assumed.
   //
+  // AFTER P1 (run 128): NOT PROPOSED. The real router held this message's
+  // section back as its own part (S7), so it cannot show designers running
+  // together inside one job; and as parts the section's preparation waits for
+  // the Delivery page's part, because a scoped addition reads the site's page
+  // list and a new page changes it (`clearToPrepare`; PI 35) — a real
+  // dependency, so it cannot show overlap across parts either. Kept as it was
+  // reviewed; `acc-addon-kinds` is the inside-one-Add-on case, and
+  // `acc-addon-edit` the across-parts one.
+  //
   // B1 — INDEPENDENT TASKS INSIDE ONE ADD-ON: a new page and a section on
   // another page are two kinds (`page`, `component`), neither using the
   // other, so their designers start together (`designWaits`). That overlap
@@ -1275,6 +1284,55 @@ export const UI_SCENARIOS = Object.freeze({
     covers: Object.freeze(["several-parts"]),
     steps: Object.freeze([
       Object.freeze({ say: "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add a short questions section to the Starter page answering 'Is the starter gluten-free?' with 'No, it is made with rye flour.'", ms: 22 * 60_000 }),
+    ]),
+  }),
+  // B4 — INDEPENDENT TASKS INSIDE ONE ADD-ON, OF TWO KINDS (2026-10-12, after
+  // P1). P1 showed what this needs: S7 (a page and a section) split into
+  // parts, and S9 (two sections) came back as one Add-on, but two sections are
+  // one kind (`component`) and so one designer — nothing to run beside. Here a
+  // questions section on the Visit page (`component`) and one new line on the
+  // Order page (`words`): two kinds, and neither changes what the other is
+  // shown (only a schema kind or a `page` does), so `designWaits` lets both
+  // designers start at once whatever the picker says they use. The overlap
+  // lives inside the one add-on job and is read afterwards, free, with the
+  // read-job box on that job (`addonDesignOverlap`): claimed only when it is
+  // the only job and trace on the site in the window. Its routing is probed
+  // first (`acceptance-split-2`), never assumed; whatever the router and the
+  // picker do is recorded, and if either makes two parts or one kind there is
+  // no inside-one-job claim to make. The words were read off the live pages
+  // on 2026-10-12 as not there yet. ABOUT 9-19: routing 1-3; the add-on with a
+  // section and a line 7-14 and its judgment about 1.
+  "acc-addon-kinds": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 22, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["look", "page"]),
+    expect: Object.freeze({
+      sections: Object.freeze([
+        Object.freeze({
+          route: "/visit", says: Object.freeze(["dogs", "welcome"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "dogs are welcome", any: Object.freeze(["dogs are welcome", "dogs are allowed", "dogs welcome", "dogs are very welcome", "welcome to bring your dog", "bring your dog"]) }),
+            Object.freeze({ fact: "inside", any: Object.freeze(["inside", "indoors", "in the bakery", "in the shop"]) }),
+          ]),
+          denies: Object.freeze(["not inside", "outside only", "only outside"]),
+        }),
+        Object.freeze({
+          route: "/order", says: Object.freeze(["baked"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "every loaf is baked", any: Object.freeze(["every loaf is baked", "each loaf is baked", "all our loaves are baked", "every loaf baked", "loaves are baked"]) }),
+            Object.freeze({ fact: "the morning you collect it", any: Object.freeze(["the morning you collect it", "the morning you collect", "on the morning you collect", "the morning of collection", "the morning you pick it up"]) }),
+          ]),
+          only: Object.freeze({ parts: Object.freeze(["morning"]) }),
+          denies: Object.freeze(["baked the day before", "baked the night before"]),
+        }),
+      ]),
+      reuse: Object.freeze({}),
+      shape: true,
+      inner: true,
+    }),
+    covers: Object.freeze(["addon-inner"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add one line under the collection times on the Order page saying 'Every loaf is baked the morning you collect it.'", ms: 22 * 60_000 }),
     ]),
   }),
 });

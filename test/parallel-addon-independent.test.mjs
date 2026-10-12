@@ -1183,3 +1183,97 @@ for (const hoursFirst of [false, true]) {
     });
   });
 }
+
+// AFTER P1 (run 128, 2026-10-12): the inside-one-Add-on shape the real router
+// can keep as one answer. P1 saw S9's two sections come back as one Add-on,
+// but two sections are one kind and so one designer; S7's page and section
+// were split into parts. A section and a line are two kinds, and neither
+// changes what the other is shown, so their designers start together WITHOUT
+// the picker saying what each uses (no `uses` here, unlike PI 32).
+const W_VISIT_LINE = "add one line on the Visit page saying every loaf is baked the morning you collect it";
+const VISIT_LINE_ANSWER = { words: [{ page: "/visit", where: "under the opening line", words: "Every loaf is baked the morning you collect it." }] };
+const VISIT_WITH_LINE = "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/visit')({ component: Page })\n"
+  + "function Page(){ return <main><section className=\"come\"><h1>Come to the bakery</h1><p>Open from 8.</p><p>Every loaf is baked the morning you collect it.</p></section></main> }\n";
+
+test("PI 34 — IMAGE-FREE, ONE ADDITION OF TWO KINDS: A QUESTIONS SECTION AND ONE LINE ON ANOTHER PAGE, with no `uses` from the picker: the section's and the line's designers run at the same time; both land, each designer and the page writer asked once, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
+  const designers = rendezvous(["add:component", "add:words"]);
+  await withPlatform({
+    slug: slugOf("p34"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["component", "words"], scopes: [{ kind: "component", words: W_ABOUT_FAQ }, { kind: "words", words: W_VISIT_LINE }] },
+      "add:component": async () => { await designers.arrive("add:component"); return ABOUT_FAQ_ANSWER; },
+      "add:words": async () => { await designers.arrive("add:words"); return VISIT_LINE_ANSWER; },
+      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }, { path: "src/routes/visit.tsx", source: VISIT_WITH_LINE }] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_VISIT_LINE + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(designers.met, { "add:component": true, "add:words": true }, "the designers ran one after the other: " + JSON.stringify(designers));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.ok(P.page("visit.tsx").includes("Every loaf is baked the morning you collect it."), P.page("visit.tsx"));
+    assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
+    assert.equal(designCalls(P), 2, "a designer was asked twice");
+    assert.equal(pageCalls(P), 1, "the page writer was asked twice");
+    assert.equal(P.imageLog.length, 0, "something was bought");
+    const refs = P.ledger.map((e) => e.ref);
+    assert.ok(refs.length > 0, "the observer is alive: the addition was charged");
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});
+
+// AFTER P1: S7's shape as the real router answered it — a new page as one
+// Add-on part and a questions section on another page held back as a second
+// Add-on part. THEY ARE NOT INDEPENDENT AS PARTS: a scoped addition reads the
+// site's page list (its picker is shown which pages there are), and a new page
+// changes it, so the section's preparation waits for the page's part
+// (`clearToPrepare`). This records that wait, so no plan claims overlap for
+// this message; the across-parts case is S8 (PI 29, `acc-addon-edit`).
+const DELIVERY_TARGETS = ["new-page:/delivery"];
+test("PI 35 — TWO ADD-ON PARTS, A NEW PAGE AND A SECTION ON ANOTHER PAGE (S7 as P1 saw it): the section's preparation waits for the page's part — its picker reads the page list the new page changes — and only then runs; both land, every other page as it was, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
+  const meet = rendezvous(["page", "faq"], 300);
+  await withPlatform({
+    slug: slugOf("p35"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0 ? { intent: "addon", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: DELIVERY_TARGETS }, { change: 1, writes: FAQ_TARGETS }] } : { intent: "addon" }),
+      [T.adds]: (args) => (isFaq(args)
+        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }
+        : { kinds: ["page"], scopes: [{ kind: "page", words: W_DELIVERY, uses: [] }] }),
+      "add:page": async () => { await meet.arrive("page"); return { page: [PAGE_SPEC("/delivery", "Delivery")] }; },
+      "add:component": async () => { await meet.arrive("faq"); return ABOUT_FAQ_ANSWER; },
+      [T.pages]: (args) => (textOf(args).includes(ABOUT_FAQ_ANSWER.component[0].does)
+        ? { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }
+        : { pages: [DELIVERY] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_DELIVERY + ", and " + W_ABOUT_FAQ + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const first = P.queue.splice(0);
+    await Promise.all(first.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // THE WAIT, FROM THE REQUEST'S OWN RECORD: the section's model work began
+    // only after the page's part had run to its end.
+    assert.equal(meet.met.page, false, "the page's designer met the section's: " + JSON.stringify(meet));
+    assert.ok(meet.at.faq > meet.at.page, JSON.stringify(meet));
+    // AND FROM THE REQUEST'S OWN RECORD: nothing was prepared for the section
+    // beside the page's part — its job worked it out afresh.
+    const view = await viewOf(P, r.key);
+    const u = prepUseOf(view, 1);
+    assert.ok(u && u.known === true, "the section part's use of preparation is not recorded: " + JSON.stringify(view.parts[1]));
+    assert.equal(u.staged, "no", "the section was prepared beside the page's part: " + JSON.stringify(u));
+    assert.ok(u.fresh >= 1 && u.replayed === 0, JSON.stringify(u));
+    assert.match(String(P.page("delivery.tsx")), /Clifton, Redland and Montpelier/, JSON.stringify(P.pages()));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.equal(P.page("visit.tsx"), VISIT, "a page nobody named changed");
+    assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
+    assert.equal(designCalls(P), 2, "a designer was asked twice");
+    assert.equal(P.imageLog.length, 0, "something was bought");
+    const refs = P.ledger.map((e) => e.ref);
+    assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});

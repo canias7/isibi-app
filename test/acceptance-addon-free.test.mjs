@@ -8,8 +8,9 @@
 // ordering, reuse and no duplicate charges."*
 //
 // What is new here and checked here:
-//   - the three scenarios (`acc-addon-inner`, `acc-addon-edit`,
-//     `acc-addon-pair`) carry the same guards as A1–A5 and buy nothing;
+//   - the four scenarios (`acc-addon-inner`, `acc-addon-edit`,
+//     `acc-addon-pair` and, after P1, `acc-addon-kinds`) carry the same guards as A1–A5 and
+//     buy nothing;
 //   - `sections`, the outcome check for a section added to a page that exists;
 //   - `addonDesignOverlap`, the free read of whether one Add-on's designers ran
 //     together, claimed only when the trace can only be that job's.
@@ -25,7 +26,10 @@ import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } f
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
-const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair"];
+const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds"];
+// THE MESSAGES P1 (run 128) ROUTED, in acceptance-split-1; acc-addon-kinds was
+// written after it and is probed alone, in acceptance-split-2.
+const P1_PROBED = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair"];
 
 // ── THE SCENARIOS ───────────────────────────────────────────────────────────
 
@@ -46,10 +50,16 @@ test("THE IMAGE-FREE ADD-ON SCENARIOS: each buys no image, is bound by the accep
   }
 });
 
-test("WHAT EACH ONE DEMANDS: inside one Add-on, the overlap is read from its job and never demanded of the request; across an Add-on and an Edit part, overlap and exact reuse are demanded; two Add-on sections record the router's shape and demand no concurrency", () => {
+test("WHAT EACH ONE DEMANDS (after P1, run 128): the one written for one Add-on of two kinds reads its overlap from its job and never demands it of the request; across an Add-on and an Edit part, overlap and exact reuse are demanded; two sections of one kind record the router's shape and demand no concurrency; the page-and-section message is left as it was reviewed", () => {
+  const kinds = UI_SCENARIOS["acc-addon-kinds"].expect;
+  assert.equal(kinds.inner, true);
+  assert.equal(kinds.overlap, undefined, "the request-level overlap is demanded of what may be one job");
+  assert.equal(kinds.shape, true);
+  assert.deepEqual(kinds.sections.map((x) => x.route), ["/visit", "/order"]);
+  assert.ok(UI_SCENARIOS["acc-addon-kinds"].covers.includes("addon-inner"));
   const inner = UI_SCENARIOS["acc-addon-inner"].expect;
   assert.equal(inner.inner, true);
-  assert.equal(inner.overlap, undefined, "the request-level overlap is demanded of what may be one job");
+  assert.equal(inner.overlap, undefined);
   assert.equal(inner.shape, true);
   assert.deepEqual({ ...inner.menu }, { page: 0 });
   const edit = UI_SCENARIOS["acc-addon-edit"].expect;
@@ -58,6 +68,7 @@ test("WHAT EACH ONE DEMANDS: inside one Add-on, the overlap is read from its job
   assert.ok(UI_SCENARIOS["acc-addon-edit"].covers.includes("edit-and-addon"));
   const pair = UI_SCENARIOS["acc-addon-pair"].expect;
   assert.equal(pair.overlap, undefined);
+  assert.equal(pair.inner, undefined, "two sections are one kind: one designer, nothing inside the job to run beside");
   assert.equal(pair.shape, true);
   assert.equal(pair.sections.length, 2);
   assert.ok(Object.hasOwn(COVERAGE, "addon-inner"), "the inside-one-Add-on coverage has no reader");
@@ -65,7 +76,7 @@ test("WHAT EACH ONE DEMANDS: inside one Add-on, the overlap is read from its job
 
 test("EACH MESSAGE IS PROBED FIRST: acceptance-split-1 routes every new scenario's own words, recorded and unjudged", () => {
   const b = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-1.json", "utf8"));
-  for (const k of NEW) {
+  for (const k of P1_PROBED) {
     const p = b.probes.find((x) => x.message === UI_SCENARIOS[k].steps[0].say);
     assert.ok(p, `${k}'s message is not probed`);
     assert.equal(p.intended, null);
@@ -422,8 +433,61 @@ test("THE READ-JOB BOX READS EVERY JOB WHOSE RUN TOUCHES THE WINDOW: through the
 });
 
 test("THE PRESS RECORDS WHAT IT CANNOT SEE: a scenario that asks for the inside-one-Add-on reading names it as unverified, pointing at the read-job box; one that does not, does not", () => {
-  const v = requestBatchVerdict({ spec: UI_SCENARIOS["acc-addon-inner"], steps: [], before: read(PAGES).inv, after: read(PAGES).inv, served: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG });
+  const v = requestBatchVerdict({ spec: UI_SCENARIOS["acc-addon-kinds"], steps: [], before: read(PAGES).inv, after: read(PAGES).inv, served: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG });
   assert.ok(v.unverified.some((u) => /designers ran at the same time .*read-job box .*addonDesignOverlap/.test(u)), JSON.stringify(v.unverified));
-  const w = requestBatchVerdict({ spec: UI_SCENARIOS["acc-addon-edit"], steps: [], before: read(PAGES).inv, after: read(PAGES).inv, served: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG });
-  assert.ok(!w.unverified.some((u) => /designers ran at the same time/.test(u)));
+  for (const k of ["acc-addon-edit", "acc-addon-pair"]) {
+    const w = requestBatchVerdict({ spec: UI_SCENARIOS[k], steps: [], before: read(PAGES).inv, after: read(PAGES).inv, served: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG });
+    assert.ok(!w.unverified.some((u) => /designers ran at the same time/.test(u)), k);
+  }
+});
+
+// ── AFTER P1 (run 128): THE INSIDE-ONE-ADD-ON CASE, OF TWO KINDS ────────────
+//
+// The owner, after P1 and P2 closed: *"Account for P1's actual routing
+// results: S7 split into parts, so it cannot prove concurrency inside one
+// Add-on; S9 batched, which by itself proves no concurrency. Identify a
+// suitable request for substantive overlap inside one Add-on and one for
+// overlap across independent Add-on parts … Do not force routing or hardcode a
+// special case."* `acc-addon-kinds` asks for a section (`component`) and one
+// line (`words`) in one message; across parts, `acc-addon-edit` (S8, which P1
+// saw as parts). S7's page and section are dependent as parts (PI 35).
+
+test("AFTER P1 — acc-addon-kinds's line on the Order page: the asked line passes, in other words too, beside the page's own older words; no morning, a night-before claim or an evening fails by name", () => {
+  const expect = want("acc-addon-kinds", "/order");
+  const line = (w) => `<p>${w}</p>`;
+  assert.deepEqual(press({ expect, stored: line("Every loaf is baked the morning you collect it.") }), []);
+  assert.deepEqual(press({ expect, stored: line("All our loaves are baked on the morning you collect.") }), []);
+  assert.deepEqual(press({ expect, pre: UNRELATED, stored: line("Every loaf is baked the morning you collect it.") }), [], "the page's own evenings counted against the line");
+  assert.ok(press({ expect, stored: line("Every loaf is baked fresh.") }).some((n) => /states "the morning you collect it"/.test(n)), "a line with no morning passed");
+  const night = press({ expect, stored: line("Every loaf is baked the morning you collect it, or baked the night before.") });
+  assert.ok(night.some((n) => /does not claim "baked the night before"/.test(n)), JSON.stringify(night));
+  const eve = press({ expect, stored: line("Every loaf is baked the morning you collect it, and again in the evening.") });
+  assert.ok(eve.some((n) => /states no time of day but morning/.test(n)), JSON.stringify(eve));
+});
+
+test("AFTER P1 — acc-addon-kinds's section on the Visit page is judged as acc-addon-pair's is: dogs welcome inside passes; outside only fails", () => {
+  const expect = want("acc-addon-kinds", "/visit");
+  assert.deepEqual(press({ expect, stored: Q("Can I bring my dog?", "Dogs are welcome inside.") }), []);
+  assert.ok(press({ expect, stored: Q("Can I bring my dog?", "Dogs are welcome outside only.") }).some((n) => /states "inside"|does not claim "outside only"/.test(n)));
+});
+
+test("AFTER P1 — acc-addon-kinds is probed alone, first, by acceptance-split-2: one acceptance probe of its exact words, unjudged; P1's committed batch is left exactly as it ran", () => {
+  const two = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-2.json", "utf8"));
+  assert.equal(two.batch, "acceptance-split-2");
+  assert.equal(two.acceptance, true);
+  assert.equal(two.probes.length, 1);
+  assert.equal(two.probes[0].message, UI_SCENARIOS["acc-addon-kinds"].steps[0].say);
+  assert.equal(two.probes[0].intended, null);
+  assert.equal(two.probes[0].site, SLUG);
+  const one = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-1.json", "utf8"));
+  assert.ok(!one.probes.some((p) => p.message === UI_SCENARIOS["acc-addon-kinds"].steps[0].say), "the P1 batch was edited after it ran");
+  assert.equal(one.probes.length, 9);
+});
+
+test("AFTER P1 — acc-addon-kinds asks for two kinds whose designers wait for nothing, whatever the picker says they use: neither a section nor a line changes what the other is shown", async () => {
+  const { designWaits } = await import("../builder/site-add.mjs");
+  assert.deepEqual(designWaits(["component", "words"]), { component: [], words: [] });
+  assert.deepEqual(designWaits(["component", "words"], { uses: { component: ["words"], words: ["component"] } }), { component: [], words: [] });
+  // CONTROL: a page does change what a section is shown, so S7's shape waits unless told otherwise.
+  assert.deepEqual(designWaits(["page", "component"]), { page: [], component: ["page"] });
 });

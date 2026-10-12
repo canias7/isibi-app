@@ -1,0 +1,15 @@
+{
+  "batch": "acceptance-split-2",
+  "acceptance": true,
+  "probes": [
+    {
+      "id": "K1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add one line under the collection times on the Order page saying 'Every loaf is baked the morning you collect it.'",
+      "intended": null,
+      "basis": "recorded, not judged: acc-addon-kinds's own message — one Add-on carrying a section and a line (two kinds, whose designers can then run together inside one job), or parts",
+      "note": "Image-free Add-on inside one job, after P1 (run 128): S7 split into parts and S9's two sections are one kind. Press acc-addon-kinds only if this comes back as one addon answer with nothing held back."
+    }
+  ]
+}
