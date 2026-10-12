@@ -2870,6 +2870,75 @@ export async function readShownSite(browser, { url, sel, name, ms = 45_000, poll
 }
 
 /**
+ * THE PAGE AS A VISITOR SEES IT WITH EVERY DISCLOSURE OPENED (2026-10-12, K's
+ * run 135 and M's run 138): a questions section built as an accordion serves
+ * its questions with the answers closed — not in the page's HTML at all until
+ * the question is pressed — so a check of the served HTML read "Can I bring my
+ * dog?" and never the answer. Here the page is opened in a context of its own
+ * (no session), every request that is not a read is stopped and recorded (the
+ * wall `readShownSite` uses), and each closed disclosure is opened once: a
+ * button that says it is collapsed (`aria-expanded="false"`) and a closed
+ * `<details>`. Never a button inside a form or a submit button, never one in
+ * the header or a menu: nothing is filled, sent or navigated. Returns the
+ * `<main>` (or `<body>`) markup after, how many were opened, and anything
+ * stopped. `opened: 0` with `ok` is a page that had none.
+ */
+export const OPEN_MAX = 40;
+export async function readOpenedPage(browser, { url, ms = 45_000, settleMs = 400, route = null } = {}) {
+  const out = { at: new Date().toISOString(), ok: false, why: "", url, version: "", html: "", opened: 0, aborted: [], errors: [] };
+  let ctx = null;
+  try {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, serviceWorkers: "block" });
+    if (route) await route(ctx, "site");
+    await ctx.route(() => true, async (r) => {
+      const req = r.request();
+      const m = req.method();
+      if (m === "GET" || m === "HEAD") return r.fallback();
+      const u = String(req.url());
+      if (!u.includes("/cdn-cgi/")) out.aborted.push(`${m} ${u}`);
+      return r.abort("blockedbyclient");
+    });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => out.errors.push(String((e && e.message) || e).slice(0, 300)));
+    const res = await page.goto(url, { waitUntil: "networkidle", timeout: ms });
+    out.version = res && typeof res.headers === "function" ? String(res.headers()["x-site-version"] || "") : "";
+    // ONE AT A TIME, FOUND AGAIN AFTER EACH: opening one can draw another.
+    const tried = new Set();
+    for (let k = 0; k < OPEN_MAX; k++) {
+      const next = await page.evaluate((done) => {
+        const shut = (el) => el.closest("form, header, nav, [role=menu], [role=navigation], [role=dialog]") || (el.tagName === "BUTTON" && String(el.getAttribute("type") || "").toLowerCase() === "submit");
+        const seen = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        const cands = [
+          ...[...document.querySelectorAll('button[aria-expanded="false"], [role=button][aria-expanded="false"]')],
+          ...[...document.querySelectorAll("details:not([open]) > summary")],
+        ];
+        let i = 0;
+        for (const el of cands) {
+          const id = "open-" + (i++);
+          if (shut(el) || !seen(el)) continue;
+          const mark = el.getAttribute("data-canary-open") || id + "-" + Math.random().toString(16).slice(2);
+          if (done.includes(mark)) continue;
+          el.setAttribute("data-canary-open", mark);
+          return mark;
+        }
+        return "";
+      }, [...tried]);
+      if (!next) break;
+      tried.add(next);
+      await page.locator(`[data-canary-open="${next}"]`).click({ timeout: 5000 }).then(() => { out.opened++; }, () => {});
+      await page.waitForTimeout(settleMs);
+    }
+    out.html = await page.evaluate(() => { const m = document.querySelector("main") || document.body; [...m.querySelectorAll("[data-canary-open]")].forEach((el) => el.removeAttribute("data-canary-open")); return m.outerHTML; });
+    out.ok = true;
+  } catch (e) {
+    out.why = String((e && e.message) || e).slice(0, 200);
+  } finally {
+    if (ctx) { try { await ctx.close(); } catch { /* already gone */ } }
+  }
+  return out;
+}
+
+/**
  * ONE VISITOR BOOKING, THROUGH THE SITE'S OWN FORM. A context of its own (no
  * planted session: a visitor signed in to nothing), the form filled field by
  * field and "Book a table" pressed once. THE WALL: a read goes out; any other

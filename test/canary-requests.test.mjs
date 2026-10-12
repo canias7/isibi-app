@@ -1020,7 +1020,11 @@ test("the canary hands the closed-tab readers to the driver, reads the table lis
   assert.doesNotMatch(block, /moneyVerdict\(\{ start: ui\.balance/, "the balance-move check is still the request press's");
   const cov = block.slice(block.indexOf("for (const c of requests.coverage)"));
   assert.ok(cov.length > 0 && !/check\(/.test(cov.slice(0, cov.indexOf("\n"))), "coverage fails the run");
-  assert.match(block, /readFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.html`/, "the served pages are not the inventories' own");
+  assert.match(block, /readFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\$\{kind\}\.html`/, "the served pages are not the inventories' own");
+  // THE PLAIN SERVED HTML BY DEFAULT; the opened read only where asked for (2026-10-12).
+  assert.match(block, /const servedOf = \(label, render, kind = ""\) =>/);
+  assert.match(block, /const served = servedOf\("after", after && after\.render\);/);
+  assert.match(block, /const servedOpen = servedOf\("after", after && after\.render, "\.open"\);/);
   assert.match(block, /createHash\("sha256"\)\.update\(bytes\)/, "the logo's bytes are not hashed");
   // THE AWAY MESSAGE'S TAB IS JUDGED BY THE BATCH, NOT BY THE SAME-TAB CHECK.
   // A MESSAGE READ IN ANOTHER TAB BY DESIGN — opened afterwards (`away`), or in a

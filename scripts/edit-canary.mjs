@@ -56,7 +56,7 @@ import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, r
 // and the tab every message went from.
 import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight, readBalanceOptIn, optInRefusal, BALANCE_OPT_IN } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
-import { routeCallOf } from "./canary-ui.mjs";
+import { routeCallOf, readOpenedPage } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
 // coverage it records and never fails on; its publishes put in the order the
 // request made them.
@@ -64,7 +64,7 @@ import { chainOrdered, chainTarget, requestJobsOf } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
 import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
-import { requestBatchVerdict, uploadsOf, newPagePhotoPaths } from "./canary-requests.mjs";
+import { requestBatchVerdict, uploadsOf, newPagePhotoPaths, openReadRoutes } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -788,6 +788,26 @@ async function inventory(label, expect = "") {
     writeFileSync(`${EVID}/${label}/route${file}.html`, html);
     render[r] = { status: got.status || 0, bytes: html.length, version: got.version, build: got.build || "", reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
   }
+  // A SECTION'S PAGE, AS A VISITOR SEES IT WITH ITS DISCLOSURES OPENED
+  // (2026-10-12): an accordion serves its answers closed, so the served check
+  // of an added section reads the page opened in a browser, reads only — on
+  // the before read and the after read alike. Only the routes a scenario
+  // expects a section on, and only when it names one.
+  const openRoutes = openReadRoutes(UI_ASK && UI_ASK.scenario).filter((r) => Object.hasOwn(render, r));
+  if (openRoutes.length) {
+    let browser = null;
+    try {
+      browser = await defaultLaunch();
+      for (const r of openRoutes) {
+        const o = await readOpenedPage(browser, { url: origin + r });
+        const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+        if (o.ok) writeFileSync(`${EVID}/${label}/route${file}.open.html`, o.html);
+        render[r].open = { ok: o.ok, why: o.why, opened: o.opened, version: o.version, aborted: o.aborted.length };
+      }
+    } catch (e) {
+      for (const r of openRoutes) render[r].open = { ok: false, why: String((e && e.message) || e).slice(0, 200) };
+    } finally { if (browser) { try { await browser.close(); } catch { /* already gone */ } } }
+  }
 
   const inv = {
     at: new Date().toISOString(), slug: CANARY, origin, label,
@@ -1315,16 +1335,19 @@ if (UI_ASK) {
     // was, the replies on screen and the money; and records, beside them and
     // never in them, the coverage — which hand-over the run went through.
     if (REQ) {
-      const servedOf = (label, render) => {
+      const servedOf = (label, render, kind = "") => {
         const out = {};
         for (const r of Object.keys(render || {})) {
           const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
-          try { out[r] = readFileSync(`${EVID}/${label}/route${file}.html`, "utf8"); } catch { out[r] = ""; }
+          try { out[r] = readFileSync(`${EVID}/${label}/route${file}${kind}.html`, "utf8"); } catch { out[r] = ""; }
         }
         return out;
       };
       const served = servedOf("after", after && after.render);
       const beforeServed = servedOf("before", BEFORE.render);
+      // …AND OPENED, where the read was made (`readOpenedPage`); "" where not.
+      const servedOpen = servedOf("after", after && after.render, ".open");
+      const beforeServedOpen = servedOf("before", BEFORE.render, ".open");
       // THE LOGO'S OWN BYTES, read from where the home page's header says it is.
       let logo = null;
       if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.logo) {
@@ -1357,7 +1380,7 @@ if (UI_ASK) {
         spec: UI_ASK.scenario, steps: ui.steps,
         before: { ...BEFORE, complete: BEFORE.readsComplete === true },
         after: after ? { ...after, complete: after.readsComplete === true } : null,
-        served, beforeServed, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
+        served, beforeServed, servedOpen, beforeServedOpen, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
         frameLoads: ui.frameLoads || [], photos,
       });
       requests.logo = logo;

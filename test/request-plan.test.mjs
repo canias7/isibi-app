@@ -359,6 +359,12 @@ test("ISO 1 — A PART IS SHOWN EVERY OTHER PART'S WORDS MARKED AS ANOTHER PART'
   }
   // OFFSETS ARE READ ONLY AGAINST THE MESSAGE EXACTLY AS SENT.
   assert.ok(!partBlock({ original: " " + MSG, done: [], others: [[0, 5]] }).includes("⟦"));
+  // A PART CARVED FROM ANOTHER: its parent's words hold its own, and its own are never marked.
+  const M2 = "Add a gallery page with a short intro saying we bake overnight.";
+  const r2 = newRequest({ key: KEY, uid: "u1", slug: "fold-lane", message: M2, digest: { name: "N", pages: ["/"], tables: [] }, parts: planParts(M2, { intent: "addon" }).parts });
+  assert.deepEqual(carveParts(r2, 0, ["a short intro saying we bake overnight"]), [1]);
+  assert.ok(!partBlock(partOf(r2, 1)).slice(0, partBlock(partOf(r2, 1)).lastIndexOf("”")).includes("⟦ANOTHER PART: a short intro"), "a carved part's own words were marked as another part's");
+  assert.ok(!partBlock(partOf(r2, 1)).includes("⟦ANOTHER PART: Add a gallery page with a short intro"), "the parent holding the part's words was marked whole");
   // A REFUSED PART IS NO OTHER PART'S WORK: nothing of it is marked.
   rec.parts[1].status = "refused";
   assert.ok(!partBlock(partOf(rec, 0)).includes("⟦"));

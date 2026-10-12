@@ -29,6 +29,7 @@ import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 import { extractText } from "../builder/site-text.mjs";
+import ts from "typescript";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
 const listOf = (v) => (typeof v === "string" && v ? [v] : Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : []);
@@ -761,6 +762,11 @@ export function sourceLines(src) {
 }
 /** The runs of lines `after` holds that `before` does not, by an ordered (longest common subsequence) diff. */
 export function addedRuns(before, after) {
+  const a = Array.isArray(after) ? after : [];
+  return addedRunIndexes(before, a).map((run) => run.map((i) => a[i]));
+}
+/** The same runs, as indexes into `after`. */
+function addedRunIndexes(before, after) {
   const b = Array.isArray(before) ? before : [], a = Array.isArray(after) ? after : [];
   const n = a.length, m = b.length;
   const L = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
@@ -771,9 +777,87 @@ export function addedRuns(before, after) {
     if (j < m && a[i] === b[j]) { cur = null; i++; j++; continue; }
     if (j < m && L[i][j + 1] >= L[i + 1][j]) { j++; continue; }
     if (!cur) { cur = []; runs.push(cur); }
-    cur.push(a[i]); i++;
+    cur.push(i); i++;
   }
   return runs;
+}
+
+/**
+ * A STORED FILE'S WORDS, one line per text node with where it stands
+ * (`at`, its offset in the file), in order: `sourceLines` with offsets.
+ */
+export function sourceItems(src) {
+  return extractText(String(src || "")).slice().sort((x, y) => x.at - y.at).map((w) => ({ text: tidy(w.text), at: w.at })).filter((w) => w.text);
+}
+
+/**
+ * THE PAGE'S RENDER STATES, FROM ITS SYNTAX TREE (2026-10-12, M's run 138):
+ * a page that renders one thing or another — `if (sent) { return <A/> }`
+ * then `return <B/>`, an `if … else` whose branches return, or `cond ? <A/>
+ * : <B/>` — shows a visitor one branch at a time, so the same section in
+ * each is one section, not two. Each state is the list of `[start, end)`
+ * offsets it leaves out; a page with no such branch has one state that
+ * leaves out nothing. Only branches that are exclusive by the language
+ * count: `cond && <A/>` beside `<A/>` can show both, so it is never a
+ * branch. More than 6 branch points, or a file that does not parse, is
+ * `null`: no states are claimed, and the caller judges the whole file.
+ */
+export const MAX_BRANCH_POINTS = 6;
+export function renderStates(src) {
+  const text = String(src || "");
+  let file;
+  try { file = ts.createSourceFile("page.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX); } catch { return null; }
+  if (file.parseDiagnostics && file.parseDiagnostics.length) return null;
+  const hasJsx = (n) => { let found = false; const walk = (x) => { if (found) return; if (ts.isJsxElement(x) || ts.isJsxSelfClosingElement(x) || ts.isJsxFragment(x)) { found = true; return; } ts.forEachChild(x, walk); }; walk(n); return found; };
+  const returns = (n) => { let found = false; const walk = (x) => { if (found || ts.isFunctionLike(x)) return; if (ts.isReturnStatement(x)) { found = true; return; } ts.forEachChild(x, walk); }; if (ts.isReturnStatement(n)) return true; ts.forEachChild(n, walk); return found; };
+  // EACH BRANCH POINT: its alternatives, each as the ranges choosing it leaves out.
+  const points = [];
+  const visit = (n) => {
+    if (ts.isIfStatement(n) && hasJsx(n.thenStatement) && returns(n.thenStatement)) {
+      const thenR = [n.thenStatement.getStart(file), n.thenStatement.end];
+      if (n.elseStatement) {
+        points.push([[[n.elseStatement.getStart(file), n.elseStatement.end]], [thenR]]);
+      } else if (ts.isBlock(n.parent) || ts.isSourceFile(n.parent)) {
+        // TAKEN: everything after it in its block is never reached.
+        const list = n.parent.statements, at = list.indexOf(n);
+        const rest = at >= 0 && at < list.length - 1 ? [[list[at + 1].getStart(file), list[list.length - 1].end]] : [];
+        if (rest.length) points.push([rest, [thenR]]);
+      }
+    } else if (ts.isConditionalExpression(n) && (hasJsx(n.whenTrue) || hasJsx(n.whenFalse))) {
+      points.push([[[n.whenFalse.getStart(file), n.whenFalse.end]], [[n.whenTrue.getStart(file), n.whenTrue.end]]]);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
+  if (points.length > MAX_BRANCH_POINTS) return null;
+  let states = [[]];
+  for (const alts of points) states = states.flatMap((st) => alts.map((cut) => [...st, ...cut]));
+  return states;
+}
+
+/**
+ * THE SECTIONS A PRESS ADDED TO A STORED PAGE, PER RENDER STATE: the page's
+ * new runs of text (an ordered diff against the page before), each as much
+ * of it as that state shows. `extra` (each added component file the
+ * page uses, as text) is in every state. With one state, or none that can
+ * be told, it is one list — exactly `addedRuns` on the whole file.
+ */
+export function storedSectionStates(beforeSrc, afterSrc, extra = []) {
+  const items = sourceItems(afterSrc);
+  const runs = addedRunIndexes(sourceLines(beforeSrc), items.map((x) => x.text)).map((run) => run.map((i) => items[i]));
+  const whole = [runs.map((r) => runText(r.map((x) => x.text))).concat(extra)];
+  const states = renderStates(afterSrc);
+  if (!states || states.length < 2) return whole;
+  const out = [];
+  const seen = new Set();
+  for (const cut of states) {
+    // WHAT OF EACH RUN THIS STATE SHOWS: copies in the two arms of a `? :`
+    // stand next to each other, one run, and each state shows one of them.
+    const shown = runs.map((r) => r.filter((x) => !cut.some(([s, e]) => x.at >= s && x.at < e))).filter((r) => r.length).map((r) => runText(r.map((x) => x.text))).concat(extra);
+    const key = JSON.stringify(shown);
+    if (!seen.has(key)) { seen.add(key); out.push(shown); }
+  }
+  return out;
 }
 /** A run of lines as text whose sentences end where its lines end. */
 export const runText = (lines) => (Array.isArray(lines) ? lines : []).map((l) => (/[.!?:;]$/.test(l) ? l : l + ".")).join(" ");
@@ -785,6 +869,53 @@ export function usesPart(pageSrc, path, partSrc) {
   for (const m of String(partSrc || "").matchAll(/export\s+(?:default\s+)?(?:function|const|class)\s+([A-Z][\w]*)/g)) if (new RegExp(`<${m[1]}\\b`).test(src)) return true;
   return false;
 }
+/**
+ * THE ANSWER SAID ONCE (2026-10-12): two copies of a section side by side are
+ * one run of new lines, so one "section" — and it would pass on its facts. A
+ * sentence that states an asked fact, said twice in the section, is a
+ * duplicate.
+ */
+function onceChecks(where, text, want) {
+  const facts = (want && want.facts) || [];
+  if (!facts.length) return [];
+  const seen = new Map();
+  for (const x of sentencesOf(text).filter((y) => !/\?\s*$/.test(y))) {
+    if (!factChecks("", x, { facts }).some((c) => c.ok)) continue;
+    const k = plain(x).replace(/\s+/g, " ").trim();
+    seen.set(k, (seen.get(k) || 0) + 1);
+  }
+  const twice = [...seen].filter(([, n]) => n > 1).map(([k]) => k);
+  return [{ name: `${where} states what was asked once`, ok: !twice.length, why: twice.length ? `said more than once: ${JSON.stringify(twice.slice(0, 3))}` : "" }];
+}
+
+/**
+ * `sectionChecks` OVER A PAGE'S RENDER STATES (`storedSectionStates`): in no
+ * state may two added sections state what was asked (a real duplicate), and
+ * at least one state must show exactly one that does. Each distinct stating
+ * section is judged on every fact; every other added section on amounts,
+ * days, times and denied claims. One state is exactly `sectionChecks`.
+ */
+export function sectionStateChecks(where, states, want) {
+  const list = (Array.isArray(states) ? states : []).filter(Array.isArray);
+  if (list.length <= 1) return sectionChecks(where, list[0] || [], want);
+  const w = want || {};
+  const statesSome = (t) => factChecks("", t, { facts: w.facts }).some((c) => c.ok);
+  const per = list.map((st) => st.filter((x) => typeof x === "string" && x.trim()));
+  const counts = per.map((st) => st.filter(statesSome).length);
+  const worst = per.findIndex((st, i) => counts[i] > 1);
+  if (worst >= 0) return sectionChecks(where, per[worst], want);
+  const one = per.findIndex((st, i) => counts[i] === 1);
+  if (one < 0) return sectionChecks(where, [...new Set(per.flat())], want);
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  add(`${where}: exactly one section the press added states what was asked`, true, "");
+  const stating = [...new Set(per.flat().filter(statesSome))];
+  for (const s of stating) out.push(...factChecks(where, s, w), ...onceChecks(where, s, w));
+  for (const other of [...new Set(per.flat())].filter((x) => !stating.includes(x))) {
+    for (const c of factChecks(`${where} (another section the press added)`, other, { only: w.only, denies: w.denies })) if (!c.ok) out.push(c);
+  }
+  return out;
+}
 export function sectionChecks(where, sections, want) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
@@ -795,11 +926,17 @@ export function sectionChecks(where, sections, want) {
   const short = (xs) => JSON.stringify(xs.map((x) => x.slice(0, 140)));
   add(`${where}: exactly one section the press added states what was asked`, stating.length === 1,
     stating.length ? `${stating.length} added sections each state part of it — one section must hold every fact: ${short(stating)}` : `no section the press added states any of it (added: ${short(list)})`);
-  if (stating.length === 1) out.push(...factChecks(where, stating[0], w));
+  if (stating.length === 1) out.push(...factChecks(where, stating[0], w), ...onceChecks(where, stating[0], w));
   for (const other of list.filter((x) => !stating.includes(x))) {
     for (const c of factChecks(`${where} (another section the press added)`, other, { only: w.only, denies: w.denies })) if (!c.ok) out.push(c);
   }
   return out;
+}
+
+/** The routes a scenario expects an added section on: the pages read opened (`readOpenedPage`). */
+export function openReadRoutes(scenario) {
+  const secs = scenario && scenario.expect && Array.isArray(scenario.expect.sections) ? scenario.expect.sections : [];
+  return [...new Set(secs.map((x) => x && x.route).filter((r) => typeof r === "string" && r.startsWith("/")))];
 }
 
 /**
@@ -933,7 +1070,7 @@ export function photoChecks({ found, after, served, photos, slug }) {
  * owner's table listing the same tables with the same rules, columns and row
  * counts. `found` is `newPagesFound`'s answer.
  */
-export function outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug, photos }) {
+export function outcomeChecks({ spec, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, photos }) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
   const want = (spec && spec.expect) || {};
@@ -1106,7 +1243,9 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     add(`${s.route} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
     const gained = `${less(wa, wb).join(" ")} ${newPartWords(now)}`;
     // THE SECTIONS THE PRESS ADDED, STORED: the page's new runs of text, and each component file it added and uses.
-    const storedSections = [...addedRuns(sourceLines(rest(at.path, at.source)), sourceLines(rest(at.path, now))).map(runText), ...newPartsUsedBy(now).map(([, src]) => runText(sourceLines(src)))];
+    // …PER RENDER STATE (2026-10-12): the same section in two branches a
+    // visitor never sees together is one section.
+    const storedStates = storedSectionStates(rest(at.path, at.source), rest(at.path, now), newPartsUsedBy(now).map(([, src]) => runText(sourceLines(src))));
     // WITH FACTS NAMED, THE FACTS ARE THE ANCHOR (round 17): a literal
     // fragment would refuse equivalent wording ("£25 per person"), so the
     // page must not already have stated every fact, and the facts themselves
@@ -1128,10 +1267,17 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     // EVERY FACT AND EVERY CONTRADICTION, ON THE SECTION ITSELF, STORED AND
     // SERVED (round 18): the same reader and the same checks on both outputs.
     if (hasFacts) {
-      out.push(...sectionChecks(`the section stored on ${s.route}`, storedSections, s));
+      out.push(...sectionStateChecks(`the section stored on ${s.route}`, storedStates, s));
       const hb = beforeServed && beforeServed[s.route];
       if (typeof h === "string" && typeof hb !== "string") add(`the served ${s.route} was read before the message`, false, "with no earlier reading, what the press added to the served page cannot be told from what was there");
-      else if (typeof h === "string") out.push(...sectionChecks(`the section served on ${s.route}`, addedRuns(servedLines(hb), servedLines(h)).map(runText), s));
+      else if (typeof h === "string") {
+        // OPENED, WHERE BOTH READS WERE (`readOpenedPage`): what a visitor sees
+        // once they press each question — an accordion serves its answers
+        // closed. Otherwise the served HTML, as before.
+        const ho = servedOpen && servedOpen[s.route], hbo = beforeServedOpen && beforeServedOpen[s.route];
+        const open = typeof ho === "string" && ho && typeof hbo === "string" && hbo;
+        out.push(...sectionChecks(`the section served on ${s.route}`, addedRuns(servedLines(open ? hbo : hb), servedLines(open ? ho : h)).map(runText), s));
+      }
     }
   }
   // THE LOGO: every served header draws the attached file, by the address its
@@ -1523,7 +1669,7 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  * sent, so a stopped press records why it did not pass. A press that asks for
  * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
-export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, logo, row, tables, slug, frameLoads, photos }) {
+export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
   want.forEach((_, i) => {
@@ -1533,7 +1679,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
     const j = jobOrderVerdict(s);
     checks.push({ name: `message ${i + 1}: no part started before a part it needs had finished${j.vacuous ? " (no part waited for another)" : ""}`, ok: j.ok, why: j.ok ? "" : j.why });
   });
-  const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug, photos });
+  const o = outcomeChecks({ spec, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, photos });
   checks.push(...o.checks);
   if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
   // SUBSTANTIVE PREPARATION BESIDE ANOTHER PART'S EXECUTION (2026-10-09), for a press that asks: the first message's request, by recorded intervals.

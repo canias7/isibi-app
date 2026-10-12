@@ -21,7 +21,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { UI_SCENARIOS, ACCEPTANCE_CAP } from "../scripts/canary-ui.mjs";
-import { outcomeChecks, routeOfPage, requestBatchVerdict, COVERAGE } from "../scripts/canary-requests.mjs";
+import { outcomeChecks, routeOfPage, requestBatchVerdict, COVERAGE, openReadRoutes } from "../scripts/canary-requests.mjs";
 import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } from "../scripts/canary-read-job.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -700,4 +700,98 @@ test("EVERY ACCEPTANCE PROBE FILE READS THROUGH THE REAL READER (2026-10-12, run
     const r = readProbeBatch(fs.readFileSync(ROOT + "scripts/router-probes/" + b + ".json", "utf8"), b);
     assert.equal(r.ok, true, `${b}: ${r.why || r.msg || JSON.stringify(r)}`);
   }
+});
+
+// ── WHAT A VISITOR SEES: RENDER BRANCHES AND CLOSED ANSWERS (2026-10-12) ────
+//
+// M (run 138) stored its questions section in both branches of the Tasting
+// Evenings page — the waiting-list form and the "You're on the list" panel a
+// visitor sees after signing up, never together — and the stored check read
+// "2 added sections". K (run 135) and M served their answers in an accordion,
+// closed, so the served HTML held the question and not the answer. Both were
+// verified free in a browser on 2026-10-12 (the answers open to what was
+// asked; each page shows the section once). Here: the same shapes, judged
+// through `outcomeChecks`, and the genuine failures still refused.
+const TASTE = () => ({ ...sectionAt("acc-addon-two-parts", "/tasting-evenings"), route: VISIT });
+const FAQ = (ans = "£25 a head, cheese included.") => `<section className="faq"><h2>How much is an evening?</h2><p>${ans}</p></section>`;
+const BRANCHY = ({ sent = "", form = "", tern = null, top = "" } = {}) => `import { createFileRoute } from '@tanstack/react-router'
+import { useState } from 'react'
+export const Route = createFileRoute('/visit')({ component: Page })
+function Page() {
+  const [sent, setSent] = useState(false)
+  if (sent) {
+    return (
+      <main><h1>You're on the list</h1><p>We will write when the next evening has a date.</p>${sent}</main>
+    )
+  }
+  return (
+    <main><h1>Come and see us</h1>${top}<p>The shutters and the street.</p><form><button type="submit">Join</button></form>${form}${tern === null ? "" : tern}</main>
+  )
+}
+`;
+const withVisit = (src) => PAGES.map((p) => (p.path === "visit.tsx" ? { ...p, source: src } : p));
+const judgeOpen = (b, a, spec, open = {}) => outcomeChecks({ spec, before: b.inv, after: a.inv, served: a.served, beforeServed: b.served, servedOpen: open.after, beforeServedOpen: open.before, tables: { before: TABLES, after: TABLES }, slug: SLUG }).checks;
+const branchCase = (after) => {
+  const spec = { expect: { sections: [TASTE()] } };
+  const b = read(withVisit(BRANCHY()));
+  const a = read(withVisit(after), [], { [VISIT]: FAQ() });
+  return factNames(judgeOpen(b, a, spec));
+};
+
+test("BRANCHES 1 — THE SAME SECTION IN TWO RENDER BRANCHES A VISITOR NEVER SEES TOGETHER (M's run 138 shape) is one section: the stored check passes, as it does with the section in one branch, or in either arm of a `? :`", () => {
+  assert.deepEqual(branchCase(BRANCHY({ sent: FAQ(), form: FAQ() })), []);
+  assert.deepEqual(branchCase(BRANCHY({ form: FAQ() })), []);
+  assert.deepEqual(branchCase(BRANCHY({ tern: `{sent ? ${FAQ()} : ${FAQ()}}` })), []);
+  // `if … else`, each branch returning.
+  const ELSE = BRANCHY({ sent: FAQ(), form: FAQ() }).replace("  }\n  return (", "  } else {\n  return (").replace("  )\n}\n", "  )\n  }\n}\n");
+  assert.match(ELSE, /\} else \{\n  return \(/, "the else fixture did not form");
+  assert.deepEqual(branchCase(ELSE), []);
+});
+
+test("BRANCHES 2 — STILL REFUSED: the section twice where a visitor sees both copies (one branch, or `cond && …` beside it), a wrong amount in the other branch, or no answer in any branch", () => {
+  const twice = branchCase(BRANCHY({ sent: FAQ(), form: FAQ() + FAQ() }));
+  const DUP = (ns) => ns.some((n) => n === "the section stored on /visit: exactly one section the press added states what was asked" || n === "the section stored on /visit states what was asked once");
+  assert.ok(DUP(twice), "a genuine duplicate passed: " + JSON.stringify(twice));
+  const both = branchCase(BRANCHY({ tern: `{sent && ${FAQ()}}${FAQ()}` }));
+  assert.ok(DUP(both), "`&&` was read as a branch: " + JSON.stringify(both));
+  // TWO COPIES WITH NEW WORDS BETWEEN THEM, in one branch: still refused.
+  assert.ok(DUP(branchCase(BRANCHY({ form: FAQ() + "<p>The shutters open at 8.</p>" + FAQ() }))));
+  // TWO COPIES IN ONE BRANCH WITH THE PAGE'S OWN WORDS BETWEEN THEM: two sections.
+  assert.ok(branchCase(BRANCHY({ top: FAQ(), form: FAQ() })).includes("the section stored on /visit: exactly one section the press added states what was asked"), "two separate copies in one branch passed");
+  for (const [sent, form] of [[FAQ("£50 a head, cheese included."), FAQ()], [FAQ(), FAQ("£50 a head, cheese included.")]]) {
+    const wrong = branchCase(BRANCHY({ sent, form }));
+    assert.ok(wrong.some((n) => /^the section stored on \/visit/.test(n)), "a wrong amount in one branch passed: " + JSON.stringify(wrong));
+  }
+  const none = branchCase(BRANCHY({ sent: FAQ("Ask us at the counter."), form: FAQ("Ask us at the counter.") }));
+  assert.ok(none.includes("the section stored on /visit: exactly one section the press added states what was asked"), "a section with no answer passed: " + JSON.stringify(none));
+});
+
+test("OPENED 1 — AN ANSWER SERVED CLOSED IN AN ACCORDION (K's run 135, M's run 138): the served HTML holds only the question and fails, as it did live; read opened, before and after, it passes; opened, a wrong answer or no answer still fails; with only one opened read, the served HTML is judged", () => {
+  const spec = { expect: { sections: [TASTE()] } };
+  const QONLY = '<section class="faq"><h2>How much is an evening?</h2><button aria-expanded="false">How much is an evening?</button></section>';
+  const b = read(withVisit(BRANCHY()));
+  const a = read(withVisit(BRANCHY({ form: FAQ() })), [], { [VISIT]: QONLY });
+  const page = (inner) => `<main><h1>page</h1>${inner}</main>`;
+  const served = factNames(judgeOpen(b, a, spec));
+  assert.ok(served.includes("the section served on /visit: exactly one section the press added states what was asked"), "the closed answer passed on the served HTML: " + JSON.stringify(served));
+  const opened = (inner, before = page("")) => factNames(judgeOpen(b, a, spec, { before: { [VISIT]: before }, after: { [VISIT]: page(inner) } }));
+  assert.deepEqual(opened(FAQ()), []);
+  assert.ok(opened(FAQ("£50 a head, cheese included.")).some((n) => /^the section served on \/visit/.test(n)), "a wrong opened answer passed");
+  assert.ok(opened(QONLY).some((n) => /^the section served on \/visit/.test(n)), "an opened page with no answer passed");
+  assert.ok(opened(FAQ() + FAQ()).some((n) => /^the section served on \/visit/.test(n)), "the answer shown twice passed");
+  assert.ok(factNames(judgeOpen(b, a, spec, { after: { [VISIT]: page(FAQ()) } })).some((n) => /^the section served on \/visit/.test(n)), "half the opened evidence passed");
+});
+
+test("OPENED 2 — THE CANARY READS A SECTION'S PAGE OPENED, BEFORE AND AFTER: exactly the routes a scenario expects a section on, none for a scenario with none; the inventory writes each opened read beside the served HTML and records how it went", () => {
+  assert.deepEqual(openReadRoutes(UI_SCENARIOS["acc-addon-two-parts"]), UI_SCENARIOS["acc-addon-two-parts"].expect.sections.map((x) => x.route));
+  assert.deepEqual(openReadRoutes(UI_SCENARIOS["acc-addon-pair"]), ["/visit", "/starter"]);
+  assert.deepEqual(openReadRoutes({ expect: {} }), []);
+  assert.deepEqual(openReadRoutes(null), []);
+  const src = fs.readFileSync(ROOT + "scripts/edit-canary.mjs", "utf8");
+  const inv = src.slice(src.indexOf("async function inventory("), src.indexOf("const inv = {", src.indexOf("async function inventory(")));
+  assert.ok(inv.length > 100, "the inventory's landmarks are gone");
+  assert.match(inv, /const openRoutes = openReadRoutes\(UI_ASK && UI_ASK\.scenario\)/);
+  assert.match(inv, /readOpenedPage\(browser, \{ url: origin \+ r \}\)/);
+  assert.match(inv, /writeFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.open\.html`, o\.html\)/);
+  assert.match(inv, /render\[r\]\.open = /);
 });
