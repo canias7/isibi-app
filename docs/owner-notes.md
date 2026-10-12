@@ -45,9 +45,13 @@ is in git; the dated entries further down are the full story.*
     probes need no change.
   - Blocked by the 100-credit guard at 950 until you choose how to bound it
     (§5). The P1/P2 opt-in is not extended.
-  - **The reuse check was fixed before any press** (your reproduction). A
-    count tied to overlap now counts only distinct parts that each reused
-    exactly and overlapped the asked-for work. See the dated entry below.
+  - **The reuse check was fixed before any press, and you reviewed and
+    closed it** (`0dce4ea2`, unit CI green). A count tied to overlap now
+    counts only distinct parts that each reused exactly and overlapped the
+    asked-for work. PLW 4's intermittent failure is kept in the backlog, not
+    fixed.
+  - **Next: your approval of the batch.** Nothing is spent, deployed or
+    built until then.
 - **Subsequent live gaps**, after this batch:
   - the missing-context clarification (`acc-needs`);
   - the image-free first Build.
@@ -921,6 +925,18 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
+
+You reviewed the reuse correction (`0dce4ea2`) and closed it:
+- the original false pass is rejected;
+- both qualifying Add-on parts pass;
+- duplicate evidence does not inflate the count.
+
+The audit is not being extended further. PLW 4's intermittent failure is
+kept in `docs/backlog.md` as **not fixed**. The prepared batch
+(`docs/acceptance-current.md` §4–§6) is the next execution decision, and is
+waiting for your approval. P1/P2 stay closed and the branch stays unmerged.
 
 ## 2026-10-12 — The reuse check fixed: a reuse count tied to overlap now counts only parts that qualify (offline; nothing pressed, spent, merged or deployed)
 

@@ -203,3 +203,8 @@ for the new failure wording; the case itself is unchanged.
   - The file passes 5 / 5 on its own, three runs out of three, so it is
     recorded as a timing failure under the full suite's load, not as fixed.
 - **Unit CI** green on `0dce4ea2` (run 38276858485, `success`).
+
+**Closed by the owner** (2026-10-12) after review: the original false pass is
+rejected, both qualifying Add-on parts pass, and duplicate evidence does not
+inflate the count. No further audit. PLW 4 stays in `docs/backlog.md` as an
+intermittent failure, not fixed.

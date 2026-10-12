@@ -23,6 +23,9 @@ here; take a closed one out of both.**
 - **`canary-reopen-browser` REOPEN 1 failed once under the full suite**
   (2026-10-09): it passes alone, so it is likely load-sensitive. In full
   under Backlog below.
+- **`progress-live-writer` PLW 4 failed once under the full suite**
+  (2026-10-12): it passes alone, so it is likely load-sensitive. Not fixed.
+  In full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; a preparation does not see
   another request's unapplied writes (never applied stale, our cost); the image provider offers no
@@ -2682,3 +2685,13 @@ product.)*
   runs alone, and the full suite's rerun was clean. It is a real-Chromium
   preview timing check, so it is likely load-sensitive. Not investigated
   further.
+
+- **`progress-live-writer` PLW 4 failed once under the full suite**
+  (2026-10-12, the reuse correction, on the tree of `0dce4ea2`): "PLW 4 —
+  CONTROL, SUCCESSFUL PLACEMENT" (`test/progress-live-writer.test.mjs:216`),
+  in a full local run of `10692 / 10691 / 1 / 0`.
+  - The file passed 5 / 5 alone, three runs out of three. Unit CI on
+    `0dce4ea2` was green (run 38276858485).
+  - That change touched neither the test nor the product code it covers.
+  - It is an intermittent failure, likely load-sensitive. **It is not
+    fixed** and was not investigated further.
