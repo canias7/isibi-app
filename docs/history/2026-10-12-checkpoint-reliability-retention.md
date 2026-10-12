@@ -164,7 +164,7 @@ bound.
 - **Consolidated acceptance sweep** on `a5054e40` (round 12's groups, with
   the new file in clarification and resume): 38 files, **485 / 485** — independent work 112, genuine dependencies 92, clarification and resume 174 (12 files), partial failure 107.
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: __CI__
+- **Required CI**: unit tests 38188868051 `success` on `b2e2fbc9` (the records over `a5054e40`) and 38187732800 `success` on `03b758ec`; site build 38187732810 `success` on `03b758ec` (no site-build path changed after it).
 
 ## 6. Remaining work, by kind
 

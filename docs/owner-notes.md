@@ -53,7 +53,7 @@ are kept.
     the survivor is equivalent today and kept as a guard; the control
     survived both times.
   - Full suite `10610 / 10610 / 0 / 0` on `a5054e40`. Acceptance sweep 38
-    files, **485 / 485** (112 / 92 / 174 / 107). CI: __CI13__
+    files, **485 / 485** (112 / 92 / 174 / 107). CI: unit tests 38188868051 `success` on `b2e2fbc9` (the records over `a5054e40`) and 38187732800 `success` on `03b758ec`; site build 38187732810 `success` on `03b758ec` (no site-build path changed after it).
 - **Remaining** (history §6): no reproduced defect open. Not exercised: an
   answer too large to carry its checkpoint (~300+ requirements) retries by
   rerunning model work. Limit: a part that still cannot read its checkpoint
@@ -681,7 +681,7 @@ since. Add new ones there.
   - full suite `10610 / 10610 / 0 / 0`;
   - acceptance sweep 485 / 485 across 38 files;
   - doc tests 32/32; acceptance entry points 11/11;
-  - CI: __CI13__
+  - CI: unit tests 38188868051 `success` on `b2e2fbc9` (the records over `a5054e40`) and 38187732800 `success` on `03b758ec`; site build 38187732810 `success` on `03b758ec` (no site-build path changed after it).
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, paid or fal call, or real image. Remaining work is in the
   history's §6.
