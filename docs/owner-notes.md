@@ -1081,7 +1081,53 @@ Done so far:
   - **Coverage**:
     - `edit-and-addon` NOT covered (the Add-on part failed);
     - `several-parts` covered.
-- **Next**: M (`acc-addon-two-parts`), with the balance box at 906.
+- **M — run 138** (19:36–19:49 UTC; request `4a6ca423`). Paid: **30
+  credits** (906 → 876), ledger rows 444–449:
+  - routing 3;
+  - the heading's text job `6724240a`: 3;
+  - part 2's routing `1cc8bd61`: 3;
+  - part 2's Add-on `60807bdf`: 7;
+  - part 1's routing `c2b5ed09`: 3;
+  - part 1's Add-on `d6a2a9ea`: 11.
+
+  Each was charged once, with no refund.
+  - **Routing was exactly M0's**: `edit · text`, with the two additions
+    held back as two entries. Three parts: 0 text, 1 Add-on, 2 Add-on.
+    All done.
+  - **Actual overlap between the two Add-on parts**, by recorded intervals:
+    - part 1's prepared step (4 model calls) ran +66.4 s – +232.1 s;
+    - part 2's prepared step (3 model calls) ran +73.7 s – +167.8 s;
+    - they **ran together for 94.0 s**;
+    - part 1's step also overlapped part 2's Add-on job (+210.4 s –
+      +339.8 s) for 21.7 s;
+    - both preparations ran while the heading's job ran (+49.0 s –
+      +197.1 s).
+  - **Exact reuse by both Add-on parts.** Part 1: staged yes, replayed 4,
+    fresh 0. Part 2: staged yes, replayed 3, fresh 0. The strict
+    `reuseVerdict` `{exact: 2, overlapped: "addon-parts"}` **passes**
+    (qualifying [1, 2]). The heading's job ran fresh (it was not
+    prepared).
+  - **Final results.**
+    - `/bakers` serves "Who mixes while the city sleeps".
+    - `/classes`: the note "ages 12 and up" is stored and served, and
+      every fact and denial passed.
+    - `/tasting-evenings`: the FAQ (£25 a head, cheese included) is
+      stored.
+    - **Two checks FAILED on `/tasting-evenings`, both limits of the
+      checker, not wrong content:**
+      - Stored: the page has two exclusive render branches (the
+        waiting-list form, and the "You're on the list" success state).
+        The Add-on placed the same FAQ in both, so it shows in either
+        state, and the checker counted two sections.
+      - Served: the FAQ accordion is served collapsed, so the answer is
+        not in the HTML (as in K).
+    - Every other stored page and component is byte for byte; nothing
+      else was added; the tables are unchanged.
+  - Replies: all three parts' replies were the model's own, on screen.
+  - **Coverage**: `addon-parts` **covered** (2 Add-on parts, both done);
+    `several-parts` covered.
+- **Next**: image purchases back on (secret `on`, then a redeploy reusing
+  the image), and the runtime check.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 

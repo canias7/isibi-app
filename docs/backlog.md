@@ -2716,6 +2716,11 @@ product.)*
       answer is not in the served HTML. The served-section check, and the
       Add-on's own coverage judge ("unseen"), cannot see it.
     - The stored content is correct.
+  - **M, run 138**: the section checker counts the same FAQ placed in
+    both of a page's mutually exclusive render branches (`/tasting-evenings`
+    form and success state) as two sections, and fails "exactly one
+    section". The served check also misses the collapsed accordion's
+    answer.
   - **Form**:
     - Twice (runs 134, 136) the scenario name went into the "REQUEST BATCH
       ONLY" box under the very long "RUN A NAMED SCENARIO" label.
