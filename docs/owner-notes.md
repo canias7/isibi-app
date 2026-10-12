@@ -949,7 +949,8 @@ You found a false pass in the reuse check, and it is fixed.
 - **Unchanged.** The prepared proposal (K0, K, E, M0, M) is unchanged
   and still waits on your spending decision. P1/P2 stay closed. No paid
   call, image, merge, deploy or container build. Details:
-  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, last section.
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, last section
+  (commit `0dce4ea2`; unit CI green, run 38276858485).
 
 ## 2026-10-12 — Two independent Add-on parts: the case (M), and one execution proposal (prepared on the branch; nothing pressed, spent, merged or deployed)
 

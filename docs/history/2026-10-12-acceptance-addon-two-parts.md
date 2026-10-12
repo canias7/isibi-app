@@ -202,3 +202,4 @@ for the new failure wording; the case itself is unchanged.
     nor the product code it covers.
   - The file passes 5 / 5 on its own, three runs out of three, so it is
     recorded as a timing failure under the full suite's load, not as fixed.
+- **Unit CI** green on `0dce4ea2` (run 38276858485, `success`).
