@@ -951,8 +951,16 @@ Done so far:
   - no open job on `fold-lane-bakery`;
   - production deploy 2194 (`df1dcf30`, image `1e30b6fb56b51794`), with
     image purchases on.
-- **Next**: K0 (routing only, image purchases unchanged). The results are
-  recorded below as they come in.
+- **K0 — run 131** (17:10–17:11 UTC, from the branch at `73f5fa20`).
+  - Preflight: deploy `df1dcf30f5fb`, image `1e30b6fb56b51794`,
+    `imagePurchases=true`; the opt-in was met at exactly 950.
+  - The real router answered **`addon`** for K's message, with nothing held
+    back: **batched**, one answer for both additions. The decision was
+    `model` (the model said intent=addon).
+  - **K is eligible.**
+  - Cost 3 (950 → 947, read from `credits` at 17:11:25). As before, routing
+    writes no ledger row: still none after 436.
+- **Next**: M0 (routing only), with the balance box at 947.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
