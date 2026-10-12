@@ -54,7 +54,7 @@ import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from ".
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
 // AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
 // and the tab every message went from.
-import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight, readBalanceOptIn, optInRefusal } from "./canary-ui.mjs";
+import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight, readBalanceOptIn, optInRefusal, BALANCE_OPT_IN } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
 import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
@@ -137,7 +137,7 @@ const UI = String(process.env.CANARY_UI || "").trim();
 // named, and answers the batch's exit code. Its box beside any other run is
 // refused, as every mode's box is.
 if (batchOf(UI) && String(process.env.CANARY_ACCEPT_BALANCE || "").trim()) {
-  console.error("REFUSING: the acceptance balance box is only for acceptance-split-1, acc-page-table or acc-table-page, not the request batch. Nothing was signed in or charged.");
+  console.error(`REFUSING: the acceptance balance box is only for ${BALANCE_OPT_IN.join(", ")}, not the request batch. Nothing was signed in or charged.`);
   process.exit(2);
 }
 if (batchOf(UI)) process.exit(await runBatchMain(process.env));
@@ -263,8 +263,8 @@ if (PROBES_ASK.name) {
 }
 // THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, plan §5 option A;
 // `readBalanceOptIn`). Read whole before the sign-in: a malformed number, or
-// the box beside any press but acceptance-split-1, acc-page-table or
-// acc-table-page, refuses at no cost.
+// the box beside any press but the admitted batch (`BALANCE_OPT_IN`: since
+// 2026-10-12, K0, K, E, M0 and M; P1/P2 closed), refuses at no cost.
 const OPT_IN = readBalanceOptIn(process.env.CANARY_ACCEPT_BALANCE, { probes: PROBES_ASK.name || "", ui: UI_ASK && UI_ASK.ok ? UI_ASK.name : "" });
 if (!OPT_IN.ok) {
   console.error(`REFUSING: ${OPT_IN.msg}. Nothing was signed in or charged.`);

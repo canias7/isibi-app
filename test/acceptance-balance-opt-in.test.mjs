@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { readBalanceOptIn, optInRefusal, acceptancePreflight, BALANCE_OPT_IN, ACCEPTANCE_CAP, UI_SCENARIOS } from "../scripts/canary-ui.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BATCH = "acceptance-split-1";
+const BATCH = "acceptance-split-2";
 const PROBES = JSON.parse(readFileSync(path.join(REPO, "scripts/router-probes", BATCH + ".json"), "utf8")).probes;
 const ROUTED = { ok: true, intent: "edit", layer: "text", alsoAsked: "none", cost: 2, decision: { source: "model", reasons: [], raw: { intent: "edit", layer: "text" } } };
 
@@ -58,13 +58,13 @@ async function press(name, { balance = 971, spend = "1", optIn = "", probes = BA
 
 // ── THE BOX, READ ────────────────────────────────────────────────────────────
 
-test("OPT-IN 1 — the box is for P1 and P2 alone: blank changes nothing; a whole number beside acceptance-split-1, acc-page-table or acc-table-page is read; anything else refuses", () => {
-  assert.deepEqual([...BALANCE_OPT_IN], ["acceptance-split-1", "acc-page-table", "acc-table-page"]);
+test("OPT-IN 1 — the box is for the second batch alone (K0, K, E, M0, M; 2026-10-12), P1 and P2 closed: blank changes nothing; a whole number beside one of them is read; anything else, P1 and P2 included, refuses", () => {
+  assert.deepEqual([...BALANCE_OPT_IN], ["acceptance-split-2", "acc-addon-kinds", "acc-addon-edit", "acceptance-split-3", "acc-addon-two-parts"]);
   assert.ok(Object.isFrozen(BALANCE_OPT_IN));
   for (const blank of [undefined, null, "", "   "]) assert.deepEqual(readBalanceOptIn(blank, { probes: BATCH }), { ok: true, value: null, press: "" });
   assert.deepEqual(readBalanceOptIn("971", { probes: BATCH }), { ok: true, value: 971, press: BATCH });
-  assert.deepEqual(readBalanceOptIn(" 971 ", { ui: "acc-page-table" }), { ok: true, value: 971, press: "acc-page-table" });
-  assert.deepEqual(readBalanceOptIn("971", { ui: "acc-table-page" }), { ok: true, value: 971, press: "acc-table-page" });
+  assert.deepEqual(readBalanceOptIn("971", { probes: "acceptance-split-3" }), { ok: true, value: 971, press: "acceptance-split-3" });
+  for (const k of ["acc-addon-kinds", "acc-addon-edit", "acc-addon-two-parts"]) assert.deepEqual(readBalanceOptIn(" 971 ", { ui: k }), { ok: true, value: 971, press: k });
   // NOT A WHOLE NUMBER OF CREDITS.
   for (const bad of ["0", "-1", "971.5", "9 71", "abc", "1e3", "0971", "+971", "12345678", "971 credits"]) {
     const r = readBalanceOptIn(bad, { probes: BATCH });
@@ -72,10 +72,11 @@ test("OPT-IN 1 — the box is for P1 and P2 alone: blank changes nothing; a whol
     assert.match(r.msg, /whole credits/, bad);
   }
   // ANY OTHER PRESS, NONE, OR TWO.
-  for (const other of [{ ui: "acc-addon-inner" }, { ui: "acc-mixed" }, { ui: "acc-pages-real" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-page-table" }]) {
+  // P1 AND P2 ARE CLOSED: their names are refused now.
+  for (const other of [{ probes: "acceptance-split-1" }, { ui: "acc-page-table" }, { ui: "acc-table-page" }, { ui: "acc-addon-inner" }, { ui: "acc-addon-pair" }, { ui: "acc-mixed" }, { ui: "acc-pages-real" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-addon-kinds" }]) {
     const r = readBalanceOptIn("971", other);
     assert.equal(r.ok, false, JSON.stringify(other));
-    assert.match(r.msg, /only for acceptance-split-1, acc-page-table, acc-table-page, one at a time/, JSON.stringify(other));
+    assert.match(r.msg, /only for acceptance-split-2, acc-addon-kinds, acc-addon-edit, acceptance-split-3, acc-addon-two-parts, one at a time/, JSON.stringify(other));
   }
   // A NON-STRING IS NEVER COERCED INTO A NUMBER.
   assert.equal(readBalanceOptIn(971, { probes: BATCH }).value, null);
@@ -103,12 +104,12 @@ test("OPT-IN 3 — the shared preflight: with the box, the cap's item becomes th
 });
 
 test("OPT-IN 4 — every scenario the box admits is an image-free acceptance press bound by ACCEPTANCE_CAP, so the box replaces that cap and no other", () => {
-  for (const k of ["acc-page-table", "acc-table-page"]) {
+  for (const k of ["acc-addon-kinds", "acc-addon-edit", "acc-addon-two-parts"]) {
     assert.ok(Object.hasOwn(UI_SCENARIOS, k), k);
     assert.equal(UI_SCENARIOS[k].cap, ACCEPTANCE_CAP, k);
     assert.equal(UI_SCENARIOS[k].images, "none", k);
   }
-  assert.equal(JSON.parse(readFileSync(path.join(REPO, "scripts/router-probes", BATCH + ".json"), "utf8")).acceptance, true);
+  for (const b of ["acceptance-split-2", "acceptance-split-3"]) assert.equal(JSON.parse(readFileSync(path.join(REPO, "scripts/router-probes", b + ".json"), "utf8")).acceptance, true, b);
   const ui = readFileSync(path.join(REPO, "scripts/canary-ui.mjs"), "utf8");
   const a = ui.indexOf("const optedIn = balanceOptIn !== null && scenario.cap === ACCEPTANCE_CAP;");
   const b = ui.indexOf("const capped = n === 1 ? (optedIn ? optInRefusal({ now: bal, named: balanceOptIn }) : capRefusal({ now: bal, cap: scenario.cap })) : \"\";");
@@ -125,12 +126,12 @@ test("OPT-IN 4 — every scenario the box admits is an image-free acceptance pre
 
 // ── THE REAL SCRIPT, UNDER THE STUB ─────────────────────────────────────────
 
-test("OPT-IN 5, END TO END — P1 paid at 971 with 971 named routes each message once and nothing else; the same press without the box still refuses before any route", async () => {
+test("OPT-IN 5, END TO END — K0 paid at 971 with 971 named routes each message once and nothing else; the same press without the box still refuses before any route", async () => {
   const ok = await press("paid-971-named", { optIn: "971" });
   assert.equal(ok.code, 0, ok.err + ok.out.slice(-1500));
   assert.equal(ok.routed, PROBES.length);
   assert.equal(ok.unanswered, 0, JSON.stringify(ok.wire.filter((w) => w.status === 599)));
-  assert.match(ok.out, /BALANCE OPT-IN {2}acceptance-split-1 may run against exactly 971 credits/);
+  assert.match(ok.out, /BALANCE OPT-IN {2}acceptance-split-2 may run against exactly 971 credits/);
   assert.match(ok.out, /MET {4}the balance is the 971 you allowed this press to run against/);
   const blocked = await press("paid-971-blank");
   assert.equal(blocked.code, 1);
@@ -154,7 +155,7 @@ test("OPT-IN 6, END TO END — a balance other than the one named refuses before
 test("OPT-IN 7, END TO END — the box malformed, beside another scenario, or beside the request batch refuses with exit 2 before the sign-in: not one network call", async () => {
   for (const [name, o, re] of [
     ["malformed", { optIn: "971.0" }, /whole credits/],
-    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /only for acceptance-split-1, acc-page-table, acc-table-page/],
+    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /only for acceptance-split-2, acc-addon-kinds, acc-addon-edit, acceptance-split-3, acc-addon-two-parts/],
     ["request-batch", { probes: "", ui: "rq-batch", slug: "fold-lane-bakery", optIn: "971" }, /not the request batch/],
   ]) {
     const r = await press(name, o);
@@ -169,7 +170,7 @@ test("OPT-IN 7, END TO END — the box malformed, beside another scenario, or be
 
 test("OPT-IN 8 — the workflow carries the box to the script, says whom it is for, and says it is not a budget", () => {
   const wf = readFileSync(path.join(REPO, ".github/workflows/edit-canary.yml"), "utf8");
-  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'ACCEPTANCE P1\/P2 ONLY \(acceptance-split-1, acc-page-table, acc-table-page\): [^']*Not a budget: the press may spend up to that whole balance\. Blank otherwise\.'\n {8}required: false\n {8}default: ''\n/);
+  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'ACCEPTANCE K0\/K\/E\/M0\/M ONLY \(acceptance-split-2, acc-addon-kinds, acc-addon-edit, acceptance-split-3, acc-addon-two-parts\): [^']*Not a budget: the press may spend up to that whole balance\. Blank otherwise\.'\n {8}required: false\n {8}default: ''\n/);
   assert.match(wf, /\n {10}CANARY_ACCEPT_BALANCE: \$\{\{ github\.event\.inputs\.accept_balance \}\}\n/);
   const inputs = wf.slice(wf.indexOf("workflow_dispatch:"), wf.indexOf("\njobs:")).match(/^ {6}[a-z_]+:$/gm);
   assert.ok(inputs && inputs.length <= 25, `GitHub takes at most 25 dispatch inputs; the form has ${inputs && inputs.length}`);
