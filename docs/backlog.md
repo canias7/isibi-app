@@ -39,7 +39,7 @@ here; take a closed one out of both.**
     section; duplicates and missing answers still fail;
   - **still open**: the form's scenario box is easily confused with the
     batch box; the Add-on's own coverage judge also calls a collapsed
-    answer "unseen"; the opened read has not run live.
+    answer "unseen"; the opened read (now per disclosure, `b34707e6`: each answer kept as it opens, incomplete reads fail) has not run live.
   In full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; a preparation does not see

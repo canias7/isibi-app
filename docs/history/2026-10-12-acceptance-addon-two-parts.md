@@ -418,3 +418,78 @@ refused. Nothing was submitted or written.
   image-free first Build remain **unverified**.
 - The form's scenario/batch box confusion is still open.
 - PLW 4 is intermittent, not fixed.
+
+## The opened read, one disclosure at a time (the owner's review of `6dae03bc`)
+
+The owner kept the isolation fix (`83c9015a`) and its regression, and named
+the checker's remaining gap: *"readOpenedPage currently clicks disclosures
+sequentially and captures only the final DOM, which loses earlier answers in
+single-open accordions. Capture evidence for each successfully opened
+disclosure as it appears, preserving its question/answer association … Record
+click failures or incomplete traversal as incomplete evidence."*
+
+**Reproduced.** The old reader (`6dae03bc`) was run on a single-open accordion
+with two right answers. It opened both, but its final markup held only the
+last ("Thursdays"); "£25 a head" was gone.
+
+**The reader now** (`scripts/canary-ui.mjs`, `readOpenedPage`):
+- `html` is the page as served, before any press.
+- `items` holds one `{ question, answer }` per disclosure that opened. Each
+  answer is read as that disclosure opens, from the region it names
+  (`aria-controls`), the `<details>` body, or else the lines the press added.
+- `failed` records a press that threw, or a disclosure that did not then say
+  it was open.
+- `truncated` is set when there were more than `OPEN_MAX` disclosures.
+- `complete` is true only when there are no failures and no truncation.
+- A one-at-a-time accordion's closed items are never pressed twice: each
+  keeps its mark.
+
+**The canary** writes this as `route*.open.json`, before and after; a read
+that threw is written as not complete.
+
+**The outcome check** (`scripts/canary-requests.mjs`, `openedSections`):
+- Either side missing, not run or incomplete fails a named check (`the
+  served … was read with every question opened, before and after`) and
+  the section is not judged; never a pass.
+- Otherwise the added runs come from the closed pages. Each new answer goes
+  straight after its own question. A new answer to a question the page
+  already had is a section of its own. A question and answer the page
+  already had is the page's own.
+- Each answer is one state of the page, judged beside its question, never
+  as the page's final markup.
+- A route with no opened read on either side is judged on the served HTML,
+  as before.
+
+**Tests**:
+- `test/canary-open-read.test.mjs` (real Chromium):
+  - OPEN 1, reworked: each disclosure's answer kept, the `<details>` read,
+    the served page holds no answer;
+  - OPEN 2: judged per question;
+  - **OPEN 3, new**: a single-open accordion with two questions. Both right
+    passes. A wrong (£50) or missing earlier answer fails although the last
+    answer is right. A question that never opens is incomplete evidence.
+- `test/acceptance-addon-free.test.mjs` OPENED 1, reworked:
+  - pass, wrong, empty and twice;
+  - every incomplete form on either side (failed press, not opened,
+    truncated, truncated while marked complete, not run);
+  - one side only;
+  - a changed answer to an old question, right and wrong;
+  - an old question and answer that are the page's own.
+- OPENED 2 and the source guard in `test/canary-requests.test.mjs` updated
+  for the `.open.json` evidence.
+
+**Verification**:
+- Red: the new cases fail on `6dae03bc`'s scripts, and the old reader loses
+  the earlier answer (above).
+- Sweep: 12 mutants, all killed after two cases were added for the first
+  round's survivors (the truncated check, the answer to an old question).
+  The comment-only control survived, and files matched their pre-sweep
+  hashes.
+- **Commit `b34707e6`.** The related canary files pass 229 / 229. The full
+  suite is `10702 / 10702 / 0 / 0` locally.
+
+**Still open**:
+- The opened read has not run live.
+- An accordion that answers outside the region it names, and adds no lines,
+  reads as an empty answer. That fails, never passes.
+- Real-model verification of the isolation fix is still owed.

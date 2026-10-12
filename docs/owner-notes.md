@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: E's failure traced and fixed offline, K/M checker limits fixed after a free browser check; batch closed at 74 credits, balance 876; production deploy 2196; branch unmerged)
+## Current handoff — read this first (2026-10-12: isolation fix kept; the opened read now keeps each disclosure's answer as it opens; batch closed at 74 credits, balance 876; production deploy 2196; branch unmerged)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -41,6 +41,21 @@ is in git; the dated entries further down are the full story.*
   - full suite `10701 / 10701 / 0 / 0`;
   - CI on `fecaba44`: unit tests 38307214701 `success`, site build
     38307214603 `success`.
+- **You kept the isolation fix and its regression.** The opened read's
+  remaining gap is now closed (`b34707e6`).
+  - **The gap**: a single-open accordion keeps only the last answer in the
+    final page. The old reader lost the earlier ones, as reproduced on
+    `6dae03bc`.
+  - **Now**: each disclosure's question and answer are kept as it opens. The
+    served check judges each answer beside its own question, one open state
+    at a time.
+  - **Incomplete evidence fails by name, never passes**: a failed press, a
+    disclosure that never opens, a traversal cut short, or a read on one
+    side only.
+  - **Real-browser control OPEN 3**: two one-at-a-time questions. A wrong or
+    missing earlier answer fails although the last answer is right.
+  - **Checks**: sweep 12 of 12 killed (control survived), the related canary
+    files 229 / 229, and the full suite `10702 / 10702 / 0 / 0`.
 - **A merge would build a new container image** (`1e30b6fb56b51794` →
   `eda28cb21064287d`), because the fix touches image inputs. Nothing was
   merged, deployed, built or spent.
@@ -48,7 +63,7 @@ is in git; the dated entries further down are the full story.*
   - inside-one-Add-on concurrency;
   - the missing-context clarification;
   - the image-free first Build;
-  - the marks with a real model;
+  - the isolation marks with a real model (still owed);
   - the opened read live.
 - **Next: your review.** History:
   `docs/history/2026-10-12-acceptance-addon-two-parts.md`, "After the
@@ -923,6 +938,32 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The opened read keeps every answer, one question at a time (offline; nothing spent, merged or deployed)
+
+You kept the task-isolation fix and asked me to close the opened read's last
+gap.
+
+- **The gap.** Some question lists show one answer at a time, so opening
+  the second question closes the first. The checker used to look only at the
+  page after the last click, which held only the last answer. I reproduced
+  that with the old code.
+- **The fix** (`b34707e6`).
+  - The checker now writes down each question and the answer it showed
+    right when it opened. Each answer is judged beside its own question, and
+    two open states are never treated as one page.
+  - If a question will not open, a click fails, or the read is cut short,
+    the result is "incomplete evidence", a fail, never a pass.
+- **The test, in a real browser**: two one-at-a-time questions. Both right
+  passes. A wrong or missing first answer fails even though the last answer
+  is right. A question that never opens is incomplete.
+- **Numbers**:
+  - 12 of 12 deliberate breakages caught;
+  - the related checker tests 229 / 229;
+  - full suite `10702 / 10702 / 0 / 0`.
+- **Still owed**:
+  - the isolation fix with a real model;
+  - this reader on a live press.
 
 ## 2026-10-12 — E's failure fixed (task isolation), K/M FAQs checked free, the section checker corrected (offline; nothing spent, merged or deployed)
 
