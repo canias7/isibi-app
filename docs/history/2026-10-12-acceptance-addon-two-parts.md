@@ -247,3 +247,172 @@ intermittent failure, not fixed.
   - 30 credits.
 - **Runs 134 and 136** refused at no cost: the form's box mix-up.
 - **Run 139** (free): `imagePurchases=true` after deploy 2196.
+
+## After the batch: E's failure traced and fixed, K/M's checker limits fixed (offline)
+
+The owner, closing the paid batch: *"prioritize the real failure from E/run
+137 … Fix the general task-isolation cause without hardcoding pages or
+weakening preservation guards, while retaining enough original context to
+understand references … verify the existing K/M FAQs through free browser
+interaction … Only then correct the evidence checker … No paid reruns, image
+generation, merge, deployment or container build."*
+
+### 1. E (run 137): the trace
+
+- **The message**: *Add a short questions section to the Bake List page
+  answering 'When is the list updated?' with 'Every Monday morning.' And
+  change the Gallery page heading 'Photographs from our ovens' to
+  'Photographs straight from our ovens'.*
+- **Routing**: `addon`, with the heading held back (`alsoAsked`).
+  - Part 0 (the Add-on) ran with `instruction` = the whole message and the
+    heading in `alsoAsked`.
+  - Part 1 (the heading) became its own part.
+- **Scoped instruction.** The Add-on route took the held words out
+  (`heldParts`, checked on the real strings). Its picker, designers and
+  page-writer brief read only the Bake List sentence.
+- **What every model call was also shown.** Every model call of a part goes
+  through `clarifyTransport` → `withPart`. That appended `partBlock`, which
+  quoted **the whole original message, the held heading change unmarked**,
+  under only "Do only what this part asks".
+- **The page writer's inputs**: every page, Gallery included, plus that
+  block.
+- **The returned changes**:
+  - it wrote the section and, on `gallery.tsx`, the new heading;
+  - the `kept` guard found "Photographs from our ovens" lost and refused the
+    whole job (`error: "rewrote"`, `lost: [{ path: "gallery.tsx" }]`), with
+    no charge;
+  - part 1 then made the heading change itself.
+- **The cause** is general: any part whose step writes several pages could
+  act on another part's words in the reference block.
+
+### 2. The fix (`83c9015a`)
+
+- **`partOf`** (`builder/request.mjs`) now also carries `others`: offsets
+  into the message where every other part's own words stand.
+  - It never includes this part's own words, or a refused part.
+  - A part whose words hold this one's (the one it was carved from) is not
+    marked.
+  - Part 0's words (the message with the held parts taken out) are the text
+    outside every other part's words.
+- **The readers** validate the offsets: `readRequestOf` and `readPartOf`
+  (with `readSpans`) take integers, in order and not overlapping, only
+  against the message exactly as sent. Anything else is no marks, shown as
+  before.
+- **The three routes** pass `others` through: routing (`rPart`), edit
+  (`ePartShown`) and Add-on (`aPartShown`).
+- **`partBlock`** keeps the message whole, so references still read. It
+  wraps each other part as `⟦ANOTHER PART: …⟧` and adds the rule: never
+  make any change they ask for, not on a page this step writes, not inside
+  what this part adds, even when a page you are writing is the page they
+  name.
+- **No guard changed.** `kept`, `mergeAddonPages` and the scope checks are
+  as they were, and no page is named in code.
+
+**Regression**:
+- **PI 37** (`test/parallel-addon-independent.test.mjs`). An Add-on part and
+  an edit part from one message run through the real routes.
+  - The stand-in page writer makes every change it is shown unmarked.
+  - Every Add-on call (picker, designer, writer) sees the heading only
+    marked, and the edit step sees the addition only marked.
+  - Both parts finish. Only the asked pages change.
+  - The edit part's preparation ran beside the Add-on job and was replayed
+    exactly (`staged: yes, fresh: 0`).
+  - No double charge.
+  - **On the old code it fails exactly as run 137 did**: `[failed, rewrote]`
+    and `[done]`.
+- **ISO 1** (`test/request-plan.test.mjs`): marks both ways, the whole
+  message kept, unreadable offsets ignored, a refused part and a carved
+  part.
+- Two expectations were updated (`request-flow` C1, the routing body test).
+
+**Not shown live**: a real model may still ignore the marks. The `kept`
+guard stays the backstop.
+
+### 3. K/M FAQs, verified free in a browser (before any checker change)
+
+The pages were opened in Chromium. Every request was served through a Node
+fetch that verifies TLS (traps.md), and anything other than a read was
+refused. Nothing was submitted or written.
+- **`/visit`** (K): "Can I bring my dog?" is collapsed, and opens to "Dogs
+  are welcome inside."
+- **`/tasting-evenings`** (M): "How much is an evening?" is collapsed, and
+  opens to "£25 a head, cheese included." The form (name, email) was not
+  touched.
+- **`/classes`** (M): "Classes are for ages 12 and up." is shown once, with
+  no accordion.
+- Each shows its section once.
+- **The success state was read from the stored source, not by submitting.**
+  `if (sent) return (…FAQ…)`, then the default `return (…form…FAQ…)`. The
+  two branches are never on screen together, and each has the FAQ once.
+
+### 4. The checker (`6dae03bc`)
+
+- **Opened reads.** `readOpenedPage` (`scripts/canary-ui.mjs`) opens a page
+  in its own context:
+  - every closed disclosure (`aria-expanded="false"`, a closed `<details>`)
+    is pressed once;
+  - never a button inside a form, a submit button, or anything in the
+    header, a menu or a dialog;
+  - every request other than a read is stopped and recorded.
+- The canary takes this read for each route a scenario expects a section on
+  (`openReadRoutes`), on the before and the after inventory, as
+  `route*.open.html`.
+- The served section check uses the opened pair when both exist, and the
+  served HTML otherwise.
+- **Render states.** `renderStates` reads the syntax tree (TypeScript) for
+  exclusive branches: `if … return` with the rest of its block, `if …
+  else`, and `? :`. `&&` never counts.
+  - `storedSectionStates` gives each state the part of each added run it
+    shows, so copies in the two arms of a `? :` are one per state.
+  - `sectionStateChecks` refuses a state with two stating sections. At least
+    one state must have exactly one, and every distinct stating section is
+    judged on every fact.
+  - More than 6 branch points, or a file that does not parse, judges the
+    whole file as before.
+- **New: an answer said twice** (`onceChecks`). A fact-stating sentence said
+  twice in one section fails. Side-by-side copies used to read as one
+  section and pass, a limit round 18 recorded.
+
+**Tests**:
+- `test/acceptance-addon-free.test.mjs`: BRANCHES 1–2, OPENED 1–2.
+- `test/canary-open-read.test.mjs`: OPEN 1–2, in real Chromium.
+- One source guard widened in `test/canary-requests.test.mjs`.
+- **Still refused**:
+  - two copies in one branch, side by side or apart;
+  - `&&` beside a copy;
+  - a wrong amount in either branch;
+  - no answer in any branch;
+  - an opened wrong or missing answer;
+  - only one of the two opened reads.
+
+### 5. Verification
+
+- **Red checks**:
+  - PI 37 fails on the old product code, as run 137 did.
+  - All new checker cases fail on the old scripts. BRANCHES 2 fails there
+    too: the old checker passed side-by-side duplicates.
+- **Sweep: 28 meaningful mutants, 26 killed, and both comment-only controls
+  survived.** Every file matched its pre-sweep hash.
+  - Two survive singly: the carved-parent skip and the own-words filter.
+    Each covers the other, and the two together are killed.
+  - The first round's other two survivors (the `else` branch, a non-submit
+    button inside a form) gained cases and were then killed.
+- **Focused**: the 75 files touching parts and routing, 1363 / 1363;
+  the checker files, 225 / 225.
+- **Full suite** on `6dae03bc`: `10701 / 10701 / 0 / 0` locally (PLW 4
+  passed this time; it stays recorded as intermittent).
+- **The image would move.** `builder/request.mjs` and `builder/site-ask.mjs`
+  are inputs, so the prediction is `1e30b6fb56b51794` → **`eda28cb21064287d`**
+  (205 inputs). A merge would build a container image. None was built.
+
+### 6. Remaining gaps
+
+- The isolation fix is offline: no real model has seen the marks.
+- The opened read has not run live; it needs a UI press and Chromium in the
+  workflow, as UI scenarios already install.
+- The Add-on's own coverage judge still reads a collapsed answer as
+  "unseen".
+- Inside-one-Add-on concurrency, the missing-context clarification and the
+  image-free first Build remain **unverified**.
+- The form's scenario/batch box confusion is still open.
+- PLW 4 is intermittent, not fixed.

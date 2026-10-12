@@ -1,60 +1,56 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: the K0/K/E/M0/M batch is done — 74 credits, balance 876; production is deploy 2196, image purchases back on; P1/P2 closed; branch unmerged)
+## Current handoff — read this first (2026-10-12: E's failure traced and fixed offline, K/M checker limits fixed after a free browser check; batch closed at 74 credits, balance 876; production deploy 2196; branch unmerged)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2194** (2026-10-12, 14:41–14:42 UTC). It is your
-  manual redeploy of `main` **`df1dcf30`**, which put image purchases back
-  on.
-  - The image is **`1e30b6fb56b51794`**, unchanged.
-  - **Runtime-confirmed by run 130** (14:44 UTC): both readers
-    `df1dcf30f5fb`, a cold container `1e30b6fb56b51794`, and
-    **`imagePurchases=true`**. Nothing was charged.
-  - `docs/deploy-record.md`.
-- **Balance 950.** Option A spent 21: P1 13 and P2 8.
-- **P1 and P2 are complete and closed, and are not to be rerun.**
-  - P1 (run 128) recorded the real router's answer for S1–S9: S1, S2 and S9
-    batched; S3–S8 split into parts.
-  - P2 (run 129) passed:
-    - the price part's preparation overlapped the heading job by 13.1 s and
-      was replayed exactly;
-    - both changes landed, and nothing else changed;
-    - there was no double charge.
-  - The P1/P2 opt-in box admits only those two presses. It is not extended.
-- **Image purchases are restored.** They were off from 14:03 to 14:42 UTC
-  for P2 only.
-- **Build flags and the 1-page / 15-component limits are untouched.** No fal
-  call or image purchase was made.
-- **Next: one execution proposal, prepared on the branch, not pressed**
-  (`docs/acceptance-current.md` §4–§6, and the dated entries below):
-  - K0 + K: inside one Add-on (a section and a line, two kinds);
-  - E: an Add-on part beside an Edit part (S8);
-  - **M0 + M (new): two independent Add-on parts.** The Bakers heading, a
-    questions section on Tasting Evenings and a note on Classes. It is
-    eligible only if the routing probe M0 shows an edit answer holding the
-    two additions back as **two separate entries**, each writing only its
-    own page. Otherwise it is not pressed and stays **unverified**: P1 never
-    showed that shape.
-  - About 37–82 credits if all five run, and about 11–26 if K0 and M0 rule
-    out K and M.
-  - Image purchases are off only for K, E and M (a redeploy each way); the
-    probes need no change.
-  - Blocked by the 100-credit guard at 950 until you choose how to bound it
-    (§5). The P1/P2 opt-in is not extended.
-  - **The reuse check was fixed before any press, and you reviewed and
-    closed it** (`0dce4ea2`, unit CI green). A count tied to overlap now
-    counts only distinct parts that each reused exactly and overlapped the
-    asked-for work. PLW 4's intermittent failure is kept in the backlog, not
-    fixed.
-  - **Next: your approval of the batch.** Nothing is spent, deployed or
-    built until then.
-- **Subsequent live gaps**, after this batch:
-  - the missing-context clarification (`acc-needs`);
-  - the image-free first Build.
+- **Production is deploy 2196** (image purchases on, image
+  `1e30b6fb56b51794`), runtime-confirmed by run 139. **Balance 876.**
+- **The paid batch is closed**: K0/K/E/M0/M spent 74 credits (950 → 876),
+  with no further paid tests.
+- **E's real failure (run 137) is traced and fixed on the branch, offline**
+  (`83c9015a`). The Add-on's page writer was shown the whole message for
+  its references, with the held Gallery heading change unmarked, and made
+  it, so the `kept` guard refused the addition.
+  - *Now*: every model call of a part sees every other part's words marked
+    `⟦ANOTHER PART: …⟧`, with a rule never to make them. The message stays
+    whole.
+  - No guard was weakened and no page is named in code.
+  - **PI 37** reproduces run 137 exactly on the old code. On the new code,
+    both parts finish within their own work, and the edit part's
+    preparation is replayed exactly.
+- **K/M FAQs were verified free in a browser before any checker change.**
+  - Both accordions open to the asked answers.
+  - Each page shows the section once.
+  - Tasting Evenings' success state was read from its source (`if (sent)
+    return …`), not by submitting.
+  - Screenshots were sent in chat.
+- **The checker is corrected** (`6dae03bc`):
+  - the section's page is read opened in a browser, reads only, before and
+    after;
+  - stored copies in exclusive render branches count as one section;
+  - duplicates, a wrong amount and a missing answer still fail;
+  - a side-by-side duplicate, which used to pass, now fails.
+- **Evidence**:
+  - red checks fail as described;
+  - sweep: 28 meaningful mutants, 26 killed, 2 that cover each other killed
+    together, controls survived;
+  - full suite `10701 / 10701 / 0 / 0`.
+- **A merge would build a new container image** (`1e30b6fb56b51794` →
+  `eda28cb21064287d`), because the fix touches image inputs. Nothing was
+  merged, deployed, built or spent.
+- **Still unverified**:
+  - inside-one-Add-on concurrency;
+  - the missing-context clarification;
+  - the image-free first Build;
+  - the marks with a real model;
+  - the opened read live.
+- **Next: your review.** History:
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, "After the
+  batch".
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -925,6 +921,56 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — E's failure fixed (task isolation), K/M FAQs checked free, the section checker corrected (offline; nothing spent, merged or deployed)
+
+You asked me to close the paid batch and fix the real failure from E (run
+137) first.
+
+- **What went wrong in E.** The Bake List addition and the Gallery heading
+  change were two separate parts of your message. The addition's own
+  instructions had the heading taken out. But every model call also
+  carries your whole message, so it can understand words like "that page".
+  In that copy the heading change was not marked as someone else's job. The
+  page writer, which sees every page, changed the Gallery heading too. The
+  safety check that refuses lost text then refused the whole addition. No
+  charge was made.
+- **The fix** (`83c9015a`): every step still sees your whole message, but
+  every other part's words in it are now marked "another part", with a
+  rule never to make those changes. No safety check was loosened, and no
+  page is named in the code.
+  - A new offline test plays run 137's shape through the real routes with
+    a stand-in writer that does whatever it is shown.
+  - On the old code it fails exactly as run 137 did.
+  - On the new code both parts finish, each within its own work, and the
+    heading's preparation is reused exactly.
+- **K and M's questions sections, checked free in a browser.** "Can I bring
+  my dog?" opens to "Dogs are welcome inside." "How much is an evening?"
+  opens to "£25 a head, cheese included." Each appears once. Nothing was
+  submitted. The "you're on the list" state was read from the page's code
+  rather than by signing up.
+- **The checker** (`6dae03bc`):
+  - it now opens the questions the way a visitor would before judging the
+    served page, reading only;
+  - it treats the same section in two states that are never on screen
+    together as one;
+  - real duplicates, wrong amounts and missing answers still fail;
+  - two identical copies side by side, which used to slip through, now
+    fail too.
+- **Numbers**:
+  - full suite `10701 / 10701 / 0 / 0`;
+  - sweep: 28 deliberate breakages, 26 caught; the other two each cover
+    the other and are caught together;
+  - red checks fail as expected.
+- **Worth knowing before any merge**: this change touches files the site
+  container is built from, so a merge would build a new image
+  (`eda28cb21064287d`). Nothing was merged, deployed, built or spent.
+- **Still unverified**:
+  - two tasks inside one Add-on running together;
+  - the missing-context clarification;
+  - the image-free first Build;
+  - the marks with a real model;
+  - the opened read on a live press.
 
 ## 2026-10-12 — The K0/K/E/M0/M batch approved and started (in progress)
 

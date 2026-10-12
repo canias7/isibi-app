@@ -26,12 +26,20 @@ here; take a closed one out of both.**
 - **`progress-live-writer` PLW 4 failed once under the full suite**
   (2026-10-12): it passes alone, so it is likely load-sensitive. Not fixed.
   In full under Backlog below.
-- **Live K/E batch findings (2026-10-12, runs 135 and 137)**:
-  - an Add-on's preservation guard refused a section, because its output
-    would have changed a page that belonged to another part;
-  - a served FAQ is collapsed, so the served-section check cannot see the
-    answer;
-  - the form's scenario box is easily confused with the batch box.
+- **Live K/E batch findings (2026-10-12, runs 135 and 137)**, corrected on
+  the branch the same day (offline only; not merged, not deployed, not
+  pressed again):
+  - E: an Add-on's page writer made another part's change (the held Gallery
+    heading), and the preservation guard refused the addition. *Fixed*:
+    each part's model calls now see every other part's words marked as
+    another part's (PI 37 reproduces run 137 on the old code);
+  - K/M: a served FAQ is collapsed, and M's FAQ sits in two exclusive render
+    branches. *Fixed in the checker*: the section's page is read opened in a
+    browser (reads only), and stored copies in exclusive branches are one
+    section; duplicates and missing answers still fail;
+  - **still open**: the form's scenario box is easily confused with the
+    batch box; the Add-on's own coverage judge also calls a collapsed
+    answer "unseen"; the opened read has not run live.
   In full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; a preparation does not see
@@ -2710,7 +2718,18 @@ product.)*
       `/gallery`. That heading was the other part's change, still to run.
     - The Add-on's page work reached a page outside its own part. The guard
       caught it, at no charge.
-    - Not investigated.
+    - **Traced and fixed on the branch (2026-10-12, offline).** The cause:
+      the job's instruction had the held heading taken out, but every model
+      call of a part (picker, designers, page writer) was also shown the
+      whole original message for its references, the held change
+      unmarked, under only "Do only what this part asks". The page writer,
+      which sees every page, made it. Now `partOf` carries where every other
+      part's words stand (offsets), and `partBlock` marks each as
+      `⟦ANOTHER PART: …⟧` with a rule never to make it; the message stays
+      whole. No guard changed. PI 37 (`test/parallel-addon-independent`)
+      fails on the old code exactly as run 137 did (`failed, rewrote` /
+      `done`). Not shown live: a real model may still ignore the marks, and
+      the `kept` guard stays the backstop.
   - **K, run 135**:
     - The served `/visit` FAQ is a Radix accordion served collapsed, so the
       answer is not in the served HTML. The served-section check, and the
@@ -2721,6 +2740,21 @@ product.)*
     form and success state) as two sections, and fails "exactly one
     section". The served check also misses the collapsed accordion's
     answer.
+  - **K and M verified free in a browser (2026-10-12)**: `/visit`'s "Can I
+    bring my dog?" opens to "Dogs are welcome inside."; `/tasting-evenings`'
+    "How much is an evening?" opens to "£25 a head, cheese included."; each
+    shows once; the page source has the FAQ in `if (sent) return …` and the
+    default `return …`, never together. No form submitted, no write sent.
+  - **The checker corrected on the branch (2026-10-12)**: the canary reads
+    each section's page opened (`readOpenedPage`, GET-only, before and
+    after) and judges the served section on it; stored copies in exclusive
+    render branches (`if … return` / `else` / `? :`, from the syntax tree)
+    are one section; a fact-stating sentence said twice in one section, two
+    sections in one branch, `&&` beside a copy, a wrong amount in either
+    branch and a missing answer still fail. **Open**: the opened read has
+    not run live; the Add-on's own coverage judge still reads a collapsed
+    answer as "unseen"; more than 6 branch points falls back to the whole
+    file.
   - **Form**:
     - Twice (runs 134, 136) the scenario name went into the "REQUEST BATCH
       ONLY" box under the very long "RUN A NAMED SCENARIO" label.
