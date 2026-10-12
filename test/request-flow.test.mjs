@@ -225,7 +225,10 @@ test("C1 — a part's routing asks: the part waits on the site's question, the a
     assert.equal(q.part, 1);
     assert.equal(s1.rec.parts[1].question.id, q.id);
     // "IT" STILL MEANS WHAT IT MEANT: the part's routing was shown the whole message.
-    assert.ok(P.modelLog.filter((m) => m.tool === T.route)[1].text.includes(DESC + ", and " + ADD + " for it."));
+    // (Its other part's words marked as another part's, 2026-10-12: the message is still whole.)
+    const shown1 = P.modelLog.filter((m) => m.tool === T.route)[1].text;
+    assert.ok(shown1.replace(/⟦ANOTHER PART: |⟧/g, "").includes(DESC + ", and " + ADD + " for it."));
+    assert.ok(shown1.includes("⟦ANOTHER PART: " + DESC), "the first part's words were not marked as another part's");
     // THE ANSWER, AS THE PAGE SENDS IT.
     const before = P.spent();
     const a = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });

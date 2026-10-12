@@ -26966,7 +26966,7 @@ async function handleRequest(request, env, ctx) {
           // answers, the message it came from and what the parts before it did.
           context: rWaiting ? rWaiting.context : rPart ? rPart.context : [],
           pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen } : null,
-          part: rPart ? { original: rPart.original, done: rPart.done } : null,
+          part: rPart ? { original: rPart.original, done: rPart.done, others: rPart.others } : null,
         },
       );
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
@@ -28403,7 +28403,7 @@ async function handleRequest(request, env, ctx) {
             // beside its words, so "it" and "that page" still mean what they
             // meant. Read only from a job's own replay, never a customer's POST.
             const ePart = eJob ? readRequestOf(eb && eb.request) : null;
-            const ePartShown = () => (ePart ? { original: ePart.original, done: ePart.done } : null);
+            const ePartShown = () => (ePart ? { original: ePart.original, done: ePart.done, others: ePart.others } : null);
             // AND A QUESTION THIS STEP ASKS NAMES THAT PART (`askReport`).
             if (ePart) { eAskOut.requestKey = ePart.key; eAskOut.part = ePart.part; eReplyOut.inRequest = true; }
             // ── THE FLAG SAYS WHETHER, THE ALLOWLIST SAYS WHO ─────────────
@@ -34144,7 +34144,7 @@ async function handleRequest(request, env, ctx) {
             aReplyOut.job = !!aJob;
             // A PART OF A LONGER REQUEST (2026-10-03), as on the edit route.
             const aPart = aJob ? readRequestOf(ab && ab.request) : null;
-            const aPartShown = () => (aPart ? { original: aPart.original, done: aPart.done } : null);
+            const aPartShown = () => (aPart ? { original: aPart.original, done: aPart.done, others: aPart.others } : null);
             // ── WHAT THIS PART WAS ASKED FOR BEFORE IT PAUSED (round 12) ──────
             //
             // Codex's review of 6c2d3887: a correction asked "Above or below the

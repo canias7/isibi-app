@@ -48,7 +48,7 @@
 // additions), which needs which (`dependsOn`), what each part is and where it
 // goes (the router, every step) — never a keyword, and never the position of
 // words in the message, which only breaks ties between parts with no relation.
-import { heldList, heldParts, wordsIn, readContext, EDIT_LAYERS } from "./site-ask.mjs";
+import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS } from "./site-ask.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { outcomeOf } from "./site-reply.mjs";
@@ -1847,11 +1847,59 @@ export function partOf(rec, n) {
   };
   const me = rec.parts[n];
   if (me) { for (const x of me.needs) walk(x); if (Number.isInteger(me.parent)) walk(me.parent); }
+  // WHAT IS NOT THIS PART'S WORK (2026-10-12, run 137): where every other
+  // part's own words stand in the message, as offsets, so the message it is
+  // shown marks them as another part's — a step that writes several pages was
+  // shown a held change unmarked, and made it. A part whose words hold this
+  // one's (the part it was carved from) is not "other": its words are its too.
+  const others = otherSpans(rec, n);
   return {
     key: rec.key, part: n, original: rec.message,
     done: rec.parts.filter((q) => q.n !== n && need.has(q.n) && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
+    ...(others.length ? { others } : {}),
     context: rec.context,
   };
+}
+
+/**
+ * `[[start, end), …]` in `rec.message`, in order and never overlapping: every
+ * place another part's words stand, never this part's own. Part 0's words are
+ * the message with the held parts taken out, so they are rarely the
+ * customer's text to the letter; where a part's words are not found as they
+ * are, it is the message's text outside every other part's words.
+ */
+function otherSpans(rec, n) {
+  const text = typeof rec.message === "string" ? rec.message : "";
+  const me = rec.parts[n];
+  if (!text || !me) return [];
+  const live = rec.parts.filter((q) => q && q.status !== "refused" && typeof q.words === "string" && q.words);
+  const at = (q) => wordSpans(text, q.words);
+  const mine = at(me);
+  const raw = [];
+  for (const q of live) {
+    if (q.n === n || wordsIn(q.words, me.words)) continue;
+    let sp = at(q);
+    if (!sp.length) {
+      const covered = live.filter((r) => r.n !== q.n).flatMap(at).sort((x, y) => x[0] - y[0]);
+      let pos = 0;
+      const gaps = [];
+      for (const [s, e] of covered) { if (s > pos) gaps.push([pos, s]); pos = Math.max(pos, e); }
+      if (pos < text.length) gaps.push([pos, text.length]);
+      sp = gaps.map(([s, e]) => {
+        while (s < e && /\s/u.test(text[s])) s++;
+        while (e > s && /\s/u.test(text[e - 1])) e--;
+        return [s, e];
+      }).filter(([s, e]) => /[\p{L}\p{N}]/u.test(text.slice(s, e)));
+    }
+    raw.push(...sp);
+  }
+  const out = [];
+  for (const sp of raw.filter(([s, e]) => !mine.some(([ms, me2]) => s < me2 && ms < e)).sort((x, y) => x[0] - y[0] || y[1] - x[1])) {
+    const last = out[out.length - 1];
+    if (last && sp[0] < last[1]) { last[1] = Math.max(last[1], sp[1]); continue; }
+    out.push([sp[0], sp[1]]);
+  }
+  return out;
 }
 
 /**
@@ -1967,13 +2015,16 @@ export function readRequestOf(v) {
   const done = Array.isArray(v.done) ? v.done.filter((d) => plain(d) && typeof d.words === "string" && typeof d.said === "string") : [];
   const context = readContext(v.context);
   if (context === null) return null;
+  // WHERE THE OTHER PARTS' WORDS STAND (`partOf`): a list that does not read
+  // is none, and the part is shown as before.
+  const others = readSpans(v.others, original, v.original);
   const chars = original.length + done.reduce((s, d) => s + d.words.length + d.said.length, 0);
   if (chars > MAX_CARRIED_CHARS) return null;
   // THE CHECKPOINT THIS JOB MUST RESUME FROM (round 13): the paused job and how
   // many requirements it held — read strictly; anything else is none.
   const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
     ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
-  return { key: v.key, part: v.part, original, done, context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}) };
+  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}) };
 }
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────

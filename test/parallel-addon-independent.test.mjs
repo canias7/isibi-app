@@ -1338,3 +1338,70 @@ test("PI 36 — A HEADING CHANGED, WITH TWO ADDITIONS HELD BACK AS TWO ADD-ON PA
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
 });
+
+// ── ONE PART'S STEP NEVER MAKES ANOTHER PART'S CHANGE (2026-10-12, run 137) ──
+//
+// Live, an Add-on part and a heading change held back as its own part: the
+// Add-on's page writer, shown the whole message for its references, also
+// changed the Gallery heading, and the preservation guard refused the whole
+// addition (`rewrote`). Every model call of a part now sees the other parts'
+// words marked as another part's (`partBlock`). The stand-in writer here does
+// what an obedient model did live: it makes every change it is shown that is
+// not marked as another part's — so on the old wording this part fails exactly
+// as run 137's did.
+const W_HOME_RENAME = "change the home heading from Harbour Loaf to Harbour Bread";
+const MARKED = /⟦ANOTHER PART: [^⟧]*⟧/g;
+const unmarked = (args) => textOf(args).replace(MARKED, "");
+const HOME_RENAMED = HOME.replace("<h1>Harbour Loaf</h1>", "<h1>Harbour Bread</h1>");
+
+test("PI 37 — AN ADD-ON PART AND AN EDIT PART FROM ONE MESSAGE STAY IN THEIR OWN WORK: the Add-on's picker, designer and page writer are shown the heading change only marked as another part's, so the writer (which makes whatever it is asked) writes only the questions section; the heading is changed by its own part, whose preparation ran beside the Add-on's job and is replayed exactly; both finish, every other page as it was", { timeout: 30000 }, async () => {
+  const seen = { writer: [], addonCalls: [], text: [] };
+  await withPlatform({
+    slug: slugOf("p37"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0
+        ? { intent: "addon", alsoAsked: [W_HOME_RENAME], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: ["page:/"] }] }
+        : { intent: "edit", layer: "text", page: "/" }),
+      [T.text]: async (args) => { seen.text.push(textOf(args)); return { edits: [{ id: homeLine(args), to: "Harbour Bread" }] }; },
+      [T.adds]: (args) => { seen.addonCalls.push(textOf(args)); return { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }; },
+      "add:component": async (args) => { seen.addonCalls.push(textOf(args)); return ABOUT_FAQ_ANSWER; },
+      [T.pages]: (args) => {
+        seen.writer.push(textOf(args));
+        const pages = [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }];
+        // AN OBEDIENT WRITER: any change it is shown unmarked, it makes.
+        if (unmarked(args).includes(W_HOME_RENAME)) pages.push({ path: "src/routes/index.tsx", source: HOME_RENAMED });
+        return { pages };
+      },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_HOME_RENAME + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const first = P.queue.splice(0);
+    await Promise.all(first.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    // BOTH PARTS FINISH, EACH WITHIN ITS OWN WORK.
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.done])));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.match(P.page("index.tsx"), /<h1>Harbour Bread<\/h1>/);
+    assert.equal(P.page("visit.tsx"), VISIT, "a page no part named was changed");
+    // THE OBSERVER IS ALIVE: the writer was asked, and was shown the heading change — marked.
+    assert.ok(seen.writer.length >= 1, "the page writer was never asked");
+    for (const t of [...seen.writer, ...seen.addonCalls]) {
+      assert.ok(t.includes("⟦ANOTHER PART: " + W_HOME_RENAME), "an Add-on call was not shown the heading change as another part's: " + t.slice(-1200));
+      assert.ok(!t.replace(MARKED, "").includes(W_HOME_RENAME), "an Add-on call was shown the heading change unmarked");
+    }
+    // …AND THE EDIT PART'S STEP SEES THE ADDITION ONLY AS ANOTHER PART'S.
+    assert.ok(seen.text.length >= 1, "the heading's step was never asked");
+    for (const t of seen.text) {
+      assert.ok(t.includes(W_ABOUT_FAQ) && !t.replace(MARKED, "").includes(W_ABOUT_FAQ), "the heading's step was shown the addition unmarked: " + t.slice(-800));
+    }
+    // THE HEADING'S PREPARATION RAN BESIDE THE ADD-ON'S JOB AND WAS REPLAYED EXACTLY.
+    const view = await viewOf(P, r.key);
+    const u = prepUseOf(view, 1);
+    assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, "the heading part's job did not replay its preparation exactly: " + JSON.stringify(view.parts[1]));
+    assert.equal(P.imageLog.length, 0, "something was bought");
+    const refs = P.ledger.map((e) => e.ref);
+    assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});

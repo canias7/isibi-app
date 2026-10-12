@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep, partOf,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -312,7 +312,11 @@ test("bodies: a part's routing job is routed against the site as it is then — 
   assert.equal(b.body.request.original, MSG);
   assert.equal(b.body.hasSite, true);
   assert.equal(b.body.firstBuild, false);
-  assert.deepEqual(readRequestOf(b.body.request), { key: KEY, part: 1, original: MSG, done: [], context: [] });
+  // WHERE THE OTHER PART'S WORDS STAND (2026-10-12, run 137): part 0's words
+  // are the message outside this part's, to the letter.
+  const others = [[0, MSG.indexOf(ADD) - 1]];
+  assert.equal(MSG.slice(...others[0]), "Change the description to say we bake overnight, and");
+  assert.deepEqual(readRequestOf(b.body.request), { key: KEY, part: 1, original: MSG, done: [], others, context: [] });
 });
 
 test("bodies: what a replayed body says about its request is read with the size policy's bounds, or not at all", () => {
@@ -334,6 +338,30 @@ test("the request a model is shown beside a part: its whole message and what the
   const req = { messages: [{ role: "user", content: "THEIR MESSAGE:\nadd a gallery page" }] };
   assert.deepEqual(withPart(req, null), req);
   assert.ok(String(withPart(req, part).messages[0].content).endsWith(block.trimEnd()) || String(withPart(req, part).messages[0].content).includes(block.trim()));
+});
+
+test("ISO 1 — A PART IS SHOWN EVERY OTHER PART'S WORDS MARKED AS ANOTHER PART'S, AND ITS OWN NEVER (2026-10-12, run 137): the whole message stays whole, for its references", () => {
+  const rec = newRequest({ key: KEY, uid: "u1", slug: "fold-lane", message: MSG, digest: { name: "N", pages: ["/"], tables: [] }, parts: planParts(MSG, { intent: "edit", alsoAsked: [ADD] }).parts });
+  for (const [n, other, own] of [[0, ADD, "Change the description to say we bake overnight"], [1, "Change the description to say we bake overnight, and", ADD]]) {
+    const block = partBlock(partOf(rec, n));
+    assert.ok(block.includes("⟦ANOTHER PART: " + other + "⟧"), "part " + n + " was not shown the other part marked: " + block);
+    const quoted = block.slice(block.indexOf("“") + 1, block.lastIndexOf("”"));
+    assert.equal(quoted.split("⟦ANOTHER PART:").length, 2, "part " + n + ": one marked stretch, never its own words");
+    assert.ok(!block.includes("⟦ANOTHER PART: " + own), "part " + n + "'s own words were marked as another part's");
+    assert.ok(block.includes("Never make any change they ask for"), "part " + n + " was not told the marked words are not its work");
+    assert.equal(quoted.replace(/⟦ANOTHER PART: |⟧/g, ""), MSG, "the message was not kept whole");
+  }
+  // A PLAIN MESSAGE, OR AN UNREADABLE LIST, IS SHOWN AS BEFORE: nothing marked.
+  assert.ok(!partBlock({ original: MSG, done: [] }).includes("⟦"));
+  for (const bad of [[[5, 2]], [[0, 9999]], [[0, 5], [3, 9]], [["0", 5]], "0-5", [[0.5, 3]]]) {
+    assert.ok(!partBlock({ original: MSG, done: [], others: bad }).includes("⟦"), JSON.stringify(bad));
+    assert.equal(readRequestOf({ key: KEY, part: 0, original: MSG, others: bad, context: [] }).others, undefined, JSON.stringify(bad));
+  }
+  // OFFSETS ARE READ ONLY AGAINST THE MESSAGE EXACTLY AS SENT.
+  assert.ok(!partBlock({ original: " " + MSG, done: [], others: [[0, 5]] }).includes("⟦"));
+  // A REFUSED PART IS NO OTHER PART'S WORK: nothing of it is marked.
+  rec.parts[1].status = "refused";
+  assert.ok(!partBlock(partOf(rec, 0)).includes("⟦"));
 });
 
 // ── KEYS, RECORDS AND THE VIEW ──────────────────────────────────────────────

@@ -1857,7 +1857,7 @@ function foldForFind(raw) {
  * and is kept when the message has the same one right there — so the text
  * handed on is the customer's own, to the last character.
  */
-function wordSpans(message, words) {
+export function wordSpans(message, words) {
   // A NON-STRING IS NOTHING, NEVER COERCED: `String(["a"])` is "a".
   if (typeof message !== "string" || typeof words !== "string") return [];
   const text = message;
@@ -2605,14 +2605,60 @@ export function readPartOf(v) {
     if (chars > MAX_CARRIED_CHARS) return null;
     done.push({ words, said });
   }
-  return { original, done };
+  // WHERE THE OTHER PARTS' WORDS STAND (`partOf`, 2026-10-12): a list that
+  // does not read is none, so the part is shown as it was before.
+  const others = readSpans(v.others, original, v.original);
+  return { original, done, ...(others.length ? { others } : {}) };
+}
+
+/**
+ * OFFSETS INTO A PART'S MESSAGE (`partOf`'s `others`): `[[start, end), …]`,
+ * integers, each inside the message, in order and never overlapping — read
+ * only against the message exactly as it was sent (`raw`), so an offset
+ * never lands on other text. Anything else is no list (`[]`).
+ */
+export function readSpans(v, original, raw) {
+  if (!Array.isArray(v) || !v.length || raw !== original) return [];
+  let pos = 0;
+  const out = [];
+  for (const sp of v) {
+    if (!Array.isArray(sp) || sp.length !== 2 || !Number.isInteger(sp[0]) || !Number.isInteger(sp[1])) return [];
+    if (sp[0] < pos || sp[1] <= sp[0] || sp[1] > original.length) return [];
+    out.push([sp[0], sp[1]]);
+    pos = sp[1];
+  }
+  return out;
+}
+
+/**
+ * THE WHOLE MESSAGE WITH EVERY OTHER PART'S WORDS MARKED (2026-10-12, run
+ * 137): each place another part's words stand is wrapped as another part's, so
+ * a step shown the whole message for its references can tell, word for word,
+ * which of it is not its work. Nothing is cut: the message stays whole, so
+ * "it" and "that page" still read.
+ */
+function markedOriginal(original, spans) {
+  let out = "";
+  let pos = 0;
+  for (const [s, e] of spans) {
+    out += original.slice(pos, s) + "⟦ANOTHER PART: " + original.slice(s, e) + "⟧";
+    pos = e;
+  }
+  return out + original.slice(pos);
 }
 
 export function partBlock(part) {
   const p = readPartOf(part);
   if (!p) return "";
+  const others = p.others || [];
+  const isolate = others.length
+    ? "\nTHE WORDS MARKED ⟦ANOTHER PART: …⟧ ARE OTHER PARTS OF THE REQUEST, each made by its own step. They are here " +
+      "only so you can read what this part refers to. Never make any change they ask for: not on a page this step " +
+      "writes, not inside what this part adds, not as a side effect — even when a page you are writing is the page " +
+      "they name. Leave everything they would change exactly as it is."
+    : "";
   return PART_HEADING + " — for what this part's words refer to (\"it\", \"that page\", \"there\") and nothing " +
-    "else. Do only what this part asks; the rest of the request is handled on its own:\n“" + p.original + "”" +
+    "else. Do only what this part asks; the rest of the request is handled on its own:\n“" + markedOriginal(p.original, others) + "”" + isolate +
     (p.done.length
       ? "\nWHAT THE PARTS BEFORE THIS ONE DID, in order:\n" + p.done.map((d, i) => (i + 1) + ". “" + d.words + "” — " + d.said).join("\n")
       : "");
