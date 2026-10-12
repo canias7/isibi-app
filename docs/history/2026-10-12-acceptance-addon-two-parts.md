@@ -145,3 +145,60 @@ page, a relation, or a question back.
 - **Full suite** `10687 / 10687 / 0 / 0` locally (10678 before). Unit CI is
   green on `4bae2dbb` (run 38272842925, `success`).
 - **The container image is unchanged**: no input was touched.
+
+## Correction: the reuse count tied to overlap (the owner's reproduction)
+
+**The defect.** `reuseVerdict` counted exact reuse over every route, then
+asked only that *one* exact part had overlapped. The owner reproduced a
+false pass: Add-on parts 2 and 3 overlapping, exact reuse by Edit part 1 and
+Add-on part 2, Add-on part 3 fresh. `{ exact: 2, overlapped: "addon-parts" }`
+passed.
+
+**The rule now** (`scripts/canary-requests.mjs`):
+- **Overlap-tied counts.** Wherever a reuse count is tied to overlap,
+  `exact` is the number of **distinct parts** that both answered exactly
+  and whose own prepared step overlapped other work:
+  - for `overlapped: "addon-parts"`, the overlap must be with another Add-on
+    part's work;
+  - for `overlapped: true`, any other part's work counts.
+- **All of them must qualify**, never one standing for the rest. Without
+  `overlapped`, `exact` counts distinct jobs.
+- **Duplicate evidence never counts twice**:
+  - the same job listed again with the same counts is one;
+  - listed with different counts, or under two parts, it fails as
+    unreadable;
+  - one part's two jobs are one qualifying part.
+- **New output.** The verdict returns `qualifying`, and its summary names
+  those parts.
+
+**Tests** (`test/acceptance-addon-free.test.mjs`, 5 new):
+- the owner's reproduction (fails);
+- reuse on another route never counting (fails for Add-on parts; under the
+  general rule it is a control that passes);
+- insufficient qualifying reuse (an exact part beside nothing does not make
+  up the count, under either rule);
+- duplicate evidence (same job twice, conflicting entries, a job under two
+  parts, one part's two jobs);
+- a positive control where both Add-on parts qualify (passes).
+
+One existing assertion in `test/canary-acceptance.test.mjs` was updated
+for the new failure wording; the case itself is unchanged.
+
+**Verification**:
+- **Red check.** The reproduction and the other new cases fail on the
+  previous code.
+- **Sweep: 6 of 6 meaningful mutants killed, 1 equivalent, and the
+  comment-only control survived.**
+  - Killed: one qualifying part enough; parts not deduplicated; the same
+    job counted twice; a conflicting duplicate accepted; the overlap read
+    not limited to Add-on parts; the overlap ignored.
+  - Equivalent: dropping the per-part route condition. The overlap read is
+    already limited to Add-on parts. The condition is kept as a second
+    guard.
+- **Focused files:** 39 / 39.
+- **Full suite** locally: `10692 / 10691 / 1 / 0`.
+  - The one failure is `test/progress-live-writer.test.mjs` "PLW 4"
+    (photo-placement progress lines). This change touches neither that test
+    nor the product code it covers.
+  - The file passes 5 / 5 on its own, three runs out of three, so it is
+    recorded as a timing failure under the full suite's load, not as fixed.

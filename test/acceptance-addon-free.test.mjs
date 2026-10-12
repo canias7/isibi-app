@@ -616,3 +616,80 @@ test("TWO ADD-ON PARTS — the coverage reads two finished Add-on parts: one Add
   assert.equal(cov([p(1, "text"), p(2, "addon")]), false, "one Add-on part covered two");
   assert.equal(cov([p(1, "text"), p(2, "addon"), p(3, "addon", "failed")]), false, "an unfinished Add-on part covered");
 });
+
+// ── THE REUSE COUNT TIED TO OVERLAP (2026-10-12, the owner's reproduction) ──
+//
+// The owner: overlapping Add-on parts 2 and 3, exact reuse by Edit part 1 and
+// Add-on part 2, and fresh execution by Add-on part 3 passed `{ exact: 2,
+// overlapped: "addon-parts" }`: the count was taken over every route and the
+// overlap asked of only one exact part. Now the count is of distinct parts
+// that both answered exactly and overlapped the work asked for.
+
+const R = 1_000_000;
+const rsteps = (parts) => [{ sent: true, request: { key: "k", final: { key: "k", at: R, parts } } }];
+const exactUse = (job) => ({ job, known: true, staged: "yes", replayed: 2, rebased: 0, fresh: 0 });
+const freshUse = (job) => ({ job, known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 1 });
+const rpart = (n, route, step, run, use) => ({ n, route, ...(step ? { prepRun: { from: step[0] - 100, to: step[1] + 100, outcome: "prepared", step: { from: step[0], to: step[1], calls: 2 } } } : {}), runs: [{ job: "j" + n, from: run[0], to: run[1] }], prepUse: [use("j" + n)] });
+// Parts 2 and 3's steps run together; part 1 (the Edit part) has its own prepared step beside part 2's.
+const EDIT = (use = exactUse) => rpart(1, "text", [R + 2500, R + 4000], [R + 30_000, R + 31_000], use);
+const A2 = (use = exactUse) => rpart(2, "addon", [R + 2000, R + 9000], [R + 32_000, R + 33_000], use);
+const A3 = (use = exactUse) => rpart(3, "addon", [R + 3000, R + 11_000], [R + 34_000, R + 35_000], use);
+
+test("REUSE TIED TO OVERLAP — THE OWNER'S REPRODUCTION: exact reuse by the Edit part and one Add-on part, the other Add-on part fresh, fails { exact: 2, overlapped: \"addon-parts\" }", async () => {
+  const { reuseVerdict, overlapVerdict } = await import("../scripts/canary-requests.mjs");
+  const s = rsteps([EDIT(), A2(), A3(freshUse)]);
+  assert.equal(overlapVerdict(s, { route: "addon" }).ok, true, "CONTROL: the two Add-on parts did overlap");
+  const v = reuseVerdict(s, { exact: 2, overlapped: "addon-parts" });
+  assert.equal(v.ok, false, "the Edit part's reuse stood in for an Add-on part's");
+  assert.match(v.why, /1 part\(s\) answered exactly AND overlapped another Add-on part's work; 2 required/);
+  assert.deepEqual(v.qualifying, [2]);
+});
+
+test("REUSE TIED TO OVERLAP — UNRELATED-ROUTE REUSE NEVER COUNTS: the Edit part answering exactly beside an Add-on part is not Add-on reuse, even when it is the only exact one", async () => {
+  const { reuseVerdict } = await import("../scripts/canary-requests.mjs");
+  const v = reuseVerdict(rsteps([EDIT(), A2(freshUse), A3(freshUse)]), { exact: 1, overlapped: "addon-parts" });
+  assert.equal(v.ok, false);
+  assert.deepEqual(v.qualifying, []);
+  // CONTROL: by the general rule the Edit part's step did overlap other work, so it qualifies there.
+  assert.equal(reuseVerdict(rsteps([EDIT(), A2(freshUse), A3(freshUse)]), { exact: 1, overlapped: true }).ok, true);
+});
+
+test("REUSE TIED TO OVERLAP — INSUFFICIENT QUALIFYING REUSE: exact reuse by a part that overlapped nothing does not make up the count; one qualifying part never stands for two, under either rule", async () => {
+  const { reuseVerdict } = await import("../scripts/canary-requests.mjs");
+  // Part 3's own step ran before anything else began: exact, but beside
+  // nothing. Its job then ran while part 2's step was working, so part 2
+  // qualifies and part 3 does not.
+  const late = rpart(3, "addon", [R + 1000, R + 1500], [R + 5000, R + 8000], exactUse);
+  const v = reuseVerdict(rsteps([EDIT(freshUse), A2(), late]), { exact: 2, overlapped: "addon-parts" });
+  assert.equal(v.ok, false);
+  assert.equal(v.exact.length, 2, "CONTROL: two jobs did answer exactly");
+  assert.deepEqual(v.qualifying, [2]);
+  const g = reuseVerdict(rsteps([EDIT(freshUse), A2(), late]), { exact: 2, overlapped: true });
+  assert.equal(g.ok, false, "the general rule let one overlapping part stand for two");
+});
+
+test("REUSE TIED TO OVERLAP — DUPLICATE EVIDENCE NEVER INFLATES THE COUNT: the same job listed twice is one; listed twice with different counts, or under two parts, does not read", async () => {
+  const { reuseVerdict } = await import("../scripts/canary-requests.mjs");
+  const dup = { ...A2(), prepUse: [exactUse("j2"), exactUse("j2")] };
+  const v = reuseVerdict(rsteps([EDIT(freshUse), dup, A3(freshUse)]), { exact: 2, overlapped: "addon-parts" });
+  assert.equal(v.ok, false, "one job listed twice counted as two");
+  assert.equal(v.exact.length, 1);
+  assert.equal(reuseVerdict(rsteps([EDIT(freshUse), dup, A3(freshUse)]), { exact: 2 }).ok, false, "the plain count was inflated");
+  const clash = { ...A2(), prepUse: [exactUse("j2"), freshUse("j2")] };
+  assert.match(reuseVerdict(rsteps([EDIT(), clash, A3()]), {}).why, /listed more than once with different evidence/);
+  // ONE PART, TWO JOBS (a retry): two exact jobs are still one qualifying part.
+  const twice = { ...A2(), runs: [{ job: "j2", from: R + 32_000, to: R + 33_000 }, { job: "j2b", from: R + 33_500, to: R + 34_000 }], prepUse: [exactUse("j2"), exactUse("j2b")] };
+  const t = reuseVerdict(rsteps([EDIT(freshUse), twice, A3(freshUse)]), { exact: 2, overlapped: "addon-parts" });
+  assert.equal(t.ok, false, "one part's two jobs counted as two qualifying parts");
+  assert.deepEqual(t.qualifying, [2]);
+  const borrowed = { ...A3(), prepUse: [exactUse("j3"), { ...exactUse("j2") }] };
+  assert.match(reuseVerdict(rsteps([EDIT(), A2(), borrowed]), {}).why, /listed more than once with different evidence/, "a job claimed by two parts counted for both");
+});
+
+test("REUSE TIED TO OVERLAP — POSITIVE CONTROL: both Add-on parts answered exactly and each overlapped the other's work: { exact: 2, overlapped: \"addon-parts\" } passes, and the press's check with it", async () => {
+  const { reuseVerdict } = await import("../scripts/canary-requests.mjs");
+  const v = reuseVerdict(rsteps([EDIT(freshUse), A2(), A3()]), { exact: 2, overlapped: "addon-parts" });
+  assert.equal(v.ok, true, v.why);
+  assert.deepEqual(v.qualifying.sort(), [2, 3]);
+  assert.match(v.said, /beside other work: \[2,3\]/);
+});

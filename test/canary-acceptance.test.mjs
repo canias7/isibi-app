@@ -149,7 +149,7 @@ test("NEGATIVE — reuseVerdict refuses what the scenario asks for and did not h
   const late = P1({ prepRun: { seq: 1, from: 6050, to: 6090, outcome: "ready", step: { from: 6060, to: 6090, calls: 1 } } });
   const seq = reuseVerdict(stepOf([P0(), late]), { exact: 1, overlapped: true });
   assert.equal(seq.ok, false);
-  assert.match(seq.why, /no job answered exactly was a part whose prepared step overlapped/);
+  assert.match(seq.why, /0 part\(s\) answered exactly AND overlapped other work; 1 required/);
   assert.equal(reuseVerdict(stepOf([P0(), late]), { exact: 1 }).ok, true, "CONTROL: without `overlapped`, the same evidence passes");
 });
 

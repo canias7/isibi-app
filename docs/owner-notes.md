@@ -45,6 +45,9 @@ is in git; the dated entries further down are the full story.*
     probes need no change.
   - Blocked by the 100-credit guard at 950 until you choose how to bound it
     (§5). The P1/P2 opt-in is not extended.
+  - **The reuse check was fixed before any press** (your reproduction). A
+    count tied to overlap now counts only distinct parts that each reused
+    exactly and overlapped the asked-for work. See the dated entry below.
 - **Subsequent live gaps**, after this batch:
   - the missing-context clarification (`acc-needs`);
   - the image-free first Build.
@@ -918,6 +921,35 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The reuse check fixed: a reuse count tied to overlap now counts only parts that qualify (offline; nothing pressed, spent, merged or deployed)
+
+You found a false pass in the reuse check, and it is fixed.
+- **The setup.** Add-on parts 2 and 3 overlapped. The Edit part and Add-on
+  part 2 replayed their preparation exactly; Add-on part 3 worked afresh.
+- **What went wrong.** M's demand ("two Add-on parts reused exactly beside
+  another Add-on part") passed. The check counted exact reuse on every
+  route, then asked only that *one* of them had overlapped.
+- **The rule now**, wherever a reuse count is tied to overlap:
+  - It counts **distinct parts**, each of which both reused exactly and
+    whose own preparation overlapped the work asked for (another Add-on
+    part's, for M).
+  - **All** of them must qualify.
+  - The same evidence listed twice counts once. Conflicting or shared
+    entries fail.
+- **Tests.**
+  - Your reproduction now fails. Further negative controls cover reuse on
+    another route, too few qualifying parts and duplicate evidence. A
+    positive control, where both Add-on parts qualify, passes.
+  - Red check: the new cases fail on the old code. Sweep: 6 of 6 meaningful
+    mutants killed, 1 equivalent, the control survived. Focused files
+    39 / 39.
+  - Full suite `10692 / 10691 / 1 / 0`. The one failure is an unrelated
+    progress test (PLW 4). It passes on its own three times out of three.
+- **Unchanged.** The prepared proposal (K0, K, E, M0, M) is unchanged
+  and still waits on your spending decision. P1/P2 stay closed. No paid
+  call, image, merge, deploy or container build. Details:
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, last section.
 
 ## 2026-10-12 — Two independent Add-on parts: the case (M), and one execution proposal (prepared on the branch; nothing pressed, spent, merged or deployed)
 

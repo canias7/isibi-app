@@ -349,7 +349,19 @@ export function overlapVerdict(steps, opts = {}) {
  *            overlapped another part's job or step (`overlapVerdict`), so
  *            the reuse is of concurrent work; "addon-parts" counts only an
  *            overlap between two parts routed `addon`.
- * `{ ok, why, jobs, exact, fresh, said }`.
+ *
+ * THE COUNT TIED TO OVERLAP IS COUNTED AMONG QUALIFYING PARTS ONLY
+ * (2026-10-12, the owner's reproduction: exact reuse by an Edit part and one
+ * Add-on part, the other Add-on part fresh, passed `{ exact: 2, overlapped:
+ * "addon-parts" }`, because the count was taken over every route and the
+ * overlap asked of only one). With `overlapped`, `exact` is the number of
+ * DISTINCT PARTS that both answered exactly and whose own prepared step
+ * overlapped other work of the kind asked for — every one of them, never one
+ * standing for the rest. Without it, `exact` counts distinct jobs.
+ * DUPLICATE EVIDENCE NEVER COUNTS TWICE: the same job listed again with the
+ * same counts is one job; listed with different counts, or under two parts,
+ * it does not read and fails.
+ * `{ ok, why, jobs, exact, qualifying, fresh, said }`.
  */
 export function reuseVerdict(steps, want = {}) {
   const list = arrOf(steps);
@@ -361,6 +373,7 @@ export function reuseVerdict(steps, want = {}) {
   if (!key || !view) return { ok: false, why: "missing evidence: the request's view was never read", jobs: [] };
   const whole = (v) => Number.isInteger(v) && v >= 0;
   const jobs = [], bad = [];
+  const seen = new Map();
   for (const p of arrOf(view.parts)) {
     if (!p || typeof p !== "object") continue;
     const runJobs = arrOf(p.runs).map((r) => r && typeof r.job === "string" ? r.job : "").filter(Boolean);
@@ -371,7 +384,14 @@ export function reuseVerdict(steps, want = {}) {
       if (!["yes", "no", "unreadable"].includes(u.staged)) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: what was staged does not read (${JSON.stringify(u.staged)})`);
       for (const k of ["replayed", "rebased", "fresh"]) if (!whole(u[k])) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: ${k} is not a count (${JSON.stringify(u[k])})`);
       if (whole(u.rebased) && u.rebased > 0) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: rebased ${u.rebased} — nothing may re-base an answer`);
-      jobs.push({ part: p.n, job: u.job, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh, scoped: u.scoped, needs: u.needs });
+      const entry = { part: p.n, route: typeof p.route === "string" ? p.route : "", job: u.job, staged: u.staged, replayed: u.replayed, rebased: u.rebased, fresh: u.fresh, scoped: u.scoped, needs: u.needs };
+      const sig = JSON.stringify([entry.part, entry.staged, entry.replayed, entry.rebased, entry.fresh]);
+      if (seen.has(u.job)) {
+        if (seen.get(u.job) !== sig) bad.push(`part ${p.n} job ${u.job.slice(0, 8)}: listed more than once with different evidence`);
+        continue;
+      }
+      seen.set(u.job, sig);
+      jobs.push(entry);
     }
     for (const j of runJobs) if (!uses.some((u) => u && u.job === j)) bad.push(`part ${p.n} job ${j.slice(0, 8)}: ran with no evidence of its calls`);
   }
@@ -385,12 +405,16 @@ export function reuseVerdict(steps, want = {}) {
   const needFresh = Number.isInteger(want.fresh) ? want.fresh : 0;
   if (exact.length < needExact) return { ok: false, why: `${exact.length} job(s) answered exactly from a preparation; ${needExact} required (${JSON.stringify(jobs)})`, ...out };
   if (fresh.length < needFresh) return { ok: false, why: `${fresh.length} prepared job(s) asked a model again; ${needFresh} required (${JSON.stringify(jobs)})`, ...out };
+  let qualifying = null;
   if ((want.overlapped === true || want.overlapped === "addon-parts") && needExact > 0) {
-    const ov = overlapVerdict(steps, want.overlapped === "addon-parts" ? { route: "addon" } : {});
+    const addon = want.overlapped === "addon-parts";
+    const ov = overlapVerdict(steps, addon ? { route: "addon" } : {});
     const parts = new Set([...(ov.overlaps || []).map((o) => o.prepPart), ...(ov.together || []).flatMap((t) => t.parts)]);
-    if (!exact.some((x) => parts.has(x.part))) return { ok: false, why: `no job answered exactly was a part whose prepared step overlapped other work (exact: parts ${JSON.stringify(out.exact)}; overlapping: ${JSON.stringify([...parts])})`, ...out };
+    qualifying = [...new Set(exact.filter((x) => parts.has(x.part) && (!addon || x.route === "addon")).map((x) => x.part))];
+    out.qualifying = qualifying;
+    if (qualifying.length < needExact) return { ok: false, why: `${qualifying.length} part(s) answered exactly AND overlapped ${addon ? "another Add-on part's" : "other"} work; ${needExact} required (exact: parts ${JSON.stringify(out.exact)}; overlapping: ${JSON.stringify([...parts])})`, ...out };
   }
-  const said = `${jobs.length} job(s) with evidence; exact reuse by part(s) ${JSON.stringify(out.exact)}; asked again by part(s) ${JSON.stringify(out.fresh)}`;
+  const said = `${jobs.length} job(s) with evidence; exact reuse by part(s) ${JSON.stringify(out.exact)}${qualifying ? `, of which beside other work: ${JSON.stringify(qualifying)}` : ""}; asked again by part(s) ${JSON.stringify(out.fresh)}`;
   return { ok: true, why: "", said, ...out };
 }
 
