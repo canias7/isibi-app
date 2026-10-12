@@ -966,7 +966,8 @@ for everything. Kept apart from the Add-on-plus-Edit case (E).
   37–82, an estimate and not a limit.
 - **Nothing was pressed, spent, merged or deployed.** The P1/P2 opt-in,
   image restrictions, Build flags and limits are unchanged. The record is
-  `docs/history/2026-10-12-acceptance-addon-two-parts.md`.
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md` (commit `4bae2dbb`;
+  unit CI green, run 38272842925).
 
 ## 2026-10-12 — The next image-free Add-on batch, after P1's real routing (prepared on the branch; nothing pressed, spent, merged or deployed)
 

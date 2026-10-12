@@ -142,5 +142,6 @@ page, a relation, or a question back.
       box names every scenario there is") was outside the sweep's file list.
       Re-run against that file, it is killed.
   - Every file matched its pre-sweep hash afterwards.
-- **Full suite** `10687 / 10687 / 0 / 0` locally (10678 before).
+- **Full suite** `10687 / 10687 / 0 / 0` locally (10678 before). Unit CI is
+  green on `4bae2dbb` (run 38272842925, `success`).
 - **The container image is unchanged**: no input was touched.
