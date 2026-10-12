@@ -141,6 +141,8 @@ export function readJobKey(k) {
 
 /** A job that ended with no answer at all is filed once more (D5), its money already back. */
 export const RETRIES = 1;
+/** How many more jobs a part is given when its checkpoint could not be saved or read (round 13); each job tries the store itself several times. */
+export const HELD_RETRIES = 2;
 
 // ── PREPARATION (2026-10-08, the parallel-tasks batch) ──────────────────────
 //
@@ -1000,7 +1002,7 @@ function settle(rec, p, job, row, now) {
     const notDone = [...(p.place.notDone || []), ...notDoneOf(ans.body, "edit")];
     p.place = { ...p.place, placedBy: job.id };
     p.outcome = { job: job.id, kind: "done" };
-    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone.slice(0, 24); return; }
+    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone; return; }
     p.status = "done"; p.why = null; return;
   }
   if (read.act === "success") {
@@ -1022,14 +1024,28 @@ function settle(rec, p, job, row, now) {
     if (pending.length) {
       p.status = "uncertain"; p.why = "photos-pending";
       p.purchase = { held: pending.map((x) => ({ id: x.id, d: x.d, why: x.why || "unconfirmed" })), at: now };
-      p.place = { photos: pending, addon: p.route, notDone: notDone.slice(0, 24), job: job.id };
+      p.place = { photos: pending, addon: p.route, notDone, job: job.id };
       p.published = true;
       return;
     }
-    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone.slice(0, 24); return; }
+    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone; return; }
     p.status = "done"; return;
   }
   if (read.act === "clarify" || (read.act === "refusal" && read.ask)) {
+    // ITS CHECKPOINT, AS THE JOB SAYS IT VERIFIED IT (round 13): how many
+    // requirements the next run must resume with.
+    const hcp = plain(ans.body.heldCheckpoint) ? ans.body.heldCheckpoint : null;
+    const hc = hcp && Number.isInteger(hcp.count) && hcp.count >= 0 ? hcp.count : null;
+    if (hc !== null) {
+      job.end.held = hc;
+      // THE CHECKPOINT ITSELF, when the store would not take it: kept on the
+      // part's own job, whole, or not at all (its count must match).
+      if (Array.isArray(hcp.requirements)) {
+        if (hcp.requirements.length === hc) { job.end.heldList = hcp.requirements; if (typeof hcp.asked === "string") job.end.heldAsked = hcp.asked.slice(0, 40); }
+        else delete job.end.held;
+      }
+    }
+    p.heldTries = 0;
     p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer";
     // A QUESTION AFTER SOMETHING WENT IN (2026-10-07): what this try, or an
     // earlier one, left standing stays on the part while it waits.
@@ -1041,6 +1057,16 @@ function settle(rec, p, job, row, now) {
   // OUT (2026-10-11, Codex on d7a00395: an addition's photograph begun beside
   // its page writer, which then failed): held on that purchase, never ended as
   // if nothing were out; once it is known the step runs again and reuses it.
+  // A CHECKPOINT THAT COULD NOT BE SAVED OR READ (round 13): nothing was
+  // applied or charged, and the question was not acknowledged. The part runs
+  // again — its answers replayed (`stageKept`), its saved requirements read
+  // again — a bounded number of times; then it fails, saying so, never done.
+  if (read.act === "refusal" && (read.error === "checkpoint-unsaved" || read.error === "checkpoint-unread")) {
+    job.end.act = "held-retry";
+    if ((Number(p.heldTries) || 0) < HELD_RETRIES) { p.heldTries = (Number(p.heldTries) || 0) + 1; p.status = "ready"; return; }
+    endUnfinished(p, leftOf(ans.body), read.error, { job: job.id, kind: "refused" });
+    return;
+  }
   if (read.act === "refusal" && (read.error === "purchase-unconfirmed" || heldOf(ans.body).length > 0)) {
     // HELD ON A PURCHASE NOBODY CAN TELL (2026-10-09, round 3): its job
     // published and charged nothing; the part waits, recoverable.
@@ -1255,7 +1281,7 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     if (p.status === "uncertain" && p.purchase && Number.isFinite(p.purchase.at) && now - p.purchase.at >= WAIT_MS) {
       // AN ADDITION THAT WENT LIVE with frames still waiting (round 5) is done
       // in part — what it added stands, its frames stay empty — never expired.
-      if (p.place && p.published) { p.status = "partial"; p.why = "photos-unconfirmed"; p.notDone = [...(p.place.notDone || []), ...(p.place.photos || []).map((x) => ({ what: x.d.slice(0, 200), why: "photo-unconfirmed" }))].slice(0, 24); }
+      if (p.place && p.published) { p.status = "partial"; p.why = "photos-unconfirmed"; p.notDone = [...(p.place.notDone || []), ...(p.place.photos || []).map((x) => ({ what: x.d.slice(0, 200), why: "photo-unconfirmed" }))]; }
       else { p.status = "expired"; p.why = "purchase-unconfirmed"; }
     }
   }
@@ -1686,6 +1712,19 @@ export function approvePart(record, n, { job, seq, now = Date.now() } = {}) {
 /** The next job number a part's go-ahead files its rewrite under. */
 export const approvalSeq = (p) => (Number(p && p.seq) || 0) + 1;
 
+/**
+ * THE CHECKPOINT A PART'S NEXT RUN RESUMES FROM (round 13): the latest run job
+ * of the part that paused on the customer's question, when its pause kept a
+ * checkpoint (`end.held`, its count). The latest only: if that one cannot be
+ * read, the part waits on it — an older checkpoint holds older scope.
+ */
+export function heldFromOf(p) {
+  const runs = (p && Array.isArray(p.jobs) ? p.jobs : []).filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.end && j.end.act === "clarify");
+  const last = runs[runs.length - 1];
+  if (!last || !Number.isInteger(last.end.held) || last.end.held < 0) return null;
+  return { job: last.id, count: last.end.held, ...(Array.isArray(last.end.heldList) ? { list: last.end.heldList, asked: last.end.heldAsked || "" } : {}) };
+}
+
 /** The part a waiting question belongs to, kept on the record when the question is asked again (`part.question`). */
 export function askedPart(record, questionId) {
   return (record && record.parts || []).find((p) => p.status === "waiting" && p.question && p.question.id === questionId) || null;
@@ -1747,6 +1786,10 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       },
     };
   }
+  // A RUN AFTER A QUESTION RESUMES FROM ONE CHECKPOINT (round 13): the last job
+  // of this part that paused on a question, when it kept one — never an older one.
+  const hf = heldFromOf(p);
+  if (hf) request.heldFrom = { job: hf.job, count: hf.count };
   const d = p.route || {};
   const context = contextWire(rec.context);
   const askRound = Number.isInteger(p.askRound) && p.askRound > 0 ? p.askRound : undefined;
@@ -1824,7 +1867,11 @@ export function readRequestOf(v) {
   if (context === null) return null;
   const chars = original.length + done.reduce((s, d) => s + d.words.length + d.said.length, 0);
   if (chars > MAX_CARRIED_CHARS) return null;
-  return { key: v.key, part: v.part, original, done, context };
+  // THE CHECKPOINT THIS JOB MUST RESUME FROM (round 13): the paused job and how
+  // many requirements it held — read strictly; anything else is none.
+  const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
+    ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
+  return { key: v.key, part: v.part, original, done, context, ...(hf ? { heldFrom: hf } : {}) };
 }
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────

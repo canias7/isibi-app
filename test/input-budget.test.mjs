@@ -61,10 +61,15 @@ test("THE TWO NUMBERS: one message is 16,000 characters and one request carries 
 
 test("WHY THESE NUMBERS — each constraint the rationale cites is read from the code that sets it, and the arithmetic holds", () => {
   // 1. THE STORED ANSWER OF A QUEUED JOB (`edit_finalize`): the binding one.
-  const store = WORKER.match(/p_result: \{ status: res\.status, type: [^}]*body: bodyText\.slice\(0, (\d+)\)/);
+  // RE-ANCHORED 2026-10-12 (round 13): the status is `resStatus`.
+  const store = WORKER.match(/p_result: \{ status: resStatus, type: [^}]*body: bodyText\.slice\(0, (\d+)\)/);
   assert.ok(store, "the stored answer's bound could not be found in worker.js");
   const storeBound = Number(store[1]);
   assert.equal(storeBound, 200000);
+  // …AND A CHECKPOINT RIDING IN THE ANSWER (round 13) never takes it past the
+  // bound: an answer carrying one is kept only while it is under it.
+  const inline = WORKER.match(/const HELD_INLINE_MAX = (\d+);/);
+  assert.ok(inline && Number(inline[1]) < storeBound, "an answer carrying a checkpoint could be cut by the stored answer's bound");
   // replyFor (the carried whole) + four message-sized copies + pages and reply + the largest stored answer measured.
   const worst = MAX_CARRIED_CHARS + 4 * MAX_INPUT_CHARS + 6000 + 27961;
   assert.ok(worst < storeBound * 0.75, "a job's stored answer could come within a quarter of its bound: " + worst);

@@ -290,8 +290,8 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly } from "./builder/request-plan.mjs";
-import { PART_TERMINAL as REQ_PART_TERMINAL } from "./builder/request.mjs";
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, readHeld, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -18581,6 +18581,32 @@ async function stageHeld(env, id) {
     const { rec } = await loadRequest(env, job.slug, want.key);
     const p = rec && rec.uid === job.uid ? rec.parts[want.part] : null;
     if (!p || !Array.isArray(p.jobs)) return;
+    // THE ONE CHECKPOINT THIS RUN RESUMES FROM (round 13, `heldFromOf`): staged
+    // only when it reads back complete with the count its pause verified. One
+    // that cannot be read is not replaced by an older one — the job reads it
+    // itself, and stops recoverably when it cannot.
+    const hf = heldFromOf(p);
+    if (hf) {
+      let held = null;
+      for (let i = 0; i < HELD_TRIES && !held; i++) {
+        const got = await readJsonTried(env, jobHeldKey(hf.job));
+        if (!got.ok || !got.obj || got.malformed || !got.v) continue;
+        const h = readHeld(got.v, hf.count);
+        if (h.state === "held") held = h;
+        break;
+      }
+      // …OR THE COPY ITS REQUEST PART KEPT, when the store would not take it.
+      if (!held && Array.isArray(hf.list)) {
+        const h = readHeld({ complete: true, count: hf.count, requirements: hf.list, asked: hf.asked || "" }, hf.count);
+        if (h.state === "held") held = h;
+      }
+      if (!held) return;
+      for (let i = 0; i < HELD_TRIES; i++) {
+        try { await env.SITES_BUCKET.put(jobHeldInKey(id), JSON.stringify({ ...heldCheckpoint(held.list, held.asked), from: hf.job }), { httpMetadata: { contentType: "application/json" } }); return; }
+        catch (e) { console.error("edit queue: held requirements not staged for", id, "try", i + 1, errorClassForLog(e)); }
+      }
+      return;
+    }
     const paused = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end
       && (j.end.act === "clarify" || j.end.act === "uncertain"));
     for (let i = paused.length - 1; i >= 0; i--) {
@@ -18634,8 +18660,11 @@ async function stageKept(env, id) {
     // accepted or never read by its step. A job that ended any other way may
     // have failed BECAUSE of one of its complete-looking answers, and nothing
     // says which: its answers are never staged, and the next run asks again.
+    // …OR THAT STOPPED BECAUSE ITS CHECKPOINT COULD NOT BE KEPT OR READ
+    // (`held-retry`, round 13): every answer it got was accepted up to its
+    // question, so its next try replays them and asks no model again.
     const earlier = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end && j.end.cost === 0
-      && (j.end.act === "clarify" || j.end.act === "uncertain"));
+      && (j.end.act === "clarify" || j.end.act === "uncertain" || j.end.act === "held-retry"));
     if (!earlier.length) return;
     const add = [];
     for (const j of earlier) {
@@ -18747,6 +18776,78 @@ const jobKeptKey = (id) => "jobs/prepared/" + id + ".kept.json";
 // ones staged for the part's next job, read by it — each under its own job id.
 const jobHeldKey = (id) => "jobs/prepared/" + id + ".held.json";
 const jobHeldInKey = (id) => "jobs/prepared/" + id + ".held-in.json";
+/** How many times a checkpoint's write, read-back or read is tried before it is given up as unreachable. */
+const HELD_TRIES = 3;
+/** How many requirements one judgment call is given (round 13); more are judged in further calls, never dropped. */
+const JUDGE_BATCH = 24;
+/** The largest answer a checkpoint may ride along in (round 13): under what the job's stored result keeps whole. */
+const HELD_INLINE_MAX = 190000;
+
+/**
+ * WRITE THE PAUSED JOB'S CHECKPOINT AND PROVE IT (round 13): written, read back,
+ * and compared — count, ids and needs — up to `HELD_TRIES` times. `{ ok, count }`
+ * or `{ ok: false, why }`; never a write assumed to have landed.
+ */
+async function saveHeldCheckpoint(env, id, held) {
+  const cp = heldCheckpoint(held && held.requirements, held && held.asked);
+  const text = JSON.stringify(cp);
+  let why = "unwritten";
+  for (let i = 0; i < HELD_TRIES; i++) {
+    try { await env.SITES_BUCKET.put(jobHeldKey(id), text, { httpMetadata: { contentType: "application/json" } }); }
+    catch (e) { why = "write:" + errorClassForLog(e); console.error("edit queue: could not keep the requirements of", id, "try", i + 1, errorClassForLog(e)); continue; }
+    try {
+      const o = await env.SITES_BUCKET.get(jobHeldKey(id));
+      const back = o ? JSON.parse(await o.text()) : null;
+      if (back && sameCheckpoint(back, cp) && readHeld(back, cp.count).state === "held") return { ok: true, count: cp.count };
+      why = back ? "read-back-differs" : "read-back-missing";
+    } catch (e) { why = "read-back:" + errorClassForLog(e); }
+  }
+  return { ok: false, why };
+}
+
+/**
+ * WHAT THIS JOB RESUMES WITH (round 13). With `from` — the checkpoint its job
+ * body says it must resume from (`heldFrom`: the paused job and how many it
+ * held) — the staged copy is used only when it is that checkpoint, complete,
+ * with that count; otherwise the paused job's own record is read; each read
+ * tried `HELD_TRIES` times. None of them readable is `{ failed }` — never an
+ * empty list, never an older checkpoint. Without `from` (a part that never
+ * paused with one) the staged copy is read as before, best effort.
+ */
+async function readHeldIn(env, id, from) {
+  const want = from && typeof from === "object" && typeof from.job === "string" && Number.isInteger(from.count) ? from : null;
+  const tryRead = async (key) => {
+    let last = "missing";
+    for (let i = 0; i < HELD_TRIES; i++) {
+      try {
+        const o = await env.SITES_BUCKET.get(key);
+        if (!o) { last = "missing"; continue; }
+        return { ok: true, v: JSON.parse(await o.text()) };
+      } catch (e) { last = "unreadable:" + errorClassForLog(e); }
+    }
+    return { ok: false, why: last };
+  };
+  if (!want) {
+    const got = await tryRead(jobHeldInKey(id));
+    if (!got.ok) return got.why === "missing" ? null : { failed: true, why: got.why, list: [], asked: "" };
+    const h = readHeld(got.v);
+    return h.state === "malformed" ? { failed: true, why: "malformed", list: [], asked: "" } : h;
+  }
+  const staged = await tryRead(jobHeldInKey(id));
+  if (staged.ok && staged.v && staged.v.from === want.job) {
+    const h = readHeld(staged.v, want.count);
+    if (h.state === "held") return { ...h, from: want.job };
+  }
+  const own = await tryRead(jobHeldKey(want.job));
+  if (own.ok) {
+    const h = readHeld(own.v, want.count);
+    if (h.state === "held") return { ...h, from: want.job };
+    console.error("edit queue: the checkpoint", want.job, "for", id, "is malformed or not the one expected");
+    return { failed: true, why: "malformed", from: want.job, list: [], asked: "" };
+  }
+  console.error("edit queue: the checkpoint", want.job, "for", id, "could not be read:", own.why);
+  return { failed: true, why: own.why, from: want.job, list: [], asked: "" };
+}
 /**
  * A JOB'S USE OF ITS PREPARATION: calls answered exactly (`replayed`), calls
  * made by a model now (`fresh`), pictures reused, and whether a preparation
@@ -19687,14 +19788,10 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     }
     if (!jctx.replay && requestOf) jctx.replay = replayer(null);
     if (requestOf) jctx.keep = recorder();
+    let heldSaved = null;
     // WHAT ITS PART WAS ASKED FOR BEFORE IT PAUSED (round 12): staged under this
     // job's own id (`stageHeld`); unreadable is none, and the job says so.
-    if (requestOf) {
-      try {
-        const ho = await env.SITES_BUCKET.get(jobHeldInKey(id));
-        if (ho) jctx.heldIn = readHeld(JSON.parse(await ho.text()));
-      } catch (e) { console.error("edit queue: held requirements unreadable for", id, errorClassForLog(e)); }
-    }
+    if (requestOf) jctx.heldIn = await readHeldIn(env, id, requestOf.heldFrom);
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
     // and with any retry of this job.
@@ -19736,12 +19833,41 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       }
       // …AND THE REQUIREMENTS IT HELD WHEN IT PAUSED (round 12), durable before
       // its end is recorded, so its part's next job resumes with them.
-      if (jctx.held && Array.isArray(jctx.held.requirements) && jctx.held.requirements.length) {
-        try { await env.SITES_BUCKET.put(jobHeldKey(id), JSON.stringify(jctx.held), { httpMetadata: { contentType: "application/json" } }); }
-        catch (e) { console.error("edit queue: could not keep the requirements of", id, errorClassForLog(e)); }
+      // REQUIRED, NOT BEST EFFORT (round 13, Codex's review of f5c12482): the
+      // pause is acknowledged only once its checkpoint is written AND read back
+      // the same — an empty one included, which is a real answer. One that
+      // cannot be verified turns the question into a recoverable refusal
+      // (`checkpoint-unsaved`): the part runs again, its answers replayed, and
+      // asks again once its checkpoint holds.
+      if (jctx.held) heldSaved = await saveHeldCheckpoint(env, id, jctx.held);
+    }
+    let bodyText = await res.text().catch(() => "");
+    let resStatus = res.status;
+    // THE CHECKPOINT DECIDES WHETHER THE QUESTION STANDS (round 13).
+    if (heldSaved) {
+      let pb = null;
+      try { pb = JSON.parse(bodyText); } catch { pb = null; }
+      if (pb && typeof pb === "object" && !Array.isArray(pb)) {
+        if (heldSaved.ok) pb.heldCheckpoint = { count: heldSaved.count };
+        else {
+          // THE STORE WOULD NOT TAKE IT: the whole checkpoint rides in this job's
+          // own answer, and its request part keeps it (`end.heldList`) when the
+          // answer is settled — a conditional write the request advances on, so
+          // the question is acknowledged only once it holds. One too large to
+          // ride along is a recoverable refusal instead.
+          const cp = heldCheckpoint(jctx.held.requirements, jctx.held.asked);
+          const withCp = { ...pb, heldCheckpoint: { ...cp, kept: "request" } };
+          const text = JSON.stringify(withCp);
+          if (text.length <= HELD_INLINE_MAX) { pb = withCp; console.error("edit queue: the requirements of", id, "are kept with its request, not the store:", heldSaved.why); }
+          else {
+            console.error("edit queue: the pause of", id, "is not acknowledged — its requirements could not be kept:", heldSaved.why);
+            pb = { ok: false, error: "checkpoint-unsaved", cost: 0, unchanged: true, layer: pb.layer || "addon", why: heldSaved.why, msg: "I could not keep track of what you asked for before asking my question, so I am picking this up again." };
+            resStatus = 503;
+          }
+        }
+        bodyText = JSON.stringify(pb);
       }
     }
-    const bodyText = await res.text().catch(() => "");
     // ── THE OUTCOME ───────────────────────────────────────────────────────
     //
     // The handler has already made every money decision through the RPCs — it
@@ -19750,7 +19876,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // closes anything the handler left open.
     let payload = null;
     try { payload = JSON.parse(bodyText); } catch { payload = null; }
-    const shipped = res.status < 400 && payload && payload.ok !== false;
+    const shipped = resStatus < 400 && payload && payload.ok !== false;
     // ── ITS PROGRESS CLOSES BEFORE ITS OUTCOME IS WRITTEN (2026-10-06) ─────
     //
     // The milestones already on their way land first; then the record is
@@ -19771,7 +19897,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // untouched.
     const fin = await editRpc(env, "edit_finalize", {
       p_id: id,
-      p_result: { status: res.status, type: res.headers.get("content-type") || "application/json", body: bodyText.slice(0, 200000) },
+      p_result: { status: resStatus, type: res.headers.get("content-type") || "application/json", body: bodyText.slice(0, 200000) },
       p_ok: shipped,
     });
     if (!shipped) {
@@ -33930,6 +34056,14 @@ async function handleRequest(request, env, ctx) {
             // is when that step does not run. Only the judge — shown the
             // customer's answers — can set one aside; a model leaving one out
             // never does.
+            // A CHECKPOINT THIS JOB MUST RESUME FROM AND COULD NOT READ (round 13):
+            // nothing is designed, applied or charged under an empty list. The
+            // part is run again (`checkpoint-unread`), and its saved
+            // requirements are still where the paused job left them.
+            if (aJob && aJob.heldIn && aJob.heldIn.failed === true) {
+              try { if (editTrace) editTrace.mark("held", "fail", { why: String(aJob.heldIn.why || "unreadable").slice(0, 60) }); } catch { /* the record never costs the job */ }
+              return Response.json({ ok: false, error: "checkpoint-unread", layer: "addon", cost: 0, unchanged: true, why: String(aJob.heldIn.why || "unreadable").slice(0, 80), msg: "I could not read back what you asked for before my question, so I am picking this up again." }, { status: 503 });
+            }
             const aHeldIn = aJob && aJob.heldIn && Array.isArray(aJob.heldIn.list) ? aJob.heldIn : { list: [], asked: "" };
             const aHeldUsed = new Set();
             const aHeldFor = (k) => aHeldIn.list.filter((r) => !aHeldUsed.has(r.id) && ownerOf(r) === k);
@@ -35373,12 +35507,31 @@ async function handleRequest(request, env, ctx) {
               const aItemsShown = {};
               const items = final ? judgeItems({ answers: aAnswers, existing: aExisting(), spec: aSpec, refs: entries, report: aItemsShown }) : [];
               aJudgeOver += Number(aItemsShown.over) || 0;
-              const j = await runJudge({ send: aQuick("judge:" + (step || "final")) }, { message: aInstruction, entries, items, step, model: aModels.quick });
-              // ONE CALL BILLED: the first. A second call finishing the model's
-              // own answer is ours, and is counted on a mark of its own: a mark
-              // keeps eight details (`MAX_DETAIL_KEYS`), and a ninth here was
-              // dropped without a word.
-              if (j.usage) aDesignUsage.push(j.usage);
+              // IN BOUNDED BATCHES, EVERY ONE JUDGED (round 13): a request that held
+              // many requirements across its questions is judged `JUDGE_BATCH` at a
+              // time, so no single answer has to carry every verdict — and nothing
+              // accepted is left out to make it fit. One batch that fails or asks
+              // is the judgment's answer, as one call's was.
+              const batches = [];
+              for (let i = 0; i < entries.length; i += JUDGE_BATCH) batches.push(entries.slice(i, i + JUDGE_BATCH));
+              if (!batches.length) batches.push([]);
+              let j = null;
+              for (const part of batches) {
+                const one = await runJudge({ send: aQuick("judge:" + (step || "final")) }, { message: aInstruction, entries: part, items, step, model: aModels.quick });
+                // ONE CALL BILLED PER BATCH: the first. A second call finishing the
+                // model's own answer is ours, counted on a mark of its own.
+                if (one.usage) aDesignUsage.push(one.usage);
+                if (!j) j = { ...one, verdicts: new Map(one.verdicts || []), invalid: [...(one.invalid || [])], missing: [...(one.missing || [])], askedAgain: [...(one.askedAgain || [])], attempts: one.attempts || 0 };
+                else {
+                  for (const [k2, v2] of one.verdicts || []) j.verdicts.set(k2, v2);
+                  j.invalid.push(...(one.invalid || [])); j.missing.push(...(one.missing || [])); j.askedAgain.push(...(one.askedAgain || []));
+                  j.attempts += one.attempts || 0;
+                  if (one.extraUsage) j.extraUsage = one.extraUsage;
+                  if (one.failed) { j.failed = true; j.error = one.error; if (one.incomplete) j.incomplete = true; }
+                  if (one.ask) j.ask = one.ask;
+                }
+                if (one.failed || one.ask) break;
+              }
               aMark("judge:" + (step || "final"), j.failed ? "fail" : "ok", {
                 entries: entries.length, items: items.length, verdicts: j.verdicts.size, invalid: j.invalid.length, asked: j.ask ? 1 : 0,
                 attempts: j.attempts || 0, missing: (j.missing || []).length, over: Number(aItemsShown.over) || 0,

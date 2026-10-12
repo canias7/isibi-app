@@ -496,7 +496,10 @@ test("an ok answer that published nothing is finalized, not left to be lost", ()
   // (published_at null), the !shipped refund was skipped, and the job sat
   // non-terminal until the lost sweeper refunded it ~150s after a 22s answer -
   // and the poll route could not hand back the stored reply until then.
-  const fn = CODE.slice(at(CODE, "const shipped = res.status < 400", "outcome"),
+  // RE-ANCHORED 2026-10-12 (round 13): the status is `resStatus`, the
+  // response's own unless a pause whose checkpoint could not be kept turned
+  // it into a recoverable refusal.
+  const fn = CODE.slice(at(CODE, "const shipped = resStatus < 400", "outcome"),
                         at(CODE, 'p_note: "consumer threw"', "outcome end"));
   // THE CALLER SAYS WHETHER IT WAS AN ANSWER. Without p_ok the RPC applies the
   // old rule and this defect is back with a green suite.

@@ -614,10 +614,14 @@ export function ownerOf(r) {
 // job is handed them, so the answer resumes the work WITH them — never by
 // hoping the next model answer repeats each one. Only the requirement itself
 // is kept: no design, no claim of coverage that a design made.
+//
+// EVERY ONE OF THEM (round 13, Codex's review of f5c12482): a cap of 60 kept
+// only the newest 60 across six questions and the first twelve never reached
+// judgment. Nothing accepted is dropped here; what is processed in bounded
+// batches is the judgment (`worker.js`), never the set.
 const HELD_FIELDS = ["need", "status", "basis", "words", "id", "from", "step", "answers", "why"];
-export const MAX_HELD = 60;
 
-/** The requirements to keep across a pause: plain fields only, each with an id and a need, at most `MAX_HELD`. */
+/** The requirements to keep across a pause: plain fields only, each with an id and a need — all of them. */
 export function holdRequirements(list) {
   const out = [];
   const seen = new Set();
@@ -632,16 +636,47 @@ export function holdRequirements(list) {
     if (e.status === "covered") { e.status = "unsupported"; e.why = "the design that claimed it was not built before the question"; }
     if (r.superseded === true) e.superseded = true;
     out.push(e);
-    if (out.length >= MAX_HELD) break;
   }
   return out;
 }
 
-/** A held record as stored: `{ requirements, asked }` — anything unreadable is no requirement, never a guess. */
-export function readHeld(v) {
+/** The checkpoint a paused job writes: every requirement, how many, and that it is complete. An empty list is a real answer. */
+export function heldCheckpoint(list, asked) {
+  const requirements = holdRequirements(list);
+  return { v: 1, complete: true, count: requirements.length, requirements, asked: typeof asked === "string" ? asked : "" };
+}
+
+/**
+ * A HELD RECORD AS STORED, READ STRICTLY (round 13). `state` is one of:
+ *   "held"       a complete checkpoint, its count matching what it lists
+ *                (an empty one included — a verified empty set);
+ *   "legacy"     a record from before checkpoints said they were complete;
+ *   "malformed"  anything else: not an object, no list, an entry that cannot
+ *                be read, or a count that does not match — never a guess.
+ * `expect`, when given, is the count the job was told to find: a checkpoint
+ * that holds another number is not the one it was told to resume from.
+ */
+export function readHeld(v, expect = null) {
   const o = v && typeof v === "object" && !Array.isArray(v) ? v : null;
-  if (!o) return { list: [], asked: "" };
-  return { list: holdRequirements(o.requirements), asked: typeof o.asked === "string" ? o.asked.slice(0, 40) : "" };
+  const bad = { state: "malformed", list: [], asked: "" };
+  if (!o || !Array.isArray(o.requirements)) return bad;
+  const list = holdRequirements(o.requirements);
+  const asked = typeof o.asked === "string" ? o.asked.slice(0, 40) : "";
+  if (o.complete === true) {
+    if (!Number.isInteger(o.count) || o.count !== o.requirements.length || list.length !== o.count) return bad;
+    if (Number.isInteger(expect) && list.length !== expect) return bad;
+    return { state: "held", list, asked, count: list.length };
+  }
+  if (Number.isInteger(expect)) return bad;
+  if (list.length !== o.requirements.length) return bad;
+  return { state: "legacy", list, asked, count: list.length };
+}
+
+/** Is this exactly the checkpoint that was written? Same count, same ids, in order. */
+export function sameCheckpoint(a, b) {
+  if (!a || !b || !Array.isArray(a.requirements) || !Array.isArray(b.requirements)) return false;
+  if (a.count !== b.count || a.requirements.length !== b.requirements.length) return false;
+  return a.requirements.every((r, i) => r.id === b.requirements[i].id && r.need === b.requirements[i].need);
 }
 
 /**
