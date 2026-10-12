@@ -926,6 +926,34 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-12 — The K0/K/E/M0/M batch approved and started (in progress)
+
+You approved the image-free batch at its estimate of 37–82 credits:
+- the approval covers only these five presses;
+- P1/P2 stay closed;
+- routing probes come first, and a case whose routing does not qualify is
+  skipped;
+- no forced routes and no automatic retries of paid failures;
+- image purchases are off while the batch runs and restored afterwards;
+- the existing container image is reused, and Build flags and limits are
+  kept;
+- the batch stops after this.
+
+Done so far:
+- **The opt-in** (`ec8f0fc9`, branch only, unit CI green: run
+  38279393614). The balance box now admits exactly `acceptance-split-2`,
+  `acc-addon-kinds`, `acc-addon-edit`, `acceptance-split-3` and
+  `acc-addon-two-parts`, and refuses P1/P2's names. No merge is needed: the
+  presses run from the branch.
+- **Before the batch**:
+  - balance **950**;
+  - last ledger row **436**;
+  - no open job on `fold-lane-bakery`;
+  - production deploy 2194 (`df1dcf30`, image `1e30b6fb56b51794`), with
+    image purchases on.
+- **Next**: K0 (routing only, image purchases unchanged). The results are
+  recorded below as they come in.
+
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
 You reviewed the reuse correction (`0dce4ea2`) and closed it:
