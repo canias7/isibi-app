@@ -992,8 +992,14 @@ Done so far:
     - `dependsOn` is null.
   - **M is eligible** on every condition set in advance.
   - Cost 3 (947 → 944, read from `credits` at 17:46:38).
-- **Next**: image purchases off (secret, then a redeploy reusing the
-  image). Then K, E and M, each with a fresh balance.
+- **Image purchases off — deploy 2195** (18:24–18:25 UTC, your manual
+  redeploy of `main` `df1dcf30`, after you set `IMAGE_PURCHASES` to `off`).
+  - Green. The container image was **reused** (`1e30b6fb56b51794`, "no
+    changes"), and 27 secrets were re-uploaded.
+  - The value is masked in the log. It is verified by the K press's own
+    preflight, which refuses unless the runtime reports
+    `imagePurchases=false`.
+- **Next**: K (`acc-addon-kinds`), with the balance box at 944.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 

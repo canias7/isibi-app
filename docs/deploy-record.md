@@ -1728,3 +1728,13 @@ reads the sha and the cold-start image; `/api/site/runtime?slug=` asks
 missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
+
+## Deploy 2195 — image purchases off for the K/E/M batch (2026-10-12)
+
+- Run 38290702117 (`workflow_dispatch`, 18:24–18:25 UTC), your manual
+  redeploy of `main` `df1dcf30`, after `IMAGE_PURCHASES` was set to `off`.
+- `IMAGE SiteBuildContainer: reused …:1e30b6fb56b51794` (205 inputs); the
+  container application reported "no changes".
+- 27 secrets re-uploaded. Nothing under `public/` was uploaded.
+- Runtime: verified by the next press's preflight (`imagePurchases=false`
+  required before anything is sent).
