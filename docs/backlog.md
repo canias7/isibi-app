@@ -26,6 +26,13 @@ here; take a closed one out of both.**
 - **`progress-live-writer` PLW 4 failed once under the full suite**
   (2026-10-12): it passes alone, so it is likely load-sensitive. Not fixed.
   In full under Backlog below.
+- **Live K/E batch findings (2026-10-12, runs 135 and 137)**:
+  - an Add-on's preservation guard refused a section, because its output
+    would have changed a page that belonged to another part;
+  - a served FAQ is collapsed, so the served-section check cannot see the
+    answer;
+  - the form's scenario box is easily confused with the batch box.
+  In full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
   2026-10-09): writes one at a time per site; a preparation does not see
   another request's unapplied writes (never applied stale, our cost); the image provider offers no
@@ -2695,3 +2702,21 @@ product.)*
   - That change touched neither the test nor the product code it covers.
   - It is an intermittent failure, likely load-sensitive. **It is not
     fixed** and was not investigated further.
+
+- **Live K/E batch findings** (2026-10-12):
+  - **E, run 137 (request `fc16c119`)**:
+    - The Add-on part (a questions section on `/bake-list`) failed at
+      `kept`: its output would have lost "Photographs from our ovens" from
+      `/gallery`. That heading was the other part's change, still to run.
+    - The Add-on's page work reached a page outside its own part. The guard
+      caught it, at no charge.
+    - Not investigated.
+  - **K, run 135**:
+    - The served `/visit` FAQ is a Radix accordion served collapsed, so the
+      answer is not in the served HTML. The served-section check, and the
+      Add-on's own coverage judge ("unseen"), cannot see it.
+    - The stored content is correct.
+  - **Form**:
+    - Twice (runs 134, 136) the scenario name went into the "REQUEST BATCH
+      ONLY" box under the very long "RUN A NAMED SCENARIO" label.
+    - Both refused before the sign-in, at no cost.

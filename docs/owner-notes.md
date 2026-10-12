@@ -1046,7 +1046,42 @@ Done so far:
   - The form's scenario box (5) has a very long label that ends just above
     box 6's short label. A backlog finding for the form, not changed during
     the batch.
-- **Next**: E again.
+- **E — run 137** (19:12–19:22 UTC; request `fc16c119`). Paid: **8
+  credits** (914 → 906), ledger rows 441–443:
+  - routing 3;
+  - part 1's routing job 3;
+  - the heading's text job 2;
+  - the failed Add-on job: **0** (it never reserved).
+  - **Routing differed from P1's S8.** The live router answered `addon` for
+    the section and held the heading back, the reverse of P1's split.
+  - **Partial.**
+    - Part 1 (heading) is **done**: the served `/gallery` reads
+      "Photographs straight from our ovens".
+    - Part 0 (Bake List section) **failed**, with no change and no charge.
+      Its preservation guard (`kept:fail`) refused the output, because
+      publishing it would have lost "Photographs from our ovens" from the
+      Gallery page.
+    - The Add-on job ran +36.6 s – +168.7 s, before the heading's job
+      (+226 s), so the Add-on's own page work reached outside its part.
+      The guard caught it. A **finding** (backlog), not investigated
+      further, and not retried.
+  - **Actual overlap.**
+    - Part 1's prepared step (1 model call, +45.4 s – +59.4 s) ran while
+      part 0's Add-on job was running: **14.1 s**.
+    - Here the Edit part was prepared beside the Add-on part.
+  - **Exact reuse.**
+    - Part 1's text job replayed its preparation exactly: staged yes,
+      replayed 1, fresh 0, scoped 1.
+    - The strict `reuseVerdict` qualifies part 1.
+  - **Final results.**
+    - `/bake-list` is unchanged (the section was not added).
+    - Every other stored page and component is byte for byte, apart from
+      the heading, and the tables are unchanged.
+    - The reply was the model's own and honest about the failure.
+  - **Coverage**:
+    - `edit-and-addon` NOT covered (the Add-on part failed);
+    - `several-parts` covered.
+- **Next**: M (`acc-addon-two-parts`), with the balance box at 906.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
