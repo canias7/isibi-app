@@ -960,7 +960,15 @@ Done so far:
   - **K is eligible.**
   - Cost 3 (950 → 947, read from `credits` at 17:11:25). As before, routing
     writes no ledger row: still none after 436.
-- **Next**: M0 (routing only), with the balance box at 947.
+- **M0, first press — run 132** (17:19 UTC) **refused before the sign-in,
+  at no cost.**
+  - The probe file `acceptance-split-3`'s `basis` was 240 characters, over
+    the reader's 200. My error: the test checked the file's words but never
+    ran it through the real reader.
+  - Fixed: the basis is shortened. A guard now runs every acceptance probe
+    file through `readProbeBatch`, and it fails on the old file.
+  - The message itself is unchanged.
+- **Next**: M0 again (routing only), with the balance box at 947.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 

@@ -693,3 +693,11 @@ test("REUSE TIED TO OVERLAP — POSITIVE CONTROL: both Add-on parts answered exa
   assert.deepEqual(v.qualifying.sort(), [2, 3]);
   assert.match(v.said, /beside other work: \[2,3\]/);
 });
+
+test("EVERY ACCEPTANCE PROBE FILE READS THROUGH THE REAL READER (2026-10-12, run 132: acceptance-split-3's basis was over 200 characters and the press refused before the sign-in)", async () => {
+  const { readProbeBatch } = await import("../scripts/canary-probes.mjs");
+  for (const b of ["acceptance-split-1", "acceptance-split-2", "acceptance-split-3"]) {
+    const r = readProbeBatch(fs.readFileSync(ROOT + "scripts/router-probes/" + b + ".json", "utf8"), b);
+    assert.equal(r.ok, true, `${b}: ${r.why || r.msg || JSON.stringify(r)}`);
+  }
+});
