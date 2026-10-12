@@ -15,6 +15,106 @@ and closed. **The K0/K/E/M0/M batch (§4) was approved and run on 2026-10-12
 handoff, and they supersede §4–§6 as a plan. No further paid tests are
 approved.
 
+## 0. Next: the task-isolation release and one live check (proposed, not approved)
+
+**Closed and not reopened**:
+- the accordion and branch checker corrections (`6dae03bc`, `b34707e6`);
+- every completed parallel-work result: P1, P2, and K, E and M's overlap
+  and reuse evidence.
+
+**A free read of the K/M pages with the per-question reader (2026-10-12)**:
+- `/visit`: "Can I bring my dog?" → "Dogs are welcome inside."
+- `/tasting-evenings`: "How much is an evening?" → "£25 a head, cheese
+  included."
+- `/order`, `/classes`, `/bakers`: no disclosures.
+- **All five reads are complete**: no failed press, no truncation, nothing
+  stopped. Every page was at version `01791834312928-ixrvdj`.
+- Saved in `docs/history/evidence/2026-10-12-km-open-read/`. Nothing was
+  regenerated or submitted.
+
+**What would be released**:
+- **Code commits**:
+  - `83c9015a`, the isolation fix (`builder/request.mjs`,
+    `builder/site-ask.mjs`, `worker.js`);
+  - `6dae03bc` and `b34707e6`, the checker (scripts only);
+  - `ec7d894c`, the `acc-isolation` scenario, plus the scenario box in
+    `.github/workflows/edit-canary.yml`.
+- **The merge candidate** is the branch tip, with nothing after `ec7d894c`
+  but documents. Preflight confirms that at the time.
+- **The container must be rebuilt.** `builder/request.mjs` and
+  `builder/site-ask.mjs` are image inputs: `1e30b6fb56b51794` →
+  **`eda28cb21064287d`** (205 inputs), predicted on both ends of
+  `ec7d894c`. The merge's deploy run builds it. After that, the 15–20
+  minute image window before container work.
+- **Image purchases off for the press** (`images: "none"`): set
+  `IMAGE_PURCHASES` to `off` before the merge, so the merge deploy ships
+  both the image and the switch. Then turn it back on with a manual
+  redeploy (image reused).
+- Build flags and the 1-page / 15-component limits are untouched.
+
+**The request** (`acc-isolation`, fold-lane-bakery), read against the live
+site on 2026-10-12:
+
+> *Add a short questions section to the Bake List page answering 'When is
+> the list updated?' with 'Every Monday morning.' And change the Gallery
+> page heading 'Photographs straight from our ovens' to 'Fresh from our
+> ovens'.*
+
+- **It makes real changes.** The Bake List has no questions section and
+  says nothing about Mondays. Run 137's heading change landed, so the
+  Gallery heading now reads "Photographs straight from our ovens", and
+  "Fresh from our ovens" is not on the site.
+- **It exercises the original failure.** It is run 137's shape: an Add-on
+  part whose page writer sees every page, beside an edit part changing
+  another page's heading. The new heading loses the old words, so a stray
+  rewrite by the Add-on would trip the `kept` guard exactly as in run 137.
+
+**Estimate: 12–26 credits.**
+- routing 2–3;
+- the heading 1–3;
+- the Add-on 7–15, and its judgment about 1.
+- Run 137's comparable parts cost 8 with the Add-on refused, and K's and
+  M's Add-on parts cost about 10–13 each.
+- The balance is 876, above the 100-credit cap. So the balance opt-in must
+  name `acc-isolation`: a one-line change to `BALANCE_OPT_IN` and its form
+  description, made only on your approval and before the merge.
+- No routing probe is planned. The press records the router's own split;
+  see "unverified" below.
+
+**Pass checks** (the press's own verdict, and the runtime check first):
+- **Runtime first** (free): both readers on the merged sha, a cold
+  container on `eda28cb21064287d`, and `imagePurchases=false`.
+- **Both parts finish**, each at an allowed route, with no part failed or
+  held. The Add-on is not refused at `kept`.
+- **Each stays in its own scope**:
+  - `/gallery`'s heading reads "Fresh from our ovens", and nowhere else
+    changed;
+  - `/bake-list` gained exactly one section stating every asked fact,
+    judged opened per question;
+  - every other stored page and component is byte for byte as before;
+  - no page is added and no table is touched.
+- **Prepared work reused**: a part's prepared step overlapped another
+  part's job, by the recorded intervals. At least one part that overlapped
+  replayed its preparation exactly (`fresh: 0`).
+- **Money**: the press's own charges add up, with no charge made twice.
+- **The Add-on's model inputs**: read afterwards with the read-job box, the
+  free read of the job's trace, to see whether the heading appears only
+  inside `⟦ANOTHER PART: …⟧`.
+
+**Unverified unless this shape appears**:
+- If the router batches the heading into the Add-on, or does not hold it
+  back as its own part, the isolation fix is not exercised. The press
+  records that and does not count it as a pass. Run 137's router split it,
+  but that was one sample.
+
+**After the press**: set `IMAGE_PURCHASES` back to `on` and redeploy (image
+reused), then a free runtime check showing `imagePurchases=true`.
+
+**Separate remaining gaps, not part of this release**:
+- concurrency inside one Add-on (K showed two Add-on parts instead);
+- the missing-context clarification (`acc-needs`);
+- the image-free first Build.
+
 ## 1. State
 
 - **Production is deploy 2194** (2026-10-12, 14:41–14:42 UTC): a manual

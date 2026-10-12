@@ -1,74 +1,43 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: isolation fix kept; the opened read now keeps each disclosure's answer as it opens; batch closed at 74 credits, balance 876; production deploy 2196; branch unmerged)
+## Current handoff — read this first (2026-10-12: the accordion correction closed; K/M read free and complete; the isolation release proposed — acc-isolation, about 12–26 credits, one image build; nothing merged, deployed or spent)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2196** (image purchases on, image
-  `1e30b6fb56b51794`), runtime-confirmed by run 139. **Balance 876.**
-- **The paid batch is closed**: K0/K/E/M0/M spent 74 credits (950 → 876),
-  with no further paid tests.
-- **E's real failure (run 137) is traced and fixed on the branch, offline**
-  (`83c9015a`). The Add-on's page writer was shown the whole message for
-  its references, with the held Gallery heading change unmarked, and made
-  it, so the `kept` guard refused the addition.
-  - *Now*: every model call of a part sees every other part's words marked
-    `⟦ANOTHER PART: …⟧`, with a rule never to make them. The message stays
-    whole.
-  - No guard was weakened and no page is named in code.
-  - **PI 37** reproduces run 137 exactly on the old code. On the new code,
-    both parts finish within their own work, and the edit part's
-    preparation is replayed exactly.
-- **K/M FAQs were verified free in a browser before any checker change.**
-  - Both accordions open to the asked answers.
-  - Each page shows the section once.
-  - Tasting Evenings' success state was read from its source (`if (sent)
-    return …`), not by submitting.
-  - Screenshots were sent in chat.
-- **The checker is corrected** (`6dae03bc`):
-  - the section's page is read opened in a browser, reads only, before and
-    after;
-  - stored copies in exclusive render branches count as one section;
-  - duplicates, a wrong amount and a missing answer still fail;
-  - a side-by-side duplicate, which used to pass, now fails.
-- **Evidence**:
-  - red checks fail as described;
-  - sweep: 28 meaningful mutants, 26 killed, 2 that cover each other killed
-    together, controls survived;
-  - full suite `10701 / 10701 / 0 / 0`;
-  - CI on `fecaba44`: unit tests 38307214701 `success`, site build
-    38307214603 `success`.
-- **You kept the isolation fix and its regression.** The opened read's
-  remaining gap is now closed (`b34707e6`).
-  - **The gap**: a single-open accordion keeps only the last answer in the
-    final page. The old reader lost the earlier ones, as reproduced on
-    `6dae03bc`.
-  - **Now**: each disclosure's question and answer are kept as it opens. The
-    served check judges each answer beside its own question, one open state
-    at a time.
-  - **Incomplete evidence fails by name, never passes**: a failed press, a
-    disclosure that never opens, a traversal cut short, or a read on one
-    side only.
-  - **Real-browser control OPEN 3**: two one-at-a-time questions. A wrong or
-    missing earlier answer fails although the last answer is right.
-  - **Checks**: sweep 12 of 12 killed (control survived), the related canary
-    files 229 / 229, the full suite `10702 / 10702 / 0 / 0`, and unit CI
-    38310950735 `success` on `4202cbcd`.
-- **A merge would build a new container image** (`1e30b6fb56b51794` →
-  `eda28cb21064287d`), because the fix touches image inputs. Nothing was
-  merged, deployed, built or spent.
-- **Still unverified**:
-  - inside-one-Add-on concurrency;
+- **Production is deploy 2196** (`main` `df1dcf30`, image
+  `1e30b6fb56b51794`, image purchases on). **Balance 876.**
+- **Closed**: the accordion and branch checker corrections (`6dae03bc`,
+  `b34707e6`), and all completed parallel-work evidence.
+- **K/M pages read free with the per-question reader.** All five reads are
+  complete, with no failures or truncation. The Visit and Tasting Evenings
+  answers are as asked. Evidence:
+  `docs/history/evidence/2026-10-12-km-open-read/`.
+- **Proposed: the task-isolation release and one live check**
+  (`docs/acceptance-current.md` §0).
+  - **Code**: `83c9015a` (the fix), `6dae03bc` and `b34707e6` (checker),
+    and `ec7d894c` (the `acc-isolation` scenario).
+  - **One container build**: `1e30b6fb56b51794` → `eda28cb21064287d`.
+  - **Image purchases off** for the press (set before the merge), and back
+    on afterwards.
+  - **The request** (on today's site): a questions section on the Bake List
+    ("When is the list updated?" / "Every Monday morning."), and the Gallery
+    heading "Photographs straight from our ovens" changed to "Fresh from our
+    ovens".
+  - **About 12–26 credits.** It needs `acc-isolation` added to the balance
+    opt-in on your word.
+  - **Checks**: both parts finish, each page changed only as asked, the
+    heading's preparation overlapped the Add-on job and was replayed
+    exactly, no double charge. Plus a free trace read of whether the
+    Add-on's model saw the heading only marked.
+- **Still unverified, separately**:
+  - concurrency inside one Add-on;
   - the missing-context clarification;
-  - the image-free first Build;
-  - the isolation marks with a real model (still owed);
-  - the opened read live.
-- **Next: your review.** History:
-  `docs/history/2026-10-12-acceptance-addon-two-parts.md`, "After the
-  batch".
+  - the image-free first Build.
+- **Next: your decision on the release.** Nothing is merged, deployed,
+  built or spent until then.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -939,6 +908,27 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The accordion correction closed; K/M read free; the isolation release proposed (nothing spent)
+
+- **K/M read free.** I read your live K/M pages with the new
+  question-by-question reader. Every read was complete:
+  - "Can I bring my dog?" opens to "Dogs are welcome inside.";
+  - "How much is an evening?" opens to "£25 a head, cheese included.";
+  - the other three pages have no questions to open.
+  Nothing was submitted or regenerated.
+- **Proposed release** for the task-isolation fix:
+  - one new container image;
+  - image purchases off for the test, then back on;
+  - one test message written for the site as it is today. A questions
+    section on the Bake List, and the Gallery heading, which run 137
+    already changed once, changed again to "Fresh from our ovens".
+    It is the same shape that failed in run 137.
+- **Cost**: about 12–26 credits.
+- **What it must show**: both tasks finish, each changes only its own page,
+  and the heading's prepared work is reused.
+- **Separate, still open**: concurrency inside one Add-on, the
+  clarification, and the image-free Build.
 
 ## 2026-10-12 — The opened read keeps every answer, one question at a time (offline; nothing spent, merged or deployed)
 
