@@ -401,6 +401,8 @@ refused. Nothing was submitted or written.
   the checker files, 225 / 225.
 - **Full suite** on `6dae03bc`: `10701 / 10701 / 0 / 0` locally (PLW 4
   passed this time; it stays recorded as intermittent).
+- **CI on `fecaba44`** (both fixes and these records): unit tests
+  38307214701 `success`, site build 38307214603 `success`.
 - **The image would move.** `builder/request.mjs` and `builder/site-ask.mjs`
   are inputs, so the prediction is `1e30b6fb56b51794` → **`eda28cb21064287d`**
   (205 inputs). A merge would build a container image. None was built.

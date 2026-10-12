@@ -38,7 +38,9 @@ is in git; the dated entries further down are the full story.*
   - red checks fail as described;
   - sweep: 28 meaningful mutants, 26 killed, 2 that cover each other killed
     together, controls survived;
-  - full suite `10701 / 10701 / 0 / 0`.
+  - full suite `10701 / 10701 / 0 / 0`;
+  - CI on `fecaba44`: unit tests 38307214701 `success`, site build
+    38307214603 `success`.
 - **A merge would build a new container image** (`1e30b6fb56b51794` →
   `eda28cb21064287d`), because the fix touches image inputs. Nothing was
   merged, deployed, built or spent.
