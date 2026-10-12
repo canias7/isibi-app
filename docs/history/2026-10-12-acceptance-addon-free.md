@@ -116,8 +116,23 @@ verdicts and through the real lookup, and the unverified note.
 
 ## 5. Results
 
-See `docs/owner-notes.md` (round 16), which carries the measured numbers and
-the CI runs for this round's commits.
+**Commits**: `8db3cbea` (the harness, tests and plan), then the commit carrying
+these records.
+
+- **Full suite** on `8db3cbea`: `10650 / 10650 / 0 / 0` (+12 over round 15's
+  10638: the 9 new cases, PI 32 and PI 33's two orders). A first run on the
+  working tree before the two fixes below caught two fixture expectations
+  (the "no component was added" check's name, and the menu-scenario list);
+  both corrected before the commit.
+- **Consolidated acceptance sweep** on `8db3cbea` (the new file in
+  independent work): 41 files, **524 / 524** — independent work 124 (11
+  files), genuine dependencies 92, clarification and resume 201, partial
+  failure 107.
+- **Doc tests** 32 of 32; acceptance entry points 11 of 11 (the pin is
+  unchanged).
+- **Required CI**: unit tests 38198232545 `success` on `8db3cbea` (10650
+  tests, 10609 passed, 0 failed, 41 skipped). Site build was not started: no
+  path it watches changed.
 
 ## 6. What remains, by kind
 

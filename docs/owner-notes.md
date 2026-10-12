@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: every accepted requirement kept, however many one step writes; round 14's recovery by the server and oversized checkpoints and answers kept whole; round 13's required, lossless checkpoint; earlier rounds' requirements across resume, requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: the repair batch closed on Codex's review of 358dff0a; the acceptance plan brought back to the goal, offline proof separated from live verification, with image-free Add-on cases inside one Add-on and across parts; round 15's every accepted requirement kept; round 14's recovery by the server; earlier rounds' requirements, scheduling, continuation and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,12 +9,56 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`754c4eb4`**
-  (round 15), then the records and pin commit. Its predicted image is
-  **`1e30b6fb56b51794`** (205 inputs; not built; was `b4fd90bc5733635b`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Product code
+  **`754c4eb4`** (round 15), reviewed by Codex on **`358dff0a`**; round 16
+  (`8db3cbea`) changes the acceptance harness only. Its predicted image is
+  **`1e30b6fb56b51794`** (205 inputs; not built; unchanged by round 16).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 16** (`8db3cbea`; `docs/history/2026-10-12-acceptance-addon-free.md`;
+the plan is `docs/acceptance-current.md`).
+- **The repair batch is closed.** Codex reviewed **`358dff0a`**: 357 focused
+  tests and both independent requirement-retention reproductions passed.
+  Required CI on that commit: unit tests 38196615855 `success` (10638 tests,
+  10597 passed, 0 failed, 41 skipped).
+- **The plan is back on the goal**: independent work at the same time across
+  Build, Edit and Add-on, real dependencies waiting, success reused after
+  questions or restarts, nothing charged twice.
+  - *Offline versus live*: a matrix per claim and per part of the product.
+    Live so far: **only run 119** (an Edit, on production). Everything on
+    the branch is offline.
+  - *Evidence per claim*: overlap by recorded intervals (`overlapVerdict`);
+    results (`outcomeChecks`); order (`jobOrderVerdict`); exact reuse
+    (`reuseVerdict`); charges (`moneyVerdict`, `ownMoneyVerdict`,
+    `laterChargesVerdict`, the ledger by job).
+- **Image-free Add-on cases**, so additions can be tested with purchases off:
+  - `acc-addon-inner`: a page and a section in **one Add-on** (15–28);
+  - `acc-addon-edit`: an Add-on part beside an Edit part, only if its probe
+    makes parts (9–20);
+  - `acc-addon-pair`: two sections on two pages, the router's shape
+    recorded (8–26);
+  - probes S7–S9 route each message first (the probe batch is now 9, 9–27).
+- **Added only what was missing**:
+  - `sections`, so a press can judge a section added to an existing page;
+  - `addonDesignOverlap` on the free read-job box: whether one Add-on's
+    designers overlapped, claimed only when its job is alone on the site in
+    the window (the trace has no job column);
+  - offline **PI 32** (page and section in one Add-on) and **PI 33** (two
+    Add-on parts, both orders), image-free.
+- **Found**: inside one Add-on, the designers start together only when the
+  picker says what each kind uses (designed, PI 26). Whether the real picker
+  says so is a live question, now in the plan.
+- **Evidence**: red check (the new file fails on `358dff0a`; PI 32–33 pass
+  there, as coverage should); sweep `sweep21` **14 of 14** killed, the
+  control surviving; full suite `10650 / 10650 / 0 / 0`; acceptance sweep 41
+  files, **524 / 524**; doc tests 32 of 32; entry points 11 of 11. CI: unit
+  tests 38198232545 `success` on `8db3cbea` (10650 tests, 10609 passed, 0
+  failed, 41 skipped).
+- **Nothing pressed.** Paid acceptance stays blocked until your spending
+  decision (plan §5). No fal, merge, deploy, container build, Build flag or
+  limit change.
 
 **Round 15** (`754c4eb4`; `docs/history/2026-10-12-requirement-scope.md`).
 Codex passed 327 focused tests on `703faade` with CI green; round 14's fixes
@@ -748,6 +792,27 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Parallel work round 16: the repair batch closed; the acceptance plan brought back to the goal, with image-free Add-on cases (offline; not deployed, not pressed)
+
+Codex reviewed `358dff0a`: 357 focused tests and both requirement-retention
+reproductions passed, and you closed the repair batch. CI on that commit:
+unit tests 38196615855 `success` (10638 tests, 10597 passed, 41 skipped).
+
+This round touched only the acceptance harness (`8db3cbea`). The plan now
+separates what is proved offline from what still needs a press, across Build,
+Edit and Add-on, and names the evidence for overlap, results, ordering, reuse
+and charges. Three Add-on presses need no photograph: a page and a section in
+one Add-on, an Add-on part beside an Edit part, and two sections on two pages.
+Each is probed first. The press can now judge a section added to a page that
+exists. The free read-job box can say whether one Add-on's designers ran
+together, but only when nothing else ran on the site in that window. Two
+offline cases show those Add-on shapes running together with nothing bought.
+Writing them found that designers inside one Add-on overlap only when the
+picker says what each uses. That is designed behaviour, and whether the real
+picker says it is a live question. Results: full suite 10650 of 10650;
+acceptance sweep 524 of 524; sweep 14 of 14; CI unit tests 38198232545
+`success` on `8db3cbea`. The image prediction is unchanged. Nothing pressed.
 
 ## 2026-10-12 — Parallel work round 15: every accepted requirement kept, however many one step writes (offline; not deployed, not pressed)
 

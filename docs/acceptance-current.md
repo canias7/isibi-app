@@ -178,5 +178,8 @@ Before anything is implemented or pressed, choose one:
 
 ## 7. Offline verification of this plan (round 16)
 
-- Consolidated sweep and the full suite: recorded in `docs/owner-notes.md`
-  and `docs/history/2026-10-12-acceptance-addon-free.md`, with the CI runs.
+- Harness commit `8db3cbea`. Full suite `10650 / 10650 / 0 / 0`.
+  Consolidated sweep 41 files, **524 / 524** (independent work 124,
+  dependencies 92, clarification and resume 201, partial failure 107).
+  Mutation sweep 14 of 14 killed, control surviving. CI: unit tests
+  38198232545 `success` on `8db3cbea`.
