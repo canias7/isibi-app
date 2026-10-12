@@ -1489,6 +1489,40 @@ only run that push started, `completed` / `success`, the job **3m11s**
   the press stopped). Not pressed again; the question left unanswered
   (`docs/history/2026-10-07-combined-release.md` §4).
 
+**Deploy 2192 (2026-10-12) was predicted on both ends and built as
+predicted**, on the owner's word ("proceed with merging and deploying the
+reviewed branch once"), after Codex reviewed `dc3ea241`. It fast-forwarded
+`main` `f96cbfd5` → **`e1556086`**, 127 commits: the parallel-work rounds
+1–15 (product), the acceptance harness rounds 16–18, and their records.
+
+It was pushed at 11:13:17 UTC. Run 38241259917, `push` on `e1556086`, was
+the only run that push started: `completed` / `success`, 11:13:21–11:16:36.
+
+- **Before**:
+  - `main` an ancestor of the candidate;
+  - unit CI green on `e1556086` (run 38239692820), and site build green on
+    `754c4eb4` (run 38195628259), with only harness files and records
+    changed since;
+  - nothing in flight: no queued or running Actions run, and no open edit
+    job;
+  - the rollback (`git revert --no-commit f96cbfd5..e1556086`) giving back
+    `f96cbfd5`'s tree (`d0adb519…`);
+  - no skip-CI or smoke marker in the 127 messages;
+  - `public/chat.js` changed. The served file read before the push matched
+    `f96cbfd5`'s (`7a9d8498…`, 955,178 bytes).
+- **The image**: built `1e30b6fb56b51794` (registry 404, 205 inputs), as
+  predicted. The container's `- …:8d6dbcea93252fbb` / `+ …:1e30b6fb56b51794`,
+  with `SUCCESS Modified application` at **11:16:24Z**.
+- **Wrangler**: 27 secrets, one asset uploaded (`/chat.js`), Current Version
+  ID `e3f86489…`. `BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE` and
+  `DESIGN_GRAPH_EVERYONE` read `off` in the log, as before; no flag was
+  changed.
+- **The served file**: `/chat.js` byte-identical to `e1556086:public/chat.js`
+  (`7f7d7b49…`, 965,025 bytes), read at 11:17 UTC.
+- **The image window**: to about 11:35 UTC.
+- **Runtime**: deployed, **not yet runtime-confirmed**. The unauthenticated
+  readers answer 401, as always; the confirmation is the owner's free press.
+
 **Deploy 2191 (2026-10-10) was predicted on both ends and built as
 predicted**, on the owner's approval to release the reviewed correction
 (Codex passed all 23 dispatch, interval and canary tests on `f96cbfd5`). It
