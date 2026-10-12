@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases still off, yours to switch back on)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases switched back on in deploy 2194, runtime not yet read)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -901,6 +901,13 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Deploy 2194: image purchases switched back on (redeploy; runtime not yet read)
+
+You set `IMAGE_PURCHASES` to `on` and re-ran the deploy workflow (run
+38264751198, 14:41–14:42 UTC, green). The code is the same as before
+(`df1dcf30`), and so is the image (`1e30b6fb56b51794`, no container
+changes). Your free runtime press must show `imagePurchases=true`.
 
 ## 2026-10-12 — Run 129: P2, acc-page-table (paid, 8 credits): passed
 
