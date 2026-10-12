@@ -28,6 +28,7 @@
 import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
+import { extractText } from "../builder/site-text.mjs";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
 const listOf = (v) => (typeof v === "string" && v ? [v] : Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : []);
@@ -654,6 +655,13 @@ export function factValues(text) {
   for (const m of t.matchAll(/\b(morning|afternoon|evening|night)s?\b/g)) parts.add(m[1]);
   return { money, days, parts };
 }
+/** Whether `text` names `w` as whole words, denied or not (times read as one spelling). */
+const mentions = (text, w) => {
+  const t = plain(timeWords(text)), x = plain(timeWords(w));
+  if (!x) return false;
+  const e = x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z0-9])${e}(?![a-z0-9])`).test(t);
+};
 export function factChecks(where, text, want) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
@@ -663,6 +671,13 @@ export function factChecks(where, text, want) {
     const any = listOf(f && f.any);
     const said = any.find((x) => statesAll(raw, [x]) || statesAll(bare, [x]));
     add(`${where} states ${f && f.fact ? `"${f.fact}"` : JSON.stringify(any)}`, any.length > 0 && !!said, `none of ${JSON.stringify(any)} is stated, undenied, in: ${JSON.stringify(plain(raw).slice(0, 240))}`);
+    // STATED HERE AND DENIED THERE (round 18): a claim sentence that names
+    // one of the fact's wordings and denies it contradicts the fact, wherever
+    // the affirming sentence is ("… Redland. We don't deliver to Redland.").
+    if (said) {
+      const denied = sentencesOf(unInterjected(raw)).filter((x) => !/\?\s*$/.test(x)).filter((x) => any.some((w) => mentions(x, w) && !statesAll(x, [w])));
+      add(`${where} does not also deny ${f && f.fact ? `"${f.fact}"` : JSON.stringify(any)}`, !denied.length, `denied in: ${JSON.stringify(denied.slice(0, 3))}`);
+    }
   }
   const claims = claimsOf(raw);
   for (const d of listOf(w.denies)) add(`${where} does not claim "${d}"`, !statesAll(claims, [d]), `it says it: ${JSON.stringify(claims.slice(0, 240))}`);
@@ -675,6 +690,81 @@ export function factChecks(where, text, want) {
       const other = [...got[k]].filter((x) => !allowed.has(x));
       add(`${where} states no ${k === "money" ? "amount" : k === "days" ? "day" : "time of day"} but ${[...allowed].join(", ")}`, !other.length, `it also states ${JSON.stringify(other)}`);
     }
+  }
+  return out;
+}
+
+/**
+ * WHAT THE PRESS ADDED TO ONE PAGE, AS SECTIONS (round 18, after Codex's
+ * control on 2015cc0c: a section stored with "£25 a head, cheese included"
+ * and served with "The price is £50 a head." added passed, because the served
+ * page was checked only for the facts, never for contradictions). One reader
+ * for both outputs:
+ *   - the page's words in order, one line per text node (stored) or per block
+ *     element (served, inside <main>), so a question, an answer and a second
+ *     claim stay separate sentences;
+ *   - only what is new against the same page before (an ordered diff), so the
+ *     page's own older prices, hours and words never count for or against it;
+ *   - contiguous new lines are one added section; a component file the press
+ *     added counts only where the page itself uses it.
+ * `sectionChecks` then asks that exactly one added section states the facts
+ * asked for, judges that one section on every fact, amount, day, time and
+ * denied claim, and judges every other added section on the amounts, days,
+ * times and denied claims alone. Another section can never supply a missing
+ * fact, and a contradiction anywhere the press added is never let through.
+ */
+const BLOCKS = /<\/?(?:p|h[1-6]|li|ul|ol|dl|dt|dd|div|section|article|aside|nav|header|footer|main|table|thead|tbody|tr|td|th|br|hr|details|summary|blockquote|figure|figcaption|form|label|button)\b[^>]*>/gi;
+const decoded = (x) => String(x).replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;|&#160;/g, " ").replace(/&pound;|&#163;|&#xa3;/gi, "£").replace(/&amp;/g, "&");
+const tidy = (x) => String(x).replace(/\s+/g, " ").trim();
+/** A served page's words inside <main>, one line per block element, in order. */
+export function servedLines(html) {
+  const h = String(html || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
+  const main = region(h, "main") || h;
+  return decoded(main.replace(BLOCKS, "\n").replace(/<[^>]+>/g, " ")).split("\n").map(tidy).filter(Boolean);
+}
+/** A stored file's words, one line per text node, in the order they appear. */
+export function sourceLines(src) {
+  return extractText(String(src || "")).slice().sort((x, y) => x.at - y.at).map((w) => tidy(w.text)).filter(Boolean);
+}
+/** The runs of lines `after` holds that `before` does not, by an ordered (longest common subsequence) diff. */
+export function addedRuns(before, after) {
+  const b = Array.isArray(before) ? before : [], a = Array.isArray(after) ? after : [];
+  const n = a.length, m = b.length;
+  const L = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const runs = [];
+  let cur = null, i = 0, j = 0;
+  while (i < n) {
+    if (j < m && a[i] === b[j]) { cur = null; i++; j++; continue; }
+    if (j < m && L[i][j + 1] >= L[i + 1][j]) { j++; continue; }
+    if (!cur) { cur = []; runs.push(cur); }
+    cur.push(a[i]); i++;
+  }
+  return runs;
+}
+/** A run of lines as text whose sentences end where its lines end. */
+export const runText = (lines) => (Array.isArray(lines) ? lines : []).map((l) => (/[.!?:;]$/.test(l) ? l : l + ".")).join(" ");
+/** Whether a page's source uses a component file: its import path, or one of its exported names as a tag. */
+export function usesPart(pageSrc, path, partSrc) {
+  const src = String(pageSrc || "");
+  const stem = String(path || "").split("/").pop().replace(/\.[jt]sx?$/, "");
+  if (stem && new RegExp(`["'/]${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`).test(src)) return true;
+  for (const m of String(partSrc || "").matchAll(/export\s+(?:default\s+)?(?:function|const|class)\s+([A-Z][\w]*)/g)) if (new RegExp(`<${m[1]}\\b`).test(src)) return true;
+  return false;
+}
+export function sectionChecks(where, sections, want) {
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  const w = want || {};
+  const list = (Array.isArray(sections) ? sections : []).filter((x) => typeof x === "string" && x.trim());
+  const statesSome = (t) => factChecks("", t, { facts: w.facts }).some((c) => c.ok);
+  const stating = list.filter(statesSome);
+  const short = (xs) => JSON.stringify(xs.map((x) => x.slice(0, 140)));
+  add(`${where}: exactly one section the press added states what was asked`, stating.length === 1,
+    stating.length ? `${stating.length} added sections each state part of it — one section must hold every fact: ${short(stating)}` : `no section the press added states any of it (added: ${short(list)})`);
+  if (stating.length === 1) out.push(...factChecks(where, stating[0], w));
+  for (const other of list.filter((x) => !stating.includes(x))) {
+    for (const c of factChecks(`${where} (another section the press added)`, other, { only: w.only, denies: w.denies })) if (!c.ok) out.push(c);
   }
   return out;
 }
@@ -820,6 +910,7 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   const bPages = before && before.source ? before.source.pages : [], aPages = after && after.source ? after.source.pages : [];
   const b = byPath(bPages), a = byPath(aPages);
   const pf = newPagesFound({ want: want.pages, before, after, served });
+  const pageFactsUnread = [];
   // EACH NEW PAGE, ANSWERING, ABOUT WHAT WAS ASKED.
   for (const f of pf.found) {
     add(`a new page about ${listOf(f.want.about).join(" and ")} was added, stored and served 200${f.route ? ` (${f.route})` : ""}`, !f.why && !!f.route, f.why);
@@ -827,7 +918,12 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     if (f.want && (f.want.facts || f.want.only || f.want.denies)) {
       const h = f.route && served ? served[f.route] : undefined;
       if (typeof h !== "string") add(`the new page about ${listOf(f.want.about).join(" and ")} was read for its facts`, false, "no served page to read");
-      else out.push(...factChecks(`the served ${f.route}`, visible(region(h, "main") || h), f.want));
+      else out.push(...factChecks(`the served ${f.route}`, runText(servedLines(h)), f.want));
+      // THE STORED PAGE TOO (round 18), inside its own <main>: the frame's menu labels are not the page's words.
+      const file = f.path ? a.get(f.path) : undefined;
+      const main = typeof file === "string" ? /<main\b[\s\S]*<\/main>/.exec(file) : null;
+      if (main) out.push(...factChecks(`the stored ${f.route}`, runText(sourceLines(main[0])), f.want));
+      else pageFactsUnread.push(`the stored ${f.route || "new page"}'s facts: ${typeof file === "string" ? "it has no <main> to read them in" : "its file was not read"} — judged on the served page only`);
     }
   }
   add("no other page was added", !pf.extra.length, `also new: ${pf.extra.join(", ")}`);
@@ -960,10 +1056,13 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   // not already state; the served page says it. Unlike a line (`want.words`)
   // there is no length bound: a section is the add-on's to shape.
   const sectionAt = new Map();
-  const newPartWords = () => {
+  // A COMPONENT FILE THE PRESS ADDED, ONLY WHERE THE PAGE USES IT (round 18):
+  // an unreferenced file shows nothing and can supply nothing.
+  const newPartsUsedBy = (pageSrc) => {
     const bp = byPath(before && before.source ? before.source.parts : []), ap = byPath(after && after.source ? after.source.parts : []);
-    return [...ap].filter(([p]) => !bp.has(p)).map(([, src]) => [...wordsOf(src).keys()].join(" ")).join(" ");
+    return [...ap].filter(([p, src]) => !bp.has(p) && usesPart(pageSrc, p, src));
   };
+  const newPartWords = (pageSrc) => newPartsUsedBy(pageSrc).map(([, src]) => [...wordsOf(src).keys()].join(" ")).join(" ");
   for (const s of Array.isArray(want.sections) ? want.sections : []) {
     const at = pageForRoute(bPages, s.route);
     const now = at ? a.get(at.path) : undefined;
@@ -972,7 +1071,9 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     const wb = wordsOf(rest(at.path, at.source)), wa = wordsOf(rest(at.path, now));
     const lost = less(wb, wa);
     add(`${s.route} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
-    const gained = `${less(wa, wb).join(" ")} ${newPartWords()}`;
+    const gained = `${less(wa, wb).join(" ")} ${newPartWords(now)}`;
+    // THE SECTIONS THE PRESS ADDED, STORED: the page's new runs of text, and each component file it added and uses.
+    const storedSections = [...addedRuns(sourceLines(rest(at.path, at.source)), sourceLines(rest(at.path, now))).map(runText), ...newPartsUsedBy(now).map(([, src]) => runText(sourceLines(src)))];
     // WITH FACTS NAMED, THE FACTS ARE THE ANCHOR (round 17): a literal
     // fragment would refuse equivalent wording ("£25 per person"), so the
     // page must not already have stated every fact, and the facts themselves
@@ -991,9 +1092,13 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     // EVERY FACT ASKED FOR: on what the press added (amounts, days and times
     // judged there, so the page's older words never count against it), and
     // the positive facts again on the served page.
-    if (s.facts || s.only || s.denies) {
-      out.push(...factChecks(`the section added to ${s.route}`, gained, s));
-      if (typeof h === "string") out.push(...factChecks(`the served ${s.route}`, visible(region(h, "main") || h), { facts: s.facts }));
+    // EVERY FACT AND EVERY CONTRADICTION, ON THE SECTION ITSELF, STORED AND
+    // SERVED (round 18): the same reader and the same checks on both outputs.
+    if (hasFacts) {
+      out.push(...sectionChecks(`the section stored on ${s.route}`, storedSections, s));
+      const hb = beforeServed && beforeServed[s.route];
+      if (typeof h === "string" && typeof hb !== "string") add(`the served ${s.route} was read before the message`, false, "with no earlier reading, what the press added to the served page cannot be told from what was there");
+      else if (typeof h === "string") out.push(...sectionChecks(`the section served on ${s.route}`, addedRuns(servedLines(hb), servedLines(h)).map(runText), s));
     }
   }
   // THE LOGO: every served header draws the attached file, by the address its
@@ -1083,7 +1188,7 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
       add("every other table is as it was: the same rules, columns and row counts", !diff.length, diff.join("; "));
     } else add("the site's tables are as they were: the same tables, rules, columns and row counts", !diff.length, diff.join("; "));
   }
-  const unverified = pf.found.some((f) => f.want && f.want.photo) ? [PHOTO_PURCHASE_UNVERIFIED] : [];
+  const unverified = [...(pf.found.some((f) => f.want && f.want.photo) ? [PHOTO_PURCHASE_UNVERIFIED] : []), ...pageFactsUnread];
   return { checks: out, newPages: pf, unverified };
 }
 

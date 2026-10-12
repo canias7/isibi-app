@@ -154,7 +154,7 @@ test("FACTS, acc-addon-inner's section: £25 a head with the cheese included pas
   assert.ok(run(q("£25 a head, cheese included. Private evenings are £50 a head.")).some((n) => /states no amount but 25/.test(n)), "a contradicting second amount passed");
   // STORED RIGHT, SERVED WRONG: the served page is judged on its own words too.
   const servedWrong = (() => { const b = read(PAGES), a = read(withWords(PAGES, "visit.tsx", q("£25 a head, cheese included.")), [], { [VISIT]: q("£50 a head.") }); return factNames(judge(b, a, { expect: { sections: [s] } })); })();
-  assert.ok(servedWrong.some((n) => /^the served \/visit states "£25 a head"/.test(n)), "a served page that says otherwise passed: " + JSON.stringify(servedWrong));
+  assert.ok(servedWrong.some((n) => /^the section served on \/visit/.test(n)), "a served page that says otherwise passed: " + JSON.stringify(servedWrong));
   const extra = run(q("£25 a head, cheese not included."));
   assert.ok(extra.some((n) => /states "cheese included"/.test(n)) && extra.some((n) => /does not claim "cheese not included"/.test(n)), JSON.stringify(extra));
 });
@@ -193,7 +193,7 @@ test("FACTS, acc-addon-pair's sections: dogs welcome inside passes; dogs not wel
   const dogs = (ans) => judgeSection("acc-addon-pair", VISIT, "visit.tsx", `<section><h2>Can I bring my dog?</h2><p>${ans}</p></section>`);
   assert.deepEqual(dogs("Dogs are welcome inside."), []);
   assert.deepEqual(dogs("Yes, dogs are very welcome indoors."), []);
-  assert.ok(dogs("Dogs are not welcome inside.").some((n) => /states "dogs are welcome"/.test(n)), "a refusal passed");
+  assert.ok(dogs("Dogs are not welcome inside.").some((n) => /states "dogs are welcome"|states what was asked/.test(n)), "a refusal passed");
   assert.ok(dogs("Dogs are welcome outside only.").some((n) => /states "inside"|does not claim "outside only"/.test(n)), "outside only passed");
   const st = { ...sectionAt("acc-addon-pair", START), route: "/order" };
   const starter = (ans) => { const html = `<section><h2>Is the starter gluten-free?</h2><p>${ans}</p></section>`; const b = read(PAGES); const a = read(withWords(PAGES, "order.tsx", html), [], { "/order": html }); return factNames(judge(b, a, { expect: { sections: [st] } })); };
@@ -202,7 +202,118 @@ test("FACTS, acc-addon-pair's sections: dogs welcome inside passes; dogs not wel
   const yes = starter("Yes, it is gluten-free and made with rye flour.");
   assert.ok(yes.some((n) => /does not claim "gluten-free"/.test(n)), "a gluten-free claim passed: " + JSON.stringify(yes));
   assert.ok(starter("No, it is made with wheat flour.").some((n) => /states "made with rye flour"/.test(n)), "the wrong flour passed");
-  assert.ok(starter("It is not made with rye flour.").some((n) => /states "made with rye flour"/.test(n)), "a denied flour passed");
+  assert.ok(starter("It is not made with rye flour.").some((n) => /states "made with rye flour"|states what was asked/.test(n)), "a denied flour passed");
+});
+
+// ── ROUND 18: THE WHOLE CHECK ON THE ASKED SECTION, STORED AND SERVED ───────
+//
+// Codex on 2015cc0c: a section stored with "£25 a head, cheese included" and
+// served with "The price is £50 a head." added passed every check. Each case
+// builds the page before and after (stored and served), runs `outcomeChecks`
+// with a scenario's own expectation, and names which output failed.
+const want = (scenario, route) => ({ ...sectionAt(scenario, route) });
+const UNRELATED = '<section><h2>Gift vouchers</h2><p>Vouchers from £50.</p><p>Open Tuesday to Sunday, 8am to 2pm, and on Saturday evenings for tastings.</p></section>';
+/**
+ * One press, judged: `pre` already on the page (stored and served), `stored`
+ * and `served` what the press added after it, `lead` (stored and served) what
+ * it added before `pre`, so the two additions are separate sections.
+ */
+function press({ expect, route = VISIT, path = "visit.tsx", pre = "", stored = "", served = stored, lead = "", servedLead = lead, parts = [] }) {
+  const put = (pages, html) => pages.map((p) => (p.path === path ? { ...p, source: p.source.replace("</SiteChrome>", html + "\n    </SiteChrome>") } : p));
+  const bPages = pre ? put(PAGES, pre) : PAGES;
+  let aPages = put(bPages, stored);
+  if (lead) aPages = aPages.map((p) => (p.path === path ? { ...p, source: pre ? p.source.replace(pre, lead + pre) : p.source.replace("</SiteChrome>", lead + "\n    </SiteChrome>") } : p));
+  const b = read(bPages, [], { [route]: pre });
+  const a = read(aPages, parts, { [route]: servedLead + pre + served });
+  return factNames(judge(b, a, { expect: { sections: [{ ...expect, route }] } }));
+}
+const on = (names, side) => names.filter((n) => n.startsWith(`the section ${side} on`));
+const Q = (q, ans) => `<section><h2>${q}</h2><p>${ans}</p></section>`;
+const PRICE = (ans) => Q("How much is an evening?", ans);
+
+test("ROUND 18, CODEX'S CONTROL: stored \"£25 a head, cheese included\", served with \"The price is £50 a head.\" added — the served section fails on the amount, the stored one passes; £25 on both passes", () => {
+  const expect = want("acc-addon-inner", "/tasting-evenings");
+  const r = press({ expect, stored: PRICE("£25 a head, cheese included."), served: PRICE("£25 a head, cheese included.") + "<p>The price is £50 a head.</p>" });
+  assert.ok(on(r, "served").some((n) => /states no amount but 25/.test(n)), "Codex's control passed: " + JSON.stringify(r));
+  assert.deepEqual(on(r, "stored"), [], "the stored section was failed for what only the served one says");
+  assert.deepEqual(press({ expect, stored: PRICE("£25 a head, cheese included.") }), []);
+  const back = press({ expect, stored: PRICE("£25 a head, cheese included. The price is £50 a head."), served: PRICE("£25 a head, cheese included.") });
+  assert.ok(on(back, "stored").some((n) => /states no amount but 25/.test(n)) && !on(back, "served").length, "stored and served disagreement the other way: " + JSON.stringify(back));
+});
+
+test("ROUND 18, SURROUNDING CONTENT: the page's own older prices, days and evenings never count against the asked section, stored or served; the asked section alone is judged", () => {
+  assert.deepEqual(press({ expect: want("acc-addon-inner", "/tasting-evenings"), pre: UNRELATED, stored: PRICE("£25 a head, cheese included.") }), []);
+  assert.deepEqual(press({ expect: want("acc-addon-edit", "/bake-list"), pre: UNRELATED, stored: Q("When is the list updated?", "Every Monday morning.") }), []);
+  assert.deepEqual(press({ expect: want("acc-addon-pair", "/starter"), pre: '<section><p>Some of our cakes are gluten-free.</p></section>', stored: Q("Is the starter gluten-free?", "No, it is made with rye flour.") }), [], "an older line on the page counted as a claim in the section");
+});
+
+test("ROUND 18, MULTIPLE SECTIONS: another section the press added cannot supply a missing fact, and its contradicting amount, day or denied claim fails; an unrelated added section with none of them does not", () => {
+  const expect = want("acc-addon-inner", "/tasting-evenings");
+  const split = press({ expect, pre: UNRELATED, stored: PRICE("£25 a head."), lead: '<section><h2>Cheese</h2><p>Cheese included.</p></section>' });
+  assert.ok(on(split, "stored").some((n) => /exactly one section the press added states what was asked|states "cheese included"/.test(n)), "a fact was supplied by another section: " + JSON.stringify(split));
+  const other = press({ expect, pre: UNRELATED, stored: PRICE("£25 a head, cheese included."), lead: '<section><h2>Private hire</h2><p>Private hire is £50 a head.</p></section>' });
+  assert.ok(on(other, "stored").some((n) => /another section the press added\) states no amount but 25/.test(n)) && on(other, "served").some((n) => /another section the press added\) states no amount but 25/.test(n)), JSON.stringify(other));
+  assert.deepEqual(press({ expect, pre: UNRELATED, stored: PRICE("£25 a head, cheese included."), lead: '<section><h2>Our bench</h2><p>There is a new bench outside.</p></section>' }), [], "an unrelated added section was failed");
+  const gf = press({ expect: want("acc-addon-pair", "/starter"), pre: UNRELATED, stored: Q("Is the starter gluten-free?", "No, it is made with rye flour."), lead: '<section><p>Our starter is gluten-free.</p></section>' });
+  assert.ok(gf.some((n) => /another section the press added\) does not claim "gluten-free"/.test(n)), JSON.stringify(gf));
+});
+
+test("ROUND 18, COMPONENTS: a component file the press added supplies the section only where the page uses it", () => {
+  const expect = want("acc-addon-inner", "/tasting-evenings");
+  const part = { path: "tasting-faq.tsx", source: 'export function TastingFaq(){ return <section><h2>How much is an evening?</h2><p>£25 a head, cheese included.</p></section> }\n' };
+  const shown = PRICE("£25 a head, cheese included.");
+  assert.deepEqual(press({ expect, stored: "<TastingFaq />", served: shown, parts: [part] }), []);
+  const unused = press({ expect, stored: PRICE("Ask at the counter."), served: PRICE("Ask at the counter."), parts: [part] });
+  assert.ok(on(unused, "stored").some((n) => /exactly one section the press added states what was asked/.test(n)), "an unreferenced component supplied the facts: " + JSON.stringify(unused));
+});
+
+test("ROUND 18, DAYS, TIMES, PLACES AND NO: a served Thursday, a served evening, a place stated and denied, and a served gluten-free claim each fail on the output that says it; the correct text passes on both", () => {
+  const edit = want("acc-addon-edit", "/bake-list");
+  const mon = Q("When is the list updated?", "Every Monday morning.");
+  assert.deepEqual(press({ expect: edit, stored: mon }), []);
+  const thu = press({ expect: edit, stored: mon, served: Q("When is the list updated?", "Every Monday morning. Also on Thursdays.") });
+  assert.ok(on(thu, "served").some((n) => /states no day but monday/.test(n)) && !on(thu, "stored").length, JSON.stringify(thu));
+  const eve = press({ expect: edit, stored: mon, served: Q("When is the list updated?", "Every Monday morning, and again in the evening.") });
+  assert.ok(on(eve, "served").some((n) => /states no time of day but morning/.test(n)), JSON.stringify(eve));
+  const starter = want("acc-addon-pair", "/starter");
+  const no = Q("Is the starter gluten-free?", "No, it is made with rye flour.");
+  assert.deepEqual(press({ expect: starter, stored: no }), []);
+  const yes = press({ expect: starter, stored: no, served: Q("Is the starter gluten-free?", "No, it is made with rye flour. Our starter is gluten-free.") });
+  assert.ok(on(yes, "served").some((n) => /does not claim "gluten-free"/.test(n)) && !on(yes, "stored").length, JSON.stringify(yes));
+  // A PLACE STATED AND DENIED, on the new page, stored and served.
+  const page = UI_SCENARIOS["acc-addon-inner"].expect.pages[0];
+  const pageRun = (storedWords, servedWords = storedWords) => {
+    const file = { path: "delivery.tsx", source: `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/delivery")({ component: P });\nconst CHROME = { links: [{ label: "Tasting Evenings", href: "/tasting-evenings" }] };\nfunction P() { return <SiteChrome {...CHROME}><main><h1>Delivery</h1><p>${storedWords}</p></main></SiteChrome>; }\n` };
+    const b = read(PAGES), a = read([...PAGES, file], [], { "/delivery": `<h1>Delivery</h1><p>${servedWords}</p>` });
+    return factNames(judge(b, a, { expect: { pages: [page] } })).filter((n) => !/menu/.test(n));
+  };
+  const ok = "We deliver to Clifton, Redland and Montpelier on weekday mornings.";
+  assert.deepEqual(pageRun(ok), [], "the stored page's frame (\"Tasting Evenings\") counted as the page's words");
+  const denied = pageRun(ok + " Sorry, we don't deliver to Redland.");
+  assert.ok(denied.some((n) => /^the stored \/delivery does not also deny "Redland"/.test(n)) && denied.some((n) => /^the served \/delivery does not also deny "Redland"/.test(n)), JSON.stringify(denied));
+  const disagree = pageRun(ok, "We deliver to Clifton and Montpelier on weekday mornings.");
+  assert.ok(disagree.some((n) => /^the served \/delivery states "Redland"/.test(n)) && !disagree.some((n) => /^the stored \/delivery/.test(n)), JSON.stringify(disagree));
+});
+
+test("ROUND 18, CONTEXT AND SCOPE: a heading with no full stop stays its own sentence (\"No reservations needed\" does not deny the answer); text outside <main> (a footer offer) never counts; a served page with no earlier reading is never judged as all new; a new page's served-only contradiction fails", () => {
+  const dogs = want("acc-addon-pair", "/visit");
+  assert.deepEqual(press({ expect: dogs, stored: '<section><h2>No reservations needed</h2><p>Dogs are welcome inside.</p></section>' }), [], "a heading ran into the answer and denied it");
+  // A FOOTER OFFER THAT CHANGED OUTSIDE <main>.
+  const expect = want("acc-addon-inner", "/tasting-evenings");
+  const html = PRICE("£25 a head, cheese included.");
+  const b = read(PAGES), a = read(withWords(PAGES, "visit.tsx", html), [], { [VISIT]: html });
+  a.served[VISIT] = a.served[VISIT].replace("</body>", "<footer><p>Gift vouchers from £50.</p></footer></body>");
+  assert.deepEqual(factNames(judge(b, a, { expect: { sections: [{ ...expect, route: VISIT }] } })), [], "a footer outside <main> was judged as the section");
+  // NO EARLIER READING OF THE SERVED PAGE.
+  const blind = factNames(outcomeChecks({ spec: { expect: { sections: [{ ...expect, route: VISIT }] } }, before: b.inv, after: a.inv, served: a.served, beforeServed: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG }).checks);
+  assert.ok(blind.includes(`the served ${VISIT} was read before the message`), JSON.stringify(blind));
+  // A NEW PAGE, RIGHT WHEN STORED AND CONTRADICTED WHEN SERVED.
+  const page = UI_SCENARIOS["acc-addon-inner"].expect.pages[0];
+  const ok = "We deliver to Clifton, Redland and Montpelier on weekday mornings.";
+  const file = { path: "delivery.tsx", source: `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/delivery")({ component: P });\nfunction P() { return <main><h1>Delivery</h1><p>${ok}</p></main>; }\n` };
+  const nb = read(PAGES), na = read([...PAGES, file], [], { "/delivery": `<h1>Delivery</h1><p>${ok} Also on Saturdays.</p>` });
+  const sat = factNames(judge(nb, na, { expect: { pages: [page] } })).filter((n) => !/menu/.test(n));
+  assert.ok(sat.some((n) => /^the served \/delivery states no day but/.test(n)) && !sat.some((n) => /^the stored \/delivery/.test(n)), JSON.stringify(sat));
 });
 
 test("EVERY NEW SCENARIO NAMES ITS FACTS: each section and page carries `facts`, every amount asked for is held to `only.money`, and the asked-for days and times are held to `only`", () => {
