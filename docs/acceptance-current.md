@@ -21,7 +21,14 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
   and S9 came back batched; S3–S8 came back as parts. **S3 made parts, so P2
   (`acc-page-table`) is next.** S7 was split too (the section held back from
   the add-on), so `acc-addon-inner` would now test overlap across parts. The
-  full table is in owner-notes. Before it:
+  full table is in owner-notes.
+- **P2 passed** (run 129, 14:29–14:36 UTC, 8 credits, balance 958 → 950).
+  - The price part's preparation overlapped the heading job by **13.1 s**
+    (recorded intervals), and the price job reused it exactly.
+  - Both changes landed exactly, with nothing else touched.
+  - No duplicate charge: the charges are routing 3, then jobs 3, 1 and 1.
+  - Option A total: 21 credits. **Image purchases are still off**: switch
+    them back on (§6 step 8). Before it:
 - deploy 2192 (2026-10-12), `main` **`e1556086`**, image
   **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
   from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is

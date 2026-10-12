@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run (run 128, 13 credits, S3 split into parts); P2 handed over)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases still off, yours to switch back on)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -901,6 +901,59 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Run 129: P2, acc-page-table (paid, 8 credits): passed
+
+You ran P2 (run 38263175861, from `main`, 14:29–14:36 UTC). The balance box
+was at 958, and it read MET. Image purchases were off. One message was
+sent through the real app in a real browser: *Change the Wholesale page
+heading 'Daily bread for Bristol cafés' to 'Daily bread for Bristol cafés and
+delis', and change the Country White's price to £4.90.*
+
+**Every check passed** (`UI MODE PASSED`). What it shows live, for the first
+time:
+- **Overlap, by recorded intervals.** The price part's prepared step (one
+  model call) ran while the heading's job was executing, overlapping it by
+  **13.1 s**:
+  - the request was accepted at 14:30:26.979 UTC;
+  - the price was prepared from +47.7 s to +60.8 s;
+  - the heading job ran from +37.5 s to +206.6 s;
+  - the price job ran from +244.1 s to +246.1 s.
+- **Exact reuse.** The price job answered exactly from that prepared work and
+  did not ask the model again. Both jobs recorded how they used their
+  preparation.
+- **Ordering.** No part started before a part it needs had finished, and
+  neither part needed the other.
+- **Both changes landed exactly:**
+  - `/wholesale` now reads "Daily bread for Bristol cafés and delis";
+  - `loaves` id 1 (Country White) went from 4.8 to 4.9 and nothing else
+    changed, and `/order` shows £4.90 with every other line as it was;
+  - every other stored page and component is byte for byte the same;
+  - the tables have the same rules, columns and row counts;
+  - one publish, `01791815474708-194bt6` from `gq5pw5`, chain verified.
+- **No double charge.** Balance 958 → 950, which is exactly this run's own
+  charges: routing 3, the heading job 3, the held part's routing 1 and the
+  price job 1. The ledger has one row per job, with no refund and no repeat.
+  Reading again 60 s later showed nothing more.
+- **Replies.** Both replies were written by the model and shown on screen:
+  - the heading's: "⚠️ I've changed the Wholesale page heading … Changing the
+    Country White's price to £4.90 comes next.";
+  - the price's: "✅ I've updated Country White to £4.90."
+- The composer was usable again, there were no console or page errors, and
+  the tab was never reloaded.
+
+**To be precise about what overlapped**: the price's *preparation* ran
+beside the heading's *job*. The price's own job ran after the heading job
+ended, as the request's parts are applied in turn. That is the claim the
+plan made (§3), and it is what was measured.
+
+**Kept**: both changes stay on the bakery (your demo-site rule).
+
+**Totals for option A**: P1 13 + P2 8 = **21 credits** (estimate 13–39).
+Balance **950**.
+
+**Still yours**: set `IMAGE_PURCHASES` back to `on`, then re-run the deploy
+workflow. Until then no customer gets photographs.
 
 ## 2026-10-12 — Run 128: P1, the routing probe (paid, 13 credits)
 
