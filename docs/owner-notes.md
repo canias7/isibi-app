@@ -61,7 +61,7 @@ are kept.
   - Sweep (`sweep19`): **13 of 14** killed, the control surviving. The
     survivor was a path no case reached; RC 13 now kills it.
   - Full suite `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases). Acceptance sweep 39 files, **498 / 498**. CI:
-    unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`.
+    unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`; unit tests 38192623744 `success` on `320ef877` (the records).
 - **Remaining** (history §6):
   - No reproduced defect is open.
   - Not yet checked: over-cap requirements written beside a question.
@@ -734,7 +734,7 @@ since. Add new ones there.
   - full suite `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases);
   - acceptance sweep 498 / 498 across 39 files;
   - doc tests 32/32; acceptance entry points 11/11;
-  - CI: unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`.
+  - CI: unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`; unit tests 38192623744 `success` on `320ef877` (the records).
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, paid or fal call, or real image. Remaining work is in the
   history's §6.

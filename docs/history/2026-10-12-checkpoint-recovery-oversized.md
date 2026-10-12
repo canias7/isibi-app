@@ -164,7 +164,7 @@ the judge's real inputs, the durable records, the final statuses, the stored
 - **Full suite**: `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases)
 - **Consolidated acceptance sweep** on `ed6dbb7b` (round 12's groups, the new file in clarification and resume): 39 files, **498 / 498** — independent work 112, genuine dependencies 92, clarification and resume 187 (13 files), partial failure 107.
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`.
+- **Required CI**: unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`; unit tests 38192623744 `success` on `320ef877` (the records).
 
 ## 6. Remaining work, by kind
 
