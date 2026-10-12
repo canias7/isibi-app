@@ -16,7 +16,12 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
 - **Production**: deploy 2193 (2026-10-12, 14:03 UTC), `main` **`df1dcf30`**,
   the opt-in (§5) merged; image `1e30b6fb56b51794` **reused**;
   **runtime-confirmed by run 127** (14:14 UTC), with
-  **`imagePurchases=false`** and balance 971. Before it:
+  **`imagePurchases=false`** and balance 971.
+- **P1 ran** (run 128, 14:24 UTC, 13 credits, balance 971 → 958). S1, S2
+  and S9 came back batched; S3–S8 came back as parts. **S3 made parts, so P2
+  (`acc-page-table`) is next.** S7 was split too (the section held back from
+  the add-on), so `acc-addon-inner` would now test overlap across parts. The
+  full table is in owner-notes. Before it:
 - deploy 2192 (2026-10-12), `main` **`e1556086`**, image
   **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
   from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is

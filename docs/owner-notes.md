@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 handed over)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run (run 128, 13 credits, S3 split into parts); P2 handed over)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -901,6 +901,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Run 128: P1, the routing probe (paid, 13 credits)
+
+You ran P1 (run 38261908435, from `main`, 14:24 UTC; `acceptance-split-1`,
+spend `yes`, the balance box at 971). The opt-in let it run, and all 9
+messages were routed once. Nothing was applied. **Balance 971 → 958**,
+which matches the reported cost of 13.
+
+What the real router answered:
+
+| # | Message (scenario) | Answer | Shape | Cost |
+|---|---|---|---|---|
+| S1 | two page headings (acc-pages-real) | edit · text | batched | 3 |
+| S2 | two prices, one table | edit · data | batched | 3 |
+| S3 | Wholesale heading + Country White price (**acc-page-table**) | edit · text, holding back the price | **parts** | 1 |
+| S4 | Walnut Levain price + home heading (acc-table-page) | edit · data, holding back the heading | parts | 1 |
+| S5 | a price + a heading that copies the Visit heading (acc-needs) | edit · data, holding back the heading | parts | 1 |
+| S6 | a Bulk Orders page + a price (acc-mixed) | addon, holding back the price | parts | 1 |
+| S7 | a Delivery page + a questions section (acc-addon-inner) | addon, holding back the section | parts | 1 |
+| S8 | a questions section + the Gallery heading (acc-addon-edit) | edit · text, holding back the section | parts | 1 |
+| S9 | two questions sections on two pages (acc-addon-pair) | addon | batched | 1 |
+
+**What this shows**:
+- The live router **does split mixed work into parts** (S3–S8): a page
+  change and a table change, and an add-on and an edit.
+- It **batches** two changes of one kind (S1, S2, S9).
+- **S3 made parts, so P2 (`acc-page-table`) runs**, as the plan said.
+- **S7 is worth noting**: the router held the questions section back from
+  the Delivery page's add-on rather than make one add-on. So `acc-addon-inner`
+  would test overlap *across parts*, not inside one add-on. It is not part
+  of option A anyway.
+
+P2 is handed over with the balance box at 958.
 
 ## 2026-10-12 — Run 127: deploy 2193 runtime-confirmed, image purchases off (free)
 
