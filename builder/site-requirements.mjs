@@ -168,8 +168,18 @@ export const REQUIREMENT_STATES = ["delivered", "configured", "unverified", "unk
  */
 export const HANDOFF_STATES = ["delivered", "undelivered"];
 
-/** A ceiling, never a quota — the rules say "one per thing the change needs". */
-export const MAX_REQUIREMENTS = 12;
+/**
+ * NO CEILING ON WHAT ONE STEP ACCEPTS (round 15, Codex's review of 703faade).
+ * One step kept at most twelve requirements; past them an entry was set aside
+ * at intake as `over-cap`, never judged, and told only as "not checked" in the
+ * job that read it — so a thirteenth written beside a question was neither
+ * held nor told after the resume, and an addition whose twelve were met
+ * finished done with it unmet. Every accepted requirement is kept now; the
+ * judgment processes them in bounded batches (`JUDGE_BATCH` in worker.js).
+ * The number stays only to read records written before this change, whose
+ * set-aside entries are still told (`overCapNeeds`).
+ */
+export const LEGACY_REQUIREMENTS_CAP = 12;
 
 /**
  * WHERE A REQUIREMENT COMES FROM (2026-10-05, run 101): they asked for it, or
@@ -389,10 +399,11 @@ export function cleanRequirements(raw, from = "") {
   // a developer and needs a different fix.
   // …AND THE STEP THAT WROTE IT (2026-10-07), so the record and the
   // customer's report can say whose list it was past the end of.
-  for (const r of items.slice(MAX_REQUIREMENTS)) {
-    skipped.push({ need: str(r && r.need, MAX_NEED), why: "over-cap", ...(owner ? { from: owner } : {}) });
-  }
-  for (const r of items.slice(0, MAX_REQUIREMENTS)) {
+  //
+  // …AND THEN THE CAP ITSELF WENT (round 15): every entry is read, none is set
+  // aside for being one too many. A list is bounded by what one answer can
+  // say; what is processed in bounded pieces is the judgment, never the set.
+  for (const r of items) {
     if (!r || typeof r !== "object" || Array.isArray(r)) { skipped.push({ need: "", why: "not-an-entry" }); continue; }
     const need = str(r.need, MAX_NEED);
     if (!need) { skipped.push({ need: "", why: "no-need" }); continue; }
@@ -1123,8 +1134,8 @@ export function requirementCounts(list, skipped) {
 export function requirementBrief(list, step) {
   // EVERY ONE HANDED TO THIS STEP (2026-10-07): the brief printed twelve and
   // `told` marked the step as handed all of them, so a thirteenth read as
-  // delivered to a step that never heard it. Each step keeps at most
-  // `MAX_REQUIREMENTS` of its own, so the list is bounded upstream.
+  // delivered to a step that never heard it. Every one is handed (round 15:
+  // no step's list is capped at intake any more).
   const mine = handoffsByStep(list)[step] || [];
   if (!mine.length) return "";
   const where = step === "page" || step === "component" ? "this page has to make possible"
@@ -2266,15 +2277,13 @@ export function reconcileHandoffs(outcomes) {
 export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen", "not-tracked"]);
 
 /**
- * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07).
- * `MAX_REQUIREMENTS` is a real bound — every requirement kept is judged, and
- * the judgment's answer is capped — so the entries past it are never judged,
- * handed on or checked against what was built. They were recorded for the
- * developer (`over-cap`) and told to nobody. They are told now, each by its
- * own words, as not checked in this change — never as done and never as
- * missing, because nothing looked.
+ * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP USED TO KEEP TRACK OF (2026-10-07).
+ * Nothing is set aside at intake since round 15; a record written before then
+ * may still hold `over-cap` entries, never judged, handed on or checked. Each
+ * is told by its own words as not checked in that change — never as done and
+ * never as missing, because nothing looked.
  */
-export const OVER_CAP_WHY = "one step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements";
+export const OVER_CAP_WHY = "one step of a change kept track of at most " + LEGACY_REQUIREMENTS_CAP + " requirements then";
 export function overCapNeeds(skipped) {
   const out = [];
   for (const s of Array.isArray(skipped) ? skipped : []) {
@@ -2445,7 +2454,7 @@ export function toldNote(told) {
   // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07): named, every one, and why.
   const untracked = of("not-tracked");
   if (untracked.length) {
-    parts.push("One step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements, so I didn't check these here: "
+    parts.push("One step of a change kept track of at most " + LEGACY_REQUIREMENTS_CAP + " requirements then, so I didn't check these there: "
       + untracked.map((r) => r.need).join("; ") + " — ask me for them on their own if they matter.");
   }
   return parts.join(" ");
@@ -2507,8 +2516,8 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
   // WHOLE (2026-10-07): every list here was cut at twelve, so a change with
   // more requirements, properties or pages than that kept a record that
   // stopped part-way and said nothing of it. Each is bounded where it is
-  // made — a step keeps `MAX_REQUIREMENTS` requirements, a change designs a
-  // bounded number of things — so the record keeps all of what it is given.
+  // made — what a step's answers can say, a change designs a bounded number
+  // of things — so the record keeps all of what it is given.
   const all = (v) => (Array.isArray(v) ? v : []);
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged });
   const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;

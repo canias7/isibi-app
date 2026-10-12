@@ -305,9 +305,8 @@ test("TOLD 7 — mixed outcomes through the route, each kind above its old cut: 
   const UNS = UNSUPPORTED.map((n) => req(n, { status: "unsupported", why: "this kind of change cannot do that yet", by: undefined, item: undefined, kind: undefined }));
   const r = await addon("rt-told-mixed", SIGNUP_MSG, {
     ...signupKinds,
-    // TWO DESIGNERS' REQUIREMENTS, each under the twelve one designer may
-    // declare (`MAX_REQUIREMENTS`; past it an entry is set aside at intake as
-    // `over-cap` — a ceiling on what is accepted, outside this case).
+    // TWO DESIGNERS' REQUIREMENTS (no step's list is capped at intake since
+    // round 15; how many each writes is outside this case).
     answers: { table: { table: [table("signups", ["name", "email"])], requirements: [...UNSEEN.map((n) => req(n)), ...MISSING.concat(FAILED).map((n) => req(n)), ...SET_UP.map((n) => req(n))] }, page: { page: [SIGNUP_PAGE], requirements: UNS } },
     ...judgingBy([
       [new RegExp(UNSEEN.join("|")), "unsure"],

@@ -157,7 +157,7 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, i
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, TABLE_SETTINGS, SETTING_SAYS, tableSettings, pieceSaid, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts, toldNote } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, TABLE_SETTINGS, SETTING_SAYS, tableSettings, pieceSaid, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts, toldNote } from "./site-requirements.mjs";
 // THE ONE READER OF A FAILED ADDITION'S OUTCOME AND ITS STORED LISTS (2026-10-06):
 // a stored answer's note is composed from what the reply's facts read, by the same rule.
 import { FAILURE_STATES, outcomeOf, toldAs, toldEntries, warnedEntries } from "./site-reply.mjs";
@@ -1765,8 +1765,10 @@ export function addTool(kind) {
   // could not have been added without touching the reader.
   if (add.requirements) {
     properties.requirements = {
+      // NO `maxItems` (round 15): every requirement they asked for is kept and
+      // judged in bounded batches; a ceiling here told the model to stop at
+      // twelve, and the reader set aside a thirteenth.
       type: "array",
-      maxItems: MAX_REQUIREMENTS,
       items: REQUIREMENT_ITEM,
       description:
         "What this change has to be able to do, and what became of each one. One entry per requirement — what " +
@@ -1774,8 +1776,8 @@ export function addTool(kind) {
         "for it. Answer this even when you answer no design at all: a requirement you could not express is the " +
         "single most useful thing you can tell us, and leaving it out is the one outcome that reaches the customer " +
         "as silence. The one exception is a question back to them: then leave this out too, since nothing is " +
-        "designed until they reply. At most " + MAX_REQUIREMENTS + ": when what they asked for needs more than " +
-        "that, leave none of it out — ask them, as your question, which part to do first.",
+        "designed until they reply. List every one, however many — there is no limit, and none you list is set " +
+        "aside.",
     };
     // ── AN EXTRA IS A SUGGESTION, NEVER A REQUIREMENT (2026-10-05, run 101) ──
     //

@@ -400,8 +400,9 @@ test("RC 7 — A PART THAT NEEDS THE RECOVERING ONE WAITS: it is not run, not fa
 // ── 3. AN OVERSIZED CHECKPOINT THE STORE WILL NOT TAKE ──────────────────────
 
 // Each requirement as long as one is kept (its need and its quoted words, 200
-// characters each), twelve beside each of 32 questions — one step keeps at
-// most twelve (`MAX_REQUIREMENTS`) — so the 384 together are well above what
+// characters each), twelve beside each of 32 questions — written when one step
+// kept at most twelve; since round 15 none is set aside, and the shape is kept
+// as it was — so the 384 together are well above what
 // one answer may carry (`HELD_INLINE_MAX`). Every checkpoint write is refused
 // by the store, and the final designer lists none of them.
 const LONG = "the answers can be filtered by season, by loaf, by allergen and by the day of the week on which that loaf is baked, and each filter remembers what the visitor chose the last time they came back to the questions section of the About page, so that a regular who only ever wants to know about the rye and the spelt on Saturdays sees those answers first without choosing them again";

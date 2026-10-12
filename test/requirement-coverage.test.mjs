@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
-  COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, BASES, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
+  COVERAGE, COVERAGE_STEPS, REQUIREMENT_ITEM, BASES, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
   ITEM_KINDS, referenceOf, evidenceItems, implementationOf,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
@@ -172,25 +172,16 @@ test("an unsupported answer with no reason says so rather than reading as reason
   assert.equal(list[0].why, "no reason was given");
 });
 
-test("the list is bounded, the overflow is NAMED, and a bare object is a list of one", () => {
-  const many = Array.from({ length: MAX_REQUIREMENTS + 8 }, (_, i) => ({ need: "need " + i, status: "covered" }));
-  const cut = cleanRequirements(many);
-  assert.equal(cut.list.length, MAX_REQUIREMENTS);
-  // ⚠ RE-ANCHORED 2026-09-20, NOT APPEASED. This asserted the bound and was
-  // silent about the loss — which is the defect, not the property: the slice
-  // ran ABOVE the loop that fills `skipped`, so eight needs a step really
-  // raised were discarded with no row, no count and no sentence. `cleanAdd`
-  // moved its own list cap below its loop for exactly this reason and gave
-  // the loss its own token; this is that lesson's second reader.
-  const over = cut.skipped.filter((s) => s.why === "over-cap");
-  assert.equal(over.length, 8, "the overflow was discarded in silence: " + JSON.stringify(cut.skipped));
-  // BY NAME, so a developer can see WHICH needs went — a count alone says
-  // work was lost and not which work.
-  assert.deepEqual(over.map((s) => s.need), many.slice(MAX_REQUIREMENTS).map((r) => r.need));
-  // AND `over-cap` IS ITS OWN WHY: the entry was perfectly readable and we
-  // chose not to carry it, which is a different thing to tell a developer —
-  // and a different fix — from one we could not read.
-  assert.ok(!cut.skipped.some((s) => s.why === "not-an-entry"), "a readable entry was reported as unreadable");
+test("the list keeps every readable entry — none set aside for being too many — and a bare object is a list of one", () => {
+  // ⚠ RE-ANCHORED 2026-10-12 (round 15). This asserted a ceiling of twelve
+  // and that the overflow was NAMED (`over-cap`). Naming was not keeping: a
+  // thirteenth written beside a question was set aside here, never held or
+  // judged, and gone after the resume. Every readable entry is kept now; the
+  // judgment, not the list, is processed in bounded pieces.
+  const many = Array.from({ length: 20 }, (_, i) => ({ need: "need " + i, status: "covered" }));
+  const all = cleanRequirements(many);
+  assert.deepEqual(all.list.map((r) => r.need), many.map((r) => r.need));
+  assert.deepEqual(all.skipped, [], "a readable entry was set aside: " + JSON.stringify(all.skipped));
   assert.equal(cleanRequirements({ need: "one", status: "covered" }).list.length, 1);
   assert.deepEqual(cleanRequirements(null).list, []);
   assert.deepEqual(cleanRequirements(undefined).skipped, []);
@@ -278,7 +269,7 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   for (const k of REQUIREMENT_ADDS) {
     const t = addTool(k);
     assert.equal(t.input_schema.properties.requirements.items, REQUIREMENT_ITEM, k + "'s tool carries a second copy of the item");
-    assert.equal(t.input_schema.properties.requirements.maxItems, MAX_REQUIREMENTS);
+    assert.equal(t.input_schema.properties.requirements.maxItems, undefined, k + "'s tool still caps its requirements");
   }
   // …AND IT NAMES NO ONE TIER. `table` in the prose is an example among five,
   // never the subject — a function step told to name "the table" would have

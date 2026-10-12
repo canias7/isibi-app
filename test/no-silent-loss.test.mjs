@@ -27,7 +27,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { addon, writtenPage, storedAnswer } from "./fixtures/addon-route.mjs";
-import { cleanRequirements, requirementReport, requirementRecord, requirementBrief, toldNote, cleanSuggestions, MAX_REQUIREMENTS, MAX_SUGGESTIONS } from "../builder/site-requirements.mjs";
+import { cleanRequirements, requirementReport, requirementRecord, requirementBrief, toldNote, cleanSuggestions, LEGACY_REQUIREMENTS_CAP, OVER_CAP_WHY, MAX_SUGGESTIONS } from "../builder/site-requirements.mjs";
 import { addTool, warningReport, seedSkipNote } from "../builder/site-add.mjs";
 import { addonReplyFacts } from "../builder/site-reply.mjs";
 import { notDoneOf, editJobOutcome } from "../builder/request.mjs";
@@ -40,27 +40,33 @@ const screen = (body) => { const b = browserReply(body, true); assert.ok(b.ok, "
 const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 const nums = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
-test("LIMIT 1 — A STEP'S REQUIREMENTS PAST WHAT IT KEEPS TRACK OF: kept by name with the step that wrote them, told one by one as not checked and why, a fact each and in the note, and on the request's part as not done — never set aside in silence", () => {
-  const raw = nums(1, MAX_REQUIREMENTS + 3).map((n) => ({ need: "Need number " + n, status: "covered", basis: "asked", words: "w" }));
+test("LIMIT 1 — NO STEP'S REQUIREMENTS ARE SET ASIDE FOR BEING TOO MANY (round 15): fifteen written are fifteen kept, with the step that wrote them, and nothing is skipped as over the limit", () => {
+  const raw = nums(1, 15).map((n) => ({ need: "Need number " + n, status: "covered", basis: "asked", words: "w" }));
   const c = cleanRequirements(raw, "page");
-  assert.equal(c.list.length, MAX_REQUIREMENTS);
-  assert.deepEqual(c.skipped.map((s) => [s.need, s.why, s.from]), nums(13, 15).map((n) => ["Need number " + n, "over-cap", "page"]));
-  const rep = requirementReport([], { skipped: c.skipped, judged: true });
+  assert.deepEqual(c.list.map((r) => [r.need, r.from]), nums(1, 15).map((n) => ["Need number " + n, "page"]));
+  assert.deepEqual(c.skipped, [], "an entry was set aside: " + JSON.stringify(c.skipped));
+  assert.deepEqual(c.list.map((r) => r.id), nums(1, 15).map((n) => "page#" + (n - 1)), "the ids are not one per entry kept");
+});
+
+test("LIMIT 1b — A RECORD WRITTEN BEFORE ROUND 15 still holding entries set aside past the old twelve: told one by one as not checked then, a fact each and in the note, and on the part as not done — never in silence", () => {
+  const skipped = nums(13, 15).map((n) => ({ need: "Need number " + n, why: "over-cap", from: "page" }));
+  const rep = requirementReport([], { skipped, judged: true });
   assert.deepEqual(rep.told.map((o) => [o.need, o.told, o.state]), nums(13, 15).map((n) => ["Need number " + n, "not-tracked", "over-cap"]));
-  assert.ok(rep.told.every((o) => o.why === "one step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements"), JSON.stringify(rep.told));
-  // ONLY WHAT WAS PAST THE LIMIT: an entry that could not be read is the record's alone.
+  assert.ok(rep.told.every((o) => o.why === OVER_CAP_WHY), JSON.stringify(rep.told));
+  assert.equal(OVER_CAP_WHY, "one step of a change kept track of at most " + LEGACY_REQUIREMENTS_CAP + " requirements then");
+  // ONLY WHAT WAS PAST THE OLD LIMIT: an entry that could not be read is the record's alone.
   assert.deepEqual(requirementReport([], { skipped: [{ need: "", why: "no-need" }, { need: "A bad status", why: "bad-status" }], judged: true }).told, []);
   const note = toldNote(rep.told);
   for (const n of nums(13, 15)) assert.match(note, new RegExp("Need number " + n + "\\b"), note);
   const body = { ok: true, changed: ["src/routes/index.tsx"], requirementsTold: rep.told, coverNote: note };
   const f = facts(body);
   for (const n of nums(13, 15)) {
-    assert.equal(f.filter((t) => t === "not-done: Not checked in this change, because one step of a change keeps track of at most " + MAX_REQUIREMENTS + " requirements: Need number " + n + ". They can ask for it on its own.").length, 1, n + ": " + JSON.stringify(f));
+    assert.equal(f.filter((t) => t === "not-done: Not checked in this change, because " + OVER_CAP_WHY + ": Need number " + n + ". They can ask for it on its own.").length, 1, n + ": " + JSON.stringify(f));
   }
   assert.deepEqual(notDoneOf(body, "addon").map((x) => [x.what, x.why]), nums(13, 15).map((n) => ["Need number " + n, "not-tracked"]));
 });
 
-test("LIMIT 2 — THROUGH THE ROUTE: a designer that wrote down fourteen requirements has twelve judged and the two past the limit told on the answer, in the note, as facts and on the screen, and kept by name with its step in the developer record", async () => {
+test("LIMIT 2 — THROUGH THE ROUTE: a designer that wrote down fourteen requirements has all fourteen judged and told — none set aside as past a limit — and the developer record keeps all fourteen with nothing unreadable", async () => {
   const MSG = "Add a gallery page for our bakes";
   const needs = nums(1, 14).map((n) => "The gallery does thing " + n);
   const r = await addon("nsl-limit", MSG, {
@@ -68,17 +74,13 @@ test("LIMIT 2 — THROUGH THE ROUTE: a designer that wrote down fourteen require
     answers: { page: { page: [PAGE("/gallery", "Gallery")], requirements: needs.map((need) => ({ need, status: "covered", by: "the gallery page", item: "/gallery", kind: "page", basis: "asked", words: MSG })) } },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 400));
-  const untracked = (r.body.requirementsTold || []).filter((o) => o.told === "not-tracked").map((o) => o.need);
-  assert.deepEqual(untracked, needs.slice(12), JSON.stringify(r.body.requirementsTold));
-  for (const n of needs.slice(12)) {
-    assert.ok(r.body.coverNote.includes(n), "the note lost " + n + ": " + r.body.coverNote);
-    assert.ok(facts(r.body).some((t) => t.startsWith("not-done: Not checked in this change") && t.includes(n)), n);
-    assert.ok(screen(r.body).includes(n), "the screen lost " + n);
-  }
+  const told = r.body.requirementsTold || [];
+  assert.deepEqual(told.filter((o) => o.told === "not-tracked"), [], "a requirement was set aside as past a limit");
+  for (const n of needs) assert.ok(told.some((o) => o.need === n), "not told: " + n);
   const rec = storedAnswer(r, "nsl-limit");
   assert.ok(rec && rec.coverage, "no developer record");
-  assert.equal(rec.coverage.requirements.length, MAX_REQUIREMENTS, "the judged list is not the twelve kept");
-  assert.deepEqual(rec.coverage.unreadable.map((s) => [s.need, s.why, s.from]), needs.slice(12).map((n) => [n, "over-cap", "page"]));
+  assert.equal(rec.coverage.requirements.length, 14, "the judged list is not all fourteen");
+  assert.deepEqual(rec.coverage.unreadable, [], "an entry was recorded as unreadable");
 });
 
 test("WIRE 4 — THROUGH THE ROUTE, EVERY LIST ON THE ANSWER AND IN THE RECORD PAST ITS OLD CUT: sixteen open requirements from two steps, fourteen pages the window could not carry, eight starter rows not put in, five problems about pages that went out, and two suggestions past a designer's limit", async () => {
@@ -112,12 +114,13 @@ test("WIRE 4 — THROUGH THE ROUTE, EVERY LIST ON THE ANSWER AND IN THE RECORD P
   assert.deepEqual(rec.coverage.suggestionsOver, ["Idea four", "Idea five"], "the suggestions past the designer's limit were not kept for the record");
 });
 
-test("TOOL 1 — THE DESIGNER IS TOLD THE LIMIT, AND TO ASK WHICH PART COMES FIRST RATHER THAN LEAVE ANY OUT: the schema still carries the limit, and the question it would ask with is on the same tool", () => {
+test("TOOL 1 — THE DESIGNER IS TOLD TO LIST EVERY REQUIREMENT, WITH NO LIMIT (round 15): the schema carries no ceiling, the description says none is set aside, and the question it would ask with is on the same tool", () => {
   for (const kind of ["page", "table"]) {
     const t = addTool(kind);
     const req = t.input_schema.properties.requirements;
-    assert.equal(req.maxItems, MAX_REQUIREMENTS, kind);
-    assert.ok(req.description.includes("At most " + MAX_REQUIREMENTS + ": when what they asked for needs more than that, leave none of it out — ask them, as your question, which part to do first."), kind + ": " + req.description);
+    assert.equal(req.maxItems, undefined, kind + ": the schema still caps the list");
+    assert.ok(req.description.includes("List every one, however many — there is no limit, and none you list is set aside."), kind + ": " + req.description);
+    assert.doesNotMatch(req.description, /At most \d+/, kind);
     assert.ok(Object.hasOwn(t.input_schema.properties, "question"), kind + ": no question to ask with");
   }
 });
