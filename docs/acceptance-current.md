@@ -16,8 +16,11 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
 - **Production**: deploy 2192 (2026-10-12), `main` **`e1556086`**, image
   **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
   from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is
-  byte-identical to the merged file. **Deployed, not yet runtime-confirmed**:
-  that is the owner's free press (§6 step 6). The previous production was deploy
+  byte-identical to the merged file. **Runtime-confirmed by the owner's free
+  press, run 123** (12:58 UTC): both readers `e1556086808c`, a cold container
+  `1e30b6fb56b51794`, async and the runner on, nothing charged (balance 971).
+  The runtime reports **`imagePurchases=true`**: P2 still needs
+  `IMAGE_PURCHASES` set to `off` (§6 step 3). The previous production was deploy
   2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
 - **The branch is merged** (a fast-forward, one deploy run). Records after it
   live on `claude/help-needed-ehlwlj` and start no deploy.

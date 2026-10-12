@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, deployed and not yet runtime-confirmed; the free presses are yours; paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; checks 2 and 3 are yours; paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -12,8 +12,10 @@ is in git; the dated entries further down are the full story.*
   (38241259917), green. The image was built **`1e30b6fb56b51794`** as
   predicted (205 inputs), and the container moved from `8d6dbcea93252fbb` at
   11:16:24 UTC. One asset was uploaded (`/chat.js`), and the served file is
-  byte-identical to the merged one. **Deployed, not yet runtime-confirmed**:
-  that needs your free press (below). Rollback was verified before the merge
+  byte-identical to the merged one. **Runtime-confirmed by your free press,
+  run 123** (12:58 UTC, from `main`): both readers `e1556086808c`, a cold
+  container `1e30b6fb56b51794`, async and the runner on, nothing charged. The
+  runtime reports `imagePurchases=true` (unchanged; P2 would need it `off`). Rollback was verified before the merge
   (`git revert --no-commit f96cbfd5..e1556086` gives back `f96cbfd5`'s tree).
   `docs/deploy-record.md`.
 - **The free checks are yours to press.** A session's dispatch answered 403,
@@ -896,6 +898,24 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Run 123: deploy 2192 runtime-confirmed (check 1, free)
+
+You pressed check 1 (edit canary from `main`, run 38252367780, 12:58 UTC;
+spend `no`, expected deploy `e1556086`, expected image `1e30b6fb56b51794`).
+- Both readers answered `e1556086808c`; a cold container got
+  `1e30b6fb56b51794`. Deploy 2192 is **runtime-confirmed**.
+- Async and the runner are on; `washhouse-3` also got the async shape. The
+  free job settled as a hand-over at cost 0. A forged replay marker and a
+  poll of a job that is not yours both answered 404.
+- The runtime reports **image purchases on** (`imagePurchases=true`). Nothing
+  changed it; it matters only for P2, which needs it `off` (§6 step 3 of
+  `docs/acceptance-current.md`).
+- `fretwork-1`'s source read is complete (3 pages, 3 parts, at
+  `01790404806543-kk6qsh`). Balance 971. Nothing was charged.
+
+Still yours: checks 2 and 3 (the probe and P2 rehearsals), and the one
+spending decision.
 
 ## 2026-10-12 — Deploy 2192: the reviewed branch merged and deployed once; the free checks handed over; one spending decision (not pressed)
 

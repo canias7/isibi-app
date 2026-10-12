@@ -1520,8 +1520,14 @@ the only run that push started: `completed` / `success`, 11:13:21–11:16:36.
 - **The served file**: `/chat.js` byte-identical to `e1556086:public/chat.js`
   (`7f7d7b49…`, 965,025 bytes), read at 11:17 UTC.
 - **The image window**: to about 11:35 UTC.
-- **Runtime**: deployed, **not yet runtime-confirmed**. The unauthenticated
-  readers answer 401, as always; the confirmation is the owner's free press.
+- **Runtime**: **runtime-confirmed by the owner's free press, run 123**
+  (edit canary, run 38252367780 from `main`, 12:58 UTC; spend `no`,
+  expect_deploy `e1556086`, expect_image `1e30b6fb56b51794`). Both readers
+  answered `e1556086808c`, a cold container got `1e30b6fb56b51794`, and
+  async and the runner were on (`washhouse-3` async too). The runtime reports
+  `imagePurchases=true` (the secret was not changed). The free job settled as
+  a hand-over at cost 0; the forged replay marker and the foreign poll both
+  answered 404. The balance read 971; nothing was charged.
 
 **Deploy 2191 (2026-10-10) was predicted on both ends and built as
 predicted**, on the owner's approval to release the reviewed correction
