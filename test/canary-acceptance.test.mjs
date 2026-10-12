@@ -391,7 +391,7 @@ test("THE ROUTING PROBE FIRST: acceptance-split-1 reads, records every acceptanc
   assert.equal(r.ok, true, r.msg);
   assert.ok(r.batch.probes.every((p) => p.intended === null && p.site === "fold-lane-bakery"));
   const says = r.batch.probes.map((p) => p.message);
-  for (const k of ["acc-pages-real", "acc-page-table", "acc-table-page", "acc-needs", "acc-mixed"]) assert.ok(says.includes(UI_SCENARIOS[k].steps[0].say), `${k}'s message is not probed first`);
+  for (const k of ["acc-pages-real", "acc-page-table", "acc-table-page", "acc-needs", "acc-mixed", "acc-addon-inner", "acc-addon-edit", "acc-addon-pair"]) assert.ok(says.includes(UI_SCENARIOS[k].steps[0].say), `${k}'s message is not probed first`);
   assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: "none" }), /^batched/);
   assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: "change the price" }), /^parts/);
   assert.match(shapeSaid({ intent: "edit", layer: "text", alsoAsked: ["change the price"] }), /^parts/);

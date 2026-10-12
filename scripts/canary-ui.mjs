@@ -1147,6 +1147,93 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Change the Wholesale page heading 'Bread for the counter' to 'Bread for your counter', and change the Tasting Evenings page heading 'Join the waiting list' to 'Join our waiting list'.", ms: 10 * 60_000 }),
     ]),
   }),
+  // ── IMAGE-FREE ADD-ON ACCEPTANCE (2026-10-12, prepared, not pressed) ──────
+  //
+  // The owner, closing the repair batch on 358dff0a: *"Update the existing
+  // acceptance plan with image-free Add-on scenarios so that testing
+  // independent additions does not depend on buying photographs; include
+  // independent tasks within one Add-on and across separate request parts."*
+  // No photograph, form or table in any of them, and the words each asks for
+  // were read off the live pages on 2026-10-12 as not there yet. Each section
+  // is judged by `sections` (`outcomeChecks`): everything the page said is
+  // kept, and it gains the words asked for. Like A1–A5, each probe in
+  // `acceptance-split-1` comes first: what the real router makes of the
+  // message (one Add-on, or parts) is recorded, never assumed.
+  //
+  // B1 — INDEPENDENT TASKS INSIDE ONE ADD-ON: a new page and a section on
+  // another page are two kinds (`page`, `component`), neither using the
+  // other, so their designers start together (`designWaits`). That overlap
+  // lives inside one job; it is read afterwards, free, by the read-job box on
+  // the add-on's job (`addonDesignOverlap`), and is claimed only when that job
+  // is the only one on the site in the window — otherwise it is recorded as a
+  // candidate. ABOUT 15-28: routing 1-3; the add-on with a page and a section
+  // 12-22 (run 99's page with its link 12, plus a second designer and its
+  // writing) and its judgment about 1; a menu part's routing and step 2-4 if
+  // the router makes the link a part.
+  "acc-addon-inner": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 30, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["look", "nav", "page"]),
+    expect: Object.freeze({
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["Clifton", "Montpelier"]) })]),
+      menu: Object.freeze({ page: 0 }),
+      sections: Object.freeze([Object.freeze({ route: "/tasting-evenings", says: Object.freeze(["a head", "cheese"]) })]),
+      reuse: Object.freeze({}),
+      shape: true,
+      inner: true,
+    }),
+    covers: Object.freeze(["addon-inner"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a Delivery page with a link in the menu, saying we deliver to Clifton, Redland and Montpelier on weekday mornings. And add a short questions section to the Tasting Evenings page answering 'How much is an evening?' with '£25 a head, cheese included.'", ms: 25 * 60_000 }),
+    ]),
+  }),
+  // B2 — AN ADD-ON PART AND AN EDIT PART, INDEPENDENT (PI 29's live
+  // counterpart): a section on the Bake List page and a heading on the
+  // Gallery page. Neither reads what the other writes, so the part held back
+  // is prepared beside the other part's job and its job replays that
+  // preparation exactly (`overlapVerdict`, `reuseVerdict`). Press it only if
+  // the probe (S8) shows the router holding one back as a part. ABOUT 9-20:
+  // routing 1-3; the heading's text job 1-2; the section's add-on 6-12 and its
+  // judgment about 1; the second part's routing 1-3.
+  "acc-addon-edit": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 22, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "look", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/gallery", from: "Photographs from our ovens", to: "Photographs straight from our ovens" })]),
+      sections: Object.freeze([Object.freeze({ route: "/bake-list", says: Object.freeze(["Monday"]) })]),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs from our ovens' to 'Photographs straight from our ovens'.", ms: 20 * 60_000 }),
+    ]),
+  }),
+  // B3 — TWO ADD-ON SECTIONS ON TWO PAGES: whether the real router makes one
+  // Add-on (expected: one add-on answer can make both, so they are batched)
+  // or two parts is recorded (`routingShape`), never demanded, like A5. As
+  // parts, the second is prepared beside the first part's job (each is scoped
+  // to its own page, `addonScope`) and the reuse is recorded. ABOUT 8-26: one
+  // add-on with two sections 7-15 and its judgment about 1, routing 1-3; as
+  // parts, a second add-on 6-12 and its routing 1-3.
+  "acc-addon-pair": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 28, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["look", "page"]),
+    expect: Object.freeze({
+      sections: Object.freeze([
+        Object.freeze({ route: "/visit", says: Object.freeze(["dogs", "welcome"]) }),
+        Object.freeze({ route: "/starter", says: Object.freeze(["rye flour"]) }),
+      ]),
+      reuse: Object.freeze({}),
+      shape: true,
+    }),
+    covers: Object.freeze(["several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add a short questions section to the Starter page answering 'Is the starter gluten-free?' with 'No, it is made with rye flour.'", ms: 22 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.

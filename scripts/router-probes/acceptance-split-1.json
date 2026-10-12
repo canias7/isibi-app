@@ -55,6 +55,33 @@
       "intended": null,
       "basis": "recorded, not judged: acc-mixed's own message — which changes the router holds back as parts",
       "note": "Mixed Edit/Add-on with a dependent menu link."
+    },
+    {
+      "id": "S7",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a Delivery page with a link in the menu, saying we deliver to Clifton, Redland and Montpelier on weekday mornings. And add a short questions section to the Tasting Evenings page answering 'How much is an evening?' with '£25 a head, cheese included.'",
+      "intended": null,
+      "basis": "recorded, not judged: acc-addon-inner's own message — one Add-on carrying a new page and a section (its designers can then run together inside one job), or parts",
+      "note": "Image-free Add-on inside one job. Expected one addon answer (it can make both); the menu link may be held back as a part that waits for the page."
+    },
+    {
+      "id": "S8",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs from our ovens' to 'Photographs straight from our ovens'.",
+      "intended": null,
+      "basis": "recorded, not judged: acc-addon-edit's own message — press it only if the router holds one change back as a part",
+      "note": "Image-free Add-on part beside an Edit part. Expected split (no one answer makes a section and a text change)."
+    },
+    {
+      "id": "S9",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add a short questions section to the Starter page answering 'Is the starter gluten-free?' with 'No, it is made with rye flour.'",
+      "intended": null,
+      "basis": "recorded, not judged: acc-addon-pair's own message — whether the router makes two Add-on sections on two pages one answer or two parts",
+      "note": "Image-free Add-on/Add-on. Expected batched (one addon answer can make both)."
     }
   ]
 }

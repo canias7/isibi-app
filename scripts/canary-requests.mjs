@@ -885,6 +885,35 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
       add(`the served ${want.words.route} says it`, typeof h === "string" && statesAll(visible(region(h, "main") || h), want.words.says), typeof h === "string" ? "the words are not on the page, or are denied there" : `${want.words.route} was not read`);
     }
   }
+  // A SECTION ADDED TO A PAGE THAT EXISTS (`want.sections`, 2026-10-12, the
+  // image-free Add-on acceptance): nothing that page said is gone, its photographs
+  // are as they were, and what it gained — on the page itself or in a component
+  // file this press added — states every fragment asked for, which the page did
+  // not already state; the served page says it. Unlike a line (`want.words`)
+  // there is no length bound: a section is the add-on's to shape.
+  const sectionAt = new Map();
+  const newPartWords = () => {
+    const bp = byPath(before && before.source ? before.source.parts : []), ap = byPath(after && after.source ? after.source.parts : []);
+    return [...ap].filter(([p]) => !bp.has(p)).map(([, src]) => [...wordsOf(src).keys()].join(" ")).join(" ");
+  };
+  for (const s of Array.isArray(want.sections) ? want.sections : []) {
+    const at = pageForRoute(bPages, s.route);
+    const now = at ? a.get(at.path) : undefined;
+    if (!at || now === undefined) { add(`${s.route} was read before and after`, false, `${s.route} is missing from a read`); continue; }
+    sectionAt.set(at.path, s);
+    const wb = wordsOf(rest(at.path, at.source)), wa = wordsOf(rest(at.path, now));
+    const lost = less(wb, wa);
+    add(`${s.route} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
+    const gained = `${less(wa, wb).join(" ")} ${newPartWords()}`;
+    add(`${s.route} gained a section saying ${listOf(s.says).map((w) => `"${w}"`).join(" and ")}, which it did not say before`,
+      statesAll(gained, s.says) && !statesAll([...wb.keys()].join(" "), s.says),
+      `new words: ${JSON.stringify(gained.trim().slice(0, 200))}`);
+    const pb = photosOf(at.source, slug), pa = photosOf(now, slug);
+    const moved = [...new Set([...pb.keys(), ...pa.keys()])].filter((u) => (pb.get(u) || 0) !== (pa.get(u) || 0));
+    add(`${s.route} shows the same photographs as before`, !moved.length, `changed: ${JSON.stringify(moved)}`);
+    const h = served && served[s.route];
+    add(`the served ${s.route} says it`, typeof h === "string" && statesAll(visible(region(h, "main") || h), s.says), typeof h === "string" ? "the words are not on the page, or are denied there" : `${s.route} was not read`);
+  }
   // THE LOGO: every served header draws the attached file, by the address its
   // own bytes name, and the bytes served there are that file's.
   const heads = Object.entries(served || {}).filter(([, h]) => typeof h === "string" && region(h, "header"));
@@ -920,6 +949,7 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     if (!a.has(p)) { gone.push(p); continue; }
     const route = routeOfPage(src);
     if (wordsAt && p === wordsAt.path) continue;
+    if (sectionAt.has(p)) continue;
     const h = headed.get(route);
     if (h) {
       const v = headingOnly(rest(p, src), rest(p, a.get(p)), h.from, h.to);
@@ -935,7 +965,9 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   const partMoved = [...bParts].filter(([p, src]) => aParts.get(p) !== src).map(([p]) => p);
   const partNew = [...aParts.keys()].filter((p) => !bParts.has(p));
   add("every stored component is byte for byte as it was", complete && !partMoved.length, `changed or gone: ${partMoved.join(", ")}`);
-  add(`no component was added${(want.pages || []).length ? " beyond what a new page brings" : ""}`, complete && (!partNew.length || (want.pages || []).length > 0), `added: ${partNew.join(", ")}`);
+  const brings = (want.pages || []).length > 0 || sectionAt.size > 0;
+  const beyond = sectionAt.size ? ((want.pages || []).length ? " beyond what a new page or an asked-for section brings" : " beyond what an asked-for section brings") : (want.pages || []).length ? " beyond what a new page brings" : "";
+  add(`no component was added${beyond}`, complete && (!partNew.length || brings), `added: ${partNew.join(", ")}`);
   const routesGone = Object.keys(bRender).filter((r) => !(aRender[r] && aRender[r].status === 200));
   add("every page that was served before is still served 200", !routesGone.length, `not served: ${routesGone.join(", ")}`);
   // THE DATABASE, AS ITS OWNER LISTS IT: the same tables, each with the same
@@ -988,6 +1020,13 @@ export const COVERAGE = Object.freeze({
     const done = partsOf(steps).filter((p) => p && p.status === "done");
     const add = done.some((p) => p.route === "addon"), edit = done.some((p) => p.route && p.route !== "addon" && p.addition !== true);
     return { covered: add && edit, why: `${add ? "an" : "no"} add-on part and ${edit ? "an" : "no"} edit part of the message's own finished` };
+  },
+  // ONE ADD-ON CARRYING BOTH ADDITIONS (2026-10-12): whether its designers
+  // then ran together is read afterwards from its own job (`addonDesignOverlap`).
+  "addon-inner": (steps) => {
+    const adds = partsOf(steps).filter((p) => p && p.route === "addon");
+    const done = adds.filter((p) => p.status === "done");
+    return { covered: adds.length === 1 && done.length === 1, why: `${adds.length} add-on part(s), ${done.length} done` };
   },
   "several-parts": (steps) => {
     const n = partsOf(steps).length;
@@ -1294,6 +1333,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   const coverage = coverageOf({ spec, steps });
   const unverified = [...(o.unverified || [])];
   if (needs) unverified.push(`whether the real model asks for context it was not shown instead of guessing: observed "${needs.seen}"${Number.isInteger(needs.part) ? ` for part ${needs.part}` : ""}${needs.seen === "asked" ? " (its own answer said needs)" : ""} — ONE SAMPLE, an observation, not a measured rate`);
+  if (spec && spec.expect && spec.expect.inner === true) unverified.push("whether the add-on's designers ran at the same time inside its one job: read afterwards, free, with the read-job box on that job (addonDesignOverlap) — claimed only when it is the only job and trace on the site in the window");
   if (shape) unverified.push(`what the real router made of the message: ${shape.shape}${Number.isInteger(shape.parts) ? ` (${shape.parts} part(s))` : ""} — recorded, not judged`);
   return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}) };
 }

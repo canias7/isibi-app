@@ -211,6 +211,13 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
     if (tr && tr.status === 200 && Array.isArray(tr.rows)) out.traces = tr.rows;
     else out.notes.push(`edit_traces read failed (${tr && tr.status}${tr && tr.status === 200 ? ", body is not a list" : ""}) — no trace candidate is claimed either way`);
     out.notes.push("edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join");
+    // EVERY JOB ON THE SITE IN THE SAME WINDOW (2026-10-12), so a candidate
+    // can be called this job's only when nothing else could have written it:
+    // one job and one trace in the window (`addonDesignOverlap`). Unread is
+    // never "none".
+    const sj = await sb(`edit_jobs?slug=eq.${encodeURIComponent(out.row.slug)}&created_at=gte.${new Date(new Date(out.row.created_at).getTime() - traceWindowMs).toISOString()}&created_at=lte.${to}&select=id`);
+    if (sj && sj.status === 200 && Array.isArray(sj.rows)) out.siblings = { ok: true, ids: sj.rows.map((x) => x && x.id).filter((x) => typeof x === "string") };
+    else out.siblings = { ok: false, why: `edit_jobs read for the window failed (${sj && sj.status})` };
   }
 
   if (poll) {
@@ -268,6 +275,57 @@ export function replyReading(poll) {
 }
 
 /** One printable account, so the workflow log carries the whole answer. */
+/**
+ * DID ONE ADD-ON'S DESIGNERS RUN AT THE SAME TIME? (2026-10-12, the image-free
+ * Add-on acceptance.) The add-on job marks each designer `add:<kind>` start
+ * and its outcome in its trace; the trace has no job column, so the answer is
+ * only as good as the match:
+ *   - `overlapped` / `not-overlapped`: exactly one job on the site and exactly
+ *     one trace in the window, so the trace can only be this job's;
+ *   - `candidate-only`: more than one of either — the intervals are reported,
+ *     never claimed for this job;
+ *   - `unknown`: a read failed, the trace dropped events, or fewer than two
+ *     designers were marked.
+ * Two designers overlap when one started before the other ended. The row
+ * step (`add:row`) is not a designer and is not counted.
+ */
+export function addonDesignOverlap(rec) {
+  const r = rec || {};
+  if (!r.row) return { verdict: "unknown", why: "the job's record was not read" };
+  if (!Array.isArray(r.traces)) return { verdict: "unknown", why: "the trace was not read" };
+  if (!r.siblings || r.siblings.ok !== true || !Array.isArray(r.siblings.ids)) return { verdict: "unknown", why: (r.siblings && r.siblings.why) || "the jobs in the window were not read" };
+  if (!r.traces.length) return { verdict: "unknown", why: "no trace in the window" };
+  const intervals = (t) => {
+    const ev = Array.isArray(t && t.events) ? t.events : [];
+    if (ev.some((e) => e && e.p === "…")) return null;
+    const out = new Map();
+    for (const e of ev) {
+      if (!e || typeof e.p !== "string" || !e.p.startsWith("add:") || e.p === "add:row" || !Number.isFinite(Number(e.ms))) continue;
+      const k = e.p.slice(4), at = Number(e.ms);
+      const cur = out.get(k);
+      if (e.s === "start") { if (!cur) out.set(k, { kind: k, start: at, end: null }); continue; }
+      if (cur && cur.end === null) cur.end = at;
+    }
+    return [...out.values()];
+  };
+  const per = r.traces.map((t) => ({ cid: t && t.cid, list: intervals(t) }));
+  const said = per.map((x) => `${x.cid}: ${x.list ? x.list.map((i) => `${i.kind} ${i.start}-${i.end === null ? "open" : i.end}`).join(", ") || "no designer" : "events dropped"}`).join("; ");
+  const sole = r.siblings.ids.length === 1 && r.siblings.ids[0] === r.job && r.traces.length === 1;
+  if (!sole) return { verdict: "candidate-only", why: `${r.siblings.ids.length} job(s) and ${r.traces.length} trace(s) on the site in the window — the trace cannot be tied to this job`, said };
+  const list = per[0].list;
+  if (!list) return { verdict: "unknown", why: "the trace dropped events", said };
+  if (list.length < 2) return { verdict: "unknown", why: `${list.length} designer(s) marked — nothing to run beside`, said };
+  const meets = [];
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const a = list[i], b = list[j];
+    const aEnd = a.end === null ? Infinity : a.end, bEnd = b.end === null ? Infinity : b.end;
+    if (a.start < bEnd && b.start < aEnd) meets.push(`${a.kind} and ${b.kind}`);
+  }
+  return meets.length
+    ? { verdict: "overlapped", why: "", meets, said }
+    : { verdict: "not-overlapped", why: "every designer started after the one before it ended", said };
+}
+
 export function describeJob(rec) {
   const L = [];
   const r = rec.row;
@@ -309,6 +367,11 @@ export function describeJob(rec) {
     L.push(`  trace ${t.cid}  ended ${t.ended_at}  ms ${t.ms}  ok ${t.ok}  failed_phase ${t.failed_phase || "-"}${t.err_name ? "  " + t.err_name : ""}`);
     if (t.err_msg) L.push(`    err       ${t.err_msg}`);
     if (Array.isArray(t.events)) L.push(`    events    ${t.events.map((e) => `${e.p}:${e.s}@${e.ms}`).join(" ")}`);
+  }
+  if (r.op === "addon" || (rec.traces || []).some((t) => Array.isArray(t && t.events) && t.events.some((e) => e && typeof e.p === "string" && e.p.startsWith("add:") && e.p !== "add:row"))) {
+    const d = addonDesignOverlap(rec);
+    L.push(`  DESIGNERS   ${d.verdict}${d.meets ? " (" + d.meets.join("; ") + ")" : ""}${d.why ? " — " + d.why : ""}`);
+    if (d.said) L.push(`    intervals ${d.said}`);
   }
   for (const n of rec.notes) L.push("  note: " + n);
   return L.join("\n");

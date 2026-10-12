@@ -1088,3 +1088,98 @@ test("PI 31 — THE SAME QUESTION, ANSWERED, WITH EVERY MESSAGE AFTER THE ANSWER
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
 });
+
+// ── IMAGE-FREE ADDITIONS (2026-10-12, the acceptance plan's Add-on cases) ────
+//
+// The owner, closing the repair batch on 358dff0a: testing independent
+// additions must not depend on buying photographs. PI 24 (a table and a
+// questions section) and PI 29 (an Add-on part beside an Edit part) were
+// already image-free; these two are the shapes the live scenarios
+// `acc-addon-inner` and `acc-addon-pair` press, with nothing bought: a new page
+// and a section on another page inside ONE addition, and two sections on two
+// pages as TWO add-on parts.
+const W_DELIVERY = "add a Delivery page saying we deliver to Clifton, Redland and Montpelier";
+const PAGE_SPEC = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
+const DELIVERY = { path: "src/routes/delivery.tsx", source: "import { createFileRoute } from '@tanstack/react-router'\nexport const Route = createFileRoute('/delivery')({ component: Page })\nfunction Page(){ return <main><h1>Delivery</h1><p>We deliver to Clifton, Redland and Montpelier on weekday mornings.</p></main> }\n" };
+
+test("PI 32 — IMAGE-FREE, ONE ADDITION: A NEW PAGE AND A QUESTIONS SECTION ON ANOTHER PAGE: the page's and the section's designers run at the same time; both land, each designer and the page writer asked once, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
+  const designers = rendezvous(["add:page", "add:component"]);
+  await withPlatform({
+    slug: slugOf("p32"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: { intent: "addon" },
+      [T.adds]: { kinds: ["page", "component"], scopes: [{ kind: "page", words: W_DELIVERY, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
+      "add:page": async () => { await designers.arrive("add:page"); return { page: [PAGE_SPEC("/delivery", "Delivery")] }; },
+      "add:component": async () => { await designers.arrive("add:component"); return ABOUT_FAQ_ANSWER; },
+      [T.pages]: { pages: [DELIVERY, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_DELIVERY + ", and " + W_ABOUT_FAQ + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(designers.met, { "add:page": true, "add:component": true }, "the designers ran one after the other: " + JSON.stringify(designers));
+    assert.match(String(P.page("delivery.tsx")), /Clifton, Redland and Montpelier/, JSON.stringify(P.pages()));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.equal(P.page("visit.tsx"), VISIT, "a page nobody named changed");
+    assert.equal(designCalls(P), 2, "a designer was asked twice");
+    assert.equal(pageCalls(P), 1, "the page writer was asked twice");
+    assert.equal(P.imageLog.length, 0, "something was bought");
+    const refs = P.ledger.map((e) => e.ref);
+    assert.ok(refs.length > 0, "the observer is alive: the addition was charged");
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});
+
+const W_VISIT_HOURS = "add an opening hours section to the Visit page";
+const VISIT_WITH_HOURS = "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "import { Card } from '@/components/ui/card'\n"
+  + "export const Route = createFileRoute('/visit')({ component: Page })\n"
+  + "function Page(){ return <main><section className=\"come\"><h1>Come to the bakery</h1><p>Open from 8.</p></section><section className=\"hours\"><Card><h2>Opening hours</h2><p>Tuesday to Sunday, 8 till 2.</p></Card></section></main> }\n";
+const VISIT_HOURS_ANSWER = { component: [{ page: "/visit", where: "after the welcome", does: "lists the opening hours", components: ["card"] }] };
+const HOURS_TARGETS = ["page:/visit", "new-component:hours"];
+const isHours = (args) => /opening hours/.test(ownWords(args));
+// A DESIGNER IS TOLD ITS OWN PART UNDER "What they asked to add:".
+const designsHours = (args) => /opening hours/.test((/What they asked to add:\n([^\n]*)/.exec(String(args.messages[0].content)) || [])[1] || "");
+for (const hoursFirst of [false, true]) {
+  test("PI 33 (" + (hoursFirst ? "hours first" : "questions first") + ") — IMAGE-FREE, TWO ADD-ON PARTS ON TWO PAGES: the second part's designer runs while the first part's does; its job replays its preparation exactly; both sections land, every other page as it was, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
+    const meet = rendezvous(["faq", "hours"]);
+    const [w0, w1] = hoursFirst ? [W_VISIT_HOURS, W_ABOUT_FAQ] : [W_ABOUT_FAQ, W_VISIT_HOURS];
+    const [t0, t1] = hoursFirst ? [HOURS_TARGETS, FAQ_TARGETS] : [FAQ_TARGETS, HOURS_TARGETS];
+    await withPlatform({
+      slug: slugOf("p33" + (hoursFirst ? "h" : "f")), pages: PAGES, replies: true, balance: 400,
+      answers: {
+        route: (args, n) => (n === 0 ? { intent: "addon", alsoAsked: [w1], targets: [{ change: 0, writes: t0 }, { change: 1, writes: t1 }] } : { intent: "addon" }),
+        [T.adds]: (args) => (isHours(args)
+          ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
+          : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
+        "add:component": async (args) => {
+          if (designsHours(args)) { await meet.arrive("hours"); return VISIT_HOURS_ANSWER; }
+          await meet.arrive("faq"); return ABOUT_FAQ_ANSWER;
+        },
+        [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
+          ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
+          : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
+      },
+    }, async (P) => {
+      const r = await sendMessage(P, { message: "Please " + w0 + ", and " + w1 + "." });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      const first = P.queue.splice(0);
+      await Promise.all(first.map((m) => deliver(P, m)));
+      const { rec } = await settle(P, r.key);
+      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.deepEqual(meet.met, { faq: true, hours: true }, "one part's designer waited for the other's: " + JSON.stringify(meet));
+      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+      assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
+      assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
+      assert.equal(designCalls(P), 2, "a section was designed twice");
+      assert.equal(P.imageLog.length, 0, "something was bought");
+      const view = await viewOf(P, r.key);
+      const u = prepUseOf(view, 1);
+      assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, "the second part's job did not replay its preparation exactly: " + JSON.stringify(view.parts[1]));
+      const refs = P.ledger.map((e) => e.ref);
+      assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
+      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+    });
+  });
+}
