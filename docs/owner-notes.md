@@ -968,7 +968,18 @@ Done so far:
   - Fixed: the basis is shortened. A guard now runs every acceptance probe
     file through `readProbeBatch`, and it fails on the old file.
   - The message itself is unchanged.
-- **Next**: M0 again (routing only), with the balance box at 947.
+- **M0 — run 133** (17:45–17:46 UTC, from the branch at `cb8ce827`).
+  - Preflight: deploy `df1dcf30f5fb`, image `1e30b6fb56b51794`; the opt-in
+    was met at exactly 947.
+  - The real router answered **`edit · text`**, holding additions back.
+    The decision was `model`, with `also-several`: the model held back
+    **more than one** entry.
+  - The log line shortens the held parts to the first one. The full answer,
+    with each entry and its `targets` and `dependsOn`, is in the run's
+    evidence (`routing-probes.json`, artifact 11763327226). This session
+    cannot download it.
+  - **Eligibility is not decided until those are read.**
+  - Cost 3 (947 → 944, read from `credits` at 17:46:38).
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
