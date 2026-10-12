@@ -8,7 +8,8 @@ instruction.*
 
 **As of 2026-10-12, branch `claude/help-needed-ehlwlj`. Product code
 `754c4eb4`, reviewed by Codex on `358dff0a`. The acceptance harness changed in
-round 16 (scripts and tests only, no product code).**
+rounds 16–18 (scripts and tests only, no product code) and was reviewed by
+Codex on `dc3ea241`: the harness repair batch is closed.**
 
 ## 1. State
 
@@ -194,4 +195,8 @@ Before anything is implemented or pressed, choose one:
   `10663 / 10663 / 0 / 0`; acceptance sweep 41 files, **537 / 537**; sweep
   13 of 14 (1 equivalent), control surviving; red check 5 of 22 failing on
   `2015cc0c`; CI unit tests 38236080782 `success` on `d9434979`.
-
+- **Closed** (2026-10-12): Codex reviewed `dc3ea241`. 212 focused tests
+  passed, three browser-dependent tests were skipped, both independent
+  served-price controls passed, and CI was green (unit tests 38237458207
+  `success` on `dc3ea241`). The acceptance-harness repair batch is closed.
+  Nothing completed is to be repeated without a concrete reason.

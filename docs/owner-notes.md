@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: round 18 judges the asked section whole in stored and served output after Codex's control on 2015cc0c; round 17's facts and trace attribution; round 16's image-free Add-on cases and offline-versus-live plan; round 15's every accepted requirement kept; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: the acceptance-harness repair batch is closed on Codex's review of dc3ea241; offline proof complete as far as the plan reaches, live verification waits on your spending and deployment decisions; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -17,6 +17,13 @@ is in git; the dated entries further down are the full story.*
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
+212 focused tests passed, three browser-dependent tests skipped, both
+independent served-price controls passed, and CI was green (unit tests
+38237458207 `success` on `dc3ea241`). The product and harness fixes are kept.
+No further audit is open. What remains is live verification, which needs your
+decisions: plan §§4–6 (`docs/acceptance-current.md`).
 
 **Round 18** (`d9434979`; `docs/history/2026-10-12-acceptance-served-sections.md`).
 Codex reviewed **`2015cc0c`**: 206 focused tests passed, three
@@ -880,6 +887,15 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — The acceptance-harness repair batch closed (offline; not deployed, not pressed)
+
+Codex reviewed `dc3ea241`: 212 focused tests passed, three browser tests were
+skipped, both independent served-price controls passed, and CI was green
+(unit tests 38237458207 `success` on `dc3ea241`). You closed the repair batch
+and kept every fix. The branch stays unmerged, and nothing was pressed. The
+next step is yours: the spending and deployment decisions in the acceptance
+plan.
 
 ## 2026-10-12 — Parallel work round 18: the asked section judged whole, stored and served (offline; not deployed, not pressed)
 
