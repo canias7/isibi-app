@@ -899,6 +899,16 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-12 — Run 124: check 2 refused before the sign-in (box mix-up, free)
+
+Run 124 (edit canary from `main`, run 38253146307, 13:04 UTC) had
+`acceptance-split-1` in the *REQUEST BATCH ONLY* box (`batch_spent`), not
+the *ROUTING-ONLY BATCH* box (`route_probes`, the form's last box). The
+canary refused as designed ("the batch's spend box is filled, but the
+scenario box does not name rq-batch or rq-batch-r2") with exit 2, before
+signing in. Nothing was read, routed or charged. Check 2 is still to be
+pressed.
+
 ## 2026-10-12 — Run 123: deploy 2192 runtime-confirmed (check 1, free)
 
 You pressed check 1 (edit canary from `main`, run 38252367780, 12:58 UTC;
