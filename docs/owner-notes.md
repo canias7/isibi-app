@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: the requirements checkpoint made required state and lossless; round 12's requirements across clarification and resume; earlier rounds' requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: a checkpoint that cannot be read is recovered by the server, and oversized checkpoints and answers are kept whole; round 13's required, lossless checkpoint; earlier rounds' requirements across resume, requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,13 +9,65 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`a5054e40`**
-  (round 13; product files from `03b758ec`), then the records and pin
-  commit. Its predicted image is **`31811cf56e30d18c`** (205 inputs; not
-  built; was `d9800cfea19e7cee`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`ed6dbb7b`**
+  (round 14; product files from `985607c7`), then the records and pin
+  commit. Its predicted image is **`b4fd90bc5733635b`** (205 inputs; not
+  built; was `31811cf56e30d18c`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 14** (`985607c7`, `ed6dbb7b`;
+`docs/history/2026-10-12-checkpoint-recovery-oversized.md`). Codex passed
+314 focused tests on `29fc95af`; round 13's fixes and the parallel scheduling
+are kept.
+- **Fixed: a checkpoint that cannot be read no longer uses up the request.**
+  Round 13 ran the part twice more and then failed it, so you would have had
+  to send it again.
+  - The part is now `recovering` on its request: nothing is applied or
+    charged, and its checkpoint and kept answers stay.
+  - The existing driver runs it again at once, then after a wait doubling
+    from 30 s to 30 min, for up to a day.
+  - The next try is a time on the record, so a restart loses nothing: the
+    two-minute sweep picks it up.
+  - Only a checkpoint known lost (missing with no copy, or malformed) fails
+    at once.
+  - Independent parts go on, dependents wait, and a stop cancels it.
+  - The page says "Picking this up again". A try that stopped at the guard
+    writes no reply of its own; each did before, one model call per try.
+- **Fixed: the oversized fallback.** A checkpoint the store refuses rides as
+  what changed since the last one (kept, renamed, added, dropped). The part
+  keeps it, and staging resolves the chain, so the paused job is never run
+  again just to rebuild it.
+- **Found and fixed while testing that: a finished answer over 200,000
+  characters was cut**, and the request then read it as "done, nothing
+  recorded".
+  - It is now kept whole beside the job and read back by every reader of the
+    job's row.
+  - Unreadable just now, its readers wait.
+  - Never kept, the part says its outcome was not recorded: partial, never
+    done.
+- **Evidence** (mocked; judge inputs, durable records, stored outcomes and
+  reply facts checked): **RC 1–13**.
+  - RC 1 is the requested case: an outage past the old window, a restart, and
+    the same request resuming with no message from you and no designer asked
+    again.
+  - The others: bounded backoff and the day's end, duplicate delivery, stop,
+    an empty checkpoint, an independent sibling, a dependent part, 384
+    requirements above the inline bound with every write refused, the delta
+    read back, an unreadable and an unsaved whole answer, and a part that
+    never paused.
+  - Red: on `29fc95af` all 12 then written fail.
+  - Sweep (`sweep19`): **13 of 14** killed, the control surviving. The
+    survivor was a path no case reached; RC 13 now kills it.
+  - Full suite `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases). Acceptance sweep 39 files, **498 / 498**. CI:
+    unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`.
+- **Remaining** (history §6):
+  - No reproduced defect is open.
+  - Not yet checked: over-cap requirements written beside a question.
+  - Limits: a delta's bound sits at several thousand requirements; an unsaved
+    spill is told as unrecorded, not itemised; recovery gives up after a day.
+  - Live-unverified: R2's real failures and the sweep's real cadence.
 
 **Round 13** (`03b758ec`, `a5054e40`;
 `docs/history/2026-10-12-checkpoint-reliability-retention.md`). Codex passed
@@ -658,6 +710,34 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-12 — Parallel work round 14: a checkpoint that cannot be read is recovered by the server; oversized checkpoints and answers kept whole (offline; not deployed, not pressed)
+
+- **You**: Codex passed 314 focused tests on `29fc95af`; keep those fixes.
+  - A checkpoint read failure must leave the accepted request recoverable,
+    never needing a resend: bounded retries with backoff through the
+    existing driver, keeping independent work, dependencies, ownership, and
+    protection against duplicate publishing and charging.
+  - Test an outage past the retry window, then a restart.
+  - Exercise the oversized fallback with failed writes and a forgetful
+    resumed designer, and fix it through shared persistence.
+  - Cover duplicates, cancellation, empty checkpoints and sibling completion.
+- **Done**:
+  - `985607c7`: the change and its tests;
+  - `ed6dbb7b`: RC 13, for the sweep's survivor;
+  - the commit carrying these records and the pin `b4fd90bc5733635b`.
+- **Verified offline**:
+  - red check: all 12 first cases fail on `29fc95af`;
+  - sweep 13 of 14, the survivor then covered by RC 13;
+  - full suite `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases);
+  - acceptance sweep 498 / 498 across 39 files;
+  - doc tests 32/32; acceptance entry points 11/11;
+  - CI: unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, paid or fal call, or real image. Remaining work is in the
+  history's §6.
 
 ---
 
