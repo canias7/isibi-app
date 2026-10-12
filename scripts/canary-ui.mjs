@@ -1248,6 +1248,39 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs from our ovens' to 'Photographs straight from our ovens'.", ms: 20 * 60_000 }),
     ]),
   }),
+  // E AGAIN, AFTER THE ISOLATION FIX (2026-10-12, prepared, not pressed): the
+  // shape run 137 failed — an Add-on part (a questions section on the Bake
+  // List page) beside an edit part (the Gallery heading) — on the site as it
+  // is now: run 137's heading change landed ("Photographs straight from our
+  // ovens"), so this one changes it again, losing those words, which is
+  // exactly what the Add-on's page writer must not do; the Bake List still
+  // has no questions section (read 2026-10-12). Both parts must finish,
+  // each page changed only as asked, the heading part's preparation replayed
+  // exactly beside the Add-on job. ABOUT 12–26: routing 2–3, the heading 1–3,
+  // the Add-on 7–15, its judgment about 1.
+  "acc-isolation": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 26, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "look", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/gallery", from: "Photographs straight from our ovens", to: "Fresh from our ovens" })]),
+      sections: Object.freeze([Object.freeze({
+        route: "/bake-list", says: Object.freeze(["Monday"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "the list is updated", any: Object.freeze(["updated", "update", "refreshed", "changes"]) }),
+          Object.freeze({ fact: "every Monday", any: Object.freeze(["every monday", "each monday", "on mondays", "mondays", "monday"]) }),
+          Object.freeze({ fact: "in the morning", any: Object.freeze(["morning", "mornings"]) }),
+        ]),
+        only: Object.freeze({ days: Object.freeze(["monday"]), parts: Object.freeze(["morning"]) }),
+      })]),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs straight from our ovens' to 'Fresh from our ovens'.", ms: 20 * 60_000 }),
+    ]),
+  }),
   // B3 — TWO ADD-ON SECTIONS ON TWO PAGES: whether the real router makes one
   // Add-on (expected: one add-on answer can make both, so they are batched)
   // or two parts is recorded (`routingShape`), never demanded, like A5. As

@@ -26,7 +26,7 @@ import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } f
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
-const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts"];
+const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation"];
 // THE MESSAGES P1 (run 128) ROUTED, in acceptance-split-1; acc-addon-kinds was
 // written after it and is probed alone, in acceptance-split-2.
 const P1_PROBED = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair"];
@@ -812,4 +812,17 @@ test("OPENED 2 — THE CANARY READS A SECTION'S PAGE OPENED, BEFORE AND AFTER: e
   assert.match(inv, /readOpenedPage\(browser, \{ url: origin \+ r \}\)/);
   assert.match(inv, /writeFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.open\.json`, JSON\.stringify\(\{ ok: o\.ok, complete: o\.complete, why: o\.why, html: o\.html, items: o\.items, failed: o\.failed, truncated: o\.truncated \}/);
   assert.match(inv, /render\[r\]\.open = /);
+});
+
+test("acc-isolation (prepared after the task-isolation fix, not pressed): run 137's shape on the site as it was read on 2026-10-12 — the Gallery heading as it now reads ('Photographs straight from our ovens', run 137's own change) changed again, losing those words, beside a questions section the Bake List does not have; both parts, overlap and an exact reuse by a part that overlapped are demanded; images off; not in the balance opt-in until approved", () => {
+  const sc = UI_SCENARIOS["acc-isolation"];
+  assert.ok(sc);
+  assert.deepEqual(sc.expect.headings.map((h) => ({ ...h })), [{ route: "/gallery", from: "Photographs straight from our ovens", to: "Fresh from our ovens" }]);
+  assert.ok(!"Fresh from our ovens".includes("Photographs straight from our ovens"), "the change must lose the old words, or the kept guard could not see a stray rewrite");
+  assert.deepEqual(sc.expect.sections.map((x) => x.route), ["/bake-list"]);
+  assert.equal(sc.expect.overlap, true);
+  assert.deepEqual({ ...sc.expect.reuse }, { exact: 1, overlapped: true });
+  assert.equal(sc.images, "none");
+  assert.ok(sc.steps[0].say.includes("'Photographs straight from our ovens' to 'Fresh from our ovens'"));
+  assert.ok(sc.steps[0].say.includes("'When is the list updated?' with 'Every Monday morning.'"));
 });
