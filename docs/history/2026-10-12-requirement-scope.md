@@ -120,7 +120,7 @@ driver, queue consumer, routes, job runner and checkpoint. Each case reads:
   112, genuine dependencies 92, clarification and resume 201 (14 files),
   partial failure 107.
 - **Doc tests** 32 of 32; acceptance entry points 11 of 11 with the new pin.
-- **Required CI**: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`.
+- **Required CI**: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`; unit tests 38196181952 `success` on `26cfcaf1` (the records).
 
 ## 6. Remaining work, by kind
 

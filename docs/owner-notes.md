@@ -46,7 +46,7 @@ are kept.
   - Red: on `703faade` both controls pass and the other 12 fail.
   - Sweep (`sweep20`): **7 of 7** killed, the control surviving.
   - Full suite `10638 / 10638 / 0 / 0`. Acceptance sweep 40 files,
-    **512 / 512**. CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`.
+    **512 / 512**. CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`; unit tests 38196181952 `success` on `26cfcaf1` (the records).
 - **Remaining** (history §6):
   - No reproduced defect is open.
   - Limits: one answer is still bounded by its output tokens (named as
@@ -768,7 +768,7 @@ since. Add new ones there.
   - full suite `10638 / 10638 / 0 / 0`;
   - acceptance sweep 512 / 512 across 40 files;
   - doc tests 32/32; acceptance entry points 11/11;
-  - CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`.
+  - CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`; unit tests 38196181952 `success` on `26cfcaf1` (the records).
 - **Not done**: any press, merge, deploy, container build, balance or flag
   change, paid or fal call, or real image. Remaining work is in the
   history's §6.
