@@ -1040,7 +1040,13 @@ Done so far:
       "unseen"), not missing content. Recorded, not fixed here.
     - Everything else is byte for byte, and the tables are unchanged.
   - Replies: both written by the model and shown on screen.
-- **Next**: E (`acc-addon-edit`), with the balance box at 914.
+- **E, first press — run 136** (19:00 UTC) **refused before the sign-in,
+  at no cost.** It was the same box mix-up as run 134: the scenario name
+  went into box 6 ("REQUEST BATCH ONLY …"). Balance 914, unchanged.
+  - The form's scenario box (5) has a very long label that ends just above
+    box 6's short label. A backlog finding for the form, not changed during
+    the batch.
+- **Next**: E again.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
