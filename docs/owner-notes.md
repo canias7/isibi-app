@@ -942,7 +942,9 @@ changed.
     `scripts/canary-ui.mjs`. I found it by its text, reverted it, and
     confirmed all three files match their pre-sweep hashes before re-running.
     Nothing was committed while it ran.
-- Full suite **10672 / 10672 / 0 / 0** locally (10663 before).
+- Full suite **10672 / 10672 / 0 / 0** locally (10663 before). Unit CI is
+  green on `959663d7` (run 38258334612): `10672 / 10631 / 0 / 41`, the same
+  total, with CI skipping 41.
 
 **Your steps** (`docs/acceptance-current.md` §6):
 1. Review it.

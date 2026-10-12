@@ -72,5 +72,9 @@ expected to be reused.
 - The import guard in `test/canary-ui.test.mjs` names the two new imports.
 - The red check: on the old scripts, the new file and the new driver case
   both fail.
-- The sweep, the full suite and CI: see the owner-notes entry of the same
-  date.
+- The sweep: 16 of 16 mutants killed, and both comment-only controls
+  survived. A first run hit its time limit and left one mutant in the tree.
+  It was found, reverted and confirmed by hash before the re-run, and nothing
+  was committed meanwhile.
+- The full suite: `10672 / 10672 / 0 / 0` locally. Unit CI is green on
+  `959663d7` (run 38258334612): `10672 / 10631 / 0 / 41`.
