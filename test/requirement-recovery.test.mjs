@@ -523,3 +523,17 @@ test("RC 10 — THE DELTA, READ BACK: unchanged requirements are not carried aga
   assert.equal(heldDelta(now, { job: "j1", count: 4, list: base.requirements }), null, "a base of another size was used");
   assert.equal(heldDelta(now, null), null);
 });
+
+test("RC 13 — AN ADDITION THAT NEVER PAUSED, WHILE CHECKPOINT READS FAIL: it has nothing to resume, so it reads no checkpoint and finishes — never held up recovering a checkpoint it never had", { timeout: 60000 }, async () => {
+  const j = judgeLog();
+  await withPlatform({ slug: slugOf("13"), pages: PAGES, replies: true, balance: 400, answers: answers(async () => FAQ("/about", []), j.fn) }, async (P) => {
+    storeDown(P, { on: true });
+    const r = await sendMessage(P, { message: "Please add a questions section to the About page." });
+    await settle(P, r.key);
+    const rec = P.record(r.key);
+    assert.equal(rec.parts[0].status, "done", why(rec));
+    assert.deepEqual(runEnds(P, r.key), ["success"]);
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"));
+    once(P);
+  });
+});
