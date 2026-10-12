@@ -263,8 +263,8 @@ if (PROBES_ASK.name) {
 }
 // THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, plan §5 option A;
 // `readBalanceOptIn`). Read whole before the sign-in: a malformed number, or
-// the box beside any press but the admitted batch (`BALANCE_OPT_IN`: since
-// 2026-10-12, K0, K, E, M0 and M; P1/P2 closed), refuses at no cost.
+// the box beside any press but the admitted one (`BALANCE_OPT_IN`: since
+// 2026-10-12, `acc-isolation` alone), refuses at no cost.
 const OPT_IN = readBalanceOptIn(process.env.CANARY_ACCEPT_BALANCE, { probes: PROBES_ASK.name || "", ui: UI_ASK && UI_ASK.ok ? UI_ASK.name : "" });
 if (!OPT_IN.ok) {
   console.error(`REFUSING: ${OPT_IN.msg}. Nothing was signed in or charged.`);

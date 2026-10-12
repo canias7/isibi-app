@@ -249,14 +249,13 @@ on:
         required: false
         default: ''
       # THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, the
-      # acceptance plan's option A; since 2026-10-12 the second batch only,
-      # P1/P2 closed). Only beside acceptance-split-2, acc-addon-kinds,
-      # acc-addon-edit, acceptance-split-3 or acc-addon-two-parts: the balance, in whole credits, the
+      # acceptance plan's option A; since 2026-10-12 the isolation release's
+      # one press only). Only beside acc-isolation: the balance, in whole credits, the
       # press may run against in place of the 100-credit cap. Any other
       # balance at the paid call refuses; a malformed number or the box beside
       # any other press refuses before the sign-in. Not a budget.
       accept_balance:
-        description: 'ACCEPTANCE K0/K/E/M0/M ONLY (acceptance-split-2, acc-addon-kinds, acc-addon-edit, acceptance-split-3, acc-addon-two-parts): your balance in whole credits (e.g. 971). Lets this one press run above the 100-credit cap only while the balance is exactly this number. Not a budget: the press may spend up to that whole balance. Blank otherwise.'
+        description: 'ACCEPTANCE acc-isolation ONLY: your balance in whole credits (e.g. 971). Lets this one press run above the 100-credit cap only while the balance is exactly this number. Not a budget: the press may spend up to that whole balance. Blank otherwise.'
         required: false
         default: ''
 

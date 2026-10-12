@@ -1941,12 +1941,11 @@ export function capRefusal({ now, cap }) {
  * IT IS NOT A BUDGET: the server still refuses only what the balance cannot
  * cover, so a press run under it can spend up to that whole balance.
  */
-// THE SECOND BATCH (2026-10-12, the owner: "Go ahead with the prepared
-// image-free K0/K/E/M0/M batch … Extend approval only to these cases, keeping
-// P1/P2 closed"): the box now admits exactly K0 (`acceptance-split-2`), K
-// (`acc-addon-kinds`), E (`acc-addon-edit`), M0 (`acceptance-split-3`) and M
-// (`acc-addon-two-parts`), and no longer P1 or P2, which are closed.
-export const BALANCE_OPT_IN = Object.freeze(["acceptance-split-2", "acc-addon-kinds", "acc-addon-edit", "acceptance-split-3", "acc-addon-two-parts"]);
+// THE ISOLATION RELEASE (2026-10-12, the owner: "Approve the proposed
+// task-isolation release and one acc-isolation run … restrict the spending
+// opt-in to this case"): the box admits `acc-isolation` alone. The K0/K/E/M0/M
+// batch that it admitted before is done and closed, as are P1/P2.
+export const BALANCE_OPT_IN = Object.freeze(["acc-isolation"]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";
