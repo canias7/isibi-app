@@ -974,7 +974,8 @@ description. No product code changed.
 **Checked**:
 - Red check: 7 scenario cases fail on the old scripts.
 - Sweep: 12 of 12 killed, and both comment-only controls survived.
-- Full suite `10678 / 10678 / 0 / 0`.
+- Full suite `10678 / 10678 / 0 / 0`. Unit CI is green on `1f33c80a` (run
+  38268505150): `10678 / 10637 / 0 / 41`, the same total.
 
 **Subsequent live gaps**: the missing-context clarification (`acc-needs`) and
 the image-free first Build.

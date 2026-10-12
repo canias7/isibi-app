@@ -126,5 +126,6 @@ the image-free first Build.
   - K unnamed in the form.
 
   Every file matched its pre-sweep hash afterwards.
-- **Full suite** `10678 / 10678 / 0 / 0` locally (10672 before).
+- **Full suite** `10678 / 10678 / 0 / 0` locally (10672 before). Unit CI is
+  green on `1f33c80a` (run 38268505150): `10678 / 10637 / 0 / 41`.
 - **The container image is unchanged**: no input was touched.
