@@ -1277,3 +1277,64 @@ test("PI 35 — TWO ADD-ON PARTS, A NEW PAGE AND A SECTION ON ANOTHER PAGE (S7 a
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
 });
+
+// THE ONE ROUTING SHAPE THAT MAKES TWO INDEPENDENT ADD-ON PARTS (2026-10-12,
+// after P1). The router's instructions make additions ONE "addon" answer when
+// it can make them all, and hold a change back only when the chosen answer
+// cannot make it ("something to ADD … beside a change"). So two additions
+// become two parts only when the message's answer is NOT an addition — an
+// edit — and each addition is held back as its own entry. Both held parts are
+// scoped additions on two other pages: each reads the page list, the look and
+// its own page, and writes only its own page and new component, so neither
+// feeds the other and neither is fed by the heading's text job
+// (`clearToPrepare`). Their preparations run at the same time, and each job
+// replays its own exactly. What this does NOT show: whether the real router
+// answers that way (the eligibility the live probe reads).
+const W_HOME_HEAD = "make the home heading say Harbour Loaf Bakery";
+const homeLine = (args) => {
+  const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[index.tsx] Harbour Loaf"));
+  return Number(String(at || "-1.").split(".")[0]);
+};
+test("PI 36 — A HEADING CHANGED, WITH TWO ADDITIONS HELD BACK AS TWO ADD-ON PARTS ON TWO OTHER PAGES: the two Add-on parts' designers run at the same time; each Add-on job replays its own preparation exactly; all three land, every other page as it was, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
+  const meet = rendezvous(["faq", "hours"]);
+  await withPlatform({
+    slug: slugOf("p36"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0
+        ? { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ, W_VISIT_HOURS], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }, { change: 2, writes: HOURS_TARGETS }] }
+        : { intent: "addon" }),
+      [T.text]: async (args) => ({ edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
+      [T.adds]: (args) => (isHours(args)
+        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
+        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
+      "add:component": async (args) => {
+        if (designsHours(args)) { await meet.arrive("hours"); return VISIT_HOURS_ANSWER; }
+        await meet.arrive("faq"); return ABOUT_FAQ_ANSWER;
+      },
+      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
+        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
+        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", " + W_ABOUT_FAQ + ", and " + W_VISIT_HOURS + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const first = P.queue.splice(0);
+    await Promise.all(first.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(meet.met, { faq: true, hours: true }, "one Add-on part's designer waited for the other's: " + JSON.stringify(meet));
+    assert.match(P.page("index.tsx"), /Harbour Loaf Bakery/);
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
+    assert.equal(designCalls(P), 2, "a section was designed twice");
+    assert.equal(P.imageLog.length, 0, "something was bought");
+    const view = await viewOf(P, r.key);
+    for (const n of [1, 2]) {
+      const u = prepUseOf(view, n);
+      assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, `Add-on part ${n}'s job did not replay its preparation exactly: ` + JSON.stringify(view.parts[n]));
+    }
+    const refs = P.ledger.map((e) => e.ref);
+    assert.ok(refs.length >= 3, "the observer is alive: every job was charged");
+    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
+  });
+});

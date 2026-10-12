@@ -26,7 +26,7 @@ import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } f
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
-const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds"];
+const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts"];
 // THE MESSAGES P1 (run 128) ROUTED, in acceptance-split-1; acc-addon-kinds was
 // written after it and is probed alone, in acceptance-split-2.
 const P1_PROBED = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair"];
@@ -490,4 +490,129 @@ test("AFTER P1 — acc-addon-kinds asks for two kinds whose designers wait for n
   assert.deepEqual(designWaits(["component", "words"], { uses: { component: ["words"], words: ["component"] } }), { component: [], words: [] });
   // CONTROL: a page does change what a section is shown, so S7's shape waits unless told otherwise.
   assert.deepEqual(designWaits(["page", "component"]), { page: [], component: ["page"] });
+});
+
+// ── TWO INDEPENDENT ADD-ON PARTS (2026-10-12, the open planning gap) ────────
+//
+// The owner: *"propose a natural image-free request that could exercise two
+// independent Add-on parts, explain from their actual read/write dependencies
+// why they can overlap, and state what routing result would make the case
+// eligible. Do not force routing or change product behavior to fit the test;
+// … Keep this separate from the existing Add-on-plus-Edit case."*
+// `acc-addon-two-parts`: the Bakers heading, a questions section on Tasting
+// Evenings and a note on Classes. Eligible only if the real router answers
+// the heading and holds back the two additions as two entries (probed first,
+// `acceptance-split-3`); the offline run of that shape is PI 36.
+
+test("TWO ADD-ON PARTS — acc-addon-two-parts demands overlap BETWEEN TWO ADD-ON PARTS and exact reuse by both, records the router's shape, reads nothing inside one job, and is not acc-addon-edit", () => {
+  const sc = UI_SCENARIOS["acc-addon-two-parts"];
+  const e = sc.expect;
+  assert.equal(e.overlap, "addon-parts");
+  assert.deepEqual({ ...e.reuse }, { exact: 2, overlapped: "addon-parts" });
+  assert.equal(e.shape, true);
+  assert.equal(e.inner, undefined, "one Add-on's designers are not what this case is about");
+  assert.deepEqual(e.sections.map((x) => x.route), ["/tasting-evenings", "/classes"]);
+  assert.deepEqual(e.headings.map((h) => ({ ...h })), [{ route: "/bakers", from: "Who mixes while Bristol sleeps", to: "Who mixes while the city sleeps" }]);
+  assert.ok(sc.covers.includes("addon-parts"));
+  assert.ok(Object.hasOwn(COVERAGE, "addon-parts"), "the two-Add-on-parts coverage has no reader");
+  const edit = UI_SCENARIOS["acc-addon-edit"];
+  assert.notEqual(sc.steps[0].say, edit.steps[0].say);
+  const pages = (s) => [...(s.expect.sections || []).map((x) => x.route), ...(s.expect.headings || []).map((x) => x.route)];
+  for (const k of ["acc-addon-edit", "acc-addon-kinds"]) assert.ok(!pages(UI_SCENARIOS[k]).some((r) => pages(sc).includes(r)), `${k} shares a page with acc-addon-two-parts`);
+  assert.ok(sc.steps[0].ms <= 30 * 60_000);
+});
+
+test("TWO ADD-ON PARTS — the Classes note: ages 12 and up passes, in other words too; all ages, or no age, fails by name", () => {
+  const expect = want("acc-addon-two-parts", "/classes");
+  const note = (w) => `<aside><p>${w}</p></aside>`;
+  assert.deepEqual(press({ expect, stored: note("Classes are for ages 12 and up.") }), []);
+  assert.deepEqual(press({ expect, stored: note("Open to anyone aged 12 or over.") }), []);
+  assert.ok(press({ expect, stored: note("Classes are for all ages, 12 and up.") }).some((n) => /does not claim "all ages"/.test(n)), "all ages passed");
+  assert.ok(press({ expect, stored: note("Classes are for everyone.") }).some((n) => /says|states/.test(n)), "a note with no age passed");
+});
+
+test("TWO ADD-ON PARTS — the Tasting Evenings section is judged as acc-addon-inner's is: £25 a head with cheese passes; another amount, or cheese extra, fails", () => {
+  const expect = want("acc-addon-two-parts", "/tasting-evenings");
+  assert.deepEqual(press({ expect, stored: PRICE("£25 a head, cheese included.") }), []);
+  assert.ok(press({ expect, stored: PRICE("£30 a head, cheese included.") }).length > 0, "another amount passed");
+  assert.ok(press({ expect, stored: PRICE("£25 a head; cheese is extra.") }).some((n) => /cheese/.test(n)), "cheese extra passed");
+  // THE DENIAL ON ITS OWN: every asked fact stated, and the denied claim beside it.
+  const both = press({ expect, stored: PRICE("£25 a head, cheese included. Cheese is extra on Fridays.") });
+  assert.ok(both.some((n) => /does not claim "cheese is extra"/.test(n)), "a denied claim beside the asked facts passed: " + JSON.stringify(both));
+});
+
+test("TWO ADD-ON PARTS — probed alone, first, by acceptance-split-3: one acceptance probe of its exact words, unjudged; acceptance-split-1 and -2 are left exactly as they were", () => {
+  const three = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-3.json", "utf8"));
+  assert.equal(three.batch, "acceptance-split-3");
+  assert.equal(three.acceptance, true);
+  assert.equal(three.probes.length, 1);
+  assert.equal(three.probes[0].message, UI_SCENARIOS["acc-addon-two-parts"].steps[0].say);
+  assert.equal(three.probes[0].intended, null);
+  assert.equal(three.probes[0].site, SLUG);
+  const one = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-1.json", "utf8"));
+  assert.equal(one.probes.length, 9);
+  const two = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/acceptance-split-2.json", "utf8"));
+  assert.deepEqual(two.probes.map((p) => p.message), [UI_SCENARIOS["acc-addon-kinds"].steps[0].say]);
+});
+
+test("TWO ADD-ON PARTS — from the read/write rules: each held addition, scoped to its own page, reads the page list, the look and its page; neither waits for the other or for the heading's text job; the same new component named for both, or a new page, makes it wait", async () => {
+  const { clearToPrepare, stepInputs } = await import("../builder/request-plan.mjs");
+  const part = (n, writes, route) => ({ n, at: n, needs: [], status: "ready", phase: "run", route: route || { op: "addon", intent: "addon" }, targets: { writes, reads: [] } });
+  const heading = part(0, ["page:/bakers"], { op: "edit", intent: "edit", layer: "text" });
+  const tasting = part(1, ["page:/tasting-evenings", "new-component:tasting-questions"]);
+  const classes = part(2, ["page:/classes", "new-component:classes-note"]);
+  assert.deepEqual(stepInputs(tasting).sort(), ["page:/tasting-evenings", "pagelist", "theme"].sort());
+  const live = () => false;
+  assert.equal(clearToPrepare([heading, tasting, classes], 1, live), true, "the section waited for the heading");
+  assert.equal(clearToPrepare([heading, tasting, classes], 2, live), true, "the note waited for the section or the heading");
+  assert.equal(clearToPrepare([heading, tasting, part(2, ["page:/classes"])], 2, live), true, "no component named: clear");
+  // CONTROLS: what would make it ineligible.
+  assert.equal(clearToPrepare([heading, tasting, part(2, ["page:/classes", "new-component:tasting-questions"])], 2, live), false, "one new component named for both did not wait");
+  assert.equal(clearToPrepare([heading, part(1, ["new-page:/delivery", "menu"]), classes], 2, live), false, "a new page did not hold the note");
+});
+
+test("TWO ADD-ON PARTS — the overlap counted is only between parts routed addon: an Add-on part beside the Edit part's job is not two Add-on parts at once; two Add-on steps together are; fewer than two Add-on parts is missing evidence", async () => {
+  const { overlapVerdict, reuseVerdict } = await import("../scripts/canary-requests.mjs");
+  const T = 1_000_000;
+  const steps = (parts) => [{ sent: true, request: { key: "k", final: { key: "k", at: T, parts } } }];
+  const use = (job) => [{ job, known: true, staged: "yes", replayed: 2, rebased: 0, fresh: 0 }];
+  const text = { n: 1, route: "text", runs: [{ job: "j1", from: T + 1000, to: T + 20_000 }], prepUse: [{ job: "j1", known: true, staged: "no", replayed: 0, rebased: 0, fresh: 1 }] };
+  const add = (n, step, run) => ({ n, route: "addon", prepRun: { from: step[0] - 100, to: step[1] + 100, outcome: "prepared", step: { from: step[0], to: step[1], calls: 2 } }, runs: [{ job: "j" + n, from: run[0], to: run[1] }], prepUse: use("j" + n) });
+  // Each Add-on step beside the heading's job only, one after the other, each job after both steps.
+  const apart = steps([text, add(2, [T + 2000, T + 6000], [T + 30_000, T + 31_000]), add(3, [T + 7000, T + 11_000], [T + 32_000, T + 33_000])]);
+  assert.equal(overlapVerdict(apart).ok, true, "CONTROL: beside the Edit part's job is overlap at the request level");
+  const strict = overlapVerdict(apart, { route: "addon" });
+  assert.equal(strict.ok, false, "an Add-on part beside the Edit part's job counted as two Add-on parts at once");
+  assert.equal(reuseVerdict(apart, { exact: 2, overlapped: true }).ok, true);
+  assert.equal(reuseVerdict(apart, { exact: 2, overlapped: "addon-parts" }).ok, false);
+  // The two Add-on steps together.
+  const together = steps([text, add(2, [T + 2000, T + 9000], [T + 30_000, T + 31_000]), add(3, [T + 3000, T + 11_000], [T + 32_000, T + 33_000])]);
+  const v = overlapVerdict(together, { route: "addon" });
+  assert.equal(v.ok, true, v.why);
+  assert.deepEqual(v.together[0].parts, [2, 3]);
+  assert.equal(reuseVerdict(together, { exact: 2, overlapped: "addon-parts" }).ok, true);
+  // One Add-on step beside the other Add-on part's job.
+  const beside = steps([text, add(2, [T + 2000, T + 4000], [T + 5000, T + 15_000]), add(3, [T + 6000, T + 12_000], [T + 30_000, T + 31_000])]);
+  assert.equal(overlapVerdict(beside, { route: "addon" }).ok, true);
+  // Batched: one Add-on part.
+  const one = overlapVerdict(steps([text, add(2, [T + 2000, T + 9000], [T + 30_000, T + 31_000])]), { route: "addon" });
+  assert.equal(one.ok, false);
+  assert.match(one.why, /missing evidence: 1 part\(s\) routed addon/);
+});
+
+test("TWO ADD-ON PARTS — the press checks it by name: requestBatchVerdict asks for the Add-on-parts overlap and the exact reuse beside another Add-on part, and never the request-level overlap alone", () => {
+  const v = requestBatchVerdict({ spec: UI_SCENARIOS["acc-addon-two-parts"], steps: [{ sent: false }], before: read(PAGES).inv, after: read(PAGES).inv, served: {}, tables: { before: TABLES, after: TABLES }, slug: SLUG });
+  const names = v.checks.map((c) => c.name);
+  assert.ok(names.some((n) => /an Add-on part's prepared step ran while another Add-on part's job or prepared step/.test(n)), JSON.stringify(names));
+  assert.ok(names.some((n) => /at least 2 answered exactly from work prepared beside another Add-on part/.test(n)), JSON.stringify(names));
+  assert.ok(!names.some((n) => /^message 1: a part's prepared step ran while another part's/.test(n)), "the request-level overlap stood in for the Add-on one");
+  assert.equal(v.ok, false);
+});
+
+test("TWO ADD-ON PARTS — the coverage reads two finished Add-on parts: one Add-on, an unfinished one, or an Edit part beside one Add-on is not covered", () => {
+  const cov = (parts) => COVERAGE["addon-parts"]([{ sent: true, request: { key: "k", final: { key: "k", parts } } }]).covered;
+  const p = (n, route, status = "done") => ({ n, route, status });
+  assert.equal(cov([p(1, "text"), p(2, "addon"), p(3, "addon")]), true);
+  assert.equal(cov([p(1, "text"), p(2, "addon")]), false, "one Add-on part covered two");
+  assert.equal(cov([p(1, "text"), p(2, "addon"), p(3, "addon", "failed")]), false, "an unfinished Add-on part covered");
 });

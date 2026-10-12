@@ -264,8 +264,14 @@ export function relationsOf(step) {
  * not overlap). A step that made no model call is not substantive. Open
  * intervals and missing records are reported as missing evidence, never as a
  * pass.
+ *
+ * ONLY BETWEEN PARTS OF ONE ROUTE (`opts.route`, 2026-10-12, the two
+ * independent Add-on parts): both sides of every interval counted must be
+ * parts the request routed there (`route`), so an Add-on part beside the
+ * Edit part's job does not stand for two Add-on parts at once. Fewer than
+ * two such parts is missing evidence, never a pass.
  */
-export function overlapVerdict(steps) {
+export function overlapVerdict(steps, opts = {}) {
   const list = arrOf(steps);
   const first = list[0];
   if (!first || first.sent !== true) return { ok: false, overlaps: [], routingOnly: [], why: "the first message was not sent" };
@@ -273,7 +279,9 @@ export function overlapVerdict(steps) {
   const finals = list.filter((x) => x && x.request && x.request.key === key && x.request.final && typeof x.request.final === "object").map((x) => x.request.final);
   const view = finals.length ? finals[finals.length - 1] : null;
   if (!key || !view) return { ok: false, overlaps: [], routingOnly: [], why: "missing evidence: the request's view was never read" };
-  const parts = arrOf(view.parts);
+  const only = opts && typeof opts.route === "string" && opts.route ? opts.route : "";
+  const parts = arrOf(view.parts).filter((p) => !only || (p && p.route === only));
+  if (only && parts.length < 2) return { ok: false, overlaps: [], together: [], routingOnly: [], timeline: requestTimeline(view), why: `missing evidence: ${parts.length} part(s) routed ${only}; two are needed to overlap each other` };
   const fin = (v) => typeof v === "number" && Number.isFinite(v);
   const preps = [], routes = [], runs = [];
   let open = 0;
@@ -339,7 +347,8 @@ export function overlapVerdict(steps) {
  *            needed more, or a request that changed, asked again;
  *   overlapped  the exact reuse must be by a part whose prepared step
  *            overlapped another part's job or step (`overlapVerdict`), so
- *            the reuse is of concurrent work.
+ *            the reuse is of concurrent work; "addon-parts" counts only an
+ *            overlap between two parts routed `addon`.
  * `{ ok, why, jobs, exact, fresh, said }`.
  */
 export function reuseVerdict(steps, want = {}) {
@@ -376,8 +385,8 @@ export function reuseVerdict(steps, want = {}) {
   const needFresh = Number.isInteger(want.fresh) ? want.fresh : 0;
   if (exact.length < needExact) return { ok: false, why: `${exact.length} job(s) answered exactly from a preparation; ${needExact} required (${JSON.stringify(jobs)})`, ...out };
   if (fresh.length < needFresh) return { ok: false, why: `${fresh.length} prepared job(s) asked a model again; ${needFresh} required (${JSON.stringify(jobs)})`, ...out };
-  if (want.overlapped === true && needExact > 0) {
-    const ov = overlapVerdict(steps);
+  if ((want.overlapped === true || want.overlapped === "addon-parts") && needExact > 0) {
+    const ov = overlapVerdict(steps, want.overlapped === "addon-parts" ? { route: "addon" } : {});
     const parts = new Set([...(ov.overlaps || []).map((o) => o.prepPart), ...(ov.together || []).flatMap((t) => t.parts)]);
     if (!exact.some((x) => parts.has(x.part))) return { ok: false, why: `no job answered exactly was a part whose prepared step overlapped other work (exact: parts ${JSON.stringify(out.exact)}; overlapping: ${JSON.stringify([...parts])})`, ...out };
   }
@@ -1215,6 +1224,13 @@ export const COVERAGE = Object.freeze({
     const done = adds.filter((p) => p.status === "done");
     return { covered: adds.length === 1 && done.length === 1, why: `${adds.length} add-on part(s), ${done.length} done` };
   },
+  // TWO ADD-ON PARTS OF ONE MESSAGE (2026-10-12): at least two parts routed
+  // `addon`, each finished. Whether they ran at once is `overlap: "addon-parts"`.
+  "addon-parts": (steps) => {
+    const adds = partsOf(steps).filter((p) => p && p.route === "addon");
+    const done = adds.filter((p) => p.status === "done");
+    return { covered: adds.length >= 2 && done.length === adds.length, why: `${adds.length} add-on part(s), ${done.length} done` };
+  },
   "several-parts": (steps) => {
     const n = partsOf(steps).length;
     return { covered: n >= 2, why: `${n} part(s)` };
@@ -1503,12 +1519,18 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
     timeline = v.timeline || null;
     checks.push({ name: "message 1: a part's prepared step ran while another part's job or prepared step was executing, by their recorded intervals", ok: v.ok, why: v.ok ? v.said : v.why });
   }
+  // TWO ADD-ON PARTS AT ONCE (2026-10-12): both sides of the overlap are parts routed `addon`.
+  if (spec && spec.expect && spec.expect.overlap === "addon-parts") {
+    const v = overlapVerdict(steps, { route: "addon" });
+    timeline = v.timeline || null;
+    checks.push({ name: "message 1: an Add-on part's prepared step ran while another Add-on part's job or prepared step was executing, by their recorded intervals", ok: v.ok, why: v.ok ? v.said : v.why });
+  }
   // WHAT EACH JOB REUSED AND WHAT IT ASKED A MODEL NOW (2026-10-11), for a press that asks.
   let reuse = null;
   if (spec && spec.expect && spec.expect.reuse && typeof spec.expect.reuse === "object") {
     const w = spec.expect.reuse;
     reuse = reuseVerdict(steps, w);
-    checks.push({ name: `message 1: every job's use of its preparation is recorded and reads${w.exact ? `; at least ${w.exact} answered exactly from work prepared${w.overlapped ? " beside other work" : ""}` : ""}${w.fresh ? `; at least ${w.fresh} asked a model again` : ""}`, ok: reuse.ok, why: reuse.ok ? reuse.said : reuse.why });
+    checks.push({ name: `message 1: every job's use of its preparation is recorded and reads${w.exact ? `; at least ${w.exact} answered exactly from work prepared${w.overlapped === "addon-parts" ? " beside another Add-on part" : w.overlapped ? " beside other work" : ""}` : ""}${w.fresh ? `; at least ${w.fresh} asked a model again` : ""}`, ok: reuse.ok, why: reuse.ok ? reuse.said : reuse.why });
   }
   // THE REAL MODEL'S ANSWER TO WHAT IT WAS NOT SHOWN: recorded, judged by the final state, never passed on its own.
   const needs = spec && spec.expect && spec.expect.needs && typeof spec.expect.needs === "object" ? needsObservation(steps, spec.expect.needs.part) : null;

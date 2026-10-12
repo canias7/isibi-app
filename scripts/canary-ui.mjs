@@ -1335,6 +1335,62 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add one line under the collection times on the Order page saying 'Every loaf is baked the morning you collect it.'", ms: 22 * 60_000 }),
     ]),
   }),
+  // B5 — TWO INDEPENDENT ADD-ON PARTS (2026-10-12, the open planning gap
+  // after P1). One heading changed and two additions on two other pages. The
+  // router's rules make one answer cover the whole message and hold back only
+  // what that answer cannot make; an edit answer cannot add, so if it answers
+  // `text` for the heading each addition is held back — and only if it holds
+  // them back as TWO entries are there two Add-on parts. Read off the code,
+  // not assumed: each held addition is scoped to its own page (`addonScope`),
+  // so its preparation reads `pagelist`, `theme` and its own page
+  // (`stepInputs`) and writes only its own page and, if the router names one,
+  // its own new component; the heading's text job writes only `page:/bakers`.
+  // Neither addition writes a new page, the page list or the theme, and the
+  // two pages differ, so `clearToPrepare` holds neither for the other unless
+  // the router names the same new component for both (PI 36 runs this with
+  // supplied answers: both prepared beside the heading's job and beside each
+  // other, both replayed exactly). Its routing is probed first
+  // (`acceptance-split-3`); ELIGIBLE only if the probe answers an edit layer
+  // with both additions held back as two separate entries and distinct new
+  // components (or none). Batched into one Add-on, held as one entry, or one
+  // component name for both: not pressed, and two independent Add-on parts
+  // stay unverified. The words were read off the live pages on 2026-10-12 as
+  // not there yet. ABOUT 17-37: routing 1-3; the heading's text job 1-2; two
+  // add-ons with one section each 6-12 and their judgments about 1 each; the
+  // two held parts' routings 1-3 each.
+  "acc-addon-two-parts": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 40, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "look", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/bakers", from: "Who mixes while Bristol sleeps", to: "Who mixes while the city sleeps" })]),
+      sections: Object.freeze([
+        Object.freeze({
+          route: "/tasting-evenings", says: Object.freeze(["a head", "cheese"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "£25 a head", any: Object.freeze(["£25 a head", "£25 per head", "£25 per person", "£25 each", "25 pounds a head", "25 pounds per person"]) }),
+            Object.freeze({ fact: "cheese included", any: Object.freeze(["cheese included", "cheese is included", "includes cheese", "including cheese", "cheese included in the price"]) }),
+          ]),
+          only: Object.freeze({ money: Object.freeze(["25"]) }),
+          denies: Object.freeze(["cheese not included", "cheese is extra", "cheese costs extra"]),
+        }),
+        Object.freeze({
+          route: "/classes", says: Object.freeze(["12"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "ages 12 and up", any: Object.freeze(["ages 12 and up", "aged 12 and up", "12 and up", "12 and over", "12 and older", "12 or over", "12 or older", "12+", "over 12", "twelve and up", "twelve and over"]) }),
+          ]),
+          denies: Object.freeze(["all ages", "any age", "under 12s welcome", "under-12s welcome"]),
+        }),
+      ]),
+      overlap: "addon-parts",
+      reuse: Object.freeze({ exact: 2, overlapped: "addon-parts" }),
+      shape: true,
+    }),
+    covers: Object.freeze(["addon-parts", "several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "On the bakers page, change the heading 'Who mixes while Bristol sleeps' to 'Who mixes while the city sleeps'. Also add a short questions section to the Tasting Evenings page answering 'How much is an evening?' with '£25 a head, cheese included.' And add a short note to the Classes page saying 'Classes are for ages 12 and up.'", ms: 28 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.

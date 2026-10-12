@@ -3,13 +3,15 @@
 *Current instructions only. They are replaced, never appended to, when they
 change. The history of how they came to be, including superseded image ids,
 stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md`,
-`docs/history/2026-10-12-acceptance-addon-free.md` and
-`docs/history/2026-10-12-acceptance-addon-next.md`; nothing there is an
+`docs/history/2026-10-12-acceptance-addon-free.md`,
+`docs/history/2026-10-12-acceptance-addon-next.md` and
+`docs/history/2026-10-12-acceptance-addon-two-parts.md`; nothing there is an
 instruction.*
 
 **As of 2026-10-12, branch `claude/help-needed-ehlwlj`.** P1 and P2 are done
-and closed. The next image-free Add-on batch (§4) is prepared on the branch,
-not pressed, and needs a spending decision (§5).
+and closed. One execution proposal for the remaining Add-on cases (§4: K0, K,
+E, M0, M) is prepared on the branch, not pressed, and needs a spending
+decision (§5).
 
 ## 1. State
 
@@ -74,16 +76,20 @@ exactly, both changes land, and nothing is charged twice (P2).
    sections) came back as one Add-on, but two sections are one kind and one
    designer, so it cannot either. `acc-addon-kinds` asks for a section and a
    line, which are two kinds that wait for nothing (§4, K);
-2. **across parts, an Add-on's preparation replayed exactly beside another
-   part's job.** S8 was split into an Edit part and a held Add-on part, and
-   those are independent (`acc-addon-edit`, §4, E). S7's two Add-on parts are
-   **not** independent: the section's picker reads the site's page list,
-   which the new page changes, so it waits (PI 35);
-3. **subsequent**: whether a real model says `needs` when it lacks context
+2. **an Add-on part's preparation replayed exactly beside an Edit part's
+   job.** S8 was split into an Edit part and a held Add-on part, and those
+   are independent (`acc-addon-edit`, §4, E);
+3. **two independent Add-on parts running at the same time** (§4, M), kept
+   apart from 2. **Unverified, and possibly not reachable**: it needs the
+   real router to hold two additions back as two separate entries, which P1
+   never showed (it batched S9's two sections into one Add-on). S7's two
+   Add-on parts are **not** independent: the section's picker reads the
+   site's page list, which the new page changes, so it waits (PI 35);
+4. **subsequent**: whether a real model says `needs` when it lacks context
    (`acc-needs`, one sample at most);
-4. **subsequent**: the image-free first Build's overlap by bands or design
+5. **subsequent**: the image-free first Build's overlap by bands or design
    agents (only if `design`, `graph` or `bandsEveryone` is already on);
-5. real images (not proposed: fal is off limits).
+6. real images (not proposed: fal is off limits).
 
 ## 3. The evidence each live claim needs
 
@@ -91,85 +97,150 @@ Every check reads what the run recorded, never a status or a routing answer.
 
 | Claim | Evidence (existing reader) | Passes only when |
 |---|---|---|
-| **Overlap across parts** | `overlapVerdict` (`scripts/canary-requests.mjs`): the request view's recorded intervals, a part's prepared step (`prepRun`, calls > 0) against another part's job run (`runs`), or two prepared steps together | the intervals intersect; a batched answer or parts run one after another fail, and are recorded as such |
+| **Overlap across parts** | `overlapVerdict` (`scripts/canary-requests.mjs`): the request view's recorded intervals, a part's prepared step (`prepRun`, calls > 0) against another part's job run (`runs`), or two prepared steps together | the intervals intersect; a batched answer or parts run one after another fail, and are recorded as such. **Between two Add-on parts** (`overlap: "addon-parts"`, M): only parts routed `addon` count on both sides, and fewer than two is missing evidence |
 | **Overlap inside one Add-on** | **`addonDesignOverlap`** (`scripts/canary-read-job.mjs`), read free afterwards with the *read_job* box on the Add-on's job: the job's `add:<kind>` start and end marks in its trace. The lookup reads **every job on the site whose run touches the window** (created before its end, still updated after the earliest returned trace began), never by a creation lookback | the two designers' intervals cross, **and** the job has finished, the jobs read is complete and holds it, exactly one trace ran inside the job's own run (a trace that began before the job existed is never its), and no other job ran beside that trace. Two traces inside the run or another job beside it: `candidate-only`. A failed or cut read, an unfinished job, a trace without times, or no trace inside the run: `unknown`. Never a pass by default |
 | **Correct final results** | `outcomeChecks`: `headings`, `pages`, `menu`, and `sections` (a section added to a page that exists keeps everything that page said, and the served page says it); **every fact the message asked for** (`facts`, `only`, `denies`, round 17): each place, amount, day and time stated, no other amount, day or time beside it, and no claim the customer denied; equivalent wording allowed only from each fact's own list; **judged on the asked section itself, in stored and served output alike** (round 18): only what the press added, one added section holding every fact, any other added section judged for contradictions; every other stored page byte for byte; tables, logos and photographs as they were | every named change and every asked-for fact is there, nothing contradicts them, and nothing else moved |
 | **Dependency ordering** | `jobOrderVerdict`: no part started before a part it needs had finished; COVERAGE `waits-for-prerequisite` | the order holds; a press where nothing waited says so (vacuous), never claims it |
 | **Reuse** | `reuseVerdict`: per-job `prepUse` (`exact` = staged yes, replayed ≥ 1, fresh 0) | the demanded number of jobs answered exactly from prepared work; a missing record fails |
 | **No duplicate charges** | `moneyVerdict`, `ownMoneyVerdict` (the press's own ledger rows), `laterChargesVerdict` (charges after the request ended), and the read-job ledger (`credit_events` by job id) | each job reserved once, every ledger ref distinct, nothing charged after the end, spend within the estimate |
 
-## 4. The next image-free Add-on batch (prepared, not pressed)
+## 4. The execution proposal (prepared, not pressed)
 
-Built on P1's real routing results, with nothing forced. Each press records
-what the router and the picker actually did. A claim the run did not reach is
-recorded as not reached, never passed.
+One proposal for everything still open on the Add-on side. Built on P1's real
+routing results, with nothing forced and no product behaviour changed. Each
+press records what the router and the picker actually did; a claim the run
+did not reach is recorded as not reached, never passed. P1 and P2 stay
+closed.
 
-| # | Press | What it would establish | Estimate |
+### The exact requests
+
+| # | Press | The exact words sent | Estimate |
 |---|---|---|---|
-| K0 | routing probe **`acceptance-split-2`**: one routing call for K's own message, nothing applied | whether the real router keeps "a questions section on the Visit page **and** one line on the Order page" as **one Add-on** (needed for K) | 1–3 |
-| K | **`acc-addon-kinds`**, only if K0 is one `addon` answer with nothing held back | **inside one Add-on**: the section (`component`) and the line (`words`) are designed at the same time inside the one job, read afterwards free with the *read_job* box on its job (`addonDesignOverlap` must say `overlapped`). Both land with every asked fact (dogs welcome inside; every loaf baked the morning you collect it, no other time of day, no "night before"); every other page byte for byte; no image bought; each job charged once | 9–19 (budget 22) |
-| E | **`acc-addon-edit`** (S8, which P1 showed as parts) | **across parts**: the held Add-on part (a questions section on the Bake List page) is prepared while the Gallery heading's job runs, by recorded intervals, and its job replays that preparation exactly (`replayed ≥ 1, fresh 0`). Both land with every asked fact (updated every Monday morning); nothing else moves; each job charged once | 9–20 (budget 22) |
+| K0 | routing probe `acceptance-split-2` (applies nothing) | *Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add one line under the collection times on the Order page saying 'Every loaf is baked the morning you collect it.'* | 1–3 |
+| K | `acc-addon-kinds` | the same words as K0 | 9–19 (budget 22) |
+| E | `acc-addon-edit` (S8) | *Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs from our ovens' to 'Photographs straight from our ovens'.* | 9–20 (budget 22) |
+| M0 | routing probe `acceptance-split-3` (applies nothing) | *On the bakers page, change the heading 'Who mixes while Bristol sleeps' to 'Who mixes while the city sleeps'. Also add a short questions section to the Tasting Evenings page answering 'How much is an evening?' with '£25 a head, cheese included.' And add a short note to the Classes page saying 'Classes are for ages 12 and up.'* | 1–3 |
+| M | `acc-addon-two-parts` | the same words as M0 | 17–37 (budget 40) |
 
-- **Why these and not others.**
-  - S7 (`acc-addon-inner`) is split, and its parts depend on each other.
-    PI 35 shows the section's preparation waiting for the new page and the
-    job working it out afresh, so it would show ordering, not concurrency.
-  - S9 (`acc-addon-pair`) is one Add-on of one kind: one designer, nothing
-    to run beside.
-  - Two independent **Add-on** parts would need a message the router splits
-    into two additions that read nothing the other writes. P1 has no such
-    sample: it batched S9's two sections into one answer. The nearest with
-    P1 evidence is E, an Add-on part beside an Edit part.
-- **Why K needs no `uses` from the picker.** Neither a section nor a line
-  changes what another designer is shown; only a table-like kind or a new
-  page does (`designWaits`). PI 34 runs the real route with no `uses` at all
-  and the two designers still meet. The live risk is only routing and kind
-  picking: if K0 splits it, K is not pressed. If the picker answers one kind
-  (two `component`s), the read says one designer and the claim is not
-  reached.
-- **Totals**: K0 + K + E, about **19–42** credits. These are estimates, not
-  limits.
-- **Order**: K0 first. Then K (only if K0 allows it) and E, in either order;
-  each compares against its own before-read. The words each adds were read
-  off the live pages on 2026-10-12 as not there yet.
-- **Subsequent, not in this batch**: `acc-needs` (the missing-context
-  clarification) and the image-free first Build.
+**Total: about 37–82 credits** if all five run. If K0 or M0 rules its case
+out, that case is not pressed: K0 + E + M0 alone is about 11–26. These are
+estimates, not limits. Every page each press touches is its own: K `/visit`
+and `/order`, E `/bake-list` and `/gallery`, M `/bakers`, `/tasting-evenings`
+and `/classes`. Their words were read off the live pages on 2026-10-12 as not
+there yet.
 
-## 5. The spending decision this batch needs
+### What makes each case eligible (read from the probe's saved answer)
+
+- **K** only if K0 is **one `addon` answer with nothing held back**. Split
+  into parts, K is not pressed.
+- **E** needs no probe: P1 already showed S8 as an Edit part and a held Add-on
+  part.
+- **M** only if M0's answer (`routing-probes.json`, the whole route answer) is
+  all of these:
+  - an **edit** answer (`text`, or `look`) for the heading;
+  - `alsoAsked` holds **both** additions, **as two separate entries** (the
+    live router's field is a list, "one entry for each" separate request);
+  - in `targets`, change 1 writes only `page:/tasting-evenings` and change 2
+    only `page:/classes` (each may add a new component, but not the same
+    one), and neither reads anything;
+  - `dependsOn` names no relation between them.
+
+  **Not eligible**, so M is not pressed and case 3 stays unverified:
+  - one `addon` answer for both additions (S9's shape; one kind, one
+    designer, nothing to overlap);
+  - both additions held back as **one** entry;
+  - the same new component named for both, or any target outside the
+    addition's own page (the menu, a new page, the whole site);
+  - a relation between the two;
+  - a question back.
+
+### Why M's two Add-on parts can overlap: their read/write dependencies
+
+From the code, not assumed:
+- Each held addition whose writes all land on one named page is **scoped**
+  to it (`addonScope`). Its preparation then reads only `pagelist`, `theme`
+  and its own page (`stepInputs`).
+- What each writes:
+  - the heading's text job: only `page:/bakers`;
+  - the Tasting Evenings section: only `page:/tasting-evenings` (and its new
+    component, if named);
+  - the Classes note: only `page:/classes` (and its own component).
+- None of the three writes a new page, the page list or the theme. No part
+  writes what another reads. So `clearToPrepare` holds neither addition for
+  the heading or for the other. Both are prepared beside the heading's job,
+  and beside each other.
+- The same new component named for both would conflict, and the second
+  would wait. A new page would feed the page list, and the addition would
+  wait, as S7's did (PI 35).
+- **Offline**: PI 36 runs this exact shape through the real route with
+  supplied answers. Both Add-on parts are prepared beside the heading's job,
+  their designers meet (a rendezvous that a one-at-a-time schedule cannot
+  pass), and both jobs replay their preparation exactly. A free test checks
+  the same rules with `clearToPrepare`, including the two controls that make
+  it wait.
+
+### The evidence each press must show
+
+| Claim | K | E | M |
+|---|---|---|---|
+| **Actual overlap** | the free *read_job* press on its Add-on job: `addonDesignOverlap` says `overlapped` (the two designers' recorded intervals cross, the only job and trace on the site in the window) | `overlapVerdict`: the held Add-on part's prepared step (with model calls) crosses the heading job's run, by recorded intervals | **`overlapVerdict` limited to parts routed `addon`** (new in this round): two Add-on parts' prepared steps cross each other, or one Add-on part's prepared step crosses the other Add-on part's job. An Add-on part beside the heading's job does **not** count |
+| **Correct results** | `sections`: every asked fact on `/visit` and `/order`, stored and served (dogs welcome inside; every loaf baked the morning you collect it, no other time of day, never "the night before"); every other page byte for byte | the Gallery heading; every fact on `/bake-list` (updated every Monday morning, no other day or time); nothing else moves | the `/bakers` heading; every fact on `/tasting-evenings` (£25 a head, cheese included, no other amount, never "cheese extra") and `/classes` (ages 12 and up, never "all ages"), stored and served; every other page byte for byte |
+| **Reuse** | none demanded (one job) | `reuseVerdict`: at least 1 job answered exactly (staged yes, replayed ≥ 1, fresh 0), by a part whose step overlapped | `reuseVerdict`: **both** Add-on parts' jobs answered exactly, and at least one of them is a part whose step overlapped **another Add-on part's** work |
+| **Charges** | each job reserved once; ledger refs distinct; nothing charged after the end; spend within budget | the same | the same |
+| **Images** | none bought: the press refuses unless the runtime reports image purchases off | the same | the same |
+
+M also records the router's real shape (`shape`) and the coverage
+`addon-parts` (two finished Add-on parts). Neither is a pass on its own.
+
+### Order
+
+K0 and M0 first (routing only). Then K (if K0 allows it), E, and M (if M0
+allows it), one at a time. Each compares against its own before-read.
+
+**Subsequent, not in this batch**: `acc-needs` (the missing-context
+clarification) and the image-free first Build.
+
+## 5. The spending decision this proposal needs
 
 **What is enforced**: the server refuses any charge the balance cannot cover,
 so the only enforced bound on a paid press is the whole balance (950). No
 per-press cap exists on the server. The presses' 100-credit refusal blocks
-K0, K and E at 950. **The P1/P2 opt-in does not cover them, and is not
+K0, K, E, M0 and M at 950. **The P1/P2 opt-in does not cover them, and is not
 extended here.**
 
 Before anything is pressed, choose one:
-- **A2.** Accept the balance as the bound for exactly K0, K and E. This needs
-  one small, reviewed change: an opt-in for these three, like P1/P2's. Their
-  worst case is the whole balance.
+- **A2.** Accept the balance as the bound for exactly these five presses.
+  This needs one small, reviewed change: an opt-in for these five, like
+  P1/P2's. Their worst case is the whole balance.
 - **B.** A separate test budget first (a billing change), with the presses
   blocked until it exists.
-- **C.** Nothing live. Items 1 and 2 stay shown offline only (PI 34, PI 29).
+- **C.** Nothing live. Items 1–3 stay shown offline only (PI 34, PI 29,
+  PI 36).
 
 **Not an option**: lowering or resetting the account's balance.
 
 ## 6. The steps from here (each the owner's)
 
-1. Review this batch and choose §5's option.
-2. For A2: review and merge the opt-in. The scenarios already exist on the
-   branch; a press can run from the branch, so no deploy is needed for them.
-3. **K0** (routing only; image purchases need not be off for it): run edit
-   canary with *ROUTING-ONLY BATCH* = `acceptance-split-2`, spend `yes`,
-   and the deploy sha and image boxes.
-4. **Set `IMAGE_PURCHASES` to `off`** and re-run the deploy workflow; then
-   the free runtime press must show `imagePurchases=false`. **This stops
-   photographs for every customer while it is off.**
+1. Review this proposal and choose §5's option.
+2. For A2: review and merge the opt-in. The scenarios exist on the branch,
+   and a press can run from the branch, so no deploy is needed for them.
+   Merging the workflow file starts a deploy run, with the image reused.
+3. **K0 and M0** (routing only; image purchases need not be off for them):
+   run edit canary with *ROUTING-ONLY BATCH* = `acceptance-split-2`, then
+   again with `acceptance-split-3`, spend `yes`, and the deploy sha and
+   image boxes. I read each saved answer against the eligibility rules above.
+4. **Image purchases off**: set `IMAGE_PURCHASES` to `off` and re-run the
+   deploy workflow. The free runtime press must then show
+   `imagePurchases=false`. **This stops photographs for every customer while
+   it is off**, so keep the window short.
 5. **K** (only if K0 allows it): *The site to edit* = `fold-lane-bakery`,
    scenario `acc-addon-kinds`, spend `yes`, the deploy and image boxes. Then
-   the free *read_job* press on its Add-on job for the `DESIGNERS` line.
+   the free *read_job* press on its Add-on job, for the `DESIGNERS` line.
 6. **E**: the same boxes, with scenario `acc-addon-edit`.
-7. **Set `IMAGE_PURCHASES` back to `on`** and re-run the deploy workflow;
-   the free runtime press must show `imagePurchases=true`.
+7. **M** (only if M0 allows it): the same boxes, with scenario
+   `acc-addon-two-parts`.
+8. **Image purchases back on**: set `IMAGE_PURCHASES` to `on` and re-run the
+   deploy workflow. The free runtime press must show `imagePurchases=true`.
 
 ## 7. Offline verification of this plan (rounds 16 to 18)
 
@@ -201,4 +272,13 @@ Before anything is pressed, choose one:
   - PI 35: S7's parts wait, the section is not prepared beside the page, and
     its job works afresh.
   - S7's scenario is left as reviewed and marked not proposed.
+  - No product code changed.
+- **Two independent Add-on parts**
+  (`docs/history/2026-10-12-acceptance-addon-two-parts.md`):
+  - `acc-addon-two-parts` and its one-message probe `acceptance-split-3`
+    were added.
+  - The overlap reader can be limited to Add-on parts, and the scenario
+    demands that limit.
+  - PI 36 is the shape offline: two held additions on two pages beside a
+    heading, prepared together and replayed exactly.
   - No product code changed.

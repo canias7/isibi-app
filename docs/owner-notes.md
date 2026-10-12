@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: production is deploy 2194, balance 950, image purchases restored, P1 and P2 complete and closed; the next image-free Add-on batch is prepared on the branch, not pressed, and needs a spending decision)
+## Current handoff — read this first (2026-10-12: production is deploy 2194, balance 950, image purchases restored, P1 and P2 complete and closed; one execution proposal for the remaining Add-on cases — K0, K, E, M0, M — is prepared on the branch, not pressed, and needs a spending decision)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -29,10 +29,22 @@ is in git; the dated entries further down are the full story.*
   for P2 only.
 - **Build flags and the 1-page / 15-component limits are untouched.** No fal
   call or image purchase was made.
-- **Next: an image-free Add-on batch, prepared on the branch, not pressed**
-  (`docs/acceptance-current.md` §4–§6, and the dated entry below). It is
-  blocked by the 100-credit guard at 950 until you choose how to bound it
-  (§5).
+- **Next: one execution proposal, prepared on the branch, not pressed**
+  (`docs/acceptance-current.md` §4–§6, and the dated entries below):
+  - K0 + K: inside one Add-on (a section and a line, two kinds);
+  - E: an Add-on part beside an Edit part (S8);
+  - **M0 + M (new): two independent Add-on parts.** The Bakers heading, a
+    questions section on Tasting Evenings and a note on Classes. It is
+    eligible only if the routing probe M0 shows an edit answer holding the
+    two additions back as **two separate entries**, each writing only its
+    own page. Otherwise it is not pressed and stays **unverified**: P1 never
+    showed that shape.
+  - About 37–82 credits if all five run, and about 11–26 if K0 and M0 rule
+    out K and M.
+  - Image purchases are off only for K, E and M (a redeploy each way); the
+    probes need no change.
+  - Blocked by the 100-credit guard at 950 until you choose how to bound it
+    (§5). The P1/P2 opt-in is not extended.
 - **Subsequent live gaps**, after this batch:
   - the missing-context clarification (`acc-needs`);
   - the image-free first Build.
@@ -906,6 +918,55 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Two independent Add-on parts: the case (M), and one execution proposal (prepared on the branch; nothing pressed, spent, merged or deployed)
+
+You asked me to close the last planning gap in one pass: a natural,
+image-free request that could exercise two independent Add-on parts, why
+they can overlap, what routing makes it eligible, and one execution proposal
+for everything. Kept apart from the Add-on-plus-Edit case (E).
+
+- **How two Add-on parts can happen today.** The router answers a message
+  once. Several additions are one Add-on (P1 did this with S9). A part is
+  held back only when the answer cannot make it. On a live site, the
+  held-back field is a list, "one entry for each" request, and each entry
+  becomes its own part. So two Add-on parts happen only when an **edit**
+  answer holds back **two additions as two entries**. Nothing makes the
+  router choose that. P1 never showed it, so this case is **unverified until
+  a probe shows it**.
+- **The request (M)**: *On the bakers page, change the heading 'Who mixes
+  while Bristol sleeps' to 'Who mixes while the city sleeps'. Also add a
+  short questions section to the Tasting Evenings page answering 'How much is
+  an evening?' with '£25 a head, cheese included.' And add a short note to
+  the Classes page saying 'Classes are for ages 12 and up.'* Its three pages
+  are used by no other case, and the words were read off the live pages as
+  not there yet.
+- **Why they can overlap.**
+  - Each addition, held back and named on its own page, reads only the page
+    list, the look and that page.
+  - Each writes only that page, and the heading writes only `/bakers`.
+  - Nothing writes what another reads, so neither waits.
+  - The same new component for both, or a new page, would make one wait.
+    PI 36 runs this shape offline.
+- **Eligible only if** the probe (M0) shows all of these:
+  - an edit answer for the heading;
+  - the two additions held back as two entries;
+  - each one's targets on its own page only;
+  - no relation between them.
+  Anything else and M is not pressed.
+- **What a press must show.**
+  - Two **Add-on** parts' work overlapping by their recorded intervals. An
+    Add-on part beside the heading's job does not count: I added that limit
+    to the evidence reader, and nothing else changed.
+  - Both Add-on jobs replaying their preparation exactly.
+  - The heading and every asked fact, stored and served, with everything
+    else byte for byte.
+  - No image bought, and each job charged once.
+- **Cost**: M0 1–3, M 17–37. With K0, K and E, the whole proposal is about
+  37–82, an estimate and not a limit.
+- **Nothing was pressed, spent, merged or deployed.** The P1/P2 opt-in,
+  image restrictions, Build flags and limits are unchanged. The record is
+  `docs/history/2026-10-12-acceptance-addon-two-parts.md`.
 
 ## 2026-10-12 — The next image-free Add-on batch, after P1's real routing (prepared on the branch; nothing pressed, spent, merged or deployed)
 
