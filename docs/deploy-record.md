@@ -1494,8 +1494,11 @@ owner's run of the deploy workflow, `workflow_dispatch`, run 38264751198,
 14:41–14:42 UTC, green). The owner set `IMAGE_PURCHASES` back to `on` after
 option A's P1 and P2, so this run carries it. The image is still
 `1e30b6fb56b51794` (the container reported no changes), no asset was
-uploaded, and the Current Version ID is `f61b2bf…`. **Runtime**: not yet
-read. The owner's free press must show `imagePurchases=true`.
+uploaded, and the Current Version ID is `f61b2bf…`. **Runtime-confirmed by
+the owner's free press, run 130** (14:44 UTC). Both readers answered
+`df1dcf30f5fb`, and a cold container got `1e30b6fb56b51794`. The runtime
+reported **`imagePurchases=true`**. Every zero-cost check passed. Balance
+950, and nothing was charged.
 
 **Deploy 2193 (2026-10-12) was predicted on both ends and reused as
 predicted**, on the owner's word ("merge") after option A's opt-in. It

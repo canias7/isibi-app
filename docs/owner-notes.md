@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases switched back on in deploy 2194, runtime not yet read)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 run 128 (13 credits) and P2 run 129 (8 credits) both passed; image purchases back on, confirmed by run 130; option A complete)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -902,12 +902,31 @@ since. Add new ones there.
 
 ---
 
-## 2026-10-12 — Deploy 2194: image purchases switched back on (redeploy; runtime not yet read)
+## 2026-10-12 — Deploy 2194: image purchases switched back on (confirmed by run 130)
 
 You set `IMAGE_PURCHASES` to `on` and re-ran the deploy workflow (run
 38264751198, 14:41–14:42 UTC, green). The code is the same as before
 (`df1dcf30`), and so is the image (`1e30b6fb56b51794`, no container
-changes). Your free runtime press must show `imagePurchases=true`.
+changes). **Run 130** (your free press, 14:44 UTC) confirmed it:
+- both readers answered `df1dcf30f5fb`, and a cold container got
+  `1e30b6fb56b51794`;
+- **`imagePurchases=true`**, so customers get photographs again;
+- every zero-cost check passed;
+- balance 950, and nothing was charged.
+
+**Option A is complete**:
+- P1 and P2 both passed, for 21 credits (balance 971 → 950);
+- image purchases were off from deploy 2193 (14:03 UTC) until deploy 2194
+  (14:42 UTC);
+- Build flags and the 1-page / 15-component limits are untouched;
+- no fal call or image purchase was made.
+
+**Still unshown live** (not part of option A):
+- overlap inside one Add-on (S7 split into parts, so `acc-addon-inner`
+  would test overlap across parts);
+- a real model asking for missing context (`acc-needs`);
+- the image-free Build's overlap;
+- real images.
 
 ## 2026-10-12 — Run 129: P2, acc-page-table (paid, 8 credits): passed
 

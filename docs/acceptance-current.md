@@ -27,8 +27,11 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
     (recorded intervals), and the price job reused it exactly.
   - Both changes landed exactly, with nothing else touched.
   - No duplicate charge: the charges are routing 3, then jobs 3, 1 and 1.
-  - Option A total: 21 credits. **Image purchases are still off**: switch
-    them back on (§6 step 8). Before it:
+  - Option A total: 21 credits.
+- **Image purchases are back on**: deploy 2194, a manual redeploy, confirmed
+  by run 130 (14:44 UTC, `imagePurchases=true`, balance 950). **Option A is
+  complete.** B1–B3 and the image-free Build were not run, and they stay
+  behind the 100-credit cap. Before it:
 - deploy 2192 (2026-10-12), `main` **`e1556086`**, image
   **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
   from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is
