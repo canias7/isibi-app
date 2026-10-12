@@ -2870,22 +2870,30 @@ export async function readShownSite(browser, { url, sel, name, ms = 45_000, poll
 }
 
 /**
- * THE PAGE AS A VISITOR SEES IT WITH EVERY DISCLOSURE OPENED (2026-10-12, K's
- * run 135 and M's run 138): a questions section built as an accordion serves
- * its questions with the answers closed — not in the page's HTML at all until
- * the question is pressed — so a check of the served HTML read "Can I bring my
- * dog?" and never the answer. Here the page is opened in a context of its own
- * (no session), every request that is not a read is stopped and recorded (the
- * wall `readShownSite` uses), and each closed disclosure is opened once: a
- * button that says it is collapsed (`aria-expanded="false"`) and a closed
- * `<details>`. Never a button inside a form or a submit button, never one in
- * the header or a menu: nothing is filled, sent or navigated. Returns the
- * `<main>` (or `<body>`) markup after, how many were opened, and anything
- * stopped. `opened: 0` with `ok` is a page that had none.
+ * THE PAGE AS A VISITOR SEES IT, ONE DISCLOSURE AT A TIME (2026-10-12, K's run
+ * 135 and M's run 138; per disclosure after the owner's review): a questions
+ * section built as an accordion serves its answers closed — not in the page's
+ * HTML at all until the question is pressed — and an accordion that shows one
+ * answer at a time closes the last when the next opens, so the page's final
+ * markup holds only the last answer. Here the page is opened in a context of
+ * its own (no session), every request that is not a read is stopped and
+ * recorded, and each closed disclosure is pressed once: a button that says it
+ * is collapsed (`aria-expanded="false"`) and a closed `<details>`. Never a
+ * button inside a form or a submit button, never one in the header, a menu or
+ * a dialog: nothing is filled, sent or navigated.
+ *
+ * WHAT IS KEPT, AS EACH ONE OPENS: `items`, one `{ question, answer }` per
+ * disclosure that opened — the answer read right then, from the region it
+ * controls (`aria-controls`), the `<details>` body, or else the lines the
+ * press added to the page — so every answer stays with its own question, and
+ * each is one state of the page, never all at once. `html` is the page as
+ * served, before anything was pressed. A press that fails, or a disclosure
+ * that does not then say it is open, is in `failed`; more disclosures than
+ * `OPEN_MAX` sets `truncated`. `complete` is true only with neither.
  */
 export const OPEN_MAX = 40;
 export async function readOpenedPage(browser, { url, ms = 45_000, settleMs = 400, route = null } = {}) {
-  const out = { at: new Date().toISOString(), ok: false, why: "", url, version: "", html: "", opened: 0, aborted: [], errors: [] };
+  const out = { at: new Date().toISOString(), ok: false, complete: false, why: "", url, version: "", html: "", items: [], failed: [], truncated: false, opened: 0, aborted: [], errors: [] };
   let ctx = null;
   try {
     ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, serviceWorkers: "block" });
@@ -2902,34 +2910,66 @@ export async function readOpenedPage(browser, { url, ms = 45_000, settleMs = 400
     page.on("pageerror", (e) => out.errors.push(String((e && e.message) || e).slice(0, 300)));
     const res = await page.goto(url, { waitUntil: "networkidle", timeout: ms });
     out.version = res && typeof res.headers === "function" ? String(res.headers()["x-site-version"] || "") : "";
-    // ONE AT A TIME, FOUND AGAIN AFTER EACH: opening one can draw another.
+    out.html = await page.evaluate(() => (document.querySelector("main") || document.body).outerHTML);
+    const linesNow = () => page.evaluate(() => String((document.querySelector("main") || document.body).innerText || "").split("\n").map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean));
+    // ONE AT A TIME, FOUND AGAIN AFTER EACH: opening one can draw another, and
+    // closing one (a single-open accordion) never makes it a new candidate.
     const tried = new Set();
-    for (let k = 0; k < OPEN_MAX; k++) {
-      const next = await page.evaluate((done) => {
-        const shut = (el) => el.closest("form, header, nav, [role=menu], [role=navigation], [role=dialog]") || (el.tagName === "BUTTON" && String(el.getAttribute("type") || "").toLowerCase() === "submit");
-        const seen = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-        const cands = [
-          ...[...document.querySelectorAll('button[aria-expanded="false"], [role=button][aria-expanded="false"]')],
-          ...[...document.querySelectorAll("details:not([open]) > summary")],
-        ];
-        let i = 0;
-        for (const el of cands) {
-          const id = "open-" + (i++);
-          if (shut(el) || !seen(el)) continue;
-          const mark = el.getAttribute("data-canary-open") || id + "-" + Math.random().toString(16).slice(2);
-          if (done.includes(mark)) continue;
-          el.setAttribute("data-canary-open", mark);
-          return mark;
-        }
-        return "";
-      }, [...tried]);
+    const nextOne = () => page.evaluate((done) => {
+      const shut = (el) => el.closest("form, header, nav, [role=menu], [role=navigation], [role=dialog]") || (el.tagName === "BUTTON" && String(el.getAttribute("type") || "").toLowerCase() === "submit");
+      const seen = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const cands = [
+        ...[...document.querySelectorAll('button[aria-expanded="false"], [role=button][aria-expanded="false"]')],
+        ...[...document.querySelectorAll("details:not([open]) > summary")],
+      ];
+      let i = 0;
+      for (const el of cands) {
+        const id = "open-" + (i++);
+        if (shut(el) || !seen(el)) continue;
+        const mark = el.getAttribute("data-canary-open") || id + "-" + Math.random().toString(16).slice(2);
+        if (done.includes(mark)) continue;
+        el.setAttribute("data-canary-open", mark);
+        return { mark, question: String(el.innerText || el.textContent || "").replace(/\s+/g, " ").trim() };
+      }
+      return null;
+    }, [...tried]);
+    for (;;) {
+      const next = await nextOne();
       if (!next) break;
-      tried.add(next);
-      await page.locator(`[data-canary-open="${next}"]`).click({ timeout: 5000 }).then(() => { out.opened++; }, () => {});
+      if (tried.size >= OPEN_MAX) { out.truncated = true; break; }
+      tried.add(next.mark);
+      const before = await linesNow();
+      const sel = `[data-canary-open="${next.mark}"]`;
+      const clicked = await page.locator(sel).click({ timeout: 5000 }).then(() => true, (e) => String((e && e.message) || e).slice(0, 120));
+      if (clicked !== true) { out.failed.push({ question: next.question, why: `the press failed: ${clicked}` }); continue; }
       await page.waitForTimeout(settleMs);
+      const got = await page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return { open: false, answer: "" };
+        const text = (n) => String((n && (n.innerText || n.textContent)) || "").replace(/\s+/g, " ").trim();
+        if (el.tagName === "SUMMARY") {
+          const d = el.parentElement;
+          const open = !!(d && d.open);
+          return { open, answer: open ? text(d).replace(text(el), "").trim() : "" };
+        }
+        const open = el.getAttribute("aria-expanded") === "true";
+        const id = el.getAttribute("aria-controls");
+        const panel = id ? document.getElementById(id) : null;
+        return { open, panel: !!panel, answer: open && panel ? text(panel) : "" };
+      }, sel);
+      if (!got.open) { out.failed.push({ question: next.question, why: "it did not say it was open after the press" }); continue; }
+      let answer = got.answer;
+      // NO REGION NAMED: the lines the press added to the page.
+      if (!answer && !got.panel) {
+        const after = await linesNow();
+        const left = [...before];
+        answer = after.filter((l) => { const i = left.indexOf(l); if (i >= 0) { left.splice(i, 1); return false; } return true; }).join(" ").trim();
+      }
+      out.items.push({ question: next.question, answer });
+      out.opened++;
     }
-    out.html = await page.evaluate(() => { const m = document.querySelector("main") || document.body; [...m.querySelectorAll("[data-canary-open]")].forEach((el) => el.removeAttribute("data-canary-open")); return m.outerHTML; });
     out.ok = true;
+    out.complete = !out.failed.length && !out.truncated;
   } catch (e) {
     out.why = String((e && e.message) || e).slice(0, 200);
   } finally {

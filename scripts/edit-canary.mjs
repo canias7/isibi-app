@@ -801,11 +801,18 @@ async function inventory(label, expect = "") {
       for (const r of openRoutes) {
         const o = await readOpenedPage(browser, { url: origin + r });
         const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
-        if (o.ok) writeFileSync(`${EVID}/${label}/route${file}.open.html`, o.html);
-        render[r].open = { ok: o.ok, why: o.why, opened: o.opened, version: o.version, aborted: o.aborted.length };
+        // EACH DISCLOSURE'S OWN EVIDENCE, as it opened, beside the page before
+        // any press — and whatever stopped the read short (`failed`, `truncated`).
+        writeFileSync(`${EVID}/${label}/route${file}.open.json`, JSON.stringify({ ok: o.ok, complete: o.complete, why: o.why, html: o.html, items: o.items, failed: o.failed, truncated: o.truncated }, null, 2));
+        render[r].open = { ok: o.ok, complete: o.complete, why: o.why, opened: o.opened, failed: o.failed.length, truncated: o.truncated, version: o.version, aborted: o.aborted.length };
       }
     } catch (e) {
-      for (const r of openRoutes) render[r].open = { ok: false, why: String((e && e.message) || e).slice(0, 200) };
+      for (const r of openRoutes) {
+        const why = String((e && e.message) || e).slice(0, 200);
+        render[r].open = { ok: false, complete: false, why };
+        const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+        writeFileSync(`${EVID}/${label}/route${file}.open.json`, JSON.stringify({ ok: false, complete: false, why, html: "", items: [], failed: [], truncated: false }, null, 2));
+      }
     } finally { if (browser) { try { await browser.close(); } catch { /* already gone */ } } }
   }
 
@@ -1343,11 +1350,23 @@ if (UI_ASK) {
         }
         return out;
       };
+      // THE OPENED READS (`readOpenedPage`): each route's evidence, or absent
+      // where none was taken; unreadable is an incomplete read, never none.
+      const openedOf = (label, render) => {
+        const out = {};
+        for (const r of Object.keys(render || {})) {
+          const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+          let text = null;
+          try { text = readFileSync(`${EVID}/${label}/route${file}.open.json`, "utf8"); } catch { continue; }
+          try { out[r] = JSON.parse(text); } catch { out[r] = { ok: false, complete: false, why: "the opened read could not be parsed", items: [] }; }
+        }
+        return out;
+      };
       const served = servedOf("after", after && after.render);
       const beforeServed = servedOf("before", BEFORE.render);
       // …AND OPENED, where the read was made (`readOpenedPage`); "" where not.
-      const servedOpen = servedOf("after", after && after.render, ".open");
-      const beforeServedOpen = servedOf("before", BEFORE.render, ".open");
+      const servedOpen = openedOf("after", after && after.render);
+      const beforeServedOpen = openedOf("before", BEFORE.render);
       // THE LOGO'S OWN BYTES, read from where the home page's header says it is.
       let logo = null;
       if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.logo) {

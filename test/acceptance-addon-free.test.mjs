@@ -766,20 +766,38 @@ test("BRANCHES 2 — STILL REFUSED: the section twice where a visitor sees both 
   assert.ok(none.includes("the section stored on /visit: exactly one section the press added states what was asked"), "a section with no answer passed: " + JSON.stringify(none));
 });
 
-test("OPENED 1 — AN ANSWER SERVED CLOSED IN AN ACCORDION (K's run 135, M's run 138): the served HTML holds only the question and fails, as it did live; read opened, before and after, it passes; opened, a wrong answer or no answer still fails; with only one opened read, the served HTML is judged", () => {
+test("OPENED 1 — AN ANSWER SERVED CLOSED IN AN ACCORDION (K's run 135, M's run 138): the served HTML holds only the question and fails, as it did live; with each question's own opened answer, before and after, it passes; a wrong or missing answer, the same answer twice, an incomplete read on either side, or only one side's read still fails", () => {
   const spec = { expect: { sections: [TASTE()] } };
-  const QONLY = '<section class="faq"><h2>How much is an evening?</h2><button aria-expanded="false">How much is an evening?</button></section>';
+  const Q = "How much is an evening?";
+  const QONLY = `<section class="faq"><h2>Questions</h2><button aria-expanded="false">${Q}</button></section>`;
   const b = read(withVisit(BRANCHY()));
   const a = read(withVisit(BRANCHY({ form: FAQ() })), [], { [VISIT]: QONLY });
-  const page = (inner) => `<main><h1>page</h1>${inner}</main>`;
   const served = factNames(judgeOpen(b, a, spec));
   assert.ok(served.includes("the section served on /visit: exactly one section the press added states what was asked"), "the closed answer passed on the served HTML: " + JSON.stringify(served));
-  const opened = (inner, before = page("")) => factNames(judgeOpen(b, a, spec, { before: { [VISIT]: before }, after: { [VISIT]: page(inner) } }));
-  assert.deepEqual(opened(FAQ()), []);
-  assert.ok(opened(FAQ("£50 a head, cheese included.")).some((n) => /^the section served on \/visit/.test(n)), "a wrong opened answer passed");
-  assert.ok(opened(QONLY).some((n) => /^the section served on \/visit/.test(n)), "an opened page with no answer passed");
-  assert.ok(opened(FAQ() + FAQ()).some((n) => /^the section served on \/visit/.test(n)), "the answer shown twice passed");
-  assert.ok(factNames(judgeOpen(b, a, spec, { after: { [VISIT]: page(FAQ()) } })).some((n) => /^the section served on \/visit/.test(n)), "half the opened evidence passed");
+  const page = (inner) => `<main><h1>page</h1>${inner}</main>`;
+  const ev = (inner, items, more = {}) => ({ ok: true, complete: true, html: page(inner), items, failed: [], truncated: false, ...more });
+  const NONE = ev("", []);
+  const opened = (after, before = NONE) => factNames(judgeOpen(b, a, spec, { before: { [VISIT]: before }, after: { [VISIT]: after } }));
+  const bad = (ns) => ns.some((n) => /^the section served on \/visit|^the served \/visit was read with every question opened/.test(n));
+  assert.deepEqual(opened(ev(QONLY, [{ question: Q, answer: "£25 a head, cheese included." }])), []);
+  assert.ok(bad(opened(ev(QONLY, [{ question: Q, answer: "£50 a head, cheese included." }]))), "a wrong opened answer passed");
+  assert.ok(bad(opened(ev(QONLY, [{ question: Q, answer: "" }]))), "an opened question with no answer passed");
+  assert.ok(bad(opened(ev(QONLY + QONLY, [{ question: Q, answer: "£25 a head, cheese included." }, { question: Q, answer: "£25 a head, cheese included." }]))), "the same answer twice passed");
+  // INCOMPLETE EVIDENCE: a failed press, a cut-short traversal, a read that did not run — either side.
+  for (const more of [{ complete: false, failed: [{ question: Q, why: "the press failed" }] }, { complete: false, truncated: true }, { truncated: true }, { failed: [{ question: Q, why: "it did not open" }] }, { ok: false, complete: false, why: "timeout" }]) {
+    const right = [{ question: Q, answer: "£25 a head, cheese included." }];
+    const n1 = opened(ev(QONLY, right, more));
+    assert.ok(n1.includes("the served /visit was read with every question opened, before and after"), "incomplete after-read passed: " + JSON.stringify(more));
+    const n2 = opened(ev(QONLY, right), ev("", [], more));
+    assert.ok(n2.includes("the served /visit was read with every question opened, before and after"), "incomplete before-read passed: " + JSON.stringify(more));
+  }
+  assert.ok(factNames(judgeOpen(b, a, spec, { after: { [VISIT]: ev(QONLY, [{ question: Q, answer: "£25 a head, cheese included." }]) } })).includes("the served /visit was read with every question opened, before and after"), "half the opened evidence passed");
+  // A QUESTION THE PAGE ALREADY HAD, NOW ANSWERED DIFFERENTLY: the new answer is the press's, judged beside it.
+  assert.deepEqual(opened(ev(QONLY, [{ question: Q, answer: "£25 a head, cheese included." }]), ev(QONLY, [{ question: Q, answer: "Ask us at the counter." }])), []);
+  assert.ok(bad(opened(ev(QONLY, [{ question: Q, answer: "£50 a head, cheese included." }]), ev(QONLY, [{ question: Q, answer: "Ask us at the counter." }]))), "a changed wrong answer to an old question passed");
+  // A QUESTION AND ANSWER THE PAGE ALREADY HAD are the page's own, never the press's.
+  const OLD = { question: "Do you deliver?", answer: "Delivery is £30 in Bristol." };
+  assert.deepEqual(opened(ev(QONLY + "<button>Do you deliver?</button>", [OLD, { question: Q, answer: "£25 a head, cheese included." }]), ev("<button>Do you deliver?</button>", [OLD])), []);
 });
 
 test("OPENED 2 — THE CANARY READS A SECTION'S PAGE OPENED, BEFORE AND AFTER: exactly the routes a scenario expects a section on, none for a scenario with none; the inventory writes each opened read beside the served HTML and records how it went", () => {
@@ -792,6 +810,6 @@ test("OPENED 2 — THE CANARY READS A SECTION'S PAGE OPENED, BEFORE AND AFTER: e
   assert.ok(inv.length > 100, "the inventory's landmarks are gone");
   assert.match(inv, /const openRoutes = openReadRoutes\(UI_ASK && UI_ASK\.scenario\)/);
   assert.match(inv, /readOpenedPage\(browser, \{ url: origin \+ r \}\)/);
-  assert.match(inv, /writeFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.open\.html`, o\.html\)/);
+  assert.match(inv, /writeFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.open\.json`, JSON\.stringify\(\{ ok: o\.ok, complete: o\.complete, why: o\.why, html: o\.html, items: o\.items, failed: o\.failed, truncated: o\.truncated \}/);
   assert.match(inv, /render\[r\]\.open = /);
 });

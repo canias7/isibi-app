@@ -933,6 +933,52 @@ export function sectionChecks(where, sections, want) {
   return out;
 }
 
+/**
+ * THE SECTIONS A PRESS ADDED, AS A VISITOR READS THEM WITH EACH QUESTION OPENED
+ * (`readOpenedPage`'s evidence, before and after; 2026-10-12, after the
+ * owner's review). The page as served (every answer closed) gives the added
+ * runs; each disclosure's answer, read when it alone was opened, is put
+ * straight after its own question — so a one-at-a-time accordion's earlier
+ * answers are judged, and two answers are never read as one state of the
+ * page. A disclosure whose question and answer were both there before is the
+ * page's own. One whose question is not in an added run, and whose answer is
+ * new, is a section of its own. Either read missing, unread or incomplete (a
+ * press that failed, a disclosure that did not open, a traversal cut short) is
+ * `{ ok: false }` with why — incomplete evidence, never a pass.
+ */
+export function openedSections(before, after) {
+  const bad = (r, side) => {
+    if (!r || typeof r !== "object") return `no opened read ${side}`;
+    if (r.ok !== true) return `the opened read ${side} did not run: ${String(r.why || "unknown")}`;
+    if (r.complete !== true || r.truncated === true || (Array.isArray(r.failed) && r.failed.length)) {
+      const f = Array.isArray(r.failed) ? r.failed.map((x) => `${x && x.question ? JSON.stringify(x.question) : "?"}: ${x && x.why}`) : [];
+      return `the opened read ${side} is incomplete${r.truncated ? " (more disclosures than it opens)" : ""}${f.length ? `: ${f.join("; ")}` : ""}`;
+    }
+    if (typeof r.html !== "string" || !Array.isArray(r.items)) return `the opened read ${side} cannot be read`;
+    return "";
+  };
+  const why = bad(before, "before the message") || bad(after, "after the message");
+  if (why) return { ok: false, why, sections: [] };
+  const norm = (x) => tidy(decoded(String(x == null ? "" : x))).toLowerCase();
+  const pairs = (r) => r.items.filter((x) => x && typeof x.question === "string").map((x) => ({ q: tidy(x.question), a: tidy(String(x.answer || "")) }));
+  const was = new Set(pairs(before).map((x) => norm(x.q) + "\u0000" + norm(x.a)));
+  const fresh = pairs(after).filter((x) => !was.has(norm(x.q) + "\u0000" + norm(x.a)));
+  const runs = addedRuns(servedLines(before.html), servedLines(after.html)).map((r) => r.slice());
+  const alone = [];
+  for (const p of fresh) {
+    let placed = false;
+    for (const r of runs) {
+      const i = r.findIndex((l) => norm(l) === norm(p.q));
+      if (i < 0) continue;
+      if (p.a) r.splice(i + 1, 0, p.a);
+      placed = true;
+      break;
+    }
+    if (!placed && p.a) alone.push([p.q, p.a]);
+  }
+  return { ok: true, why: "", sections: [...runs, ...alone].map(runText) };
+}
+
 /** The routes a scenario expects an added section on: the pages read opened (`readOpenedPage`). */
 export function openReadRoutes(scenario) {
   const secs = scenario && scenario.expect && Array.isArray(scenario.expect.sections) ? scenario.expect.sections : [];
@@ -1271,12 +1317,16 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, serve
       const hb = beforeServed && beforeServed[s.route];
       if (typeof h === "string" && typeof hb !== "string") add(`the served ${s.route} was read before the message`, false, "with no earlier reading, what the press added to the served page cannot be told from what was there");
       else if (typeof h === "string") {
-        // OPENED, WHERE BOTH READS WERE (`readOpenedPage`): what a visitor sees
-        // once they press each question — an accordion serves its answers
-        // closed. Otherwise the served HTML, as before.
+        // OPENED, ONE DISCLOSURE AT A TIME (`readOpenedPage`), where a read
+        // was taken on either side: each answer judged beside its own
+        // question; an incomplete read on either side fails, never passes.
+        // Where none was taken, the served HTML, as before.
         const ho = servedOpen && servedOpen[s.route], hbo = beforeServedOpen && beforeServedOpen[s.route];
-        const open = typeof ho === "string" && ho && typeof hbo === "string" && hbo;
-        out.push(...sectionChecks(`the section served on ${s.route}`, addedRuns(servedLines(open ? hbo : hb), servedLines(open ? ho : h)).map(runText), s));
+        if (ho || hbo) {
+          const o = openedSections(hbo, ho);
+          add(`the served ${s.route} was read with every question opened, before and after`, o.ok, o.why);
+          if (o.ok) out.push(...sectionChecks(`the section served on ${s.route}`, o.sections, s));
+        } else out.push(...sectionChecks(`the section served on ${s.route}`, addedRuns(servedLines(hb), servedLines(h)).map(runText), s));
       }
     }
   }

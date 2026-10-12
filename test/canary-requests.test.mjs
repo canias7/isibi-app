@@ -1024,7 +1024,8 @@ test("the canary hands the closed-tab readers to the driver, reads the table lis
   // THE PLAIN SERVED HTML BY DEFAULT; the opened read only where asked for (2026-10-12).
   assert.match(block, /const servedOf = \(label, render, kind = ""\) =>/);
   assert.match(block, /const served = servedOf\("after", after && after\.render\);/);
-  assert.match(block, /const servedOpen = servedOf\("after", after && after\.render, "\.open"\);/);
+  assert.match(block, /const servedOpen = openedOf\("after", after && after\.render\);/);
+  assert.match(block, /const beforeServedOpen = openedOf\("before", BEFORE\.render\);/);
   assert.match(block, /createHash\("sha256"\)\.update\(bytes\)/, "the logo's bytes are not hashed");
   // THE AWAY MESSAGE'S TAB IS JUDGED BY THE BATCH, NOT BY THE SAME-TAB CHECK.
   // A MESSAGE READ IN ANOTHER TAB BY DESIGN — opened afterwards (`away`), or in a
