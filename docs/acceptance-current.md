@@ -178,8 +178,12 @@ Before anything is implemented or pressed, choose one:
 
 ## 7. Offline verification of this plan (rounds 16 and 17)
 
-- Harness commit `8db3cbea`. Full suite `10650 / 10650 / 0 / 0`.
-  Consolidated sweep 41 files, **524 / 524** (independent work 124,
-  dependencies 92, clarification and resume 201, partial failure 107).
-  Mutation sweep 14 of 14 killed, control surviving. CI: unit tests
-  38198232545 `success` on `8db3cbea`.
+- Round 16: harness commit `8db3cbea`; full suite `10650 / 10650 / 0 / 0`;
+  acceptance sweep 524 / 524; sweep 14 of 14; CI unit tests 38198232545
+  `success`.
+- Round 17 (`docs/history/2026-10-12-acceptance-harness-controls.md`):
+  commit `1eac62c1`, after Codex's controls on `3869478b`. Every asked-for
+  fact is judged, and trace attribution goes by run. Full suite `10657 /
+  10657 / 0 / 0`; acceptance sweep 41 files, **531 / 531**; sweep 21 of 21,
+  control surviving; red check 9 of 16 failing on `3869478b`; CI unit tests
+  38201146344 `success` on `1eac62c1`.

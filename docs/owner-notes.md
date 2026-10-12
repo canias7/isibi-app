@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: the repair batch closed on Codex's review of 358dff0a; the acceptance plan brought back to the goal, offline proof separated from live verification, with image-free Add-on cases inside one Add-on and across parts; round 15's every accepted requirement kept; round 14's recovery by the server; earlier rounds' requirements, scheduling, continuation and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: round 17 closed the acceptance harness's two false positives found by Codex on 3869478b — every asked-for fact judged, trace attribution by run; round 16's image-free Add-on cases and offline-versus-live plan; round 15's every accepted requirement kept; round 14's recovery by the server; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,11 +11,59 @@ is in git; the dated entries further down are the full story.*
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Product code
   **`754c4eb4`** (round 15), reviewed by Codex on **`358dff0a`**; round 16
-  (`8db3cbea`) changes the acceptance harness only. Its predicted image is
+  (`8db3cbea`) and round 17 (`1eac62c1`) change the acceptance harness
+  only. Its predicted image is
   **`1e30b6fb56b51794`** (205 inputs; not built; unchanged by round 16).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 17** (`1eac62c1`; `docs/history/2026-10-12-acceptance-harness-controls.md`).
+Codex reviewed **`3869478b`**: 168 focused tests passed, three
+browser-dependent tests skipped, CI green, but two negative controls passed
+when they should have failed. The product fixes and round 16's scenarios are
+kept.
+- **Fixed: a wrong amount passed.** "£50 a head, cheese included" passed a
+  section asked to say "£25 a head, cheese included", because only "a head"
+  and "cheese" were required.
+  - *Now*: every page and section names every fact asked for: places,
+    amounts, days, times of day, and negative answers.
+  - Equivalent wording comes only from each fact's own list.
+  - No other amount, day or time may stand beside the asked-for one.
+  - A claim you said no to ("gluten-free") is refused.
+  - A question is not a claim, and an answer's leading "No," does not deny
+    the sentence after it.
+- **Fixed: an older job's trace was claimed.** Competing jobs were chosen by
+  creation time (a 30-minute lookback), so a job created at 08:00 and ending
+  at 10:04 was missed while its trace was read, and the overlap was claimed
+  for the 10:00 job.
+  - *Now*: the lookup reads every job whose run touches the window.
+  - A trace counts as a job's only when it ran inside that job's own run, the
+    job had finished, the read was complete, and no other job ran beside it.
+  - Otherwise the result is `candidate-only` or `unknown`.
+- **Evidence**:
+  - 16 cases in `test/acceptance-addon-free.test.mjs`: 7 new and 3 rewritten.
+    They cover wrong, missing and contradictory values per scenario,
+    equivalent wordings, Codex's older-job case, a missing job trace,
+    incomplete reads, and genuine and sequential overlap.
+  - Red check: 9 of the 16 fail on `3869478b`.
+  - Sweep `sweep22`: 21 of 21 killed, the control surviving. The first pass
+    found two untested paths (weekends, the served-page facts); a case was
+    added for each.
+  - Full suite `10657 / 10657 / 0 / 0`; acceptance sweep 41 files,
+    **531 / 531**.
+  - CI: unit tests 38201146344 `success` on `1eac62c1` (10657 tests, 10616
+    passed, 0 failed, 41 skipped).
+- **Remaining limits**:
+  - Equivalent wording is a per-fact list: a live phrasing outside it fails
+    and is read by a person, never passed by a looser rule.
+  - Contradiction is checked for amounts, days and times of day. An extra
+    place is not refused; a denied place is.
+  - Attribution needs the job alone on the site while its trace ran. A job
+    column on the trace table would lift this, but it is a product and schema
+    change, not made.
+- **Nothing pressed.** No fal, merge, deploy, container build, Build flag or
+  limit change.
 
 **Round 16** (`8db3cbea`; `docs/history/2026-10-12-acceptance-addon-free.md`;
 the plan is `docs/acceptance-current.md`).
@@ -792,6 +840,29 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Parallel work round 17: the acceptance harness's two false positives (offline; not deployed, not pressed)
+
+Codex reviewed `3869478b`: 168 focused tests passed, three browser tests
+skipped, CI green. Two negative controls exposed false positives. Both are
+fixed in `1eac62c1`.
+
+First, a section asked to say "£25 a head, cheese included" passed while
+saying "£50 a head". The press now checks every fact you asked for on each
+new page and section: the places, the amount, the day, the time of day, and
+what you said no to. Each fact allows a short list of equivalent wordings,
+and no other amount, day or time may sit beside the right one.
+
+Second, the free read-job lookup could credit an older job's trace to a newer
+job and claim its designers overlapped. It now reads every job whose run
+touches the window. It credits a trace only when that trace ran inside the
+job's own run and nothing else ran beside it. Otherwise it reports
+`candidate-only` or `unknown`.
+
+Results: 16 focused cases, 9 of which fail on `3869478b`. The mutation sweep
+killed 21 of 21. Full suite 10657 of 10657; acceptance sweep 531 of 531. CI
+unit tests 38201146344 `success` on `1eac62c1`. Nothing pressed, and no
+product, billing or flag change.
 
 ## 2026-10-12 — Parallel work round 16: the repair batch closed; the acceptance plan brought back to the goal, with image-free Add-on cases (offline; not deployed, not pressed)
 
