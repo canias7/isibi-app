@@ -1005,7 +1005,42 @@ Done so far:
     credits the batch has already spent" box, not the "RUN A NAMED SCENARIO
     IN A REAL BROWSER" box.
   - Balance 944, unchanged.
-- **Next**: K again, with the scenario in the right box.
+- **K — run 135** (18:40–18:53 UTC, from the branch at `ab0960cb`;
+  request `8e89a005`). Paid: **30 credits** (944 → 914).
+  - Charges: routing 3, then three jobs, each charged once with no refund:
+    - part 0's Add-on job `743e0fa8`: 15;
+    - part 1's routing job `4f8e0de7`: 3;
+    - part 1's Add-on job `d1680813`: 9.
+  - The money check matched exactly. **It spent more than its estimate of
+    22** (a finding: the balance was the only bound).
+  - **Routing differed from K0.** On the same words, the live router
+    answered `addon` and held back the Order line as its own part. So
+    there were **two Add-on parts**, not one Add-on.
+    - **Inside one Add-on is NOT reached** (coverage `addon-inner` not
+      covered, two jobs). The free *read_job* reading is therefore moot,
+      and was not pressed.
+    - One more live sample of the same message routing differently.
+  - **Actual overlap, by recorded intervals, between two Add-on parts.**
+    - Part 1's prepared step (3 model calls) ran +52.4 s – +136.7 s.
+    - Part 0's Add-on job ran +43.5 s – +322.9 s.
+    - They overlapped for **84.3 s**, and `overlapVerdict` limited to
+      Add-on parts also says yes.
+  - **Exact reuse.**
+    - Part 1's job replayed its preparation exactly: staged yes, replayed
+      3, fresh 0.
+    - Part 0 was not prepared (fresh 4).
+  - **Final results.**
+    - `/order`: the line is stored and served, and every fact passed.
+    - `/visit`: the stored section passed every fact, as a `<Faq>` with
+      the asked question and answer.
+    - **The served check on `/visit` FAILED.** The FAQ is a Radix accordion
+      served collapsed (`data-state="closed"`), so the answer is not in the
+      served HTML. Only "Can I bring my dog?" is. It is a limit of the
+      served check (and of the Add-on's own coverage judge, which said
+      "unseen"), not missing content. Recorded, not fixed here.
+    - Everything else is byte for byte, and the tables are unchanged.
+  - Replies: both written by the model and shown on screen.
+- **Next**: E (`acc-addon-edit`), with the balance box at 914.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
