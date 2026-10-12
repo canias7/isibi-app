@@ -1489,6 +1489,34 @@ only run that push started, `completed` / `success`, the job **3m11s**
   the press stopped). Not pressed again; the question left unanswered
   (`docs/history/2026-10-07-combined-release.md` §4).
 
+**Deploy 2193 (2026-10-12) was predicted on both ends and reused as
+predicted**, on the owner's word ("merge") after option A's opt-in. It
+fast-forwarded `main` `e1556086` → **`df1dcf30`**, 9 commits: the opt-in
+box for P1 and P2 (`959663d7`, scripts, the edit canary workflow and tests)
+and records. No product file changed.
+
+It was pushed at 14:02:05 UTC. Run 38259958345, `push` on `df1dcf30`, was
+the only run that push started: `completed` / `success`, 14:02:07–14:03:44.
+
+- **Before**:
+  - `main` an ancestor of the candidate;
+  - unit CI green on `959663d7` (run 38258334612, `10672 / 10631 / 0 / 41`)
+    and on `df1dcf30` (run 38259141545), with records only between them;
+  - nothing in flight: no running or queued Actions run, and no open edit
+    job;
+  - the rollback (`git revert --no-commit e1556086..df1dcf30`) giving back
+    `e1556086`'s tree (`bf3ca2da…`);
+  - no skip-CI or smoke marker in the 9 messages;
+  - nothing under `public/` changed, so no served-file check was owed.
+- **The image**: `reused isibi-app-sitebuildcontainer:1e30b6fb56b51794`
+  (registry 200, 205 inputs), as predicted. The container application
+  reported `no changes`, so no image window is owed.
+- **Wrangler**: 27 secrets, including `IMAGE_PURCHASES`. The log masks the
+  value, so it is read by the runtime press. No asset was uploaded. Current
+  Version ID `1d0a1f60…`.
+- **Runtime**: deployed, **not yet runtime-confirmed**. That is the owner's
+  free press, which must also show `imagePurchases=false` before P2.
+
 **Deploy 2192 (2026-10-12) was predicted on both ends and built as
 predicted**, on the owner's word ("proceed with merging and deploying the
 reviewed branch once"), after Codex reviewed `dc3ea241`. It fast-forwarded

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 is on the branch for review, not merged)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, not yet runtime-confirmed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -901,6 +901,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Deploy 2193: the opt-in merged (not yet runtime-confirmed; nothing pressed or spent)
+
+On your word "merge", `main` fast-forwarded `e1556086` → `df1dcf30`. One
+deploy run (38259958345, 14:02–14:03 UTC), green.
+- The image was **reused** (`1e30b6fb56b51794`), as predicted, and the
+  container reported no changes, so there is no wait.
+- No asset uploaded.
+- 27 secrets set, including `IMAGE_PURCHASES`. The log hides its value, so
+  your free runtime press must show `imagePurchases=false` before P2.
+
+Checked first:
+- nothing in flight;
+- unit CI green on `959663d7` and `df1dcf30`;
+- rollback verified;
+- no skip marker in the messages;
+- nothing under `public/` changed.
 
 ## 2026-10-12 — Option A: the opt-in box for P1 and P2 (on the branch, for review; nothing merged, deployed, pressed or spent)
 

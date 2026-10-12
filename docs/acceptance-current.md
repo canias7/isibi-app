@@ -13,7 +13,10 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
 
 ## 1. State
 
-- **Production**: deploy 2192 (2026-10-12), `main` **`e1556086`**, image
+- **Production**: deploy 2193 (2026-10-12, 14:03 UTC), `main` **`df1dcf30`**,
+  the opt-in (§5) merged; image `1e30b6fb56b51794` **reused**; deployed, not
+  yet runtime-confirmed. Before it:
+- deploy 2192 (2026-10-12), `main` **`e1556086`**, image
   **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
   from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is
   byte-identical to the merged file. **Runtime-confirmed by the owner's free
@@ -28,8 +31,8 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
   2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
 - **The branch is merged** (a fast-forward, one deploy run). Records after it
   live on `claude/help-needed-ehlwlj` and start no deploy.
-- **Paid acceptance is blocked** until the opt-in (§5) is reviewed, merged
-  and deployed. Every paid acceptance entry point refuses while the balance is
+- **Paid acceptance is blocked** except for P1 and P2 run with the opt-in box
+  (§5), which is merged and deployed in deploy 2193. Every paid acceptance entry point refuses while the balance is
   above 100 (`ACCEPTANCE_CAP`); the balance is 971, and nothing here asks for
   it to change. **No separate test budget exists.** You chose option A for P1
   and P2 (2026-10-12); the opt-in box that carries it is on the branch.
