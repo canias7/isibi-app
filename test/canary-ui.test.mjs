@@ -2230,7 +2230,7 @@ test("the canary judges Test 9 by the failure, the table after it, the tab, the 
   // keeps its row asks no conditional write and plans no recovery.
   assert.match(win, /check\(`message \$\{s\.n\}'s reply was read in the tab the run opened, never reloaded`, s\.sameTab === true/);
   assert.match(win, /if \(ROW\.restore === false\) \{\s*check\("this run made no write of its own/);
-  assert.match(CANARY, /import \{ failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight \} from "\.\/canary-ui\.mjs"/);
+  assert.match(CANARY, /import \{ failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight, readBalanceOptIn, optInRefusal \} from "\.\/canary-ui\.mjs"/);
 });
 
 // ── REQUEST MODE (2026-10-03, the owner's review: *"Adapt the UI canary for

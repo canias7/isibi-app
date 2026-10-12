@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 is on the branch for review, not merged)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -25,9 +25,12 @@ is in git; the dated entries further down are the full story.*
   **Build flags** were not changed (the log shows the `*_EVERYONE` flags
   `off`, as before), and the 1-page / 15-component limits are untouched. No
   paid call, fal call or image purchase. `IMAGE_PURCHASES` was not changed.
-- **Paid acceptance is still blocked**: every acceptance press refuses above
-  100 credits, and the balance is 971. That guard was not bypassed, and the
-  balance was not lowered. **One spending decision is needed** (below).
+- **You chose option A** ("go with A"): the account balance is the bound for
+  P1 and P2 only. **The opt-in that carries it is on the branch, for review;
+  not merged, not deployed, nothing pressed or spent.** Until it is merged,
+  paid acceptance stays blocked by the 100-credit guard at 971. The guard was
+  not bypassed, and the balance was not lowered. The steps from here are
+  §6 of `docs/acceptance-current.md`, and the dated entry below.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -898,6 +901,58 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Option A: the opt-in box for P1 and P2 (on the branch, for review; nothing merged, deployed, pressed or spent)
+
+You chose option A. I built the one box it needs, and nothing else.
+
+**The box**: *ACCEPTANCE P1/P2 ONLY* on the *edit canary* form
+(`accept_balance`). You type your balance in whole credits.
+- **Where it works**: only beside `acceptance-split-1` (P1), or
+  `acc-page-table` / `acc-table-page` (P2).
+- **What it does**: lets that one press run above the 100-credit cap, but
+  only if the balance read just before the first paid call is **exactly**
+  the number you typed. If anything changed it in between (a top-up, a
+  charge, an unreadable read), the press refuses and names both numbers.
+- **What still stands**: the estimate check, the deploy and image checks, and
+  P2's image switch.
+- **Refused before it signs in, at no cost**: anything but a whole number, or
+  the box beside any other press (B1–B3, the request batch, other probes).
+- **Blank**: nothing changes, and the cap stands.
+
+**Still not a budget**: under it, a press can spend up to your whole balance.
+P1 and P2 are estimated at 13–39 together, which is not a limit.
+
+**No product code changed**, only the canary script, the form and tests. The
+container inputs are unchanged, so the image is predicted **reused**
+(`1e30b6fb56b51794`). A merge starts one deploy run, because a workflow
+changed.
+
+**Checked here**:
+- 8 new cases in `test/acceptance-balance-opt-in.test.mjs`, including the
+  real canary script under the network stub:
+  - 971 named at 971 routes all 9 probes;
+  - the same press blank still refuses;
+  - 971 named at 972 refuses before any route;
+  - a bad box exits before any network call.
+- 1 new driver case in `test/canary-acceptance.test.mjs`.
+- Red check: the new cases fail on the old scripts.
+- Sweep: 16 of 16 mutants killed, and both comment-only controls survived.
+  - A first sweep run hit its time limit and left one mutant in
+    `scripts/canary-ui.mjs`. I found it by its text, reverted it, and
+    confirmed all three files match their pre-sweep hashes before re-running.
+    Nothing was committed while it ran.
+- Full suite **10672 / 10672 / 0 / 0** locally (10663 before).
+
+**Your steps** (`docs/acceptance-current.md` §6):
+1. Review it.
+2. Set `IMAGE_PURCHASES` to `off` just before the merge. This stops
+   photographs for every customer while it is off.
+3. Merge.
+4. Run the free runtime press.
+5. Run P1 with your balance in the box.
+6. Run P2 only if P1's S3 made parts.
+7. Set `IMAGE_PURCHASES` back to `on` and re-run the deploy.
 
 ## 2026-10-12 — Run 126: check 3, the P2 rehearsal (free)
 

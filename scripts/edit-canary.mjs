@@ -54,7 +54,7 @@ import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from ".
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
 // AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
 // and the tab every message went from.
-import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight } from "./canary-ui.mjs";
+import { failureVerdict, refundedVerdict, sameTab, overBudgetVerdict, acceptancePreflight, readBalanceOptIn, optInRefusal } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
 import { routeCallOf } from "./canary-ui.mjs";
 // THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
@@ -136,6 +136,10 @@ const UI = String(process.env.CANARY_UI || "").trim();
 // the driver runs this script once per press, each with its own scenario
 // named, and answers the batch's exit code. Its box beside any other run is
 // refused, as every mode's box is.
+if (batchOf(UI) && String(process.env.CANARY_ACCEPT_BALANCE || "").trim()) {
+  console.error("REFUSING: the acceptance balance box is only for acceptance-split-1, acc-page-table or acc-table-page, not the request batch. Nothing was signed in or charged.");
+  process.exit(2);
+}
 if (batchOf(UI)) process.exit(await runBatchMain(process.env));
 if (String(process.env.CANARY_BATCH_SPENT || "").trim()) {
   console.error(`REFUSING: the batch's spend box is filled, but the scenario box does not name ${BATCH_NAME} or ${BATCH_FROM_R2_NAME}. Nothing was signed in or charged.`);
@@ -257,6 +261,16 @@ if (PROBES_ASK.name) {
   console.log(`ROUTING-ONLY BATCH  ${read.batch.name}: ${read.batch.probes.length} probes, sha256 ${read.sha256}`);
   console.log(`  each message is routed once and nothing is ever edited, added, built or published${SPEND ? "" : "; this run does not spend, so it checks, reads and stops"}\n`);
 }
+// THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, plan §5 option A;
+// `readBalanceOptIn`). Read whole before the sign-in: a malformed number, or
+// the box beside any press but acceptance-split-1, acc-page-table or
+// acc-table-page, refuses at no cost.
+const OPT_IN = readBalanceOptIn(process.env.CANARY_ACCEPT_BALANCE, { probes: PROBES_ASK.name || "", ui: UI_ASK && UI_ASK.ok ? UI_ASK.name : "" });
+if (!OPT_IN.ok) {
+  console.error(`REFUSING: ${OPT_IN.msg}. Nothing was signed in or charged.`);
+  process.exit(2);
+}
+if (OPT_IN.value !== null) console.log(`BALANCE OPT-IN  ${OPT_IN.press} may run against exactly ${OPT_IN.value} credits in place of the acceptance cap; any other balance refuses. Not a budget: the whole balance is the bound.\n`);
 // THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
 const RUN_ID = runIdOf(process.env);
 
@@ -529,7 +543,7 @@ if (PROBES) {
   // one every acceptance press uses: the floor below, and no more than the
   // acceptance cap. Read in a rehearsal too, and every unmet item reported.
   const floor = PROBE_COST_MAX * probes.length;
-  const pre = PROBES.batch.acceptance ? acceptancePreflight({ balance: balBefore, need: floor }) : [];
+  const pre = PROBES.batch.acceptance ? acceptancePreflight({ balance: balBefore, need: floor, optIn: OPT_IN.value }) : [];
   const unmet = pre.filter((x) => !x.ok);
   for (const x of pre) console.log(`  ${x.ok ? "MET  " : "UNMET"}  ${x.name}${x.ok ? "" : ` — ${x.why}`}`);
   // A REHEARSAL STOPS HERE, having read and checked everything a paid press
@@ -901,6 +915,13 @@ if (UI_ASK) {
     process.exit(1);
   }
   console.log(`UI MODE — scenario ${UI_ASK.name} on ${CANARY}, ${SPEND ? "PAID: each message is sent" : "a rehearsal: nothing is sent"}\n`);
+  // THE OPT-IN, READ HERE TOO in a rehearsal, so the press it stands for shows
+  // whether the balance is the one named before anything is paid for.
+  if (OPT_IN.value !== null) {
+    const now = await balanceNow();
+    const why = optInRefusal({ now, named: OPT_IN.value });
+    console.log(`  ${why ? "UNMET" : "MET  "}  the balance is the ${OPT_IN.value} you allowed this press to run against${why ? ` — ${why}` : ""}\n`);
+  }
   // A SCENARIO THAT CHANGES A ROW IS HANDED ITS READERS. The owner route reads
   // the stored rows whole and is the one door the recovery writes through —
   // one field, by the rules in canary-rows.mjs; the visitor route is what the
@@ -966,7 +987,7 @@ if (UI_ASK) {
     list: () => call("GET", `/api/site/requests/${encodeURIComponent(CANARY)}`),
     stop: (key) => call("DELETE", `/api/site/request/${encodeURIComponent(CANARY)}/${encodeURIComponent(key)}`),
   };
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop, freshSession: signIn, runtimeNow: () => call("GET", `/api/site/runtime?slug=${encodeURIComponent(CANARY)}`) });
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, balanceOptIn: OPT_IN.value, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop, freshSession: signIn, runtimeNow: () => call("GET", `/api/site/runtime?slug=${encodeURIComponent(CANARY)}`) });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
   if (!recoverOnly) {

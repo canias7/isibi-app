@@ -1752,14 +1752,23 @@ export function fundsRefusal({ now, budget }) {
  * a paid acceptance press refuses, which keeps paid acceptance blocked at
  * today's balance; nobody is asked to lower their balance to get past it.
  */
-export function acceptancePreflight({ balance, need }) {
+export function acceptancePreflight({ balance, need, optIn = null }) {
   const read = Number.isFinite(balance) && balance >= 0;
-  const cap = capRefusal({ now: read ? balance : NaN, cap: ACCEPTANCE_CAP });
   const enough = Number.isFinite(need) && need > 0 ? (read ? balance >= need : false) : true;
+  // WITH THE OWNER'S OPT-IN (`readBalanceOptIn`) the cap's item is replaced by
+  // the balance being exactly the one named; without it, the cap stands.
+  let bound;
+  if (optIn !== null && optIn !== undefined) {
+    const why = optInRefusal({ now: read ? balance : NaN, named: optIn });
+    bound = { name: `the balance is the ${optIn} you allowed this press to run against (in place of the cap of ${ACCEPTANCE_CAP})`, ok: read && !why, why: read ? why : "the balance could not be read" };
+  } else {
+    const cap = capRefusal({ now: read ? balance : NaN, cap: ACCEPTANCE_CAP });
+    bound = { name: `the balance is within the acceptance cap of ${ACCEPTANCE_CAP}`, ok: read && !cap, why: read ? cap : "the balance could not be read" };
+  }
   return [
     { name: "the balance was read", ok: read, why: read ? "" : "the balance could not be read" },
     { name: `the balance covers the estimate${Number.isFinite(need) ? ` of ${need}` : ""}`, ok: enough, why: enough ? "" : read ? `the balance (${balance}) does not cover the estimate of ${need}` : "the balance could not be read" },
-    { name: `the balance is within the acceptance cap of ${ACCEPTANCE_CAP}`, ok: read && !cap, why: read ? cap : "the balance could not be read" },
+    bound,
   ];
 }
 
@@ -1768,6 +1777,40 @@ export function capRefusal({ now, cap }) {
   if (!(Number.isFinite(cap) && cap > 0)) return "the scenario's hard cap is not a number";
   if (!(Number.isFinite(now) && now >= 0)) return "the balance could not be read, so whether it is within the hard cap is not known";
   return now > cap ? `the balance (${now}) is above this press's hard cap of ${cap} credits: with no more than ${cap} in the account, the press cannot spend more` : "";
+}
+
+/**
+ * THE OWNER'S OPT-IN ABOVE THE CAP (2026-10-12, the acceptance plan's §5
+ * option A, on the owner's word "go with A"). The owner accepts the account's
+ * balance as the bound for exactly the smallest image-free batch: the routing
+ * probe `acceptance-split-1` (P1) and the request press `acc-page-table` or
+ * `acc-table-page` (P2), and no other press. The box names the balance, in
+ * whole credits, that the press may run against. It replaces only the
+ * 100-credit cap, and only when the balance read before the first paid call
+ * is exactly that number: a top-up, a charge or an unreadable balance in
+ * between refuses. Every other check stands (the estimate, the deploy, the
+ * image switch). Read before the sign-in: a malformed number, or the box
+ * beside any other press, refuses at no cost. Blank, nothing changes.
+ * IT IS NOT A BUDGET: the server still refuses only what the balance cannot
+ * cover, so a press run under it can spend up to that whole balance.
+ */
+export const BALANCE_OPT_IN = Object.freeze(["acceptance-split-1", "acc-page-table", "acc-table-page"]);
+
+export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return { ok: true, value: null, press: "" };
+  if (!/^[1-9][0-9]{0,6}$/.test(s)) return { ok: false, msg: `the balance box takes the account's balance in whole credits (e.g. 971), not "${s}"` };
+  const named = [probes, ui].map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean);
+  if (named.length !== 1 || !BALANCE_OPT_IN.includes(named[0])) {
+    return { ok: false, msg: `the balance box is only for ${BALANCE_OPT_IN.join(", ")}, one at a time; this press names ${named.length ? named.join(" and ") : "none of them"}` };
+  }
+  return { ok: true, value: Number(s), press: named[0] };
+}
+
+export function optInRefusal({ now, named }) {
+  if (!(Number.isInteger(named) && named > 0)) return "the balance this press may run against is not a whole number";
+  if (!(Number.isFinite(now) && now >= 0)) return "the balance could not be read, so whether it is the one you allowed is not known";
+  return now === named ? "" : `the balance (${now}) is not the ${named} credits this press was allowed to run against`;
 }
 
 /**
@@ -3100,6 +3143,11 @@ export async function runUi(opts) {
     // the visitor route's read and the owner route's PATCH — and the site's
     // origin, where the page a visitor sees it on lives.
     rows = null, siteOrigin = "", shownMs = 45_000,
+    // THE OWNER'S OPT-IN ABOVE THE CAP (`readBalanceOptIn`): the balance, in
+    // whole credits, this press may run against in place of the acceptance
+    // cap. Only a scenario bound by `ACCEPTANCE_CAP` takes it; null, the cap
+    // stands.
+    balanceOptIn = null,
     // THE RULES TEST (`scenario.rules`) is handed its readers and its one
     // write: `rules = { tables, newest, secrets, stamp, menu, bookingsRead,
     // surface, del }` (see `readRulesState`; `del` is the owner route's DELETE,
@@ -3835,7 +3883,8 @@ export async function runUi(opts) {
       const short = n === 1 && scenario.fundsFirst === true ? fundsRefusal({ now: bal, budget: scenario.budget }) : "";
       if (short) { stop(`step ${n}`, `${short} — nothing is sent`); break; }
       // THE HARD CAP (2026-10-06): no more in the account than the press may spend.
-      const capped = n === 1 ? capRefusal({ now: bal, cap: scenario.cap }) : "";
+      const optedIn = balanceOptIn !== null && scenario.cap === ACCEPTANCE_CAP;
+      const capped = n === 1 ? (optedIn ? optInRefusal({ now: bal, named: balanceOptIn }) : capRefusal({ now: bal, cap: scenario.cap })) : "";
       if (capped) { stop(`step ${n}`, `${capped} — nothing is sent`); break; }
       // A PRESS THAT JUDGES WHAT IS SHOWN WHILE THE WORK RUNS sends nothing to a
       // Worker that does not narrate (`progressOnRefusal`, read for free).

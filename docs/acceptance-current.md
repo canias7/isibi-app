@@ -28,11 +28,11 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
   2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
 - **The branch is merged** (a fast-forward, one deploy run). Records after it
   live on `claude/help-needed-ehlwlj` and start no deploy.
-- **Paid acceptance is blocked.** Every paid acceptance entry point (the
-  request presses, the routing-only probe batch and the image-free Build)
-  refuses while the balance is above 100 (`ACCEPTANCE_CAP`). The balance is
-  971, and nothing here asks for it to change. **No separate test budget
-  exists.**
+- **Paid acceptance is blocked** until the opt-in (§5) is reviewed, merged
+  and deployed. Every paid acceptance entry point refuses while the balance is
+  above 100 (`ACCEPTANCE_CAP`); the balance is 971, and nothing here asks for
+  it to change. **No separate test budget exists.** You chose option A for P1
+  and P2 (2026-10-12); the opt-in box that carries it is on the branch.
 - **Real images are unverified**, and stay so: no test here buys one. fal is
   off limits. **Every case below is image-free**, the Add-on ones included.
 - **The account's Build flags are left as they are.** Nothing is switched on
@@ -90,7 +90,7 @@ Every check reads what the run recorded, never a status or a routing answer.
 | **Reuse** | `reuseVerdict`: per-job `prepUse` (`exact` = staged yes, replayed ≥ 1, fresh 0) | the demanded number of jobs answered exactly from prepared work; a missing record fails |
 | **No duplicate charges** | `moneyVerdict`, `ownMoneyVerdict` (the press's own ledger rows), `laterChargesVerdict` (charges after the request ended), and the read-job ledger (`credit_events` by job id) | each job reserved once, every ledger ref distinct, nothing charged after the end, spend within the estimate |
 
-## 4. The minimal live proposal (not approved; nothing is pressed)
+## 4. The minimal live proposal (P1 and P2 approved under option A; nothing is pressed)
 
 Two paid presses are necessary to verify the remaining parallel-work claims
 (items 1 and 2). The image-free Add-on presses are optional, and each is
@@ -121,75 +121,71 @@ pressed only if its probe allows it.
   there. A press compares against its own before-read, so the order of B1–B3
   does not matter.
 
-## 5. The spending decision you need to make first
+## 5. The spending decision: option A, chosen 2026-10-12
 
-**What is actually enforced today**: the server's charge functions refuse
-any charge the balance cannot cover. So **the only enforced bound on a paid
-press is the whole account balance (971)**. No per-press or per-request cap
-exists on the server. The press's own 100-credit refusal is a guard that
-blocks every paid press at 971. It is not a budget.
+**What is actually enforced**: the server's charge functions refuse any
+charge the balance cannot cover. So **the only enforced bound on a paid press
+is the whole account balance (971)**. No per-press or per-request cap exists
+on the server. The press's own 100-credit refusal is a guard, not a budget.
 
-Before anything is implemented or pressed, choose one:
+**You chose A** ("go with A"): the account balance is accepted as the bound
+for **P1 and P2 only** (`acceptance-split-1`, and `acc-page-table` or
+`acc-table-page`). B1–B3 are not included; they stay behind the cap.
 
-- **A. Accept the account balance as the bound for P1 and P2** (and, if you
-  want them, B1–B3). Their worst case is the whole balance. Their expected
-  spend is in §4; run 119, the closest past press in shape, spent 12. Neither
-  figure is a limit. Implementation: one small, reviewed change that lets
-  these presses run above 100 only with an explicit opt-in box you fill,
-  naming the balance it may run against. The guard stays in place for
-  everything else. No billing change.
-- **B. A real separate test budget first.** A bound smaller than the
-  account needs a billing change, for example a per-request cap in the
-  server's charge functions or a separate funded test account with its own
-  site. You asked for no billing redesign in this round, so this would be a
-  separate, approved piece of work, and the presses stay blocked until it
-  exists.
-- **C. Do nothing live.** Paid acceptance stays blocked. Every claim in §2
-  stays verified offline only.
+**The opt-in, on the branch, not yet reviewed or merged**: a new form box,
+*ACCEPTANCE P1/P2 ONLY* (`accept_balance`). You type your balance in whole
+credits. Then:
+- the press runs above the 100-credit cap **only if the balance read just
+  before the first paid call is exactly that number**; a top-up, a charge or
+  an unreadable balance in between refuses;
+- every other check stands: the estimate, the deploy sha, the image id and,
+  for P2, image purchases off;
+- the box beside any other press, or anything but a whole number, refuses
+  before the sign-in, at no cost;
+- left blank, nothing changes: the cap stands.
+
+It is still not a budget: under it, a press can spend up to the whole
+balance. The estimates (§4) are not limits.
+
+Until the opt-in is reviewed, merged and deployed, **paid acceptance is
+blocked**.
 
 **Not an option**: lowering or resetting the account's balance.
 
-## 6. Deployment steps the presses need (after the decision; each the owner's)
+## 6. The steps from here (each the owner's)
 
-1. Approve the decision in §5 and the presses in §4.
-2. Review and merge whatever §5's choice needs (for A, the opt-in change).
-   **The branch itself is already merged and deployed (deploy 2192); steps 4–5
-   are done for it.** A merge for §5's change would roll a new deploy, and
-   the image only if its inputs change.
-3. **Set the repository secret `IMAGE_PURCHASES` to `off`** (needed for P2
-   and B1–B3, not P1: every acceptance scenario refuses unless the live
-   Worker reports it off; the routing-only probe never reaches an image).
-   **This stops photographs for every customer while it is off, not only for
-   the tests.**
-4. **Merge the branch to `main`** (a fast-forward; one deploy run). P1 also
-   needs it: a probe routes through the live Worker, so it only measures the
-   router that is deployed. The image rolls `8d6dbcea93252fbb` →
-   `1e30b6fb56b51794` (predicted, not built). If the merged commit's
-   container inputs differ from `754c4eb4`'s, the image is predicted again
-   first.
-5. Wait 15–20 minutes for the image window.
-6. **The free runtime press** (*edit canary*, every paid box blank or `no`):
-   it must print the new deploy sha, image `1e30b6fb56b51794` and
-   `imagePurchases=false`.
-7. **The free rehearsals** of each press (spend not `yes`): each reads its
-   prerequisites and reports every one a paid press would refuse on.
-8. **P1**, workflow *edit canary*: *ROUTING-ONLY BATCH* = `acceptance-split-1`;
-   *Run the ONE paid edit as well* = `yes`; *Refuse to spend unless the Worker
-   reports this deploy sha* = the merge sha; *Refuse to spend unless a cold
-   container reports this image id* = `1e30b6fb56b51794`. Every other box
-   blank.
-9. **P2**, only if P1 allows it: *The site to edit* = `fold-lane-bakery`;
-   *RUN A NAMED SCENARIO IN A REAL BROWSER* = `acc-page-table` (or
-   `acc-table-page`, as §4 says); spend `yes`; the same deploy sha and image
-   boxes.
-10. **B1–B3**, if approved and as §4 allows: the same boxes as P2, with the
-    scenario `acc-addon-inner`, `acc-addon-edit` or `acc-addon-pair`.
-11. **After B1**: the free read-job press, *read_job* = the Add-on's job id
-    (from B1's record). Its `DESIGNERS` line is the inside-one-Add-on
-    reading: `overlapped`, `not-overlapped`, `candidate-only` or `unknown`
-    (§3).
-12. **Afterwards**, decide whether to set `IMAGE_PURCHASES` back to `on`
-    (with a redeploy). Until then, no customer gets photographs.
+1. **Done**: the decision (§5, option A, for P1 and P2), and the free checks
+   on deploy 2192 (runs 123, 125, 126).
+2. **Review the opt-in** (§5) on the branch.
+3. **Set the repository secret `IMAGE_PURCHASES` to `off`** just before the
+   merge, so the merge's one deploy carries it. P2 needs it; P1 does not.
+   **This stops photographs for every customer while it is off.**
+4. **Merge the branch to `main`** (a fast-forward; one deploy run, because a
+   workflow changed). The container inputs are unchanged, so the image is
+   expected to be **reused** (`1e30b6fb56b51794`) and no image window is
+   owed. If the deploy log says `built`, wait 15–20 minutes before step 5.
+5. **The free runtime press** (*edit canary*, spend `no`, the new deploy sha
+   and image boxes): it must print the merge sha, image `1e30b6fb56b51794`
+   and `imagePurchases=false`. Read your balance there.
+6. **P1**, workflow *edit canary* from `main`:
+   - *ROUTING-ONLY BATCH* = `acceptance-split-1`;
+   - *ACCEPTANCE P1/P2 ONLY* = your balance, exactly as step 5 read it;
+   - *Run the ONE paid edit as well* = `yes`;
+   - *Refuse to spend unless the Worker reports this deploy sha* = the merge
+     sha;
+   - *Refuse to spend unless a cold container reports this image id* =
+     `1e30b6fb56b51794`;
+   - every other box blank.
+7. **P2**, only if P1's S3 made parts (else `acc-table-page` if S4 did; else
+   neither):
+   - *The site to edit* = `fold-lane-bakery`;
+   - *RUN A NAMED SCENARIO IN A REAL BROWSER* = `acc-page-table`;
+   - *ACCEPTANCE P1/P2 ONLY* = your balance after P1, exactly;
+   - spend `yes`, and the same deploy sha and image boxes.
+8. **Afterwards**, set `IMAGE_PURCHASES` back to `on` and re-run the deploy
+   workflow (it has a manual run). Until then, no customer gets photographs.
+
+B1–B3 are not part of option A: their presses still refuse above the cap.
 
 ## 7. Offline verification of this plan (rounds 16 to 18)
 

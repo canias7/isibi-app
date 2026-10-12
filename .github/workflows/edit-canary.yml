@@ -248,6 +248,16 @@ on:
         description: 'ROUTING-ONLY BATCH: the name of a committed probe list in scripts/router-probes (e.g. router-audit-1). Each message is routed once; nothing is edited, added, built or published. With spend=yes it routes, and needs the deploy sha and image boxes; otherwise it checks and stops. Leave "What to change" and the other mode boxes blank.'
         required: false
         default: ''
+      # THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, the
+      # acceptance plan's option A). Only beside acceptance-split-1,
+      # acc-page-table or acc-table-page: the balance, in whole credits, the
+      # press may run against in place of the 100-credit cap. Any other
+      # balance at the paid call refuses; a malformed number or the box beside
+      # any other press refuses before the sign-in. Not a budget.
+      accept_balance:
+        description: 'ACCEPTANCE P1/P2 ONLY (acceptance-split-1, acc-page-table, acc-table-page): your balance in whole credits (e.g. 971). Lets this one press run above the 100-credit cap only while the balance is exactly this number. Not a budget: the press may spend up to that whole balance. Blank otherwise.'
+        required: false
+        default: ''
 
 jobs:
   canary:
@@ -367,6 +377,9 @@ jobs:
           # signs in, with the committed file it names; a bad name, a bad file
           # or a filled box beside any other mode refuses at no cost.
           CANARY_PROBES: ${{ github.event.inputs.route_probes }}
+          # THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP. Read whole by the
+          # script before it signs in; beside any other press it refuses.
+          CANARY_ACCEPT_BALANCE: ${{ github.event.inputs.accept_balance }}
           CANARY_EVIDENCE_DIR: canary-evidence
         run: node scripts/edit-canary.mjs
       # THE NARRATION'S USAGE (2026-10-06), FREE AND READ-ONLY, AS A STEP OF

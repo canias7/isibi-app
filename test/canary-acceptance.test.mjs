@@ -259,13 +259,13 @@ function loaves(h, changes = true) {
   };
 }
 const RT_OFF = async () => ({ status: 200, json: { ok: true, imagePurchases: false } });
-function press({ v = {}, changes = true, runtimeNow = RT_OFF, balance = 30 } = {}) {
+function press({ v = {}, changes = true, runtimeNow = RT_OFF, balance = 30, optIn = null } = {}) {
   let io = null;
   const h = rqApp({ replies: REPLIES, send: () => ({ request: { key: K, views: views(v) }, route: { intent: "edit", layer: "text" } }), shown: () => io.lines() });
   io = loaves(h, changes);
   const run = () => drive(h, AP, {
     balanceNow: async () => balance, rows: { owner: io.owner, pub: io.pub, patch: io.patch }, siteOrigin: SITE, shownMs: 50,
-    stepMs: 4_000, stepCapMs: 4_000, runtimeNow,
+    stepMs: 4_000, stepCapMs: 4_000, runtimeNow, balanceOptIn: optIn,
   });
   return { h, run };
 }
@@ -369,6 +369,22 @@ test("THE PRESS REFUSES ABOVE THE CAP: a balance of 971 sends nothing; 100 sends
   assert.equal(hi.h.server.key, "");
   const ok = press({ balance: 100 });
   assert.equal((await ok.run()).sent, 1);
+});
+
+test("THE OWNER'S OPT-IN (option A, 2026-10-12): at 971 with 971 named the press sends; any other balance named, or an unreadable one, sends nothing; without it 971 still refuses", async () => {
+  const yes = press({ balance: 971, optIn: 971 });
+  assert.equal((await yes.run()).sent, 1, "the opted-in press did not send at the named balance");
+  for (const [balance, optIn, re] of [[971, 970, /balance \(971\) is not the 970 credits/], [972, 971, /balance \(972\) is not the 971 credits/], [-1, 971, /could not be read/]]) {
+    const p = press({ balance, optIn });
+    const r = await p.run();
+    assert.equal(r.sent, 0, `sent at ${balance} with ${optIn} named`);
+    assert.match(r.stopped && r.stopped.msg, re);
+    assert.equal(p.h.server.key, "");
+  }
+  const none = press({ balance: 971 });
+  const r = await none.run();
+  assert.equal(r.sent, 0);
+  assert.match(r.stopped && r.stopped.msg, /hard cap of 100/);
 });
 
 test("THE WIRING: the press hands the driver the runtime reader on the site it presses, and the free runtime line prints whether photographs are bought", async () => {
