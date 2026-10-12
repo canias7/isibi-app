@@ -13,10 +13,14 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
 
 ## 1. State
 
-- **Production**: deploy 2191, `main` `f96cbfd5`, image `8d6dbcea93252fbb`.
-- **The branch is unmerged.** Its predicted image is **`1e30b6fb56b51794`**
-  (205 inputs, predicted on `754c4eb4`, and again after round 16, which
-  changes no input; not built).
+- **Production**: deploy 2192 (2026-10-12), `main` **`e1556086`**, image
+  **`1e30b6fb56b51794`** (built as predicted, 205 inputs; the container moved
+  from `8d6dbcea93252fbb` at 11:16:24 UTC). The served `chat.js` is
+  byte-identical to the merged file. **Deployed, not yet runtime-confirmed**:
+  that is the owner's free press (§6 step 6). The previous production was deploy
+  2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
+- **The branch is merged** (a fast-forward, one deploy run). Records after it
+  live on `claude/help-needed-ehlwlj` and start no deploy.
 - **Paid acceptance is blocked.** Every paid acceptance entry point (the
   request presses, the routing-only probe batch and the image-free Build)
   refuses while the balance is above 100 (`ACCEPTANCE_CAP`). The balance is
@@ -142,6 +146,9 @@ Before anything is implemented or pressed, choose one:
 
 1. Approve the decision in §5 and the presses in §4.
 2. Review and merge whatever §5's choice needs (for A, the opt-in change).
+   **The branch itself is already merged and deployed (deploy 2192); steps 4–5
+   are done for it.** A merge for §5's change would roll a new deploy, and
+   the image only if its inputs change.
 3. **Set the repository secret `IMAGE_PURCHASES` to `off`** (needed for P2
    and B1–B3, not P1: every acceptance scenario refuses unless the live
    Worker reports it off; the routing-only probe never reaches an image).

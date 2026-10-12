@@ -1,22 +1,31 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: the acceptance-harness repair batch is closed on Codex's review of dc3ea241; offline proof complete as far as the plan reaches, live verification waits on your spending and deployment decisions; nothing pressed)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, deployed and not yet runtime-confirmed; the free presses are yours; paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2191**: `main` `f96cbfd5`, image
-  `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Product code
-  **`754c4eb4`** (round 15), reviewed by Codex on **`358dff0a`**; round 16
-  (`8db3cbea`), round 17 (`1eac62c1`) and round 18 (`d9434979`) change
-  the acceptance harness only. Its predicted image is
-  **`1e30b6fb56b51794`** (205 inputs; not built; unchanged by round 16).
-- **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
-  limits are untouched. Every provider was mocked. No paid call, fal call,
-  merge, deploy or container build. Explanations stay model-written.
+- **Production is deploy 2192** (2026-10-12): `main` **`e1556086`**, a
+  fast-forward of 127 commits from `f96cbfd5`, on your word. One deploy run
+  (38241259917), green. The image was built **`1e30b6fb56b51794`** as
+  predicted (205 inputs), and the container moved from `8d6dbcea93252fbb` at
+  11:16:24 UTC. One asset was uploaded (`/chat.js`), and the served file is
+  byte-identical to the merged one. **Deployed, not yet runtime-confirmed**:
+  that needs your free press (below). Rollback was verified before the merge
+  (`git revert --no-commit f96cbfd5..e1556086` gives back `f96cbfd5`'s tree).
+  `docs/deploy-record.md`.
+- **The free checks are yours to press.** A session's dispatch answered 403,
+  tried once and not retried. The three presses are below and in the dated
+  entry.
+- **Balance 971**, untouched; no ledger row since 2026-10-10 (row 432).
+  **Build flags** were not changed (the log shows the `*_EVERYONE` flags
+  `off`, as before), and the 1-page / 15-component limits are untouched. No
+  paid call, fal call or image purchase. `IMAGE_PURCHASES` was not changed.
+- **Paid acceptance is still blocked**: every acceptance press refuses above
+  100 credits, and the balance is 971. That guard was not bypassed, and the
+  balance was not lowered. **One spending decision is needed** (below).
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -887,6 +896,82 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Deploy 2192: the reviewed branch merged and deployed once; the free checks handed over; one spending decision (not pressed)
+
+**Merged and deployed** on your word: `main` `f96cbfd5` → `e1556086`, one
+deploy run (38241259917, 11:13–11:16 UTC, green).
+- Image `1e30b6fb56b51794`, built as predicted (205 inputs).
+- Container rolled at 11:16:24 UTC.
+- `/chat.js` served byte-identical to the merged file.
+
+Checked before the merge:
+- nothing in flight;
+- unit CI green on `e1556086`, and site build green on `754c4eb4` with only
+  harness files changed since;
+- the rollback verified;
+- no skip marker in the messages;
+- the served file read before the push.
+
+**Not yet runtime-confirmed.** A session cannot press workflows (403, tried
+once). Your three free presses, workflow *edit canary* from `main`, are
+below. Each spends nothing.
+1. **Runtime check**:
+   - *Run the ONE paid edit as well* = `no`;
+   - *Refuse to spend unless the Worker reports this deploy sha* = `e1556086`;
+   - *Refuse to spend unless a cold container reports this image id* =
+     `1e30b6fb56b51794`;
+   - every other box blank.
+
+   It must print `e1556086…` from both readers and `1e30b6fb56b51794` from a
+   cold container. It also prints whether image purchases are on.
+2. **The probe rehearsal**:
+   - *ROUTING-ONLY BATCH* = `acceptance-split-1`;
+   - *Run the ONE paid edit as well* = `no`;
+   - the same deploy and image boxes.
+
+   It routes nothing, and it reports what a paid probe would refuse on (the
+   100-credit cap at balance 971).
+3. **The P2 rehearsal**:
+   - *The site to edit* = `fold-lane-bakery`;
+   - *RUN A NAMED SCENARIO IN A REAL BROWSER* = `acc-page-table`;
+   - *Run the ONE paid edit as well* = `no`;
+   - the same deploy and image boxes.
+
+   It reads its prerequisites (balance, cap, image purchases off) and sends
+   nothing.
+
+**The smallest image-free live batch** (`docs/acceptance-current.md` §4):
+- **P1**, the routing probe `acceptance-split-1`: 9 routing calls, nothing
+  applied. Estimate 9–27 credits.
+- **P2**, `acc-page-table`, only if P1's S3 makes parts: a heading and a
+  price on `fold-lane-bakery`. It is judged on overlap by recorded intervals,
+  exact reuse, the final heading and price, order, and no duplicate charge.
+  Estimate 4–12 credits.
+
+Together that is **13–39 credits, an estimate, not a limit**.
+
+**What is enforced**: the server refuses any charge the balance cannot
+cover, so the only enforced bound is the whole balance (971). The presses'
+100-credit refusal blocks them at 971; it is not a budget.
+
+**The one decision needed**: whether to accept the account balance as the
+bound for exactly P1 and P2 (plan §5 option A), or wait for a real separate
+test budget (option B, a billing change).
+- **A** means one small, reviewed opt-in box on these two presses only,
+  naming the balance it may run against. It needs its own review, merge and
+  deploy (no image change expected).
+- P2 also needs `IMAGE_PURCHASES` set to `off`, which stops photographs for
+  every customer while it is off.
+
+**Remaining live gaps**, all unshown live:
+- the router's split into parts;
+- exact reuse of a prepared step while another part runs;
+- whether the real picker states what each addition uses (overlap inside one
+  Add-on);
+- a real model asking for missing context;
+- the image-free Build's overlap (needs a Build flag already on);
+- real images (not proposed).
 
 ## 2026-10-12 — The acceptance-harness repair batch closed (offline; not deployed, not pressed)
 
