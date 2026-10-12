@@ -291,7 +291,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly } from "./builder/request-plan.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -1985,8 +1985,9 @@ async function runSiteRebuild(env) {
         // FILED THIS TICK. Nothing to read yet; the row waits.
         if (!q.duplicate) return { pending: true, reason: "handed to job " + q.job };
         // FILED EARLIER — the key found it. Its state is the answer.
-        const g = await editRpc(env, "edit_get", { p_id: q.job, p_uid: uid });
+        const g = await editGet(env, { p_id: q.job, p_uid: uid });
         if (!g || g.ok !== true) return { pending: true, reason: "job " + q.job + " could not be read (" + String((g && g.error) || "rpc") + ")" };
+        if (g.result && g.result.spillUnread) return { pending: true, reason: "job " + q.job + "'s answer could not be read just now" };
         if (!isTerminalEdit(g.state)) return { pending: true, reason: "job " + q.job + " is " + String(g.state || "running") };
         let answer = null;
         try { answer = g.result && typeof g.result.body === "string" ? JSON.parse(g.result.body) : null; }
@@ -5860,6 +5861,54 @@ function flushEditTrace(env, ctx, trace, outcome) {
 // message the runtime may redeliver, and a redelivered edit is a second charge.
 // Every caller therefore reads `ok` and decides; a transport failure and a
 // refusal are distinguishable, which is what `error: "rpc"` is for.
+// ── A JOB'S ANSWER, WHOLE, HOWEVER LARGE (round 14) ────────────────────────
+//
+// The row keeps an answer of up to `ANSWER_INLINE_MAX` characters. It used to
+// keep the first 200,000 of a larger one: cut in the middle, it no longer
+// read, and the request then took the job as done with nothing recorded — an
+// addition that told 384 requirements unfinished came back "done". A larger
+// answer is now written whole beside the job (`jobAnswerKey`), read back the
+// same, and the row keeps where it is (`spilled`); `editGet` puts it back for
+// every reader. One that cannot be read just now is said so (`spillUnread`),
+// and its readers wait for it; one the store never took says so too.
+const ANSWER_INLINE_MAX = 200000;
+const jobAnswerKey = (id) => "jobs/answers/" + id + ".json";
+/** Write a job's whole answer beside it and prove it, up to `HELD_TRIES` times: `{ ok, bytes }` or `{ ok: false }`. */
+async function spillAnswer(env, id, text) {
+  for (let i = 0; i < HELD_TRIES; i++) {
+    try {
+      await env.SITES_BUCKET.put(jobAnswerKey(id), text, { httpMetadata: { contentType: "application/json" } });
+      const o = await env.SITES_BUCKET.get(jobAnswerKey(id));
+      if (o && (await o.text()) === text) return { ok: true, bytes: text.length };
+    } catch (e) { console.error("edit queue: could not keep the whole answer of", id, "try", i + 1, errorClassForLog(e)); }
+  }
+  return { ok: false };
+}
+/** A row with its answer whole: a spilled one read back from beside the job, or marked `spillUnread` when it cannot be just now. */
+async function hydrateAnswer(env, id, row) {
+  const res = row && row.ok === true && row.result && typeof row.result === "object" ? row.result : null;
+  if (!res || typeof res.body !== "string" || res.body.length > 4096 || !res.body.includes("\"spilled\"")) return row;
+  let stub = null;
+  try { stub = JSON.parse(res.body); } catch { return row; }
+  const sp = stub && typeof stub === "object" ? stub.spilled : null;
+  if (!sp || typeof sp !== "object" || sp.unsaved === true) return row;
+  if (sp.key === jobAnswerKey(String(id)) && Number.isInteger(sp.bytes)) {
+    for (let i = 0; i < HELD_TRIES; i++) {
+      try {
+        const o = await env.SITES_BUCKET.get(sp.key);
+        const text = o ? await o.text() : null;
+        if (typeof text === "string" && text.length === sp.bytes) return { ...row, result: { ...res, body: text } };
+        if (!o) break;
+      } catch { /* tried again */ }
+    }
+  }
+  return { ...row, result: { ...res, spillUnread: true } };
+}
+/** `edit_get`, with the job's answer whole (`hydrateAnswer`). */
+async function editGet(env, args) {
+  return hydrateAnswer(env, args && args.p_id, await editRpc(env, "edit_get", args));
+}
+
 async function editRpc(env, fn, args) {
   if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) {
     return { ok: false, error: "no-service-key" };
@@ -7001,6 +7050,10 @@ async function keepReplyFor(env, res, kind, ask) {
   let body;
   try { body = await res.clone().json(); } catch { return res; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return res;
+  // A TRY THAT STOPPED ON ITS CHECKPOINT (round 14) did nothing and is no
+  // outcome: its part says it is picking itself up again, and the request's
+  // own reply says how it ends — no reply of its own, written each try.
+  if (body.ok === false && (body.error === "checkpoint-unread" || body.error === "checkpoint-unsaved")) return res;
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const replyFor = {
@@ -7235,8 +7288,8 @@ async function writeJobReply(env, task) {
   const claim = await claimReply(env, key, Date.now());
   if (!claim) return;
   let row = null;
-  try { row = await editRpc(env, "edit_get", { p_id: task.id, p_uid: task.uid }); } catch { row = null; }
-  if (!row || row.ok !== true) return settleReply(env, key, claim, task, { ok: false, why: "row" });
+  try { row = await editGet(env, { p_id: task.id, p_uid: task.uid }); } catch { row = null; }
+  if (!row || row.ok !== true || (row.result && row.result.spillUnread)) return settleReply(env, key, claim, task, { ok: false, why: "row" });
   const res = row.result;
   if (!isTerminalEdit(row.state) || !res || typeof res.body !== "string") return settleReply(env, key, claim, task, { ok: false, why: "not-final" });
   if (row.needs_review) return settleReply(env, key, claim, task, { ok: false, why: "under-review", final: true });
@@ -18587,20 +18640,10 @@ async function stageHeld(env, id) {
     // itself, and stops recoverably when it cannot.
     const hf = heldFromOf(p);
     if (hf) {
-      let held = null;
-      for (let i = 0; i < HELD_TRIES && !held; i++) {
-        const got = await readJsonTried(env, jobHeldKey(hf.job));
-        if (!got.ok || !got.obj || got.malformed || !got.v) continue;
-        const h = readHeld(got.v, hf.count);
-        if (h.state === "held") held = h;
-        break;
-      }
-      // …OR THE COPY ITS REQUEST PART KEPT, when the store would not take it.
-      if (!held && Array.isArray(hf.list)) {
-        const h = readHeld({ complete: true, count: hf.count, requirements: hf.list, asked: hf.asked || "" }, hf.count);
-        if (h.state === "held") held = h;
-      }
-      if (!held) return;
+      // …FROM THE STORE, OR THE COPY ITS REQUEST PART KEPT, OR WHAT CHANGED
+      // SINCE AN EARLIER CHECKPOINT OF THE PART (`resolveHeld`, round 14).
+      const held = await resolveHeld(env, p, { job: hf.job, count: hf.count });
+      if (held.failed) return;
       for (let i = 0; i < HELD_TRIES; i++) {
         try { await env.SITES_BUCKET.put(jobHeldInKey(id), JSON.stringify({ ...heldCheckpoint(held.list, held.asked), from: hf.job }), { httpMetadata: { contentType: "application/json" } }); return; }
         catch (e) { console.error("edit queue: held requirements not staged for", id, "try", i + 1, errorClassForLog(e)); }
@@ -18772,6 +18815,44 @@ function noteSeen(jctx, seen) {
 const prepUseKey = (id) => "jobs/prepared/" + id + ".use.json";
 // EVERY ANSWER A REQUEST JOB GOT, under the exact request it sent (`keep`).
 const jobKeptKey = (id) => "jobs/prepared/" + id + ".kept.json";
+/**
+ * ONE CHECKPOINT OF A REQUEST PART, WHOLE (round 14): `ref` names the paused
+ * job and the count it verified. Read from the store; or from the copy the
+ * part keeps on that job (`end.heldList`); or, for a checkpoint carried as
+ * what changed (`end.heldDelta`), from the earlier checkpoint it names —
+ * itself resolved the same way — with what it dropped taken out and what it
+ * added put in. Every step must come out complete with exactly its count, and
+ * reaches only earlier jobs of this same part, so it always ends; anything
+ * else is `{ failed }`, never a smaller list.
+ */
+async function resolveHeld(env, p, ref) {
+  const jobs = p && Array.isArray(p.jobs) ? p.jobs : [];
+  const at = jobs.findIndex((x) => x && x.kind === "run" && x.id === (ref && ref.job) && x.end && Number.isInteger(x.end.held) && x.end.held === ref.count);
+  if (at < 0) return { failed: true, why: "not-the-part's" };
+  const j = jobs[at];
+  const asked = typeof j.end.heldAsked === "string" ? j.end.heldAsked : "";
+  const got = await readJsonTried(env, jobHeldKey(j.id));
+  if (got.ok && got.obj && !got.malformed) {
+    const h = readHeld(got.v, ref.count);
+    if (h.state === "held") return h;
+  }
+  if (Array.isArray(j.end.heldList)) {
+    const h = readHeld({ complete: true, count: ref.count, requirements: j.end.heldList, asked }, ref.count);
+    if (h.state === "held") return h;
+  }
+  const d = j.end.heldDelta;
+  if (d && typeof d === "object" && d.base && typeof d.base === "object" && Array.isArray(d.drop) && Array.isArray(d.add)) {
+    const bi = jobs.findIndex((x) => x && x.id === d.base.job);
+    if (bi < 0 || bi >= at) return { failed: true, why: "malformed" };
+    const base = await resolveHeld(env, p, { job: d.base.job, count: d.base.count });
+    if (base.failed) return base;
+    const list = applyHeldDelta(base.list, d);
+    const h = list ? readHeld({ complete: true, count: ref.count, requirements: list, asked }, ref.count) : null;
+    return h && h.state === "held" ? h : { failed: true, why: "malformed" };
+  }
+  return { failed: true, why: got.ok ? (got.obj ? "malformed" : "missing") : "unreadable" };
+}
+
 // THE REQUIREMENTS A PAUSED JOB HELD (round 12), written by that job, and the
 // ones staged for the part's next job, read by it — each under its own job id.
 const jobHeldKey = (id) => "jobs/prepared/" + id + ".held.json";
@@ -18816,14 +18897,19 @@ async function saveHeldCheckpoint(env, id, held) {
  */
 async function readHeldIn(env, id, from) {
   const want = from && typeof from === "object" && typeof from.job === "string" && Number.isInteger(from.count) ? from : null;
+  // A RECORD THAT IS NOT THERE, OR NOT JSON, IS AN ANSWER (round 14): known
+  // missing or malformed, never retried as if the store had failed. Only a
+  // read that throws is `unreadable` — the store failing, which recovers.
   const tryRead = async (key) => {
     let last = "missing";
     for (let i = 0; i < HELD_TRIES; i++) {
+      let text = null;
       try {
         const o = await env.SITES_BUCKET.get(key);
         if (!o) { last = "missing"; continue; }
-        return { ok: true, v: JSON.parse(await o.text()) };
-      } catch (e) { last = "unreadable:" + errorClassForLog(e); }
+        text = await o.text();
+      } catch (e) { last = "unreadable:" + errorClassForLog(e); continue; }
+      try { return { ok: true, v: JSON.parse(text) }; } catch { return { ok: true, v: null }; }
     }
     return { ok: false, why: last };
   };
@@ -18923,8 +19009,10 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
       for (const id of liveJobIds(base)) {
-        const row = await editRpc(env, "edit_get", { p_id: id, p_uid: rec.uid });
-        if (!row || row.ok !== true) continue;
+        const row = await editGet(env, { p_id: id, p_uid: rec.uid });
+        // AN ANSWER KEPT BESIDE ITS JOB THAT CANNOT BE READ JUST NOW (round 14):
+        // the job is settled on a later step, never as one with no answer.
+        if (!row || row.ok !== true || (row.result && row.result.spillUnread)) continue;
         // AN APPROVED REWRITE IS READ FROM ITS BUILD'S OWN ANSWER, as the
         // build's poll route reads it; its row says only whether it is running.
         if (rewrites.has(id) && isJobId(id)) {
@@ -19542,7 +19630,7 @@ async function requestRewriteStopped(env, ctx, id, job, mark, lease, { inContain
 /** Waiting only on a go-ahead: a part asks for one, and nothing else of the request can move. */
 function awaitingApproval(rec) {
   return !rec.ended && rec.parts.some((p) => p.status === "approval") &&
-    !rec.parts.some((p) => ["queued", "started", "ready", "unverified"].includes(p.status));
+    !rec.parts.some((p) => ["queued", "started", "ready", "unverified", "recovering"].includes(p.status));
 }
 
 /** Where a request's reply for `forKey` is kept: its end's, or a go-ahead's (`approval:<part>:<seq>`). */
@@ -19791,7 +19879,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     let heldSaved = null;
     // WHAT ITS PART WAS ASKED FOR BEFORE IT PAUSED (round 12): staged under this
     // job's own id (`stageHeld`); unreadable is none, and the job says so.
-    if (requestOf) jctx.heldIn = await readHeldIn(env, id, requestOf.heldFrom);
+    if (requestOf && (requestOf.heldFrom || requestOf.paused)) jctx.heldIn = await readHeldIn(env, id, requestOf.heldFrom);
     // A REQUEST PART'S PURCHASES (2026-10-09, round 3): each picture it buys is
     // that part's one logical purchase, shared with its preparation's attempts
     // and with any retry of this job.
@@ -19855,8 +19943,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
           // answer is settled — a conditional write the request advances on, so
           // the question is acknowledged only once it holds. One too large to
           // ride along is a recoverable refusal instead.
+          // CARRIED AS WHAT CHANGED SINCE THE CHECKPOINT THIS JOB RESUMED FROM
+          // (round 14), when there is one: the earlier requirements are already
+          // kept, so the answer carries only this job's — however many came before.
           const cp = heldCheckpoint(jctx.held.requirements, jctx.held.asked);
-          const withCp = { ...pb, heldCheckpoint: { ...cp, kept: "request" } };
+          const hin = jctx.heldIn && !jctx.heldIn.failed && typeof jctx.heldIn.from === "string" && Array.isArray(jctx.heldIn.list) ? jctx.heldIn : null;
+          const carried = (hin && heldDelta(cp, { job: hin.from, count: hin.list.length, list: hin.list })) || cp;
+          const withCp = { ...pb, heldCheckpoint: { ...carried, kept: "request" } };
           const text = JSON.stringify(withCp);
           if (text.length <= HELD_INLINE_MAX) { pb = withCp; console.error("edit queue: the requirements of", id, "are kept with its request, not the store:", heldSaved.why); }
           else {
@@ -19895,9 +19988,17 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // already dark red. The RPC finalizes an ok answer only when publishing
     // never BEGAN, so the mid-publish ambiguity needs_review exists for is
     // untouched.
+    // THE WHOLE ANSWER, HOWEVER LARGE (round 14): one too large for the row
+    // is kept beside the job and the row keeps where; never cut.
+    let storedBody = bodyText;
+    if (bodyText.length > ANSWER_INLINE_MAX) {
+      const sp = await spillAnswer(env, id, bodyText);
+      storedBody = JSON.stringify({ ok: payload ? payload.ok !== false : false, spilled: sp.ok ? { key: jobAnswerKey(id), bytes: sp.bytes } : { key: jobAnswerKey(id), unsaved: true } });
+      if (!sp.ok) console.error("edit queue: the whole answer of", id, "could not be kept — its part is told its outcome was not recorded");
+    }
     const fin = await editRpc(env, "edit_finalize", {
       p_id: id,
-      p_result: { status: resStatus, type: res.headers.get("content-type") || "application/json", body: bodyText.slice(0, 200000) },
+      p_result: { status: resStatus, type: res.headers.get("content-type") || "application/json", body: storedBody },
       p_ok: shipped,
     });
     if (!shipped) {
@@ -27295,10 +27396,10 @@ async function handleRequest(request, env, ctx) {
       if (request.method !== "GET" && request.method !== "DELETE") {
         return Response.json({ error: "method not allowed" }, { status: 405 });
       }
-      const row = await editRpc(env, "edit_get", { p_id: ejid, p_uid: eu.id });
+      const row = await editGet(env, { p_id: ejid, p_uid: eu.id });
       // A TRANSPORT FAILURE IS NOT A MISSING JOB, and conflating them would have
       // a client stop polling a job that is running perfectly well.
-      if (row && row.error === "rpc") return Response.json({ ok: false, error: "could not read the job" }, { status: 503 });
+      if (row && (row.error === "rpc" || (row.result && row.result.spillUnread))) return Response.json({ ok: false, error: "could not read the job" }, { status: 503 });
       if (!row || row.ok !== true) return Response.json({ error: "not found" }, { status: 404 });
       const ownsSite = await siteOwnerBySlug(String(row.slug || ""), env).catch(() => null);
       if (ownsSite && ownsSite !== eu.id) return Response.json({ error: "not found" }, { status: 404 });

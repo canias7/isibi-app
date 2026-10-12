@@ -647,6 +647,72 @@ export function heldCheckpoint(list, asked) {
 }
 
 /**
+ * A CHECKPOINT AS WHAT CHANGED SINCE AN EARLIER ONE (round 14): `base` is the
+ * checkpoint the job resumed from (`{ job, count, list }`). An entry kept
+ * exactly as it was is not carried again. One kept word for word under
+ * another id — a held requirement yields its id to the resumed designer's own
+ * numbering, and is marked carried (`superseded`) — is carried as that id
+change (`rename`, `[old, new]`, or `[old, new, superseded]` when the mark
+changed too). One
+ * changed, or new, is added, and every earlier one neither kept nor renamed is
+ * dropped. Read back (`applyHeldDelta`) it holds exactly the same
+ * requirements, earlier ones first — so what a job carries is what it found,
+ * never everything before it again. Null without a usable base.
+ */
+const withoutId = (r) => JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k !== "id" && k !== "superseded")));
+export function heldDelta(cp, base) {
+  if (!cp || !Array.isArray(cp.requirements) || !base || typeof base.job !== "string" || !base.job || !Array.isArray(base.list) || !Number.isInteger(base.count)) return null;
+  const was = holdRequirements(base.list);
+  if (was.length !== base.count) return null;
+  const now = new Map(cp.requirements.map((r) => [r.id, JSON.stringify(r)]));
+  const keep = new Set(was.filter((r) => now.get(r.id) === JSON.stringify(r)).map((r) => r.id));
+  // WORD FOR WORD UNDER ANOTHER ID, matched one to one in order.
+  const free = new Map();
+  for (const r of cp.requirements) {
+    if (keep.has(r.id)) continue;
+    const k = withoutId(r);
+    if (!free.has(k)) free.set(k, []);
+    free.get(k).push(r.id);
+  }
+  const rename = [];
+  const renamed = new Set();
+  const sup = new Map(cp.requirements.map((r) => [r.id, r.superseded === true]));
+  for (const r of was) {
+    if (keep.has(r.id)) continue;
+    const ids = free.get(withoutId(r));
+    if (!ids || !ids.length) continue;
+    const to = ids.shift();
+    rename.push(sup.get(to) === (r.superseded === true) ? [r.id, to] : [r.id, to, sup.get(to)]);
+    renamed.add(to);
+  }
+  const moved = new Set(rename.map(([from]) => from));
+  return {
+    v: 1, complete: true, count: cp.count,
+    base: { job: base.job, count: base.count },
+    drop: was.filter((r) => !keep.has(r.id) && !moved.has(r.id)).map((r) => r.id),
+    rename,
+    add: cp.requirements.filter((r) => !keep.has(r.id) && !renamed.has(r.id)),
+    asked: cp.asked,
+  };
+}
+/** A delta read back over its base's list: what it dropped taken out, what it renamed given its new id, what it added put in — or null when it does not read. */
+export function applyHeldDelta(baseList, d) {
+  if (!Array.isArray(baseList) || !d || !Array.isArray(d.drop) || !Array.isArray(d.add)) return null;
+  const rename = Array.isArray(d.rename) ? d.rename : [];
+  if (!rename.every((x) => Array.isArray(x) && (x.length === 2 || (x.length === 3 && typeof x[2] === "boolean")) && typeof x[0] === "string" && x[0] && typeof x[1] === "string" && x[1])) return null;
+  const to = new Map(rename.map((x) => [x[0], x]));
+  if (to.size !== rename.length) return null;
+  const drop = new Set(d.drop);
+  const moved = (r) => {
+    const [, id, sup] = to.get(r.id);
+    const { superseded, ...rest } = r;
+    const mark = typeof sup === "boolean" ? sup : superseded === true;
+    return { ...rest, id, ...(mark ? { superseded: true } : {}) };
+  };
+  return [...baseList.filter((r) => !drop.has(r.id)).map((r) => (to.has(r.id) ? moved(r) : r)), ...d.add];
+}
+
+/**
  * A HELD RECORD AS STORED, READ STRICTLY (round 13). `state` is one of:
  *   "held"       a complete checkpoint, its count matching what it lists
  *                (an empty one included — a verified empty set);

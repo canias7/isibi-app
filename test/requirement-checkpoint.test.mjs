@@ -18,8 +18,10 @@
 // back the same (an empty one included); the resumed job is told which
 // checkpoint and how many requirements it resumes from, reads it strictly,
 // and never runs under an empty list or an older checkpoint; a failure either
-// way runs the part again with its answers replayed, a bounded number of
-// times, then fails honestly. Nothing accepted is dropped; the judgment runs in
+// way runs the part again with its answers replayed. Since round 14 a failure
+// that can recover leaves the part `recovering`, run again by the server with
+// a growing wait (`test/requirement-recovery.test.mjs`); one known lost —
+// missing with no copy, or malformed — fails at once, honestly. Nothing accepted is dropped; the judgment runs in
 // bounded batches. Every case reads the judge's real input, the durable
 // records, the final status, the stored outcomes and the reply writer's facts.
 import test from "node:test";
@@ -204,7 +206,7 @@ test("CK 2 — THE STORE WILL NOT TAKE THE CHECKPOINT AT ALL (every try of the f
   assertBoth(o, [COLL, SEARCH]);
 });
 
-test("CK 3 — NEITHER THE STORE NOR THE REQUEST'S COPY CAN BE READ: after the bounded retries the part fails, saying why — never done, nothing applied, nothing charged, no judge under an empty list", { timeout: 30000 }, async () => {
+test("CK 3 — NEITHER THE STORE NOR THE REQUEST'S COPY EXISTS: known lost, so the part fails at once, saying why (round 14: no wait for a record that cannot come back) — never done, nothing applied, nothing charged, no judge under an empty list", { timeout: 30000 }, async () => {
   const { o, j, ends, P } = await faqCase("3", {
     faults: (P, at) => { if (at === "pause") for (let i = 0; i < 3; i++) P.failPut((k) => HELD.test(k)); },
     between: (P, key) => {
@@ -217,7 +219,7 @@ test("CK 3 — NEITHER THE STORE NOR THE REQUEST'S COPY CAN BE READ: after the b
       P.objects.set(k, { ...ob, body: JSON.stringify(rec), etag: ob.etag + "x" });
     },
   });
-  assert.deepEqual(ends.slice(1), ["held-retry", "held-retry", "held-retry"], JSON.stringify(ends));
+  assert.deepEqual(ends.slice(1), ["held-retry"], JSON.stringify(ends));
   assert.equal(o.status, "failed", JSON.stringify(o.rec.parts[0]));
   assert.equal(o.rec.parts[0].why, "checkpoint-unread");
   assert.equal(j.sent.length, 0, "the judge ran");

@@ -10515,6 +10515,8 @@ const SITE_REQ_STATUS = {
   approval: 'Needs your go-ahead',
   // HELD ON A PICTURE PURCHASE NOBODY CAN TELL (2026-10-09, round 3).
   uncertain: 'Checking a picture purchase',
+  // ITS SAVED REQUIREMENTS COULD NOT BE READ YET (round 14): the server tries again by itself.
+  recovering: 'Picking this up again',
 };
 // A HELD PART, BY WHAT ITS PURCHASES ARE NOW (2026-10-11, the recovery card):
 // the server reads each one's reason (`purchaseState`, the most uncertain of
@@ -10617,7 +10619,7 @@ function siteRequestHTML(m, site) {
 // its partial line.
 const SITE_SAID_FOR = {
   blocked: 'planned', ready: 'planned', queued: 'planned', waiting: 'waiting', approval: 'waiting',
-  started: 'doing', unverified: 'unconfirmed', uncertain: 'unconfirmed', done: 'done', partial: 'partial',
+  started: 'doing', unverified: 'unconfirmed', uncertain: 'unconfirmed', done: 'done', partial: 'partial', recovering: 'planned',
   failed: 'notdone', 'not-run': 'notdone', cancelled: 'notdone', expired: 'notdone', refused: 'notdone', 'needs-rewrite': 'notdone',
 };
 /** A found job's outcome, as the server read it, and which of its task's lines that outcome shows; an ended job whose outcome is not known shows its words. */

@@ -83,6 +83,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // A READ THAT FAILS (`failGet`): the store down for that one call.
       const g = getFaults.findIndex((x) => x.match(k));
       if (g >= 0) { getFaults.splice(g, 1); throw new Error("r2 unavailable"); }
+      // READS LET THROUGH, THEN FAILED (`failGetFrom`, round 14): the first
+      // `skip` matching reads answer, the next `count` fail.
+      for (const c of countedGets) { if (c.match(k) && c.seen++ >= c.skip && c.failed < c.count) { c.failed++; throw new Error("r2 unavailable"); } }
       const o = objects.get(k); return o ? asObj(k, o) : null;
     },
     async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag } : null; },
@@ -160,6 +163,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const hangs = [];
   const putFaults = [];
   const getFaults = [];
+  const countedGets = [];
   // A READ OF THE JOB TABLE THAT FAILS (`failRead`, 2026-10-06): the service down for that one call.
   const readFaults = [];
   const beforePuts = [];
@@ -723,6 +727,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     losePut(match, then) { putFaults.push({ kind: "lose", match, then }); },
     /** The next read of a key `match(key)` accepts throws. */
     failGet(match) { getFaults.push({ match }); },
+    /** Let the first `skip` reads matching through, then fail the next `count`. */
+    failGetFrom(match, { skip = 0, count = 1 } = {}) { countedGets.push({ match, skip, count, seen: 0, failed: 0 }); },
     /** The next read of the job table whose address `match(url)` accepts answers 503. */
     failRead(match) { readFaults.push({ match }); },
     /** Before the next write to a key `match(key)` accepts, run `then(key)`; the write then meets what it left. */
@@ -742,7 +748,14 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** Every job of a request, by its key, oldest first. */
     jobsOf(key) { return [...jobs.values()].filter((j) => typeof j.idem_key === "string" && j.idem_key.startsWith(key + "-p")).sort((a, b) => a.created_at - b.created_at); },
     /** What a job's stored answer said. */
-    answerOf(j) { try { return JSON.parse(j.result.body); } catch { return null; } },
+    // A WHOLE ANSWER KEPT BESIDE ITS JOB (round 14), read back as the Worker's `editGet` does.
+    answerOf(j) {
+      try {
+        const v = JSON.parse(j.result.body);
+        if (v && v.spilled && typeof v.spilled.key === "string" && objects.has(v.spilled.key)) return JSON.parse(String(objects.get(v.spilled.key).body));
+        return v;
+      } catch { return null; }
+    },
     record(key) { const o = objects.get("requests/" + slug + "/" + key + ".json"); return o ? JSON.parse(o.body) : null; },
     /** A job's progress record as the bucket holds it (2026-10-06). */
     progressOf(jobId) { const o = objects.get("jobs/" + jobId + ".progress.json"); return o ? JSON.parse(o.body) : null; },

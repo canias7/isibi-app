@@ -1512,6 +1512,8 @@ export function requestReplyFacts(v) {
     } else if (p.status === "failed") {
       F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
+        // ITS SAVED REQUIREMENTS COULD NOT BE READ BACK (round 14): nothing was changed for it.
+        : p.why === "checkpoint-unread" || p.why === "checkpoint-unsaved" ? " — what they asked for before its question could not be read back on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
         : p.why === "rewrite-not-written" ? " — the full rewrite they gave the go-ahead for ran, but its pages could not be written, so their site stayed exactly as it was." + paid(p)
         : p.approved ? " — the full rewrite they gave the go-ahead for did not finish, on our side." + paid(p)
         : " — it stopped before it finished, on our side." + paid(p)), item);
@@ -1522,6 +1524,9 @@ export function requestReplyFacts(v) {
       F.add("pending", "Not known yet whether it went live: " + w + "; it is being checked, and nothing else runs until that is settled.", item);
     } else if (p.status === "started") {
       F.add("pending", "Being done now: " + w + ".", item);
+    } else if (p.status === "recovering") {
+      // ITS SAVED REQUIREMENTS COULD NOT BE READ BACK YET (round 14).
+      F.add("pending", "Not done yet: " + w + ". What they asked for before its question is saved, but could not be read back just now, so nothing has been changed for it; it is picked up again by itself, with nothing for them to send.", item);
     } else if (p.status === "blocked") {
       F.add("pending", "Queued, and waiting for another part to finish first: " + w + ".", item);
     } else if (p.why === "site-review") {

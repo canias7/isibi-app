@@ -62,10 +62,16 @@ test("THE TWO NUMBERS: one message is 16,000 characters and one request carries 
 test("WHY THESE NUMBERS — each constraint the rationale cites is read from the code that sets it, and the arithmetic holds", () => {
   // 1. THE STORED ANSWER OF A QUEUED JOB (`edit_finalize`): the binding one.
   // RE-ANCHORED 2026-10-12 (round 13): the status is `resStatus`.
-  const store = WORKER.match(/p_result: \{ status: resStatus, type: [^}]*body: bodyText\.slice\(0, (\d+)\)/);
-  assert.ok(store, "the stored answer's bound could not be found in worker.js");
-  const storeBound = Number(store[1]);
+  // RE-ANCHORED AGAIN (round 14): what the row keeps is `ANSWER_INLINE_MAX`,
+  // and an answer over it is kept whole beside the job (`spillAnswer`) — the
+  // row is given the answer, or where it is, and never a cut answer.
+  const bound = WORKER.match(/\nconst ANSWER_INLINE_MAX = (\d+);/);
+  assert.ok(bound, "the stored answer's bound could not be found in worker.js");
+  const storeBound = Number(bound[1]);
   assert.equal(storeBound, 200000);
+  assert.match(WORKER, /p_result: \{ status: resStatus, type: [^}]*body: storedBody \}/, "the row is not given the guarded body");
+  assert.match(WORKER, /if \(bodyText\.length > ANSWER_INLINE_MAX\) \{\s*const sp = await spillAnswer\(env, id, bodyText\);/, "an answer over the bound is not kept whole beside its job");
+  assert.doesNotMatch(WORKER, /body: bodyText\.slice\(0,/, "the stored answer is cut again");
   // …AND A CHECKPOINT RIDING IN THE ANSWER (round 13) never takes it past the
   // bound: an answer carrying one is kept only while it is under it.
   const inline = WORKER.match(/const HELD_INLINE_MAX = (\d+);/);
