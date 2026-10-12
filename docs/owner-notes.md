@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: round 17 closed the acceptance harness's two false positives found by Codex on 3869478b — every asked-for fact judged, trace attribution by run; round 16's image-free Add-on cases and offline-versus-live plan; round 15's every accepted requirement kept; round 14's recovery by the server; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: round 18 judges the asked section whole in stored and served output after Codex's control on 2015cc0c; round 17's facts and trace attribution; round 16's image-free Add-on cases and offline-versus-live plan; round 15's every accepted requirement kept; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,12 +11,52 @@ is in git; the dated entries further down are the full story.*
   `8d6dbcea93252fbb`, unchanged.
 - **The branch** `claude/help-needed-ehlwlj` is unmerged. Product code
   **`754c4eb4`** (round 15), reviewed by Codex on **`358dff0a`**; round 16
-  (`8db3cbea`) and round 17 (`1eac62c1`) change the acceptance harness
-  only. Its predicted image is
+  (`8db3cbea`), round 17 (`1eac62c1`) and round 18 (`d9434979`) change
+  the acceptance harness only. Its predicted image is
   **`1e30b6fb56b51794`** (205 inputs; not built; unchanged by round 16).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 18** (`d9434979`; `docs/history/2026-10-12-acceptance-served-sections.md`).
+Codex reviewed **`2015cc0c`**: 206 focused tests passed, three
+browser-dependent tests skipped, CI green, but one control still passed. Round
+17's fixes, the trace attribution and the product code are unchanged.
+- **Fixed: a served contradiction passed.** A section stored with "£25 a
+  head, cheese included" and served with "The price is £50 a head." added
+  passed every check. The served page was checked for the facts alone, and
+  read whole.
+  - *Now*: one reader for both outputs. It reads the page's words in order
+    with their sentences kept, takes only what the press added (an ordered
+    diff against the page before), and groups that into the added sections.
+  - A component counts only where the page uses it.
+  - Exactly one added section must hold every asked fact, judged on every
+    fact, amount, day, time and denied claim.
+  - Every other added section is judged for contradictions.
+  - A fact stated in one sentence and denied in another fails.
+  - A new page's stored `<main>` is judged as well as its served page.
+- **Evidence**:
+  - 22 cases in `test/acceptance-addon-free.test.mjs`, 6 new. They cover
+    Codex's control both ways, surrounding content, multiple sections, used
+    and unused components, a served Thursday, evening and gluten-free claim,
+    a place stated and denied, sentence context, a footer outside `<main>`,
+    no earlier served reading, and a new page's served-only Saturday.
+  - Red check: 5 of the 22 fail on `2015cc0c`.
+  - Sweep `sweep23`: 13 of 14 killed and 1 equivalent, the control
+    surviving. Four untested paths were found and a case added for each.
+  - Focused files 218 / 218; full suite `10663 / 10663 / 0 / 0`; acceptance
+    sweep 41 files, **537 / 537**.
+  - CI: unit tests 38236080782 `success` on `d9434979` (10663 tests, 10622
+    passed, 0 failed, 41 skipped).
+- **Remaining limits** (history §5):
+  - Two added sections side by side read as one.
+  - A component used other than by its import path or exported name cannot
+    supply a section; it fails, never passes.
+  - Equivalent wording is a per-fact list.
+  - A new page without a `<main>` is judged when served only, and recorded
+    as unverified when stored.
+- **Nothing pressed.** No fal, merge, deploy, container build, billing,
+  Build flag or limit change.
 
 **Round 17** (`1eac62c1`; `docs/history/2026-10-12-acceptance-harness-controls.md`).
 Codex reviewed **`3869478b`**: 168 focused tests passed, three
@@ -840,6 +880,24 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Parallel work round 18: the asked section judged whole, stored and served (offline; not deployed, not pressed)
+
+Codex reviewed `2015cc0c`: 206 focused tests passed, three browser tests
+skipped, CI green. One control still passed: a section stored saying "£25 a
+head, cheese included" but served with "The price is £50 a head." added.
+
+Fixed in `d9434979`. The press now reads what it added to the page, on both
+the stored files and the served page, in the same way. It reads sentence by
+sentence and ignores whatever was already on the page. Exactly one added
+section must hold everything you asked for, with no contradicting amount,
+day, time or denied claim. Any other section it added is also checked for
+contradictions.
+
+Results: 22 focused cases, 5 of which fail on `2015cc0c`. The mutation sweep
+killed 13 of 14 (one mutant is equivalent). Full suite 10663 of 10663;
+acceptance sweep 537 of 537. CI unit tests 38236080782 `success` on
+`d9434979`. Nothing pressed, and no product, billing or flag change.
 
 ## 2026-10-12 — Parallel work round 17: the acceptance harness's two false positives (offline; not deployed, not pressed)
 

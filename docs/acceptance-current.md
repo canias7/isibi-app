@@ -73,7 +73,7 @@ Every check reads what the run recorded, never a status or a routing answer.
 |---|---|---|
 | **Overlap across parts** | `overlapVerdict` (`scripts/canary-requests.mjs`): the request view's recorded intervals, a part's prepared step (`prepRun`, calls > 0) against another part's job run (`runs`), or two prepared steps together | the intervals intersect; a batched answer or parts run one after another fail, and are recorded as such |
 | **Overlap inside one Add-on** | **`addonDesignOverlap`** (`scripts/canary-read-job.mjs`), read free afterwards with the *read_job* box on the Add-on's job: the job's `add:<kind>` start and end marks in its trace. The lookup reads **every job on the site whose run touches the window** (created before its end, still updated after the earliest returned trace began), never by a creation lookback | the two designers' intervals cross, **and** the job has finished, the jobs read is complete and holds it, exactly one trace ran inside the job's own run (a trace that began before the job existed is never its), and no other job ran beside that trace. Two traces inside the run or another job beside it: `candidate-only`. A failed or cut read, an unfinished job, a trace without times, or no trace inside the run: `unknown`. Never a pass by default |
-| **Correct final results** | `outcomeChecks`: `headings`, `pages`, `menu`, and `sections` (a section added to a page that exists keeps everything that page said, and the served page says it); **every fact the message asked for** (`facts`, `only`, `denies`, round 17): each place, amount, day and time stated, no other amount, day or time beside it, and no claim the customer denied; equivalent wording allowed only from each fact's own list; every other stored page byte for byte; tables, logos and photographs as they were | every named change and every asked-for fact is there, nothing contradicts them, and nothing else moved |
+| **Correct final results** | `outcomeChecks`: `headings`, `pages`, `menu`, and `sections` (a section added to a page that exists keeps everything that page said, and the served page says it); **every fact the message asked for** (`facts`, `only`, `denies`, round 17): each place, amount, day and time stated, no other amount, day or time beside it, and no claim the customer denied; equivalent wording allowed only from each fact's own list; **judged on the asked section itself, in stored and served output alike** (round 18): only what the press added, one added section holding every fact, any other added section judged for contradictions; every other stored page byte for byte; tables, logos and photographs as they were | every named change and every asked-for fact is there, nothing contradicts them, and nothing else moved |
 | **Dependency ordering** | `jobOrderVerdict`: no part started before a part it needs had finished; COVERAGE `waits-for-prerequisite` | the order holds; a press where nothing waited says so (vacuous), never claims it |
 | **Reuse** | `reuseVerdict`: per-job `prepUse` (`exact` = staged yes, replayed ≥ 1, fresh 0) | the demanded number of jobs answered exactly from prepared work; a missing record fails |
 | **No duplicate charges** | `moneyVerdict`, `ownMoneyVerdict` (the press's own ledger rows), `laterChargesVerdict` (charges after the request ended), and the read-job ledger (`credit_events` by job id) | each job reserved once, every ledger ref distinct, nothing charged after the end, spend within the estimate |
@@ -176,7 +176,7 @@ Before anything is implemented or pressed, choose one:
 12. **Afterwards**, decide whether to set `IMAGE_PURCHASES` back to `on`
     (with a redeploy). Until then, no customer gets photographs.
 
-## 7. Offline verification of this plan (rounds 16 and 17)
+## 7. Offline verification of this plan (rounds 16 to 18)
 
 - Round 16: harness commit `8db3cbea`; full suite `10650 / 10650 / 0 / 0`;
   acceptance sweep 524 / 524; sweep 14 of 14; CI unit tests 38198232545
@@ -187,3 +187,11 @@ Before anything is implemented or pressed, choose one:
   10657 / 0 / 0`; acceptance sweep 41 files, **531 / 531**; sweep 21 of 21,
   control surviving; red check 9 of 16 failing on `3869478b`; CI unit tests
   38201146344 `success` on `1eac62c1`.
+- Round 18 (`docs/history/2026-10-12-acceptance-served-sections.md`):
+  commit `d9434979`, after Codex's control on `2015cc0c` (a section served
+  with an added "£50 a head" passed). The asked section is judged whole, on
+  stored and served output alike, on what the press added only. Full suite
+  `10663 / 10663 / 0 / 0`; acceptance sweep 41 files, **537 / 537**; sweep
+  13 of 14 (1 equivalent), control surviving; red check 5 of 22 failing on
+  `2015cc0c`; CI unit tests 38236080782 `success` on `d9434979`.
+
