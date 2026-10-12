@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { UI_SCENARIOS, ACCEPTANCE_CAP } from "../scripts/canary-ui.mjs";
 import { outcomeChecks, routeOfPage, requestBatchVerdict, COVERAGE } from "../scripts/canary-requests.mjs";
-import { addonDesignOverlap, readJobRecords, describeJob } from "../scripts/canary-read-job.mjs";
+import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } from "../scripts/canary-read-job.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
@@ -122,56 +122,192 @@ test("SECTIONS, NEGATIVE: words lost from the page, words it already said, a ser
   assert.ok(bad(judge(b, read(PAGES, [PART]), { expect: {} })).some((n) => /^no component was added/.test(n)));
 });
 
-// ── `addonDesignOverlap`: WHETHER ONE ADD-ON'S DESIGNERS RAN TOGETHER ───────
+// ── EVERY FACT ASKED FOR (round 17, after Codex's controls on 3869478b) ────
+//
+// "£50 a head, cheese included" passed a section asked to say "£25 a head,
+// cheese included". Each case below is a section or page as a press would
+// read it, judged through `outcomeChecks` with the scenario's own expectation.
+const factNames = (checks) => checks.filter((c) => !c.ok).map((c) => c.name);
+const sectionAt = (scenario, route) => UI_SCENARIOS[scenario].expect.sections.find((x) => x.route === route);
+const withWords = (pages, path, html) => pages.map((p) => (p.path === path ? { ...p, source: p.source.replace("</SiteChrome>", html + "\n    </SiteChrome>") } : p));
+const judgeSection = (scenario, route, path, html) => {
+  const spec = { expect: { sections: [sectionAt(scenario, route)] } };
+  const b = read(PAGES);
+  const a = read(withWords(PAGES, path, html), [], { [route]: html });
+  return factNames(judge(b, a, spec));
+};
+const START = "/starter", VISIT = "/visit";
 
-const JOB = "11111111-2222-3333-4444-555555555555";
-const ROW = { id: JOB, slug: SLUG, op: "addon", state: "done", created_at: "2026-10-12T10:00:00Z", updated_at: "2026-10-12T10:05:00Z" };
-const trace = (events, cid = "c1") => ({ cid, events });
-const ev = (p, s, ms) => ({ p, s, ms });
-const rec = (traces, ids = [JOB]) => ({ job: JOB, row: ROW, traces, siblings: { ok: true, ids }, notes: [] });
-
-test("DESIGNERS TOGETHER: one job and one trace in the window, two designers whose intervals cross — overlapped, named; one after the other — not overlapped", () => {
-  const together = addonDesignOverlap(rec([trace([ev("add:page", "start", 100), ev("add:component", "start", 150), ev("add:page", "ok", 900), ev("add:component", "ok", 950)])]));
-  assert.equal(together.verdict, "overlapped", JSON.stringify(together));
-  assert.deepEqual(together.meets, ["page and component"]);
-  const apart = addonDesignOverlap(rec([trace([ev("add:page", "start", 100), ev("add:page", "ok", 500), ev("add:component", "start", 600), ev("add:component", "ok", 900)])]));
-  assert.equal(apart.verdict, "not-overlapped");
-  // A DESIGNER STILL OPEN when the trace ended runs beside one that started after it.
-  assert.equal(addonDesignOverlap(rec([trace([ev("add:page", "start", 100), ev("add:component", "start", 600), ev("add:component", "ok", 900)])])).verdict, "overlapped");
-  // THE ROW STEP IS NOT A DESIGNER.
-  assert.equal(addonDesignOverlap(rec([trace([ev("add:row", "start", 100), ev("add:page", "start", 150), ev("add:row", "ok", 900), ev("add:page", "ok", 950)])])).verdict, "unknown");
+test("FACTS, acc-addon-inner's section: £25 a head with the cheese included passes, in other words too; £50 (Codex's control), no amount, a second amount beside £25, or cheese not included each fails by name", () => {
+  // The bakery's fixture pages here are run 47's; the tasting page is played by /visit's file, which is what `judge` compares.
+  const s = { ...sectionAt("acc-addon-inner", "/tasting-evenings"), route: VISIT };
+  const run = (html) => {
+    const b = read(PAGES), a = read(withWords(PAGES, "visit.tsx", html), [], { [VISIT]: html });
+    return factNames(judge(b, a, { expect: { sections: [s] } }));
+  };
+  const q = (ans) => `<section><h2>How much is an evening?</h2><p>${ans}</p></section>`;
+  assert.deepEqual(run(q("£25 a head, cheese included.")), []);
+  assert.deepEqual(run(q("It is £25 per person, including cheese.")), [], "equivalent wording is refused");
+  const fifty = run(q("£50 a head, cheese included."));
+  assert.ok(fifty.some((n) => /states "£25 a head"/.test(n)) && fifty.some((n) => /states no amount but 25/.test(n)), "Codex's control passed: " + JSON.stringify(fifty));
+  assert.ok(run(q("A set price a head, cheese included.")).some((n) => /states "£25 a head"/.test(n)), "a missing amount passed");
+  assert.ok(run(q("£25 a head, cheese included. Private evenings are £50 a head.")).some((n) => /states no amount but 25/.test(n)), "a contradicting second amount passed");
+  // STORED RIGHT, SERVED WRONG: the served page is judged on its own words too.
+  const servedWrong = (() => { const b = read(PAGES), a = read(withWords(PAGES, "visit.tsx", q("£25 a head, cheese included.")), [], { [VISIT]: q("£50 a head.") }); return factNames(judge(b, a, { expect: { sections: [s] } })); })();
+  assert.ok(servedWrong.some((n) => /^the served \/visit states "£25 a head"/.test(n)), "a served page that says otherwise passed: " + JSON.stringify(servedWrong));
+  const extra = run(q("£25 a head, cheese not included."));
+  assert.ok(extra.some((n) => /states "cheese included"/.test(n)) && extra.some((n) => /does not claim "cheese not included"/.test(n)), JSON.stringify(extra));
 });
 
-test("DESIGNERS, NEVER CLAIMED FROM A CANDIDATE: another job on the site in the window, or two traces — candidate-only with the intervals reported; an unread window, a dropped event or a missing trace — unknown", () => {
-  const crossing = [ev("add:page", "start", 100), ev("add:component", "start", 150), ev("add:page", "ok", 900), ev("add:component", "ok", 950)];
-  const two = addonDesignOverlap(rec([trace(crossing)], [JOB, "another-job"]));
-  assert.equal(two.verdict, "candidate-only");
-  assert.match(two.said, /page 100-900/);
-  assert.equal(addonDesignOverlap(rec([trace(crossing), trace(crossing, "c2")])).verdict, "candidate-only");
-  assert.equal(addonDesignOverlap(rec([trace(crossing)], ["another-job"])).verdict, "candidate-only", "a window that lacks this job is not this job's");
-  assert.equal(addonDesignOverlap({ ...rec([trace(crossing)]), siblings: { ok: false, why: "edit_jobs read for the window failed (500)" } }).verdict, "unknown");
-  assert.equal(addonDesignOverlap(rec([trace([...crossing, { p: "…", s: "?", ms: 999, d: { dropped: 3 } }])])).verdict, "unknown");
+test("FACTS, acc-addon-inner's page: Clifton, Redland and Montpelier on weekday mornings passes, also as Monday to Friday; a missing place, a weekend day or an afternoon fails by name", () => {
+  const want = UI_SCENARIOS["acc-addon-inner"].expect.pages[0];
+  const pageAt = (words) => ({ path: "delivery.tsx", source: `import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/delivery")({ component: P });\nfunction P() { return <main><h1>Delivery</h1><p>${words}</p></main>; }\n` });
+  const run = (words) => {
+    const b = read(PAGES), after = [...PAGES, pageAt(words)];
+    const a = read(after, [], { "/delivery": `<h1>Delivery</h1><p>${words}</p>` });
+    return factNames(judge(b, a, { expect: { pages: [want] } })).filter((n) => !/menu/.test(n));
+  };
+  assert.deepEqual(run("We deliver to Clifton, Redland and Montpelier on weekday mornings."), []);
+  assert.deepEqual(run("Deliveries reach Clifton, Redland and Montpelier, Monday to Friday mornings."), []);
+  assert.ok(run("We deliver to Clifton and Montpelier on weekday mornings.").some((n) => /states "Redland"/.test(n)), "a missing place passed");
+  assert.ok(run("We deliver to Clifton, Redland and Montpelier on weekday mornings and Saturdays.").some((n) => /states no day but/.test(n)), "a weekend day passed");
+  assert.ok(run("We deliver to Clifton, Redland and Montpelier on weekday mornings and at weekends.").some((n) => /states no day but/.test(n)), "\"at weekends\" passed");
+  assert.ok(run("We deliver to Clifton, Redland and Montpelier on weekday afternoons.").some((n) => /states "in the morning"|states no time of day but morning/.test(n)), "an afternoon passed");
+});
+
+test("FACTS, acc-addon-edit's section: every Monday morning passes; Tuesday, Monday and Thursday, or Monday evening fails by name", () => {
+  const run = (ans) => judgeSection("acc-addon-edit", "/bake-list", "order.tsx", `<section><h2>When is the list updated?</h2><p>${ans}</p></section>`);
+  const s = sectionAt("acc-addon-edit", "/bake-list");
+  assert.ok(s && s.only && s.facts.length >= 3);
+  // /bake-list is not in run 47's fixture: the same expectation is judged on /order's file.
+  const on = (ans) => { const t = { ...s, route: "/order" }; const html = `<section><h2>When is the list updated?</h2><p>${ans}</p></section>`; const b = read(PAGES); const a = read(withWords(PAGES, "order.tsx", html), [], { "/order": html }); return factNames(judge(b, a, { expect: { sections: [t] } })); };
+  assert.deepEqual(on("Every Monday morning."), []);
+  assert.deepEqual(on("We refresh it on Mondays, first thing in the morning."), []);
+  assert.ok(on("Every Tuesday morning.").some((n) => /states "every Monday"|states no day but monday/.test(n)), "a wrong day passed");
+  assert.ok(on("Every Monday and Thursday morning.").some((n) => /states no day but monday/.test(n)), "a second day passed");
+  assert.ok(on("Every Monday evening.").some((n) => /states "in the morning"|states no time of day but morning/.test(n)), "an evening passed");
+  assert.equal(typeof run, "function");
+});
+
+test("FACTS, acc-addon-pair's sections: dogs welcome inside passes; dogs not welcome, or outside only, fails; a starter made with rye flour that is not gluten-free passes, said with \"No,\" or plainly; one claimed gluten-free, or not said to be made with rye flour, fails", () => {
+  const dogs = (ans) => judgeSection("acc-addon-pair", VISIT, "visit.tsx", `<section><h2>Can I bring my dog?</h2><p>${ans}</p></section>`);
+  assert.deepEqual(dogs("Dogs are welcome inside."), []);
+  assert.deepEqual(dogs("Yes, dogs are very welcome indoors."), []);
+  assert.ok(dogs("Dogs are not welcome inside.").some((n) => /states "dogs are welcome"/.test(n)), "a refusal passed");
+  assert.ok(dogs("Dogs are welcome outside only.").some((n) => /states "inside"|does not claim "outside only"/.test(n)), "outside only passed");
+  const st = { ...sectionAt("acc-addon-pair", START), route: "/order" };
+  const starter = (ans) => { const html = `<section><h2>Is the starter gluten-free?</h2><p>${ans}</p></section>`; const b = read(PAGES); const a = read(withWords(PAGES, "order.tsx", html), [], { "/order": html }); return factNames(judge(b, a, { expect: { sections: [st] } })); };
+  assert.deepEqual(starter("No, it is made with rye flour."), [], "the asked-for answer failed");
+  assert.deepEqual(starter("It is not gluten-free: it is made from rye flour."), []);
+  const yes = starter("Yes, it is gluten-free and made with rye flour.");
+  assert.ok(yes.some((n) => /does not claim "gluten-free"/.test(n)), "a gluten-free claim passed: " + JSON.stringify(yes));
+  assert.ok(starter("No, it is made with wheat flour.").some((n) => /states "made with rye flour"/.test(n)), "the wrong flour passed");
+  assert.ok(starter("It is not made with rye flour.").some((n) => /states "made with rye flour"/.test(n)), "a denied flour passed");
+});
+
+test("EVERY NEW SCENARIO NAMES ITS FACTS: each section and page carries `facts`, every amount asked for is held to `only.money`, and the asked-for days and times are held to `only`", () => {
+  for (const k of NEW) {
+    const e = UI_SCENARIOS[k].expect;
+    for (const x of [...(e.sections || []), ...(e.pages || [])]) assert.ok(Array.isArray(x.facts) && x.facts.length > 0, `${k} ${x.route || "page"} names no facts`);
+  }
+  assert.deepEqual([...UI_SCENARIOS["acc-addon-inner"].expect.sections[0].only.money], ["25"]);
+  assert.deepEqual([...UI_SCENARIOS["acc-addon-edit"].expect.sections[0].only.days], ["monday"]);
+  assert.deepEqual([...UI_SCENARIOS["acc-addon-inner"].expect.pages[0].only.parts], ["morning"]);
+  assert.ok(UI_SCENARIOS["acc-addon-pair"].expect.sections.find((x) => x.route === START).denies.includes("gluten-free"));
+});
+
+// ── `addonDesignOverlap`: WHETHER ONE ADD-ON'S DESIGNERS RAN TOGETHER ───────
+//
+// Attribution corrected in round 17 after Codex's control: jobs are chosen by
+// what they ran, and a trace is a job's only when it ran inside that job's
+// own run and no other job ran beside it.
+const JOB = "11111111-2222-3333-4444-555555555555";
+const OLD = "99999999-8888-7777-6666-555555555555";
+const ROW = { id: JOB, slug: SLUG, op: "addon", state: "done", created_at: "2026-10-12T10:00:00Z", updated_at: "2026-10-12T10:05:00Z" };
+const job = (id, created_at, updated_at, state = "done") => ({ id, state, created_at, updated_at });
+const ev = (p, s, ms) => ({ p, s, ms });
+const trace = (events, ended_at, ms, cid = "c1") => ({ cid, ended_at, ms, events });
+const CROSS = [ev("add:page", "start", 100), ev("add:component", "start", 150), ev("add:page", "ok", 900), ev("add:component", "ok", 950)];
+const APART = [ev("add:page", "start", 100), ev("add:page", "ok", 500), ev("add:component", "start", 600), ev("add:component", "ok", 900)];
+// The target's own trace: began 10:00:10, ended 10:04:40.
+const MINE = (events) => trace(events, "2026-10-12T10:04:40Z", 270_000, "mine");
+// Codex's case: a job created at 08:00 that ended at 10:04 — its trace began at 08:00.
+const OLDER = (events) => trace(events, "2026-10-12T10:04:00Z", 7_440_000, "older");
+const rec = (traces, jobs = [job(JOB, ROW.created_at, ROW.updated_at)], extra = {}) => ({ job: JOB, row: ROW, traces, siblings: { ok: true, complete: true, ids: jobs.map((j) => j.id), jobs }, notes: [], ...extra });
+
+test("DESIGNERS, GENUINE AND SEQUENTIAL: the target alone, its own trace inside its run — crossing designers are overlapped, named; one after the other, not overlapped; the row step is no designer", () => {
+  const together = addonDesignOverlap(rec([MINE(CROSS)]));
+  assert.equal(together.verdict, "overlapped", JSON.stringify(together));
+  assert.deepEqual(together.meets, ["page and component"]);
+  assert.equal(addonDesignOverlap(rec([MINE(APART)])).verdict, "not-overlapped");
+  assert.equal(addonDesignOverlap(rec([MINE([ev("add:page", "start", 100), ev("add:component", "start", 600), ev("add:component", "ok", 900)])])).verdict, "overlapped", "a designer still open at the end runs beside one started after it");
+  assert.equal(addonDesignOverlap(rec([MINE([ev("add:row", "start", 100), ev("add:page", "start", 150), ev("add:row", "ok", 900), ev("add:page", "ok", 950)])])).verdict, "unknown");
+});
+
+test("DESIGNERS, CODEX'S OLDER JOB: a job created at 08:00 that ended at 10:04, its trace the only one returned — never the 10:00 job's (unknown: the target's own trace is missing); with both traces, the target's is beside the older job's run — candidate-only", () => {
+  const older = job(OLD, "2026-10-12T08:00:00Z", "2026-10-12T10:04:05Z");
+  const onlyOld = addonDesignOverlap(rec([OLDER(CROSS)], [older, job(JOB, ROW.created_at, ROW.updated_at)]));
+  assert.equal(onlyOld.verdict, "unknown", JSON.stringify(onlyOld));
+  assert.match(onlyOld.why, /no trace ran inside this job's own run/);
+  // The same, with the older job not even read (the old 30-minute lookback): still never this job's.
+  assert.equal(addonDesignOverlap(rec([OLDER(CROSS)])).verdict, "unknown");
+  const both = addonDesignOverlap(rec([OLDER(CROSS), MINE(APART)], [older, job(JOB, ROW.created_at, ROW.updated_at)]));
+  assert.equal(both.verdict, "candidate-only", JSON.stringify(both));
+  assert.match(both.why, new RegExp(OLD));
+});
+
+test("DESIGNERS, MISSING AND AMBIGUOUS: no trace, a trace from before the job existed, two traces inside its run, or another job running beside its trace — never a verdict on overlap", () => {
   assert.equal(addonDesignOverlap(rec([])).verdict, "unknown");
+  assert.equal(addonDesignOverlap(rec([trace(CROSS, "2026-10-12T09:59:00Z", 60_000, "before")])).verdict, "unknown", "a trace from before the job counted");
+  assert.equal(addonDesignOverlap(rec([MINE(CROSS), trace(APART, "2026-10-12T10:03:00Z", 60_000, "twin")])).verdict, "candidate-only");
+  const beside = job("aaaaaaaa-0000-0000-0000-000000000000", "2026-10-12T10:02:00Z", "2026-10-12T10:03:00Z");
+  assert.equal(addonDesignOverlap(rec([MINE(CROSS)], [job(JOB, ROW.created_at, ROW.updated_at), beside])).verdict, "candidate-only");
+  const running = job("bbbbbbbb-0000-0000-0000-000000000000", "2026-10-12T09:00:00Z", null, "running");
+  assert.equal(addonDesignOverlap(rec([MINE(CROSS)], [job(JOB, ROW.created_at, ROW.updated_at), running])).verdict, "candidate-only", "a job with no end was not counted as still running");
+  const after = job("cccccccc-0000-0000-0000-000000000000", "2026-10-12T10:10:00Z", "2026-10-12T10:12:00Z");
+  assert.equal(addonDesignOverlap(rec([MINE(CROSS)], [job(JOB, ROW.created_at, ROW.updated_at), after])).verdict, "overlapped", "a job well after the trace was counted against it");
+});
+
+test("DESIGNERS, INCOMPLETE READS ARE UNKNOWN: a failed or cut jobs read, the target missing from it, an unfinished target, a target without times, a trace without times or with dropped events", () => {
+  const base = rec([MINE(CROSS)]);
+  assert.equal(addonDesignOverlap({ ...base, siblings: { ok: false, why: "edit_jobs read for the window failed (500)" } }).verdict, "unknown");
+  assert.equal(addonDesignOverlap({ ...base, siblings: { ...base.siblings, complete: false, why: "the jobs read for the window reached its limit of 200" } }).verdict, "unknown");
+  assert.equal(addonDesignOverlap(rec([MINE(CROSS)], [job(OLD, "2026-10-12T08:00:00Z", "2026-10-12T08:10:00Z")])).verdict, "unknown", "a read without the target counted");
+  assert.equal(addonDesignOverlap({ ...base, row: { ...ROW, state: "running" } }).verdict, "unknown");
+  assert.equal(addonDesignOverlap({ ...base, row: { ...ROW, updated_at: null } }).verdict, "unknown");
+  assert.equal(addonDesignOverlap(rec([{ cid: "x", events: CROSS }])).verdict, "unknown");
+  assert.equal(addonDesignOverlap(rec([MINE([...CROSS, { p: "…", s: "?", ms: 999, d: { dropped: 3 } }])])).verdict, "unknown");
   assert.equal(addonDesignOverlap({ job: JOB, row: null }).verdict, "unknown");
 });
 
-test("THE READ-JOB BOX READS THE WINDOW'S JOBS AND PRINTS THE VERDICT: through the real lookup with a stubbed store — only GETs, the jobs on the site in the window asked by slug, and a DESIGNERS line in the account", async () => {
+test("THE READ-JOB BOX READS EVERY JOB WHOSE RUN TOUCHES THE WINDOW: through the real lookup with a stubbed store — chosen by last update since the earliest trace began, never by a creation lookback; a full page is incomplete; the DESIGNERS line follows", async () => {
   const asked = [];
-  const sb = async (p) => {
+  const older = job(OLD, "2026-10-12T08:00:00Z", "2026-10-12T10:04:05Z");
+  const store = (jobsRows, traces) => async (p) => {
     asked.push(p);
-    if (p.startsWith(`edit_jobs?id=eq.`)) return { status: 200, rows: [ROW] };
-    if (p.startsWith("edit_jobs?slug=eq.")) return { status: 200, rows: [{ id: JOB }] };
+    if (p.startsWith("edit_jobs?id=eq.")) return { status: 200, rows: [ROW] };
+    if (p.startsWith("edit_jobs?slug=eq.")) return { status: 200, rows: jobsRows };
     if (p.startsWith("credit_events")) return { status: 200, rows: [] };
-    if (p.startsWith("edit_traces")) return { status: 200, rows: [trace([ev("add:page", "start", 100), ev("add:component", "start", 150), ev("add:page", "ok", 900), ev("add:component", "ok", 950)])] };
+    if (p.startsWith("edit_traces")) return { status: 200, rows: traces };
     return { status: 404, rows: null };
   };
-  const r = await readJobRecords({ job: JOB, sb });
-  assert.deepEqual(r.siblings, { ok: true, ids: [JOB] });
-  assert.ok(asked.some((p) => p.startsWith("edit_jobs?slug=eq." + SLUG) && p.includes("created_at=gte.") && p.includes("created_at=lte.")), JSON.stringify(asked));
-  assert.match(describeJob(r), /DESIGNERS {3}overlapped \(page and component\)/);
-  const unread = await readJobRecords({ job: JOB, sb: async (p) => (p.startsWith("edit_jobs?slug=eq.") ? { status: 500, rows: null } : sb(p)) });
-  assert.equal(unread.siblings.ok, false);
-  assert.match(describeJob(unread), /DESIGNERS {3}unknown — edit_jobs read for the window failed \(500\)/);
+  const r = await readJobRecords({ job: JOB, sb: store([older, job(JOB, ROW.created_at, ROW.updated_at)], [OLDER(CROSS), MINE(CROSS)]) });
+  const q = asked.find((p) => p.startsWith("edit_jobs?slug=eq."));
+  assert.ok(q, "the window's jobs were not read");
+  assert.doesNotMatch(q, /created_at=gte\./, "jobs are still chosen by a creation lookback");
+  assert.match(q, /created_at=lte\./);
+  assert.match(q, /or=\(updated_at\.gte\.2026-10-12T08:00:00\.000Z|or=\(updated_at\.gte\.2026-10-12T07:59:00\.000Z/, "the lower bound is not the earliest trace's start: " + q);
+  assert.match(q, /updated_at\.is\.null/);
+  assert.equal(r.siblings.complete, true);
+  assert.deepEqual(r.siblings.ids.sort(), [JOB, OLD].sort());
+  assert.match(describeJob(r), /DESIGNERS {3}candidate-only/);
+  const solo = await readJobRecords({ job: JOB, sb: store([job(JOB, ROW.created_at, ROW.updated_at)], [MINE(CROSS)]) });
+  assert.match(describeJob(solo), /DESIGNERS {3}overlapped \(page and component\)/);
+  const full = await readJobRecords({ job: JOB, sb: store(Array.from({ length: SIBLING_READ_LIMIT }, (_, i) => job(i === 0 ? JOB : "j" + i, ROW.created_at, ROW.updated_at)), [MINE(CROSS)]) });
+  assert.equal(full.siblings.complete, false);
+  assert.match(describeJob(full), /DESIGNERS {3}unknown — the jobs read for the window reached its limit/);
+  const failed = await readJobRecords({ job: JOB, sb: async (p) => (p.startsWith("edit_jobs?slug=eq.") ? { status: 500, rows: null } : store([], [MINE(CROSS)])(p)) });
+  assert.match(describeJob(failed), /DESIGNERS {3}unknown — edit_jobs read for the window failed \(500\)/);
 });
 
 test("THE PRESS RECORDS WHAT IT CANNOT SEE: a scenario that asks for the inside-one-Add-on reading names it as unverified, pointing at the read-job box; one that does not, does not", () => {

@@ -618,6 +618,68 @@ export function servedDescription(html) {
 }
 
 /**
+ * EVERY FACT THE MESSAGE ASKED FOR, ON WHAT A PRESS ADDED (2026-10-12, after
+ * Codex's negative controls on 3869478b: "£50 a head, cheese included" passed
+ * a section asked to say "£25 a head, cheese included", because the check
+ * required only "a head" and "cheese"). An expectation names, per page or
+ * section:
+ *   - `facts`: each `{ fact, any }`; at least one wording in `any` is stated,
+ *     whole and undenied. A list of wordings is how equivalent phrasing is
+ *     allowed ("£25 per person"), never a looser match;
+ *   - `only`: for amounts of money (`money`), days of the week (`days`) and
+ *     times of day (`parts`), every value of that kind the added words state
+ *     must be one asked for. A different amount, a weekend for weekday
+ *     mornings, an evening for a morning, fails, beside the right one or
+ *     instead of it;
+ *   - `denies`: claims the added words must not make (the customer said "no").
+ * Questions in the added words are not claims: "Is the starter
+ * gluten-free?" asks, it does not say. An answer's leading "No," is an
+ * answer, not a denial of the sentence after it ("No, it is made with rye
+ * flour" states "made with rye flour"); a "not" inside the sentence still
+ * denies it.
+ */
+const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const sentencesOf = (text) => plain(text).split(/(?<=[.!?])\s+/).filter(Boolean);
+const claimsOf = (text) => sentencesOf(text).filter((x) => !/\?\s*$/.test(x)).join(" ");
+const unInterjected = (text) => sentencesOf(text).map((x) => x.replace(/^(?:no|yes)\s*[,!.:-]\s*/, "")).join(" ");
+const moneyOf = (x) => { const n = Number(x); return Number.isFinite(n) ? String(n) : x; };
+export function factValues(text) {
+  const t = plain(claimsOf(text));
+  const money = new Set(), days = new Set(), parts = new Set();
+  for (const m of t.matchAll(/£\s?(\d+(?:\.\d+)?)/g)) money.add(moneyOf(m[1]));
+  for (const m of t.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:pounds?|gbp)\b/g)) money.add(moneyOf(m[1]));
+  for (const m of t.matchAll(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/g)) days.add(m[1]);
+  if (/\bweek-?ends?\b/.test(t)) { days.add("saturday"); days.add("sunday"); }
+  if (/\bweek-?\s?days?\b/.test(t)) for (const d of DAYS.slice(0, 5)) days.add(d);
+  for (const m of t.matchAll(/\b(morning|afternoon|evening|night)s?\b/g)) parts.add(m[1]);
+  return { money, days, parts };
+}
+export function factChecks(where, text, want) {
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  const w = want || {};
+  const raw = String(text == null ? "" : text), bare = unInterjected(raw);
+  for (const f of Array.isArray(w.facts) ? w.facts : []) {
+    const any = listOf(f && f.any);
+    const said = any.find((x) => statesAll(raw, [x]) || statesAll(bare, [x]));
+    add(`${where} states ${f && f.fact ? `"${f.fact}"` : JSON.stringify(any)}`, any.length > 0 && !!said, `none of ${JSON.stringify(any)} is stated, undenied, in: ${JSON.stringify(plain(raw).slice(0, 240))}`);
+  }
+  const claims = claimsOf(raw);
+  for (const d of listOf(w.denies)) add(`${where} does not claim "${d}"`, !statesAll(claims, [d]), `it says it: ${JSON.stringify(claims.slice(0, 240))}`);
+  const only = w.only && typeof w.only === "object" ? w.only : null;
+  if (only) {
+    const got = factValues(raw);
+    for (const k of ["money", "days", "parts"]) {
+      if (!Array.isArray(only[k])) continue;
+      const allowed = new Set(only[k].map((x) => (k === "money" ? moneyOf(x) : String(x).toLowerCase())));
+      const other = [...got[k]].filter((x) => !allowed.has(x));
+      add(`${where} states no ${k === "money" ? "amount" : k === "days" ? "day" : "time of day"} but ${[...allowed].join(", ")}`, !other.length, `it also states ${JSON.stringify(other)}`);
+    }
+  }
+  return out;
+}
+
+/**
  * THE NEW PAGES, one per page the press asks for: a route the sitemap did not
  * list before, served 200, whose words are about what was asked (`about`),
  * with a stored page file that serves it. Any other new route is extra.
@@ -761,6 +823,12 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   // EACH NEW PAGE, ANSWERING, ABOUT WHAT WAS ASKED.
   for (const f of pf.found) {
     add(`a new page about ${listOf(f.want.about).join(" and ")} was added, stored and served 200${f.route ? ` (${f.route})` : ""}`, !f.why && !!f.route, f.why);
+    // EVERY FACT IT WAS ASKED TO SAY, on the served page's own words.
+    if (f.want && (f.want.facts || f.want.only || f.want.denies)) {
+      const h = f.route && served ? served[f.route] : undefined;
+      if (typeof h !== "string") add(`the new page about ${listOf(f.want.about).join(" and ")} was read for its facts`, false, "no served page to read");
+      else out.push(...factChecks(`the served ${f.route}`, visible(region(h, "main") || h), f.want));
+    }
   }
   add("no other page was added", !pf.extra.length, `also new: ${pf.extra.join(", ")}`);
   // THE PHOTOGRAPH A NEW PAGE WAS ASKED TO SHOW (2026-10-10): bought for it,
@@ -905,14 +973,28 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     const lost = less(wb, wa);
     add(`${s.route} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
     const gained = `${less(wa, wb).join(" ")} ${newPartWords()}`;
-    add(`${s.route} gained a section saying ${listOf(s.says).map((w) => `"${w}"`).join(" and ")}, which it did not say before`,
-      statesAll(gained, s.says) && !statesAll([...wb.keys()].join(" "), s.says),
+    // WITH FACTS NAMED, THE FACTS ARE THE ANCHOR (round 17): a literal
+    // fragment would refuse equivalent wording ("£25 per person"), so the
+    // page must not already have stated every fact, and the facts themselves
+    // are judged below. Without facts, the fragments as before.
+    const hasFacts = Array.isArray(s.facts) && s.facts.length > 0;
+    const wasSaid = hasFacts ? factChecks("", [...wb.keys()].join(" "), { facts: s.facts }).every((c) => c.ok) : statesAll([...wb.keys()].join(" "), s.says);
+    add(hasFacts ? `${s.route} gained a section; the page did not already state every fact asked for` : `${s.route} gained a section saying ${listOf(s.says).map((w) => `"${w}"`).join(" and ")}, which it did not say before`,
+      (hasFacts ? gained.trim().length > 0 : statesAll(gained, s.says)) && !wasSaid,
       `new words: ${JSON.stringify(gained.trim().slice(0, 200))}`);
     const pb = photosOf(at.source, slug), pa = photosOf(now, slug);
     const moved = [...new Set([...pb.keys(), ...pa.keys()])].filter((u) => (pb.get(u) || 0) !== (pa.get(u) || 0));
     add(`${s.route} shows the same photographs as before`, !moved.length, `changed: ${JSON.stringify(moved)}`);
     const h = served && served[s.route];
-    add(`the served ${s.route} says it`, typeof h === "string" && statesAll(visible(region(h, "main") || h), s.says), typeof h === "string" ? "the words are not on the page, or are denied there" : `${s.route} was not read`);
+    if (!hasFacts) add(`the served ${s.route} says it`, typeof h === "string" && statesAll(visible(region(h, "main") || h), s.says), typeof h === "string" ? "the words are not on the page, or are denied there" : `${s.route} was not read`);
+    else if (typeof h !== "string") add(`the served ${s.route} was read`, false, `${s.route} was not read`);
+    // EVERY FACT ASKED FOR: on what the press added (amounts, days and times
+    // judged there, so the page's older words never count against it), and
+    // the positive facts again on the served page.
+    if (s.facts || s.only || s.denies) {
+      out.push(...factChecks(`the section added to ${s.route}`, gained, s));
+      if (typeof h === "string") out.push(...factChecks(`the served ${s.route}`, visible(region(h, "main") || h), { facts: s.facts }));
+    }
   }
   // THE LOGO: every served header draws the attached file, by the address its
   // own bytes name, and the bytes served there are that file's.

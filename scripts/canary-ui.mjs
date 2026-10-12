@@ -1175,9 +1175,30 @@ export const UI_SCENARIOS = Object.freeze({
     budget: 30, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
     layers: Object.freeze(["look", "nav", "page"]),
     expect: Object.freeze({
-      pages: Object.freeze([Object.freeze({ about: Object.freeze(["Clifton", "Montpelier"]) })]),
+      // EVERY FACT ASKED FOR (2026-10-12, Codex's negative controls on
+      // 3869478b): all three places, weekday mornings and no other day or
+      // time; £25 a head with the cheese included and no other amount.
+      pages: Object.freeze([Object.freeze({
+        about: Object.freeze(["Clifton", "Montpelier"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "Clifton", any: Object.freeze(["Clifton"]) }),
+          Object.freeze({ fact: "Redland", any: Object.freeze(["Redland"]) }),
+          Object.freeze({ fact: "Montpelier", any: Object.freeze(["Montpelier"]) }),
+          Object.freeze({ fact: "on weekdays", any: Object.freeze(["weekday", "weekdays", "monday to friday", "mondays to fridays", "every weekday"]) }),
+          Object.freeze({ fact: "in the morning", any: Object.freeze(["morning", "mornings"]) }),
+        ]),
+        only: Object.freeze({ days: Object.freeze(["monday", "tuesday", "wednesday", "thursday", "friday"]), parts: Object.freeze(["morning"]) }),
+      })]),
       menu: Object.freeze({ page: 0 }),
-      sections: Object.freeze([Object.freeze({ route: "/tasting-evenings", says: Object.freeze(["a head", "cheese"]) })]),
+      sections: Object.freeze([Object.freeze({
+        route: "/tasting-evenings", says: Object.freeze(["a head", "cheese"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "£25 a head", any: Object.freeze(["£25 a head", "£25 per head", "£25 per person", "£25 each", "25 pounds a head", "25 pounds per person"]) }),
+          Object.freeze({ fact: "cheese included", any: Object.freeze(["cheese included", "cheese is included", "includes cheese", "including cheese", "cheese included in the price"]) }),
+        ]),
+        only: Object.freeze({ money: Object.freeze(["25"]) }),
+        denies: Object.freeze(["cheese not included", "cheese is extra", "cheese costs extra"]),
+      })]),
       reuse: Object.freeze({}),
       shape: true,
       inner: true,
@@ -1201,7 +1222,15 @@ export const UI_SCENARIOS = Object.freeze({
     layers: Object.freeze(["text", "look", "page"]),
     expect: Object.freeze({
       headings: Object.freeze([Object.freeze({ route: "/gallery", from: "Photographs from our ovens", to: "Photographs straight from our ovens" })]),
-      sections: Object.freeze([Object.freeze({ route: "/bake-list", says: Object.freeze(["Monday"]) })]),
+      sections: Object.freeze([Object.freeze({
+        route: "/bake-list", says: Object.freeze(["Monday"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "the list is updated", any: Object.freeze(["updated", "update", "refreshed", "changes"]) }),
+          Object.freeze({ fact: "every Monday", any: Object.freeze(["every monday", "each monday", "on mondays", "mondays", "monday"]) }),
+          Object.freeze({ fact: "in the morning", any: Object.freeze(["morning", "mornings"]) }),
+        ]),
+        only: Object.freeze({ days: Object.freeze(["monday"]), parts: Object.freeze(["morning"]) }),
+      })]),
       overlap: true,
       reuse: Object.freeze({ exact: 1, overlapped: true }),
     }),
@@ -1223,8 +1252,22 @@ export const UI_SCENARIOS = Object.freeze({
     layers: Object.freeze(["look", "page"]),
     expect: Object.freeze({
       sections: Object.freeze([
-        Object.freeze({ route: "/visit", says: Object.freeze(["dogs", "welcome"]) }),
-        Object.freeze({ route: "/starter", says: Object.freeze(["rye flour"]) }),
+        Object.freeze({
+          route: "/visit", says: Object.freeze(["dogs", "welcome"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "dogs are welcome", any: Object.freeze(["dogs are welcome", "dogs are allowed", "dogs welcome", "dogs are very welcome", "welcome to bring your dog", "bring your dog"]) }),
+            Object.freeze({ fact: "inside", any: Object.freeze(["inside", "indoors", "in the bakery", "in the shop"]) }),
+          ]),
+          denies: Object.freeze(["not inside", "outside only", "only outside"]),
+        }),
+        Object.freeze({
+          route: "/starter", says: Object.freeze(["rye flour"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "made with rye flour", any: Object.freeze(["made with rye flour", "made from rye flour", "uses rye flour", "rye flour"]) }),
+            Object.freeze({ fact: "it is not gluten-free", any: Object.freeze(["not gluten-free", "not gluten free", "isn't gluten-free", "isn't gluten free", "contains gluten", "gluten-free? no", "gluten free? no"]) }),
+          ]),
+          denies: Object.freeze(["gluten-free", "gluten free"]),
+        }),
       ]),
       reuse: Object.freeze({}),
       shape: true,

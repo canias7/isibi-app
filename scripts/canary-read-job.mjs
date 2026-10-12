@@ -211,13 +211,22 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
     if (tr && tr.status === 200 && Array.isArray(tr.rows)) out.traces = tr.rows;
     else out.notes.push(`edit_traces read failed (${tr && tr.status}${tr && tr.status === 200 ? ", body is not a list" : ""}) — no trace candidate is claimed either way`);
     out.notes.push("edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join");
-    // EVERY JOB ON THE SITE IN THE SAME WINDOW (2026-10-12), so a candidate
-    // can be called this job's only when nothing else could have written it:
-    // one job and one trace in the window (`addonDesignOverlap`). Unread is
-    // never "none".
-    const sj = await sb(`edit_jobs?slug=eq.${encodeURIComponent(out.row.slug)}&created_at=gte.${new Date(new Date(out.row.created_at).getTime() - traceWindowMs).toISOString()}&created_at=lte.${to}&select=id`);
-    if (sj && sj.status === 200 && Array.isArray(sj.rows)) out.siblings = { ok: true, ids: sj.rows.map((x) => x && x.id).filter((x) => typeof x === "string") };
-    else out.siblings = { ok: false, why: `edit_jobs read for the window failed (${sj && sj.status})` };
+    // EVERY JOB ON THE SITE WHOSE RUN CAN TOUCH THE WINDOW (2026-10-12,
+    // corrected after Codex's control on 3869478b). Jobs are chosen by what
+    // they ran, never by when they were created: any job created before the
+    // window's end that was still being updated at or after the earliest
+    // moment a returned trace began. A job created at 08:00 that ended at
+    // 10:04 is therefore here beside a job created at 10:00. A row with no
+    // timestamps, or a page of rows as long as the limit, leaves the read
+    // incomplete; unread is never "none".
+    const starts = out.traces.map(traceSpan).filter(Boolean).map((x) => x.start);
+    const lower = new Date(Math.min(new Date(out.row.created_at).getTime(), ...starts) - ATTRIBUTION_SLACK_MS).toISOString();
+    const sj = await sb(`edit_jobs?slug=eq.${encodeURIComponent(out.row.slug)}&created_at=lte.${to}&or=(updated_at.gte.${lower},updated_at.is.null)&select=id,state,created_at,updated_at&order=created_at.asc&limit=${SIBLING_READ_LIMIT}`);
+    if (sj && sj.status === 200 && Array.isArray(sj.rows)) {
+      const jobs = sj.rows.filter((x) => x && typeof x.id === "string");
+      const complete = jobs.length === sj.rows.length && sj.rows.length < SIBLING_READ_LIMIT && jobs.every((x) => Number.isFinite(Date.parse(x.created_at)));
+      out.siblings = { ok: true, complete, ids: jobs.map((x) => x.id), jobs: jobs.map((x) => ({ id: x.id, state: x.state, created_at: x.created_at, updated_at: x.updated_at })), why: complete ? "" : sj.rows.length >= SIBLING_READ_LIMIT ? `the jobs read for the window reached its limit of ${SIBLING_READ_LIMIT}` : "a job in the window was read without its id or its creation time" };
+    } else out.siblings = { ok: false, why: `edit_jobs read for the window failed (${sj && sj.status})` };
   }
 
   if (poll) {
@@ -275,31 +284,57 @@ export function replyReading(poll) {
 }
 
 /** One printable account, so the workflow log carries the whole answer. */
+/** How far a job's row and its trace may disagree about when it ran: the trace is flushed after the job's last write. */
+export const ATTRIBUTION_SLACK_MS = 60_000;
+/** The most jobs one window read takes; a page this long may have been cut. */
+export const SIBLING_READ_LIMIT = 200;
+const TERMINAL = new Set(["done", "failed", "cancelled", "lost"]);
+
+/** A trace's run as `{ start, end }` in ms, or null when it does not say (no end, no duration, or events dropped). */
+export function traceSpan(t) {
+  const end = Date.parse(t && t.ended_at);
+  const ms = Number(t && t.ms);
+  if (!Number.isFinite(end) || !Number.isFinite(ms) || ms < 0) return null;
+  if (Array.isArray(t.events) && t.events.some((e) => e && e.p === "…")) return null;
+  return { start: end - ms, end };
+}
+
 /**
  * DID ONE ADD-ON'S DESIGNERS RUN AT THE SAME TIME? (2026-10-12, the image-free
- * Add-on acceptance.) The add-on job marks each designer `add:<kind>` start
- * and its outcome in its trace; the trace has no job column, so the answer is
- * only as good as the match:
- *   - `overlapped` / `not-overlapped`: exactly one job on the site and exactly
- *     one trace in the window, so the trace can only be this job's;
- *   - `candidate-only`: more than one of either — the intervals are reported,
- *     never claimed for this job;
- *   - `unknown`: a read failed, the trace dropped events, or fewer than two
- *     designers were marked.
+ * Add-on acceptance; attribution corrected the same day after Codex's
+ * control on 3869478b.) The add-on job marks each designer `add:<kind>` start
+ * and its outcome in its trace. The trace has no job column, so a trace is
+ * this job's only when the evidence leaves nothing else it could be:
+ *   - the job has finished, and every job on the site whose run touches the
+ *     window was read, completely (`siblings.complete`), the job among them;
+ *   - exactly one trace ran inside this job's own run (its creation to its
+ *     last update, with `ATTRIBUTION_SLACK_MS` either side). A trace that
+ *     began before this job existed is never its trace;
+ *   - no other job's run touches that trace's run.
+ * Then the verdict is `overlapped` or `not-overlapped`. Two traces inside
+ * the run, or another job beside it, give `candidate-only`. A failed or
+ * incomplete read, an unfinished job, a trace that does not say when it ran,
+ * or no trace inside the run (the job's own is missing) gives `unknown`.
  * Two designers overlap when one started before the other ended. The row
- * step (`add:row`) is not a designer and is not counted.
+ * step (`add:row`) is not a designer.
  */
 export function addonDesignOverlap(rec) {
   const r = rec || {};
   if (!r.row) return { verdict: "unknown", why: "the job's record was not read" };
   if (!Array.isArray(r.traces)) return { verdict: "unknown", why: "the trace was not read" };
-  if (!r.siblings || r.siblings.ok !== true || !Array.isArray(r.siblings.ids)) return { verdict: "unknown", why: (r.siblings && r.siblings.why) || "the jobs in the window were not read" };
+  const sib = r.siblings;
+  if (!sib || sib.ok !== true || !Array.isArray(sib.jobs)) return { verdict: "unknown", why: (sib && sib.why) || "the jobs in the window were not read" };
+  if (sib.complete !== true) return { verdict: "unknown", why: sib.why || "the jobs in the window were not read completely" };
+  if (!sib.jobs.some((j) => j.id === r.job)) return { verdict: "unknown", why: "the jobs read for the window do not include this job" };
+  if (!TERMINAL.has(r.row.state)) return { verdict: "unknown", why: `the job had not finished (${r.row.state || "no state"})` };
+  const c0 = Date.parse(r.row.created_at), u0 = Date.parse(r.row.updated_at);
+  if (!Number.isFinite(c0) || !Number.isFinite(u0)) return { verdict: "unknown", why: "the job's own run has no creation or last-update time" };
   if (!r.traces.length) return { verdict: "unknown", why: "no trace in the window" };
+  const spans = r.traces.map((t) => ({ cid: t && t.cid, span: traceSpan(t), t }));
+  if (spans.some((x) => !x.span)) return { verdict: "unknown", why: "a trace in the window does not say when it ran, or dropped events" };
   const intervals = (t) => {
-    const ev = Array.isArray(t && t.events) ? t.events : [];
-    if (ev.some((e) => e && e.p === "…")) return null;
     const out = new Map();
-    for (const e of ev) {
+    for (const e of Array.isArray(t && t.events) ? t.events : []) {
       if (!e || typeof e.p !== "string" || !e.p.startsWith("add:") || e.p === "add:row" || !Number.isFinite(Number(e.ms))) continue;
       const k = e.p.slice(4), at = Number(e.ms);
       const cur = out.get(k);
@@ -308,18 +343,25 @@ export function addonDesignOverlap(rec) {
     }
     return [...out.values()];
   };
-  const per = r.traces.map((t) => ({ cid: t && t.cid, list: intervals(t) }));
-  const said = per.map((x) => `${x.cid}: ${x.list ? x.list.map((i) => `${i.kind} ${i.start}-${i.end === null ? "open" : i.end}`).join(", ") || "no designer" : "events dropped"}`).join("; ");
-  const sole = r.siblings.ids.length === 1 && r.siblings.ids[0] === r.job && r.traces.length === 1;
-  if (!sole) return { verdict: "candidate-only", why: `${r.siblings.ids.length} job(s) and ${r.traces.length} trace(s) on the site in the window — the trace cannot be tied to this job`, said };
-  const list = per[0].list;
-  if (!list) return { verdict: "unknown", why: "the trace dropped events", said };
+  const said = spans.map((x) => `${x.cid} (${new Date(x.span.start).toISOString()}–${new Date(x.span.end).toISOString()}): ${intervals(x.t).map((i) => `${i.kind} ${i.start}-${i.end === null ? "open" : i.end}`).join(", ") || "no designer"}`).join("; ");
+  const S = ATTRIBUTION_SLACK_MS;
+  const inside = spans.filter((x) => x.span.start >= c0 - S && x.span.end <= u0 + S);
+  if (!inside.length) return { verdict: "unknown", why: "no trace ran inside this job's own run — its trace is missing, and the traces returned belong to other runs", said };
+  if (inside.length > 1) return { verdict: "candidate-only", why: `${inside.length} traces ran inside this job's run — which is its own cannot be told`, said };
+  const mine = inside[0];
+  const beside = sib.jobs.filter((j) => j.id !== r.job).filter((j) => {
+    const c = Date.parse(j.created_at), u = Date.parse(j.updated_at);
+    const end = Number.isFinite(u) ? u : Infinity;
+    return c - S <= mine.span.end && end + S >= mine.span.start;
+  });
+  if (beside.length) return { verdict: "candidate-only", why: `${beside.length} other job(s) on the site ran while that trace ran (${beside.map((j) => j.id).join(", ")}) — it cannot be tied to this job`, said };
+  const list = intervals(mine.t);
   if (list.length < 2) return { verdict: "unknown", why: `${list.length} designer(s) marked — nothing to run beside`, said };
   const meets = [];
   for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-    const a = list[i], b = list[j];
-    const aEnd = a.end === null ? Infinity : a.end, bEnd = b.end === null ? Infinity : b.end;
-    if (a.start < bEnd && b.start < aEnd) meets.push(`${a.kind} and ${b.kind}`);
+    const x = list[i], y = list[j];
+    const xEnd = x.end === null ? Infinity : x.end, yEnd = y.end === null ? Infinity : y.end;
+    if (x.start < yEnd && y.start < xEnd) meets.push(`${x.kind} and ${y.kind}`);
   }
   return meets.length
     ? { verdict: "overlapped", why: "", meets, said }
