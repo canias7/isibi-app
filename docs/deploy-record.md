@@ -1514,8 +1514,11 @@ the only run that push started: `completed` / `success`, 14:02:07–14:03:44.
 - **Wrangler**: 27 secrets, including `IMAGE_PURCHASES`. The log masks the
   value, so it is read by the runtime press. No asset was uploaded. Current
   Version ID `1d0a1f60…`.
-- **Runtime**: deployed, **not yet runtime-confirmed**. That is the owner's
-  free press, which must also show `imagePurchases=false` before P2.
+- **Runtime**: **runtime-confirmed by the owner's free press, run 127**
+  (run 38261448264 from `main`, 14:14 UTC). Both readers answered
+  `df1dcf30f5fb`, and a cold container got `1e30b6fb56b51794`. Async and the
+  runner were on, and the runtime reported **`imagePurchases=false`**. Every
+  zero-cost check passed. Balance 971, and nothing was charged.
 
 **Deploy 2192 (2026-10-12) was predicted on both ends and built as
 predicted**, on the owner's word ("proceed with merging and deploying the

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, not yet runtime-confirmed)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); you chose option A: the opt-in for P1 and P2 merged and deployed in deploy 2193, runtime-confirmed by run 127 with image purchases off; P1 handed over)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -901,6 +901,17 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Run 127: deploy 2193 runtime-confirmed, image purchases off (free)
+
+Your free press (run 38261448264, from `main`, 14:14 UTC):
+- Both readers answered `df1dcf30f5fb`, and a cold container got
+  `1e30b6fb56b51794`.
+- Async and the runner are on, and **`imagePurchases=false`**. Photographs
+  are off for every customer until you switch them back on.
+- Every zero-cost check passed. Balance 971, and nothing was charged.
+
+P1 is handed over with the balance box at 971.
 
 ## 2026-10-12 — Deploy 2193: the opt-in merged (not yet runtime-confirmed; nothing pressed or spent)
 
