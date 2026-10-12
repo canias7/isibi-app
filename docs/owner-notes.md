@@ -899,6 +899,20 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-12 — Run 125: check 2, the probe rehearsal (free)
+
+Run 125 (edit canary from `main`, run 38253340360, 13:06 UTC; probe list
+`acceptance-split-1`, spend `no`, the deploy and image boxes) passed.
+- Preflight again: both readers `e1556086808c`, a cold container
+  `1e30b6fb56b51794`, async and the runner on, `imagePurchases=true`.
+- 9 probes; the router is sent `fold-lane-bakery`'s 12 pages (`/`, `/order`,
+  `/starter`, `/visit`, `/gallery`, `/classes`, `/wholesale`, `/bake-list`,
+  `/tasting-evenings`, `/faq`, `/allergens`, `/bakers`).
+- MET: the balance was read; it covers the estimate of 27. **UNMET: the
+  balance (971) is above the hard cap of 100**, so a paid press would refuse,
+  as the plan said.
+- No message was routed. Nothing was charged.
+
 ## 2026-10-12 — Run 124: check 2 refused before the sign-in (box mix-up, free)
 
 Run 124 (edit canary from `main`, run 38253146307, 13:04 UTC) had

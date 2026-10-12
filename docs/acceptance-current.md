@@ -20,7 +20,9 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
   press, run 123** (12:58 UTC): both readers `e1556086808c`, a cold container
   `1e30b6fb56b51794`, async and the runner on, nothing charged (balance 971).
   The runtime reports **`imagePurchases=true`**: P2 still needs
-  `IMAGE_PURCHASES` set to `off` (§6 step 3). The previous production was deploy
+  `IMAGE_PURCHASES` set to `off` (§6 step 3). **The probe rehearsal (run 125,
+  free)** read the 9 probes and the bakery's 12 pages, and confirmed that a
+  paid probe would refuse on the 100-credit cap at 971. The previous production was deploy
   2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
 - **The branch is merged** (a fast-forward, one deploy run). Records after it
   live on `claude/help-needed-ehlwlj` and start no deploy.
