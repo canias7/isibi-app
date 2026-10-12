@@ -22,7 +22,9 @@ Codex on `dc3ea241`: the harness repair batch is closed.**
   The runtime reports **`imagePurchases=true`**: P2 still needs
   `IMAGE_PURCHASES` set to `off` (§6 step 3). **The probe rehearsal (run 125,
   free)** read the 9 probes and the bakery's 12 pages, and confirmed that a
-  paid probe would refuse on the 100-credit cap at 971. The previous production was deploy
+  paid probe would refuse on the 100-credit cap at 971. **The P2 rehearsal
+  (run 126, free)** read Country White at 4.8 (£4.80 on `/order`) and stopped
+  at step 1 because image purchases are on; nothing was sent. The previous production was deploy
   2191, `f96cbfd5`, image `8d6dbcea93252fbb`.
 - **The branch is merged** (a fast-forward, one deploy run). Records after it
   live on `claude/help-needed-ehlwlj` and start no deploy.

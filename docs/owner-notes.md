@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; checks 2 and 3 are yours; paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
+## Current handoff — read this first (2026-10-12, deploy 2192: the reviewed branch merged and deployed once, runtime-confirmed by your run 123; the free checks done (runs 125 and 126); paid acceptance still blocked by the 100-credit guard at balance 971, one spending decision needed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -898,6 +898,28 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-12 — Run 126: check 3, the P2 rehearsal (free)
+
+Run 126 (edit canary from `main`, run 38253925077, 13:12 UTC; `acc-page-table`
+on `fold-lane-bakery`, spend `no`, the deploy and image boxes) passed as a
+rehearsal, with nothing sent.
+- Preflight again: both readers `e1556086808c`, a cold container
+  `1e30b6fb56b51794`; every zero-cost check passed (the free job a hand-over at
+  cost 0, the two 404s).
+- The bakery is live at `01791633085635-gq5pw5`, 12 pages, source read
+  complete; it has no component parts.
+- The row check read `loaves` id 1 (Country White) at 4.8 for owner and
+  visitor (7 rows each), and `/order` shows £4.80; the proposal's record
+  matches.
+- **It stopped at step 1: the live Worker still buys photographs
+  (`IMAGE_PURCHASES` is not off).** Nothing was sent; balance 971 → 971; no
+  console or page errors.
+- Because it stopped at the image switch first, it did not print the
+  100-credit cap line; run 125 already shows that cap unmet at 971.
+
+The free checks are done. P1 and P2 wait on your spending decision (plan §5),
+and P2 also on `IMAGE_PURCHASES` set to `off`.
 
 ## 2026-10-12 — Run 125: check 2, the probe rehearsal (free)
 
