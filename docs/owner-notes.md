@@ -999,7 +999,13 @@ Done so far:
   - The value is masked in the log. It is verified by the K press's own
     preflight, which refuses unless the runtime reports
     `imagePurchases=false`.
-- **Next**: K (`acc-addon-kinds`), with the balance box at 944.
+- **K, first press — run 134** (18:32 UTC) **refused before the sign-in,
+  at no cost.**
+  - The scenario name went into the request batch's "REQUEST BATCH ONLY …
+    credits the batch has already spent" box, not the "RUN A NAMED SCENARIO
+    IN A REAL BROWSER" box.
+  - Balance 944, unchanged.
+- **Next**: K again, with the scenario in the right box.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
