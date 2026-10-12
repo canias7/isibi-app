@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12, the parallel-work goal: a checkpoint that cannot be read is recovered by the server, and oversized checkpoints and answers are kept whole; round 13's required, lossless checkpoint; earlier rounds' requirements across resume, requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: every accepted requirement kept, however many one step writes; round 14's recovery by the server and oversized checkpoints and answers kept whole; round 13's required, lossless checkpoint; earlier rounds' requirements across resume, requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,13 +9,49 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`ed6dbb7b`**
-  (round 14; product files from `985607c7`), then the records and pin
-  commit. Its predicted image is **`b4fd90bc5733635b`** (205 inputs; not
-  built; was `31811cf56e30d18c`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`754c4eb4`**
+  (round 15), then the records and pin commit. Its predicted image is
+  **`1e30b6fb56b51794`** (205 inputs; not built; was `b4fd90bc5733635b`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 15** (`754c4eb4`; `docs/history/2026-10-12-requirement-scope.md`).
+Codex passed 327 focused tests on `703faade` with CI green; round 14's fixes
+are kept.
+- **Fixed: a thirteenth requirement disappeared.**
+  - *Reproduction*: one designer asks a question with 13 requirements, all
+    in your message; after your answer the resumed design repeats none. The
+    checkpoint held 12, the judge saw 12, the stored answer told 12, and the
+    reply left the 13th out. The 12 control passed.
+  - *Cause*: one step kept at most twelve (`MAX_REQUIREMENTS`). The rest
+    were set aside at intake as `over-cap`, never judged, and told only by
+    the job that read them, which here ended on the question. Without a
+    question they were still never judged, so twelve met plus a 13th unmet
+    finished **done**.
+  - *Now*:
+    - nothing accepted is set aside, and the designer tools carry no
+      ceiling;
+    - the judgment keeps its batches of 24;
+    - the rule is the reader's, so it covers designer, correction, picker,
+      judge and page-writer questions;
+    - old records' set-aside entries are still told.
+- **Evidence** (mocked; judge inputs, checkpoints, statuses, stored outcomes
+  and reply facts checked): **RS 1–13**.
+  - The boundary: 11, 12, 13 and 40.
+  - Each kind of question with 13.
+  - Three repeated questions, a restart at every step, your explicit
+    cancellation, and duplicate delivery.
+  - Twelve met with the 13th unmet: partial, never done.
+  - Red: on `703faade` both controls pass and the other 12 fail.
+  - Sweep (`sweep20`): **7 of 7** killed, the control surviving.
+  - Full suite `10638 / 10638 / 0 / 0`. Acceptance sweep 40 files,
+    **512 / 512**. CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`.
+- **Remaining** (history §6):
+  - No reproduced defect is open.
+  - Limits: one answer is still bounded by its output tokens (named as
+    truncation); the judge's 80 designed things are a separate list.
+  - Live-unverified: whether real designers now list more than twelve.
 
 **Round 14** (`985607c7`, `ed6dbb7b`;
 `docs/history/2026-10-12-checkpoint-recovery-oversized.md`). Codex passed
@@ -710,6 +746,32 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-12 — Parallel work round 15: every accepted requirement kept, however many one step writes (offline; not deployed, not pressed)
+
+- **You**: Codex passed 327 focused tests on `703faade`; keep round 14.
+  - Fix the 13th-requirement loss universally: trace `MAX_REQUIREMENTS` and
+    over-cap through every stage.
+  - Keep every accepted requirement, without raising the cap or only
+    warning, with bounded processing batches.
+  - Apply it across every kind of question.
+  - Test below / at / above the boundary, repeats, restart, cancellation,
+    duplicates, and a met-twelve-with-13th-unmet case.
+- **Done**:
+  - `754c4eb4`: the change and its tests;
+  - the commit carrying these records and the pin `1e30b6fb56b51794`.
+- **Verified offline**:
+  - red check: on `703faade` the controls pass and 12 fail;
+  - sweep 7 of 7;
+  - full suite `10638 / 10638 / 0 / 0`;
+  - acceptance sweep 512 / 512 across 40 files;
+  - doc tests 32/32; acceptance entry points 11/11;
+  - CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`.
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, paid or fal call, or real image. Remaining work is in the
+  history's §6.
 
 ---
 
