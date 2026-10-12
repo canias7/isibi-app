@@ -978,8 +978,22 @@ Done so far:
     with each entry and its `targets` and `dependsOn`, is in the run's
     evidence (`routing-probes.json`, artifact 11763327226). This session
     cannot download it.
-  - **Eligibility is not decided until those are read.**
+  - **The full answer was read** (18:14 UTC): the artifact was downloaded
+    through the GitHub connector's `download_workflow_run_artifact`, which
+    the built-in `gh` could not do.
+    - `intent=edit`, `layer=text`;
+    - `alsoAsked` holds **two separate entries**: the Tasting Evenings
+      questions section, and the Classes note;
+    - `targets`:
+      - change 0 writes `page:/bakers`;
+      - change 1 writes only `page:/tasting-evenings`;
+      - change 2 writes only `page:/classes`;
+      - no new component is named, and nothing is read;
+    - `dependsOn` is null.
+  - **M is eligible** on every condition set in advance.
   - Cost 3 (947 → 944, read from `credits` at 17:46:38).
+- **Next**: image purchases off (secret, then a redeploy reusing the
+  image). Then K, E and M, each with a fresh balance.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 
