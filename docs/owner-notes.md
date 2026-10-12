@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-11, the parallel-work goal: requirements held across a clarification and restored on resume; one consolidated acceptance sweep; earlier rounds' requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
+## Current handoff — read this first (2026-10-12, the parallel-work goal: the requirements checkpoint made required state and lossless; round 12's requirements across clarification and resume; earlier rounds' requirement identity, design beside unrelated edits, corrected-answer path, step readiness, refusal boundary, refilling pool, scheduler, continuation, input scoping and purchase recovery; nothing pressed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,13 +9,55 @@ is in git; the dated entries further down are the full story.*
 **Where it stands**
 - **Production is deploy 2191**: `main` `f96cbfd5`, image
   `8d6dbcea93252fbb`, unchanged.
-- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`3a3a313d`**
-  (round 12; product files from `f153bae8`), then the records and pin
-  commit. Its predicted image is **`d9800cfea19e7cee`** (205 inputs; not
-  built; was `2b5ff083fe725602`).
+- **The branch** `claude/help-needed-ehlwlj` is unmerged. Code **`a5054e40`**
+  (round 13; product files from `03b758ec`), then the records and pin
+  commit. Its predicted image is **`31811cf56e30d18c`** (205 inputs; not
+  built; was `d9800cfea19e7cee`).
 - **Balance 971**, untouched. **Build flags** and the 1-page / 15-component
   limits are untouched. Every provider was mocked. No paid call, fal call,
   merge, deploy or container build. Explanations stay model-written.
+
+**Round 13** (`03b758ec`, `a5054e40`;
+`docs/history/2026-10-12-checkpoint-reliability-retention.md`). Codex passed
+252 focused tests on `f5c12482`; round 12's fixes and the parallel scheduling
+are kept.
+- **Correction**: round 12 said no implementation defect was open. That was
+  wrong. Codex reproduced two, both closed here.
+- **Fixed — the checkpoint was best effort.** One failed write of the paused
+  job's checkpoint, or one failed read of the resumed job's staged copy,
+  finished the FAQ request "done" with no judge call.
+  - *Now*: the checkpoint is `{complete, count, requirements, asked}`; empty
+    (count 0) is a real answer. It is written, read back and compared, up to
+    3 times, before the question is accepted. If the store refuses it, the
+    whole checkpoint is kept on the request part's job record, and the
+    question stands only once that copy holds.
+  - The resumed job's body names exactly which checkpoint it resumes
+    (`heldFrom`: job and count). Missing, unreadable, malformed or
+    wrong-count is a failure, never an empty list and never an older
+    checkpoint.
+  - A job that cannot read it does nothing (`checkpoint-unread`, before any
+    model call). The part runs again (up to 2 more jobs), replaying the
+    paused job's kept answers. If it still cannot read, the part fails
+    saying why; nothing applied, nothing charged, records kept.
+- **Fixed — the checkpoint kept only 60.** Six questions × 12 lost the first
+  12. `MAX_HELD` is gone with no replacement cap; the judge runs in batches
+  of 24 and merges the verdicts; a part's not-done list is no longer cut to
+  24.
+- **Evidence** (mocked; judge inputs, durable records, stored outcomes and
+  reply facts checked): **CK 0–13 (18 cases)**: failed save, failed
+  staging/read, recovery, malformed / missing / empty, repeated questions,
+  latest-checkpoint selection, duplicate delivery, 60 vs 72.
+  - Red: on `f5c12482` both controls pass; both storage reproductions fail
+    "the judge never ran", the size one "12 never reached the judge".
+  - Sweep (`sweep18`): 10 of 14, then **13 of 14** after CK 12 and CK 13;
+    the survivor is equivalent today and kept as a guard; the control
+    survived both times.
+  - Full suite `10610 / 10610 / 0 / 0` on `a5054e40`. Acceptance sweep 38
+    files, **485 / 485** (112 / 92 / 174 / 107). CI: __CI13__
+- **Remaining** (history §6): no reproduced defect open. Not exercised: an
+  answer too large to carry its checkpoint (~300+ requirements) retries by
+  rerunning model work. Limit: a part that still cannot read its checkpoint
+  fails and needs asking again. Live-unverified: R2's real failure modes.
 
 **Round 12** (`f153bae8`, `3a3a313d`;
 `docs/history/2026-10-11-requirements-across-resume.md`). Codex passed 217
@@ -67,8 +109,9 @@ focused tests on `6c2d3887` with CI green; round 11's fixes are kept.
     - clarification and resume: 156;
     - partial failure: 107.
 - **Remaining work** (history §6):
-  - **No open implementation defect** is known in the parallel flows'
-    offline behaviour.
+  - ~~**No open implementation defect** is known in the parallel flows'
+    offline behaviour.~~ **Wrong** (corrected 2026-10-12): the checkpoint
+    was best effort and capped at 60. Both closed in round 13.
   - **Recorded limits**: labels taken at acceptance; uncertain equivalence
     told twice; Build refusals unmarked; real waits.
   - **Awaiting live verification**:
@@ -615,6 +658,33 @@ No top-up, paid call, merge, deploy or container build without your word.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-10-12 — Parallel work round 13: the requirements checkpoint is required state, and it keeps every one (offline; not deployed, not pressed)
+
+- **You**: Codex passed 252 focused tests on `f5c12482`; keep those fixes.
+  Make continuation state required, not best effort: verified save before
+  the pause is acknowledged, a verified empty set distinct from missing,
+  unreadable, malformed or incomplete; recover internally, never apply under
+  an empty list; never fall back to an older checkpoint. Remove `MAX_HELD`
+  without another cutoff. Correct round 12's "no open implementation
+  defect".
+- **Done**:
+  - `03b758ec`: the change and its tests;
+  - `a5054e40`: CK 12 and CK 13 for the first sweep's survivors;
+  - the commit carrying these records and the pin `31811cf56e30d18c`.
+- **Verified offline**:
+  - red check on `f5c12482`: the controls pass, every reproduction fails;
+  - sweep 13 of 14 on the second run (the survivor equivalent), the control
+    surviving;
+  - full suite `10610 / 10610 / 0 / 0`;
+  - acceptance sweep 485 / 485 across 38 files;
+  - doc tests 32/32; acceptance entry points 11/11;
+  - CI: __CI13__
+- **Not done**: any press, merge, deploy, container build, balance or flag
+  change, paid or fal call, or real image. Remaining work is in the
+  history's §6.
 
 ---
 

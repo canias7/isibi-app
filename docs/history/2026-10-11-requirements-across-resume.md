@@ -174,7 +174,12 @@ files are listed in the script kept with the session (`accept12.sh`).
 
 ### Implementation defects known now
 
-- None open in the parallel flows' offline behaviour.
+- **Corrected 2026-10-12 (round 13): this was wrong.** Codex reproduced two
+  open defects in this round's checkpoint. It was best effort: one failed
+  write or read finished the request "done". It was also capped at 60, so
+  six rounds of twelve lost the first twelve. Both are closed in
+  `docs/history/2026-10-12-checkpoint-reliability-retention.md`.
+- ~~None open in the parallel flows' offline behaviour.~~
 - The gaps below are limits, decisions or unmeasured behaviour. No test
   shows any of them doing the wrong thing.
 
