@@ -102,6 +102,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (f >= 0) {
         const x = putFaults.splice(f, 1)[0];
         if (x.kind === "fail") throw new Error("r2 unavailable");
+        // A WRITE THAT ANSWERS AS IF IT LANDED AND NEVER DID (`dropPut`).
+        if (x.kind === "drop") return { key: k, etag: "dropped" };
         // A WRITE THAT LANDS AND WHOSE ANSWER IS LOST (`losePut`): committed,
         // and the writer told it failed. `then` runs in between — another
         // tab's call, say — before the writer hears.
@@ -715,6 +717,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     hangPut(match) { putFaults.push({ kind: "hang", match }); resetHung(); },
     /** The next write to a key `match(key, body)` accepts fails outright. */
     failPut(match) { putFaults.push({ kind: "fail", match }); },
+    /** The next write to a key `match(key, body)` accepts answers as if it landed, and stores nothing. */
+    dropPut(match) { putFaults.push({ kind: "drop", match }); },
     /** The next write to a key `match(key, body)` accepts lands, runs `then(key)`, and throws: a committed write whose answer is lost. */
     losePut(match, then) { putFaults.push({ kind: "lose", match, then }); },
     /** The next read of a key `match(key)` accepts throws. */

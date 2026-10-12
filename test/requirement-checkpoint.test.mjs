@@ -29,6 +29,7 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb } from "./fixtures/rows-db.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
+import { readHeld, heldCheckpoint } from "../builder/site-requirements.mjs";
 
 blockNetwork();
 
@@ -408,4 +409,29 @@ test("CK 11 — CODEX'S REPRODUCTION 2: SIX QUESTIONS, TWELVE EACH: all 72 — t
 
 test("CK 11r — HOW SIX QUESTIONS' REQUIREMENTS ARE KEPT: each checkpoint holds every one so far (12 … 72), the judgment runs in bounded batches, and the part reports all 72 unfinished", { timeout: 60000 }, async () => {
   assertKept(await manyRounds("11r", 6));
+});
+
+test("CK 12 — A CHECKPOINT WRITE THAT ANSWERS AS IF IT LANDED AND NEVER DID is caught by its read-back and written again before the question is acknowledged; both requirements resume and are told", { timeout: 30000 }, async () => {
+  const { o, j, held } = await faqCase("12", { faults: (P, at) => { if (at === "pause") P.dropPut((k) => HELD.test(k)); } });
+  assert.equal(held.length, 1, "the checkpoint was never really written");
+  assertJudged(j.sent, [COLL, SEARCH]);
+  assertBoth(o, [COLL, SEARCH]);
+});
+
+test("CK 13 — READING A CHECKPOINT: a complete one with its count is held (an empty one included); a count that does not match, a list that cannot be read, or a record from before checkpoints said they were complete where a count is expected, is malformed — never fewer requirements", () => {
+  const two = heldCheckpoint([{ need: "a", status: "covered", id: "component#0" }, { need: "b", status: "elsewhere", id: "component#1", step: "page" }], "component");
+  assert.deepEqual([two.complete, two.count], [true, 2]);
+  assert.equal(readHeld(two).state, "held");
+  assert.equal(readHeld(two, 2).state, "held");
+  assert.equal(readHeld(two, 3).state, "malformed", "a checkpoint holding another number than expected was accepted");
+  const empty = heldCheckpoint([], "component");
+  assert.deepEqual([readHeld(empty).state, readHeld(empty, 0).state, readHeld(empty, 0).list.length], ["held", "held", 0], "a verified empty checkpoint is not an empty set");
+  assert.equal(readHeld({ ...two, count: 3 }).state, "malformed", "a count that does not match what it lists was accepted");
+  assert.equal(readHeld({ ...two, requirements: [two.requirements[0], { status: "covered" }], count: 2 }).state, "malformed", "an entry that cannot be read was dropped silently");
+  assert.equal(readHeld({ requirements: two.requirements }).state, "legacy");
+  assert.equal(readHeld({ requirements: two.requirements }, 2).state, "malformed", "a record that never said it was complete stood in for an expected checkpoint");
+  for (const bad of [null, [], "x", {}, { requirements: "no" }]) assert.equal(readHeld(bad).state, "malformed");
+  assert.equal(readHeld(two).list[0].status, "unsupported", "a held claim of coverage survived");
+  const many = heldCheckpoint(Array.from({ length: 150 }, (_, i) => ({ need: "n" + i, status: "unsupported", id: "component#s" + i })));
+  assert.equal(readHeld(many, 150).list.length, 150, "a large checkpoint was cut");
 });
