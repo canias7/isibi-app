@@ -208,3 +208,42 @@ for the new failure wording; the case itself is unchanged.
 rejected, both qualifying Add-on parts pass, and duplicate evidence does not
 inflate the count. No further audit. PLW 4 stays in `docs/backlog.md` as an
 intermittent failure, not fixed.
+
+## The live batch (K0, K, E, M0, M), 2026-10-12, approved by the owner
+
+**Totals**:
+- 74 credits (950 → 876), inside the 37–82 estimate, ledger rows 437–449;
+- image purchases off between deploys 2195 and 2196;
+- the image was reused both times;
+- no merge;
+- the opt-in (`ec8f0fc9`) admitted only these five presses.
+
+**The runs**:
+- **K0, run 131**: `addon`, batched. 3 credits.
+- **M0, run 133**: `edit · text`, with two separate held entries, each
+  writing only its own page, and no relation. Eligible. 3 credits.
+  - Its evidence was read through the GitHub connector's artifact
+    download.
+  - Run 132 had refused at no cost first: the probe file's `basis` was
+    over 200 characters. Fixed in `cb8ce827`, with a reader guard.
+- **K, run 135**: the live router split the message into two Add-on parts,
+  so inside one Add-on was not reached.
+  - Part 1's preparation overlapped part 0's Add-on job for 84.3 s, and was
+    replayed exactly.
+  - The served `/visit` FAQ is collapsed, so the served check failed on it.
+  - 30 credits.
+- **E, run 137**: the router answered `addon` and held the heading back.
+  - The Add-on part failed at `kept`: its output would have changed the
+    Gallery heading. No charge.
+  - The heading was done. Its preparation overlapped the Add-on job for
+    14.1 s and was replayed exactly.
+  - 8 credits.
+- **M, run 138**: routing as M0.
+  - The two Add-on parts' preparations ran together for 94.0 s.
+  - Both were replayed exactly, and the strict reuse check passed.
+  - `/bakers` and `/classes` passed. `/tasting-evenings` failed two checker
+    limits: the FAQ is in both render branches, and it is collapsed when
+    served.
+  - 30 credits.
+- **Runs 134 and 136** refused at no cost: the form's box mix-up.
+- **Run 139** (free): `imagePurchases=true` after deploy 2196.

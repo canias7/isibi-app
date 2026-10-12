@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: production is deploy 2194, balance 950, image purchases restored, P1 and P2 complete and closed; one execution proposal for the remaining Add-on cases — K0, K, E, M0, M — is prepared on the branch, not pressed, and needs a spending decision)
+## Current handoff — read this first (2026-10-12: the K0/K/E/M0/M batch is done — 74 credits, balance 876; production is deploy 2196, image purchases back on; P1/P2 closed; branch unmerged)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -1126,8 +1126,67 @@ Done so far:
   - Replies: all three parts' replies were the model's own, on screen.
   - **Coverage**: `addon-parts` **covered** (2 Add-on parts, both done);
     `several-parts` covered.
-- **Next**: image purchases back on (secret `on`, then a redeploy reusing
-  the image), and the runtime check.
+- **Image purchases back on — deploy 2196** (19:52–19:53 UTC, your manual
+  redeploy of `main` `df1dcf30` after `IMAGE_PURCHASES` was set to `on`).
+  - Green, and the image was reused (`1e30b6fb56b51794`, "no changes").
+  - **Runtime-confirmed by your free run 139**: the runtime was read at
+    19:53:53, after the deploy ended at 19:53:40. Both readers answered
+    `df1dcf30f5fb`, a cold container got `1e30b6fb56b51794`, and
+    **`imagePurchases=true`**. Nothing was charged; balance 876.
+- **The batch is over. No further paid tests.**
+
+**Batch totals: 74 credits (950 → 876), inside the 37–82 estimate.**
+
+| Press | Run | Credits |
+|---|---|---|
+| K0 | 131 | 3 |
+| M0 | 133 | 3 |
+| K | 135 | 30 |
+| E | 137 | 8 |
+| M | 138 | 30 |
+
+- Every charge is on the ledger (rows 437–449), each job reserved once,
+  with no refund owed and no job left open.
+- Runs 132, 134 and 136 refused before the sign-in, at no cost. 132 was
+  the probe file's length; 134 and 136 were the box mix-up.
+- Image purchases were off from deploy 2195 (18:25) to deploy 2196 (19:53).
+  No image was bought. Build flags and limits were untouched. Nothing was
+  merged.
+
+**What is now shown live:**
+- **Two independent Add-on parts running at once (M):**
+  - the two parts' preparations ran together for 94.0 s;
+  - both Add-on jobs replayed their preparation exactly;
+  - the strict `{exact: 2, overlapped: "addon-parts"}` passed.
+- **An Add-on part prepared beside another Add-on part's job (K):** 84.3 s
+  of overlap, then an exact replay.
+- **An Edit part prepared beside an Add-on part's job (E):** 14.1 s, then
+  an exact replay.
+- **Final results:**
+  - the headings on `/bakers` and `/gallery`;
+  - the lines and notes on `/order` and `/classes`;
+  - the FAQs on `/visit` and `/tasting-evenings`, stored correctly;
+  - everything else byte for byte, and the tables unchanged.
+
+**What is not reached or not passed:**
+- **Inside one Add-on (two designers in one job): not reached.** K0 batched
+  K's message, but the live K split it into two parts. It stays unverified.
+- **E's Add-on part failed.** Its `kept` guard refused output that would
+  have changed the Gallery heading, another part's change. There was no
+  charge and no retry. It is in the backlog.
+- **Checker limits, not content:**
+  - FAQ accordions are served collapsed, so the served check cannot see
+    their answers (K, M);
+  - a section placed in both of a page's exclusive render branches is
+    counted twice (M).
+
+  Both are in the backlog.
+- **Routing varies between samples of the same message:** K0 against K,
+  and P1's S8 against E. One sample each; no rate is measured.
+- **Spending:** K spent 30 against an estimate of 22 (a finding; the
+  balance was the only bound).
+- **Still subsequent:** the missing-context clarification (`acc-needs`)
+  and the image-free first Build.
 
 ## 2026-10-12 — The reuse correction closed; the K0/K/E/M0/M batch is the next decision (nothing pressed, spent, merged or deployed)
 

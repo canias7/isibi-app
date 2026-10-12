@@ -9,9 +9,11 @@ stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md`,
 instruction.*
 
 **As of 2026-10-12, branch `claude/help-needed-ehlwlj`.** P1 and P2 are done
-and closed. One execution proposal for the remaining Add-on cases (§4: K0, K,
-E, M0, M) is prepared on the branch, not pressed, and needs a spending
-decision (§5).
+and closed. **The K0/K/E/M0/M batch (§4) was approved and run on 2026-10-12
+(74 credits, balance 876).** Its results are in
+`docs/history/2026-10-12-acceptance-addon-two-parts.md` and the owner-notes
+handoff, and they supersede §4–§6 as a plan. No further paid tests are
+approved.
 
 ## 1. State
 

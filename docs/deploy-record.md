@@ -1738,3 +1738,16 @@ and names the wrong person to go and ask.
 - 27 secrets re-uploaded. Nothing under `public/` was uploaded.
 - Runtime: verified by the next press's preflight (`imagePurchases=false`
   required before anything is sent).
+
+## Deploy 2196 — image purchases back on after the K/E/M batch (2026-10-12)
+
+- Run 38300553928 (`workflow_dispatch`, 19:52–19:53 UTC), your manual
+  redeploy of `main` `df1dcf30`, after `IMAGE_PURCHASES` was set to `on`.
+- The container image was reused (`1e30b6fb56b51794`, "no changes"). No
+  asset uploads.
+- **Runtime-confirmed by run 139** (free, 19:53:53, after the deploy
+  ended):
+  - both readers answered `df1dcf30f5fb`, and a cold container got
+    `1e30b6fb56b51794`;
+  - `imagePurchases=true`;
+  - balance 876, nothing charged.
