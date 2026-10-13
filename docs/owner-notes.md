@@ -1,54 +1,85 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: run 144, the one approved `acc-isolation-page` press, showed isolation live once — Add-on first, heading untouched until the Edit; 23 credits, balance 837; the opt-in closed again; image purchases back ON, deploy 2201, confirmed by run 145)
+## Current handoff — read this first (2026-10-13: the recurring "I can't see from here whether…" fixed offline — component content is now read as stored, shown on load, or unread, with behaviour always unverified; run 144's console error identified; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**For Codex's review: the branch head** (`claude/help-needed-ehlwlj`, the
-commits named in the run 144 entry below). `main` is unchanged at
-`fef80b9b`; nothing was merged or deployed with code since deploy 2199.
+**For Codex's review: `a4e0da19`** (the fix and its tests) on
+`claude/help-needed-ehlwlj`, plus the records commit after it. `main` is
+unchanged at `fef80b9b`, and production is deploy 2201 (image
+`4444d9d53d906b8d`, image purchases on, confirmed by run 145).
 
-**Where it stands**
-- **Production code: deploy 2199** (`main` `fef80b9b`, image
-  `4444d9d53d906b8d`), runtime-confirmed by run 143.
-- **Image purchases are back ON.** They were off for run 144 (deploy
-  2200). You restored them with deploy 2201 (run 38428408001, 16:11 UTC,
-  image reused). **Run 145** (your free press, 16:22 UTC) read
-  `imagePurchases=true`, `fef80b9bc913`, `4444d9d53d906b8d`, balance 837,
-  and nothing charged.
-- **Run 144** (`docs/history/2026-10-13-run144.md`): one press, through the
-  normal router, order not forced.
-  - The router answered `addon` and held the heading back as part 1.
-  - Add-on job `0e5b6622…` published `i9dk12` from `bt5fdp` (15:22:00,
-    15 credits).
-  - Part 1's route job `6fe78acc…` (3) and text job `96827052…` (2)
-    published `e07yu1` from `i9dk12` (15:25:16).
-  - **Isolation: demonstrated for this run** (discriminating). The Add-on
-    ran first; its version left the heading exactly as found; the Edit only
-    appended " — sent every Friday"; marks clean on every call (Add-on 4,
-    text 1). The Add-on added exactly one questions section and nothing
-    else.
-  - **The one FAIL was the instrument's**: the page-wide preservation check
-    did not excuse the asked heading on a page that also gained a section.
-    Fixed offline (`headingSwapped`; `test/canary-section-heading.test.mjs`,
-    3 cases, red-checked). Not re-run.
-  - **Correction reuse: not exercised** (no refusal; none manufactured).
-  - **Charged 23** (ledger rows 454–457: 3 + 15 + 3 + 2), **860 → 837**,
-    within the estimate of 26.
-- **Closed again:** `BALANCE_OPT_IN` is empty (form text "CLOSED").
-- **Unchanged:** the Build flags (all three `_EVERYONE` flags `off`), the
-  page and component limits.
-- **Still unverified or open:**
-  - isolation's rate (one sample), and why the router held back;
-  - live correction reuse;
-  - run 141's cause (its R2 record unread);
-  - the coverage judge calling a collapsed section "unseen" (again in run
-    144);
-  - one unidentified console error on `/bake-list` in run 144;
-  - the backlog's first items (`docs/backlog.md`).
-- **No further paid test or code deployment is approved.**
+**The fix** (`docs/history/2026-10-13-interactive-content.md`):
+- **Cause:** a section the Add-on adds is a `component`, which nothing gave
+  an identity (`OPAQUE_KINDS`), so every requirement it carried read
+  `unknown`, then "unseen", then "I can't see from here whether…". The same
+  sentence appeared in runs 135, 137, 141 and 144, and nothing on the path
+  read any rendered page text.
+- **Now** three facts are kept apart:
+  - **stored:** text this change added to the page's code, read from the
+    syntax tree, before against after;
+  - **shown:** what the published page showed as it first loaded, read from
+    a new first-load text capture in the container's render check, before
+    anything is clicked;
+  - **behaviour:** opening, switching or sending is never exercised, and is
+    always said to be unchecked.
+- **Customer sentences**, in the note and as reply-model facts (replies stay
+  model-written):
+  - *shown on load*;
+  - *in the code, not shown on first load*, with where it sits and the
+    hidden words;
+  - *in the code, page unread*;
+  - *still to do* (genuinely missing);
+  - the old *can't see* only when nothing could be read.
+- **Tests:** `test/content-evidence.test.mjs`, 12 cases:
+  - collapsed (run 144's shape);
+  - shown;
+  - mutually exclusive views;
+  - genuinely missing;
+  - every kind of incomplete or failed read;
+  - two cases through the real Add-on route, down to the reply model's
+    facts.
+- **Red checks:** 7 of 12 cases fail with the evidence switched off; the
+  route cases fail with the Worker's hand-off cut.
+- **The image would move** to `50a624038c9517d3` (from `4444d9d53d906b8d`)
+  on any future release. Nothing was built.
+
+**Run 144's console error, identified free** (from the artifact, which the
+session can download through the connector's signed link):
+- it was the browser's own "Failed to load resource: … 422";
+- it came from the app re-reading run 137's failed Add-on job `594ebe45…`
+  on open. The job's stored answer is served with its own 422.
+- It had no effect on the run and is not a product defect.
+- The canary's console count therefore includes history (backlog).
+
+**Kept as they were:**
+- run 144 closed, with no repeat;
+- paid opt-ins closed;
+- no image or fal call, no merge, no deploy, no container build;
+- the Build flags and the page and component limits;
+- the task-isolation guards and correction reuse.
+
+**Remaining gaps:**
+- `texts` from a real container;
+- a real model writing from the new facts;
+- text reached only through computed values or a component's own default
+  copy, which is read as "added, content unread";
+- two components on one page share that page's added texts.
+
+**The next unfinished parallel-work test** (not reopening K, E, M, P1, P2
+or run 144): **two designers running at the same time inside one Add-on**
+(acceptance plan §2, item 1).
+- It is offline only (PI 24, PI 32).
+- K (run 135) was meant to show it, but the live router split K into two
+  Add-on parts.
+- **To make it reachable:** a free routing-only probe (*route_probes*) to
+  find a message the real router keeps as one Add-on with two kinds. Then,
+  only with your approval, one paid press, read free afterwards with
+  `addonDesignOverlap`.
+- After it come the missing-context clarification (`acc-needs`) and the
+  image-free first Build.
 
 **Before run 144: deploy 2199, the consolidated release** (runtime-confirmed by
 run 143; `docs/deploy-record.md`, *Deploy 2199*;
@@ -923,6 +954,49 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — "I can't see from here whether…" fixed offline; run 144's console error identified (nothing spent, merged or deployed)
+
+You asked for the shared cause behind the builder not confirming content in
+collapsed or interactive sections, and a general fix. Here is what I found
+and did.
+
+**The cause.** A section the Add-on adds is a "component". Nothing gave a
+component an identity, so every requirement it carried came out as "can't
+see". Nothing on the path read the rendered page at all.
+
+**The fix** (`a4e0da19`). The builder now keeps three facts apart:
+- what the change put in the page's code;
+- what the published page showed when it first loaded (a new read in the
+  container's browser check);
+- what a visitor might do with it. That last one is never tried, and the
+  customer is told so.
+
+**What the customer hears now**, as facts the reply model writes from:
+- **shown when the page loads;**
+- **in the page but hidden until opened or switched to:** with where it
+  sits, the words not shown, and that opening it wasn't tried;
+- **in the page's code, but the published page couldn't be read;**
+- **still to do:** when it really isn't there;
+- the old **can't see** only when nothing could be read.
+
+**Tests.** 12 focused cases:
+- collapsed;
+- shown;
+- alternative views;
+- missing;
+- failed and incomplete reads;
+- two cases through the real route, down to what the reply model is given.
+
+They fail when the fix is switched off.
+
+**The console error.** Run 144's one console error was the browser
+automatically logging a 422 when the app re-read run 137's old failed job on
+opening. It had no effect and is not a product defect.
+
+**Next.** A release would build a new container image (`50a624038c9517d3`).
+The next unfinished parallel test is two designers inside one Add-on (see
+the handoff).
 
 ## 2026-10-13 — Image purchases back on: deploy 2201, confirmed by run 145 (free)
 
