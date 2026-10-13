@@ -805,8 +805,11 @@ export async function addon(slug, instruction, opts) {
   // build packages no script, so the activation cannot serve it and puts the
   // pointer back (`not-served`) — a publish that fails AFTER the seam, where
   // the schema has already been applied.
+  // …AND `render` (2026-10-13) IS THE RENDER CHECK'S REPORT the compile answers
+  // with, its first-load `texts` included, so a case can say what the
+  // published page showed.
   const c = (opts && opts.publishes)
-    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : opts.notServed ? { worker: false } : {})
+    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : opts.notServed ? { worker: false } : opts.render !== undefined ? { render: opts.render } : {})
     : null;
   try {
     const worker = await loadWorker();

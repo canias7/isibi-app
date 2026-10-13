@@ -111,7 +111,10 @@ const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CO
 test("TOLD 1 — the report: every requirement of every kind of outcome, above every old cut and mixed, in the note's order, with what became of it and why where its sentence says", () => {
   // RE-ANCHORED 2026-10-06: "already-there", for what the site already had.
   // RE-ANCHORED 2026-10-07: and what a step wrote down past what it keeps track of (`not-tracked`).
-  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen", "not-tracked"]);
+  // …AND THE THREE READINGS OF CONTENT A CHANGE PUT ON A PAGE (2026-10-13,
+  // `content-evidence.mjs`): shown as it first loads, in the code and not
+  // shown, in the code with the page unread — each "set up" with its evidence.
+  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
   const r = requirementReport(MIXED(), OPTS);
   assert.deepEqual(r.told.map((o) => [o.told, o.need, o.state]), TOLD_ORDER);
   // THE REASON RIDES WHERE ITS SENTENCE GIVES ONE, and nowhere else.

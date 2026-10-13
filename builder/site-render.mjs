@@ -731,7 +731,7 @@ export function resolveSlow(observations, findings) {
   });
 }
 
-export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const raw = [];
   for (const o of list) for (const f of readPage(o)) raw.push(f);
@@ -777,8 +777,27 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // deliberately invisible to `renderNote`, which reads `findings` alone: the
   // customer is told what is wrong with their site, never handed its DOM.
   if (Array.isArray(landmarks) && landmarks.length) report.landmarks = landmarks;
+  // WHAT EACH ROUTE SHOWED AS IT FIRST LOADED (2026-10-13, after run 144): the
+  // page's visible text before anything is clicked, so a reader can tell
+  // content shown on load from content that only appears when opened. Not a
+  // finding and never told to the customer as text; `complete` is false when
+  // the cap cut it, and a route the check never reached is simply absent.
+  if (Array.isArray(texts) && texts.length) report.texts = texts;
   if (error) report.error = clip(error, 200);
   return report;
+}
+
+export const MAX_ROUTE_TEXT = 12000;
+
+/**
+ * THE VISIBLE TEXT OF THE PAGE AS IT FIRST LOADED (2026-10-13), run in the
+ * browser: `body.innerText`, which leaves out what is closed, hidden or not
+ * drawn (`display: none`, `hidden`, an accordion item never opened), and
+ * nothing is clicked first. `{ route, text, complete }`.
+ */
+export function textProbe({ route, cap }) {
+  const raw = String((document.body && document.body.innerText) || "").replace(/[ \t\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  return { route, text: raw.slice(0, cap), complete: raw.length <= cap };
 }
 
 // ── A HYDRATION MISMATCH NAMES ITSELF (task #80, 2026-09-04) ─────────────────

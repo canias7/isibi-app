@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -352,6 +352,8 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   let looked = 0;
   // The landmark map, unioned across routes — each entry carries its own `route`.
   const marks = [];
+  // WHAT EACH ROUTE SHOWED AS IT FIRST LOADED, desktop only (2026-10-13).
+  const texts = [];
   // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
   // a function rather than assembled at each of the three exits because a
   // classification repeated per call site is the thing this repo's `settle`
@@ -364,6 +366,7 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   const tally = () => ({
     ...(selectors.length ? { deadSelectors: selectors.filter((s) => !hit.has(s)), selectorsLooked: looked } : {}),
     ...(marks.length ? { landmarks: marks } : {}),
+    ...(texts.length ? { texts } : {}),
   });
   // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
   // `true` and overwritten only after the browser launched, so every failure
@@ -484,6 +487,13 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
               try {
                 for (const m of await page.evaluate(landmarkProbe, { route, cap: MAX_LANDMARKS })) marks.push(m);
               } catch (e) { /* a map is a bonus; never let it cost a render report */ }
+              // THE TEXT AS IT FIRST LOADED, read before anything here clicks:
+              // the landmark probe only reads. A route whose read throws is
+              // left out, which every reader takes as "not read".
+              try {
+                const t = await page.evaluate(textProbe, { route, cap: MAX_ROUTE_TEXT });
+                if (t && typeof t.text === "string") texts.push({ route, text: t.text, complete: t.complete === true });
+              } catch (e) { /* text is evidence for a reader; never let it cost a render report */ }
             }
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);

@@ -286,6 +286,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
+// WHAT A CHANGE PUT ON A PAGE AND WHAT THE PUBLISHED PAGE SHOWED OF IT
+// (2026-10-13, after run 144): the evidence a component's requirement is read
+// against, in place of "nobody can see one".
+import { addedByRoute, renderedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
@@ -35434,6 +35438,12 @@ async function handleRequest(request, env, ctx) {
             // …AND `aQrShown` IS WHERE EACH NEW CODE IS REALLY SHOWN (2026-10-03),
             // on the publish's clock like `aThreeOn`, for the reply: a code
             // stored is configuration, a page rendering its binding is placement.
+            // …AND `aRendered` IS WHAT EACH ROUTE SHOWED AS IT FIRST LOADED, from
+            // the last compile's render check, and `aContent` the component
+            // evidence read from it and from the stored code once the pages
+            // shipped (2026-10-13). Null until then: every component reads as
+            // it always did, unknown.
+            let aRendered = null, aContent = null;
             let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [], aQrShown = null;
             // ⚠ ON A FAILURE (2026-10-06, `failed`, the exit's `failureOutcome`)
             // WHAT THE PUBLISH WOULD HAVE MADE IS NOTHING, and is known to be:
@@ -35707,7 +35717,7 @@ async function handleRequest(request, env, ctx) {
               // it one by one, and the note from it whole.
               // …AND WHAT EACH STEP WROTE DOWN PAST WHAT IT KEEPS TRACK OF
               // (2026-10-07, `skipped`): told as not checked, never dropped.
-              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped });
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped, content: failed ? null : aContent });
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
@@ -36516,6 +36526,7 @@ async function handleRequest(request, env, ctx) {
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
               made: aMade(failed), reportable: aReportable(failed), existing: aExisting(),
+              content: failed ? null : aContent,
               unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
               // AND THE FIELDS BINNED INSIDE AN ITEM THAT WAS BUILT, by name.
@@ -38621,6 +38632,10 @@ async function handleRequest(request, env, ctx) {
                 room, touched: aTouched.length, needMs: aRepairNeedMs,
                 roomMs: aClock && typeof aClock.repairMs === "function" ? aClock.repairMs() : null,
               });
+              // WHAT THIS BUILD SHOWED AS EACH ROUTE FIRST LOADED (2026-10-13),
+              // replaced below by the repaired build's own when a repair
+              // recompiled: the text must be the published build's.
+              aRendered = renderedTexts(built && built.render);
               aRepairRound = await addRepairRound({
                 report: built.render, pages, touched: aTouched, langs,
                 // THE CALL IS CAPPED AT THAT ROOM, under the quick-call ceiling
@@ -38634,6 +38649,7 @@ async function handleRequest(request, env, ctx) {
               });
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
+              if (aRepairRound.built) aRendered = renderedTexts(aRepairRound.built.render);
               if (aJob && aRepairRound.usage.length) {
                 try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
                 catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }
@@ -39174,6 +39190,27 @@ async function handleRequest(request, env, ctx) {
             // which is the worse way round: the reply is read once and the
             // record is what anybody comes back to. This is the last moment
             // anything knows better, on both branches.
+            // ── WHAT EACH COMPONENT PUT ON ITS PAGE, AND WHAT THE PAGE SHOWED
+            // (2026-10-13, after run 144). The stored code before this change
+            // (`aSrc`, the stored parts) against what shipped (the repaired
+            // pages when a repair recompiled), each file read by the parser,
+            // and the published build's own first-load text. Read once, here,
+            // where both halves are known; the record below and the reply
+            // after it both hear it. No parser, a read that failed or a route
+            // the render check did not reach is `unread`, never a guess.
+            try {
+              const aShippedPages = aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
+              const aWasParts = aPartsRead.ok ? aPartsRead.parts : [];
+              aContent = componentEvidence({
+                answers: aAnswers,
+                added: addedByRoute({
+                  before: routedSources(aSrc || [], aWasParts || []),
+                  after: routedSources(aShippedPages || [], aParts || aWasParts || []),
+                  parse: await tweakParser(),
+                }),
+                rendered: aRendered || new Map(),
+              });
+            } catch (e) { aContent = null; console.error("addon content evidence failed:", ownerSlug, e && e.message); }
             await aSaveAnswer();
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding

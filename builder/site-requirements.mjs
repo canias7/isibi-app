@@ -1555,7 +1555,42 @@ function seeableKind(k, reportable, ex) {
  * the item's `refused`), so a requirement it carries is never told as set up
  * without the piece that is missing.
  */
-function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set() } = {}) {
+/**
+ * A CONTENT READING, READ STRICTLY (2026-10-13): the shape
+ * `componentEvidence` (`content-evidence.mjs`) writes, or null. Kept here so
+ * this module stays free of imports.
+ */
+export function readContent(ev) {
+  if (!ev || typeof ev !== "object" || Array.isArray(ev)) return null;
+  if (!["added", "none", "unread"].includes(ev.stored)) return null;
+  if (ev.stored !== "added") return { stored: ev.stored };
+  if (!["all", "some", "none", "unread"].includes(ev.shown)) return null;
+  const hidden = (Array.isArray(ev.hidden) ? ev.hidden : [])
+    .filter((h) => h && typeof h.text === "string" && h.text && Array.isArray(h.placement) && h.placement.length
+      && h.placement.every((x) => ["direct", "handed", "conditional"].includes(x)))
+    .map((h) => ({ text: h.text.slice(0, 200), placement: h.placement.slice(), ...(typeof h.route === "string" && h.route ? { route: h.route } : {}) }));
+  return { stored: "added", shown: ev.shown, ...(hidden.length ? { hidden } : {}) };
+}
+
+/**
+ * THE CONTENT READING OF THE COMPONENTS A JUDGMENT NAMED (2026-10-13): the
+ * least any of them showed, and every text the first load did not show. Null
+ * when no found item carries one.
+ */
+function contentOf(found) {
+  const rank = { all: 3, some: 2, none: 1, unread: 0 };
+  let shown = null;
+  const hidden = [];
+  for (const f of Array.isArray(found) ? found : []) {
+    const ce = f && f.item && f.item.content;
+    if (!ce || ce.stored !== "added") continue;
+    if (shown === null || rank[ce.shown] < rank[shown]) shown = ce.shown;
+    for (const h of Array.isArray(ce.hidden) ? ce.hidden : []) hidden.push(h);
+  }
+  return shown === null ? null : { shown, ...(hidden.length ? { hidden } : {}) };
+}
+
+function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set(), content = null } = {}) {
   const ex = existing && typeof existing === "object" ? existing : null;
   const low = (m) => String((m && m.name) || "").trim().toLowerCase();
   const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === k);
@@ -1565,10 +1600,17 @@ function carriersReading(by, { made = [], existing = null, reportable = [], brok
   let worst = null;
   let present = "found";
   for (const c of Array.isArray(by) ? by : []) {
-    const mine = ofKind(made, c.kind).find((m) => low(m) === c.name);
+    // A COMPONENT IS READ FROM WHAT THIS CHANGE PUT ON ITS PAGE (2026-10-13,
+    // `content-evidence.mjs`): text added to the stored code is the thing
+    // itself, found; every route it names read whole with nothing added is
+    // absent; anything less is unknown, as it always was. Nothing else gives
+    // a component an identity.
+    const ce = c.kind === "component" && content && typeof content === "object" && Object.hasOwn(content, c.name) ? readContent(content[c.name]) : null;
+    const mine = ofKind(made, c.kind).find((m) => low(m) === c.name)
+      || (ce && ce.stored === "added" ? { kind: "component", name: c.name, content: ce } : null);
     const had = mine ? null : (ex ? ofKind(ex.items, c.kind).find((m) => low(m) === c.name) : null);
     const hit = mine || had;
-    const seen = hit ? "found" : seeableKind(c.kind, reportable, ex) ? "absent" : "unknown";
+    const seen = hit ? "found" : (ce && ce.stored === "none") || seeableKind(c.kind, reportable, ex) ? "absent" : "unknown";
     if (seen === "absent" || (seen === "unknown" && present === "found")) present = seen;
     let st = "";
     if (broken.has(c.kind + "::" + c.name)) st = "broken";
@@ -1760,7 +1802,7 @@ export function brokeWhy(ref) {
   return "the " + name + " it needs could not be created";
 }
 
-export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, judged = false } = {}) {
+export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, judged = false, content = null } = {}) {
   const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
   // ── WHICH THING FAILED, NOT WHICH KIND (owner, 2026-09-15) ──────────────
@@ -1807,7 +1849,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     }
     if (verdict && r.status !== "unsupported" && verdict.carried !== "unsure") {
       const ids = verdict.by.map(carrierId);
-      let st = "", whyJ = r.why || "", cfg = "", contra = "", impl = "", byName = "", where = "";
+      let st = "", whyJ = r.why || "", cfg = "", contra = "", impl = "", byName = "", where = "", shownAs = null;
       let partly = [];
       if (verdict.carried === "no") {
         // NOTHING DESIGNED OR ALREADY THERE DOES IT. A step that failed still
@@ -1825,7 +1867,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
         // disagree about the same evidence: a named thing that broke, then
         // the owning step's own failure over a thing that is not there, then
         // what is missing, then what nobody could see.
-        const rd = carriersReading(verdict.by, { made, existing, reportable, broken });
+        const rd = carriersReading(verdict.by, { made, existing, reportable, broken, content });
         impl = rd.present;
         partly = rd.partly;
         if (rd.state === "broken") { st = "blocked"; whyJ = whyJ || brokeWhy(rd.ref); }
@@ -1857,6 +1899,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
           const pick = rd.found.find((f) => f.where === "applied") || rd.found[0];
           byName = String(pick.item.name || ""); where = pick.where;
         }
+        shownAs = contentOf(rd.found);
       }
       out.push({
         ...r, state: st,
@@ -1870,6 +1913,10 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
         // WHAT THIS CHANGE ASKED OF A TABLE NAMED WHOLE AND DID NOT GET
         // (2026-10-07): kept beside a found reading, never instead of it.
         ...(partly.length && (st === "unverified" || st === "configured" || st === "delivered") ? { partly: partly.slice() } : {}),
+        // WHAT THE PUBLISHED PAGE SHOWED OF IT (2026-10-13): only beside a
+        // component found by what it added, and only for a state that says it
+        // is there.
+        ...(shownAs && (st === "unverified" || st === "configured" || st === "delivered") ? { content: shownAs } : {}),
       });
       continue;
     }
@@ -2274,7 +2321,7 @@ export function reconcileHandoffs(outcomes) {
  * change, and nothing here checked it; nothing here could see whether it is
  * there.
  */
-export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "scheduled", "already-there", "unseen", "not-tracked"]);
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
 
 /**
  * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP USED TO KEEP TRACK OF (2026-10-07).
@@ -2305,9 +2352,9 @@ export function overCapNeeds(skipped) {
  * exact: the same need in the same sentence is said once. Two different needs
  * are two entries, and one need told two different ways is two.
  */
-export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [] } = {}) {
+export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged }).filter((r) => !r.unjudged);
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
   const unsupported = outcomes.filter((r) => r.state === "failed" && r.status === "unsupported");
@@ -2365,8 +2412,21 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
     out.push({ need, told: as, state: r.state, ...(withWhy && typeof r.why === "string" && r.why ? { why: r.why } : {}),
       // WHAT IT RESTS ON AND DID NOT GET (2026-10-07, `carriersReading`'s
       // `partly`): told beside it, so "set up" never hides the missing piece.
-      ...(Array.isArray(r.partly) && r.partly.length ? { partly: r.partly.filter((x) => typeof x === "string" && x) } : {}) });
+      ...(Array.isArray(r.partly) && r.partly.length ? { partly: r.partly.filter((x) => typeof x === "string" && x) } : {}),
+      // WHAT THE FIRST LOAD DID NOT SHOW, by its own words (2026-10-13).
+      ...(as === "behind" && r.content && Array.isArray(r.content.hidden) && r.content.hidden.length
+        ? { hidden: r.content.hidden.map((h) => ({ text: h.text, placement: h.placement.slice() })) } : {}) });
   };
+  // ── WHAT THE PUBLISHED PAGE SHOWED OF WHAT WAS SET UP (2026-10-13) ───────
+  //
+  // Three readings of content this change put on a page, each its own
+  // sentence: shown as the page first loads; in the page's code and NOT shown
+  // as it first loads (it waits behind something a visitor opens, switches to
+  // or sends, and nothing here tried that); in the code with the published
+  // page unread. None of them is a claim that an interaction works.
+  const shownTold = (r) => (r.content && r.content.shown === "all" ? "shown"
+    : r.content && (r.content.shown === "some" || r.content.shown === "none") ? "behind"
+      : r.content && r.content.shown === "unread" ? "in-code" : "");
   for (const r of unsupported) tell(r, "unsupported", true);
   for (const r of [...gone, ...broke]) tell(r, "still-to-do", false);
   for (const r of blocked) tell(r, "blocked", true);
@@ -2379,7 +2439,7 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   // the record has kept this distinction since 2026-09-15; the sentence did
   // not.
   const before = (r) => r.foundIn === "existing";
-  for (const r of unsure.filter((x) => !before(x) && !jobKind(x))) tell(r, "set-up", false);
+  for (const r of unsure.filter((x) => !before(x) && !jobKind(x))) tell(r, shownTold(r) || "set-up", false);
   for (const r of unsure.filter((x) => !before(x) && jobKind(x))) tell(r, "scheduled", false);
   for (const r of unsure.filter(before)) tell(r, "already-there", false);
   for (const r of unseen) tell(r, "unseen", false);
@@ -2421,6 +2481,21 @@ export function toldNote(told) {
   if (rest.length) {
     parts.push("I've set that up, but I can't confirm from here that " + rest.map((r) => r.need).join("; or that ")
       + " — have a look and tell me if it isn't right.");
+  }
+  // WHAT THE PUBLISHED PAGE SHOWED (2026-10-13): three sentences, none of
+  // which claims that anything a visitor does with it works.
+  const shown = of("shown");
+  if (shown.length) {
+    parts.push("I've added that, and it shows on the published page as it first loads: " + shown.map((r) => r.need).join("; ") + ".");
+  }
+  const behind = of("behind");
+  if (behind.length) {
+    parts.push("I've added that to the page, but it doesn't show when the page first loads — it waits behind something a visitor opens, switches to or sends, and I haven't tried that from here: "
+      + behind.map((r) => r.need).join("; ") + ". Have a look and open it.");
+  }
+  const inCode = of("in-code");
+  if (inCode.length) {
+    parts.push("I've added that to the page's code, but I couldn't read the published page to see it: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
   }
   // THE ZONE IS NOT QUOTED, because nothing here can see it: a job's applied
   // facts carry `everyMinutes` and `at` and no timezone. The reply's own
@@ -2512,14 +2587,14 @@ export function requirementNote(list, opts = {}) {
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [], refusedRules = [], judgeItemsOver = 0 } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [], refusedRules = [], judgeItemsOver = 0, content = null } = {}) {
   // WHOLE (2026-10-07): every list here was cut at twelve, so a change with
   // more requirements, properties or pages than that kept a record that
   // stopped part-way and said nothing of it. Each is bounded where it is
   // made — what a step's answers can say, a change designs a bounded number
   // of things — so the record keeps all of what it is given.
   const all = (v) => (Array.isArray(v) ? v : []);
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged });
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content });
   const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;
   return {
     counts: {

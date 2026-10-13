@@ -380,11 +380,36 @@ function factList() {
 const partlySaid = (o) => (Array.isArray(o.partly) && o.partly.length
   ? " Part of what this change asked of the table it rests on did not go in: " + listOf(o.partly.map(pieceSaid)) + "."
   : "");
+// WHERE CONTENT THE FIRST LOAD DID NOT SHOW SITS IN THE CODE (2026-10-13): a
+// hint from the syntax tree, said as one. `conditional` is one of the page's
+// alternative views; `handed` is given to a part that decides when to show it.
+const PLACED = Object.freeze({
+  conditional: "in one of the page's alternative views (for example what it shows after a form is sent)",
+  handed: "inside a part of the page that shows it only when a visitor opens or chooses it (for example a question that opens to its answer)",
+  direct: "in the page's own text, though the first load did not show it",
+});
+function whereSaid(hidden) {
+  const got = new Set();
+  for (const h of Array.isArray(hidden) ? hidden : []) for (const p of h.placement) got.add(p);
+  const said = ["handed", "conditional", "direct"].filter((p) => got.has(p)).map((p) => PLACED[p]);
+  return said.length ? said.join(", and ") : "behind something a visitor opens, switches to or sends";
+}
+const hiddenSaid = (hidden) => (Array.isArray(hidden) && hidden.length
+  ? " The words the first load did not show: " + hidden.map((h) => "\u201c" + flat(h.text) + "\u201d").join("; ") + "."
+  : "");
 const TOLD_FACTS = Object.freeze({
   unsupported: ["not-done", (o) => "Their site cannot do this yet: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
   "still-to-do": ["not-done", (o) => "Not done: " + o.need + "."],
   blocked: ["not-done", (o) => "Not done, because another part of this change it depends on did not work: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
   "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "." + partlySaid(o)],
+  // WHAT THE PUBLISHED PAGE SHOWED OF CONTENT THIS CHANGE ADDED (2026-10-13,
+  // `content-evidence.mjs`): three facts, kept apart. Present in the page's
+  // code is not shown, and shown is not that anything a visitor does with it
+  // works — nothing here opens, switches or sends anything.
+  shown: ["note", (o) => "Added, and seen on the published page as it first loads (nothing a visitor might do with it was tried): " + o.need + "."],
+  behind: ["note", (o) => "Added to the page's code, and not shown when the published page first loads: it sits " + whereSaid(o.hidden)
+    + ". Nothing here opened, switched or sent anything, so whether it appears when a visitor does is not checked: " + o.need + "." + hiddenSaid(o.hidden)],
+  "in-code": ["note", (o) => "Added to the page's code; the published page could not be read, so whether it shows is not known: " + o.need + "."],
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
   // up", and never said to be this request's work.
@@ -453,7 +478,10 @@ const WARNED_FACTS = Object.freeze({
  */
 const entriesOf = (v, reads) => (v === undefined ? []
   : Array.isArray(v) && v.length > 0 && v.every((o) => o && typeof o === "object" && !Array.isArray(o) && reads(o)) ? v : null);
+const hiddenReads = (v) => v === undefined || (Array.isArray(v) && v.length > 0 && v.every((h) => h && typeof h === "object" && typeof h.text === "string" && !!flat(h.text)
+  && Array.isArray(h.placement) && h.placement.length > 0 && h.placement.every((x) => Object.hasOwn(PLACED, x))));
 const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string")
+  && hiddenReads(o.hidden) && (o.hidden === undefined || o.told === "behind")
   && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === "string" && !!flat(x))));
 const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name === "string" && !!flat(o.name)
   && (o.added === undefined || typeof o.added === "boolean")
@@ -536,7 +564,9 @@ export function outcomeOf(a) {
  */
 export function toldAs(o, out) {
   const t = o && o.told;
-  if (!out || out.database === "applied" || (t !== "set-up" && t !== "scheduled")) return t;
+  // CONTENT READ OFF THE PUBLISHED PAGE (2026-10-13) is "set up" with its
+  // evidence: under a failure that applied nothing it was not this change's.
+  if (!out || out.database === "applied" || (t !== "set-up" && t !== "scheduled" && t !== "shown" && t !== "behind" && t !== "in-code")) return t;
   return out.database === "unknown" ? "unseen" : "already-there";
 }
 
@@ -566,7 +596,7 @@ function coverFacts(F, a, { out = null } = {}) {
   }
   for (const o of told) {
     const [kind, text] = TOLD_FACTS[toldAs(o, out)];
-    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}) }));
+    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}) }));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));
   const rest = out && out.database !== "applied" ? "" : said(a.coverOther);
