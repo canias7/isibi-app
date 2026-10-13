@@ -55,8 +55,9 @@ be read again before anything that spends).
 - `10737 / 10737 / 0 / 0` locally on `59faf01b`.
 - CI on `372f8ae0`: unit tests 38334767137 (`10735 / 10691 / 0 / 44
   skipped`), site build 38334767139 success.
-- CI on `59faf01b`, and on the final records commit: in the dated
-  owner-notes entry.
+- CI on `b318e17b` (`59faf01b`'s code plus records): unit tests
+  38391184627, `10737 / 10693 / 0 / 44 skipped`. The run on `59faf01b` was
+  cancelled when `b318e17b` superseded it.
 
 ## 3. What is not shown, and stays so after this release
 

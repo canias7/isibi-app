@@ -52,7 +52,15 @@ is in git; the dated entries further down are the full story.*
     - image purchases off for the press, then back on;
     - your approval of the spend.
   - **My recommendation:** release now, and decide the press separately.
-- **Commits, suite, CI**: in the dated entry below.
+- **Commits:**
+  - `59faf01b`: CR 9 and CR 9c, the fixture line, the record;
+  - `b318e17b`: the proposal and the handoff.
+  - Full suite: `10737 / 10737 / 0 / 0` locally.
+  - CI: unit tests 38391184627 on `b318e17b`, `10737 / 10693 / 0 / 44
+    skipped` (the totals match). The run on `59faf01b` was cancelled when
+    `b318e17b` superseded it; the code is the same. The site build last ran
+    on `372f8ae0` (success); no product file has changed since.
+  - The predicted image is unchanged: `4444d9d53d906b8d`.
 - **Open** (`docs/backlog.md`, first item):
   - the R2 read;
   - correction reuse and isolation, live;
@@ -962,7 +970,8 @@ the first model request stays the same, without touching the stored digest.
 - **Commits:**
   - `59faf01b`: the tests and the record;
   - the records commit after it: the proposal and this handoff.
-  - CI: in the next entry or the handoff once read.
+  - CI: unit tests 38391184627 on `b318e17b`, `10737 / 10693 / 0 / 44
+    skipped`.
 
 ## 2026-10-13 — Correction reuse built offline on your word (nothing spent, merged or deployed)
 
