@@ -186,3 +186,23 @@ test("R141 4 — CONTROL: the same addition with no page scope (its writes reach
   assert.ok(u, JSON.stringify(view.parts[1]));
   assert.equal(u.scoped, 0, "an unscoped Add-on reported scoped calls: " + JSON.stringify(u));
 });
+
+test("R141 5 — WHAT EACH MODEL CALL WAS SHOWN OF THE OTHER PART, recorded without text: the preparation's calls and the Add-on job's calls (replayed) carried the heading part's words only marked, the rule beside them, nothing unmarked; served on the request's view", { timeout: 60000 }, async () => {
+  const { rec, view } = await runShape({ design: () => GOOD });
+  partsDone(rec);
+  const clean = (m) => m.others === 1 && m.rule === true && m.unmarked === 0;
+  // THE ADD-ON'S PREPARATION: every call of its step, numbers only.
+  const prep = view.parts[1].prepRun && view.parts[1].prepRun.step && view.parts[1].prepRun.step.marks;
+  assert.deepEqual((prep || []).map((m) => m.what), [T.adds, T.design, T.pages], JSON.stringify(view.parts[1].prepRun));
+  assert.ok(prep.every(clean), JSON.stringify(prep));
+  // ITS JOB: the same calls, replayed — a replayed call still forms its request.
+  const job = useOf(view, 1).marks;
+  assert.deepEqual(job.map((m) => [m.what, m.replayed]), [[T.adds, true], [T.design, true], [T.pages, true]]);
+  assert.ok(job.every(clean), JSON.stringify(job));
+  // THE TEXT PART'S JOB: its step was shown the Add-on's words marked too.
+  const text = useOf(view, 0).marks;
+  assert.deepEqual(text.map((m) => m.what), [T.text]);
+  assert.ok(text.every(clean), JSON.stringify(text));
+  // NO TEXT: the record is numbers and tool names.
+  assert.ok(!/Bake List|Friday|ovens/i.test(JSON.stringify([prep, job, text])), "the record carries request text");
+});

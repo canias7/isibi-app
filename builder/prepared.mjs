@@ -118,6 +118,74 @@ export function rejectReply(reply, why) {
 /** Why a step refused this reply, or "". */
 export const replyRejected = (reply) => (reply && typeof reply === "object" && REJECTED.get(reply)) || "";
 
+// ── WHAT A REQUEST PART'S MODEL CALL WAS SHOWN OF THE OTHER PARTS (2026-10-13,
+//    after run 141) ─────────────────────────────────────────────────────────
+//
+// A step of one part is shown the whole message with every other part's words
+// marked `⟦ANOTHER PART: …⟧` and a rule never to make them (`partBlock`,
+// site-ask.mjs). Model inputs are not kept, so no run could show that a model
+// received the markings. This is the smallest record that can: per call, read
+// off the request exactly as sent, NUMBERS AND A NAME, NEVER TEXT —
+//   what      the tool the call was made for (`tool_choice.name`)
+//   others    how many other-part spans it carried, marked
+//   rule      whether the rule sentence was there
+//   unmarked  how many times another part's words appear in the request
+//             outside a marking and outside the done list (must be 0)
+//   done      how many earlier parts the done list reports
+// A call with no part section is not a part's call and gives null.
+export const PART_SECTION = "THE WHOLE REQUEST THIS PART CAME FROM";
+export const PART_RULE = "THE WORDS MARKED ⟦ANOTHER PART: …⟧ ARE OTHER PARTS OF THE REQUEST";
+const DONE_HEAD = "\nWHAT THE PARTS BEFORE THIS ONE DID, in order:\n";
+const textOf = (v) => (typeof v === "string" ? v : Array.isArray(v) ? v.map((b) => (b && typeof b === "object" && typeof b.text === "string" ? b.text : typeof b === "string" ? b : "")).join("\n") : "");
+const countIn = (hay, needle) => { if (!needle) return 0; let n = 0, at = hay.indexOf(needle); while (at >= 0) { n++; at = hay.indexOf(needle, at + needle.length); } return n; };
+export function partMarks(req) {
+  if (!req || typeof req !== "object") return null;
+  const msgs = Array.isArray(req.messages) ? req.messages : [];
+  const text = [textOf(req.system), ...msgs.map((m) => textOf(m && m.content))].join("\n");
+  if (!text.includes(PART_SECTION)) return null;
+  // THE RULE SENTENCE NAMES THE MARKING ITSELF ("⟦ANOTHER PART: …⟧"), so it
+  // is taken out before the spans are read.
+  const body = text.split(PART_RULE).join(" ");
+  const spans = [...body.matchAll(/⟦ANOTHER PART: ([\s\S]*?)⟧/g)].map((m) => m[1].trim()).filter(Boolean);
+  // THE DONE LIST REPORTS EARLIER PARTS' WORDS ON PURPOSE (they are done), so
+  // it is counted apart and left out of the unmarked scan; it runs from its
+  // heading to the end of the part section's text block.
+  let rest = body.replace(/⟦ANOTHER PART: [\s\S]*?⟧/g, " ");
+  let done = 0;
+  const at = rest.indexOf(DONE_HEAD);
+  if (at >= 0) {
+    const tail = rest.slice(at + DONE_HEAD.length);
+    const lines = tail.split("\n");
+    let k = 0;
+    while (k < lines.length && /^\d+\. “/.test(lines[k])) k++;
+    done = k;
+    rest = rest.slice(0, at) + "\n" + lines.slice(k).join("\n");
+  }
+  const unmarked = [...new Set(spans)].reduce((n, sp) => n + countIn(rest, sp), 0);
+  const what = req.tool_choice && typeof req.tool_choice.name === "string" ? req.tool_choice.name.slice(0, 60) : "";
+  return { what, others: spans.length, rule: text.includes(PART_RULE), unmarked, done };
+}
+
+/** How many per-call marks a record keeps (a part's step makes a handful; a list this long is a loop). */
+export const MARKS_KEPT = 100;
+
+/**
+ * Per-call marks read back strictly: a list of `partMarks` answers (with
+ * `replayed` on a job's), at most MARKS_KEPT. Anything that does not read is
+ * null — unknown, never "no markings".
+ */
+export function readMarks(v) {
+  if (!Array.isArray(v) || v.length > MARKS_KEPT) return null;
+  const whole = (x) => Number.isInteger(x) && x >= 0;
+  const out = [];
+  for (const m of v) {
+    if (!m || typeof m !== "object" || typeof m.what !== "string" || m.what.length > 60 || !whole(m.others) || typeof m.rule !== "boolean" || !whole(m.unmarked) || !whole(m.done)) return null;
+    if (Object.hasOwn(m, "replayed") && typeof m.replayed !== "boolean") return null;
+    out.push({ what: m.what, others: m.others, rule: m.rule, unmarked: m.unmarked, done: m.done, ...(Object.hasOwn(m, "replayed") ? { replayed: m.replayed } : {}) });
+  }
+  return out;
+}
+
 /**
  * A RECORDER: `wrap(send)` makes every call as `send` would and keeps its
  * answer under its request's fingerprint; `image(generate)` keeps each picture
@@ -128,10 +196,15 @@ export const replyRejected = (reply) => (reply && typeof reply === "object" && R
 export function recorder() {
   const calls = [];
   const images = [];
+  // WHAT EACH PART CALL WAS SHOWN OF THE OTHER PARTS (`partMarks`), in order;
+  // numbers only, never part of an entry (an entry is its fingerprint and its
+  // answer).
+  const marks = [];
   return {
-    calls, images,
+    calls, images, marks,
     wrap(send) {
       return async (req) => {
+        try { const m = partMarks(req); if (m && marks.length < MARKS_KEPT) marks.push(m); } catch { /* the record never costs the call */ }
         const reply = await send(req);
         try {
           const h = await requestHash(req);
@@ -217,7 +290,11 @@ export function replayer(prepared) {
   const spent = new Set();
   const spentImg = new Set();
   let hits = 0, imageHits = 0, misses = 0;
+  // EVERY PART CALL'S MARKS, replayed or made now (`partMarks`): a replayed
+  // call still forms its request, so what it would have shown is known.
+  const marks = [];
   return {
+    marks: () => marks.slice(),
     // `calls` answered exactly, `missed` made by a model now. NOTHING ELSE
     // REUSES AN ANSWER (2026-10-11, after Codex's review): a re-base that
     // carried an answer onto a changed request by judging the change
@@ -247,9 +324,12 @@ export function replayer(prepared) {
     // `send` itself left a fresh call uncounted beside `missed: 0`.
     wrap(send) {
       return async (req) => {
+        let m = null;
+        try { m = partMarks(req); } catch { m = null; }
         let h = "";
         if (calls.length) { try { h = await requestHash(req); } catch { h = ""; } }
         const at = h ? calls.findIndex((c, i) => !spent.has(i) && c.h === h) : -1;
+        if (m && marks.length < MARKS_KEPT) marks.push({ ...m, replayed: at >= 0 });
         if (at >= 0) { spent.add(at); hits++; return calls[at].reply; }
         misses++;
         return send(req);

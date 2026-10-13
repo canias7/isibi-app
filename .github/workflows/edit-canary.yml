@@ -249,13 +249,11 @@ on:
         required: false
         default: ''
       # THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, the
-      # acceptance plan's option A; since 2026-10-12 the isolation release's
-      # one press only). Only beside acc-isolation: the balance, in whole credits, the
-      # press may run against in place of the 100-credit cap. Any other
-      # balance at the paid call refuses; a malformed number or the box beside
-      # any other press refuses before the sign-in. Not a budget.
+      # acceptance plan's option A). CLOSED since 2026-10-13: it admits no
+      # press, so anything typed here refuses before the sign-in. A new press
+      # above the cap needs the owner to name it in canary-ui.mjs first.
       accept_balance:
-        description: 'ACCEPTANCE acc-isolation ONLY: your balance in whole credits (e.g. 971). Lets this one press run above the 100-credit cap only while the balance is exactly this number. Not a budget: the press may spend up to that whole balance. Blank otherwise.'
+        description: 'CLOSED: no press may run above the 100-credit cap. Leave blank; anything typed here refuses before the sign-in.'
         required: false
         default: ''
 

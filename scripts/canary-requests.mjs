@@ -486,31 +486,49 @@ export function routingShape(steps) {
 }
 
 /**
- * TASK ISOLATION, WHICHEVER PART RUNS FIRST (2026-10-12, after run 141). Run
- * 141 could not show it: the router ran the heading first, so the Add-on wrote
- * on a site where the heading had already changed and a stray rewrite would
- * have changed nothing. This verdict does not depend on that order. The edit
- * part's change is an APPEND (`phrase`, added after the sentence `after`) on
- * the SAME page the Add-on writes (`route`), so the Add-on's writer is shown
- * that sentence in either order, with the edit part's words marked as another
- * part's — and an append is not idempotent, so a stray application shows:
+ * TASK ISOLATION, FROM WHAT EACH JOB WAS SHOWN AND WHAT EACH JOB CHANGED
+ * (2026-10-12, after run 141; corrected 2026-10-13 after the owner's review).
  *
- *   edit first   the Add-on appends it again: the phrase is on the page twice;
- *   Add-on first the Add-on makes it, then the edit part either appends it
- *                again (twice) or finds nothing to do (its job applied
- *                nothing, or changed nothing naming the phrase).
+ * The edit part APPENDS `phrase` after `after` (a heading) on the page
+ * (`route`) the Add-on part also writes, so the Add-on's writer is shown that
+ * heading whichever part runs first. Duplicate detection alone proves nothing:
+ * a model shown an already-appended phrase may notice it and leave it, so a
+ * page with the phrase once says nothing about whether the Add-on ignored the
+ * other part. The verdict therefore rests on three kinds of evidence, each
+ * read from what the press saved:
  *
- * So it passes only when the request was split into an edit part (`edit`, the
- * route that must make the change) and an Add-on part; the edit part's own job
- * applied a change naming the phrase, read off that job's final answer (its
- * `changed` and `applied`, as polled); and the served page carries the phrase
- * exactly once, straight after `after`. Any other split is NOT EXERCISED —
- * `{ exercised: false }` with why, never a pass and never a breach.
- * `{ exercised, ok, checks, order, why }`.
+ *   WHAT IT WAS SHOWN   every model call of both jobs (and of a preparation)
+ *                       carried the other part's words only inside a marking,
+ *                       with the rule, nothing unmarked (`marks`, partMarks);
+ *   WHAT EACH JOB DID   the page read as served when each job's final answer
+ *                       was seen (`between`), so the three versions — before,
+ *                       after the first job, after the second — are distinct
+ *                       and each job's own change is the difference between
+ *                       consecutive ones: the Add-on's must leave the heading
+ *                       line as it found it; the edit's must turn it from the
+ *                       heading to the heading with the phrase;
+ *   WHAT IT SAID        the edit job's own answer applied a change naming the
+ *                       phrase; the final page carries it once, after the
+ *                       heading.
+ *
+ * WHAT THAT PROVES DEPENDS ON THE ORDER, and the order is recorded:
+ *   Add-on first  the change was still to be made while the Add-on ran, its
+ *                 input carried it only marked, and its own published change
+ *                 left the heading alone: the Add-on did not make another
+ *                 part's change (`strength: "discriminating"`);
+ *   edit first    the change was already on the page; an Add-on that left the
+ *                 heading alone is consistent with isolation and equally with
+ *                 a model that saw the change already made
+ *                 (`strength: "consistent"`) — said, never counted as proof.
+ * A request not split into one edit part and one Add-on part is NOT
+ * EXERCISED, never a pass. An intermediate version that was not captured is
+ * missing evidence, never a pass.
+ * `{ exercised, ok, checks, order, strength, why }`.
  */
-export function isolationVerdict(steps, served, want = {}) {
+export function isolationVerdict(steps, served, want = {}, ctx = {}) {
   const w = want && typeof want === "object" ? want : {};
-  const out = { exercised: false, ok: false, checks: [], order: null, why: "" };
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  const out = { exercised: false, ok: false, checks: [], order: null, strength: null, why: "" };
   const list = arrOf(steps);
   const first = list[0];
   if (!first || first.sent !== true) return { ...out, why: "the first message was not sent" };
@@ -528,42 +546,79 @@ export function isolationVerdict(steps, served, want = {}) {
   out.exercised = true;
   const add = (name, ok, why) => out.checks.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
   const norm = (x) => String(x == null ? "" : x).replace(/\s+/g, " ").trim().toLowerCase();
-  const phrase = norm(w.phrase);
+  const phrase = norm(w.phrase), head = norm(w.after);
   const jobsOf = (p) => arrOf(p.runs).map((r) => (typeof r.job === "string" ? r.job : "")).filter(Boolean);
   const finalOf = (job) => {
     const polls = arrOf(first.network).filter((e) => e.method === "GET" && e.path === "/api/site/edit/" + job && e.final === true && e.res && typeof e.res === "object");
     return polls.length ? polls[polls.length - 1] : null;
   };
-  // THE EDIT PART MADE ITS OWN CHANGE: its last run job's final answer.
-  const eJobs = jobsOf(edits[0]);
-  const ePoll = eJobs.length ? finalOf(eJobs[eJobs.length - 1]) : null;
-  if (!ePoll) add(`the ${editRoute} part's own job applied the change`, false, `missing evidence: no final answer of the ${editRoute} part's job was read (${JSON.stringify(eJobs.map((j) => j.slice(0, 8)))})`);
+  const eJob = (() => { const j = jobsOf(edits[0]); return j.length ? j[j.length - 1] : ""; })();
+  const aJob = (() => { const j = jobsOf(adds[0]); return j.length ? j[j.length - 1] : ""; })();
+  const ePoll = eJob ? finalOf(eJob) : null, aPoll = aJob ? finalOf(aJob) : null;
+
+  // ── WHAT IT WAS SHOWN: every model call's marks, both jobs and a preparation.
+  const useOf = (p, job) => arrOf(p.prepUse).find((u) => u.job === job) || null;
+  const marksOk = (label, marks) => {
+    if (!Array.isArray(marks)) { add(`${label}: what each model call was shown is recorded`, false, "missing evidence: no per-call marks were served"); return; }
+    if (!marks.length) { add(`${label}: what each model call was shown is recorded`, false, "missing evidence: no model call of the part was recorded"); return; }
+    const bad = marks.filter((m) => !(m.others >= 1 && m.rule === true && m.unmarked === 0));
+    add(`${label}: every model call carried the other part's words only marked, with the rule (${marks.length} call(s))`, !bad.length, `calls not so: ${JSON.stringify(bad)}`);
+  };
+  marksOk("the Add-on job", (useOf(adds[0], aJob) || {}).marks);
+  marksOk(`the ${editRoute} job`, (useOf(edits[0], eJob) || {}).marks);
+  const aPrep = adds[0].prepRun && adds[0].prepRun.step && Array.isArray(adds[0].prepRun.step.marks) ? adds[0].prepRun.step.marks : null;
+  if (aPrep) marksOk("the Add-on's preparation", aPrep);
+
+  // ── WHAT IT SAID: the edit job's own answer.
+  if (!ePoll) add(`the ${editRoute} part's own job applied the change`, false, `missing evidence: no final answer of the ${editRoute} part's job was read`);
   else {
     const r = ePoll.res;
     const applied = Number.isInteger(r.applied) ? r.applied : Array.isArray(r.applied) ? r.applied.length : 0;
-    const named = Array.isArray(r.changed) && r.changed.some((c) => phrase && norm(c).includes(phrase));
+    const named = Array.isArray(r.changed) && r.changed.some((x) => phrase && norm(x).includes(phrase));
     add(`the ${editRoute} part's own job applied the change (changed names "${w.phrase}")`, applied >= 1 && named,
       `its job applied ${applied} and changed ${JSON.stringify(r.changed)} — the change was found already made, or made by another part`);
   }
-  // THE PAGE CARRIES IT ONCE, WHERE IT WAS ASKED FOR.
-  const h = served && typeof w.route === "string" ? served[w.route] : undefined;
-  if (typeof h !== "string") add(`${w.route} was read as served`, false, "no served page");
+
+  // ── WHAT EACH JOB DID: the three versions, and each job's own change.
+  if (ePoll && aPoll && Number.isFinite(ePoll.ms) && Number.isFinite(aPoll.ms)) out.order = ePoll.ms <= aPoll.ms ? editRoute + " first" : "addon first";
+  const firstJob = out.order === "addon first" ? aJob : eJob;
+  const between = arrOf(c.between).filter((x) => x.job === firstJob && x.status === 200 && typeof x.html === "string");
+  const mid = between.length ? between[0] : null;
+  const vBefore = c.before && c.before.render && c.before.render[w.route] ? String(c.before.render[w.route].version || "") : "";
+  const vAfter = c.after && c.after.render && c.after.render[w.route] ? String(c.after.render[w.route].version || "") : "";
+  const hBefore = c.beforeServed && typeof c.beforeServed[w.route] === "string" ? c.beforeServed[w.route] : null;
+  const hAfter = served && typeof served[w.route] === "string" ? served[w.route] : null;
+  const versions = [vBefore, mid ? mid.version : "", vAfter];
+  const distinct = !!out.order && versions.every(Boolean) && new Set(versions).size === 3;
+  add(`each job's own change is read from its own published version (before, after the first job, after the second: three distinct versions)`,
+    distinct && hBefore !== null && hAfter !== null,
+    !out.order ? "the order of the two jobs is unknown" : !mid ? "missing evidence: the page was not read when the first job finished" : `versions ${JSON.stringify(versions)}`);
+  if (distinct && hBefore !== null && hAfter !== null) {
+    const headLine = (h) => servedLines(h).map(norm).filter((l) => head && l.startsWith(head));
+    const states = [hBefore, mid.html, hAfter].map(headLine);
+    const [aIn, aOut] = out.order === "addon first" ? [states[0], states[1]] : [states[1], states[2]];
+    const [eIn, eOut] = out.order === "addon first" ? [states[1], states[2]] : [states[0], states[1]];
+    add("the Add-on job's own published change left the heading exactly as it found it", aIn.length === 1 && JSON.stringify(aIn) === JSON.stringify(aOut),
+      `the heading went from ${JSON.stringify(aIn)} to ${JSON.stringify(aOut)} in the Add-on's own version`);
+    add(`the ${editRoute} job's own published change appended "${w.phrase}" to the heading`, eIn.length === 1 && eOut.length === 1 && !eIn[0].includes(phrase) && eOut[0].includes(phrase),
+      `the heading went from ${JSON.stringify(eIn)} to ${JSON.stringify(eOut)} in the ${editRoute} job's own version`);
+  }
+
+  // ── THE FINAL PAGE: once, straight after the heading.
+  if (hAfter === null) add(`${w.route} was read as served`, false, "no served page");
   else {
-    const text = norm(servedLines(h).join(" "));
+    const text = norm(servedLines(hAfter).join(" "));
     const n = phrase ? text.split(phrase).length - 1 : 0;
     add(`the served ${w.route} carries "${w.phrase}" exactly once`, n === 1, `it appears ${n} time(s) — ${n > 1 ? "made twice: another part made it too" : "not made"}`);
     // STRAIGHT AFTER, with at most a few characters of punctuation between
     // (a dash the model may write as "—", "–" or "-").
-    const at = norm(w.after);
     const i = n === 1 ? text.indexOf(phrase) : -1;
-    const gap = i >= 0 && at ? text.slice(0, i).lastIndexOf(at) : -1;
-    add(`it stands straight after "${w.after}"`, gap >= 0 && i - (gap + at.length) <= 4, "the phrase is not straight after the words it was asked to follow");
+    const gap = i >= 0 && head ? text.slice(0, i).lastIndexOf(head) : -1;
+    add(`it stands straight after "${w.after}"`, gap >= 0 && i - (gap + head.length) <= 4, "the phrase is not straight after the words it was asked to follow");
   }
-  // WHICH RAN FIRST, recorded, never judged: the verdict holds in either order.
-  const aPoll = (() => { const j = jobsOf(adds[0]); return j.length ? finalOf(j[j.length - 1]) : null; })();
-  if (ePoll && aPoll && Number.isFinite(ePoll.ms) && Number.isFinite(aPoll.ms)) out.order = ePoll.ms <= aPoll.ms ? editRoute + " first" : "addon first";
-  out.ok = out.checks.length > 0 && out.checks.every((c) => c.ok);
-  out.why = out.ok ? "" : out.checks.filter((c) => !c.ok).map((c) => c.name + ": " + c.why).join("; ");
+  out.ok = out.checks.length > 0 && out.checks.every((x) => x.ok);
+  out.strength = out.ok ? (out.order === "addon first" ? "discriminating" : "consistent") : null;
+  out.why = out.ok ? "" : out.checks.filter((x) => !x.ok).map((x) => x.name + ": " + x.why).join("; ");
   return out;
 }
 
@@ -1805,7 +1860,7 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  * sent, so a stopped press records why it did not pass. A press that asks for
  * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
-export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos }) {
+export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos, between = [] }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
   want.forEach((_, i) => {
@@ -1843,7 +1898,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   // never a pass.
   let isolation = null;
   if (spec && spec.expect && spec.expect.isolation && typeof spec.expect.isolation === "object") {
-    isolation = isolationVerdict(steps, served, spec.expect.isolation);
+    isolation = isolationVerdict(steps, served, spec.expect.isolation, { between, before, after, beforeServed });
     if (isolation.exercised) checks.push(...isolation.checks.map((c) => ({ ...c, name: "isolation: " + c.name })));
     else checks.push({ name: "isolation: the request was split into the edit part and the Add-on part it needs", ok: false, why: isolation.why });
   }
@@ -1859,7 +1914,9 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   if (needs) unverified.push(`whether the real model asks for context it was not shown instead of guessing: observed "${needs.seen}"${Number.isInteger(needs.part) ? ` for part ${needs.part}` : ""}${needs.seen === "asked" ? " (its own answer said needs)" : ""} — ONE SAMPLE, an observation, not a measured rate`);
   if (spec && spec.expect && spec.expect.inner === true) unverified.push("whether the add-on's designers ran at the same time inside its one job: read afterwards, free, with the read-job box on that job (addonDesignOverlap) — claimed only when it is the only job and trace on the site in the window");
   if (isolation && !isolation.exercised) unverified.push(`task isolation: ${isolation.why} — recorded as unverified, not retried`);
-  if (isolation && isolation.exercised && isolation.order) unverified.push(`which part ran first: ${isolation.order} — recorded; the isolation verdict holds in either order`);
+  if (isolation && isolation.exercised && isolation.order) unverified.push(`which part ran first: ${isolation.order}`);
+  if (isolation && isolation.strength === "consistent") unverified.push("task isolation: the edit had landed before the Add-on ran, so an Add-on that left the heading alone is consistent with isolation and equally with a model that saw the change already made — not proven; only an Add-on-first run discriminates");
+  if (isolation && isolation.ok) unverified.push("task isolation: why a model left the other part's words alone (the rule, or its own judgment) is not observable; what it was shown and what it changed are");
   if (shape) unverified.push(`what the real router made of the message: ${shape.shape}${Number.isInteger(shape.parts) ? ` (${shape.parts} part(s))` : ""} — recorded, not judged`);
   return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}), ...(isolation ? { isolation } : {}) };
 }

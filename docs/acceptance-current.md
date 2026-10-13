@@ -43,6 +43,15 @@ section; `docs/deploy-record.md` 2197 and 2198):
 - `acc-isolation-page` is prepared (not pressed), to judge isolation in
   either order.
 
+**Evidence round (2026-10-13, free)**, `docs/history/2026-10-13-evidence-round.md`:
+- per-call task markings are built;
+- the isolation verdict is corrected (marks plus each job's own version;
+  "discriminating" only when the Add-on ran first);
+- the correction-reuse design is ready for the owner;
+- the balance opt-in is closed;
+- run 141's preparation record has no read path, so its cause stays
+  unconfirmed.
+
 The proposal as approved follows.
 
 

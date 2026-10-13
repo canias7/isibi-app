@@ -219,15 +219,18 @@ test("jobBody: the scope rides on a prepared part's edit body only — its prepa
 test("requestView: a job's evidence served with its counts; a job with none is not known — no counts at all; a count that does not read is null, never 0", () => {
   const base = { key: "k", state: "done", at: 1, updatedAt: 2, parts: [{ n: 0, words: "w", status: "done", held: [], jobs: [{ key: "a", kind: "run", id: "job-a" }, { key: "b", kind: "run", id: "job-b" }, { key: "c", kind: "run", id: "job-c" }] }] };
   let v;
-  try { v = requestView(base, { prepUse: { "job-a": { staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1 }, "job-b": null, "job-c": { staged: "odd", replayed: "1", fresh: -1, scoped: "2" } } }); }
+  const MARK = { what: "pick_adds", others: 1, rule: true, unmarked: 0, done: 0, replayed: true };
+  try { v = requestView(base, { prepUse: { "job-a": { staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1, marks: [MARK] }, "job-b": null, "job-c": { staged: "odd", replayed: "1", fresh: -1, scoped: "2", marks: [{ ...MARK, unmarked: -1 }] } } }); }
   catch (e) { assert.fail("requestView threw on a minimal record: " + e.message); }
   // `scoped` and `needs` (v3, 2026-10-11): how many scoped answers the job's
   // steps gave, and how many of those said `needs` — the direct evidence of
   // the model asking. Evidence written before v3 carries neither: null.
+  // `marks` (2026-10-13): each call's `partMarks`; absent or unreadable is
+  // null — unknown, never "no markings".
   assert.deepEqual(v.parts[0].prepUse, [
-    { job: "job-a", known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1 },
+    { job: "job-a", known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1, marks: [MARK] },
     { job: "job-b", known: false },
-    { job: "job-c", known: true, staged: null, replayed: null, rebased: null, fresh: null, scoped: null, needs: null },
+    { job: "job-c", known: true, staged: null, replayed: null, rebased: null, fresh: null, scoped: null, needs: null, marks: null },
   ]);
 });
 

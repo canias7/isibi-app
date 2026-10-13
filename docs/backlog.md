@@ -41,15 +41,20 @@ here; take a closed one out of both.**
     batch box; the Add-on's own coverage judge also calls a collapsed
     answer "unseen"; the opened read (now per disclosure, `b34707e6`: each answer kept as it opens, incomplete reads fail) has not run live.
   In full under Backlog below.
-- **Run 141's follow-up (2026-10-12; investigated free, run 141 closed)**:
-  the reader fix and the Add-on's `scoped` count are fixed. Still open:
-  - a prepared correction cannot be reached once its first answer was
-    refused (proposed, not changed: it would reopen VA 0–5);
-  - the cause in job 996afba7 is inferred, not observed (the preparation's
-    R2 record and trace are unread);
-  - isolation is unverified live (`acc-isolation-page` is prepared);
-  - model inputs are not kept (a minimal per-call record is specified);
-  - other helper strippers still use `<[^>]+>`.
+- **Run 141's follow-up (2026-10-12/13; free, run 141 closed)**: fixed
+  and built:
+  - the reader;
+  - the Add-on's `scoped` count;
+  - per-call task markings (jobs and preparations);
+  - the isolation verdict, from marks plus each job's own version;
+  - the old balance opt-in, closed.
+
+  Still open:
+  - the refused-correction explanation is unconfirmed (no read path for R2);
+  - the correction-reuse design awaits the owner (it changes VA 0–5's scope);
+  - isolation is unverified live;
+  - other strippers still use `<[^>]+>`;
+  - the coverage judge calls a collapsed answer "unseen".
 
   In full under Backlog below.
 - **What parallel tasks do not cover yet** (2026-10-08, revised after round 7,
@@ -1041,47 +1046,45 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **RUN 141'S FOLLOW-UP (2026-10-12; `docs/history/2026-10-12-run141-followup.md`).**
-  Investigated free; run 141 stays closed.
-  - **Fixed** (offline, not deployed):
-    - `servedLines` no longer ends a tag at a `>` inside a quoted attribute.
-    - An Add-on job now counts its scoped calls (it reported `scoped 0`
-      either way).
-  - **Established offline on run 141's own site** (R141 1–2):
-    - an unrelated page's change keeps every prepared answer;
-    - a change to the Add-on's own page invalidates exactly what reads it.
-    - There is no scoping defect and no staleness test at all: replay is by
-      request fingerprint.
+- **RUN 141'S FOLLOW-UP (2026-10-12/13; `docs/history/2026-10-12-run141-followup.md`, `docs/history/2026-10-13-evidence-round.md`).**
+  Free; run 141 stays closed.
+  - **Fixed and built** (offline, not deployed):
+    - `servedLines` attribute-aware;
+    - the Add-on's `scoped` count;
+    - per-call task markings (`partMarks`: tool name, marked-span count, rule
+      present, unmarked other-part words, done count; numbers only), recorded
+      for preparations (`prepRun.step.marks`) and jobs (`prepUse[].marks`);
+    - the isolation verdict, which now needs clean marks on every call, three
+      distinct served versions read as each job finished, and the Add-on's
+      own version leaving the heading alone. It says "discriminating" only
+      when the Add-on ran first;
+    - the balance opt-in, closed (it admits no press).
+  - **No scoping defect** (R141 1–2): an unrelated page's change keeps every
+    prepared answer; a change to the Add-on's own page invalidates only what
+    reads it.
   - **Open:**
-    - **A refused prepared answer strands its paid correction.** The job
-      asks the designer again, and with a real model everything built on the
-      new answer is asked again too (R141 3 reproduces run 141's 1 replayed
-      / 3 fresh).
-      - Proposed: replay a refused answer only into its own validator,
-        follow the recorded correction when the job refuses it for the same
-        reason, and ask again otherwise. A refused answer is still never
-        used.
-      - Not implemented: it reopens VA 0–5. The owner's decision.
-    - **Job 996afba7's cause is inferred, not observed.** It needs the
-      preparation's R2 record,
-      `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
-      (look for `unusable` on the designer entry). A preparation also writes
-      no `edit_traces` row.
+    - **The refused-correction explanation for job 996afba7 is UNCONFIRMED.**
+      No authorized read path reaches R2
+      `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`:
+      no owner route, not Supabase, no R2 credentials here. The owner can open
+      it free in the Cloudflare dashboard, or a read route or canary box could
+      be added (a product change).
+    - **Correction reuse: a safe design is ready**
+      (`docs/history/2026-10-13-correction-reuse-design.md`). It stages a
+      refusal's facts, never its answer, and keeps exact-input matching and
+      the job's own validation. It changes the scope of `readPrepared`'s
+      "gives it to nobody" and validation-scheduling §1 (pinned by VA 0–5 and
+      UA 0–6). The owner's decision; not built.
     - **Isolation is unverified live.** `acc-isolation-page` (prepared, not
-      pressed, not in the opt-in) judges it in either order; it is
-      router-dependent only in whether the message is split. About 12–26
-      credits.
-    - **The markings are not inspectable.** The minimal per-call record is
-      specified (name, marker count, rule present, unmarked other-part spans,
-      replayed or asked); not built.
+      pressed) now judges marks plus per-job versions. Only an
+      Add-on-first run discriminates; an edit-first pass is recorded as
+      consistent only. It needs a deploy (`worker.js` changed) and the
+      owner's approval.
     - **Other strippers still use `<[^>]+>`**: `visible`
-      (`scripts/canary-additions.mjs`, which feeds served "says" checks),
-      `addon-sweep`, `gap-sweep`, `lane-sweep` and `edit-canary`.
-    - **The balance opt-in still names `acc-isolation`**, a closed run;
-      emptying it is the owner's call.
+      (`scripts/canary-additions.mjs`), `addon-sweep`, `gap-sweep`,
+      `lane-sweep` and `edit-canary`.
     - **The Add-on's coverage judge** called run 141's collapsed answer
-      "unseen" (`coverage:states unseen 1`). The reply said "I can't see
-      whether…" although the answer was there.
+      "unseen".
   - **Still separate gaps**: concurrency inside one Add-on, the
     missing-context clarification (`acc-needs`), and the image-free first
     Build.

@@ -51,6 +51,7 @@
 import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS } from "./site-ask.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
+import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
 import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope, addonScope } from "./request-plan.mjs";
 
@@ -1571,7 +1572,11 @@ export function readPrepStep(step) {
   // `calls` ARE MODEL CALLS MADE (2026-10-11); answers replayed from an earlier
   // attempt are kept apart (`replayed`), so a step that only replayed is never
   // read as model work done beside another job.
-  return { from, to, calls, ...(Number.isInteger(replayed) && replayed > 0 ? { replayed } : {}) };
+  // WHAT EACH CALL WAS SHOWN OF THE OTHER PARTS (2026-10-13, `partMarks`):
+  // kept only when it reads; a list that does not read is left out, never
+  // reported as "no markings".
+  const marks = Object.hasOwn(step, "marks") ? readMarks(step.marks) : null;
+  return { from, to, calls, ...(Number.isInteger(replayed) && replayed > 0 ? { replayed } : {}), ...(marks ? { marks } : {}) };
 }
 
 /**
@@ -2094,7 +2099,9 @@ function prepUseOf(p, prepUse) {
       // `scoped` and `needs` (2026-10-11): what the step was shown, and how
       // often the model's own answer said it needed more; absent on evidence
       // written before them, and then null — never 0.
-      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh), scoped: n(u.scoped), needs: n(u.needs) });
+      // `marks` (2026-10-13): each call's `partMarks`, replayed or made now;
+      // null when absent or unreadable — unknown, never "none".
+      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh), scoped: n(u.scoped), needs: n(u.needs), marks: Object.hasOwn(u, "marks") ? readMarks(u.marks) : null });
     } else out.push({ job: j.id, known: false });
   }
   return out;

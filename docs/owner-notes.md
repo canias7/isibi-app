@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: run 141's remaining issues investigated free — reader fixed, Add-on scope count fixed, no scoping defect, reuse cause inferred, isolation check prepared; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: evidence work finished offline — per-call task markings built, isolation verdict corrected, correction-reuse design ready, opt-in closed; run 141's preparation record unreadable, cause unconfirmed; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,70 +8,68 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is unchanged**: deploy 2198 (`main` `64f17488`, image
-  `eda28cb21064287d`, image purchases on), runtime-confirmed by run 142.
-  **Balance 860.** Run 141 stays closed.
-- **This round (free; the branch only; commits and CI below)**,
-  `docs/history/2026-10-12-run141-followup.md`:
-  - **Fixed: the served-section reader.** A `>` inside a quoted attribute no
-    longer ends a tag. Run 141's saved page now reads as one section, and
-    every check passes.
-  - **No scoping defect.** On run 141's own site, in run 141's order:
-    - a change to another page (`/gallery`) leaves every prepared Add-on
-      answer reusable (3 replayed, 0 fresh);
-    - a change to the Add-on's own page invalidates only the writer, which
-      reads that page.
-    - Reuse is by exact request fingerprint, and there is no staleness test.
-      The backlog's "judged stale" guess was wrong.
-  - **Why job 996afba7 replayed 1 and asked 3: inferred, not observed.**
-    - The preparation recorded 5 calls and the job made 4.
-    - The one explanation that fits every number: the preparation's first
-      designer answer was refused and corrected. A refused answer is never
-      replayed, so the job asked the designer again, and the new answer
-      changed the judge's and the writer's inputs.
-    - Reproduced offline (R141 3).
-    - **To confirm it, free**: open R2
-      `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
-      in the Cloudflare dashboard and look for `unusable` on the designer
-      entry. This session cannot read R2, and preparations write no trace.
-  - **Necessary vs too broad.** Not using the refused answer, and re-asking
-    what depends on a new answer, are necessary. The prepared *correction*
-    (paid by us) is unreachable, which is too broad.
-    - A safe fix is possible: a refused answer would only ever reach its own
-      validator again.
-    - **Not implemented**: it reopens the reviewed rule (VA 0–5).
-    - **Your decision.**
-  - **Fixed: an Add-on job always reported `scoped 0`.** It now counts each
-    call made under the part's page scope.
-  - **Prepared: `acc-isolation-page`**, an isolation check that does not
-    depend on which part runs first (not pressed, not in the opt-in, about
-    12–26 credits).
-    - On the Bake List: a questions section beside an edit appending
-      " — sent every Friday" to the heading "Join the weekly bake list".
-    - A stray application leaves the phrase twice, or the edit part with
-      nothing to do, in either order.
-    - Any other split is recorded as not exercised.
-  - **Specified, not built: the minimal evidence that the model saw the
-    markings.** Per model call: its name, how many `⟦ANOTHER PART⟧`
-    markings it carried, whether the rule sentence was there, how many other
-    parts' words appeared unmarked (must be 0), and whether it was replayed.
-    No prompt text.
-- **Commit `1bf174fa`** (code, tests and records).
-  - Full suite: `10718 / 10718 / 0 / 0` locally.
-  - CI: unit tests run 38326266112, `10718 / 10674 / 0 / 44 skipped` (the
-    totals match); site build run 38326265984, success.
-  - Image prediction: `eda28cb21064287d` → `e665bbe43200079e` (205 inputs;
-    `worker.js` is an input).
-  - Nothing merged, deployed or built.
+  `eda28cb21064287d`, image purchases on). **Balance 860.** Run 141 stays
+  closed.
+- **Kept from the last round**: the reader fix and the Add-on's `scoped`
+  count (`1bf174fa`).
+- **This round (free; the branch only)**,
+  `docs/history/2026-10-13-evidence-round.md`. Commits and CI are in the
+  dated entry.
+  - **Run 141's preparation record: no authorized read path.** None of these
+    reach R2: the owner routes, Supabase, or this session (no R2
+    credentials). **The refused-correction explanation stays UNCONFIRMED.**
+    You can open
+    `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
+    free in the Cloudflare dashboard (R2, sites bucket) and look for
+    `unusable`.
+  - **Built: per-call task markings, preparations included.** Each model call
+    of a part records:
+    - its tool name;
+    - how many other-part spans it carried, marked;
+    - whether the rule sentence was there;
+    - how many times other parts' words appeared unmarked (must be 0);
+    - the done count.
+
+    Numbers only, never prompts. They are served on the request view for the
+    preparation (`prepRun.step.marks`) and for each job (`prepUse[].marks`).
+    On run 141's own site, offline, every call (preparation, Add-on job, text
+    job) was clean.
+  - **Corrected: the isolation verdict.** As you said, a model may leave an
+    already-appended phrase alone, so duplicates prove nothing. The verdict
+    now needs three things:
+    - clean marks on every call;
+    - the page read as each job finished, giving three distinct versions in
+      order;
+    - the Add-on's own version leaving the heading untouched, and the edit's
+      own version making the change.
+
+    **Only an Add-on-first run proves isolation** ("discriminating"). An
+    edit-first pass is "consistent" and is stated as not proven. Why the
+    model held back is never observable.
+  - **Ready for your decision: correction reuse**
+    (`docs/history/2026-10-13-correction-reuse-design.md`).
+    - The refused answer stays exactly as unreachable as now.
+    - Only the refusal's facts are staged: reason, exact feedback, superseded
+      requirements, and a digest of the cleaner's input.
+    - A job whose final request and cleaner input match exactly skips to the
+      recorded correction, which is still exactly matched and still
+      validated before publication.
+    - **The rule it changes**: `readPrepared`'s "gives it to nobody" and
+      validation-scheduling §1 (VA 0–5, UA 0–6). Not built.
+  - **Closed: the old spending opt-in.** It admits no press, `acc-isolation`
+    included.
+- **No paid run is proposed yet.** `acc-isolation-page` is prepared but
+  unpressed. Pressing it would need a merge and deploy (with a new image,
+  since `worker.js` changed), a free runtime check, and your approval of the
+  spend. It discriminates only if the router runs the Add-on first.
 - **Open** (`docs/backlog.md`, first item):
-  - your decision on the refused-correction fix;
-  - the free R2 read;
-  - isolation live (`acc-isolation-page`, needs your approval and a deploy);
-  - the per-call marking record;
+  - the R2 read;
+  - your decision on correction reuse;
+  - isolation live;
   - the other `<[^>]+>` strippers;
-  - the balance opt-in still naming the closed `acc-isolation`;
   - the coverage judge calling a collapsed answer "unseen";
-  - concurrency inside one Add-on, the missing-context clarification, and
-    the image-free first Build.
+  - concurrency inside one Add-on, the missing-context clarification, and the
+    image-free first Build.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -942,6 +940,30 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Evidence work finished offline: task markings, a corrected isolation check, a correction-reuse design, the opt-in closed (nothing spent, merged or deployed)
+
+**Run 141's preparation record.** I could not find any authorized way to read
+it from here: no owner route serves it, it isn't in Supabase, and this session
+has no R2 access. So the "refused first design" explanation stays unconfirmed.
+You can look at it free in the Cloudflare dashboard.
+
+**Per-call records.** Every model call of a request part, including a
+preparation's, now records whether the other parts' words came only marked,
+with the rule beside them. These are counts and a name, never the prompt. On
+your bakery's pages, offline, every call was clean.
+
+**The isolation check, as you said.** A duplicate-free page proves nothing,
+because a model may simply leave an already-added phrase alone. The check now
+combines what each call was shown with what each job's own published version
+changed, reading the page as each job finishes. It only claims proof when the
+Add-on ran before the edit; otherwise it says "consistent, not proven".
+
+**Correction reuse.** I wrote a design that lets a job reach a correction its
+preparation already paid for, without ever letting the refused answer near a
+page. It needs the 2026-10-11 rule's scope amended, so it's your call.
+
+**The old spending opt-in is closed.**
 
 ## 2026-10-13 — Run 141's remaining issues, investigated together (free; nothing spent, merged or deployed)
 

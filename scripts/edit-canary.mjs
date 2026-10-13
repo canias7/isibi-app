@@ -137,7 +137,7 @@ const UI = String(process.env.CANARY_UI || "").trim();
 // named, and answers the batch's exit code. Its box beside any other run is
 // refused, as every mode's box is.
 if (batchOf(UI) && String(process.env.CANARY_ACCEPT_BALANCE || "").trim()) {
-  console.error(`REFUSING: the acceptance balance box is only for ${BALANCE_OPT_IN.join(", ")}, not the request batch. Nothing was signed in or charged.`);
+  console.error(`REFUSING: the acceptance balance box ${BALANCE_OPT_IN.length ? "is only for " + BALANCE_OPT_IN.join(", ") + ", not the request batch" : "is closed"}. Nothing was signed in or charged.`);
   process.exit(2);
 }
 if (batchOf(UI)) process.exit(await runBatchMain(process.env));
@@ -1400,7 +1400,7 @@ if (UI_ASK) {
         before: { ...BEFORE, complete: BEFORE.readsComplete === true },
         after: after ? { ...after, complete: after.readsComplete === true } : null,
         served, beforeServed, servedOpen, beforeServedOpen, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
-        frameLoads: ui.frameLoads || [], photos,
+        frameLoads: ui.frameLoads || [], photos, between: ui.between || [],
       });
       requests.logo = logo;
       requests.photos = photos;

@@ -1976,17 +1976,19 @@ export function capRefusal({ now, cap }) {
  * IT IS NOT A BUDGET: the server still refuses only what the balance cannot
  * cover, so a press run under it can spend up to that whole balance.
  */
-// THE ISOLATION RELEASE (2026-10-12, the owner: "Approve the proposed
-// task-isolation release and one acc-isolation run … restrict the spending
-// opt-in to this case"): the box admits `acc-isolation` alone. The K0/K/E/M0/M
-// batch that it admitted before is done and closed, as are P1/P2.
-export const BALANCE_OPT_IN = Object.freeze(["acc-isolation"]);
+// CLOSED (2026-10-13, the owner: "Close the old spending opt-in"). It last
+// admitted `acc-isolation` alone, for the isolation release's one press (run
+// 141, done and closed); before that the K0/K/E/M0/M batch and P1/P2, all
+// closed. It admits no press now: every press is bound by its cap until the
+// owner names a new one.
+export const BALANCE_OPT_IN = Object.freeze([]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return { ok: true, value: null, press: "" };
   if (!/^[1-9][0-9]{0,6}$/.test(s)) return { ok: false, msg: `the balance box takes the account's balance in whole credits (e.g. 971), not "${s}"` };
   const named = [probes, ui].map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean);
+  if (!BALANCE_OPT_IN.length) return { ok: false, msg: "the balance box is closed: no press may run above its cap until the owner names one" };
   if (named.length !== 1 || !BALANCE_OPT_IN.includes(named[0])) {
     return { ok: false, msg: `the balance box is only for ${BALANCE_OPT_IN.join(", ")}, one at a time; this press names ${named.length ? named.join(" and ") : "none of them"}` };
   }
@@ -3438,6 +3440,8 @@ export async function runUi(opts) {
     // the visitor route's read and the owner route's PATCH — and the site's
     // origin, where the page a visitor sees it on lives.
     rows = null, siteOrigin = "", shownMs = 45_000,
+    // HOW THE SITE ITSELF IS READ between jobs (`rec.between`): the platform's fetch.
+    fetchSite = (...a) => globalThis.fetch(...a),
     // THE OWNER'S OPT-IN ABOVE THE CAP (`readBalanceOptIn`): the balance, in
     // whole credits, this press may run against in place of the acceptance
     // cap. Only a scenario bound by `ACCEPTANCE_CAP` takes it; null, the cap
@@ -3567,6 +3571,27 @@ export async function runUi(opts) {
   // run's first tab is 1, a tab opened after a closed-tab message 2).
   const siteHost = (() => { try { return siteOrigin ? new URL(siteOrigin).origin : ""; } catch { return ""; } })();
   rec.frameLoads = [];
+  // EACH JOB'S OWN PUBLISHED PAGE (2026-10-13, after run 141): for a scenario
+  // that judges isolation, the page it names is read as served — with the
+  // version that served it — the moment each run job's final answer is seen,
+  // so what each job changed is read from its own version, not inferred from
+  // the end state. Read once per job; every read is awaited before the run's
+  // record is handed back.
+  rec.between = [];
+  const isoRoute = scenario && scenario.expect && scenario.expect.isolation && typeof scenario.expect.isolation.route === "string" ? scenario.expect.isolation.route : "";
+  const betweenSeen = new Set();
+  const betweenPending = [];
+  const readBetween = (job) => {
+    if (!isoRoute || !siteOrigin || betweenSeen.has(job)) return;
+    betweenSeen.add(job);
+    const ms = Date.now() - t0;
+    betweenPending.push((async () => {
+      try {
+        const x = await fetchSite(String(siteOrigin).replace(/\/$/, "") + isoRoute, { headers: { "cache-control": "no-cache" } });
+        rec.between.push({ job, ms, status: x.status, version: String((x.headers && x.headers.get && x.headers.get("x-site-version")) || ""), html: await x.text() });
+      } catch (e) { rec.between.push({ job, ms, status: 0, version: "", why: String((e && e.message) || e).slice(0, 200) }); }
+    })());
+  };
   let tabsWatched = 0;
   const watch = (pg) => {
     const tab = ++tabsWatched;
@@ -3583,7 +3608,11 @@ export async function runUi(opts) {
       if (!url.startsWith(origin + "/api/")) return;
       const u = new URL(url);
       const e = { ms: Date.now() - t0, method: req.method(), path: u.pathname + u.search, status: res.status() };
-      if (res.headers()["x-gf-edit"] === "final") e.final = true;
+      if (res.headers()["x-gf-edit"] === "final") {
+        e.final = true;
+        const jm = /^\/api\/site\/edit\/([A-Za-z0-9_-]{1,64})$/.exec(u.pathname);
+        if (jm && req.method() === "GET") readBetween(jm[1]);
+      }
       if (recordsBody(req.method(), u.pathname)) {
         if (req.method() === "POST") e.req = recordableRequest(req.postData());
         // A poll is recorded in full only when it is the answer; every other
@@ -4408,6 +4437,8 @@ export async function runUi(opts) {
         log(`  rules: ${rec.rules.closing.ok ? "closed by " + rec.rules.closing.method : "NOT CLOSED"}; booking ${rec.rules.bookingVerdict ? rec.rules.bookingVerdict.verdict.toUpperCase() : "not submitted"}; rows ${rec.rules.insertion.readable ? (rec.rules.insertion.ok ? "none added" : rec.rules.insertion.why) : "UNREADABLE"}`);
       }
     }
+    // EVERY READ BETWEEN JOBS IS IN BEFORE THE RECORD IS HANDED BACK.
+    await Promise.allSettled(betweenPending);
     rec.balance.end = await balanceNow();
     rec.balance.endAt = new Date().toISOString();
     return rec;

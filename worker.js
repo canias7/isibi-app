@@ -45,7 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
-import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply } from "./builder/prepared.mjs";
+import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT } from "./builder/prepared.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
@@ -18436,7 +18436,7 @@ function prepAttempt(env, { slug, key, n, seq, owner, prev }) {
     const r = recorder();
     if (name === "run") r.images.push(...live.run.images);
     return {
-      calls: r.calls, images: r.images, part: { slug, key, n },
+      calls: r.calls, images: r.images, marks: r.marks, part: { slug, key, n },
       // A PICTURE AN EARLIER ATTEMPT BOUGHT sits in the owner's uploads; hidden
       // from this attempt's library listing, as the part's job hides a
       // preparation's, so the listing is the one that attempt was asked with.
@@ -18527,7 +18527,7 @@ async function runRequestPrep(env, ctx, task) {
     const p = rec.parts[n];
     let outcome = "error";
     let work = rec;
-    let stepAt = null, stepEnd = null;
+    let stepAt = null, stepEnd = null, stepMarks = null;
     if (prevUnreadable) {
       // WHAT THE ATTEMPT BEFORE DID CANNOT BE READ: this attempt makes no call
       // and buys nothing. It ends `uncertain`, naming that attempt, and the
@@ -18560,6 +18560,8 @@ async function runRequestPrep(env, ctx, task) {
         const designFirst = planDesignOnly(work.parts || [], n, (q) => REQ_PART_TERMINAL.includes(q.status));
         const r = await replayPrepared(env, ctx, rec, url, body, runPhase, { beside, designOnly: designFirst });
         stepEnd = Date.now();
+        // WHAT EACH OF THE STEP'S CALLS WAS SHOWN OF THE OTHER PARTS (2026-10-13): numbers only.
+        stepMarks = runPhase.marks.slice();
         // EVERY PICTURE THIS ATTEMPT HAS, bought now or reused from the one before.
         A.live.run.images = runPhase.images.slice();
         const b = r.body || {};
@@ -18583,7 +18585,7 @@ async function runRequestPrep(env, ctx, task) {
       // THE STEP'S MODEL CALLS, NOT ITS ANSWERS (2026-10-11): an answer replayed
       // from the attempt before was asked of no model now, and is counted apart.
       const replayed = A.replayedRun();
-      const step = stepAt !== null && stepEnd !== null ? { from: stepAt, to: stepEnd, calls: Math.max(0, kept.run.calls.length - replayed), ...(replayed > 0 ? { replayed } : {}) } : null;
+      const step = stepAt !== null && stepEnd !== null ? { from: stepAt, to: stepEnd, calls: Math.max(0, kept.run.calls.length - replayed), ...(replayed > 0 ? { replayed } : {}), ...(stepMarks ? { marks: stepMarks } : {}) } : null;
       const { record, kept: mine } = notePrepared(at.rec, n, seq, { ok, outcome, key: stored ? A.pk : null, calls, images, owner, step });
       // NOT OURS ANY MORE (taken again after our time ran out): a later
       // attempt's result is never replaced by this one.
@@ -18942,12 +18944,12 @@ async function readHeldIn(env, id, from) {
  * Written for every request job, staged or not, from the replayer's own
  * counts. Never throws.
  */
-async function keepPrepUse(env, id, used, staged, seen = {}) {
+async function keepPrepUse(env, id, used, staged, seen = {}, marks = null) {
   try {
     const u = used && typeof used === "object" ? used : {};
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
     const sc = seen && typeof seen === "object" ? seen : {};
-    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 3, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), scoped: n(sc.scoped), needs: n(sc.needs), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 3, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), scoped: n(sc.scoped), needs: n(sc.needs), ...(Array.isArray(marks) ? { marks: marks.slice(0, MARKS_KEPT) } : {}), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: could not keep the preparation's use for", id, errorClassForLog(e)); }
 }
 /**
@@ -18966,7 +18968,7 @@ async function prepUseForRequest(env, rec) {
         const o = await env.SITES_BUCKET.get(prepUseKey(j.id));
         if (!o) continue;
         const v = JSON.parse(await o.text());
-        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh, scoped: v.scoped, needs: v.needs };
+        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh, scoped: v.scoped, needs: v.needs, ...(Object.hasOwn(v, "marks") ? { marks: v.marks } : {}) };
       } catch { /* unread: unknown, never guessed */ }
     }
   }
@@ -19911,7 +19913,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // staged for, and every request job (`staged` says which). IN THE
       // FINALLY (round 4): a handler that throws after a scoped answer said
       // `needs` still leaves that answer's evidence behind.
-      if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 });
+      if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 }, typeof jctx.replay.marks === "function" ? jctx.replay.marks() : null);
       // …AND EVERY ANSWER IT GOT (2026-10-11): durable before the job's end is
       // recorded, so a question it ended on can be answered after a restart
       // and the part's next job still replays what this one finished.
