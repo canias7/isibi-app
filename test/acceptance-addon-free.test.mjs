@@ -26,7 +26,7 @@ import { addonDesignOverlap, readJobRecords, describeJob, SIBLING_READ_LIMIT } f
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
-const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation"];
+const NEW = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation", "acc-isolation-page"];
 // THE MESSAGES P1 (run 128) ROUTED, in acceptance-split-1; acc-addon-kinds was
 // written after it and is probed alone, in acceptance-split-2.
 const P1_PROBED = ["acc-addon-inner", "acc-addon-edit", "acc-addon-pair"];

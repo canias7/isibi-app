@@ -35,6 +35,14 @@ section; `docs/deploy-record.md` 2197 and 2198):
   runtime-confirmed by run 142 (`imagePurchases=true`, balance 860).
 - Build flags and limits untouched. No further paid tests.
 
+**Follow-up (2026-10-13, free)**, `docs/history/2026-10-12-run141-followup.md`:
+- the reader is fixed;
+- there is no scoping defect;
+- the reuse cause is inferred, as a refused prepared design;
+- the Add-on's `scoped` count is fixed;
+- `acc-isolation-page` is prepared (not pressed), to judge isolation in
+  either order.
+
 The proposal as approved follows.
 
 

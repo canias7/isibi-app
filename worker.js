@@ -34220,7 +34220,13 @@ async function handleRequest(request, env, ctx) {
               const reach = what === "pick_adds" ? [] : kind ? ["add:" + kind, ...((aWaitsLive()[kind]) || []).map((w) => "add:" + w)] : null;
               return reach === null ? aCtxShown : aCtxShown.filter((p) => !p.by || reach.includes(p.by));
             };
-            const aQuick = (what = "") => clarifyTransport(jobSend(aJob, quickSend(env, what, aJob && aJob.budget)), {
+            // A CALL MADE UNDER THE PART'S PAGE SCOPE, COUNTED ON ITS JOB
+            // (2026-10-12, run 141): the edit steps' `noteSeen`, so an Add-on
+            // shown only its pages reports `scoped` as they do — it said 0 for
+            // every Add-on, scoped or not. Set where the scope is read.
+            let aScoped = false;
+            const aCounted = (send) => async (req) => { if (aScoped) noteSeen(aJob, "scope"); return send(req); };
+            const aQuick = (what = "") => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget))), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
               part: aPartShown,
@@ -34570,6 +34576,7 @@ async function handleRequest(request, env, ctx) {
             // import, and whatever this change itself declares (`own`).
             const aViewTsx = (tsx, own) => (!aScope ? tsx : (Array.isArray(tsx) ? tsx : []).filter((t) => t && (aViewUses.includes(aNameKey(t.name)) || (own && own(t)))));
             if (aScope) aMark("scope", "pages", { pages: aScope.length, shown: aView.length, parts: aViewParts ? aViewParts.length : null });
+            aScoped = !!aScope;
             // THE NAMES AND PAGES ARE ARGUMENTS (2026-10-11), so a designer can be
             // shown the site with only the results it uses (`aSiteFor`, below).
             const aLabelsAt = (() => {
@@ -37394,6 +37401,8 @@ async function handleRequest(request, env, ctx) {
               // job's, against the pages as they then are. The picker's and
               // designers' answers are recorded; nothing is written.
               if (aPrep && aJob.designOnly === true) return aPrepStop();
+              // THE WRITER SHOWN ONLY THE PART'S PAGES (not widened) is a scoped call too.
+              if (aWriterScoped) noteSeen(aJob, "scope");
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,

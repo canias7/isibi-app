@@ -1,0 +1,21 @@
+JOB 996afba7dc47cd9e42fa85a8fc3cfd8b
+  slug        fold-lane-bakery   op addon
+  state       done
+  created     2026-10-12T23:07:03.628938+00:00
+  updated     2026-10-12T23:10:47.305895+00:00
+  publish     started 2026-10-12T23:10:36.434031+00:00   published 2026-10-12T23:10:38.871343+00:00
+  lease       owner c_xvcyww3d  expires 2026-10-12T23:12:07.677742+00:00  beat 2026-10-12T23:10:37.677742+00:00
+  billing     finalized  cost 7  ->  the edit was CHARGED and the charge stands
+  result      status 200 type application/json
+  body        {"ok":true,"kinds":["component"],"skipped":[],"coverNote":"I can't see from here whether The Bake List page shows a short questions section answering when the list is updated with Every Monday morning. — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.","requirementsTold":[{"need":"The Bake List page shows a short questions section answering when the list is updated with Every Monday morning.","told":"unseen","state":"unknown"}],"coverage":{"total":1,"covered":1,"elsewhere":0,"unsupported":0,"unreadable":0},"backend":"ready","added":[],"changed":["bake-list.tsx"],"removed":[],"kept":[],"reverted":[],"moved":[],"photos":0,"listPhotos":0,"tables":
+  old watch   the stored reply is 200 — the old watch WOULD have ended on it
+  LEDGER      charged 7, with no refund
+    2026-10-12T23:08:37.590818+00:00  edit  reserve  delta -7  after 860  ref 996afba7dc47cd9e42fa85a8fc3cfd8b#1
+  poll        HTTP 200  x-gf-edit: final
+  REPLY       WRITTEN by the model: "⚠️ I updated the Bake List page. I can’t see whether it now has a short questions section answering when the list is updated with Every Monday morning."
+  trace e_mv5v3kem0ddgzdy0  ended 2026-10-12T23:10:46.217+00:00  ms 218299  ok true  failed_phase -
+    events    run:ok@0 scope:?@1972 pick_adds:start@2025 pick_adds:ok@2031 add:component:start@2296 add:component:ok@20871 judge:final:ok@31748 coverage:ok@32050 coverage:states:ok@32050 coverage:unbuilt:ok@32050 pages:start@32076 pages:ok@89461 kept:ok@89491 landed:ok@89492 pics:ok@89681 publish:1:start@89797 container:start@196677 container:ok@196702 seam:start@196702 repair:start@196763 repair:?@196764 seam:ok@196764 compose:start@196764 compose:ok@197177 stage:start@197177 stage:ok@208353 publish:gate:ok@208506 activate:start@208593 worker:put:start@209748 worker:put:ok@210792 commit:ok@211086 r2:source:start@211086 r2:source:ok@211565 r2:landmarks:start@211565 r2:landmarks:ok@211565 r2:head:ok@211769 activate:ok@211769 prune:start@211769 prune:ok@216860 publish:1:ok@216861
+  DESIGNERS   candidate-only — 2 other job(s) on the site ran while that trace ran (1a7fc32346af48cbe8932dcdb80c94ce, c5f97298d311dda70d901989d1489e2b) — it cannot be tied to this job
+    intervals e_mv5v3kem0ddgzdy0 (2026-10-12T23:07:07.918Z–2026-10-12T23:10:46.217Z): component 2296-20871
+  note: edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join
+  note: the submitted instruction is stored in R2 at editJobKey(<job>) and is NOT reachable from here — it would need a new owner route, which is a product change

@@ -1,0 +1,23 @@
+JOB 1a7fc32346af48cbe8932dcdb80c94ce
+  slug        fold-lane-bakery   op edit
+  state       done
+  created     2026-10-12T23:03:06.055589+00:00
+  updated     2026-10-12T23:06:08.03126+00:00
+  publish     started 2026-10-12T23:05:58.174784+00:00   published 2026-10-12T23:06:00.804184+00:00
+  lease       owner c_9wc9idfm  expires 2026-10-12T23:10:58.174784+00:00  beat 2026-10-12T23:05:58.174784+00:00
+  billing     finalized  cost 3  ->  the edit was CHARGED and the charge stands
+  result      status 200 type application/json
+  body        {"ok":true,"layer":"text","layers":["text"],"lanes":[],"moved":[],"changed":["Fresh from our ovens"],"files":38,"cost":3,"usage":{"langUsage":[{"in":8736,"out":31,"cacheRead":0,"cacheWrite":0,"model":"grok-4.6"},{"ok":true,"deferred":true}]},"photos":0,"applied":1,"deferred":"Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.'","replyFor":{"kind":"edit","request":"Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs straight from our ovens' to 'Fresh from our ovens'.","answers":[],"picker":"grok","routedCost":3,"
+  old watch   the stored reply is 200 — the old watch WOULD have ended on it
+  LEDGER      charged 3, with no refund
+    2026-10-12T23:03:49.18912+00:00  edit  reserve  delta -3  after 870  ref 1a7fc32346af48cbe8932dcdb80c94ce#1
+  poll        HTTP 200  x-gf-edit: final
+  REPLY       WRITTEN by the model: "The Gallery page heading now reads “Fresh from our ovens”.\n\nAdding a short questions section to the Bake List page answering “When is the list updated?” with “Every Monday morning.” comes next — it hasn’t run yet."
+  trace e_mv5uz57bd9udb105  ended 2026-10-12T23:06:07.013+00:00  ms 145422  ok true  failed_phase -
+    events    run:ok@0 publish:1:start@7618 container:start@124509 container:ok@124601 compose:start@124602 compose:ok@125148 stage:start@125148 stage:ok@136430 publish:gate:ok@136581 activate:start@136684 worker:put:start@138002 worker:put:ok@139058 commit:ok@139357 r2:source:start@139357 r2:source:ok@140198 r2:landmarks:start@140198 r2:landmarks:ok@140199 r2:head:ok@140431 activate:ok@140432 prune:start@140432 prune:ok@145411 publish:1:ok@145412
+  trace e_mv5v3kem0ddgzdy0  ended 2026-10-12T23:10:46.217+00:00  ms 218299  ok true  failed_phase -
+    events    run:ok@0 scope:?@1972 pick_adds:start@2025 pick_adds:ok@2031 add:component:start@2296 add:component:ok@20871 judge:final:ok@31748 coverage:ok@32050 coverage:states:ok@32050 coverage:unbuilt:ok@32050 pages:start@32076 pages:ok@89461 kept:ok@89491 landed:ok@89492 pics:ok@89681 publish:1:start@89797 container:start@196677 container:ok@196702 seam:start@196702 repair:start@196763 repair:?@196764 seam:ok@196764 compose:start@196764 compose:ok@197177 stage:start@197177 stage:ok@208353 publish:gate:ok@208506 activate:start@208593 worker:put:start@209748 worker:put:ok@210792 commit:ok@211086 r2:source:start@211086 r2:source:ok@211565 r2:landmarks:start@211565 r2:landmarks:ok@211565 r2:head:ok@211769 activate:ok@211769 prune:start@211769 prune:ok@216860 publish:1:ok@216861
+  DESIGNERS   candidate-only — 2 other job(s) on the site ran while that trace ran (c5f97298d311dda70d901989d1489e2b, 996afba7dc47cd9e42fa85a8fc3cfd8b) — it cannot be tied to this job
+    intervals e_mv5uz57bd9udb105 (2026-10-12T23:03:41.591Z–2026-10-12T23:06:07.013Z): no designer; e_mv5v3kem0ddgzdy0 (2026-10-12T23:07:07.918Z–2026-10-12T23:10:46.217Z): component 2296-20871
+  note: edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join
+  note: the submitted instruction is stored in R2 at editJobKey(<job>) and is NOT reachable from here — it would need a new owner route, which is a product change

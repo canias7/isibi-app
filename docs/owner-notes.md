@@ -1,46 +1,72 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-12: the isolation release deployed and checked once — run 141, 16 credits; both parts in scope, isolation unverified, reuse failed; image purchases back on; stopped)
+## Current handoff — read this first (2026-10-13: run 141's remaining issues investigated free — reader fixed, Add-on scope count fixed, no scoping defect, reuse cause inferred, isolation check prepared; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is deploy 2198** (`main` `64f17488`, image
-  `eda28cb21064287d`, image purchases on), runtime-confirmed by run 142
-  (free, 23:17 UTC: both readers `64f174884cf7`, cold container
-  `eda28cb21064287d`, `imagePurchases=true`). **Balance 860.** Build flags
-  and limits untouched.
-- **The isolation release** (your approval): deploy 2197 merged
-  `df1dcf30` → `64f17488` and built `1e30b6fb56b51794` →
-  `eda28cb21064287d`, with image purchases off; run 140 confirmed it
-  (`imagePurchases=false`, balance 876).
-- **Run 141, `acc-isolation`, pressed once** (16 credits, exact, 876 → 860):
-  - routing `edit/text` (3): the Gallery heading first, the Bake List
-    addition held back as part 1;
-  - part 0 (`text`, 3): the heading reads "Fresh from our ovens",
-    published `ydw4ui`;
-  - part 1 (`addon`, routed 3, done 7): one questions section on
-    `/bake-list` ("When is the list updated?" → "Every Monday morning."),
-    `kept` passed, published `bt5fdp`;
-  - nothing else changed; no charge twice.
-  - **Served-section FAIL: a checker bug.** A `>` inside a class attribute
-    leaks into the reader; re-judged offline, one section, all ok.
-  - **Reuse FAIL: real.** The Add-on's preparation overlapped part 0 by
-    130.3 s but its job replayed 1 answer and asked 3 again. Cause not
-    verified (likely judged stale after the Gallery publish).
-  - **Isolation: unverified.** The router ran the heading first, so the
-    Add-on could not repeat run 137's stray rewrite. Not retried, as you
-    said.
-  - **The other-part markings cannot be inspected**: traces keep events,
-    not prompts.
-- **Restored**: image purchases on (deploy 2198, image reused), run 142.
-- **Open** (`docs/backlog.md`, first item): the checker fix, the reuse
-  investigation (free), a way to exercise isolation live, and the
-  remaining gaps — concurrency inside one Add-on, the missing-context
-  clarification, the image-free first Build.
-- **Stopped.** No further paid tests; nothing else merged or deployed.
+- **Production is unchanged**: deploy 2198 (`main` `64f17488`, image
+  `eda28cb21064287d`, image purchases on), runtime-confirmed by run 142.
+  **Balance 860.** Run 141 stays closed.
+- **This round (free; the branch only; commits and CI below)**,
+  `docs/history/2026-10-12-run141-followup.md`:
+  - **Fixed: the served-section reader.** A `>` inside a quoted attribute no
+    longer ends a tag. Run 141's saved page now reads as one section, and
+    every check passes.
+  - **No scoping defect.** On run 141's own site, in run 141's order:
+    - a change to another page (`/gallery`) leaves every prepared Add-on
+      answer reusable (3 replayed, 0 fresh);
+    - a change to the Add-on's own page invalidates only the writer, which
+      reads that page.
+    - Reuse is by exact request fingerprint, and there is no staleness test.
+      The backlog's "judged stale" guess was wrong.
+  - **Why job 996afba7 replayed 1 and asked 3: inferred, not observed.**
+    - The preparation recorded 5 calls and the job made 4.
+    - The one explanation that fits every number: the preparation's first
+      designer answer was refused and corrected. A refused answer is never
+      replayed, so the job asked the designer again, and the new answer
+      changed the judge's and the writer's inputs.
+    - Reproduced offline (R141 3).
+    - **To confirm it, free**: open R2
+      `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
+      in the Cloudflare dashboard and look for `unusable` on the designer
+      entry. This session cannot read R2, and preparations write no trace.
+  - **Necessary vs too broad.** Not using the refused answer, and re-asking
+    what depends on a new answer, are necessary. The prepared *correction*
+    (paid by us) is unreachable, which is too broad.
+    - A safe fix is possible: a refused answer would only ever reach its own
+      validator again.
+    - **Not implemented**: it reopens the reviewed rule (VA 0–5).
+    - **Your decision.**
+  - **Fixed: an Add-on job always reported `scoped 0`.** It now counts each
+    call made under the part's page scope.
+  - **Prepared: `acc-isolation-page`**, an isolation check that does not
+    depend on which part runs first (not pressed, not in the opt-in, about
+    12–26 credits).
+    - On the Bake List: a questions section beside an edit appending
+      " — sent every Friday" to the heading "Join the weekly bake list".
+    - A stray application leaves the phrase twice, or the edit part with
+      nothing to do, in either order.
+    - Any other split is recorded as not exercised.
+  - **Specified, not built: the minimal evidence that the model saw the
+    markings.** Per model call: its name, how many `⟦ANOTHER PART⟧`
+    markings it carried, whether the rule sentence was there, how many other
+    parts' words appeared unmarked (must be 0), and whether it was replayed.
+    No prompt text.
+- **Next deploy needs a new image**: `worker.js` is a container input. The
+  prediction is in the dated entry.
+- **Open** (`docs/backlog.md`, first item):
+  - your decision on the refused-correction fix;
+  - the free R2 read;
+  - isolation live (`acc-isolation-page`, needs your approval and a deploy);
+  - the per-call marking record;
+  - the other `<[^>]+>` strippers;
+  - the balance opt-in still naming the closed `acc-isolation`;
+  - the coverage judge calling a collapsed answer "unseen";
+  - concurrency inside one Add-on, the missing-context clarification, and
+    the image-free first Build.
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -911,6 +937,31 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Run 141's remaining issues, investigated together (free; nothing spent, merged or deployed)
+
+Run 141 stays closed.
+- **The served-section failure was my reader's bug, now fixed.** A `>`
+  inside a class name ended a tag early, so one questions section looked like
+  two. On run 141's saved page the section now reads as one and passes.
+- **The reuse failure is not a scoping problem.** I ran run 141's two parts
+  on your bakery's real pages, in the same order:
+  - the Gallery change left every prepared Add-on answer reusable;
+  - a change to the Bake List itself made the page writer ask again, as it
+    should.
+- **The most likely cause of the 1-replayed-3-fresh result** is that the
+  preparation's first design was refused and corrected. A refused answer is
+  never reused, so the job asked again, and everything after it changed. I
+  can't see the preparation's stored record from here. It's in R2 at the
+  path in the handoff, if you want to check it free.
+- **Two decisions are yours**:
+  - whether a prepared correction should be reachable (it would mean
+    revisiting the rule from 2026-10-11);
+  - whether to approve a live isolation check.
+- **I also fixed the Add-on's `scoped` counter**, which always said 0.
+- **I prepared that live isolation check**: an edit appending words to the
+  Bake List heading, beside a questions section on the same page. It is
+  judged the same whichever part runs first.
 
 ## 2026-10-12 — The isolation release deployed and checked once (run 141); image purchases back on
 

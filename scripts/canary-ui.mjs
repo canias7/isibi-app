@@ -1281,6 +1281,41 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add a short questions section to the Bake List page answering 'When is the list updated?' with 'Every Monday morning.' And change the Gallery page heading 'Photographs straight from our ovens' to 'Fresh from our ovens'.", ms: 20 * 60_000 }),
     ]),
   }),
+  // ISOLATION IN EITHER ORDER (2026-10-12, after run 141; prepared, not
+  // pressed, not in the balance opt-in). Run 141 could not show isolation: the
+  // router ran the heading first, so the Add-on wrote on a site where it had
+  // already changed. Here both parts are on the Bake List: an edit APPENDING
+  // words to its heading ("Join the weekly bake list" → "… — sent every
+  // Friday"), beside a questions section. The Add-on's writer is shown that
+  // heading whichever part runs first, with the edit's words marked as another
+  // part's; an append is not idempotent, so a stray application leaves the
+  // words twice, or leaves the edit part nothing to do — both read
+  // (`isolationVerdict`). A split other than one text part and one Add-on part
+  // is not exercised and recorded so (never a pass). Shared page, so the parts
+  // run in turn: no overlap or reuse is asked. The Bake List already answers
+  // "When is the list updated?" (run 141); this asks a different question and
+  // names no day, so the only "Friday" on the page is the edit's. ABOUT 12–26:
+  // routing 2–3, the heading 1–3, the Add-on 7–15, its judgment about 1.
+  "acc-isolation-page": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 26, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "look", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/bake-list", from: "Join the weekly bake list", to: "Join the weekly bake list — sent every Friday" })]),
+      sections: Object.freeze([Object.freeze({
+        route: "/bake-list", says: Object.freeze(["STOP"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "you can leave the list", any: Object.freeze(["leave", "unsubscribe", "stop getting", "come off"]) }),
+          Object.freeze({ fact: "by replying STOP", any: Object.freeze(["reply stop", "replying stop", "stop"]) }),
+        ]),
+      })]),
+      isolation: Object.freeze({ route: "/bake-list", edit: "text", phrase: "sent every Friday", after: "Join the weekly bake list" }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a short questions section to the Bake List page answering 'Can I leave the list?' with 'Yes, reply STOP to any note.' And on the Bake List page, add ' — sent every Friday' to the end of the heading 'Join the weekly bake list'.", ms: 20 * 60_000 }),
+    ]),
+  }),
   // B3 — TWO ADD-ON SECTIONS ON TWO PAGES: whether the real router makes one
   // Add-on (expected: one add-on answer can make both, so they are batched)
   // or two parts is recorded (`routingShape`), never demanded, like A5. As
