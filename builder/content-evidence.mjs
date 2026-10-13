@@ -152,15 +152,30 @@ export function visibleTexts(source, parse) {
     }
     return false;
   };
+  // THE COMPONENTS A TEXT SITS INSIDE (2026-10-13): every enclosing element
+  // whose tag is a component, nearest first — so a text two components on one
+  // page added can be told to the one that renders it.
+  const insideOf = (stack) => {
+    const got = [];
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const n = stack[i];
+      const open = n.kind === SK.JsxElement ? n.openingElement : n.kind === SK.JsxSelfClosingElement ? n : null;
+      if (!open || !isComponentTag(open)) continue;
+      const t = open.tagName;
+      const name = String((t && typeof t.getText === "function" ? t.getText() : (t && t.escapedText)) || "");
+      if (name && !got.includes(name)) got.push(name);
+    }
+    return got;
+  };
   const stack = [];
   const walk = (n) => {
     stack.push(n);
     if (n.kind === SK.JsxText) {
       const t = String(n.text || "").replace(/\s+/g, " ").trim();
-      if (t && /\p{L}/u.test(t)) out.push({ text: t, placement: placeOf(stack) });
+      if (t && /\p{L}/u.test(t)) out.push({ text: t, placement: placeOf(stack), inside: insideOf(stack) });
     } else if (n.kind === SK.StringLiteral || n.kind === SK.NoSubstitutionTemplateLiteral) {
       const t = String(n.text || "");
-      if (readable(t) && !skipped(stack)) out.push({ text: t.replace(/\s+/g, " ").trim(), placement: placeOf(stack) });
+      if (readable(t) && !skipped(stack)) out.push({ text: t.replace(/\s+/g, " ").trim(), placement: placeOf(stack), inside: insideOf(stack) });
     }
     each(n, walk);
     stack.pop();
@@ -230,7 +245,7 @@ const maybeOf = (f) => (Array.isArray(f && f.maybeRoutes) ? f.maybeRoutes : []).
 export function addedByRoute({ before = [], after = [], parse = null } = {}) {
   if (typeof parse !== "function") return null;
   const byRoute = new Map();
-  const at = (r) => { if (!byRoute.has(r)) byRoute.set(r, { read: true, added: [], tags: 0 }); return byRoute.get(r); };
+  const at = (r) => { if (!byRoute.has(r)) byRoute.set(r, { read: true, added: [], tags: 0, tagNames: [] }); return byRoute.get(r); };
   const was = new Map();
   for (const f of Array.isArray(before) ? before : []) { const k = fileKey(f); if (k) was.set(k, f); }
   for (const f of Array.isArray(after) ? after : []) {
@@ -250,8 +265,11 @@ export function addedByRoute({ before = [], after = [], parse = null } = {}) {
     for (const r of fresh) {
       const e = at(r);
       if (!now || !then || !nowTags || !thenTags) { e.read = false; continue; }
-      e.added.push(...less(now, then));
-      e.tags += less(nowTags, thenTags, (x) => x.tag).length;
+      const part = typeof f.name === "string" && f.name ? f.name.toLowerCase() : "";
+      e.added.push(...less(now, then).map((t) => (part ? { ...t, part } : t)));
+      const newTags = less(nowTags, thenTags, (x) => x.tag);
+      e.tags += newTags.length;
+      for (const t of newTags) e.tagNames.push(t.tag);
     }
   }
   return byRoute;
@@ -275,6 +293,17 @@ export function renderedTexts(report) {
 }
 
 /**
+ * THE TEXT OF THE BUILD THAT IS PUBLISHED (2026-10-13): the repaired build's
+ * own report when a repair round recompiled — its pages are the ones that go
+ * out — and otherwise the first compile's. A repair that recompiled with no
+ * report leaves nothing read, never the first compile's stale text.
+ */
+export function publishedTexts(built, repair) {
+  if (repair && repair.built) return renderedTexts(repair.built.render);
+  return renderedTexts(built && built.render);
+}
+
+/**
  * ONE ROUTE'S EVIDENCE: what was added there, and how much of it the page
  * showed as it first loaded.
  *   stored  "added" | "none" | "unread" ("none" only from a Map the parser
@@ -285,9 +314,19 @@ export function renderedTexts(report) {
  * A text found on the page counts as shown whatever the read's completeness;
  * one NOT found counts as not shown only on a complete read.
  */
-export function routeEvidence(route, added, rendered) {
+export function routeEvidence(route, added, rendered, only = null) {
   if (!(added instanceof Map)) return { stored: "unread" };
-  const a = added.get(route);
+  const whole = added.get(route);
+  // ONE COMPONENT'S SHARE OF A ROUTE OTHERS ALSO ADDED TO (`only`): the texts
+  // it renders and whether its own tag was added. Something added there that
+  // is no one's in particular leaves it unread — never "none", never "added".
+  let a = whole;
+  if (whole && only && typeof only.text === "function" && typeof only.tag === "function") {
+    const mine = whole.added.filter(only.text);
+    const tagged = whole.tagNames.some(only.tag);
+    if (whole.read && !mine.length && !tagged && (whole.added.length || whole.tags)) return { stored: "unread" };
+    a = { ...whole, added: mine, tags: tagged ? 1 : 0 };
+  }
   if (!a) return { stored: "none" };
   if (!a.read) return { stored: "unread" };
   // A NEW COMPONENT WITH NO NEW TEXT OF ITS OWN: added, and what it shows is
@@ -331,9 +370,18 @@ export function componentEvidence({ answers = [], added = null, rendered = new M
     }
   }
   const rank = { all: 3, some: 2, none: 1, unread: 0 };
+  // WHICH ROUTES MORE THAN ONE DESIGNED COMPONENT SHARES (2026-10-13): there,
+  // each component is read by its own share — the texts inside its tag (the
+  // kit component's name in PascalCase) or in its own part file, and its tag
+  // added — so one that was written cannot vouch for one that was not.
+  const sharers = new Map();
+  for (const [name, set] of routes) for (const r of set) sharers.set(r, (sharers.get(r) || 0) + 1);
+  const pascal = (n) => n.split(/[-_\s]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join("");
   const out = {};
   for (const [name, set] of routes) {
-    const each = [...set].map((r) => ({ route: r, ...routeEvidence(r, added, rendered) }));
+    const tag = pascal(name);
+    const only = { text: (t) => (Array.isArray(t.inside) && t.inside.includes(tag)) || t.part === name, tag: (x) => x === tag };
+    const each = [...set].map((r) => ({ route: r, ...routeEvidence(r, added, rendered, (sharers.get(r) || 0) > 1 ? only : null) }));
     if (each.some((e) => e.stored === "unread")) { out[name] = { stored: "unread", routes: [...set] }; continue; }
     if (each.every((e) => e.stored === "none")) { out[name] = { stored: "none", routes: [...set] }; continue; }
     if (each.some((e) => e.stored === "none")) { out[name] = { stored: "unread", routes: [...set] }; continue; }

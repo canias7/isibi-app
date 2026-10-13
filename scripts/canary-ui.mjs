@@ -3481,7 +3481,7 @@ export async function runUi(opts) {
   const rec = {
     at: new Date(t0).toISOString(), base: origin, slug, spend: spend === true,
     opened: null, card: "", steps: [], stopped: null, sent: 0, blocked: [],
-    network: [], consoleErrors: [], pageErrors: [], balance: { start: null, end: null, startAt: null, endAt: null },
+    network: [], consoleErrors: [], consoleAt: [], firstSendMs: null, pageErrors: [], balance: { start: null, end: null, startAt: null, endAt: null },
   };
   const stop = (at, msg) => { rec.stopped = { at, msg }; log(`  STOPPED at ${at}: ${msg}`); };
   // The message being sent, for the wall: none before the first Send.
@@ -3601,7 +3601,11 @@ export async function runUi(opts) {
       try { u = new URL(req.url()); } catch { return; }
       if (siteHost && u.origin === siteHost && u.searchParams.has("v")) rec.frameLoads.push({ ms: Date.now() - t0, tab, path: u.pathname + u.search });
     });
-    pg.on("console", (m) => { if (m.type() === "error") rec.consoleErrors.push(m.text().slice(0, 300)); });
+    // WHEN EACH ONE CAME (2026-10-13, run 144): the app re-reads earlier work
+    // on open, and a finished job that failed is replayed with its own
+    // status, which the browser logs as an error. Kept beside the text so the
+    // count can say which came before this press sent anything.
+    pg.on("console", (m) => { if (m.type() === "error") { rec.consoleErrors.push(m.text().slice(0, 300)); rec.consoleAt.push(Date.now() - t0); } });
     pg.on("pageerror", (e) => rec.pageErrors.push(String((e && e.message) || e).slice(0, 300)));
     pg.on("response", async (res) => {
       const req = res.request();
@@ -4239,6 +4243,7 @@ export async function runUi(opts) {
       const before = typed.messages.length;
       const netFrom = r.netFrom = rec.network.length;
       const sentAt = r.sentAt = Date.now();
+      if (rec.firstSendMs === null) rec.firstSendMs = sentAt - t0;
       current = step;
       await page.click("#stSend");
       rec.sent++;
@@ -4552,6 +4557,23 @@ export function describeUi(rec) {
   out.push(recovery
     ? `  balance ${rec.balance.start} -> ${rec.balance.end}`
     : `  sent ${rec.sent} of ${rec.steps.length ? rec.steps.length : 0} reached; balance ${rec.balance.start} -> ${rec.balance.end}`);
-  out.push(`  console errors ${rec.consoleErrors.length}, page errors ${rec.pageErrors.length}`);
+  out.push(`  ${consoleLine(rec)}, page errors ${rec.pageErrors.length}`);
   return out.join("\n");
+}
+
+
+/**
+ * THE CONSOLE COUNT, SPLIT AT THE FIRST MESSAGE THIS PRESS SENT (2026-10-13,
+ * after run 144). Run 144's one error was the browser's own line for the
+ * app's re-read of an earlier, failed job, logged 28 s in and before anything
+ * was sent: history, not this press. An error before the first send is told
+ * apart; one with no time, or a press that sent nothing, is counted whole.
+ */
+export function consoleLine(rec) {
+  const errs = Array.isArray(rec && rec.consoleErrors) ? rec.consoleErrors : [];
+  const at = Array.isArray(rec && rec.consoleAt) ? rec.consoleAt : [];
+  const first = rec && Number.isFinite(rec.firstSendMs) ? rec.firstSendMs : null;
+  if (first === null || at.length !== errs.length) return `console errors ${errs.length}`;
+  const before = at.filter((ms) => Number.isFinite(ms) && ms < first).length;
+  return before ? `console errors ${errs.length} (${before} before the first message was sent: the app's reading of earlier work, not this press)` : `console errors ${errs.length}`;
 }

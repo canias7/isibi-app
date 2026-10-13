@@ -289,7 +289,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // WHAT A CHANGE PUT ON A PAGE AND WHAT THE PUBLISHED PAGE SHOWED OF IT
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
-import { addedByRoute, renderedTexts, componentEvidence } from "./builder/content-evidence.mjs";
+import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
@@ -38632,10 +38632,9 @@ async function handleRequest(request, env, ctx) {
                 room, touched: aTouched.length, needMs: aRepairNeedMs,
                 roomMs: aClock && typeof aClock.repairMs === "function" ? aClock.repairMs() : null,
               });
-              // WHAT THIS BUILD SHOWED AS EACH ROUTE FIRST LOADED (2026-10-13),
-              // replaced below by the repaired build's own when a repair
-              // recompiled: the text must be the published build's.
-              aRendered = renderedTexts(built && built.render);
+              // WHAT THE PUBLISHED BUILD SHOWED AS EACH ROUTE FIRST LOADED
+              // (2026-10-13) is read after the repair round below: the
+              // repaired build's own when it recompiled (`publishedTexts`).
               aRepairRound = await addRepairRound({
                 report: built.render, pages, touched: aTouched, langs,
                 // THE CALL IS CAPPED AT THAT ROOM, under the quick-call ceiling
@@ -38649,7 +38648,7 @@ async function handleRequest(request, env, ctx) {
               });
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
-              if (aRepairRound.built) aRendered = renderedTexts(aRepairRound.built.render);
+              aRendered = publishedTexts(built, aRepairRound);
               if (aJob && aRepairRound.usage.length) {
                 try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
                 catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }

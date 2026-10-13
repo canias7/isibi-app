@@ -20,7 +20,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { tweakParser } from "../builder/site-tweak.mjs";
-import { visibleTexts, addedByRoute, renderedTexts, routeEvidence, componentEvidence, foldText } from "../builder/content-evidence.mjs";
+import { visibleTexts, addedByRoute, renderedTexts, routeEvidence, componentEvidence, foldText, publishedTexts } from "../builder/content-evidence.mjs";
+import { consoleLine } from "../scripts/canary-ui.mjs";
 import { requirementReport, toldNote, readContent, TOLD } from "../builder/site-requirements.mjs";
 import { addonReplyFacts, toldEntries, toldAs } from "../builder/site-reply.mjs";
 import { renderReport, textProbe } from "../builder/site-render.mjs";
@@ -279,4 +280,50 @@ test("CE 12 — THROUGH THE ROUTE: shown on load; the page left without the sect
   assert.ok(addonReplyFacts(missing.body).facts.some((x) => x.kind === "not-done" && /^Not done: The home page/.test(x.text)));
   const unread = await viaRoute("ce-unread", { reached: false });
   assert.equal(unread.body.requirementsTold[0].told, "in-code", JSON.stringify(unread.body.requirementsTold));
+});
+
+test("CE 13 — the text read is the PUBLISHED build's: the repaired build's when a repair recompiled, nothing when that recompile has no report, the first compile's otherwise", () => {
+  const first = { render: { texts: [{ route: "/", text: "before the repair", complete: true }] } };
+  const fixed = { render: { texts: [{ route: "/", text: "after the repair", complete: true }] } };
+  assert.equal(publishedTexts(first, { built: fixed }).get("/").text, "after the repair");
+  assert.equal(publishedTexts(first, { built: { ok: true } }).size, 0, "a repaired build with no report was read as the first compile's text");
+  assert.equal(publishedTexts(first, { ran: false, built: null }).get("/").text, "before the repair");
+  assert.equal(publishedTexts(first, null).get("/").text, "before the repair");
+  assert.equal(publishedTexts(null, null).size, 0);
+});
+
+test("CE 14 — the canary's console count tells errors before the first message apart (run 144's replayed 422), and counts whole when it cannot tell", () => {
+  assert.equal(consoleLine({ consoleErrors: ["Failed to load resource: 422"], consoleAt: [28442], firstSendMs: 30000 }),
+    "console errors 1 (1 before the first message was sent: the app's reading of earlier work, not this press)");
+  assert.equal(consoleLine({ consoleErrors: ["x"], consoleAt: [31000], firstSendMs: 30000 }), "console errors 1");
+  assert.equal(consoleLine({ consoleErrors: ["x"], consoleAt: [100], firstSendMs: null }), "console errors 1", "a press that sent nothing told some errors apart");
+  assert.equal(consoleLine({ consoleErrors: ["x", "y"], consoleAt: [100], firstSendMs: 500 }), "console errors 2", "times that do not line up were trusted");
+  assert.equal(consoleLine({}), "console errors 0");
+});
+
+test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — one written cannot vouch for one that was not", () => {
+  const both = [{ kind: "component", value: [
+    { page: "/bake-list", does: "a questions section", components: ["faq"] },
+    { page: "/bake-list", does: "a quote from a customer", components: ["testimonial"] },
+  ] }];
+  const TESTI = '<Testimonial quote="The best sourdough in Bristol." name="Ana" />';
+  const rendered = render("Bake List Can I leave the list? The best sourdough in Bristol. Ana");
+  // BOTH WRITTEN: each its own texts, each shown as far as the page showed it.
+  let ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE.replace("</main>", FAQ + TESTI + "</main>"))], parse }), rendered });
+  assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
+  assert.deepEqual(readContent(ev.testimonial), { stored: "added", shown: "all" });
+  // ONLY THE QUESTIONS WRITTEN: the quote is not set up — and not "missing" on
+  // a guess either, since the page did change: unread, so it is said as unseen.
+  ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(AFTER_FAQ)], parse }), rendered });
+  assert.equal(ev.faq.stored, "added");
+  assert.equal(ev.testimonial.stored, "unread", "the questions section vouched for the quote that was never written");
+  // NOTHING WRITTEN ON THE PAGE: both missing.
+  ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE)], parse }), rendered });
+  assert.equal(ev.faq.stored, "none");
+  assert.equal(ev.testimonial.stored, "none");
+  // A NEW TAG WITH NO WORDS OF ITS OWN, beside the questions: that component's, content unread.
+  ev = componentEvidence({ answers: [{ kind: "component", value: [both[0].value[0], { page: "/bake-list", does: "opening hours", components: ["opening-hours"] }] }],
+    added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE.replace("</main>", FAQ + "<OpeningHours /></main>"))], parse }), rendered });
+  assert.deepEqual(readContent(ev["opening-hours"]), { stored: "added", shown: "unread" });
+  assert.equal(ev.faq.stored, "added");
 });
