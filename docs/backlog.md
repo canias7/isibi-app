@@ -62,7 +62,7 @@ here; take a closed one out of both.**
   - correction reuse was not exercised by run 144 (no refusal);
   - the coverage judge's "unseen" for component content: **fixed offline
     2026-10-13** (`a4e0da19`, `docs/history/2026-10-13-interactive-content.md`);
-    not yet live (a release builds image `50a624038c9517d3`);
+    not yet live (a release builds image `98c56f9b20da4403`);
   - run 144's console error: identified (the browser's 422 line for the
     app's re-read of run 137's failed job), not a defect. **Open:** the
     canary's console count includes replayed history — count only errors

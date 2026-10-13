@@ -6,7 +6,7 @@
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**For Codex's review: `a4e0da19`** (the fix and its tests) on
+**For Codex's review: `a4e0da19`, `88dec2a0`, `edfabc3e`** (the fix, the Dockerfile line, the tightened tests) on
 `claude/help-needed-ehlwlj`, plus the records commit after it. `main` is
 unchanged at `fef80b9b`, and production is deploy 2201 (image
 `4444d9d53d906b8d`, image purchases on, confirmed by run 145).
@@ -43,8 +43,12 @@ unchanged at `fef80b9b`, and production is deploy 2201 (image
     facts.
 - **Red checks:** 7 of 12 cases fail with the evidence switched off; the
   route cases fail with the Worker's hand-off cut.
-- **The image would move** to `50a624038c9517d3` (from `4444d9d53d906b8d`)
-  on any future release. Nothing was built.
+- **The image would move** to `98c56f9b20da4403` (from `4444d9d53d906b8d`,
+  206 inputs) on any future release. Nothing was built.
+- **Full suite `10753 / 10753 / 0 / 0`** on `edfabc3e`. The first full run
+  caught the new module missing from the container's Dockerfile copy, fixed
+  in `88dec2a0`. **Sweep: 18 of 19 killed**, controls survived; the one
+  survivor (the repaired build's text) is untestable in the route harness.
 
 **Run 144's console error, identified free** (from the artifact, which the
 session can download through the connector's signed link):
@@ -994,7 +998,7 @@ They fail when the fix is switched off.
 automatically logging a 422 when the app re-read run 137's old failed job on
 opening. It had no effect and is not a product defect.
 
-**Next.** A release would build a new container image (`50a624038c9517d3`).
+**Next.** A release would build a new container image (`98c56f9b20da4403`).
 The next unfinished parallel test is two designers inside one Add-on (see
 the handoff).
 

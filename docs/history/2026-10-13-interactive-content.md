@@ -133,6 +133,27 @@ here):
 The one existing case that pinned `TOLD` (TOLD 1) was updated, with a dated
 note.
 
+**The full suite caught one real defect.** The first full run, on
+`a4e0da19`, was `10752 / 10751 / 1 / 0`. `dockerfile.test.mjs` found that
+the new module was not in the container's worker tree, so every job would
+have died at import. That was fixed in `88dec2a0` (the Dockerfile copy
+line).
+
+**Mutation sweep** (21 mutants, against `content-evidence` and
+`requirement-told`):
+- 16 of 19 were killed at first.
+- Two of the survivors were real test gaps, closed in `edfabc3e`:
+  - CE 11 had read the stored record only conditionally;
+  - CE 7b now covers a component on two routes with content on only one,
+    which is unread.
+- Re-run: **18 of 19 killed**, and both comment-only controls survived.
+- **The one survivor** is that the repaired build's text replaces the first
+  compile's (`aRendered` after a repair). The Add-on route harness cannot
+  drive a repair round (it has no stub for the repair model), so this line
+  is guarded by review only.
+
+**Full suite on `edfabc3e`: `10753 / 10753 / 0 / 0` locally.**
+
 ## 5. Run 144's one console error, identified (free)
 
 - **What it was:** "Failed to load resource: the server responded with a
@@ -179,5 +200,6 @@ note.
   - The static placement is a hint only.
 - **A deploy would build a new container image**, because `worker.js` and
   the builder modules are inputs: predicted `4444d9d53d906b8d` →
-  **`50a624038c9517d3`** (205 inputs, from `a4e0da19`). Nothing was merged
+  **`98c56f9b20da4403`** (206 inputs, from `88dec2a0`, with the new module
+  copied; `a4e0da19` alone predicted `50a624038c9517d3` with 205). Nothing was merged
   or built.
