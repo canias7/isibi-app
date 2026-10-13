@@ -220,3 +220,43 @@ ways:
   as one `addon` answer with nothing held back, and only after its words are
   read against the live page. The overlap is then read free with
   `addonDesignOverlap`.
+
+## 7. The probe, pressed (2026-10-13)
+
+**Run 146** (run 38459820970) refused before signing in. `addon-kinds-3`
+was typed into the browser-scenario box, not the routing-only batch box.
+Nothing was routed or spent.
+
+**Run 147** (run 38460213169, 20:06–20:08 UTC, from the branch at
+`ca820981`).
+
+| Preflight | Reading |
+|---|---|
+| Readers | Both answered `fef80b9bc913` |
+| Cold container | Image `4444d9d53d906b8d` |
+| Runtime | `async`, `runner` and `imagePurchases=true` |
+
+**All three messages came back the same:** `addon`, "batched: one answer for
+every change (one step, nothing held back)". The model said `intent=addon
+layer=none`.
+
+| Probe | Page | Cost |
+|---|---|---|
+| K3A | Visit | 3 |
+| K3B | Order | 3 |
+| K3C | Classes | 3 |
+
+**9 credits in all, balance 837 → 828.** Evidence artifact: 11844948633.
+
+**The words, read free against the live pages afterwards:**
+- **K3A (Visit) is not clean.** The page already says "We're closed on
+  bank holidays.", and the asked line "We close at noon on bank holidays."
+  would contradict it.
+- **K3C (Classes) is not clean.** The page already says "Saturday mornings
+  only", and the asked line repeats it.
+- **K3B (Order) is clean.** None of its words is on the page, and the page
+  has a Collection section to put the line under.
+
+**So K3B is the only message eligible for the paid one-Add-on press.** That
+press is not prepared: it needs a scenario with K3B's words, your opt-in
+above the 100-credit cap, and image purchases off, as for run 144.

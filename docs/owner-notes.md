@@ -95,6 +95,16 @@ Add-on.
   words are read free against the live page. The overlap is then read free
   with *read_job*.
 
+**Probe pressed (run 147, 9 credits, 837 → 828):**
+- All three messages came back as one `addon` answer with nothing held
+  back.
+- Free read of the live pages: K3A contradicts Visit's "closed on bank
+  holidays" and K3C repeats Classes' "Saturday mornings only". **K3B (Order)
+  is the clean candidate** for the paid one-Add-on press, which awaits your
+  decision.
+- Run 146 refused before signing in (the name went into the scenario box),
+  nothing spent.
+
 **Kept as they were:**
 - run 144 closed;
 - paid opt-ins closed;
