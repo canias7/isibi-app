@@ -45,7 +45,7 @@ import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CON
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
-import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT } from "./builder/prepared.mjs";
+import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT, priorRefusalOf, valueDigest, stagedRecord } from "./builder/prepared.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
@@ -5977,8 +5977,11 @@ function makePrepCtx({ id, budget, uid = "", slug = "", rec = recorder() }) {
 // continuation round): replayed or made now, under the exact request sent —
 // so when the job ends asking the customer something, the part's next job can
 // replay each call whose request is unchanged (`stagePrepared`).
-const jobSend = (job, send) => (job && job.prepare === true && job.rec ? job.rec.wrap(send)
-  : job && job.replay ? (job.keep ? job.keep.wrap(job.replay.wrap(send)) : job.replay.wrap(send)) : send);
+// `opts.refusals` (2026-10-13): this caller handles a prior refusal
+// (`PriorRefusal`); only the replayer reads it, and every other caller's call
+// is made as before.
+const jobSend = (job, send, opts) => (job && job.prepare === true && job.rec ? job.rec.wrap(send)
+  : job && job.replay ? (job.keep ? job.keep.wrap(job.replay.wrap(send, opts)) : job.replay.wrap(send, opts)) : send);
 /**
  * THE SAME FOR A TRANSPORT CALLED `(keys, req, budget)` — the page writer's
  * (2026-10-09): one request in, its answer out, recorded or replayed by the
@@ -18712,19 +18715,25 @@ async function stageKept(env, id) {
       && (j.end.act === "clarify" || j.end.act === "uncertain" || j.end.act === "held-retry"));
     if (!earlier.length) return;
     const add = [];
+    const addRef = [];
     for (const j of earlier) {
       const got = await readJsonTried(env, jobKeptKey(j.id));
       if (!got.ok || !got.obj || got.malformed || !got.v) continue;
-      for (const c of readPrepared(got.v).calls) add.push(c);
+      const kept = readPrepared(got.v);
+      for (const c of kept.calls) add.push(c);
+      // A REFUSAL'S FACTS THE PAUSED JOB HELD (2026-10-13), never its reply.
+      for (const r of kept.refusals) addRef.push(r);
     }
-    if (!add.length) return;
-    let cur = { calls: [], images: [] };
+    if (!add.length && !addRef.length) return;
+    let cur = { calls: [], images: [], refusals: [] };
     const po = await env.SITES_BUCKET.get(jobPrepKey(id));
     if (po) cur = readPrepared(JSON.parse(await po.text()));
     const have = new Set(cur.calls.map((c) => c.h));
     const fresh = add.filter((c) => !have.has(c.h) && (have.add(c.h), true));
-    if (!fresh.length) return;
-    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify({ calls: [...cur.calls, ...fresh], images: cur.images }), { httpMetadata: { contentType: "application/json" } });
+    const haveRef = new Set(cur.refusals.map((r) => r.h));
+    const freshRef = addRef.filter((r) => !haveRef.has(r.h) && (haveRef.add(r.h), true));
+    if (!fresh.length && !freshRef.length) return;
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(stagedRecord({ calls: [...cur.calls, ...fresh], images: cur.images, refusals: [...cur.refusals, ...freshRef] })), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: earlier answers not staged for", id, errorClassForLog(e)); }
 }
 
@@ -18763,16 +18772,17 @@ async function stagePreparation(env, id) {
       const sources = [];
       if (typeof p.prep.key === "string") sources.push(p.prep.key);
       if (Number.isInteger(p.prep.prev)) sources.push(prepKey(job.slug, want.key, want.part, p.prep.prev));
-      const staged = { calls: [], images: [] };
+      const staged = { calls: [], images: [], refusals: [] };
       for (const k of sources) {
         const got = await readJsonTried(env, k);
         if (!got.ok || !got.obj || got.malformed || !got.v || typeof got.v !== "object") continue;
         const share = readPrepared(isRoute ? got.v.route : got.v.run);
         const images = isRoute ? [] : readBuys(got.v).filter((b) => b.state === "bought").map((b) => ({ d: b.d, url: b.url }));
         for (const c of share.calls) staged.calls.push(c);
+        for (const r of share.refusals) staged.refusals.push(r);
         for (const i of [...share.images, ...images]) if (!staged.images.some((x) => x.url === i.url)) staged.images.push(i);
       }
-      if (staged.calls.length || staged.images.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
+      if (staged.calls.length || staged.images.length || staged.refusals.length) await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(stagedRecord(staged)), { httpMetadata: { contentType: "application/json" } });
       return;
     }
     if (p.prep.state !== "done" || typeof p.prep.key !== "string") return;
@@ -18782,8 +18792,9 @@ async function stagePreparation(env, id) {
     const share = isRoute ? v.route : v.run;
     if (!share) return;
     const staged = readPrepared(share);
-    if (!staged.calls.length && !staged.images.length) return;
-    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(staged), { httpMetadata: { contentType: "application/json" } });
+    if (!staged.calls.length && !staged.images.length && !staged.refusals.length) return;
+    // ITS REFUSALS' FACTS GO WITH IT (2026-10-13), never their replies.
+    await env.SITES_BUCKET.put(jobPrepKey(id), JSON.stringify(stagedRecord(staged)), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: prepared answers not staged for", id, errorClassForLog(e)); }
 }
 
@@ -18949,7 +18960,7 @@ async function keepPrepUse(env, id, used, staged, seen = {}, marks = null) {
     const u = used && typeof used === "object" ? used : {};
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
     const sc = seen && typeof seen === "object" ? seen : {};
-    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 3, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), images: n(u.images), scoped: n(sc.scoped), needs: n(sc.needs), ...(Array.isArray(marks) ? { marks: marks.slice(0, MARKS_KEPT) } : {}), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    await env.SITES_BUCKET.put(prepUseKey(id), JSON.stringify({ v: 3, job: id, staged, replayed: n(u.calls), rebased: n(u.rebased), fresh: n(u.missed), skipped: n(u.skipped), images: n(u.images), scoped: n(sc.scoped), needs: n(sc.needs), ...(Array.isArray(marks) ? { marks: marks.slice(0, MARKS_KEPT) } : {}), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
   } catch (e) { console.error("edit queue: could not keep the preparation's use for", id, errorClassForLog(e)); }
 }
 /**
@@ -18968,7 +18979,7 @@ async function prepUseForRequest(env, rec) {
         const o = await env.SITES_BUCKET.get(prepUseKey(j.id));
         if (!o) continue;
         const v = JSON.parse(await o.text());
-        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh, scoped: v.scoped, needs: v.needs, ...(Object.hasOwn(v, "marks") ? { marks: v.marks } : {}) };
+        if (v && typeof v === "object" && v.job === j.id) out[j.id] = { staged: v.staged, replayed: v.replayed, rebased: v.rebased, fresh: v.fresh, ...(Object.hasOwn(v, "skipped") ? { skipped: v.skipped } : {}), scoped: v.scoped, needs: v.needs, ...(Object.hasOwn(v, "marks") ? { marks: v.marks } : {}) };
       } catch { /* unread: unknown, never guessed */ }
     }
   }
@@ -19870,7 +19881,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       const po = await env.SITES_BUCKET.get(jobPrepKey(id));
       if (po) {
         const got = readPrepared(JSON.parse(await po.text()));
-        if (got.calls.length || got.images.length) { jctx.replay = replayer(got); staged = "yes"; }
+        if (got.calls.length || got.images.length || got.refusals.length) { jctx.replay = replayer(stagedRecord(got)); staged = "yes"; }
       }
     } catch (e) {
       staged = requestOf ? "unreadable" : null;
@@ -19913,7 +19924,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // staged for, and every request job (`staged` says which). IN THE
       // FINALLY (round 4): a handler that throws after a scoped answer said
       // `needs` still leaves that answer's evidence behind.
-      if (jctx.replay) await keepPrepUse(env, id, jctx.replay.used(), staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 }, typeof jctx.replay.marks === "function" ? jctx.replay.marks() : null);
+      if (jctx.replay) await keepPrepUse(env, id, { ...jctx.replay.used(), skipped: typeof jctx.replay.skips === "function" ? jctx.replay.skips() : null }, staged || "yes", { scoped: Number(jctx.scoped) || 0, needs: Number(jctx.needs) || 0 }, typeof jctx.replay.marks === "function" ? jctx.replay.marks() : null);
       // …AND EVERY ANSWER IT GOT (2026-10-11): durable before the job's end is
       // recorded, so a question it ended on can be answered after a restart
       // and the part's next job still replays what this one finished.
@@ -34227,8 +34238,16 @@ async function handleRequest(request, env, ctx) {
             // shown only its pages reports `scoped` as they do — it said 0 for
             // every Add-on, scoped or not. Set where the scope is read.
             let aScoped = false;
-            const aCounted = (send) => async (req) => { if (aScoped) noteSeen(aJob, "scope"); return send(req); };
-            const aQuick = (what = "") => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget))), {
+            // A FIRST REQUEST ANSWERED BY A PRIOR REFUSAL (2026-10-13) asked no
+            // model and is not counted; a caller that declines it asks again,
+            // and that call is.
+            const aCounted = (send) => async (req) => {
+              try { const r = await send(req); if (aScoped) noteSeen(aJob, "scope"); return r; }
+              catch (e) { if (aScoped && !priorRefusalOf(e)) noteSeen(aJob, "scope"); throw e; }
+            };
+            // `opts.refusals`: this call handles a prior refusal — only the
+            // add-on designer's first request does (`aPriorOf`).
+            const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
               part: aPartShown,
@@ -36035,7 +36054,7 @@ async function handleRequest(request, env, ctx) {
                 const site = aViewFor(j, aProvisional);
                 const brief = requirementBrief(aReq.filter((r) => r.judged), j) + aHeldShown(j);
                 aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);
-                const p = runAdd({ send: aQuick("add:" + j) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief })
+                const p = runAdd({ send: aQuick("add:" + j, { refusals: true }) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief })
                   .catch((e) => ({ failed: true, error: e }))
                   .then((ran) => { aLanded(j, site, ran); return ran; });
                 aEarly.set(j, { site, req: aDesignReq(j, site, brief), p });
@@ -36140,9 +36159,35 @@ async function handleRequest(request, env, ctx) {
               // this one's early answer used only when its request is exactly
               // the one it would be asked now.
               const aEarlyOne = aTakeEarly(k, aBrief);
-              const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief });
+              let ranFirst = aEarlyOne ? await aEarlyOne : await runAdd({ send: aQuick("add:" + k, { refusals: true }) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief });
+              // ── A PRIOR REFUSAL OF THIS EXACT REQUEST (2026-10-13, correction
+              //    reuse, on the owner's word) ──────────────────────────────
+              //
+              // Its preparation (or an earlier paused job of the part) asked
+              // this exact request, refused the answer with this cleaner, and
+              // asked once more with the reason. The refused answer is not
+              // here — only the refusal's facts. They are used only when the
+              // cleaner would judge against exactly what it judged then
+              // (`cleanIn`: the site it cleans against and today); then the
+              // turn goes straight to the correction, which is answered only
+              // by an exact match and validated below like any answer.
+              // Otherwise the request is asked now, as before.
+              let aPrior = null;
+              {
+                const pr = ranFirst && ranFirst.failed ? priorRefusalOf(ranFirst.error) : null;
+                if (pr) {
+                  let here = "";
+                  try { here = await valueDigest({ site: aSite, today: aToday }); } catch { here = ""; }
+                  const why = typeof pr.why === "string" && pr.why.startsWith("add:") ? pr.why.slice(4) : "";
+                  if (here && here === pr.facts.cleanIn && why && why !== "nothing") aPrior = pr.take();
+                  if (!aPrior) {
+                    aMark("add:" + k, "start", { again: true, prior: "declined" });
+                    ranFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief });
+                  }
+                }
+              }
               // IT NEEDS A RESULT IT WAS NOT SHOWN: asked again with it (`aNeedsAgain`).
-              let ran = await aNeedsAgain(k, ranFirst, aBrief);
+              let ran = aPrior ? ranFirst : await aNeedsAgain(k, ranFirst, aBrief);
               // DECIDED: what waits on it starts at the next kind's turn, once
               // its result below is folded in.
               aDecided.add(k);
@@ -36167,17 +36212,34 @@ async function handleRequest(request, env, ctx) {
               // longer lists is carried (`carrySuperseded`), so nothing they
               // asked for is lost. A second refusal is the answer.
               const aCleanOf = (r) => (r.failed || r.ask || r.value === undefined ? null : cleanAdd(k, r.value, { ...aSite, today: aToday }));
-              let clean = aCleanOf(ran);
+              let clean = aPrior ? null : aCleanOf(ran);
               let aSupersededReq = null;
-              if (clean && !clean.ok && clean.why !== "nothing") {
-                rejectReply(ran.raw, "add:" + clean.why);
-                aMark("add:" + k, "correct", { why: clean.why });
-                if (ran.usage) aDesignUsage.push(ran.usage);
-                aKept.push({ kind: k, answered: true, superseded: clean.why, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
-                aSupersededReq = ran.requirements;
-                // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
-                // so the correction can say which requirement it restates.
-                const aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
+              if (aPrior || (clean && !clean.ok && clean.why !== "nothing")) {
+                let aFeedback;
+                if (aPrior) {
+                  // THE RECORDED REFUSAL, TAKEN: no answer to bill or keep (the
+                  // preparation paid for it, and its content never left that
+                  // record); the same correction, from its own facts.
+                  const why = aPrior.why.slice(4);
+                  aMark("add:" + k, "correct", { why, skipped: 1 });
+                  aKept.push({ kind: k, answered: true, superseded: why, skipped: true, stop_reason: null, content: null });
+                  aSupersededReq = aPrior.superseded;
+                  aFeedback = aPrior.feedback;
+                } else {
+                  aSupersededReq = ran.requirements;
+                  // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
+                  // so the correction can say which requirement it restates.
+                  aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
+                  // ITS FACTS RIDE WITH THE MARK (2026-10-13) — only for a refusal
+                  // of the first request itself, the one a later job's first
+                  // request can match.
+                  let cleanIn = "";
+                  if (ran === ranFirst) { try { cleanIn = await valueDigest({ site: aSite, today: aToday }); } catch { cleanIn = ""; } }
+                  rejectReply(ran.raw, "add:" + clean.why, cleanIn ? { feedback: aFeedback, superseded: Array.isArray(aSupersededReq) ? aSupersededReq : [], cleanIn } : undefined);
+                  aMark("add:" + k, "correct", { why: clean.why });
+                  if (ran.usage) aDesignUsage.push(ran.usage);
+                  aKept.push({ kind: k, answered: true, superseded: clean.why, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
+                }
                 const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
                 ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
                 clean = aCleanOf(ran);

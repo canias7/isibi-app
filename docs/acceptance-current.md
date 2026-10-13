@@ -52,6 +52,13 @@ section; `docs/deploy-record.md` 2197 and 2198):
 - run 141's preparation record has no read path, so its cause stays
   unconfirmed.
 
+**Correction reuse (2026-10-13, built offline on the owner's word)**,
+`docs/history/2026-10-13-correction-reuse.md`:
+- on run 141's shape the Add-on job now asks the designer 0 times (skipped
+  1, replayed 3, fresh 0), with supplied answers;
+- not live: a deploy with a new image is needed before any press could show
+  it.
+
 The proposal as approved follows.
 
 

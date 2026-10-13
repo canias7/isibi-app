@@ -1,8 +1,14 @@
-# Making a validated correction reachable (design, 2026-10-13; not implemented)
+# Making a validated correction reachable (design, 2026-10-13)
 
-**Status**: a design for the owner's decision. Nothing in it is built. It
-changes the scope of a reviewed rule, named below, rather than weakening it
-silently.
+**Status**: **approved by the owner and built offline the same day**
+(`docs/history/2026-10-13-correction-reuse.md`). That record says where the
+build differs from this design:
+- the marker is thrown, never returned as a reply;
+- `skipped` is a separate count, so UA 0's pinned `used()` shape is unchanged;
+- the facts also ride a paused job's kept record (CR 8).
+
+The design as written for the decision follows. It changes the scope of a
+reviewed rule, named below, rather than weakening it silently.
 
 ## The gap (run 141's likely shape, reproduced offline as R141 3)
 

@@ -117,9 +117,10 @@ test("record then replay: each answer once, a different request goes live, pictu
 });
 
 test("readPrepared keeps only what reads; keys", () => {
-  assert.deepEqual(readPrepared("{bad"), { calls: [], images: [], discarded: [] });
+  // `refusals` (2026-10-13, correction reuse): a refusal's facts, never its reply.
+  assert.deepEqual(readPrepared("{bad"), { calls: [], images: [], discarded: [], refusals: [] });
   // A KEYED ENTRY WITH NO REPLY IS NAMED AS DISCARDED, never replayed (2026-10-11, the unusable-answer round).
-  assert.deepEqual(readPrepared({ calls: [{ h: "x", reply: {} }, { h: "a".repeat(64), reply: null }], images: [{ d: 1, url: "u" }] }), { calls: [], images: [], discarded: [{ h: "a".repeat(64), why: "not-a-reply" }] });
+  assert.deepEqual(readPrepared({ calls: [{ h: "x", reply: {} }, { h: "a".repeat(64), reply: null }], images: [{ d: 1, url: "u" }] }), { calls: [], images: [], discarded: [{ h: "a".repeat(64), why: "not-a-reply" }], refusals: [] });
   // NOTHING PREPARED: the live send is still made through the replayer, so the
   // call is counted fresh (2026-10-11, Codex: returning `send` itself left
   // `missed` at 0 beside a call made).

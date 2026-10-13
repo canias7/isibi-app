@@ -2101,7 +2101,9 @@ function prepUseOf(p, prepUse) {
       // written before them, and then null — never 0.
       // `marks` (2026-10-13): each call's `partMarks`, replayed or made now;
       // null when absent or unreadable — unknown, never "none".
-      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh), scoped: n(u.scoped), needs: n(u.needs), marks: Object.hasOwn(u, "marks") ? readMarks(u.marks) : null });
+      // `skipped` (2026-10-13, correction reuse): first requests answered by
+      // a prior refusal; null on evidence written before it.
+      out.push({ job: j.id, known: true, staged: ["yes", "no", "unreadable"].includes(u.staged) ? u.staged : null, replayed: n(u.replayed), rebased: n(u.rebased), fresh: n(u.fresh), skipped: n(u.skipped), scoped: n(u.scoped), needs: n(u.needs), marks: Object.hasOwn(u, "marks") ? readMarks(u.marks) : null });
     } else out.push({ job: j.id, known: false });
   }
   return out;

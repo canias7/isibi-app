@@ -47,11 +47,14 @@ here; take a closed one out of both.**
   - the Add-on's `scoped` count;
   - per-call task markings (jobs and preparations);
   - the isolation verdict, from marks plus each job's own version;
-  - the old balance opt-in, closed.
+  - the old balance opt-in, closed;
+  - correction reuse (2026-10-13, offline, not deployed): a refusal's facts,
+    never its answer, take a job to the recorded correction on an exact match.
 
   Still open:
   - the refused-correction explanation is unconfirmed (no read path for R2);
-  - the correction-reuse design awaits the owner (it changes VA 0–5's scope);
+  - correction reuse is not live (it needs a deploy), and only the Add-on
+    designer's first request adopts it;
   - isolation is unverified live;
   - other strippers still use `<[^>]+>`;
   - the coverage judge calls a collapsed answer "unseen".
@@ -1046,7 +1049,7 @@ here; take a closed one out of both.**
 
 ## Backlog
 
-- **RUN 141'S FOLLOW-UP (2026-10-12/13; `docs/history/2026-10-12-run141-followup.md`, `docs/history/2026-10-13-evidence-round.md`).**
+- **RUN 141'S FOLLOW-UP (2026-10-12/13; `docs/history/2026-10-12-run141-followup.md`, `docs/history/2026-10-13-evidence-round.md`, `docs/history/2026-10-13-correction-reuse.md`).**
   Free; run 141 stays closed.
   - **Fixed and built** (offline, not deployed):
     - `servedLines` attribute-aware;
@@ -1058,7 +1061,8 @@ here; take a closed one out of both.**
       distinct served versions read as each job finished, and the Add-on's
       own version leaving the heading alone. It says "discriminating" only
       when the Add-on ran first;
-    - the balance opt-in, closed (it admits no press).
+    - the balance opt-in, closed (it admits no press);
+    - correction reuse (below).
   - **No scoping defect** (R141 1–2): an unrelated page's change keeps every
     prepared answer; a change to the Add-on's own page invalidates only what
     reads it.
@@ -1069,12 +1073,17 @@ here; take a closed one out of both.**
       no owner route, not Supabase, no R2 credentials here. The owner can open
       it free in the Cloudflare dashboard, or a read route or canary box could
       be added (a product change).
-    - **Correction reuse: a safe design is ready**
-      (`docs/history/2026-10-13-correction-reuse-design.md`). It stages a
-      refusal's facts, never its answer, and keeps exact-input matching and
-      the job's own validation. It changes the scope of `readPrepared`'s
-      "gives it to nobody" and validation-scheduling §1 (pinned by VA 0–5 and
-      UA 0–6). The owner's decision; not built.
+    - **Correction reuse: BUILT offline on the owner's word (2026-10-13;
+      `docs/history/2026-10-13-correction-reuse.md`), not deployed.** A
+      refusal's facts (never its answer) guide a replay, and only when the
+      job's first request and its cleaner input both match exactly. The
+      correction is still exactly matched and validated by the job's own
+      cleaner. The Add-on designer is the first adopter. Remaining:
+      - live use needs a deploy (`worker.js` is a container input);
+      - only the designer's first request adopts it, so a refusal of a
+        re-asked (`aNeedsAgain`) answer carries no facts;
+      - the text and data steps do not adopt it;
+      - CR 2's changed context is a tampered digest, not a natural change.
     - **Isolation is unverified live.** `acc-isolation-page` (prepared, not
       pressed) now judges marks plus per-job versions. Only an
       Add-on-first run discriminates; an edit-first pass is recorded as

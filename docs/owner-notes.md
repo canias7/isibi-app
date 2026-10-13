@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: evidence work finished offline — per-call task markings built, isolation verdict corrected, correction-reuse design ready, opt-in closed; run 141's preparation record unreadable, cause unconfirmed; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: correction reuse built offline on your word — a refusal's facts, never its answer, take a job to the recorded correction on an exact match; run 141's cause still unconfirmed; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,68 +10,62 @@ is in git; the dated entries further down are the full story.*
 - **Production is unchanged**: deploy 2198 (`main` `64f17488`, image
   `eda28cb21064287d`, image purchases on). **Balance 860.** Run 141 stays
   closed.
-- **Kept from the last round**: the reader fix and the Add-on's `scoped`
-  count (`1bf174fa`).
-- **This round (free; the branch only)**,
-  `docs/history/2026-10-13-evidence-round.md`. Commits and CI are in the
-  dated entry.
-  - **Run 141's preparation record: no authorized read path.** None of these
-    reach R2: the owner routes, Supabase, or this session (no R2
-    credentials). **The refused-correction explanation stays UNCONFIRMED.**
-    You can open
+- **Kept**:
+  - the reader fix and the Add-on's `scoped` count (`1bf174fa`);
+  - the per-call task markings and the honest isolation verdict
+    (`8626608a`), unchanged by this round. A skipped call is now marked
+    `skipped`, never `replayed`.
+- **This round: correction reuse, built offline**
+  (`docs/history/2026-10-13-correction-reuse.md`; commits and CI in the dated
+  entry).
+  - **The rule, amended in scope only.** A refused or cut-off **answer** is
+    still never staged, replayed, handed to a continuation, shown to a model
+    or applied, and VA 0–5 and UA 0–6 pass unchanged. A refusal by its step
+    may now carry its **facts**:
+    - the reason;
+    - the exact feedback sent;
+    - the superseded requirement entries;
+    - `cleanIn`, a digest of what the cleaner judged.
+
+    The amendment is written where the rule lives: `readPrepared`'s comment,
+    the block above `readRefusal`, and a dated note under
+    validation-scheduling §1.
+  - **When it is used.** Three conditions must all hold:
+    - the job's first request is byte for byte the refused one;
+    - its cleaner input digests the same;
+    - the step declared it handles prior refusals.
+
+    Then the model is not asked, and the correction is sent with the
+    recorded feedback. That correction is answered only by an exact match and
+    validated by the job's own cleaner before anything is applied, and a
+    second refusal is final. **Anything missing, malformed or different asks
+    the model, as before.**
+  - **Reusable across routes.** The mechanism is in `builder/prepared.mjs`;
+    the Add-on designer is the first adopter. The text and data steps can
+    adopt it later.
+  - **Evidence** (supplied answers only):
+    - run 141's shape (R141 3, CR 1): the job asks the designer **0** times
+      (`skipped 1`, `replayed 3`, `fresh 0`), charged exactly what a job with
+      no refusal is;
+    - the refused design reaches no request, staged or kept record, view or
+      page;
+    - fallbacks: changed digest (CR 2), older record (CR 4), malformed facts
+      (CR 4b), rejected correction with no third call (CR 3);
+    - continuation through the real queue (CR 8).
+  - **Run 141's cause stays UNCONFIRMED**: its stored record is still
+    unread. You can open
     `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
     free in the Cloudflare dashboard (R2, sites bucket) and look for
-    `unusable`.
-  - **Built: per-call task markings, preparations included.** Each model call
-    of a part records:
-    - its tool name;
-    - how many other-part spans it carried, marked;
-    - whether the rule sentence was there;
-    - how many times other parts' words appeared unmarked (must be 0);
-    - the done count.
-
-    Numbers only, never prompts. They are served on the request view for the
-    preparation (`prepRun.step.marks`) and for each job (`prepUse[].marks`).
-    On run 141's own site, offline, every call (preparation, Add-on job, text
-    job) was clean.
-  - **Corrected: the isolation verdict.** As you said, a model may leave an
-    already-appended phrase alone, so duplicates prove nothing. The verdict
-    now needs three things:
-    - clean marks on every call;
-    - the page read as each job finished, giving three distinct versions in
-      order;
-    - the Add-on's own version leaving the heading untouched, and the edit's
-      own version making the change.
-
-    **Only an Add-on-first run proves isolation** ("discriminating"). An
-    edit-first pass is "consistent" and is stated as not proven. Why the
-    model held back is never observable.
-  - **Ready for your decision: correction reuse**
-    (`docs/history/2026-10-13-correction-reuse-design.md`).
-    - The refused answer stays exactly as unreachable as now.
-    - Only the refusal's facts are staged: reason, exact feedback, superseded
-      requirements, and a digest of the cleaner's input.
-    - A job whose final request and cleaner input match exactly skips to the
-      recorded correction, which is still exactly matched and still
-      validated before publication.
-    - **The rule it changes**: `readPrepared`'s "gives it to nobody" and
-      validation-scheduling §1 (VA 0–5, UA 0–6). Not built.
-  - **Closed: the old spending opt-in.** It admits no press, `acc-isolation`
-    included.
-- **Commit `8626608a`** (code, tests and records).
-  - Full suite: `10726 / 10726 / 0 / 0` locally.
-  - CI: unit tests run 38330114781, `10726 / 10682 / 0 / 44 skipped` (the
-    totals match); site build run 38330114817, success.
-  - Image prediction: `eda28cb21064287d` → `16443a41923f7aeb` (205 inputs;
-    `worker.js` is an input).
-  - Nothing merged, deployed or built.
-- **No paid run is proposed yet.** `acc-isolation-page` is prepared but
-  unpressed. Pressing it would need a merge and deploy (with a new image,
-  since `worker.js` changed), a free runtime check, and your approval of the
-  spend. It discriminates only if the router runs the Add-on first.
+    `unusable` on the designer's entry.
+- **Commits, suite, CI and image**: in the dated entry below (stamped after
+  the runs). `worker.js` changed, so a deploy would build a new image.
+- **No paid run is proposed.** Correction reuse and `acc-isolation-page` both
+  need a merge and deploy, a free runtime check, and your approval of any
+  spend.
 - **Open** (`docs/backlog.md`, first item):
   - the R2 read;
-  - your decision on correction reuse;
+  - correction reuse live; only the designer's first request adopts it, and
+    CR 2's changed context is a tampered digest;
   - isolation live;
   - the other `<[^>]+>` strippers;
   - the coverage judge calling a collapsed answer "unseen";
@@ -947,6 +941,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Correction reuse built offline on your word (nothing spent, merged or deployed)
+
+You asked me to build the correction-reuse design, amending the rule only so
+that a validated refusal's facts may guide a replay. It is built, as
+`docs/history/2026-10-13-correction-reuse.md` records.
+
+- **What did not change.** A refused or cut-off answer still never reaches a
+  replay, a continuation, a model or a page. VA 0–5 and UA 0–6 pass
+  unchanged.
+- **What changed.** A refusal now carries its facts: the reason, the feedback
+  sent, the superseded requirements, and a digest of the cleaner's input. A
+  later job may skip straight to the recorded correction when three things
+  hold:
+  - its first request is the refused one, exactly;
+  - its cleaner input is the same;
+  - the step has opted in.
+
+  The correction must still match exactly and still pass that job's own
+  cleaner. Anything missing, malformed or different asks the model, as
+  before.
+- **Where.** The mechanism is shared (`builder/prepared.mjs`), and the Add-on
+  designer adopts it first. Staging and a paused job's kept record carry the
+  facts, never the reply. The request view now shows `skipped`.
+- **Run 141's shape, offline.** The job asks the designer 0 times instead of
+  once, and is charged exactly as a job with no refusal. Run 141's own record
+  is still unread, so its cause stays unconfirmed.
+- **Tests:** 9 new (`test/correction-reuse.test.mjs`, CR 1–8), and R141 3
+  now asserts the reuse.
+  - Red check: CR 1, 3 and 8 and R141 3 fail on the old Worker.
+  - Sweep: 25 of 25 killed, with 2 controls surviving.
+  - Full suite: `10735 / 10735 / 0 / 0`.
+- **Not done:**
+  - no deploy;
+  - the text and data steps do not adopt it;
+  - a refusal of a re-asked answer carries no facts;
+  - CR 2's changed context is a tampered digest, not a natural change.
 
 ## 2026-10-13 — Evidence work finished offline: task markings, a corrected isolation check, a correction-reuse design, the opt-in closed (nothing spent, merged or deployed)
 

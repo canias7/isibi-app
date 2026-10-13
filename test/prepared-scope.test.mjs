@@ -220,7 +220,7 @@ test("requestView: a job's evidence served with its counts; a job with none is n
   const base = { key: "k", state: "done", at: 1, updatedAt: 2, parts: [{ n: 0, words: "w", status: "done", held: [], jobs: [{ key: "a", kind: "run", id: "job-a" }, { key: "b", kind: "run", id: "job-b" }, { key: "c", kind: "run", id: "job-c" }] }] };
   let v;
   const MARK = { what: "pick_adds", others: 1, rule: true, unmarked: 0, done: 0, replayed: true };
-  try { v = requestView(base, { prepUse: { "job-a": { staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1, marks: [MARK] }, "job-b": null, "job-c": { staged: "odd", replayed: "1", fresh: -1, scoped: "2", marks: [{ ...MARK, unmarked: -1 }] } } }); }
+  try { v = requestView(base, { prepUse: { "job-a": { staged: "yes", replayed: 1, rebased: 0, fresh: 0, skipped: 1, scoped: 2, needs: 1, marks: [MARK] }, "job-b": null, "job-c": { staged: "odd", replayed: "1", fresh: -1, scoped: "2", marks: [{ ...MARK, unmarked: -1 }] } } }); }
   catch (e) { assert.fail("requestView threw on a minimal record: " + e.message); }
   // `scoped` and `needs` (v3, 2026-10-11): how many scoped answers the job's
   // steps gave, and how many of those said `needs` — the direct evidence of
@@ -228,9 +228,10 @@ test("requestView: a job's evidence served with its counts; a job with none is n
   // `marks` (2026-10-13): each call's `partMarks`; absent or unreadable is
   // null — unknown, never "no markings".
   assert.deepEqual(v.parts[0].prepUse, [
-    { job: "job-a", known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0, scoped: 2, needs: 1, marks: [MARK] },
+    // `skipped` (2026-10-13, correction reuse): served when written, null when not.
+    { job: "job-a", known: true, staged: "yes", replayed: 1, rebased: 0, fresh: 0, skipped: 1, scoped: 2, needs: 1, marks: [MARK] },
     { job: "job-b", known: false },
-    { job: "job-c", known: true, staged: null, replayed: null, rebased: null, fresh: null, scoped: null, needs: null, marks: null },
+    { job: "job-c", known: true, staged: null, replayed: null, rebased: null, fresh: null, skipped: null, scoped: null, needs: null, marks: null },
   ]);
 });
 

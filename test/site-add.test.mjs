@@ -374,7 +374,7 @@ test("every field the edit path refuses to create has a kind here, and the route
   // moment the loop ends and before a decline can return — then read back by
   // the owner through the answer route with `kind=addon`.
   // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
-  const runAt = at(b, "const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
+  const runAt = at(b, "let ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ANCHORED ON THE CALL, NOT ON ITS ARGUMENT LIST. This read the whole literal
   // and went red on 2026-09-13 for an honest extra argument — the coverage
   // record — reporting the keep as gone when it had only grown. The property is
@@ -1585,7 +1585,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // now and the first tier designed MAKES the database, so what follows the
   // fold is the provision, then the schema work, then the look merge.
   // RE-ANCHORED 2026-10-11: the call is the early answer or a call made now.
-  const run = at(b, "const ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
+  const run = at(b, "let ranFirst = aEarlyOne ? await aEarlyOne : await runAdd(", "run");
   // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke: the
   // site handed to the cleaner is `aSite` PLUS `today`, the site's own local
   // date, for the one-time job's past-date refusal. `aSite` is rebuilt from the

@@ -49,6 +49,17 @@ read the reply could use it.
   later job, and not from an early answer. The `.kept.json` files are never
   rewritten.
 
+  > **Amended 2026-10-13, in scope only, on the owner's word**
+  > (`docs/history/2026-10-13-correction-reuse.md`). The refused **answer**
+  > is still never staged, replayed, handed on, shown to a model or applied,
+  > and VA 0–5 and UA 0–6 still pass unchanged. A refusal by its step may now
+  > carry its **facts**: the reason, the exact feedback sent, the superseded
+  > requirement entries, and a digest of the cleaner's input. Those facts let
+  > a later job whose first request and cleaner input both match exactly go
+  > straight to the recorded correction. That correction is still answered
+  > only by an exact match and validated by the job's own cleaner. The
+  > Add-on designer is the first adopter.
+
 **Where the add-on marks it** (`worker.js`, every add-on kind, through the
 one cleaner):
 - **An early answer** (`aLanded`): a designer that ran beside the others and

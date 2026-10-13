@@ -23,9 +23,12 @@
 //   R141 3 — run 141's counts: the preparation's FIRST designer answer is
 //            refused by the cleaner and corrected (5 recorded calls with the
 //            judge, 4 here without it). A refused answer is never replayed
-//            (VA 0–5), so the job's designer is asked again; a real model's new
-//            answer differs from the prepared correction, so everything built
-//            on it is asked again too. The refused answer never lands.
+//            (VA 0–5). Until 2026-10-13 the job's designer was therefore asked
+//            again and a real model's new answer made everything built on it
+//            new too (1 replayed, 3 fresh live). Since correction reuse, the
+//            refusal's FACTS take the job straight to the recorded correction
+//            (`docs/history/2026-10-13-correction-reuse.md`): skipped 1,
+//            replayed 3, fresh 0. The refused answer never lands.
 //
 // ⚠ SUPPLIED-MODEL PROOF ONLY: every answer is supplied, so this shows what
 // the code does with an answer, never what a real model answers.
@@ -165,18 +168,21 @@ test("R141 2 — A CHANGE TO THE ADDITION'S OWN PAGE INVALIDATES WHAT READS IT: 
   assert.ok(P.page("bake-list.tsx").includes("Every Monday morning"), "the questions section did not land");
 });
 
-test("R141 3 — RUN 141'S COUNTS: the preparation's first designer answer is refused and corrected; the refused answer is never replayed, so the job's designer is asked again, and a new answer from the model makes the writer's input new too — 1 replayed (the picker), the rest asked again; the refused page never lands", { timeout: 60000 }, async () => {
+test("R141 3 — RUN 141'S COUNTS, NOW REUSED (2026-10-13, correction reuse): the preparation's first designer answer is refused and corrected; the job's first designer request is the refused one and its cleaner input is the same, so it goes straight to the recorded correction — the designer is asked 0 times by the job (skipped 1), picker, correction and writer replayed (fresh 0); the refused page never lands", { timeout: 60000 }, async () => {
   const answers = [REFUSED, GOOD, GOOD_AGAIN];
   const { P, rec, view } = await runShape({ design: (n) => answers[Math.min(n, answers.length) - 1] });
   partsDone(rec);
   assert.equal(view.parts[1].prepRun.step.calls, 4, "the preparation did not record picker, refused design, correction and writer: " + JSON.stringify(view.parts[1].prepRun));
   const u = useOf(view, 1);
   assert.ok(u && u.staged === "yes", JSON.stringify(view.parts[1]));
-  assert.equal(u.replayed, 1, JSON.stringify(u));
-  assert.equal(u.fresh, 2, JSON.stringify(u));
-  assert.equal(count(P, T.design), 3, "prep: refused + correction; job: one new answer");
+  assert.equal(u.replayed, 3, JSON.stringify(u));
+  assert.equal(u.fresh, 0, JSON.stringify(u));
+  assert.equal(u.skipped, 1, JSON.stringify(u));
+  assert.equal(count(P, T.design), 2, "prep: refused + correction; job: none");
   assert.ok(!P.page("bake-list.tsx").includes("/nowhere"));
   assert.ok(P.page("bake-list.tsx").includes("Every Monday morning"));
+  // THE PREPARED CORRECTION, NOT A NEW ANSWER, landed (GOOD_AGAIN was never asked for).
+  assert.ok(!JSON.stringify(P.modelLog).includes("weekly bake list changes"));
 });
 
 test("R141 4 — CONTROL: the same addition with no page scope (its writes reach the whole site) counts no scoped call", { timeout: 60000 }, async () => {

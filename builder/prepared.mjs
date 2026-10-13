@@ -111,12 +111,121 @@ export function unusableReply(reply) {
 // refusal anywhere in the job — an early answer checked as it lands, a turn,
 // a preparation — reaches every reader: staging, replay, continuation.
 const REJECTED = new WeakMap();
-/** A step's own cleaner refused this reply: it is never given again. */
-export function rejectReply(reply, why) {
-  if (reply && typeof reply === "object") REJECTED.set(reply, String(why || "rejected").slice(0, 80));
+/**
+ * A step's own cleaner refused this reply: it is never given again. `facts`
+ * (2026-10-13, correction reuse) are the refusal's own facts, never its
+ * answer — see `readRefusal`. Facts that do not read are not kept.
+ */
+export function rejectReply(reply, why, facts) {
+  if (!reply || typeof reply !== "object") return;
+  REJECTED.set(reply, String(why || "rejected").slice(0, 80));
+  const f = facts === undefined ? null : readRefusal(facts);
+  if (f) REFUSAL_FACTS.set(reply, f); else REFUSAL_FACTS.delete(reply);
 }
 /** Why a step refused this reply, or "". */
 export const replyRejected = (reply) => (reply && typeof reply === "object" && REJECTED.get(reply)) || "";
+
+// ── A REFUSAL'S FACTS GUIDE A REPLAY; ITS ANSWER NEVER DOES (2026-10-13,
+//    correction reuse, on the owner's word) ──────────────────────────────────
+//
+// THE RULE ABOVE, AMENDED IN SCOPE AND NOWHERE ELSE: a refused or cut-off
+// ANSWER is still never staged, replayed, handed to a continuation, shown to a
+// model or applied. What a refusal adds to the record is its FACTS — what the
+// step decided when it refused, all of which the live path already carries
+// into its one correction:
+//   feedback    the exact correction feedback the step sent
+//   superseded  the requirement entries the refused answer listed (grounded
+//               again in the customer's words by whoever reads them)
+//   cleanIn     the digest of what the cleaner judged beyond the request
+//               (`valueDigest`), so the refusal holds only where it was made
+// A later job whose first request is byte for byte the refused one (its
+// fingerprint, part section and all) and whose cleaner input digests the same
+// may go straight to the recorded correction — which is still answered only
+// by an exact match, and still validated by that job's own cleaner before
+// anything is applied. Anything missing, malformed or different falls back
+// to asking the model, exactly as before. Before this round run 141's paid
+// correction was unreachable (`docs/history/2026-10-13-correction-reuse.md`).
+const REFUSAL_FACTS = new WeakMap();
+/** The longest correction feedback kept; a longer one is not kept (the job asks again). */
+export const REFUSAL_FEEDBACK_MAX = 16000;
+/** The most requirement entries a refusal's facts may carry; more are not kept. */
+export const REFUSAL_REQ_MAX = 500;
+/** The largest a refusal's facts may be, as JSON. */
+export const REFUSAL_BYTES_MAX = 262144;
+const HEX64 = /^[0-9a-f]{64}$/;
+const plainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+
+/**
+ * A REFUSAL'S FACTS read strictly — `{ feedback, superseded, cleanIn }`, a
+ * fresh copy, or null. Every field must read: feedback a non-empty string,
+ * superseded a list (possibly empty) of plain objects, cleanIn a SHA-256 hex
+ * digest; nothing beside them; bounded. Null is "no facts", never "a refusal
+ * with nothing in it".
+ */
+export function readRefusal(v) {
+  if (!plainObject(v)) return null;
+  const keys = Object.keys(v).sort().join(",");
+  if (keys !== "cleanIn,feedback,superseded") return null;
+  if (typeof v.feedback !== "string" || !v.feedback || v.feedback.length > REFUSAL_FEEDBACK_MAX) return null;
+  if (typeof v.cleanIn !== "string" || !HEX64.test(v.cleanIn)) return null;
+  if (!Array.isArray(v.superseded) || v.superseded.length > REFUSAL_REQ_MAX || !v.superseded.every(plainObject)) return null;
+  let text;
+  try { text = JSON.stringify({ feedback: v.feedback, superseded: v.superseded, cleanIn: v.cleanIn }); } catch { return null; }
+  if (typeof text !== "string" || text.length > REFUSAL_BYTES_MAX) return null;
+  return JSON.parse(text);
+}
+/** The facts its step kept when it refused this reply, or null. */
+export const replyRefusal = (reply) => (reply && typeof reply === "object" && REFUSAL_FACTS.get(reply)) || null;
+
+/** Plain JSON values only, keys sorted; anything else (a Map, a function, NaN) throws — a digest that cannot be taken is no digest. */
+function strictCanonical(v) {
+  if (v === null || typeof v === "string" || typeof v === "boolean") return v;
+  if (typeof v === "number") { if (!Number.isFinite(v)) throw new TypeError("not-json"); return v; }
+  if (Array.isArray(v)) return v.map((x) => (x === undefined ? null : strictCanonical(x)));
+  if (plainObject(v)) {
+    const out = {};
+    for (const k of Object.keys(v).sort()) if (v[k] !== undefined) out[k] = strictCanonical(v[k]);
+    return out;
+  }
+  throw new TypeError("not-json");
+}
+/** SHA-256 over a plain JSON value, canonical (`cleanIn`); "" when it is not plain JSON — and "" never matches. */
+export async function valueDigest(v) {
+  let text;
+  try { text = JSON.stringify(strictCanonical(v)); } catch { return ""; }
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * WHAT A REPLAYER THROWS, never returns, for a call whose request is a refused
+ * one — and only to a caller that declared it handles prior refusals
+ * (`wrap(send, { refusals: true })`). It carries the refusal's facts and no
+ * reply: a caller that does not handle it sees a failed call. `take()` is the
+ * caller's acceptance — counted as `skipped`, and noted by any recorder the
+ * call passed through, so a continuation carries the facts (never the answer).
+ * A caller that declines simply asks again: nothing is counted.
+ */
+export class PriorRefusal extends Error {
+  constructor(r, onTake) {
+    super("prior-refusal");
+    this.name = "PriorRefusal";
+    this.h = r.h;
+    this.why = r.why;
+    this.facts = { feedback: r.feedback, superseded: r.superseded, cleanIn: r.cleanIn };
+    this.takes = [onTake];
+    this.taken = false;
+  }
+  also(fn) { this.takes.push(fn); }
+  take() {
+    if (this.taken) return null;
+    this.taken = true;
+    for (const f of this.takes) { try { f(); } catch { /* the record never costs the job */ } }
+    return { why: this.why, ...JSON.parse(JSON.stringify(this.facts)) };
+  }
+}
+/** The prior refusal a failed call carries, or null. */
+export const priorRefusalOf = (e) => (e instanceof PriorRefusal ? e : null);
 
 // ── WHAT A REQUEST PART'S MODEL CALL WAS SHOWN OF THE OTHER PARTS (2026-10-13,
 //    after run 141) ─────────────────────────────────────────────────────────
@@ -181,7 +290,8 @@ export function readMarks(v) {
   for (const m of v) {
     if (!m || typeof m !== "object" || typeof m.what !== "string" || m.what.length > 60 || !whole(m.others) || typeof m.rule !== "boolean" || !whole(m.unmarked) || !whole(m.done)) return null;
     if (Object.hasOwn(m, "replayed") && typeof m.replayed !== "boolean") return null;
-    out.push({ what: m.what, others: m.others, rule: m.rule, unmarked: m.unmarked, done: m.done, ...(Object.hasOwn(m, "replayed") ? { replayed: m.replayed } : {}) });
+    if (Object.hasOwn(m, "skipped") && m.skipped !== true) return null;
+    out.push({ what: m.what, others: m.others, rule: m.rule, unmarked: m.unmarked, done: m.done, ...(Object.hasOwn(m, "replayed") ? { replayed: m.replayed } : {}), ...(m.skipped === true ? { skipped: true } : {}) });
   }
   return out;
 }
@@ -200,12 +310,30 @@ export function recorder() {
   // numbers only, never part of an entry (an entry is its fingerprint and its
   // answer).
   const marks = [];
+  // A REFUSAL TAKEN FROM AN EARLIER RECORD: its fingerprint, verdict and
+  // facts, and no reply — the job never had the refused answer.
+  const noteRefusal = (h, why, facts) => {
+    const f = readRefusal(facts);
+    if (typeof h !== "string" || !HEX64.test(h) || typeof why !== "string" || !why || !f) return;
+    const entry = { h };
+    Object.defineProperty(entry, "unusable", { value: "rejected:" + why, enumerable: false });
+    Object.defineProperty(entry, "refusal", { value: f, enumerable: false });
+    Object.defineProperty(entry, "toJSON", { value: () => ({ h, unusable: "rejected:" + why, refusal: f }), enumerable: false });
+    calls.push(entry);
+  };
   return {
     calls, images, marks,
     wrap(send) {
       return async (req) => {
         try { const m = partMarks(req); if (m && marks.length < MARKS_KEPT) marks.push(m); } catch { /* the record never costs the call */ }
-        const reply = await send(req);
+        let reply;
+        try { reply = await send(req); }
+        catch (e) {
+          // A PRIOR REFUSAL ITS CALLER TAKES is kept as facts with no answer,
+          // so whatever reads this record next can take it too.
+          if (e instanceof PriorRefusal) e.also(() => noteRefusal(e.h, e.why, e.facts));
+          throw e;
+        }
         try {
           const h = await requestHash(req);
           // THE VERDICT IS READ WHEN THE RECORD IS WRITTEN: a cut-off now, or a
@@ -217,8 +345,11 @@ export function recorder() {
           // the stored record.
           const entry = { h, reply };
           const verdict = () => unusableReply(reply) || (replyRejected(reply) ? "rejected:" + replyRejected(reply) : undefined);
+          // A REFUSAL'S FACTS ride only with a refusal by its step (never a cut-off).
+          const facts = () => (unusableReply(reply) || !replyRejected(reply) ? null : replyRefusal(reply));
           Object.defineProperty(entry, "unusable", { get: verdict, enumerable: false });
-          Object.defineProperty(entry, "toJSON", { value: () => { const u = verdict(); return u ? { h, reply, unusable: u } : { h, reply }; }, enumerable: false });
+          Object.defineProperty(entry, "refusal", { get: () => facts() || undefined, enumerable: false });
+          Object.defineProperty(entry, "toJSON", { value: () => { const u = verdict(); const f = facts(); return u ? { h, reply, unusable: u, ...(f ? { refusal: f } : {}) } : { h, reply }; }, enumerable: false });
           calls.push(entry);
         } catch { /* an answer that cannot be kept is made again by the job */ }
         return reply;
@@ -240,22 +371,52 @@ export function recorder() {
  * be given again (marked when recorded, or judged now — a record stored before
  * the rule carries no mark) is left out of `calls` and named in `discarded`
  * (`{ h, why }`), so every reader — a job's staging, its replayer, the next
- * job's staging of what this one kept — gives it to nobody.
+ * job's staging of what this one kept — gives its ANSWER to nobody.
+ * AMENDED IN SCOPE ONLY (2026-10-13, correction reuse, on the owner's word):
+ * a refusal by its step may carry its FACTS (`readRefusal`), read here into
+ * `refusals` without the reply; they guide only a caller that handles prior
+ * refusals, and only on an exact request match (see above `readRefusal`).
  */
 export function readPrepared(raw) {
   let v = raw;
-  if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [], discarded: [] }; } }
+  if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return { calls: [], images: [], discarded: [], refusals: [] }; } }
   const ok = v && typeof v === "object" && !Array.isArray(v);
   const calls = [];
   const discarded = [];
+  const refusals = [];
   for (const c of ok && Array.isArray(v.calls) ? v.calls : []) {
     if (!c || typeof c.h !== "string" || !/^[0-9a-f]{64}$/.test(c.h)) continue;
     const why = (typeof c.unusable === "string" && c.unusable) || unusableReply(c.reply);
-    if (why) { discarded.push({ h: c.h, why }); continue; }
+    if (why) {
+      discarded.push({ h: c.h, why });
+      // ITS FACTS, NEVER ITS REPLY (2026-10-13): only a refusal by its step,
+      // only facts that read (`readRefusal`); a record written before the
+      // amendment has none, and yields none.
+      if (why.startsWith("rejected:") && why.length > 9 && c.refusal !== undefined) {
+        const f = readRefusal(c.refusal);
+        if (f) refusals.push({ h: c.h, why: why.slice(9), ...f });
+      }
+      continue;
+    }
     calls.push({ h: c.h, reply: c.reply });
   }
   const images = ok && Array.isArray(v.images) ? v.images.filter((i) => i && typeof i.d === "string" && typeof i.url === "string" && i.url) : [];
-  return { calls, images, discarded };
+  return { calls, images, discarded, refusals };
+}
+
+/**
+ * A RECORD TO STAGE for a job from what was read back (`readPrepared`): the
+ * usable answers, the pictures, and each refusal as an entry with its facts
+ * and NO REPLY — so the job's own read finds them exactly as written.
+ */
+export function stagedRecord(got) {
+  const g = got && typeof got === "object" ? got : {};
+  const calls = Array.isArray(g.calls) ? g.calls.map((c) => ({ h: c.h, reply: c.reply })) : [];
+  for (const r of Array.isArray(g.refusals) ? g.refusals : []) {
+    const f = readRefusal({ feedback: r.feedback, superseded: r.superseded, cleanIn: r.cleanIn });
+    if (f && typeof r.h === "string" && HEX64.test(r.h) && typeof r.why === "string" && r.why) calls.push({ h: r.h, unusable: "rejected:" + r.why, refusal: f });
+  }
+  return { calls, images: Array.isArray(g.images) ? g.images : [] };
 }
 
 /**
@@ -286,10 +447,11 @@ export const unfinishedBuy = (raw) => readBuys(raw).find((b) => b.state === "buy
  * each were answered from the record, for the job's trace.
  */
 export function replayer(prepared) {
-  const { calls, images } = readPrepared(prepared);
+  const { calls, images, refusals } = readPrepared(prepared);
   const spent = new Set();
   const spentImg = new Set();
-  let hits = 0, imageHits = 0, misses = 0;
+  const spentRef = new Set();
+  let hits = 0, imageHits = 0, misses = 0, skipped = 0;
   // EVERY PART CALL'S MARKS, replayed or made now (`partMarks`): a replayed
   // call still forms its request, so what it would have shown is known.
   const marks = [];
@@ -303,6 +465,10 @@ export function replayer(prepared) {
     // `scopedText`, `scopedData`), so its exact request is what its answer
     // rests on. `rebased` stays in the shape, always 0.
     used: () => ({ calls: hits, rebased: 0, images: imageHits, missed: misses }),
+    // FIRST REQUESTS ANSWERED BY A PRIOR REFUSAL ITS CALLER TOOK (2026-10-13):
+    // no model asked, no answer given; the correction that follows is counted
+    // as any call. Apart from `used()`, whose shape is pinned (UA 0).
+    skips: () => skipped,
     /**
      * MORE PREPARED CALLS, joined while the job runs (2026-10-11, the
      * generality round): a later step of the same job, prepared beside the
@@ -310,7 +476,11 @@ export function replayer(prepared) {
      * the same rule as everything else (`readPrepared`): an answer that cannot
      * be given again is never added.
      */
-    add(more) { for (const c of readPrepared({ calls: Array.isArray(more) ? more : [] }).calls) calls.push(c); },
+    add(more) {
+      const got = readPrepared({ calls: Array.isArray(more) ? more : [] });
+      for (const c of got.calls) calls.push(c);
+      for (const r of got.refusals) refusals.push(r);
+    },
     /**
      * IS THIS PICTURE ONE ITS PREPARATION BOUGHT? Such a picture sits in the
      * owner's uploads before the job places it, so a step that lists the
@@ -322,13 +492,27 @@ export function replayer(prepared) {
     // recorded call to match — a preparation that kept only pictures, or none —
     // each call is still made through here, so `missed` counts it. Returning
     // `send` itself left a fresh call uncounted beside `missed: 0`.
-    wrap(send) {
+    //
+    // A PRIOR REFUSAL ONLY FOR A CALLER THAT HANDLES ONE (`refusals: true`,
+    // 2026-10-13): its request matched exactly, no usable answer recorded for
+    // it, the refusal not yet spent — then the call is not made and no reply
+    // is given; `PriorRefusal` is thrown with the facts. Every other caller
+    // never sees a refusal: its call is made, as before.
+    wrap(send, { refusals: handles = false } = {}) {
       return async (req) => {
         let m = null;
         try { m = partMarks(req); } catch { m = null; }
         let h = "";
-        if (calls.length) { try { h = await requestHash(req); } catch { h = ""; } }
+        if (calls.length || (handles === true && refusals.length)) { try { h = await requestHash(req); } catch { h = ""; } }
         const at = h ? calls.findIndex((c, i) => !spent.has(i) && c.h === h) : -1;
+        if (at < 0 && h && handles === true) {
+          const ri = refusals.findIndex((r, i) => !spentRef.has(i) && r.h === h);
+          if (ri >= 0) {
+            spentRef.add(ri);
+            if (m && marks.length < MARKS_KEPT) marks.push({ ...m, replayed: false, skipped: true });
+            throw new PriorRefusal(refusals[ri], () => { skipped++; });
+          }
+        }
         if (m && marks.length < MARKS_KEPT) marks.push({ ...m, replayed: at >= 0 });
         if (at >= 0) { spent.add(at); hits++; return calls[at].reply; }
         misses++;
