@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: run 144, the one approved `acc-isolation-page` press, showed isolation live once — Add-on first, heading untouched until the Edit; 23 credits, balance 837; the opt-in closed again; image purchases still OFF until you restore them)
+## Current handoff — read this first (2026-10-13: run 144, the one approved `acc-isolation-page` press, showed isolation live once — Add-on first, heading untouched until the Edit; 23 credits, balance 837; the opt-in closed again; image purchases back ON, deploy 2201, confirmed by run 145)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -13,17 +13,11 @@ commits named in the run 144 entry below). `main` is unchanged at
 **Where it stands**
 - **Production code: deploy 2199** (`main` `fef80b9b`, image
   `4444d9d53d906b8d`), runtime-confirmed by run 143.
-- **Image purchases are OFF** since **deploy 2200** (your manual redeploy,
-  run 38417493475, 14:55 UTC, image reused), read `imagePurchases=false` by
-  run 144's preflight. **To restore** (free):
-  1. set the `IMAGE_PURCHASES` secret back to `on`
-     (https://github.com/canias7/isibi-app/settings/secrets/actions);
-  2. run *deploy* on `main`
-     (https://github.com/canias7/isibi-app/actions/workflows/deploy.yml);
-     the image is reused, so no wait is owed;
-  3. press *edit canary* from `main`, spend `no`, site `fold-lane-bakery`,
-     deploy sha `fef80b9b`, image `4444d9d53d906b8d`, everything else blank.
-     It must read `imagePurchases=true` and charge nothing.
+- **Image purchases are back ON.** They were off for run 144 (deploy
+  2200). You restored them with deploy 2201 (run 38428408001, 16:11 UTC,
+  image reused). **Run 145** (your free press, 16:22 UTC) read
+  `imagePurchases=true`, `fef80b9bc913`, `4444d9d53d906b8d`, balance 837,
+  and nothing charged.
 - **Run 144** (`docs/history/2026-10-13-run144.md`): one press, through the
   normal router, order not forced.
   - The router answered `addon` and held the heading back as part 1.
@@ -930,6 +924,14 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-13 — Image purchases back on: deploy 2201, confirmed by run 145 (free)
+
+You set `IMAGE_PURCHASES` back to `on` and redeployed `main` (deploy 2201,
+image reused). Your free press, run 145, read `imagePurchases=true`, both
+readers on `fef80b9b`, a cold container on `4444d9d53d906b8d`, every free
+check passing, and balance 837 with nothing charged. Photographs are on for
+customers again; nothing else changed.
+
 ## 2026-10-13 — Run 144: isolation shown live once (23 credits); the opt-in closed again; image purchases still off
 
 You approved one image-free `acc-isolation-page` press at 12–26 credits.
@@ -961,8 +963,8 @@ What happened:
 - **Money: 23 credits, 860 → 837** (ledger rows 454–457: routing 3, the
   Add-on 15, routing 3, the text 2).
 - **The opt-in is closed again** (`209b4015`).
-- **Still yours to do:** set `IMAGE_PURCHASES` back to `on`, redeploy
-  `main`, and run the free press (the handoff has the steps).
+- **Image purchases restored** afterwards: deploy 2201, confirmed by your
+  free press, run 145 (`imagePurchases=true`, balance 837, nothing charged).
 
 The full record is `docs/history/2026-10-13-run144.md`.
 

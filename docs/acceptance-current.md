@@ -28,8 +28,8 @@ approved.
 - The one FAIL was the checker's (a section and a heading on one page),
   fixed offline; not re-run.
 - Correction reuse not exercised (no refusal).
-- **The opt-in is closed again.** Image purchases must be turned back on by
-  the owner (secret, redeploy, free press). No further paid tests are
+- **The opt-in is closed again.** Image purchases are back on (deploy 2201,
+  runtime-confirmed by run 145, nothing charged). No further paid tests are
   approved.
 
 ## 0. The task-isolation release and one live check (approved; done 2026-10-12)

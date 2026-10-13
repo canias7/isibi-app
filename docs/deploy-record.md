@@ -1847,7 +1847,24 @@ and names the wrong person to go and ask.
   `fef80b9bc913`, a cold container `4444d9d53d906b8d`,
   **`imagePurchases=false`** ("the live Worker buys none"). Run 144 then made
   the one approved paid press (`docs/history/2026-10-13-run144.md`).
-- **Still to do, by the owner**: `IMAGE_PURCHASES` back to `on`, a manual
-  redeploy of `main` (deploy 2201, image reused), and a free press that
-  reads `imagePurchases=true`. Until then image purchases are off for every
-  customer.
+- Restored by deploy 2201 (below).
+
+## Deploy 2201 — image purchases back on (2026-10-13)
+
+- **The owner's manual redeploy** (run 38428408001, `workflow_dispatch`,
+  16:11:14–16:12:05 UTC) of `main` `fef80b9b`, after setting
+  `IMAGE_PURCHASES` back to `on`. No code changed.
+- The container image was **reused** (`4444d9d53d906b8d`, "no changes");
+  Worker version `8ab70897-…`. The log masks every "on" in its text (for
+  example "c***tainer"), as it masks a secret's value.
+- **Runtime-confirmed by run 145** (the owner's free press from `main`, run
+  38429850021, job 115408854868, 16:21:42–16:22:25 UTC, spend `no`,
+  `fold-lane-bakery`):
+  - `build-health` and `runtime` both answered `fef80b9bc913`;
+  - a cold container got `4444d9d53d906b8d`;
+  - **`imagePurchases=true`**, async and the runner on;
+  - all free checks passed; the free job settled at cost 0;
+  - every page served at `01791904998588-e07yu1` (run 144's last version);
+  - balance **837**, "CANARY_SPEND is not 1 — stopping before the paid
+    edit. Nothing was charged".
+- Evidence artifact 11829848645.
