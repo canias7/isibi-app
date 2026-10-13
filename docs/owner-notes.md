@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: K3B pressed as run 150 — PASS, two designers ran at the same time inside one Add-on, 20 credits, 828 → 808; the balance box closed again; image purchases still off until you turn them on; before it, presence ≠ request met fixed offline)
+## Current handoff — read this first (2026-10-13: K3B pressed as run 150 — PASS, two designers ran at the same time inside one Add-on, 20 credits, 828 → 808; the balance box closed again; image purchases back on (deploy 2203); before it, presence ≠ request met fixed offline)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -24,8 +24,10 @@ is in git; the dated entries further down are the full story.*
   code, from before `62bbd81b`, underselling rather than overclaiming.
 - Runs 148 (my site-box mistake) and 149 (the rehearsal) spent nothing.
 - **The balance box is closed again.**
-- **Still yours: set `IMAGE_PURCHASES` back to `on` and redeploy `main`.**
-  Until then no customer's site can buy photographs.
+- **Image purchases: you set `IMAGE_PURCHASES` back to `on` and redeployed
+  `main`** (deploy 2203, run 38476539324, `fef80b9b`, green). The value is
+  hidden in the log; the next canary's preflight (`imagePurchases=`) will
+  confirm it.
 - Record: `docs/history/2026-10-13-presence-and-k3b.md` §10.
 
 **For Codex's review: `62bbd81b` and `abb57130`** on
@@ -1162,8 +1164,8 @@ whether the two parts were right, even though they were. That is the
 current live code being too cautious; the fix waiting on the branch
 (`62bbd81b`) tells each addition by its own words instead.
 
-The balance box is closed again. Image purchases are still off: set
-`IMAGE_PURCHASES` back to `on` and redeploy when you're ready.
+The balance box is closed again. You set image purchases back on and
+redeployed (deploy 2203).
 
 Record: `docs/history/2026-10-13-presence-and-k3b.md` §10.
 

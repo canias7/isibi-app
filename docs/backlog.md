@@ -85,8 +85,8 @@ here; take a closed one out of both.**
     (`component`, `words`) overlapped inside one Add-on, and every outcome,
     preservation and money check passed (20 credits). Shown once, no rate.
     **Open:** the deployed reply told both landed parts as "can't see from
-    here" (pre-`62bbd81b` attribution); image purchases stay off until the
-    owner turns them back on;
+    here" (pre-`62bbd81b` attribution); image purchases back on (deploy
+    2203), to be confirmed by the next preflight;
   - **flaky test, pre-existing (2026-10-13):** PLW 1
     (`test/progress-live-writer.test.mjs`) fails under load, at the line
     written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race

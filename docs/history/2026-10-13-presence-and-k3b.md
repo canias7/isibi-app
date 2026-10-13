@@ -317,6 +317,7 @@ their words is not shown live (nothing was released).
 
 **Afterwards:**
 - The balance box was closed again, in the commit after this record.
-- `IMAGE_PURCHASES` goes back to `on` with a redeploy; that is the owner's
-  step.
+- The owner set `IMAGE_PURCHASES` back to `on` and redeployed `main`
+  (deploy 2203, run 38476539324, `fef80b9b`, green). The value is hidden in
+  the deploy log; the next canary's preflight reading confirms it.
 - No automatic repeat.
