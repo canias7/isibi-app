@@ -2033,13 +2033,15 @@ export function capRefusal({ now, cap }) {
  * IT IS NOT A BUDGET: the server still refuses only what the balance cannot
  * cover, so a press run under it can spend up to that whole balance.
  */
-// ONE PRESS (2026-10-13, the owner: "I authorize one acc-addon-k3b run at
-// about 18–27 credits; open its balance box."): the box admits
-// `acc-addon-k3b` alone, for that one run, and is closed again after it.
-// Before that it was closed ("Close the old spending opt-in"; again after run
-// 144), and admitted `acc-isolation-page` (run 144), `acc-isolation` (run
-// 141), the K0/K/E/M0/M batch and P1/P2, all closed.
-export const BALANCE_OPT_IN = Object.freeze(["acc-addon-k3b"]);
+// CLOSED (2026-10-13, the owner: "Close the old spending opt-in"; closed
+// again after the one approved `acc-isolation-page` run, run 144, the same
+// day: "Afterward, close the paid-test opt-in"; and again after the one
+// approved `acc-addon-k3b` run, run 150). Before that it admitted
+// `acc-addon-k3b` (run 150), `acc-isolation-page` (run 144),
+// `acc-isolation` (run 141), the K0/K/E/M0/M batch and P1/P2, all closed. It
+// admits no press now: every press is bound by its cap until the owner names
+// a new one.
+export const BALANCE_OPT_IN = Object.freeze([]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";

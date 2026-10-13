@@ -37,7 +37,7 @@ const SC = UI_SCENARIOS["acc-addon-k3b"];
 
 // ── THE SCENARIO ────────────────────────────────────────────────────────────
 
-test("K3B 1 — the scenario: K3B's exact words from addon-kinds-3, one message, no image, the acceptance cap, funds first, the Add-on step, the in-press reading, the facts on /order; the balance box admits it alone, for its one run", () => {
+test("K3B 1 — the scenario: K3B's exact words from addon-kinds-3, one message, no image, the acceptance cap, funds first, the Add-on step, the in-press reading, the facts on /order; the balance box stays closed to it", () => {
   assert.ok(SC, "no acc-addon-k3b");
   const probes = JSON.parse(fs.readFileSync(ROOT + "scripts/router-probes/addon-kinds-3.json", "utf8")).probes;
   const k3b = probes.find((p) => p.id === "K3B");
@@ -57,11 +57,9 @@ test("K3B 1 — the scenario: K3B's exact words from addon-kinds-3, one message,
   for (const x of SC.expect.sections) assert.ok(Array.isArray(x.facts) && x.facts.length >= 3, x.says.join(" "));
   assert.ok(SC.covers.includes("addon-inner"));
   assert.doesNotMatch(SC.steps[0].say, /\b(a|an|some) (photo|photograph|picture|image)s?\b|\bform\b|\btable\b/i);
-  // THE OWNER'S ONE RUN (2026-10-13): the box admits this press and nothing
-  // else; it is closed again after the run.
-  assert.deepEqual([...BALANCE_OPT_IN], ["acc-addon-k3b"]);
-  assert.equal(readBalanceOptIn("828", { ui: "acc-addon-k3b" }).ok, true);
-  assert.equal(readBalanceOptIn("828", { ui: "acc-addon-kinds" }).ok, false);
+  // THE OPT-IN IS NOT OPENED HERE: the owner names the press first.
+  assert.ok(!BALANCE_OPT_IN.includes("acc-addon-k3b"), "the balance box was opened without the owner's word");
+  assert.equal(readBalanceOptIn("828", { ui: "acc-addon-k3b" }).ok, false);
 });
 
 test("K3B 2 — requestBatchVerdict does not send this press to the read-job box: the in-press reading replaces that note; acc-addon-kinds keeps it", () => {

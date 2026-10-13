@@ -247,3 +247,76 @@ No automatic repeat. Whatever the router or picker does is recorded once.
 - K3B: the router answered one Add-on for these words once (run 147); the
   real picker's kinds and the designers' timing have never been read live
   for them.
+
+## 10. The K3B run, pressed (2026-10-13): PASS, 20 credits, 828 → 808
+
+**The approval and set-up:**
+- The owner: *"I authorize one acc-addon-k3b run at about 18–27 credits;
+  open its balance box."*
+- The balance box was opened for `acc-addon-k3b` alone (`af7dbcf2`).
+- The owner set `IMAGE_PURCHASES` off and redeployed `main`: deploy 2202
+  (run 38471484617), `fef80b9b`, image `4444d9d53d906b8d` reused.
+
+**Runs before it, nothing spent:**
+- **Run 148** refused before signing in: the site box kept its default
+  `fretwork-1`. My instructions had said to leave it blank.
+- **Run 149**, the free rehearsal on `fold-lane-bakery`, stopped at the image
+  switch as designed. Balance 828 → 828.
+
+**Run 150** (run 38473833029, 21:52–22:04 UTC, from the branch at
+`af7dbcf2`).
+
+| Preflight | Reading |
+|---|---|
+| Readers | Both answered `fef80b9bc913` |
+| Cold container | Image `4444d9d53d906b8d` |
+| Runtime | `async`, `runner`, `imagePurchases=false` |
+| Balance | 828, the value allowed |
+
+**Routing.** One routing call (3 credits) answered `addon`, nothing held
+back (the model said `intent=addon layer=none`). It became request
+`025e9d7b…` with one part, done at `addon`.
+
+**The Add-on job `8d356243…`** (21:54:22 → 22:02:09):
+- Published `3oisvv` from `e07yu1`; the publish chain was verified.
+- Charged 17: ledger reserve `#1`, no refund.
+
+**In-press verdict: INSIDE ONE ADD-ON — PASS (overlap).**
+- One trace tied to the job: `e_mv77ym0brvu55bxg`.
+- The picker chose `["component", "words"]`.
+- Both designers started with no `after` (independent).
+- Their calls overlapped: component +24,390 → +91,271 ms, words +24,397 →
+  +92,979 ms. That is about 66.9 s of the two designer calls running at the
+  same time.
+- **This is the first live demonstration of two designers running at the
+  same time inside one Add-on.** One sample; no rate.
+
+**Outcome, preservation and money: every check ok.**
+- **Outcome.** On `/order`, the questions section states "can I change my
+  order", "until 6pm" and "the day before". The line states "orders open",
+  "every Sunday" and "at noon", with no other day. Both are stored and
+  served (each question opened), each said once, and no contradiction.
+- **Preservation.** `/order` keeps every word and photograph it had. Every
+  other stored page and component is byte for byte as it was, and no page
+  file was added. Every page still serves 200, the logo is unchanged, and
+  the tables are unchanged.
+- **Money.** Routing 3 + job 17 = 20, exactly the balance's move (828 →
+  808). That is within the estimate of 27. Nothing was charged later, and
+  every request has ended.
+- No photograph was bought. Console errors: 0.
+
+**A finding (recorded, not a failure of this run).** The deployed
+(`fef80b9b`) reply said "I can't see from here whether that first part is
+in a short questions section … or whether the Sunday line sits under the
+collection times". The job's `requirementsTold` marked both requirements
+`unseen`/`unknown`, though the press found both facts stored and served.
+This is the deployed component-attribution code, from before `62bbd81b`. It
+undersells rather than overclaims: it never told the customer something was
+done that was not. Whether `62bbd81b` would have told the additions with
+their words is not shown live (nothing was released).
+
+**Afterwards:**
+- The balance box was closed again, in the commit after this record.
+- `IMAGE_PURCHASES` goes back to `on` with a redeploy; that is the owner's
+  step.
+- No automatic repeat.

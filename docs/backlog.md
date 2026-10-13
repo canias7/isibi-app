@@ -81,10 +81,12 @@ here; take a closed one out of both.**
     unchecked. **Open limits:** an addition whose copy is computed or comes
     from a file the route does not list is told with no words of its own.
     A real reply model judging the match has not run live;
-  - **K3B prepared, not pressed (2026-10-13, `abb57130`):** two designers
-    inside one Add-on, judged in the press from the job's own trace. It needs
-    the owner's one-time balance opt-in and image purchases off; about 18–27
-    credits;
+  - **K3B pressed as run 150 (2026-10-13): PASS.** Two designers
+    (`component`, `words`) overlapped inside one Add-on, and every outcome,
+    preservation and money check passed (20 credits). Shown once, no rate.
+    **Open:** the deployed reply told both landed parts as "can't see from
+    here" (pre-`62bbd81b` attribution); image purchases stay off until the
+    owner turns them back on;
   - **flaky test, pre-existing (2026-10-13):** PLW 1
     (`test/progress-live-writer.test.mjs`) fails under load, at the line
     written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race

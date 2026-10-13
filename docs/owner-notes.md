@@ -1,13 +1,35 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: a component on the page is no longer told as the request met — each addition is told by itself and the match is left to the reply model; K3B prepared for two designers inside one Add-on, judged in the press; run 147 spent 9 credits, balance 828; nothing else spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: K3B pressed as run 150 — PASS, two designers ran at the same time inside one Add-on, 20 credits, 828 → 808; the balance box closed again; image purchases still off until you turn them on; before it, presence ≠ request met fixed offline)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
+**Run 150, K3B: PASS (2026-10-13, 21:52–22:04 UTC).**
+- **Routing:** one `addon` answer, nothing held back (routing 3).
+- **The one Add-on job** published `3oisvv` from `e07yu1` and was charged
+  17.
+- **Inside it, the picker chose two kinds** (`component`, `words`). Both
+  designers started without waiting, and their calls overlapped (about 67 s
+  together). **This is the first live showing of two designers running at
+  the same time inside one Add-on**: one sample, no rate.
+- **Every outcome, preservation and money check passed.**
+  - Both facts are on `/order`, stored and served.
+  - Everything else is byte for byte as it was.
+  - 20 credits, exactly the balance's move (828 → 808), within the
+    estimate of 27.
+- **A finding, not a failure:** the deployed reply said "I can't see from
+  here" for both parts, though both landed. That is the old attribution
+  code, from before `62bbd81b`, underselling rather than overclaiming.
+- Runs 148 (my site-box mistake) and 149 (the rehearsal) spent nothing.
+- **The balance box is closed again.**
+- **Still yours: set `IMAGE_PURCHASES` back to `on` and redeploy `main`.**
+  Until then no customer's site can buy photographs.
+- Record: `docs/history/2026-10-13-presence-and-k3b.md` §10.
+
 **For Codex's review: `62bbd81b` and `abb57130`** on
-`claude/help-needed-ehlwlj`, plus the records commit after them.
+`claude/help-needed-ehlwlj`, plus the records commits after them.
 - `main` is unchanged at `fef80b9b`, and production is deploy 2201 (image
   `4444d9d53d906b8d`).
 - The full record is `docs/history/2026-10-13-presence-and-k3b.md`.
@@ -1125,6 +1147,25 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Run 150: K3B passed — two designers ran at the same time inside one Add-on (20 credits, 828 → 808)
+
+You approved one K3B run and pressed it after the free rehearsal (run 149).
+The router made it one Add-on. Inside it the picker chose a questions
+section and a line, and the two designers worked at the same time for about
+67 seconds. Both additions are on the Order page as asked, and nothing else
+on the site changed. It cost 20 credits (routing 3 + the Add-on 17),
+exactly what the balance moved.
+
+One thing to know: the reply you'd have seen said it "can't see from here"
+whether the two parts were right, even though they were. That is the
+current live code being too cautious; the fix waiting on the branch
+(`62bbd81b`) tells each addition by its own words instead.
+
+The balance box is closed again. Image purchases are still off: set
+`IMAGE_PURCHASES` back to `on` and redeploy when you're ready.
+
+Record: `docs/history/2026-10-13-presence-and-k3b.md` §10.
 
 ## 2026-10-13 — A component on the page is not the request met; K3B prepared for two designers inside one Add-on (nothing spent, merged or deployed)
 
