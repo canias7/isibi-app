@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; one consolidated clarify-and-resume test prepared, not pressed; the runtime image flag awaits your free press; nothing spent, merged or deployed since run 150)
+## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; the clarify-and-resume test corrected after Codex's false pass, prepared, not pressed; the runtime image flag awaits your free press; nothing spent, merged or deployed since run 150)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -32,7 +32,9 @@ evidence):**
   the reply model. It is not deployed, so the live replies still use the old
   wording (run 150's "I can't see from here").
 - **`abb57130`:** K3B's in-press verdict (used by run 150).
-- **This round:** the clarify-and-resume coverage below.
+- **`4d60a2a3`:** the clarify-and-resume coverage. Codex reproduced a false
+  pass in its verdict (a snapshot, no timing).
+- **This round:** the timing correction for it, below.
 
 **1. Your free press: confirm `imagePurchases=true`** (spends nothing):
 - *edit canary*, from `claude/help-needed-ehlwlj`
@@ -45,7 +47,36 @@ evidence):**
 Its preflight prints the runtime line. `imagePurchases=true` is the
 confirmation.
 
-**2. Clarify and resume, prepared (not pressed).**
+**2. Clarify and resume, corrected after Codex's false pass, prepared (not
+pressed).**
+- **What Codex found in `4d60a2a3`:**
+  - The heading's job ran 100–200, and the link's job started at 300 and
+    asked at 400.
+  - The verdict still passed, because the snapshot at the question read
+    done / waiting / blocked.
+  - That repeated run 119's limit and closed nothing.
+- **The correction (scripts and tests only; no builder change, no image
+  change):**
+  - **When the question began waiting.** The press keeps a timed read of
+    the request's statuses (and job counts) every time they change. The
+    wait began between the last read without the link waiting and the
+    first read with it.
+  - **Work while it waited.** It counts only when the heading is seen
+    running, or seen finishing, in reads taken while the link is still
+    waiting.
+  - **The answer is held.** It stays unsent until that work is seen, or
+    nothing else can move, or the step's window ends; the reason is
+    recorded.
+  - **What counts for nothing.** Work finished before the question counts
+    for nothing.
+  - **Missing timing evidence** is **unverified**.
+  - **The right shape at the wrong time** is **not exercised**, with no
+    automatic repeat.
+  - **The earlier checks are kept:** dependency, resume, reuse of finished
+    work and the money.
+- **The message is reordered:** the shop link comes first, so its write is
+  filed first and the heading's can only come after the question. The order
+  alone is not trusted; the verdict reads the timing.
 - **Offline: CR 1–2** (`test/request-flow.test.mjs`). One request in two
   shapes (an edit's step asks / an addition's routing asks). Each checks:
   - independent work finishing while the question waits;
@@ -59,8 +90,8 @@ confirmation.
 
   Two mutants on the readiness rule were both killed.
 - **Live: `acc-clarify-resume`** on `fold-lane-bakery`, one message:
-  > Change the Classes page heading 'How a Saturday class runs' to 'How a
-  > Saturday class works', add a link to our online shop in the footer, and
+  > Add a link to our online shop in the footer, change the Classes page
+  > heading 'How a Saturday class runs' to 'How a Saturday class works', and
   > once that shop link is in, add one line on the Order page saying you can
   > also order online from our shop, using the link at the bottom of every
   > page.
@@ -70,13 +101,21 @@ confirmation.
 - **Expected:**
   - At the question: the heading part done, the link part waiting, and the
     line part held on it with no job.
+  - The heading seen running or finishing after the link was first read
+    waiting, before the answer went.
   - After the answer: all done; the heading never run again; the link
     resumed; the line run only then.
   - The three changes on the site, everything else byte for byte, and one
     charge per job.
   - Any other shape is **not exercised**, never a pass, and is not
     repeated.
-- **About 10–19 credits** (an estimate, not a cap).
+- **What a pass would prove:** independent work went on while a real
+  question waited, the dependent part waited, the answer resumed only the
+  asking part, finished work was not redone, and one charge per job. It
+  would be one sample. The question's time is bracketed by the press's
+  reads (every 3 s), not read from the server.
+- **About 10–19 credits** (an estimate, not a cap; unchanged: the same
+  three parts and answer, only reordered, and the extra reads are free).
 - **It needs, for one run:** your balance opt-in naming
   `acc-clarify-resume`, image purchases off with a redeploy (then on
   again), and your press. Run step 1 first.
@@ -84,11 +123,16 @@ confirmation.
   - Whether the real router names the dependency is unknown.
   - If the line asks a question of its own, the press fails rather than
     passes.
+  - If the link's routing does not ask and its step is still being
+    prepared when the heading is ready, the heading may run first. The run
+    is then **not exercised (timing)**, never a pass.
   - A second device reading the waiting question is shown offline only.
 - Record: `docs/history/2026-10-13-clarify-resume.md`.
 
-**Suites:** full suite `10808 / 10808 / 0 / 0`; the clarify verdict's sweep
-killed 9 of 9, and its control survived.
+**Suites:** full suite `10814 / 10814 / 0 / 0` (10,808 + six new timing
+cases). The timing sweep killed 20 of 21; the survivor is equivalent, and
+the control survived. On `4d60a2a3`'s check, 6 of the 12 clarify tests
+fail, Codex's sequence among them.
 
 **Next, after this Edit/Add-on coverage:** the separate Build audit, not
 started.
@@ -1128,6 +1172,50 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Codex's false pass in the clarify check, corrected (nothing spent)
+
+Codex reviewed `4d60a2a3` and reproduced a false pass. The independent job
+ran from 100 to 200, the asking job started at 300 and asked at 400, and my
+check still said pass. It only looked at a snapshot of the statuses when the
+question was shown, and a snapshot cannot tell work done before a question
+from work done while it waits. So the gap you asked to close was still open.
+
+What changed (the test tooling only; nothing in the product, so no new
+container image):
+- The press now notes when it read the request and what each part's status
+  was every time something changes. The moment the question began waiting
+  is bracketed by those reads.
+- Work counts only if it is seen running, or seen finishing, while the
+  question is still waiting. Work finished before the question counts for
+  nothing.
+- The answer is held back until that work has been seen, or nothing else
+  can move, or the step's time runs out.
+- Missing timing evidence gives "unverified". The right shape at the wrong
+  time gives "not exercised", and it is not repeated.
+- The earlier checks stay: the dependent part waited, only the asking part
+  resumed, finished work was not redone, and the money.
+- The test message now asks for the shop link first, so the heading's work
+  can only be filed after the question. The order is not trusted on its
+  own; the timing check decides.
+
+Checked offline:
+- Codex's exact sequence is now "not exercised".
+- Missing timing evidence is "unverified".
+- Work seen while the question waited passes, end to end through the real
+  press driver with a stand-in app.
+- On the old check, 6 of the 12 tests fail.
+- 20 of 21 deliberate breakages are caught. The one that isn't would
+  change nothing (another check already covers it), and the control
+  survived.
+- The breakage sweep also found one real gap in my first version: finishing
+  across a moment when the question wasn't waiting. It is fixed.
+
+Estimated cost is still about 10–19 credits. Nothing was spent, merged,
+deployed or built, and the paid opt-ins stay closed. The runtime image flag
+still needs your free press (handoff, item 1).
+
+Record: `docs/history/2026-10-13-clarify-resume.md` §7.
 
 ## 2026-10-13 — After run 150: live state read, and a clarify-and-resume test prepared (nothing spent)
 

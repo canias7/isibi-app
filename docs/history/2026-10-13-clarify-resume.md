@@ -101,11 +101,15 @@ copy, with no commit while they ran:
 
 **The exact request**, one message on `fold-lane-bakery`:
 
-> Change the Classes page heading 'How a Saturday class runs' to 'How a
-> Saturday class works', add a link to our online shop in the footer, and
+> Add a link to our online shop in the footer, change the Classes page
+> heading 'How a Saturday class runs' to 'How a Saturday class works', and
 > once that shop link is in, add one line on the Order page saying you can
 > also order online from our shop, using the link at the bottom of every
 > page.
+
+(Reordered on 2026-10-13 after Codex's review, §7: the shop link comes
+first, so its write is filed first and the heading's can come after the
+question.)
 
 **Then the answer**, sent with the tab closed and followed in a fresh
 browser session:
@@ -129,6 +133,9 @@ reads no wording):
   line needs the link (`dependsOn`).
 - **At the question:** the heading part is `done`, the link part is
   `waiting` with its question, and the line part is `blocked` with no job.
+- **The timing (§7):** in the press's own timed reads, the heading part is
+  seen running, or seen finishing, after the link part was first read
+  waiting and before the answer was sent.
 - **After the answer:**
   - every part is `done`;
   - the heading part has exactly its earlier jobs;
@@ -146,13 +153,16 @@ reads no wording):
 - **Recorded, not judged:** the router's shape.
 
 **The verdict** (`clarifyResumeVerdict`, `scripts/canary-requests.mjs`):
-- **Pass** only on the full shape above.
+- **Pass** only on the full shape above, the timing included.
 - **Not exercised, named by stage, never a pass, never retried:** no
-  question, the asking part not waiting, nothing finished first, or nothing
-  held on the asking part.
+  question, the asking part not waiting, nothing finished first, nothing
+  held on the asking part, or (stage `timing`) the work finished before the
+  question.
 - **Fail:** the held part ran early, a finished part ran again, the asking
   part was not resumed, the held part never ran, or a part is not done.
-- **Unverified:** a view that was never read.
+  A failure is a failure whatever the timing.
+- **Unverified:** a view that was never read, or (stage `timing`) a trail
+  that cannot tell when the question began waiting or what ran after it.
 
 **Tests** (`test/acceptance-clarify-resume.test.mjs`, CRS 1–6): the
 scenario's guards, pass, six not-exercised shapes, five failures,
@@ -203,3 +213,133 @@ deployed, so its effect on these replies is not shown live.
 - **full suite `10808 / 10808 / 0 / 0`** (10,800 + CR 1–2 + CRS 1–6).
 
 Image: no builder module changed in this round, so a release would still build `0e06c1826e3c3c00` (from `62bbd81b`); production stays `4444d9d53d906b8d`.
+
+## 7. Codex's false pass, and the timing correction (2026-10-13, after `4d60a2a3`)
+
+**What Codex reproduced.** The independent job ran from 100 to 200. The
+asking job started at 300 and asked at 400. The verdict at `4d60a2a3` still
+returned **pass**: it read only a snapshot of statuses at the question
+(done / waiting / blocked), and a snapshot cannot tell work done before the
+question from work done while it waited. That is the timing limit already
+recorded for run 119, repeated. So the open gap was not closed: **nothing
+showed independent work continuing while a question waited.**
+
+**The correction, evidence and verdict together** (scripts and tests only;
+no builder file changed, so the image is unchanged):
+1. **The press records when.** Each read of the request view in the trail
+   (`noteView`, every 3 s while a message is followed) now keeps each part's
+   job count beside its status, and a read is added when either changes. Each
+   read already carried its time.
+2. **The wait's start** is the first read in which the asking part is
+   `waiting`. It began after the read before it, and by this one. The
+   request view does not expose the question's own time (`question.at` is
+   kept internally), and exposing it would be a builder change, so the
+   press's own reads bracket the start.
+3. **Work while it waited** (`waitedWork`, `scripts/canary-ui.mjs`) counts
+   only in a read in which the asking part is still waiting, at or after
+   the wait's start:
+   - `running`: another part is `queued` or `started` there;
+   - `finished`: it is `done` there, it was not done in the read before,
+     and that read also showed the asking part waiting.
+
+   A part already `done` at the wait's start did its work before the
+   question and counts for nothing. Held parts never count.
+4. **The answer stays unsent** (`waitHold`, used in the step that ends on
+   the question) until one of these happens:
+   - that work is seen (`observed`);
+   - nothing other than the asking part can still move on its own
+     (`settled`: nothing ready, queued, started, recovering or unverified);
+   - the step's window ends (`window`).
+
+   The release reason is kept on the record (`request.release`).
+5. **The verdict** keeps every earlier check (dependency, resume, reuse of
+   finished work), and the money stays `ownMoneyVerdict`'s. It then adds the
+   timing:
+   - a trail that cannot tell is **unverified** (`timing`);
+   - work only before the question, or work only by a part not done by the
+     answer, is **not exercised** (`timing`), and no repeat follows;
+   - **pass** only with work seen inside the wait, by a part done by the
+     answer.
+
+   A resume failure is still a failure, whatever the timing.
+
+**The scenario.** The shop link now comes first. The request files one write
+at a time, in message order where nothing depends on anything else. It files
+the next ready part's write once the one before is waiting. So the heading's
+write is filed after the link asks. Order alone proves nothing, so the
+verdict still reads the trail.
+
+One path still gives the wrong timing, and it is judged not exercised:
+1. The link's routing does not ask.
+2. While its step is still being prepared, the heading is ready.
+3. The request files the heading first.
+4. Its question then comes after the heading finished.
+
+**What the test now proves, if it passes live:**
+- the heading's work was seen running or finishing after the link's
+  question was first read waiting, and before the answer was sent;
+- the line was held on the link with no job until the answer;
+- the answer resumed only the link;
+- the heading never ran again;
+- every part ended done;
+- one charge per job.
+
+**What it does not prove:**
+- the question's server-side time (only the press's reads bracket it,
+  every 3 s);
+- whether the work was on another machine or concurrent within one job;
+- anything beyond one sample.
+
+**Tests** (`test/acceptance-clarify-resume.test.mjs`, now CRS 1–12):
+- **CRS 7, negative control, Codex's sequence:** heading 100–200, link from
+  300, asking at 400. It is **not exercised (`timing`)**, though the same
+  snapshot passed before; so are three more shapes:
+  - the heading done in the first waiting read;
+  - the heading finishing between the same two reads as the wait's start;
+  - the heading running only while the link was not waiting.
+- **CRS 8, negative control, missing timing:** **unverified (`timing`)**,
+  never a pass and never "not exercised", for:
+  - no trail, or an empty one;
+  - the link never read waiting;
+  - a read without a time;
+  - reads out of order;
+  - a read after the wait with no statuses.
+- **CRS 9, positive control:** each of these passes:
+  - the heading started inside the wait;
+  - the heading queued inside the wait;
+  - the heading finished inside the wait.
+
+  Work only by a part not done by the answer does not pass.
+- **CRS 10:** `waitedWork` and `waitHold` directly.
+- **CRS 11, end to end through the real driver** (the held-app stand-in,
+  offline):
+  - the heading running while the link waits is released `observed` and
+    passes from the trail the press wrote;
+  - Codex's sequence through the same driver is released `settled` and
+    judged not exercised (`timing`).
+- **CRS 12, the hold:**
+  - a heading still `recovering` when the question is shown holds the
+    answer until a later read shows it done;
+  - a heading that never moves is answered at the window's end (`window`),
+    and the verdict does not pass.
+- **CRS 2–6:** the existing cases, moved to the new part order. CRS 4's
+  failures are checked under both timings.
+
+**Red check:** on `4d60a2a3`'s verdict, the new tests fail 6 of 12 (CRS 2, 6,
+7, 8, 9 and 11), and Codex's sequence passes there.
+
+**Sweep:** 21 mutants, 20 killed; the comment-only control survived. The one
+survivor is equivalent: it removes the verdict's own `held` exclusion,
+which the done-by-the-answer filter already covers (a held part is
+`blocked` at the question; its early job is a failure, CRS 4). The first
+sweep found a real gap: a part finishing across a read in which the asking
+part was not waiting counted as `finished`. That rule now requires both
+reads to show the asking part waiting. The case is in CRS 7, and its mutant
+is killed.
+
+**Cost:** unchanged, **about 10–19 credits**. The same three parts and the
+same answer are sent; only their order in the message changed. Holding the
+answer adds reads only, which are free.
+
+**Suites (after the correction):** `acceptance-clarify-resume` 12 of 12;
+**full suite `10814 / 10814 / 0 / 0`** (10,808 + CRS 7–12).

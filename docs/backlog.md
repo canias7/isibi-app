@@ -87,9 +87,12 @@ here; take a closed one out of both.**
     **Open:** the deployed reply told both landed parts as "can't see from
     here" (pre-`62bbd81b` attribution); image purchases back on (deploy
     2203), to be confirmed by the next preflight;
-  - **clarify and resume, prepared (2026-10-13):** `acc-clarify-resume`
-    (an edit, a footer link that must ask, a line held on it), judged by
-    `clarifyResumeVerdict`; offline CR 1–2. Not pressed: needs the
+  - **clarify and resume, prepared (2026-10-13; timing corrected after
+    Codex's false pass on `4d60a2a3`):** `acc-clarify-resume` (a footer
+    link that must ask, first; an edit; a line held on the link), judged by
+    `clarifyResumeVerdict`, which now passes only on work seen in the
+    press's own timed reads after the question was first read waiting and
+    before the answer (held until then); offline CR 1–2, CRS 1–12. Not pressed: needs the
     owner's opt-in and images off, about 10–19 credits. Live-only: whether the
     router names the dependency; whether the line asks a question of its own;
   - **runtime `imagePurchases` after deploy 2203: not yet read** (needs the

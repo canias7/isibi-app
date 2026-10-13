@@ -1469,19 +1469,29 @@ export const UI_SCENARIOS = Object.freeze({
   // (lv-parallel) answered a question that came LAST, after the other parts
   // had finished, and nothing depended on it; this one asks for three things
   // of three kinds in one message:
-  //   - a heading on the Classes page (an edit; needs nothing);
   //   - a footer link to an online shop whose address the message does not
   //     give (it must ask — the address is genuinely unknown);
+  //   - a heading on the Classes page (an edit; needs nothing);
   //   - one line on the Order page pointing to that shop link (it refers to
   //     what the link part makes, so it should wait for it).
+  // THE LINK COMES FIRST (2026-10-13, Codex's review of 4d60a2a3): the
+  // request files one write at a time, in the message's order where nothing
+  // depends on anything, and files the next ready part's write once the one
+  // before is waiting — so the heading's write can come after the question.
+  // Order alone proves nothing: the verdict reads the press's own trail of
+  // timed reads (`waitedWork`) and passes only on work seen after the link was
+  // first read waiting and before the answer, which the press holds back
+  // until that is seen or nothing else can move (`waitHold`).
   // Judged from the press's own record (`clarifyResumeVerdict`): at the
-  // question the heading is done, the link waits and the line is held on it
+  // question the heading is done, having worked while the link waited; the
+  // link waits and the line is held on it
   // with no job; the answer, sent with the tab closed and followed in a fresh
   // browser session (`away: "fresh"`), resumes only the link; the line runs
   // only after it; no finished part runs again; the money is one charge per
   // job (`ownMoneyVerdict`). If the router or a step does not take that shape
   // (no question, nothing finished first, nothing held on the asking part) the
-  // press says NOT EXERCISED and nothing repeats. Read off the live pages
+  // press says NOT EXERCISED and nothing repeats; so does a run whose heading
+  // finished before the question (stage `timing`). Read off the live pages
   // (free GETs, 2026-10-13): no page says "online" or "shop", no footer links
   // a shop, and the Classes page has the heading "How a Saturday class
   // runs". ABOUT 10-19: routing 3; the heading 2; the link's routing 1-3 and
@@ -1503,7 +1513,7 @@ export const UI_SCENARIOS = Object.freeze({
     covers: Object.freeze(["several-parts", "step-question", "answer-resumes", "waits-for-prerequisite"]),
     steps: Object.freeze([
       Object.freeze({
-        say: "Change the Classes page heading 'How a Saturday class runs' to 'How a Saturday class works', add a link to our online shop in the footer, and once that shop link is in, add one line on the Order page saying you can also order online from our shop, using the link at the bottom of every page.",
+        say: "Add a link to our online shop in the footer, change the Classes page heading 'How a Saturday class runs' to 'How a Saturday class works', and once that shop link is in, add one line on the Order page saying you can also order online from our shop, using the link at the bottom of every page.",
         until: "question",
         ms: 12 * 60_000,
       }),
@@ -1892,6 +1902,79 @@ export function questionShown(view, s, key) {
   const seen = s.requests && s.requests[key] && Array.isArray(s.requests[key].shown) ? s.requests[key].shown : [];
   if (!parts.every((q) => (Array.isArray(q && q.jobs) ? q.jobs : []).every((j) => seen.includes(j)))) return null;
   return { by: "step", key, part: p.n, id: ask.id, text: ask.text || String(p.question.text || "") };
+}
+
+/**
+ * WORK SEEN WHILE A QUESTION WAITED (2026-10-13, Codex's review of 4d60a2a3),
+ * read from one message's trail alone: the views the press read while the
+ * request ran, in its own order, each with when it was read and every part's
+ * status (and, kept for the record, each part's job count). A snapshot at the
+ * end cannot tell work done before the question from work done while it
+ * waited (Codex: an independent job from 100 to 200, the asking job from 300,
+ * asking at 400, passed); the order of the reads can.
+ *   THE WAIT'S START is the first read in which `asking` is `waiting`: it
+ *   became waiting after the read before it (`after`) and by this one (`ms`).
+ *   WORK WHILE IT WAITED, by a part other than `asking` and not `held`, in a
+ *   read in which `asking` is still waiting, at or after that first read:
+ *     - `running`: the part is `queued` or `started` in that read;
+ *     - `finished`: it is `done` there and was not in the read before it,
+ *       itself a read at or after the wait's start in which `asking` was
+ *       waiting too (finishing across a read where the asking part was not
+ *       waiting cannot be put inside the wait).
+ *   Nothing done before the first waiting read counts: a part already `done`
+ *   then did its work before the question. (A part that must be done by the
+ *   answer and was not done at the wait's start always shows `finished`: the
+ *   press's last read is in the trail.)
+ * `seen` with what was seen; `none` when the trail shows the wait and no such
+ * work; `unknown` when it cannot tell — no trail, reads out of order or
+ * without times, the asking part never read waiting, or a read after the
+ * wait's start without statuses. Unknown is never none.
+ */
+export function waitedWork(trail, asking, { held = [] } = {}) {
+  const t = Array.isArray(trail) ? trail.filter((e) => e && typeof e === "object") : [];
+  const unknown = (why, from = null) => ({ state: "unknown", why, from, seen: [] });
+  if (!Number.isInteger(asking)) return unknown("no asking part");
+  if (!t.length) return unknown("the request was never read while the message ran");
+  for (let k = 0; k < t.length; k++) {
+    if (!Number.isFinite(t[k].ms)) return unknown(`read ${k} of the trail has no time`);
+    if (k && t[k].ms < t[k - 1].ms) return unknown(`the trail's reads are out of order at ${k}`);
+  }
+  const pair = (list, n) => (Array.isArray(list) ? list.find((x) => Array.isArray(x) && x[0] === n) : undefined);
+  const st = (e, n) => { const x = pair(e.parts, n); return x ? x[1] : undefined; };
+  const w = t.findIndex((e) => st(e, asking) === "waiting");
+  if (w < 0) return unknown(`part ${asking} was never read waiting`);
+  const from = { ms: t[w].ms, after: w > 0 ? t[w - 1].ms : null };
+  const tail = t.slice(w);
+  if (tail.some((e) => !Array.isArray(e.parts))) return unknown("a read after the wait's start carries no statuses", from);
+  const hold = Array.isArray(held) ? held : [];
+  const others = [...new Set(tail.flatMap((e) => e.parts.map((x) => (Array.isArray(x) ? x[0] : null))))].filter((n) => Number.isInteger(n) && n !== asking && !hold.includes(n));
+  const seen = [];
+  for (const n of others) {
+    for (let k = 0; k < tail.length; k++) {
+      const e = tail[k];
+      if (st(e, asking) !== "waiting") continue;
+      const s = st(e, n);
+      if (s === "queued" || s === "started") { seen.push({ part: n, how: "running", ms: e.ms }); break; }
+      if (k > 0 && s === "done" && st(tail[k - 1], n) !== "done" && st(tail[k - 1], asking) === "waiting") { seen.push({ part: n, how: "finished", ms: e.ms }); break; }
+    }
+  }
+  return seen.length ? { state: "seen", why: "", from, seen } : { state: "none", why: `no part other than ${asking} worked after it was first read waiting (${from.after === null ? "the first read" : `between ${from.after} and ${from.ms} ms`})`, from, seen };
+}
+
+/**
+ * WHETHER THE ANSWER MAY GO NOW (2026-10-13): the question is shown; the
+ * answer waits until work while it waited has been seen (`observed`), or
+ * until no part other than the asking one can still move on its own
+ * (`settled`: nothing recovering or unverified — `questionShown` already
+ * holds nothing ready, queued or started). Otherwise `release` is null and
+ * the press keeps reading, up to the step's window.
+ */
+export function waitHold(view, trail, asking) {
+  const ev = waitedWork(trail, asking);
+  if (ev.state === "seen") return { release: "observed", ev };
+  const parts = view && Array.isArray(view.parts) ? view.parts : [];
+  const moving = parts.filter((p) => p && p.n !== asking && ["recovering", "unverified"].includes(p.status));
+  return { release: moving.length ? null : "settled", ev };
 }
 
 /**
@@ -3666,8 +3749,12 @@ export async function runUi(opts) {
     // AND WHAT EACH PART'S PREPARATION HAD REACHED (2026-10-09): the view's own
     // `prep`, "preparing" or "prepared", for the overlap verdict.
     const prep = (Array.isArray(view.parts) ? view.parts : []).filter((p) => p && (p.prep === "preparing" || p.prep === "prepared")).map((p) => [p.n, p.prep]);
+    // AND HOW MANY JOBS EACH PART HAD FILED (2026-10-13, Codex's review of
+    // 4d60a2a3), kept beside the statuses the clarify verdict reads
+    // (`waitedWork`), so a reader can see which job ran when.
+    const jobs = (Array.isArray(view.parts) ? view.parts : []).map((p) => [p.n, Array.isArray(p.ids) ? p.ids.length : 0]);
     const last = r.request.trail[r.request.trail.length - 1];
-    if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts) || JSON.stringify(last.prep || []) !== JSON.stringify(prep)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts, ...(prep.length ? { prep } : {}) });
+    if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts) || JSON.stringify(last.prep || []) !== JSON.stringify(prep) || JSON.stringify(last.jobs || []) !== JSON.stringify(jobs)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts, jobs, ...(prep.length ? { prep } : {}) });
   };
   // WHERE A PART MAY GO. (A polling threshold on spend was removed on
   // 2026-10-11: it reacts only after a charge lands, so it never bounded
@@ -3781,7 +3868,7 @@ export async function runUi(opts) {
   // request's own Stop.
   const followStep = async (page, { before, netFrom, step, r, ms }) => {
     const end = Date.now() + ms;
-    let s = null, key = "", view = null, lastLook = 0;
+    let s = null, key = "", view = null, lastLook = 0, shownQ = null;
     for (;;) {
       try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
       if (!key) key = requestKeyOf(rec.network.slice(netFrom));
@@ -3803,9 +3890,19 @@ export async function runUi(opts) {
         // part waits on it, nothing else is about to run or running, the page
         // has shown every reply so far and draws the question's card for that
         // part — so the next message is its answer.
+        // AND, FOR A PRESS THAT JUDGES WORK DONE WHILE A QUESTION WAITS
+        // (`expect.clarify`; 2026-10-13, Codex's review of 4d60a2a3): the
+        // answer stays unsent until that work has been seen in the trail, or
+        // until nothing other than the asking part can still move, or until
+        // the step's window ends — so the verdict reads what happened before
+        // the answer, never after it.
         if (step.until === "question" && s && composerReady(s) && view && !view.ended && !r.request.wall) {
           const q = questionShown(view, s, key);
-          if (q) { r.question = q; return { ok: true, s }; }
+          if (q) {
+            shownQ = { q, s };
+            const hold = scenario && scenario.expect && scenario.expect.clarify === true ? waitHold(view, r.request.trail, q.part) : null;
+            if (!hold || hold.release) { r.question = q; if (hold) r.request.release = hold.release; return { ok: true, s }; }
+          }
         }
         if (s && composerReady(s) && view && view.ended === true && shown && shown.closed === true) return { ok: true, s };
       } else if (step.until === "question" && s && composerReady(s) && s.ask && !s.ask.key && s.askCard) {
@@ -3817,7 +3914,12 @@ export async function runUi(opts) {
           return { ok: true, s };
         }
       } else if (s && composerReady(s) && newReplies(before, s.messages).length > 0) return { ok: true, s };
-      if (Date.now() >= end) return { ok: false, s };
+      if (Date.now() >= end) {
+        // THE OBSERVATION WINDOW ENDED with the question shown: it is
+        // answered, and the verdict says what the trail did or did not hold.
+        if (shownQ && r.request) { r.question = shownQ.q; r.request.release = "window"; return { ok: true, s: shownQ.s }; }
+        return { ok: false, s };
+      }
       await sleep(pollMs);
     }
   };

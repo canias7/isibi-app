@@ -26,7 +26,7 @@
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
 import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
-import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict } from "./canary-ui.mjs";
+import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict, waitedWork } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 import { extractText } from "../builder/site-text.mjs";
 import { addonDesignOverlap } from "./canary-read-job.mjs";
@@ -1906,6 +1906,14 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  *   Then, after the answer: every part `done`; every part done at the question
  *   has exactly the jobs it had then (never run again); the asking part gained
  *   a job (it was resumed); each held part ran only now.
+ *   AND THE TIMING (2026-10-13, Codex's review of 4d60a2a3: an independent
+ *   job from 100 to 200 and a question at 400 passed on the snapshot alone):
+ *   the message's own trail must show a part that finished by the question
+ *   working AFTER the asking part was first read waiting and before the
+ *   answer (`waitedWork`). The answer is held until that is seen or the
+ *   window ends (`waitHold`). Work only before the question is
+ *   `not-exercised` (stage `timing`), never retried; a trail that cannot tell
+ *   is `unverified`. Failures of the resume are failures whatever the timing.
  * The money (one charge per job, nothing twice) is `ownMoneyVerdict`'s.
  */
 export function clarifyResumeVerdict(steps) {
@@ -1939,7 +1947,17 @@ export function clarifyResumeVerdict(steps) {
   if (!(listOf(by(q.part).ids).length > listOf(asking.ids).length)) return out("fail", "resume", `the asking part ${q.part} filed no job after the answer`);
   const idle = held1.filter((p) => !listOf(by(p.n).ids).length);
   if (idle.length) return out("fail", "resume", `held part(s) ${idle.map((p) => p.n).join(", ")} never ran`);
-  return out("pass", "resume", "", { asking: q.part, independent: done1.map((p) => p.n), held: held1.map((p) => p.n) });
+  const s1 = list[i];
+  const timing = waitedWork(s1.request && s1.request.key === q.key ? s1.request.trail : null, q.part, { held: held1.map((p) => p.n) });
+  const extra = { asking: q.part, held: held1.map((p) => p.n), waitFrom: timing.from, during: timing.seen, release: (s1.request && s1.request.release) || null };
+  if (timing.state === "unknown") return out("unverified", "timing", `when the question began waiting, or what ran after it, cannot be told: ${timing.why}`, extra);
+  const during = timing.seen.filter((x) => done1.some((p) => p.n === x.part));
+  if (!during.length) {
+    return out("not-exercised", "timing", timing.state === "none"
+      ? `${timing.why}: work finished before the question does not count`
+      : `work was seen while it waited (${timing.seen.map((x) => x.part + ":" + x.how).join(", ")}) but by no part finished before the answer`, extra);
+  }
+  return out("pass", "resume", "", { ...extra, independent: [...new Set(during.map((x) => x.part))] });
 }
 
 /**
