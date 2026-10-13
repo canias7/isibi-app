@@ -68,6 +68,17 @@ here; take a closed one out of both.**
     console count includes replayed history~~ — **fixed 2026-10-13**
     (`9a0c6bed`, `consoleLine`, CE 14): errors before the first send are
     told apart;
+  - **component attribution (2026-10-13, `a65bb5da`, after Codex's false
+    success):** every component now needs its own new instance, resolved
+    by its import, and only its own texts count. **Open limits:** a
+    component reached only through a barrel import, a re-export, a dynamic
+    tag or an unlisted file reads as unknown ("can't see from here"), never
+    as success. The foreign-copy count uses the route's own files, so text
+    drawn by an unlisted layout is not counted;
+  - **flaky test, pre-existing (2026-10-13):** PLW 1
+    (`test/progress-live-writer.test.mjs`) fails under load, at the line
+    written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race
+    in the test's held windows; not investigated;
   - other strippers still use `<[^>]+>`;
   - ~~the coverage judge calls a collapsed answer "unseen"~~ — fixed offline
     2026-10-13 (`a4e0da19`).

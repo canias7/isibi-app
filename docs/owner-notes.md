@@ -1,10 +1,110 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the connected Edit/Add-on batch — reporting corrections, ten new offline cases through the request driver to the reply model's facts, no product failure found; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: Codex's false success fixed — every added component must be found itself, by its imported source and its own new instance; first-load absence and props are never said to be a click; console errors named by timing; the next parallel-work test's probe list prepared, not pressed; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
+
+**For Codex's review: `a65bb5da`, `9c4e8f9c`, `93c90b9a`, `126aa05d` and `92fcd2e0`**
+on `claude/help-needed-ehlwlj`, plus the records commit after them.
+- `main` is unchanged at `fef80b9b`, and production is deploy 2201.
+- The connected batch (`9a0c6bed`, `da8dd276`, below) is kept; only CC 7's
+  wording assertion changed.
+- The full record is `docs/history/2026-10-13-attribution-corrections.md`.
+
+**1. Codex's false success, fixed.**
+- **The reproduction:** only a booking form was asked for on `/visit`, and
+  the writer only changed the heading. The reply model was still told the
+  form was added and seen, because attribution ran only when several
+  components shared a page.
+- **Now every component must be found itself**, alone, beside others or
+  repeated:
+  - its own new instance on the page, found by the module its tag is
+    imported from (an alias or namespace member counts; a same-named tag
+    from elsewhere, an unbound tag or a barrel does not);
+  - one new instance per design of it on that page;
+  - only the texts inside those instances (or in its own part file) count;
+  - a text is "shown" only when the page shows more copies than the route
+    carries elsewhere.
+- **When something is uncertain, the result stays unknown.** Nothing added
+  at all is still "still to do"; something added that cannot be tied to the
+  component is unknown, never added and never missing.
+- The sweep found one more edge case (a repeated text in a new card placed
+  before an old one), fixed in `9c4e8f9c`.
+
+**2. Not on first load, or passed as a prop, is not a click.**
+- The reply model gets observations only:
+  - what the first load showed;
+  - where the text sits in the code, as a location ("passed as a value to
+    a component on the page, which decides where and when to draw it").
+- Behaviour is a separate fact beside each content observation: no
+  interaction was identified or tried, so whether one shows it is not
+  verified.
+- The note no longer says a section "waits behind something a visitor
+  opens" or asks them to open it.
+
+**3. The console line names pre-send errors by timing.** One is called the
+app re-reading an earlier job only when exactly one recorded final read of
+a job, with that status and at that moment, and not this press's own,
+establishes it.
+
+**Tests:**
+- `test/content-attribution.test.mjs`, AT 1–9. Each refusal has a positive
+  control; AT 2 and its control go through the real Add-on route. The cases
+  check the stored record and the reply model's facts.
+- CE 5, 7, 11, 14 and 15 fixtures and wording updated; CC 7's wording
+  updated.
+- **Red check:** 10 of 11 fail on `73772b23`. The one that passes there is
+  AT 7, the absence control, which should pass on both.
+- **Sweep:** 13 mutants; 12 killed, 1 equivalent (S4, explained in the
+  history §4); both controls survived.
+- **Focused files:** 80 of 80; Add-on and requirements files 805 of 805;
+  canary and acceptance 668 of 668.
+- **Final full suite `10779 / 10779 / 0 / 0`** on `92fcd2e0`.
+- **One pre-existing flake, recorded, not fixed:** PLW 1 failed once in a
+  full run. Under load it fails 2 of 15 on the old code and 1 of 15 on the
+  new.
+
+**Image:** a release would build `4d38643ab08526e9` (206 inputs; three
+builder modules changed). Nothing was built.
+
+**Still live-only (not run):**
+- the render check's first-load text from a real container;
+- a real reply model writing from the split observation and behaviour facts;
+- whether real page writers import components in the forms resolved here.
+
+**The next parallel-work test, prepared (not pressed, not reopening K, E,
+M, P1, P2 or run 144):** two designers running at the same time inside one
+Add-on.
+- K (run 135, closed) put a section and a line on two pages and was split.
+  The routing-only list **`addon-kinds-3`** puts both kinds on **one** page,
+  three ways: K3A Visit, K3B Order, K3C Classes.
+- **Its press** (routing only, nothing applied, about 1–3 credits a message,
+  so about 3–9, **needs your approval**):
+  - Run *edit canary* from `claude/help-needed-ehlwlj` with:
+    - *ROUTING-ONLY BATCH: …* = `addon-kinds-3`
+    - *Run the ONE paid edit as well (yes/no)* = `yes`
+    - *Refuse to spend unless the Worker reports this deploy sha …* =
+      `fef80b9b`
+    - *Refuse to spend unless a cold container reports this image id …* =
+      `4444d9d53d906b8d`
+  - Leave every other box blank.
+- **Afterwards:** a paid one-Add-on press follows only if a message comes
+  back as one `addon` answer with nothing held back, and only after its
+  words are read free against the live page. The overlap is then read free
+  with *read_job*.
+
+**Kept as they were:**
+- run 144 closed;
+- paid opt-ins closed;
+- no paid, image or fal call;
+- no merge, deploy or container build;
+- every flag and limit unchanged.
+
+---
+
+*Before this round (same day):* the connected batch.
 
 **For Codex's review: `9a0c6bed` and `da8dd276`** (the reporting
 corrections, and the connected cases) on `claude/help-needed-ehlwlj`, plus
@@ -1020,6 +1120,32 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Codex's false success fixed: every added component found itself; no click claimed from a hidden text; console errors by timing (nothing spent, merged or deployed)
+
+Codex showed the builder could tell you a booking form was "added and seen"
+when the writer had only changed a heading. **Fixed:**
+- **A component is now credited only for its own new instance on the page**,
+  found by the module it is imported from. Only the words inside that
+  instance count. Anything else added to the page cannot stand in for it,
+  and neither can the same words elsewhere. When that can't be decided, you
+  hear it couldn't be checked, never that it was done.
+- **The reply model is told only what the page showed and where the words
+  sit in the code.** Separately, it is told that nothing a visitor might do
+  (opening, switching, sending) was identified or tried.
+- **The canary's console count says "before the first message"** and claims
+  an earlier job only when the press's own record proves it.
+
+**Tests:** 11 new cases (two through the real Add-on route). The sweep
+killed 12 of 13 mutants (1 equivalent), and the full suite is `10779 /
+10779`.
+
+**The next parallel-work test is prepared, not pressed:** a routing-only
+list, `addon-kinds-3`, with three one-page messages. It needs your approval,
+at about 3–9 credits.
+
+Commits: `a65bb5da`, `9c4e8f9c`, `93c90b9a`, `126aa05d`, `92fcd2e0`.
+Record: `docs/history/2026-10-13-attribution-corrections.md`.
 
 ## 2026-10-13 — The connected Edit/Add-on batch: reporting corrections and ten offline cases to the reply model's facts (nothing spent, merged or deployed)
 

@@ -203,6 +203,12 @@ line).
     *Closed 2026-10-13 (`9a0c6bed`, CE 15):* each now reads its own share
     only, or reads unread.
   - The static placement is a hint only.
+  - *Corrected 2026-10-13 (`a65bb5da`, after Codex's review):* a component
+    alone on its page was credited with anything added there. Now every
+    component needs its own new instance, found by its import, and only its
+    own texts count. Placements are said as code locations, and behaviour
+    is a separate, unverified fact
+    (`docs/history/2026-10-13-attribution-corrections.md`).
 - **A deploy would build a new container image**, because `worker.js` and
   the builder modules are inputs: predicted `4444d9d53d906b8d` →
   **`98c56f9b20da4403`** (206 inputs, from `88dec2a0`, with the new module
