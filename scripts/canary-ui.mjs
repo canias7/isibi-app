@@ -1976,12 +1976,14 @@ export function capRefusal({ now, cap }) {
  * IT IS NOT A BUDGET: the server still refuses only what the balance cannot
  * cover, so a press run under it can spend up to that whole balance.
  */
-// CLOSED (2026-10-13, the owner: "Close the old spending opt-in"). It last
-// admitted `acc-isolation` alone, for the isolation release's one press (run
-// 141, done and closed); before that the K0/K/E/M0/M batch and P1/P2, all
-// closed. It admits no press now: every press is bound by its cap until the
-// owner names a new one.
-export const BALANCE_OPT_IN = Object.freeze([]);
+// ONE PRESS (2026-10-13, the owner: "Proceed with one image-free live run of
+// the prepared acc-isolation-page test … I authorize this single run at the
+// estimated 12–26 credits; do not automatically repeat it"): the box admits
+// `acc-isolation-page` alone, and is closed again after that one run. It was
+// closed on 2026-10-13 ("Close the old spending opt-in"); before that it
+// admitted `acc-isolation` (run 141), the K0/K/E/M0/M batch and P1/P2, all
+// closed.
+export const BALANCE_OPT_IN = Object.freeze(["acc-isolation-page"]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";

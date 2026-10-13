@@ -129,7 +129,7 @@ test("ISO 8 — THE EDIT JOB'S OWN ANSWER: applied nothing, or changed something
   assert.ok(failed(near).includes(`it stands straight after "${WANT.after}"`));
 });
 
-test("ISO 9 — WIRED INTO THE PRESS'S VERDICT, and the scenario agrees with itself: image-free, on the Bake List, the heading's from/to and the phrase agree, no overlap or reuse asked; not in the balance opt-in", async () => {
+test("ISO 9 — WIRED INTO THE PRESS'S VERDICT, and the scenario agrees with itself: image-free, on the Bake List, the heading's from/to and the phrase agree, no overlap or reuse asked; in the balance opt-in alone, for its one approved run (2026-10-13)", async () => {
   const { BALANCE_OPT_IN } = await import("../scripts/canary-ui.mjs");
   const e = evidence({ order: "addon" });
   const base = { spec: SC, steps: e.steps, served: e.served, beforeServed: e.ctx.beforeServed, before: e.ctx.before, after: e.ctx.after, between: e.ctx.between, tables: null, slug: "fold-lane-bakery" };
@@ -146,7 +146,9 @@ test("ISO 9 — WIRED INTO THE PRESS'S VERDICT, and the scenario agrees with its
   assert.ok(!/friday/i.test(SC.expect.sections[0].facts.map((f) => f.any.join(" ")).join(" ")));
   assert.equal(SC.expect.overlap, undefined);
   assert.equal(SC.expect.reuse, undefined);
-  assert.ok(!BALANCE_OPT_IN.includes("acc-isolation-page"));
+  // THE OWNER APPROVED ONE RUN (2026-10-13): the box admits this press and
+  // nothing else; it is closed again after the run.
+  assert.deepEqual([...BALANCE_OPT_IN], ["acc-isolation-page"]);
 });
 
 // ── THE READ BETWEEN JOBS, THROUGH THE DRIVER AND A STAND-IN APP ─────────────
