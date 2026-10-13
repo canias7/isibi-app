@@ -114,6 +114,8 @@ not; until they do, they behave exactly as before.
 | CR 5 | Every malformed field gives no facts, and the reader returns a copy. A refusal recorded with bad facts carries none, and a cut-off reply never carries facts. A caller that did not opt in makes its call, and `used()` keeps its old shape. An opted-in caller gets a throw (never a reply), taken once, counted only when taken, and spent. A different request never meets it. |
 | CR 6 | Continuation, at the readers: a taken refusal is kept as facts with no reply. Read back, it is a refusal and never an answer. Re-staged, it is taken again under the same rule. A refused reply the job itself kept for diagnosis is never in `calls`, and its content is never staged. |
 | CR 7 | The digest: key order does not matter, any value does, and a value that is not plain JSON gives `""`. |
+| CR 9 *(added later the same day)* | **A real change of the cleaner's input, the request unchanged** (§5). The site's day turns over between the preparation and the job. The job's first designer request is byte for byte the preparation's, but its cleaner's date is new. The refusal is declined, the request is asked fresh, and the new answer is judged against the new date (refused `past-date`) and corrected once. The job lands on the later day. Counts are `skipped 0`, `fresh 2`, `replayed 2`, and the charge is exactly the calls used. |
+| CR 9c *(the same)* | Control on the same day: the refusal holds, and the job goes straight to the recorded correction (`skipped 1`, `fresh 0`, `replayed 3`, no job-designer call by the job). The charge is exactly the calls used. |
 | CR 8 | Continuation through the real queue. One Add-on, page then component. The page's first design is refused (the page exists) and corrected, then the component's designer asks. The paused job's kept record holds the refusal's facts, and its refused reply is not readable as an answer. After the answer, the page designer is not asked again (`skipped 1` on the next job). The refused design is in no staged record and no page, and nothing is charged twice. |
 
 **Changed:**
@@ -134,11 +136,10 @@ not; until they do, they behave exactly as before.
     different;
   - it never puts refused content into a request, a staged or kept record, a
     view or a page, and charges exactly as a job with no refusal.
-- **CR 2 is a tampered digest, not a real change of context.** On run 141's
+- **CR 2 is a tampered digest**, kept as a direct check of the decline path.
+  The gap it left, a natural change, is closed by CR 9 (§5). On run 141's own
   shape no natural change alters the cleaner's input without also altering
-  the designer's request: the scoped request and `aSite` change together. So
-  the case is made by rewriting the staged digest. CR 7 shows that any change
-  in value changes the digest.
+  the designer's request, but the job designer's date does.
 - **Not shown live.** Run 141's own record is still unread, so whether its
   refusal was this shape remains unconfirmed. A real model may answer the
   correction differently from the recorded one only when its request differs,
@@ -201,3 +202,61 @@ not; until they do, they behave exactly as before.
   - Image prediction (from the commit): `eda28cb21064287d` (production) →
     `4444d9d53d906b8d`, 205 inputs.
   - Nothing merged, deployed or built.
+
+## 5. Closing the validation gap: a natural change of the cleaner's input (2026-10-13, later)
+
+**The gap.** CR 2 proved the decline only by rewriting the stored digest.
+
+**The natural case.** `noteFor` keeps parts of the cleaner's input out of the
+designer's request, and the site's local date (`today`) is never in any
+designer request. The job designer's cleaner reads that date: a one-time job
+on a day already gone is refused `past-date`. So when the site's day turns
+over between a preparation and its job, the first request is unchanged while
+what the cleaner judges has changed. Nothing stored is touched.
+
+**The harness** (`dayTurns`, through the real driver, queue, routes and job
+runner):
+- a text part (the Visit line) runs first; an Add-on part (a function and a
+  one-time job) is prepared beside it;
+- the stand-in clock puts the preparation at 23:59:30 on 13 October in the
+  site's zone (Europe/London), and moves 40 seconds before the job, past
+  midnight;
+- `new Date()` follows the stand-in clock for the case, which is how
+  `aToday` is read;
+- every distinct request is priced differently and large, so the ledger says
+  exactly which calls were billed.
+
+| | CR 9: the day turns over | CR 9c: the same day (control) |
+|---|---|---|
+| Preparation | job designer: `no-job-fn` refused, corrected to a one-time job on the 13th | the same |
+| Job's first request | byte for byte the preparation's | the same (skipped) |
+| Refusal facts | **declined** (the digest differs) | taken |
+| Job-designer calls by the job | 2: the fresh first request, refused **`past-date` against the 14th**, then one correction | 0 |
+| Lands | the job for the **15th**; neither the 13th nor `count_bread` reaches the database | the recorded correction, the 13th |
+| `skipped / fresh / replayed` | 0 / 2 / 2 | 1 / 0 / 3 |
+| Add-on job's charge | exactly `pageCredits(picker, function, fresh first, correction)` | exactly `pageCredits(picker, function, recorded correction)` |
+
+**Why CR 9 discriminates:** had the old refusal been taken, the recorded
+correction (the 13th) would have been refused again under the new date. A
+second refusal is final, so the addition would have been lost.
+- With the digest check removed, CR 9 fails (as does CR 2), and the comment
+  control survives.
+- Each charge assertion also shows that the plausible wrong bill gives a
+  different sum: billing the preparation's correction in CR 9, or the skipped
+  request in CR 9c.
+
+**One fixture change.** The stand-in prices a designer's call through
+`usageFor` as it already did every other call. Without `usageFor` nothing
+changes.
+
+**Verification:**
+- **Focused:** `correction-reuse` 11/11. Alongside it, `validation-reuse`,
+  `continuation-unusable` and `parallel-reuse-run141` pass (31/31 across the
+  four files). The rejected-answer rules (VA 0–5, UA 0–6) and the
+  continuation cases (CR 6, CR 8) are unchanged.
+- **Sweep:** 25 of 25 mutants killed, and both comment controls survived. The
+  rerun found one gap: `replay-hash-optin` survived because the only replayer
+  holding a refusal alone had gained a usable answer. A record holding only a
+  refusal is a real staging case, so CR 5 now covers it, and the mutant is
+  killed.
+- **Full suite:** `10737 / 10737 / 0 / 0` locally.

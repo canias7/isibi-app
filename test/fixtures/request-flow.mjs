@@ -450,7 +450,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
       if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 503 });
       const a = answers["add:" + kind];
-      return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a);
+      // PRICED TOO (2026-10-13, correction reuse): a designer's call costs what
+      // `usageFor` says, as every other call does; nothing changes without it.
+      return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a, priced());
     }
     if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
     return say(tool, await answerFor(tool, args), priced());
