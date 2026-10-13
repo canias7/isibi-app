@@ -1272,6 +1272,8 @@ test("PI 35 — TWO ADD-ON PARTS, A NEW PAGE AND A SECTION ON ANOTHER PAGE (S7 a
     assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
     assert.equal(designCalls(P), 2, "a designer was asked twice");
     assert.equal(P.imageLog.length, 0, "something was bought");
+    // THE REPLY MODEL'S FACTS (2026-10-13, the connected batch): the waiting part, once run, is told as done; nothing as missing.
+    replySaysOnlyDone(P, ["Updated /about."]);
     const refs = P.ledger.map((e) => e.ref);
     assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
@@ -1328,6 +1330,8 @@ test("PI 36 — A HEADING CHANGED, WITH TWO ADDITIONS HELD BACK AS TWO ADD-ON PA
     assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
     assert.equal(designCalls(P), 2, "a section was designed twice");
     assert.equal(P.imageLog.length, 0, "something was bought");
+    // THE REPLY MODEL'S FACTS (2026-10-13, the connected batch): each overlapping part's own success; nothing as missing.
+    replySaysOnlyDone(P, ["Changed the wording; it now reads “Harbour Loaf Bakery”.", "Updated /about.", "Updated /visit."]);
     const view = await viewOf(P, r.key);
     for (const n of [1, 2]) {
       const u = prepUseOf(view, n);
@@ -1404,4 +1408,380 @@ test("PI 37 — AN ADD-ON PART AND AN EDIT PART FROM ONE MESSAGE STAY IN THEIR O
     assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
     assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
   });
+});
+
+// ── CONNECTED CASES, END TO END TO THE REPLY MODEL'S FACTS (2026-10-13) ─────
+//
+// The owner's consolidated batch: the connected Edit/Add-on cases that the
+// existing tests covered only up to the site or the record are carried here to
+// what the reply model is told (`P.replyLog`, every fact the reply writer was
+// given), so observed success, missing work and unverified behavior stay
+// accurate all the way. Same driver, same stand-ins; no network.
+const FAQ_BAND = "<section className=\"faq\"><h2>Questions</h2><p>Do you deliver? Yes, on Fridays.</p></section>";
+const HOURS_BAND = "<section className=\"hours\"><h2>Opening hours</h2><p>Tuesday to Sunday, 8 till 2.</p></section>";
+// A WRITER THAT BUILDS ON THE PAGE AS IT NOW IS (what a model shown the page does).
+const withBand = (src, band) => src.replace("</main>", band + "</main>");
+const aboutLine = (args) => {
+  const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[about.tsx] Our story"));
+  return Number(String(at || "-1.").split(".")[0]);
+};
+const W_ABOUT_HEAD = "change the About heading from Our story to Our story so far";
+const ABOUT_HEAD_TARGETS = ["page:/about"];
+const allFacts = (P) => P.replyLog.flat();
+const factTexts = (P) => allFacts(P).map((f) => f.text);
+const uniqueRefs = (P) => { const refs = P.ledger.map((e) => e.ref); assert.ok(refs.length >= 1, "the observer is alive: something was charged"); assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger)); };
+
+const reservesOf = (P, id) => P.ledger.filter((e) => String(e.ref).startsWith(id + "#") && e.reason === "reserve");
+const NOT_DONE = /^(Not done|Not made|Not started|Done only in part|The change was not made)/;
+/** Every expected success fact told once, and no fact telling anything as not done. */
+const replySaysOnlyDone = (P, expected) => {
+  const texts = factTexts(P);
+  for (const e of expected) assert.equal(texts.filter((t) => t === e).length, 1, "not told exactly once: " + e + " — " + JSON.stringify(P.replyLog));
+  assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), [], "a finished part was told as not done");
+};
+const faqParts = (P) => (P.page("about.tsx").match(/Do you deliver\?/g) || []).length;
+
+// CC 1 — AN EDIT AND AN ADD-ON ON THE SAME PAGE, IN EITHER ORDER.
+async function samePageEditAddon(first) {
+  const holder = {};
+  await withPlatform({
+    slug: slugOf("cc1" + first), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n > 0 ? (first === "addon" ? { intent: "edit", layer: "text", page: "/about" } : { intent: "addon" })
+        : first === "addon"
+          ? { intent: "addon", alsoAsked: [W_ABOUT_HEAD], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: ABOUT_HEAD_TARGETS }] }
+          : { intent: "edit", layer: "text", page: "/about", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: ABOUT_HEAD_TARGETS }, { change: 1, writes: FAQ_TARGETS }] }),
+      [T.text]: async (args) => ({ edits: [{ id: aboutLine(args), to: "Our story so far" }] }),
+      [T.adds]: { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
+      "add:component": ABOUT_FAQ_ANSWER,
+      // THE WRITER BUILDS ON THE PAGE AS IT IS WHEN IT IS ASKED.
+      [T.pages]: () => ({ pages: [{ path: "src/routes/about.tsx", source: withBand(holder.P.page("about.tsx"), FAQ_BAND) }] }),
+    },
+  }, async (P) => {
+    holder.P = P;
+    const words = first === "addon" ? [W_ABOUT_FAQ, W_ABOUT_HEAD] : [W_ABOUT_HEAD, W_ABOUT_FAQ];
+    const r = await sendMessage(P, { message: "Please " + words[0] + ", and " + words[1] + "." });
+    const q = P.queue.splice(0);
+    await Promise.all(q.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // NEITHER CHANGE LOST: the heading changed once, the section added once, the rest kept.
+    const about = P.page("about.tsx");
+    assert.equal((about.match(/<h1>Our story so far<\/h1>/g) || []).length, 1, about);
+    assert.equal(faqParts(P), 1, about);
+    assert.ok(about.includes("<p>Since 2019.</p>"), about);
+    assert.equal(P.page("index.tsx"), HOME);
+    assert.equal(P.page("visit.tsx"), VISIT);
+    // A SHARED TARGET IS SERIALIZED: the second job ran on the first's published page.
+    const jobs = P.jobsOf(r.key).filter((j) => j.op !== "route");
+    assert.equal(jobs.length, 2, jobs.map((j) => j.op + ":" + j.state).join(","));
+    // THE REPLY MODEL'S FACTS: each part's own success, nothing called missing.
+    const texts = factTexts(P);
+    assert.ok(texts.includes("Updated /about."), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => t.includes("“Our story so far”")), JSON.stringify(P.replyLog));
+    assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), [], "a finished part was told as not done");
+    uniqueRefs(P);
+  });
+}
+test("CC 1a — SAME PAGE, ADD-ON FIRST: the questions section and the heading change both land on About, each once; the second job builds on the first's page; the reply facts say each part's change and nothing as missing; one charge per job", { timeout: 30000 }, () => samePageEditAddon("addon"));
+test("CC 1b — SAME PAGE, EDIT FIRST: the same, in the other order — the Add-on's writer is asked only at its job, on the page the heading change left, so the heading is kept", { timeout: 30000 }, () => samePageEditAddon("edit"));
+
+// CC 2 — TWO ADD-ON PARTS WRITING THE SAME PAGE.
+const W_ABOUT_HOURS = "add an opening hours section to the About page";
+const ABOUT_HOURS_ANSWER = { component: [{ page: "/about", where: "after the story", does: "lists the opening hours", components: ["card"] }] };
+const ABOUT_HOURS_TARGETS = ["page:/about", "new-component:hours"];
+async function twoOnAbout({ stale, check }) {
+  const holder = {};
+  await withPlatform({
+    slug: slugOf("cc2"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0
+        ? { intent: "addon", alsoAsked: [W_ABOUT_HOURS], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: ABOUT_HOURS_TARGETS }] }
+        : { intent: "addon" }),
+      [T.adds]: (args) => (isHours(args)
+        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_HOURS, uses: [] }] }
+        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
+      "add:component": (args) => (designsHours(args) ? ABOUT_HOURS_ANSWER : ABOUT_FAQ_ANSWER),
+      [T.pages]: (args) => (textOf(args).includes(ABOUT_HOURS_ANSWER.component[0].does)
+        // STALE: built on the page as it was before the first part's section.
+        ? { pages: [{ path: "src/routes/about.tsx", source: withBand(stale ? ABOUT : holder.P.page("about.tsx"), HOURS_BAND) }] }
+        : { pages: [{ path: "src/routes/about.tsx", source: withBand(holder.P.page("about.tsx"), FAQ_BAND) }] }),
+    },
+  }, async (P) => {
+    holder.P = P;
+    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_ABOUT_HOURS + "." });
+    const q = P.queue.splice(0);
+    await Promise.all(q.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    await check(P, rec, r);
+  });
+}
+test("CC 2a — TWO ADD-ON PARTS ON ONE PAGE: serialized on the shared page; both sections land, each once, the story kept; both replies say About was updated, neither says anything is missing", { timeout: 30000 }, () => twoOnAbout({
+  stale: false,
+  check: async (P, rec) => {
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const about = P.page("about.tsx");
+    assert.equal(faqParts(P), 1, about);
+    assert.equal((about.match(/Tuesday to Sunday, 8 till 2\./g) || []).length, 1, about);
+    assert.ok(about.includes("<h1>Our story</h1>"), about);
+    assert.equal(P.page("visit.tsx"), VISIT);
+    const texts = factTexts(P);
+    assert.equal(texts.filter((t) => t === "Updated /about.").length, 2, JSON.stringify(P.replyLog));
+    assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), []);
+    uniqueRefs(P);
+  },
+}));
+test("CC 2b — THE SECOND ADD-ON'S WRITER ANSWERS FROM THE PAGE BEFORE THE FIRST'S SECTION (a lost update): it is refused, the first section is kept on the site, and the reply facts say the second was not done while the first's stands", { timeout: 30000 }, () => twoOnAbout({
+  stale: true,
+  check: async (P, rec) => {
+    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.notEqual(rec.parts[1].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const about = P.page("about.tsx");
+    assert.equal(faqParts(P), 1, "the first part's section was lost: " + about);
+    assert.equal(rec.parts[1].why, "rewrote");
+    assert.ok(!about.includes("Tuesday to Sunday"), "the refused section was published: " + about);
+    // THE FACTS: the first part's success, the second's refusal with the words it would have lost — and nothing claimed for it.
+    const texts = factTexts(P);
+    assert.ok(texts.includes("Updated /about."), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => t.startsWith("Nothing was added.") && t.includes("Do you deliver? Yes, on Fridays.")), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => /^Not done: “add an opening hours section to the About page”/.test(t)), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => /^Done: “Please add a questions section to the About page, and …”/.test(t)), "the summary named the done part by more than its own words");
+    assert.equal(texts.filter((t) => t === "Updated /about.").length, 1, "the refused part was told as updated");
+    uniqueRefs(P);
+  },
+}));
+
+// CC 3 — TWO ADD-ON PARTS ON TWO PAGES; ONE ASKS.
+test("CC 3 — ONE OF TWO ADD-ON PARTS ASKS: the hours part on Visit finishes while the questions part on About waits for its answer; the reply facts say one is done and one waits, quoting the question; the answer resumes only the waiting part — the finished one is never run or charged again — and its own reply then says About was updated", { timeout: 30000 }, async () => {
+  let faqN = 0;
+  const Q = { text: "Should the questions go before or after the story?", options: ["Before", "After"] };
+  await withPlatform({
+    slug: slugOf("cc3"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0
+        ? { intent: "addon", alsoAsked: [W_VISIT_HOURS], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: HOURS_TARGETS }] }
+        : { intent: "addon" }),
+      [T.adds]: (args) => (isHours(args)
+        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
+        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
+      "add:component": (args) => {
+        if (designsHours(args)) return VISIT_HOURS_ANSWER;
+        faqN++;
+        return faqN === 1 ? { question: Q } : ABOUT_FAQ_ANSWER;
+      },
+      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
+        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
+        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_VISIT_HOURS + "." });
+    const q0 = P.queue.splice(0);
+    await Promise.all(q0.map((m) => deliver(P, m)));
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["waiting", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
+    assert.equal(P.page("about.tsx"), ABOUT, "the waiting part changed About");
+    const hoursJobs = (rec) => (rec.parts[1].jobs || []).filter((j) => j.kind === "run").map((j) => j.id);
+    const doneRuns = hoursJobs(s1.rec);
+    assert.equal(doneRuns.length, 1);
+    // WHILE IT WAITS: one part told as done, the other as needing an answer — the question quoted, nothing claimed added, nothing told as failed.
+    const before = factTexts(P);
+    assert.ok(before.includes("Updated /visit."), JSON.stringify(P.replyLog));
+    assert.ok(before.includes("Nothing was added yet; one detail is needed first."), JSON.stringify(P.replyLog));
+    assert.ok(before.some((t) => t.includes("“" + Q.text + "”")), "the question was not given to the reply model");
+    assert.ok(!before.includes("Updated /about."), "the waiting part was told as done");
+    assert.deepEqual(before.filter((t) => NOT_DONE.test(t)), []);
+    const logged = P.replyLog.length;
+    const q = P.question();
+    assert.ok(q && q.id, "no question was kept");
+    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), "the finished part's work was lost");
+    assert.deepEqual(hoursJobs(s2.rec), doneRuns, "the finished part was run again");
+    assert.equal(faqN, 2, "the questions designer was not asked again once, with the answer");
+    // AFTER THE ANSWER: only the resumed part's reply is new, and it says what it did.
+    const after = P.replyLog.slice(logged).flat().map((f) => f.text);
+    assert.ok(after.includes("Updated /about."), JSON.stringify(P.replyLog.slice(logged)));
+    assert.ok(!after.includes("Updated /visit."), "the finished part was told again");
+    assert.deepEqual(after.filter((t) => NOT_DONE.test(t)), []);
+    uniqueRefs(P);
+  });
+});
+
+// CC 4 / CC 5 — ONE PART FAILS, THE OTHER'S WORK STANDS.
+async function oneFails({ failing, check }) {
+  await withPlatform({
+    slug: slugOf("cc-" + failing), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n > 0 ? { intent: "addon" }
+        : { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }] }),
+      // THE EDIT FAILS HONESTLY: its step finds nothing to change.
+      [T.text]: async (args) => (failing === "edit" ? { edits: [] } : { edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
+      [T.adds]: { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
+      "add:component": ABOUT_FAQ_ANSWER,
+      // THE ADD-ON FAILS ON OUR SIDE: its page writer's provider is overloaded.
+      [T.pages]: async () => {
+        if (failing === "addon") throw Object.assign(new Error("upstream 529"), { status: 529 });
+        return { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
+      },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", and " + W_ABOUT_FAQ + "." });
+    const q = P.queue.splice(0);
+    await Promise.all(q.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    for (let i = 0; i < 3; i++) await settle(P, r.key);
+    await check(P, P.record(r.key), r);
+  });
+}
+test("CC 4 — THE ADD-ON PART FAILS ON OUR SIDE BESIDE A HEADING CHANGE: the heading lands and stays; About is untouched; nothing is charged for the failed part; the reply facts say the heading was changed and the section was not done, and nothing is claimed for it", { timeout: 30000 }, () => oneFails({
+  failing: "addon",
+  check: async (P, rec, r) => {
+    assert.deepEqual(rec.parts.map((p) => [p.status, p.why]), [["done", null], ["failed", "generate"]]);
+    assert.match(P.page("index.tsx"), /<h1>Harbour Loaf Bakery<\/h1>/);
+    assert.equal(P.page("about.tsx"), ABOUT, "the failed addition changed About");
+    assert.equal(P.page("visit.tsx"), VISIT);
+    // ITS OWN ANSWER: nothing made, nothing published, nothing charged — the fixed sentence of a failure of ours.
+    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
+    const ans = P.answerOf(job);
+    assert.equal(ans.ok, false);
+    assert.deepEqual(ans.outcome, { state: "none", published: false, database: "none" });
+    assert.ok(typeof ans.msg === "string" && ans.msg.length > 0, "the failure carries no sentence of its own");
+    assert.equal(reservesOf(P, job.id).length, 0, "the failed addition was charged");
+    // THE FACTS: the heading's change; the section not done; nothing told as added.
+    const texts = factTexts(P);
+    assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."), JSON.stringify(P.replyLog));
+    assert.ok(texts.includes("Not done: “add a questions section to the About page” — its own reply above says why."), JSON.stringify(P.replyLog));
+    assert.ok(!texts.some((t) => /Updated \/about|^Done: “add a questions/.test(t)), "the failed addition was told as done");
+    uniqueRefs(P);
+  },
+}));
+test("CC 5 — THE EDIT PART FAILS BESIDE AN ADD-ON: the section lands and stays; the home page is untouched; the reply facts say the section was added and the heading was not changed", { timeout: 30000 }, () => oneFails({
+  failing: "edit",
+  check: async (P, rec, r) => {
+    assert.deepEqual(rec.parts.map((p) => [p.status, p.why]), [["failed", "no-match"], ["done", null]]);
+    assert.equal(P.page("index.tsx"), HOME, "the failed edit changed the home page");
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    assert.equal(P.page("visit.tsx"), VISIT);
+    const job = P.jobsOf(r.key).find((j) => j.op === "edit");
+    assert.equal(reservesOf(P, job.id).length, 0, "the edit that changed nothing was charged");
+    // THE FACTS: the edit's own failure, with nothing changed and nothing charged — and the section's success.
+    const texts = factTexts(P);
+    assert.ok(texts.some((t) => t.startsWith("The change was not made.")), JSON.stringify(P.replyLog));
+    assert.ok(texts.includes("Nothing on their site changed."));
+    assert.ok(texts.includes("This change cost them nothing."));
+    assert.ok(texts.includes("Updated /about."));
+    assert.ok(texts.includes("Done: “add a questions section to the About page” — its own reply above says what changed."), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => /^Not done: “Please make the home heading say Harbour Loaf Bakery, and …” — its own reply above says why\.$/.test(t)), JSON.stringify(P.replyLog));
+    uniqueRefs(P);
+  },
+}));
+
+// CC 6 — AN ADD-ON JOB LOST JUST AFTER ITS CHARGE.
+const PAST_LEASE = (90 + 60 + 15) * 1000;
+test("CC 6 — THE ADD-ON PART'S JOB IS LOST JUST AFTER ITS CHARGE (the Add-on twin of P5): the sweep pays it back, the part runs once more from its preparation — no designer or picker asked again — the finished heading part is not run again; one section on About, one reply saying so, one net charge per job", { timeout: 30000 }, async () => {
+  let pickN = 0, designN = 0, writeN = 0;
+  await withPlatform({
+    slug: slugOf("cc6"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n > 0 ? { intent: "addon" }
+        : { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }] }),
+      [T.text]: async (args) => ({ edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
+      [T.adds]: () => { pickN++; return { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }; },
+      "add:component": () => { designN++; return ABOUT_FAQ_ANSWER; },
+      [T.pages]: () => { writeN++; return { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }; },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", and " + W_ABOUT_FAQ + "." });
+    // THE ADD-ON'S OWN JOB'S RESERVE LANDS, AND THEN THE JOB IS GONE.
+    const addonJob = () => P.jobsOf(r.key).find((j) => j.op === "addon");
+    P.hang("edit_reserve", (a, out) => !!out && out.ok === true && out.charged > 0 && !!addonJob() && a && a.p_id === addonJob().id);
+    const p1 = await pump(P);
+    assert.equal(p1.hung, "edit_reserve", JSON.stringify(p1));
+    P.recover();
+    P.advance(PAST_LEASE);
+    await tick(P);
+    await tick(P);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const runs = P.jobsOf(r.key).filter((j) => j.op === "addon");
+    assert.deepEqual(runs.map((j) => j.state + ":" + j.billing), ["lost:refunded", "done:finalized"]);
+    // THE LOST JOB'S CHARGE CAME BACK; THE RERUN WAS CHARGED ONCE.
+    const net = (id) => P.ledger.filter((e) => String(e.ref).split("#")[0] === id).reduce((a, e) => a + e.delta, 0);
+    assert.equal(net(runs[0].id), 0, JSON.stringify(P.ledger));
+    assert.equal(reservesOf(P, runs[1].id).length, 1);
+    // NOTHING DONE TWICE: the edit once, the addition's preparation replayed by both runs.
+    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "edit").length, 1, "the finished heading part was run again");
+    assert.equal(pickN, 1, "the picker was asked again");
+    assert.equal(designN, 1, "the designer was asked again");
+    assert.equal(faqParts(P), 1, P.page("about.tsx"));
+    assert.match(P.page("index.tsx"), /<h1>Harbour Loaf Bakery<\/h1>/);
+    // ONE REPLY FOR THE ADDITION, FROM THE RUN THAT FINISHED.
+    const texts = factTexts(P);
+    assert.equal(texts.filter((t) => t === "Updated /about.").length, 1, JSON.stringify(P.replyLog));
+    assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), []);
+    assert.equal(writeN, 1, "the page writer was asked again");
+  });
+});
+
+// CC 7 — WHAT THE PUBLISHED PAGE SHOWED, CARRIED THROUGH A REQUEST'S BACKGROUND REPLY.
+// CE 11 showed the three-way reading (stored / shown on load / interaction
+// untried) through the Add-on route alone; here the addition is one part of a
+// request beside an edit, so its reply is written in the background from the
+// stored answer — the reading must reach the reply model's facts unchanged.
+const FAQ_COLLAPSED = "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "import { Faq } from '@/components/faq'\n"
+  + "export const Route = createFileRoute('/about')({ component: Page })\n"
+  + "function Page(){ return <main><section className=\"story\"><h1>Our story</h1><p>Since 2019.</p></section><Faq items={[{ question: \"Do you deliver?\", answer: \"Yes, on Fridays to Clifton.\" }]} /></main> }\n";
+const FAQ_REQ = { need: "The About page has a questions section answering whether we deliver", status: "covered", by: "the questions section answers it", item: "faq", kind: "component", basis: "asked", words: "a questions section" };
+const judgeEntries = (args) => {
+  const t = (args.messages || []).filter((m) => m && m.role === "user").map((m) => (typeof m.content === "string" ? m.content : (m.content || []).map((x) => (x && x.text) || "").join("\n"))).join("\n");
+  const head = "The requirements the designers wrote down, one per line:\n";
+  const at = t.indexOf(head);
+  const out = [];
+  for (const line of (at < 0 ? [] : t.slice(at + head.length).split("\n"))) { if (!line.startsWith("{")) break; try { out.push(JSON.parse(line)); } catch { break; } }
+  return { out, step: /about to be handed to the (\S+) step/.test(t) };
+};
+async function collapsedInRequest(texts) {
+  const compiler = installCompiler({ render: { ok: true, checked: 1, pages: 1, findings: [], ...(texts ? { texts } : {}) } });
+  const P = platform({
+    slug: slugOf("cc7"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n > 0 ? { intent: "addon" }
+        : { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }] }),
+      [T.text]: async (args) => ({ edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
+      [T.adds]: { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
+      "add:component": { component: [{ page: "/about", where: "after the story", does: "answers common questions", components: ["faq"] }], requirements: [FAQ_REQ] },
+      judge_requirements: (args) => { const { out, step } = judgeEntries(args); return { verdicts: out.map((e) => (step ? { id: e.id, follows: "asked", carried: "unsure", reason: "before" } : { id: e.id, follows: "asked", carried: "yes", by: ["component:faq"], reason: "the questions section carries it" })) }; },
+      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: FAQ_COLLAPSED }] },
+    },
+  });
+  try {
+    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", and " + W_ABOUT_FAQ + "." });
+    const q = P.queue.splice(0);
+    await Promise.all(q.map((m) => deliver(P, m)));
+    const { rec } = await settle(P, r.key);
+    await P.settle();
+    assert.deepEqual(P.unexpected, []);
+    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
+    return { P, rec, ans: P.answerOf(job), texts: factTexts(P) };
+  } finally { P.close(); compiler.uninstall(); }
+}
+test("CC 7 — A COLLAPSED SECTION ADDED AS ONE PART OF A REQUEST: the job's answer says it is in the code and not shown on first load, with the hidden answer; the background reply's facts say exactly that — and that opening it was not tried — never that it could not be seen; the heading part's facts are untouched", { timeout: 30000 }, async () => {
+  const { rec, ans, texts, P } = await collapsedInRequest([{ route: "/about", text: "Our story Since 2019. Do you deliver?", complete: true }]);
+  assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+  assert.equal(ans.requirementsTold.length, 1, JSON.stringify(ans.requirementsTold));
+  assert.equal(ans.requirementsTold[0].told, "behind", JSON.stringify(ans.requirementsTold));
+  assert.deepEqual(ans.requirementsTold[0].hidden, [{ text: "Yes, on Fridays to Clifton.", placement: ["handed"] }]);
+  assert.ok(texts.some((t) => /not shown when the published page first loads/.test(t) && /not checked/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
+  assert.ok(!texts.some((t) => /can see whether this is in place/.test(t)), "the reading was lost on the way to the reply");
+  assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."));
+});
+test("CC 7b — THE SAME, WITH THE PUBLISHED PAGE UNREAD (no text from the render check): in the code, whether it shows not known — never shown, never missing", { timeout: 30000 }, async () => {
+  const { ans, texts, P } = await collapsedInRequest(null);
+  assert.equal(ans.requirementsTold[0].told, "in-code", JSON.stringify(ans.requirementsTold));
+  assert.ok(texts.some((t) => /could not be read, so whether it shows is not known/.test(t)), JSON.stringify(P.replyLog));
+  assert.ok(!texts.some((t) => /seen on the published page/.test(t) || /^Not done: The About page/.test(t)));
 });
