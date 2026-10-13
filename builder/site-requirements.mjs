@@ -1569,7 +1569,27 @@ export function readContent(ev) {
     .filter((h) => h && typeof h.text === "string" && h.text && Array.isArray(h.placement) && h.placement.length
       && h.placement.every((x) => ["direct", "handed", "conditional"].includes(x)))
     .map((h) => ({ text: h.text.slice(0, 200), placement: h.placement.slice(), ...(typeof h.route === "string" && h.route ? { route: h.route } : {}) }));
-  return { stored: "added", shown: ev.shown, ...(hidden.length ? { hidden } : {}) };
+  // EACH ADDITION AS IT WAS OBSERVED (2026-10-13): what one new instance
+  // says, and what the page showed of each of its words. Read strictly; a
+  // list that does not read is dropped whole, never shortened.
+  const adds = readAdditions(ev.additions);
+  return { stored: "added", shown: ev.shown, ...(hidden.length ? { hidden } : {}), ...(adds ? { additions: adds } : {}) };
+}
+
+/** A list of observed additions, read strictly: every entry reads, or null. */
+export function readAdditions(v) {
+  if (!Array.isArray(v) || !v.length) return null;
+  const out = [];
+  for (const a of v) {
+    if (!a || typeof a !== "object" || typeof a.name !== "string" || !a.name || typeof a.route !== "string" || !a.route || !Array.isArray(a.words)) return null;
+    const words = [];
+    for (const w of a.words) {
+      if (!w || typeof w.text !== "string" || !w.text || !(w.seen === true || w.seen === false || w.seen === null)) return null;
+      words.push({ text: w.text.slice(0, 200), seen: w.seen });
+    }
+    out.push({ name: a.name, route: a.route, words });
+  }
+  return out;
 }
 
 /**
@@ -1580,14 +1600,15 @@ export function readContent(ev) {
 function contentOf(found) {
   const rank = { all: 3, some: 2, none: 1, unread: 0 };
   let shown = null;
-  const hidden = [];
+  const hidden = [], additions = [];
   for (const f of Array.isArray(found) ? found : []) {
     const ce = f && f.item && f.item.content;
     if (!ce || ce.stored !== "added") continue;
     if (shown === null || rank[ce.shown] < rank[shown]) shown = ce.shown;
     for (const h of Array.isArray(ce.hidden) ? ce.hidden : []) hidden.push(h);
+    if (Array.isArray(ce.additions)) additions.push(...ce.additions);
   }
-  return shown === null ? null : { shown, ...(hidden.length ? { hidden } : {}) };
+  return shown === null ? null : { shown, ...(hidden.length ? { hidden } : {}), ...(additions.length ? { additions } : {}) };
 }
 
 function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set(), content = null } = {}) {
@@ -2415,7 +2436,12 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
       ...(Array.isArray(r.partly) && r.partly.length ? { partly: r.partly.filter((x) => typeof x === "string" && x) } : {}),
       // WHAT THE FIRST LOAD DID NOT SHOW, by its own words (2026-10-13).
       ...(as === "behind" && r.content && Array.isArray(r.content.hidden) && r.content.hidden.length
-        ? { hidden: r.content.hidden.map((h) => ({ text: h.text, placement: h.placement.slice() })) } : {}) });
+        ? { hidden: r.content.hidden.map((h) => ({ text: h.text, placement: h.placement.slice() })) } : {}),
+      // WHAT WAS ADDED FOR IT, ADDITION BY ADDITION (2026-10-13): the
+      // observation the reply is told, beside a fulfilment nothing here
+      // checked — a component being there is not the request being met.
+      ...(["shown", "behind", "in-code"].includes(as) && r.content && Array.isArray(r.content.additions) && r.content.additions.length
+        ? { additions: r.content.additions.map((a) => ({ name: a.name, route: a.route, words: a.words.map((w) => ({ text: w.text, seen: w.seen })) })) } : {}) });
   };
   // ── WHAT THE PUBLISHED PAGE SHOWED OF WHAT WAS SET UP (2026-10-13) ───────
   //
@@ -2488,19 +2514,22 @@ export function toldNote(told) {
   // component, is never said to wait behind something a visitor does — that
   // is a behaviour nothing here identified or tried, so it is said as
   // unchecked, apart from what was seen.)
+  // (2026-10-13, after Codex at d0e76bdf: something being on the page is not
+  // the request being met. Each sentence says what was added and seen, and
+  // that whether it says what was asked is not checked.)
   const shown = of("shown");
   if (shown.length) {
-    parts.push("I've added that, and it shows on the published page as it first loads: " + shown.map((r) => r.need).join("; ")
-      + ". I haven't tried anything a visitor might do with it.");
+    parts.push("I've added something for this and it shows on the published page as it first loads, but I haven't checked that what it says is what you asked for: " + shown.map((r) => r.need).join("; ")
+      + ". Have a look. I haven't tried anything a visitor might do with it.");
   }
   const behind = of("behind");
   if (behind.length) {
-    parts.push("I've added that to the page's code, but it wasn't on the published page as it first loaded, and I haven't checked whether anything a visitor does brings it up: "
+    parts.push("I've added something for this to the page's code, but it wasn't all on the published page as it first loaded, and I haven't checked whether anything a visitor does brings it up, or that what it says is what you asked for: "
       + behind.map((r) => r.need).join("; ") + ". Have a look.");
   }
   const inCode = of("in-code");
   if (inCode.length) {
-    parts.push("I've added that to the page's code, but I couldn't read the published page to see it: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
+    parts.push("I've added something for this to the page's code, but I couldn't read the published page to see it, and I haven't checked that what it says is what you asked for: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
   }
   // THE ZONE IS NOT QUOTED, because nothing here can see it: a job's applied
   // facts carry `everyMinutes` and `at` and no timezone. The reply's own

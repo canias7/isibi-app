@@ -1776,7 +1776,7 @@ test("CC 7 — A COLLAPSED SECTION ADDED AS ONE PART OF A REQUEST: the job's ans
   assert.equal(ans.requirementsTold[0].told, "behind", JSON.stringify(ans.requirementsTold));
   assert.deepEqual(ans.requirementsTold[0].hidden, [{ text: "Yes, on Fridays to Clifton.", placement: ["handed"] }]);
   // (Wording corrected 2026-10-13: the observation and the untried behaviour are two facts.)
-  assert.ok(texts.some((t) => /not on the published page as it first loaded/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
+  assert.ok(texts.some((t) => /Not all of it was on the published page as it first loaded/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
   assert.ok(texts.some((t) => /^Not verified: whether anything a visitor does/.test(t)), JSON.stringify(P.replyLog));
   assert.ok(!texts.some((t) => /can see whether this is in place/.test(t)), "the reading was lost on the way to the reply");
   assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."));

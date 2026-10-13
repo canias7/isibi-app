@@ -405,6 +405,14 @@ function whereSaid(hidden) {
  * evidence that an action reveals it.
  */
 const UNTRIED = Object.freeze(new Set(["shown", "behind", "in-code"]));
+const UNMATCHED = "Whether what was added is what was asked for is not checked here: ";
+/** The additions as observed, each by itself: its kind, its page, and its own words with what the first load showed of each. */
+function additionsSaid(list) {
+  if (!Array.isArray(list) || !list.length) return "something whose own words were not listed";
+  return list.map((a) => "a new " + flat(a.name) + " on " + flat(a.route) + (a.words.length
+    ? " whose own words are " + a.words.map((w) => "\u201c" + flat(w.text) + "\u201d" + (w.seen === false ? " (not on the page as it first loaded)" : w.seen === null ? " (not confirmed on the published page)" : "")).join(", ")
+    : " with no words of its own that could be read")).join("; ");
+}
 const untriedSaid = (need) => "Not verified: whether anything a visitor does (opening, switching, choosing or sending) shows or changes it. No such interaction was identified or tried: " + need + ".";
 const hiddenSaid = (hidden) => (Array.isArray(hidden) && hidden.length
   ? " The words the first load did not show: " + hidden.map((h) => "\u201c" + flat(h.text) + "\u201d").join("; ") + "."
@@ -420,10 +428,16 @@ const TOLD_FACTS = Object.freeze({
   // works — nothing here opens, switches or sends anything.
   // OBSERVATIONS ONLY. What a visitor's action would do is its own fact
   // (`UNTRIED`), said beside each of these, never folded into them.
-  shown: ["note", (o) => "Added, and seen on the published page as it first loads: " + o.need + "."],
-  behind: ["note", (o) => "Added to the page's code, and not on the published page as it first loaded: " + o.need + ". In the code it sits "
-    + whereSaid(o.hidden) + "." + hiddenSaid(o.hidden)],
-  "in-code": ["note", (o) => "Added to the page's code; the published page could not be read, so whether it shows is not known: " + o.need + "."],
+  // PRESENCE IS NOT FULFILMENT (2026-10-13, Codex at d0e76bdf): each says
+  // what was added, addition by addition, and what the page showed of it —
+  // and that whether that is what was asked is NOT checked here. The reply
+  // model compares the words with the request; nothing here does it by rule.
+  shown: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The published page showed those words as it first loaded. "
+    + UNMATCHED + o.need + "."],
+  behind: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". Not all of it was on the published page as it first loaded; in the code it sits "
+    + whereSaid(o.hidden) + "." + hiddenSaid(o.hidden) + " " + UNMATCHED + o.need + "."],
+  "in-code": ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The published page could not be read, so whether it shows is not known. "
+    + UNMATCHED + o.need + "."],
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
   // up", and never said to be this request's work.
@@ -494,8 +508,12 @@ const entriesOf = (v, reads) => (v === undefined ? []
   : Array.isArray(v) && v.length > 0 && v.every((o) => o && typeof o === "object" && !Array.isArray(o) && reads(o)) ? v : null);
 const hiddenReads = (v) => v === undefined || (Array.isArray(v) && v.length > 0 && v.every((h) => h && typeof h === "object" && typeof h.text === "string" && !!flat(h.text)
   && Array.isArray(h.placement) && h.placement.length > 0 && h.placement.every((x) => Object.hasOwn(PLACED, x))));
+const additionsRead = (v) => v === undefined || (Array.isArray(v) && v.length > 0 && v.every((a) => a && typeof a === "object" && typeof a.name === "string" && !!flat(a.name)
+  && typeof a.route === "string" && !!flat(a.route) && Array.isArray(a.words)
+  && a.words.every((w) => w && typeof w.text === "string" && !!flat(w.text) && (w.seen === true || w.seen === false || w.seen === null))));
 const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string")
   && hiddenReads(o.hidden) && (o.hidden === undefined || o.told === "behind")
+  && additionsRead(o.additions) && (o.additions === undefined || UNTRIED.has(o.told))
   && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === "string" && !!flat(x))));
 const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name === "string" && !!flat(o.name)
   && (o.added === undefined || typeof o.added === "boolean")
@@ -611,7 +629,7 @@ function coverFacts(F, a, { out = null } = {}) {
   for (const o of told) {
     const as = toldAs(o, out);
     const [kind, text] = TOLD_FACTS[as];
-    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}) }));
+    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}), ...(Array.isArray(o.additions) ? { additions: o.additions } : {}) }));
     if (UNTRIED.has(as)) F.add("note", untriedSaid(flat(o.need)));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));

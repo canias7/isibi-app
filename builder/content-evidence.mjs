@@ -237,7 +237,7 @@ export function visibleTexts(source, parse) {
       if (!open || !isComponentTag(open)) continue;
       const t = open.tagName;
       const name = String((t && typeof t.getText === "function" ? t.getText() : (t && t.escapedText)) || "");
-      got.push({ tag: name, from: sourceOf(name, binds), src: source.slice(n.pos, n.end).trim() });
+      got.push({ tag: name, from: sourceOf(name, binds), src: source.slice(n.pos, n.end).trim(), at: n.pos });
     }
     return got;
   };
@@ -369,9 +369,12 @@ export function addedByRoute({ before = [], after = [], parse = null } = {}) {
     // page already had are matched first against the copies in untouched
     // instances, so the copy kept as added is the one in the new instance —
     // never the old card's, whatever order the two sit in.
+    // EACH TEXT KEEPS WHICH INSTANCE IT SITS IN (`inst`, 2026-10-13): the file
+    // and the instance's own position in it — two cards written alike are
+    // still two additions — so what one says is never pooled with another.
     const marked = now.map((t) => ({
       ...t,
-      within: (Array.isArray(t.within) ? t.within : []).map((w) => ({ tag: w.tag, from: w.from, fresh: newSrc.has(w.src) })),
+      within: (Array.isArray(t.within) ? t.within : []).map((w) => ({ tag: w.tag, from: w.from, fresh: newSrc.has(w.src), inst: k + "\u0000" + w.at })),
       ...(part ? { part } : {}),
     }));
     const isFresh = (t) => t.within.some((w) => w.fresh);
@@ -514,9 +517,37 @@ function componentOnRoute(name, route, designs, added, rendered) {
   if (!a.read) return { stored: "unread" };
   const born = Object.entries(a.born || {}).filter(([from]) => sourceIs(from, name)).reduce((n, [, v]) => n + v, 0);
   if (born < designs) return !a.added.length && !a.tags ? { stored: "none" } : { stored: "unread" };
-  const mine = a.added.filter((t) => (Array.isArray(t.within) && t.within.some((w) => w.fresh && sourceIs(w.from, name))) || (!!t.part && norm(t.part) === norm(name)));
-  if (!mine.length) return { stored: "added", texts: 0, shown: "unread" };
-  return judged(mine, rendered instanceof Map ? rendered.get(route) : null, a.storedAll);
+  // WHICH NEW INSTANCE EACH TEXT IS IN: its outermost enclosing new instance
+  // of this component, or its own part file.
+  const instOf = (t) => {
+    const ws = (Array.isArray(t.within) ? t.within : []).filter((w) => w.fresh && sourceIs(w.from, name));
+    if (ws.length) return ws[ws.length - 1].inst;
+    return t.part && norm(t.part) === norm(name) ? "part:" + t.part : null;
+  };
+  const mine = a.added.filter((t) => instOf(t) !== null);
+  const out = mine.length ? judged(mine, rendered instanceof Map ? rendered.get(route) : null, a.storedAll) : { stored: "added", texts: 0, shown: "unread" };
+  // EVERY ADDITION BY ITSELF (2026-10-13, Codex at d0e76bdf): two cards
+  // designed for two requests, and a writer that put "Free parking." in both,
+  // read as one component "shown: all" — and both requests were told "added
+  // and seen", the dogs one included. What each new instance actually says,
+  // and what the page showed of it, is kept apart, so nothing pooled across
+  // instances stands for any one request. An instance with no words of its
+  // own is listed with none.
+  const seenOf = new Map();
+  if (mine.length) {
+    const { shown, hidden } = shownOf(mine, rendered instanceof Map ? rendered.get(route) : null, a.storedAll);
+    for (const t of shown) seenOf.set(t, true);
+    for (const t of hidden) seenOf.set(t, false);
+  }
+  const groups = new Map();
+  for (const t of mine) {
+    const key = instOf(t);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ text: t.text, seen: seenOf.has(t) ? seenOf.get(t) : null });
+  }
+  const additions = [...groups.values()].map((words) => ({ name, route, words }));
+  for (let i = additions.length; i < born; i++) additions.push({ name, route, words: [] });
+  return { ...out, additions };
 }
 
 /**
@@ -550,7 +581,8 @@ export function componentEvidence({ answers = [], added = null, rendered = new M
     if (each.some((e) => e.stored === "none")) { out[name] = { stored: "unread", routes: list }; continue; }
     const worst = each.reduce((w, e) => (rank[e.shown] < rank[w] ? e.shown : w), "all");
     const hidden = each.flatMap((e) => (Array.isArray(e.hidden) ? e.hidden.map((h) => ({ text: h.text, placement: h.placement, route: e.route })) : []));
-    out[name] = { stored: "added", shown: worst, routes: list, texts: each.reduce((n, e) => n + (e.texts || 0), 0), ...(hidden.length ? { hidden } : {}) };
+    const additions = each.flatMap((e) => (Array.isArray(e.additions) ? e.additions : []));
+    out[name] = { stored: "added", shown: worst, routes: list, texts: each.reduce((n, e) => n + (e.texts || 0), 0), ...(hidden.length ? { hidden } : {}), additions };
   }
   return out;
 }

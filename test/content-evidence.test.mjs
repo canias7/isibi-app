@@ -30,6 +30,10 @@ import { addon, addedTo, storedPage, storedAnswer } from "./fixtures/addon-route
 const parse = await tweakParser();
 assert.ok(parse, "the TypeScript parser is not installed — every case below would be reading `unread`");
 
+// THE READING WITHOUT ITS PER-ADDITION OBSERVATIONS (2026-10-13), which the
+// cases that are about them assert on their own.
+const core = (c) => { if (!c || typeof c !== "object") return c; const { additions, ...rest } = c; return rest; };
+
 const HEAD = "import { createFileRoute } from '@tanstack/react-router'\nimport { Faq } from '@/components/ui/faq'\nexport const Route = createFileRoute('/bake-list')({ component: Page })\n";
 const BEFORE = HEAD + "function Page(){ return <main><h1>Bake List</h1><p>Leave your name and email.</p></main> }\n";
 const FAQ = '<Faq items={[{ question: "Can I leave the list?", answer: "Yes, reply STOP to any note." }]} />';
@@ -85,14 +89,15 @@ test("CE 2 — addedByRoute is before against after: only what this change added
 
 test("CE 3 — INITIALLY COLLAPSED (run 144's shape): stored, not shown on first load, opening it never tried — said as exactly that, to the note and to the reply model", () => {
   const ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [page(BEFORE)], after: [page(AFTER_FAQ)], parse }), rendered: render("Bake List\nLeave your name and email.\nCan I leave the list?") });
-  assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
+  assert.deepEqual(core(readContent(ev.faq)), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
   const r = report(ev);
   assert.equal(r.told.length, 1);
   assert.equal(r.told[0].told, "behind");
   assert.equal(r.told[0].state, "unverified", "the content is there; nothing exercised it");
   assert.deepEqual(r.told[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
   const note = toldNote(r.told);
-  assert.match(note, /wasn't on the published page as it first loaded/);
+  assert.match(note, /wasn't all on the published page as it first loaded/);
+  assert.match(note, /I haven't checked .*that what it says is what you asked for/, "the note claimed the request met (2026-10-13)");
   assert.match(note, /I haven't checked whether anything a visitor does brings it up/);
   assert.doesNotMatch(note, /waits behind|open it\b/, "the note claimed a visitor action reveals it (corrected 2026-10-13)");
   assert.doesNotMatch(note, /can't see from here whether/, "the old 'unseen' sentence came back");
@@ -101,7 +106,8 @@ test("CE 3 — INITIALLY COLLAPSED (run 144's shape): stored, not shown on first
   const f = facts.find((x) => /first loaded/.test(x.text));
   assert.ok(f, JSON.stringify(facts));
   assert.equal(f.kind, "note");
-  assert.match(f.text, /^Added to the page's code, and not on the published page as it first loaded/);
+  assert.match(f.text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?”, “Yes, reply STOP to any note\.” \(not on the page as it first loaded\)\. Not all of it was on the published page as it first loaded/);
+  assert.match(f.text, /Whether what was added is what was asked for is not checked here: The Bake List page/);
   // WHERE IT SITS, AS A LOCATION ONLY (corrected 2026-10-13): handed to a component, never "opens to its answer".
   assert.match(f.text, /passed as a value to a component on the page, which decides where and when to draw it/);
   assert.doesNotMatch(f.text, /opens|when a visitor|visitor/, "the observation fact claimed an interaction");
@@ -121,8 +127,9 @@ test("CE 4 — SHOWN ON LOAD: every added text on the first-load page — 'seen'
   assert.equal(r.told[0].hidden, undefined);
   assert.match(toldNote(r.told), /it shows on the published page as it first loads/);
   const facts4 = factsOf(r.told);
-  const f = facts4.find((x) => /first loads/.test(x.text));
-  assert.match(f.text, /^Added, and seen on the published page as it first loads: /);
+  const f = facts4.find((x) => /^What this change added for it/.test(x.text));
+  assert.match(f.text, /The published page showed those words as it first loaded\. Whether what was added is what was asked for is not checked here: /);
+  assert.doesNotMatch(f.text, /^Added, and seen/, "seen was still told as the request met");
   assert.ok(facts4.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), "seen was not kept apart from untried");
   assert.match(toldNote(r.told), /I haven't tried anything a visitor might do with it/);
   // FOLDING: curly quotes, dashes and spacing do not make a shown text hidden.
@@ -192,7 +199,7 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   let r = report(ev);
   assert.equal(r.told[0].told, "in-code");
   assert.match(toldNote(r.told), /couldn't read the published page to see it/);
-  assert.match(factsOf(r.told).find((x) => /could not be read/.test(x.text)).text, /^Added to the page's code; the published page could not be read, so whether it shows is not known/);
+  assert.match(factsOf(r.told).find((x) => /could not be read/.test(x.text)).text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?” \(not confirmed on the published page\).*The published page could not be read, so whether it shows is not known\. Whether what was added is what was asked for is not checked here/);
   // (d) THE READ THE CAP CUT: a text not found there is unread, never hidden…
   ev = componentEvidence({ answers: ANSWERS, added, rendered: render("Bake List Can I leave the list?", false) });
   assert.equal(ev.faq.shown, "unread");
@@ -208,7 +215,7 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   // unrelated <OpeningHours /> used to be taken for it.)
   const tagOnly = BEFORE.replace("</main>", "<Faq />" + "</main>");
   ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [page(BEFORE)], after: [page(tagOnly)], parse }), rendered: render("Bake List") });
-  assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "unread" });
+  assert.deepEqual(core(readContent(ev.faq)), { stored: "added", shown: "unread" });
   assert.equal(report(ev).told[0].told, "in-code");
   // (g) NO EVIDENCE AT ALL (a failure exit, or a record written before this): the old reading, exactly.
   assert.equal(report(null).told[0].told, "unseen");
@@ -219,7 +226,7 @@ test("CE 7b — A COMPONENT ON TWO ROUTES WITH CONTENT ON ONLY ONE is unread, ne
   const two = [{ kind: "component", value: [{ page: "/bake-list", does: "a questions section", components: ["faq"] }, { page: "/visit", does: "a questions section", components: ["faq"] }] }];
   const visit = { path: "visit.tsx", source: BEFORE.replace("/bake-list", "/visit"), routes: ["/visit"], maybeRoutes: [] };
   const ev = componentEvidence({ answers: two, added: addedByRoute({ before: [page(BEFORE), visit], after: [page(AFTER_FAQ), visit], parse }), rendered: render("Can I leave the list? Yes, reply STOP to any note.") });
-  assert.deepEqual(readContent(ev.faq), { stored: "unread" });
+  assert.deepEqual(core(readContent(ev.faq)), { stored: "unread" });
   assert.equal(report(ev).told[0].told, "unseen");
 });
 
@@ -280,7 +287,7 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   assert.equal(r.body.requirementsTold.length, 1, JSON.stringify(r.body.requirementsTold));
   assert.equal(r.body.requirementsTold[0].told, "behind", JSON.stringify(r.body.requirementsTold));
   assert.deepEqual(r.body.requirementsTold[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
-  assert.match(r.body.coverNote, /wasn't on the published page as it first loaded/);
+  assert.match(r.body.coverNote, /wasn't all on the published page as it first loaded/);
   assert.doesNotMatch(r.body.coverNote, /can't see from here whether/);
   // THE STORED RECORD SAYS THE SAME (the last write, after the pages shipped).
   const kept = storedAnswer(r, "ce-collapsed");
@@ -288,7 +295,7 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   const o = kept.coverage.requirements.find((x) => x.item === "faq");
   assert.ok(o && o.state === "unverified" && o.content && o.content.shown === "some", "the stored record does not carry the reading: " + JSON.stringify(o));
   const facts = addonReplyFacts(r.body).facts;
-  assert.ok(facts.some((x) => /not on the published page as it first loaded/.test(x.text)), JSON.stringify(facts));
+  assert.ok(facts.some((x) => /Not all of it was on the published page as it first loaded/.test(x.text)), JSON.stringify(facts));
   assert.ok(facts.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), JSON.stringify(facts));
   assert.ok(!facts.some((x) => /can see whether this is in place/.test(x.text)));
 });
@@ -335,8 +342,8 @@ test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — on
   const rendered = render("Bake List Can I leave the list? The best sourdough in Bristol. Ana");
   // BOTH WRITTEN: each its own texts, each shown as far as the page showed it.
   let ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(imp(BEFORE.replace("</main>", FAQ + TESTI + "</main>")))], parse }), rendered });
-  assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
-  assert.deepEqual(readContent(ev.testimonial), { stored: "added", shown: "all" });
+  assert.deepEqual(core(readContent(ev.faq)), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
+  assert.deepEqual(core(readContent(ev.testimonial)), { stored: "added", shown: "all" });
   // ONLY THE QUESTIONS WRITTEN: the quote is not set up — and not "missing" on
   // a guess either, since the page did change: unread, so it is said as unseen.
   ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(AFTER_FAQ)], parse }), rendered });
@@ -349,6 +356,6 @@ test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — on
   // A NEW TAG WITH NO WORDS OF ITS OWN, beside the questions: that component's, content unread.
   ev = componentEvidence({ answers: [{ kind: "component", value: [both[0].value[0], { page: "/bake-list", does: "opening hours", components: ["opening-hours"] }] }],
     added: addedByRoute({ before: [page(BEFORE)], after: [page(imp(BEFORE.replace("</main>", FAQ + "<OpeningHours /></main>")))], parse }), rendered });
-  assert.deepEqual(readContent(ev["opening-hours"]), { stored: "added", shown: "unread" });
+  assert.deepEqual(core(readContent(ev["opening-hours"])), { stored: "added", shown: "unread" });
   assert.equal(ev.faq.stored, "added");
 });
