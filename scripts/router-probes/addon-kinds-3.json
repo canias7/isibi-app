@@ -1,6 +1,5 @@
 {
   "batch": "addon-kinds-3",
-  "acceptance": true,
   "probes": [
     {
       "id": "K3A",

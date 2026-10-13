@@ -21,7 +21,9 @@ test("PROBES 1 — every committed probe list reads under its own name, and the 
 
 test("PROBES 2 — addon-kinds-3: three image-free messages, each a section and a line on ONE page of the bakery, none judged in advance", () => {
   const r = readProbeBatch(readFileSync(new URL("addon-kinds-3.json", DIR), "utf8"), "addon-kinds-3");
-  assert.equal(r.batch.acceptance, true);
+  // A ROUTING-ONLY LIST, NOT AN ACCEPTANCE PRESS: it applies nothing, so it is
+  // not held to the acceptance preflight's balance cap (whose opt-in is closed).
+  assert.equal(r.batch.acceptance, false);
   assert.deepEqual(r.batch.probes.map((p) => p.id), ["K3A", "K3B", "K3C"]);
   for (const p of r.batch.probes) {
     assert.equal(p.site, "fold-lane-bakery");
