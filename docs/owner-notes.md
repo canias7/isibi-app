@@ -45,7 +45,7 @@ production is deploy 2201. The full record is
 - **Sweep:** 8 product mutants. 6 were killed by the new cases, and both
   survivors are killed elsewhere (CE 11; `routedForPrep` and P3b). Both
   comment-only controls survived.
-- **Full suite `10766 / 10766 / 0 / 0`** locally.
+- **Full suite `10766 / 10766 / 0 / 0`** locally. **CI green:** unit tests 38443134682 on `43750346` (`10766 / 10722 / 0 / 44 skipped`); on `9a0c6bed`, unit tests 38440362695 and site build 38440362737.
 - **Image:** unchanged by this batch (tests only). A release from the branch
   would build `6b66dc466b933115` (206 inputs); production is
   `4444d9d53d906b8d`.

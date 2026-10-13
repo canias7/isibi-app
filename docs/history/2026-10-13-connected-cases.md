@@ -118,6 +118,10 @@ survivors are guarded elsewhere:
 (the code of `9a0c6bed`). That is 10,753 at `edfabc3e`, plus CE 13–15, plus
 the 10 CC cases. Before it, the focused file read 52 / 52.
 
+**CI:** unit tests 38443134682 on `43750346`, `success`: 10,766 tests,
+10,722 passed, 0 failed, 44 skipped. On `9a0c6bed`: unit tests 38440362695
+and site build 38440362737, both `success`.
+
 **Image:** test files are not container inputs, so the batch moves nothing.
 A future release from this branch would build `6b66dc466b933115` (206
 inputs, read at `9a0c6bed`), against production's `4444d9d53d906b8d`.
