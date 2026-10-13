@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; the clarify-and-resume test corrected after Codex's false pass, prepared, not pressed; the runtime image flag awaits your free press; nothing spent, merged or deployed since run 150)
+## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; the clarify-and-resume test corrected after Codex's false pass, prepared, not pressed; the runtime image flag confirmed by run 151; nothing spent, merged or deployed since run 150)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -13,10 +13,11 @@ is in git; the dated entries further down are the full story.*
   and nothing came after it. No job is open.
 - **Paid opt-ins are closed:** the balance box admits no press
   (`BALANCE_OPT_IN = []`), and the form says "CLOSED".
-- **`imagePurchases` at runtime: not yet confirmed.** You set
-  `IMAGE_PURCHASES` back to `on` and deploy 2203 went green, but a green
-  deploy does not show the flag. Only a signed-in runtime read does, which
-  is your free press (below).
+- **`imagePurchases=true` at runtime, confirmed by run 151** (your free
+  press, 23:37 UTC, from `1c14b10d`): both readers answered
+  `fef80b9bc913`, a cold container got `4444d9d53d906b8d`, async and the
+  runner on; the free job settled at cost 0; balance 808; stopped before
+  the paid edit.
 
 **Closed and not to be repeated:**
 - **K3B, run 150: PASS.** Codex checked the logs independently: the
@@ -36,16 +37,7 @@ evidence):**
   pass in its verdict (a snapshot, no timing).
 - **This round:** the timing correction for it, below.
 
-**1. Your free press: confirm `imagePurchases=true`** (spends nothing):
-- *edit canary*, from `claude/help-needed-ehlwlj`
-- *Run the ONE paid edit as well (yes/no)* = `no`
-- *Refuse to spend unless the Worker reports this deploy sha …* = `fef80b9b`
-- *Refuse to spend unless a cold container reports this image id …* =
-  `4444d9d53d906b8d`
-- every other box blank (the site box keeps its default).
-
-Its preflight prints the runtime line. `imagePurchases=true` is the
-confirmation.
+**1. Done: run 151 confirmed `imagePurchases=true`** (above). Nothing more to press for it.
 
 **2. Clarify and resume, corrected after Codex's false pass, prepared (not
 pressed).**
@@ -1172,6 +1164,15 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Run 151: the image switch is confirmed on (free)
+
+Your free press (run 151, 23:37 UTC) read the live app. It is deploy
+`fef80b9b` with container image `4444d9d53d906b8d`, and it reports that
+photographs can be bought again (`imagePurchases=true`). Both readers
+agreed, the free checks passed, nothing was charged (balance 808), and it
+stopped before the paid edit. So turning image purchases back on after run
+150 is now shown at runtime, not just by a green deploy.
 
 ## 2026-10-13 — Codex's false pass in the clarify check, corrected (nothing spent)
 

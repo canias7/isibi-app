@@ -25,9 +25,9 @@ only and is kept apart from the production evidence below.
 | Balance | **808** (last ledger row 459, run 150's Add-on reserve, 21:59 UTC; nothing after it) | `credit_events`, non-secret columns |
 | Open jobs | none (two September `fretwork-1` rows are `lost`) | `edit_jobs` |
 | Paid opt-ins | **closed**: `BALANCE_OPT_IN = []` at `07424a78`, and the form's balance box reads "CLOSED" | the branch |
-| `imagePurchases` at runtime | **not yet read** | see below |
+| `imagePurchases` at runtime | **`true`**, confirmed by run 151 (23:37 UTC, free, from `1c14b10d`) | the preflight's runtime line: `deploy=fef80b9bc913 async=true runner=true imagePurchases=true`; build-health `image=4444d9d53d906b8d` |
 
-**The runtime flag needs the owner's free press.** A green deploy does not
+**Confirmed by run 151** (the owner's free press, 2026-10-13 23:37 UTC): both deploy readers answered `fef80b9bc913`, a cold container got `4444d9d53d906b8d`, async and the runner were on, `imagePurchases=true`, the free job settled at cost 0, the balance read 808, and the run stopped before the paid edit. *Before it:* **the runtime flag needed the owner's free press.** A green deploy does not
 establish it. The only reader is `/api/site/runtime`, which needs a
 signed-in owner, and minting or reading an owner credential is not allowed.
 A plain free canary press reads it in its preflight, which runs before any

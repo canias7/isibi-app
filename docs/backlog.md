@@ -95,8 +95,9 @@ here; take a closed one out of both.**
     before the answer (held until then); offline CR 1–2, CRS 1–12. Not pressed: needs the
     owner's opt-in and images off, about 10–19 credits. Live-only: whether the
     router names the dependency; whether the line asks a question of its own;
-  - **runtime `imagePurchases` after deploy 2203: not yet read** (needs the
-    owner's free canary press);
+  - **runtime `imagePurchases` after deploy 2203: `true`, closed** by run
+    151 (the owner's free press, 2026-10-13 23:37 UTC; deploy `fef80b9b`,
+    image `4444d9d53d906b8d`, nothing charged);
   - **flaky test, pre-existing (2026-10-13):** PLW 1
     (`test/progress-live-writer.test.mjs`) fails under load, at the line
     written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race
