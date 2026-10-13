@@ -58,8 +58,8 @@ async function press(name, { balance = 971, spend = "1", optIn = "", probes = BA
 
 // ── THE BOX, READ ────────────────────────────────────────────────────────────
 
-test("OPT-IN 1 — THE BOX IS CLOSED (2026-10-13, the owner): it admits no press — acc-isolation (run 141, closed) included; blank changes nothing; a malformed number still says so; anything else refuses as closed", () => {
-  assert.deepEqual([...BALANCE_OPT_IN], []);
+test("OPT-IN 1 — ONE PRESS (2026-10-13, the owner): the box admits acc-clarify-resume alone; acc-addon-k3b (run 150, closed) and every other press refuse; blank changes nothing; a malformed number still says so", () => {
+  assert.deepEqual([...BALANCE_OPT_IN], ["acc-clarify-resume"]);
   assert.ok(Object.isFrozen(BALANCE_OPT_IN));
   for (const blank of [undefined, null, "", "   "]) assert.deepEqual(readBalanceOptIn(blank, { probes: BATCH }), { ok: true, value: null, press: "" });
   // NOT A WHOLE NUMBER OF CREDITS.
@@ -68,11 +68,13 @@ test("OPT-IN 1 — THE BOX IS CLOSED (2026-10-13, the owner): it admits no press
     assert.equal(r.ok, false, bad);
     assert.match(r.msg, /whole credits/, bad);
   }
-  // EVERY PRESS, THE LAST ONE IT ADMITTED FIRST.
-  for (const other of [{ ui: "acc-isolation" }, { ui: "acc-isolation-page" }, { probes: "acceptance-split-1" }, { probes: "acceptance-split-2" }, { ui: "acc-addon-edit" }, { ui: "acc-page-table" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-addon-kinds" }]) {
+  // THE ONE PRESS IT ADMITS, alone.
+  assert.deepEqual(readBalanceOptIn("808", { ui: "acc-clarify-resume" }), { ok: true, value: 808, press: "acc-clarify-resume" });
+  // EVERY OTHER PRESS, THE LAST ONE IT ADMITTED FIRST; and the one press beside another.
+  for (const other of [{ ui: "acc-addon-k3b" }, { ui: "acc-isolation-page" }, { ui: "acc-isolation" }, { probes: BATCH, ui: "acc-clarify-resume" }, { probes: "addon-kinds-3" }, { probes: "acceptance-split-1" }, { probes: "acceptance-split-2" }, { ui: "acc-addon-edit" }, { ui: "acc-page-table" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-addon-kinds" }]) {
     const r = readBalanceOptIn("971", other);
     assert.equal(r.ok, false, JSON.stringify(other));
-    assert.match(r.msg, /the balance box is closed/, JSON.stringify(other));
+    assert.match(r.msg, /only for acc-clarify-resume, one at a time/, JSON.stringify(other));
   }
   // A NON-STRING IS NEVER COERCED INTO A NUMBER.
   assert.equal(readBalanceOptIn(971, { ui: "acc-isolation" }).value, null);
@@ -121,10 +123,10 @@ test("OPT-IN 4 — every scenario the box admits is an image-free acceptance pre
 
 // ── THE REAL SCRIPT, UNDER THE STUB ─────────────────────────────────────────
 
-test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2) with the box refuses with exit 2 before the sign-in (the box is closed), and without the box still refuses at the cap before any route", async () => {
+test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2) with the box refuses with exit 2 before the sign-in (the box admits acc-clarify-resume alone), and without the box still refuses at the cap before any route", async () => {
   const closed = await press("closed-batch-named", { optIn: "971" });
   assert.equal(closed.code, 2, closed.err + closed.out.slice(-800));
-  assert.match(closed.err, /the balance box is closed/);
+  assert.match(closed.err, /only for acc-clarify-resume/);
   assert.equal(closed.wire.length, 0, JSON.stringify(closed.wire));
   const blocked = await press("paid-971-blank");
   assert.equal(blocked.code, 1);
@@ -135,9 +137,9 @@ test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2)
 test("OPT-IN 7, END TO END — the box malformed, beside acc-isolation (closed with run 141), beside another scenario, or beside the request batch refuses with exit 2 before the sign-in: not one network call", async () => {
   for (const [name, o, re] of [
     ["malformed", { optIn: "971.0" }, /whole credits/],
-    ["acc-isolation", { probes: "", ui: "acc-isolation", slug: "fold-lane-bakery", optIn: "971" }, /the balance box is closed/],
-    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /the balance box is closed/],
-    ["request-batch", { probes: "", ui: "rq-batch", slug: "fold-lane-bakery", optIn: "971" }, /acceptance balance box is closed/],
+    ["acc-isolation", { probes: "", ui: "acc-isolation", slug: "fold-lane-bakery", optIn: "971" }, /only for acc-clarify-resume/],
+    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /only for acc-clarify-resume/],
+    ["request-batch", { probes: "", ui: "rq-batch", slug: "fold-lane-bakery", optIn: "971" }, /acceptance balance box is only for acc-clarify-resume, not the request batch/],
   ]) {
     const r = await press(name, o);
     assert.equal(r.code, 2, `${name}: ${r.err}${r.out.slice(-600)}`);
@@ -149,9 +151,9 @@ test("OPT-IN 7, END TO END — the box malformed, beside acc-isolation (closed w
 
 // ── THE FORM ─────────────────────────────────────────────────────────────────
 
-test("OPT-IN 8 — the workflow carries the box to the script and says it is closed", () => {
+test("OPT-IN 8 — the workflow carries the box to the script and names its one press", () => {
   const wf = readFileSync(path.join(REPO, ".github/workflows/edit-canary.yml"), "utf8");
-  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'CLOSED: no press may run above the 100-credit cap\. Leave blank; anything typed here refuses before the sign-in\.'\n {8}required: false\n {8}default: ''\n/);
+  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'ACCEPTANCE acc-clarify-resume ONLY \(one run, 2026-10-13\): [^'\n]+'\n {8}required: false\n {8}default: ''\n/);
   assert.match(wf, /\n {10}CANARY_ACCEPT_BALANCE: \$\{\{ github\.event\.inputs\.accept_balance \}\}\n/);
   const inputs = wf.slice(wf.indexOf("workflow_dispatch:"), wf.indexOf("\njobs:")).match(/^ {6}[a-z_]+:$/gm);
   assert.ok(inputs && inputs.length <= 25, `GitHub takes at most 25 dispatch inputs; the form has ${inputs && inputs.length}`);
