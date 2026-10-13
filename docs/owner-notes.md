@@ -1,50 +1,33 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the consolidated release is deployed as deploy 2199 — `main` `fef80b9b`, image `4444d9d53d906b8d` built; NOT YET runtime-confirmed: your free press is next; nothing charged; paid tests closed)
+## Current handoff — read this first (2026-10-13: the consolidated release is LIVE and runtime-confirmed — deploy 2199, `main` `fef80b9b`, image `4444d9d53d906b8d`, confirmed by run 143; nothing charged; paid tests closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Deploy 2199 is green, not yet runtime-confirmed**
-  (`docs/deploy-record.md`, *Deploy 2199*).
-  - `main` was fast-forwarded `64f17488` → **`fef80b9b`** at 12:26:11 UTC, on
-    your approval. That push started the one deploy run: 38397272252,
-    12:26–12:29 UTC.
-  - The image was **built**: `eda28cb21064287d` → **`4444d9d53d906b8d`**,
-    205 inputs, as predicted on both ends. The container application changed
-    at 12:29:12 UTC.
-  - 27 secrets uploaded; no asset uploads (nothing under `public/` changed).
-  - The Build flags are unchanged (`BAND_SPLIT_EVERYONE`,
-    `DESIGN_SPLIT_EVERYONE` and `DESIGN_GRAPH_EVERYONE` are `off`), and so are
-    the limits.
-- **Preflight passed on `fef80b9b`:**
-  - unit tests 38392132548, `10737 / 10693 / 0 / 44 skipped`, the totals
-    matching;
-  - site build 38334767139 on `372f8ae0`, success, with only `docs/` and
-    `test/` changed since;
-  - nothing in flight;
-  - the rollback gave back `main`'s exact tree in a throwaway worktree;
-  - `BALANCE_OPT_IN` is empty.
-- **No test credits charged:** balance 860 and last ledger row 453, before
-  and after the roll (read at 12:47:25 UTC), with no open job.
-- **Your free runtime press is next.** My one dispatch answered 403, and was
-  not retried. Use **edit canary**, from `main`, after 12:47 UTC:
-  - *Run the ONE paid edit as well (yes/no)*: `no`;
-  - *The site to edit*: `fold-lane-bakery`;
-  - *Refuse to spend unless the Worker reports this deploy sha*: `fef80b9b`;
-  - *Refuse to spend unless a cold container reports this image id*:
-    `4444d9d53d906b8d`;
-  - every other box blank.
-
-  It passes when:
-  - both readers answer `fef80b9b`;
-  - a cold container reports `4444d9d53d906b8d`;
-  - `imagePurchases=true`;
-  - balance is 860 with no new ledger row.
-
-  Until then, deploy 2199 is "deployed, not runtime-confirmed".
+- **Deploy 2199 is runtime-confirmed by run 143** (your free press, 13:50 UTC;
+  `docs/deploy-record.md`, *Deploy 2199*).
+  - Both readers answered `fef80b9bc913`.
+  - A cold container got `4444d9d53d906b8d`.
+  - `imagePurchases=true`, async and the runner on.
+  - Every free check passed, and the free job cost 0.
+  - The run stopped before any paid edit.
+- **No test credits charged:** balance 860, last ledger row 453, from before
+  the merge through 13:52:05 UTC, with no open job.
+- **How it got there:**
+  - preflight on `fef80b9b`: unit tests 38392132548, `10737 / 10693 / 0 / 44
+    skipped`; site build 38334767139 on `372f8ae0`; nothing in flight; the
+    rollback gave back `main`'s exact tree;
+  - one fast-forward, `64f17488` → `fef80b9b`, at 12:26:11 UTC;
+  - one deploy run, 38397272252, green;
+  - the image built, `eda28cb21064287d` → `4444d9d53d906b8d`.
+- **Unchanged:**
+  - the Build flags (`BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE` and
+    `DESIGN_GRAPH_EVERYONE` are `off`) and the limits;
+  - `BALANCE_OPT_IN` is empty;
+  - image purchases are on.
 - **What shipped** (`docs/history/2026-10-13-release-proposal.md`):
   - the served reader;
   - the Add-on `scoped` count;
@@ -59,7 +42,6 @@ is in git; the dated entries further down are the full story.*
     real refusal happens;
   - **run 141's cause:** its R2 record is still unread.
 - **Open** (`docs/backlog.md`, first item):
-  - the runtime press;
   - the R2 read;
   - live isolation and reuse;
   - the other `<[^>]+>` strippers;
@@ -937,6 +919,18 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Deploy 2199 runtime-confirmed by run 143 (free)
+
+Your free press, run 143, read:
+- both readers on `fef80b9b`;
+- a cold container on `4444d9d53d906b8d`;
+- image purchases on;
+- every free check passing;
+- nothing charged (balance 860, ledger unchanged at row 453).
+
+The release is live. Real-model isolation, live correction reuse and run
+141's cause stay unverified, and no paid test was run.
 
 ## 2026-10-13 — The consolidated release deployed (deploy 2199); runtime check waiting for your free press
 

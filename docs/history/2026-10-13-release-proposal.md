@@ -1,8 +1,9 @@
 # Release proposal: run 141's follow-up, task-marking diagnostics, isolation check, correction reuse (2026-10-13)
 
 **Status: APPROVED and deployed as deploy 2199** (`main` `fef80b9b`, image
-`4444d9d53d906b8d` built, 2026-10-13 12:26–12:29 UTC). Runtime confirmation
-waits for the owner's free press (`docs/deploy-record.md`). The optional
+`4444d9d53d906b8d` built, 2026-10-13 12:26–12:29 UTC). **Runtime-confirmed by run 143** (the owner's free press, 13:50 UTC: both
+readers `fef80b9bc913`, a cold container `4444d9d53d906b8d`,
+`imagePurchases=true`, nothing charged; `docs/deploy-record.md`). The optional
 isolation press (§5) was **not** approved or run. The proposal as written
 follows.
 

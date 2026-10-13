@@ -53,8 +53,8 @@ here; take a closed one out of both.**
 
   Still open:
   - the refused-correction explanation is unconfirmed (no read path for R2);
-  - correction reuse is deployed in deploy 2199 (2026-10-13), not yet
-    runtime-confirmed and unshown live; only the Add-on designer's first
+  - correction reuse is live in deploy 2199 (runtime-confirmed by run 143),
+    but unshown on a real refusal; only the Add-on designer's first
     request adopts it;
   - isolation is unverified live;
   - other strippers still use `<[^>]+>`;

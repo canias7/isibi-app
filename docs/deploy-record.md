@@ -1819,7 +1819,17 @@ and names the wrong person to go and ask.
     untouched.
 - **After the roll** (12:47:25 UTC): balance 860, last ledger row 453, no
   open job. Nothing was charged by the release.
-- **Runtime: NOT YET CONFIRMED.** The session's dispatch of the free canary
-  press answered 403 (the session lacks `actions: write`), once, not retried.
-  It is the owner's free press, after 12:47 UTC (the image window has
-  passed).
+- The session's dispatch of the free canary press answered 403 (the session
+  lacks `actions: write`). It was tried once and not retried.
+- **Runtime-confirmed by run 143** (the owner's free press, from `main`,
+  13:50:47 UTC, job 115333679391, spend `no`, `fold-lane-bakery`):
+  - `build-health` 200 and `runtime` 200 both answered `fef80b9bc913`, and
+    the two readers agree;
+  - a cold container got **`4444d9d53d906b8d`** (the expected image);
+  - `imagePurchases=true`, async and the runner on;
+  - every free check passed;
+  - the free job settled at cost 0;
+  - "CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+    charged";
+  - balance 860, read by the run and again from the ledger at 13:52:05 UTC:
+    last row still 453, no open job.
