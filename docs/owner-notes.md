@@ -57,8 +57,13 @@ is in git; the dated entries further down are the full story.*
     `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
     free in the Cloudflare dashboard (R2, sites bucket) and look for
     `unusable` on the designer's entry.
-- **Commits, suite, CI and image**: in the dated entry below (stamped after
-  the runs). `worker.js` changed, so a deploy would build a new image.
+- **Commit `372f8ae0`.**
+  - Full suite: `10735 / 10735 / 0 / 0` locally.
+  - CI: unit tests run 38334767137, `10735 / 10691 / 0 / 44 skipped` (the
+    totals match); site build run 38334767139, success.
+  - Image prediction: `eda28cb21064287d` → `4444d9d53d906b8d` (205 inputs;
+    `worker.js` is an input).
+  - Nothing merged, deployed or built.
 - **No paid run is proposed.** Correction reuse and `acc-isolation-page` both
   need a merge and deploy, a free runtime check, and your approval of any
   spend.
@@ -973,6 +978,9 @@ that a validated refusal's facts may guide a replay. It is built, as
   - Red check: CR 1, 3 and 8 and R141 3 fail on the old Worker.
   - Sweep: 25 of 25 killed, with 2 controls surviving.
   - Full suite: `10735 / 10735 / 0 / 0`.
+  - Commit `372f8ae0`: CI unit tests 38334767137 (`10735 / 10691 / 0 / 44
+    skipped`), site build 38334767139 success; next image
+    `4444d9d53d906b8d`.
 - **Not done:**
   - no deploy;
   - the text and data steps do not adopt it;

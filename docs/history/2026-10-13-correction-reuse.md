@@ -195,3 +195,9 @@ not; until they do, they behave exactly as before.
     `site-add`, and `parallel-plan`'s exact `readPrepared` shape.
   - The sixth was REOPEN 1, the known load-sensitive case (backlog). It
     passed alone and in the rerun.
+- **Commit `372f8ae0`.**
+  - CI: unit tests run 38334767137, `10735 / 10691 / 0 / 44 skipped` (the
+    totals match); site build run 38334767139, success.
+  - Image prediction (from the commit): `eda28cb21064287d` (production) →
+    `4444d9d53d906b8d`, 205 inputs.
+  - Nothing merged, deployed or built.
