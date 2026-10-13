@@ -158,11 +158,14 @@ test("AT 5 — REPEATED INSTANCES: two cards designed for /visit need two new ca
   // THE SAME WORDS IN A NEW CARD PLACED BEFORE THE OLD ONE: the new card's copy
   // is its text (found the sweep's one survivor, S4) — and shown only when the
   // page shows both copies.
-  const again = had.replace("<main>", "<main><Card><p>Free parking.</p></Card>");
-  const twice = evidence(design("card"), [page(had)], [page(again)], render("Free parking. Visit us Open from 8. Free parking."));
+  // (The old card says more, so the two instances differ in source.)
+  const had2 = withImport(VISIT, CARD).replace("</main>", "<Card><p>Free parking.</p><p>Bikes welcome.</p></Card></main>");
+  const again = had2.replace("<main>", "<main><Card><p>Free parking.</p></Card>");
+  const twice = evidence(design("card"), [page(had2)], [page(again)], render("Free parking. Visit us Open from 8. Free parking. Bikes welcome."));
+  assert.equal(twice.card.stored, "added");
   assert.equal(twice.card.texts, 1, "the new card's copy of a repeated text was not taken as its own");
   assert.equal(twice.card.shown, "all");
-  assert.equal(evidence(design("card"), [page(had)], [page(again)], render("Free parking. Visit us Open from 8.")).card.shown, "unread", "one copy on the page was taken for the new card's");
+  assert.equal(evidence(design("card"), [page(had2)], [page(again)], render("Free parking. Visit us Open from 8. Bikes welcome.")).card.shown, "unread", "one copy on the page was taken for the new card's");
 });
 
 // ─── SOURCE IDENTITY, NOT SPELLING ──────────────────────────────────────────
