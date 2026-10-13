@@ -151,6 +151,9 @@ line).
   compile's (`aRendered` after a repair). The Add-on route harness cannot
   drive a repair round (it has no stub for the repair model), so this line
   is guarded by review only.
+  *Closed 2026-10-13 (`9a0c6bed`):* the choice is now the helper
+  `publishedTexts`, tested by CE 13
+  (`docs/history/2026-10-13-connected-cases.md` §1).
 
 **Full suite on `edfabc3e`: `10753 / 10753 / 0 / 0` locally.**
 
@@ -197,6 +200,8 @@ line).
     a component's own default copy is read as "added, content unread", not
     as shown.
   - Two components on one page share that page's added texts.
+    *Closed 2026-10-13 (`9a0c6bed`, CE 15):* each now reads its own share
+    only, or reads unread.
   - The static placement is a hint only.
 - **A deploy would build a new container image**, because `worker.js` and
   the builder modules are inputs: predicted `4444d9d53d906b8d` →

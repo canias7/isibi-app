@@ -1,10 +1,71 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the recurring "I can't see from here whether…" fixed offline — component content is now read as stored, shown on load, or unread, with behaviour always unverified; run 144's console error identified; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: the connected Edit/Add-on batch — reporting corrections, ten new offline cases through the request driver to the reply model's facts, no product failure found; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
+
+**For Codex's review: `9a0c6bed` and `da8dd276`** (the reporting
+corrections, and the connected cases) on `claude/help-needed-ehlwlj`, plus
+the records commit after them. `main` is unchanged at `fef80b9b`, and
+production is deploy 2201. The full record is
+`docs/history/2026-10-13-connected-cases.md`.
+
+**The report, in one place:**
+- **Reporting corrections, done (`9a0c6bed`):**
+  - two components on one page each read only their own share (CE 15);
+  - the published build's text comes from a tested helper, which closes
+    the earlier sweep survivor (CE 13);
+  - the canary's console count tells apart errors from before the first
+    message (CE 14).
+- **The seven connected cases. Each is now shown offline down to what the
+  reply model is told:**
+
+  | Case | New cases | Already shown |
+  |---|---|---|
+  | Several requirements on one page | CC 1a, CC 1b (Edit + Add-on on About, both orders); CC 2a (two Add-on parts on About) | PI 1, 32, 34; CE 15 |
+  | Independent tasks overlapping | CC 3; reply facts added to PI 36 | PI 1–3, 32, 34, 36 |
+  | Dependent tasks waiting | reply facts added to PI 35 | PI 4, 5, 25, 26, 35 |
+  | One target, each keeping the other's work | CC 1, CC 2a; **CC 2b** (a stale second writer is refused, the first section kept, the facts say so) | PI 4, 6, 37 |
+  | A question pausing and resuming the right task | **CC 3** (two Add-on parts; one asks; the answer resumes only it; the done one is never rerun or retold) | PI 30, 31 |
+  | One task failing without losing another's work | **CC 4** (Add-on fails on our side), **CC 5** (Edit finds nothing), each beside a success | PI 8, P1c, SP 4 |
+  | Retries reusing valid results, no duplicates or double charges | **CC 6** (Add-on job lost after its charge: refunded, rerun from its preparation, nothing asked or charged twice, one reply) | P5, P6, PI 7, 16, 19–21 |
+  | Stored / shown / unverified, inside a request | **CC 7, 7b** (`behind` and `in-code` reach the background reply's facts) | CE 11, 12 |
+
+- **What failed and was fixed:** no product failure was found. Two
+  test-side mistakes, made while writing the new cases, were fixed before
+  the commit (history §4).
+- **Checked, and accurate:**
+  - a failed Add-on's provider error keeps its fixed sentence (the existing
+    technical rule, not reopened);
+  - a later part's "has not run yet" is true, because jobs run one at a
+    time and only preparations overlap;
+  - the summary names part 0 with held parts as "…".
+- **Sweep:** 8 product mutants. 6 were killed by the new cases, and both
+  survivors are killed elsewhere (CE 11; `routedForPrep` and P3b). Both
+  comment-only controls survived.
+- **Full suite `10766 / 10766 / 0 / 0`** locally.
+- **Image:** unchanged by this batch (tests only). A release from the branch
+  would build `6b66dc466b933115` (206 inputs); production is
+  `4444d9d53d906b8d`.
+- **Still needs a real-model run** (none run, nothing spent):
+  - whether the real router splits these messages this way;
+  - a real page writer facing a page another part just changed;
+  - a real reply model writing from the waiting/done, failed/done and
+    `behind`/`in-code` facts;
+  - the render check's first-load text from a real container;
+  - a lost job in a real container.
+
+**Kept as they were:**
+- no paid, image or fal call;
+- no merge, deploy or container build;
+- current flags and limits, the isolation guards and correction reuse;
+- no completed live test reopened, no Build audit started.
+
+---
+
+*Before this batch (same day):* the interactive-content fix.
 
 **For Codex's review: `a4e0da19`, `88dec2a0`, `edfabc3e`** (the fix, the Dockerfile line, the tightened tests) on
 `claude/help-needed-ehlwlj`, plus the records commit after it. `main` is
@@ -959,6 +1020,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — The connected Edit/Add-on batch: reporting corrections and ten offline cases to the reply model's facts (nothing spent, merged or deployed)
+
+You asked for one consolidated fix-and-test batch: finish the reporting
+corrections, then cover the connected Edit and Add-on cases together, with
+what the customer is told kept accurate all the way.
+
+- **`9a0c6bed`: the three reporting gaps left from the interactive-content
+  fix:**
+  - two components on one page each read their own share;
+  - the repaired build's text is chosen by a tested helper;
+  - the canary's console count is split at the first message.
+- **`da8dd276`: ten new cases** through the real request driver, each
+  reading what the reply writer was given:
+  - an Edit and an Add-on on the same page, in both orders;
+  - two Add-on parts on one page, including a stale writer that is refused
+    without losing the first section;
+  - one of two Add-on parts asking a question while the other finishes;
+  - an Add-on failing, and an Edit failing, each beside a success;
+  - an Add-on job lost after its charge, then refunded and rerun with
+    nothing done twice;
+  - a collapsed section's "in the code, not shown on first load" kept
+    through a request's background reply.
+
+  Reply checks were also added to two existing cases, a dependency and an
+  overlap.
+- **No product failure was found.**
+- **Sweep:** 6 of 8 product mutants were killed by the new cases, and the
+  other 2 by existing tests. Both controls survived.
+- **Full suite** `10766 / 10766 / 0 / 0`.
+- **The image is unchanged by this batch.** A release would build
+  `6b66dc466b933115`.
+- **What still needs a real model:** the router's split, a real page writer
+  on a just-changed page, the reply model's wording, the container's
+  first-load text, and a real lost job.
+
+Record: `docs/history/2026-10-13-connected-cases.md`.
 
 ## 2026-10-13 — "I can't see from here whether…" fixed offline; run 144's console error identified (nothing spent, merged or deployed)
 
