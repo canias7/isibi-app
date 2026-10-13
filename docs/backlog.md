@@ -53,8 +53,9 @@ here; take a closed one out of both.**
 
   Still open:
   - the refused-correction explanation is unconfirmed (no read path for R2);
-  - correction reuse is not live (it needs a deploy), and only the Add-on
-    designer's first request adopts it;
+  - correction reuse is not live (it needs a deploy; a consolidated release
+    is proposed in `docs/history/2026-10-13-release-proposal.md`), and only
+    the Add-on designer's first request adopts it;
   - isolation is unverified live;
   - other strippers still use `<[^>]+>`;
   - the coverage judge calls a collapsed answer "unseen".
@@ -1082,8 +1083,11 @@ here; take a closed one out of both.**
       - live use needs a deploy (`worker.js` is a container input);
       - only the designer's first request adopts it, so a refusal of a
         re-asked (`aNeedsAgain`) answer carries no facts;
-      - the text and data steps do not adopt it;
-      - CR 2's changed context is a tampered digest, not a natural change.
+      - the text and data steps do not adopt it.
+
+      *Closed the same day:* CR 2's tampered digest is joined by CR 9, a
+      natural change of the cleaner's input (the site's day turns over) with
+      the request unchanged.
     - **Isolation is unverified live.** `acc-isolation-page` (prepared, not
       pressed) now judges marks plus per-job versions. Only an
       Add-on-first run discriminates; an edit-first pass is recorded as

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: correction reuse built offline on your word — a refusal's facts, never its answer, take a job to the recorded correction on an exact match; run 141's cause still unconfirmed; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: correction reuse's validation gap closed offline — a natural change of the cleaner's input declines the old refusal; one consolidated release proposed for your decision; run 141's cause still unconfirmed; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,70 +8,55 @@ is in git; the dated entries further down are the full story.*
 
 **Where it stands**
 - **Production is unchanged**: deploy 2198 (`main` `64f17488`, image
-  `eda28cb21064287d`, image purchases on). **Balance 860.** Run 141 stays
-  closed.
-- **Kept**:
-  - the reader fix and the Add-on's `scoped` count (`1bf174fa`);
-  - the per-call task markings and the honest isolation verdict
-    (`8626608a`), unchanged by this round. A skipped call is now marked
-    `skipped`, never `replayed`.
-- **This round: correction reuse, built offline**
-  (`docs/history/2026-10-13-correction-reuse.md`; commits and CI in the dated
-  entry).
-  - **The rule, amended in scope only.** A refused or cut-off **answer** is
-    still never staged, replayed, handed to a continuation, shown to a model
-    or applied, and VA 0–5 and UA 0–6 pass unchanged. A refusal by its step
-    may now carry its **facts**:
-    - the reason;
-    - the exact feedback sent;
-    - the superseded requirement entries;
-    - `cleanIn`, a digest of what the cleaner judged.
+  `eda28cb21064287d`, image purchases on). **Balance 860** (last read by run
+  142). Run 141 stays closed, and **its cause stays unconfirmed** (its R2
+  preparation record is unread).
+- **This round: the gap closed** (`docs/history/2026-10-13-correction-reuse.md`
+  §5). The job designer's cleaner reads the site's local date, which no
+  designer request carries.
+  - **CR 9:** the preparation runs at 23:59 site time and the job just after
+    midnight, with nothing stored touched. The job's first request is byte
+    for byte the preparation's, but the digest differs, so:
+    - the old refusal is **declined**;
+    - the request is asked fresh;
+    - the new answer is refused `past-date` against the new day, which shows
+      it was validated against the changed context;
+    - it is corrected once, and the job lands on the later day.
 
-    The amendment is written where the rule lives: `readPrepared`'s comment,
-    the block above `readRefusal`, and a dated note under
-    validation-scheduling §1.
-  - **When it is used.** Three conditions must all hold:
-    - the job's first request is byte for byte the refused one;
-    - its cleaner input digests the same;
-    - the step declared it handles prior refusals.
+    Had the old refusal been taken, the addition would have been lost.
+  - **CR 9c (same day):** goes straight to the recorded correction.
+  - **Counts and charges match the calls used:** CR 9 is skipped 0, fresh 2,
+    replayed 2; CR 9c is skipped 1, fresh 0, replayed 3. Each charge equals
+    `pageCredits` over exactly those calls, and the wrong bills give different
+    sums.
+  - **Protections unchanged:** the rejected-answer and continuation rules
+    (VA 0–5, UA 0–6, CR 6, CR 8) are unchanged and pass.
+  - **No product code changed;** tests and one fixture line only.
+- **Ready for your decision: one consolidated release**
+  (`docs/history/2026-10-13-release-proposal.md`). It covers:
+  - the served reader;
+  - the Add-on `scoped` count;
+  - per-call task markings;
+  - the honest isolation verdict;
+  - the closed opt-in;
+  - correction reuse.
 
-    Then the model is not asked, and the correction is sent with the
-    recorded feedback. That correction is answered only by an exact match and
-    validated by the job's own cleaner before anything is applied, and a
-    second refusal is final. **Anything missing, malformed or different asks
-    the model, as before.**
-  - **Reusable across routes.** The mechanism is in `builder/prepared.mjs`;
-    the Add-on designer is the first adopter. The text and data steps can
-    adopt it later.
-  - **Evidence** (supplied answers only):
-    - run 141's shape (R141 3, CR 1): the job asks the designer **0** times
-      (`skipped 1`, `replayed 3`, `fresh 0`), charged exactly what a job with
-      no refusal is;
-    - the refused design reaches no request, staged or kept record, view or
-      page;
-    - fallbacks: changed digest (CR 2), older record (CR 4), malformed facts
-      (CR 4b), rejected correction with no third call (CR 3);
-    - continuation through the real queue (CR 8).
-  - **Run 141's cause stays UNCONFIRMED**: its stored record is still
-    unread. You can open
-    `requests/fold-lane-bakery/71b20ee310bf857b0310a9918215f201/prep/p1-1.json`
-    free in the Cloudflare dashboard (R2, sites bucket) and look for
-    `unusable` on the designer's entry.
-- **Commit `372f8ae0`.**
-  - Full suite: `10735 / 10735 / 0 / 0` locally.
-  - CI: unit tests run 38334767137, `10735 / 10691 / 0 / 44 skipped` (the
-    totals match); site build run 38334767139, success.
-  - Image prediction: `eda28cb21064287d` → `4444d9d53d906b8d` (205 inputs;
-    `worker.js` is an input).
-  - Nothing merged, deployed or built.
-- **No paid run is proposed.** Correction reuse and `acc-isolation-page` both
-  need a merge and deploy, a free runtime check, and your approval of any
-  spend.
+  It needs a new image, `eda28cb21064287d` → `4444d9d53d906b8d`. Nothing
+  under `public/` changed.
+  - **Steps (all free):** preflight and rollback check → fast-forward → one
+    deploy → 15–20 minutes → your free runtime press.
+  - **Optional and separate:** one `acc-isolation-page` press, estimate
+    12–26 credits. It needs three things from you:
+    - a scoped opt-in naming that scenario (paid acceptance presses send
+      nothing above balance 100, and the opt-in is closed);
+    - image purchases off for the press, then back on;
+    - your approval of the spend.
+  - **My recommendation:** release now, and decide the press separately.
+- **Commits, suite, CI**: in the dated entry below.
 - **Open** (`docs/backlog.md`, first item):
   - the R2 read;
-  - correction reuse live; only the designer's first request adopts it, and
-    CR 2's changed context is a tampered digest;
-  - isolation live;
+  - correction reuse and isolation, live;
+  - only the Add-on designer's first request adopts reuse;
   - the other `<[^>]+>` strippers;
   - the coverage judge calling a collapsed answer "unseen";
   - concurrency inside one Add-on, the missing-context clarification, and the
@@ -946,6 +931,38 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Correction reuse's validation gap closed; one release proposed (nothing spent, merged or deployed)
+
+You asked for an end-to-end case where a cleaner input really changes while
+the first model request stays the same, without touching the stored digest.
+
+- **The natural change.** The job designer's cleaner reads the site's local
+  date (a one-time job on a past day is refused), and no designer request
+  carries that date. So I ran the preparation at 23:59 site time and the job
+  just after midnight.
+- **CR 9, the day turns over.** The job's first request was byte for byte
+  the preparation's. The old refusal was declined, and the request asked
+  fresh. Its answer was judged against the new day (refused `past-date`) and
+  corrected once, and the job landed on the 15th; neither the 13th nor the
+  old answer reached the database.
+- **CR 9c, the same day.** The job went straight to the recorded correction,
+  with no designer call by the job.
+- **Counts and charges.** Both jobs' counts match what happened. Their charges
+  equal the priced calls each job used, exactly, and the wrong bills would
+  differ.
+- **Checks:**
+  - removing the digest check makes CR 9 fail;
+  - sweep 25 of 25, with a newly covered case of a record holding only a
+    refusal;
+  - full suite `10737 / 10737 / 0 / 0`.
+- **The release proposal** (`docs/history/2026-10-13-release-proposal.md`)
+  gathers everything pending into one release. It also says what an optional
+  isolation press would need from you.
+- **Commits:**
+  - `59faf01b`: the tests and the record;
+  - the records commit after it: the proposal and this handoff.
+  - CI: in the next entry or the handoff once read.
 
 ## 2026-10-13 — Correction reuse built offline on your word (nothing spent, merged or deployed)
 
