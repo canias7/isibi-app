@@ -525,6 +525,29 @@ export function routingShape(steps) {
  * missing evidence, never a pass.
  * `{ exercised, ok, checks, order, strength, why }`.
  */
+/**
+ * A HEADING ASKED FOR ON A PAGE THAT ALSO GAINS A SECTION (2026-10-13, run
+ * 144): `lost` and `gained` are the page's text runs that went and came
+ * (`less`, plain). For each heading asked for on that page, one run that is
+ * exactly its old words is taken out of `lost` only when one run that is
+ * exactly its new words is in `gained`, and that new run is taken out of
+ * `gained` with it — the edit's own change, judged by the heading check,
+ * neither a loss nor text of the added section. A partial match, a heading
+ * changed to anything else, or a heading asked for on another page excuses
+ * nothing.
+ */
+export function headingSwapped(lost, gained, headings) {
+  const l = [...(Array.isArray(lost) ? lost : [])], g = [...(Array.isArray(gained) ? gained : [])];
+  for (const h of Array.isArray(headings) ? headings : []) {
+    if (!h || typeof h.from !== "string" || typeof h.to !== "string") continue;
+    const i = l.indexOf(plain(h.from)), j = g.indexOf(plain(h.to));
+    if (i < 0 || j < 0) continue;
+    l.splice(i, 1);
+    g.splice(j, 1);
+  }
+  return { lost: l, gained: g };
+}
+
 export function isolationVerdict(steps, served, want = {}, ctx = {}) {
   const w = want && typeof want === "object" ? want : {};
   const c = ctx && typeof ctx === "object" ? ctx : {};
@@ -1426,9 +1449,14 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, serve
     if (!at || now === undefined) { add(`${s.route} was read before and after`, false, `${s.route} is missing from a read`); continue; }
     sectionAt.set(at.path, s);
     const wb = wordsOf(rest(at.path, at.source)), wa = wordsOf(rest(at.path, now));
-    const lost = less(wb, wa);
+    // A HEADING ASKED FOR ON THE SAME PAGE (2026-10-13, run 144): its old
+    // words, replaced by exactly its new words, are the edit's change — not
+    // something the page lost, and not text of the added section. Anything
+    // else lost still fails (`headingSwapped`).
+    const swap = headingSwapped(less(wb, wa), less(wa, wb), (Array.isArray(want.headings) ? want.headings : []).filter((h) => h && h.route === s.route));
+    const lost = swap.lost;
     add(`${s.route} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
-    const gained = `${less(wa, wb).join(" ")} ${newPartWords(now)}`;
+    const gained = `${swap.gained.join(" ")} ${newPartWords(now)}`;
     // THE SECTIONS THE PRESS ADDED, STORED: the page's new runs of text, and each component file it added and uses.
     // …PER RENDER STATE (2026-10-12): the same section in two branches a
     // visitor never sees together is one section.
