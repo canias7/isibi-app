@@ -75,6 +75,16 @@ here; take a closed one out of both.**
     tag or an unlisted file reads as unknown ("can't see from here"), never
     as success. The foreign-copy count uses the route's own files, so text
     drawn by an unlisted layout is not counted;
+  - **presence vs fulfilment (2026-10-13, `62bbd81b`, after Codex at
+    `d0e76bdf`):** each addition is now told by itself with its own words,
+    and the match with the request is left to the reply model, stated as
+    unchecked. **Open limits:** an addition whose copy is computed or comes
+    from a file the route does not list is told with no words of its own.
+    A real reply model judging the match has not run live;
+  - **K3B prepared, not pressed (2026-10-13, `abb57130`):** two designers
+    inside one Add-on, judged in the press from the job's own trace. It needs
+    the owner's one-time balance opt-in and image purchases off; about 18–27
+    credits;
   - **flaky test, pre-existing (2026-10-13):** PLW 1
     (`test/progress-live-writer.test.mjs`) fails under load, at the line
     written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race

@@ -1,118 +1,113 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: Codex's false success fixed — every added component must be found itself, by its imported source and its own new instance; first-load absence and props are never said to be a click; console errors named by timing; the next parallel-work test's probe list prepared, not pressed; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: a component on the page is no longer told as the request met — each addition is told by itself and the match is left to the reply model; K3B prepared for two designers inside one Add-on, judged in the press; run 147 spent 9 credits, balance 828; nothing else spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**For Codex's review: `a65bb5da`, `9c4e8f9c`, `93c90b9a`, `126aa05d` and `92fcd2e0`**
-on `claude/help-needed-ehlwlj`, plus the records commit after them.
-- `main` is unchanged at `fef80b9b`, and production is deploy 2201.
-- The connected batch (`9a0c6bed`, `da8dd276`, below) is kept; only CC 7's
-  wording assertion changed.
-- The full record is `docs/history/2026-10-13-attribution-corrections.md`.
+**For Codex's review: `62bbd81b` and `abb57130`** on
+`claude/help-needed-ehlwlj`, plus the records commit after them.
+- `main` is unchanged at `fef80b9b`, and production is deploy 2201 (image
+  `4444d9d53d906b8d`).
+- The full record is `docs/history/2026-10-13-presence-and-k3b.md`.
 
-**1. Codex's false success, fixed.**
-- **The reproduction:** only a booking form was asked for on `/visit`, and
-  the writer only changed the heading. The reply model was still told the
-  form was added and seen, because attribution ran only when several
-  components shared a page.
-- **Now every component must be found itself**, alone, beside others or
-  repeated:
-  - its own new instance on the page, found by the module its tag is
-    imported from (an alias or namespace member counts; a same-named tag
-    from elsewhere, an unbound tag or a barrel does not);
-  - one new instance per design of it on that page;
-  - only the texts inside those instances (or in its own part file) count;
-  - a text is "shown" only when the page shows more copies than the route
-    carries elsewhere.
-- **When something is uncertain, the result stays unknown.** Nothing added
-  at all is still "still to do"; something added that cannot be tied to the
-  component is unknown, never added and never missing.
-- The sweep found one more edge case (a repeated text in a new card placed
-  before an old one), fixed in `9c4e8f9c`.
+**A correction first: run 147 did spend.** The previous handoff called the
+probe list "prepared (not pressed)" and the round "nothing spent". You
+pressed it as **run 147**, which charged **9 credits (837 → 828)**. The
+wording is corrected here, in the dated entries and in
+`docs/history/2026-10-13-attribution-corrections.md`.
 
-**2. Not on first load, or passed as a prop, is not a click.**
-- The reply model gets observations only:
-  - what the first load showed;
-  - where the text sits in the code, as a location ("passed as a value to
-    a component on the page, which decides where and when to draw it").
-- Behaviour is a separate fact beside each content observation: no
-  interaction was identified or tried, so whether one shows it is not
-  verified.
-- The note no longer says a section "waits behind something a visitor
-  opens" or asks them to open it.
+**1. Component present ≠ request met (`62bbd81b`).**
+- **Codex's reproduction at `d0e76bdf`:** two card designs on `/visit`
+  (free parking; dogs welcome). The writer rendered "Free parking." twice.
+  Both requests were told "Added, and seen", the dogs one included.
+- **Now each addition is kept by itself:** each new instance on the page,
+  with its own words and what the first load showed of each. Two identical
+  cards are still two additions.
+- **The stored outcome stays `unverified`.** No request is recorded as met
+  because its component is there.
+- **The reply model is told** what was added, addition by addition, and
+  that whether it is what was asked "is not checked here". The model
+  compares the words; no keyword rule decides it.
+- **The note** now says "I've added something for this … but I haven't
+  checked that what it says is what you asked for".
 
-**3. The console line names pre-send errors by timing.** One is called the
-app re-reading an earlier job only when exactly one recorded final read of
-a job, with that status and at that moment, and not this press's own,
-establishes it.
+**Tests:** AT 10–17 in `test/content-attribution.test.mjs`. They cover:
+- one card with the wrong words;
+- repeated cards with one duplicated (Codex's) or one omitted;
+- a positive control;
+- Codex's shape through the real Add-on route, with a control;
+- nested and word-less instances;
+- strict reads.
 
-**Tests:**
-- `test/content-attribution.test.mjs`, AT 1–9. Each refusal has a positive
-  control; AT 2 and its control go through the real Add-on route. The cases
-  check the stored record and the reply model's facts.
-- CE 5, 7, 11, 14 and 15 fixtures and wording updated; CC 7's wording
-  updated.
-- **Red check:** 10 of 11 fail on `73772b23`. The one that passes there is
-  AT 7, the absence control, which should pass on both.
-- **Sweep:** 13 mutants; 12 killed, 1 equivalent (S4, explained in the
-  history §4); both controls survived.
-- **Focused files:** 80 of 80; Add-on and requirements files 805 of 805;
-  canary and acceptance 668 of 668.
-- **Final full suite `10779 / 10779 / 0 / 0`** on `92fcd2e0`.
-- **One pre-existing flake, recorded, not fixed:** PLW 1 failed once in a
-  full run. Under load it fails 2 of 15 on the old code and 1 of 15 on the
-  new.
+Each checks the stored outcome and the reply model's facts.
+- **Red check:** 4 of AT 10–14 fail on `d0e76bdf`.
+- **Sweep:** 16 product mutants, all killed once AT 15–17 covered the
+  first round's 4 survivors; controls survived.
 
-**Image:** a release would build `4d38643ab08526e9` (206 inputs; three
-builder modules changed). Nothing was built.
+**2. K3B, prepared (`abb57130`), not pressed.**
+- **The scenario** `acc-addon-k3b` sends K3B's words exactly: one message,
+  on the Order page, no image.
+- **It needs no release.** The deployed job already records the picker's
+  kinds and each designer's start (with `after` when it waits) in its
+  trace, and the press already reads that job's record.
+- **The press judges, from that record:**
+  - one Add-on part, nothing held back;
+  - the trace tied to that job alone;
+  - the picker choosing at least two kinds;
+  - their designers starting without waiting;
+  - their calls overlapping.
 
-**Still live-only (not run):**
-- the render check's first-load text from a real container;
-- a real reply model writing from the split observation and behaviour facts;
-- whether real page writers import components in the forms resolved here.
+  Only then is it a **pass**. One routing answer proves neither the picking
+  nor the overlap.
+- **Another route or pick is "NOT EXERCISED"**: a failed check, a NOT
+  VERIFIED line, and **no automatic repeat**.
+- **Also checked:** both facts on `/order`, stored and served; everything
+  else preserved byte for byte; the press's own charges adding up.
+- The unreleased reporting change (1.) is not a pass condition.
+- **Tests:** K3B 1–13. The traces come from the real tracer, with the marks
+  pinned to the Worker's source.
+- **Sweep:** 12 of 12 killed, control survived.
 
-**The next parallel-work test, prepared (not pressed, not reopening K, E,
-M, P1, P2 or run 144):** two designers running at the same time inside one
-Add-on.
-- K (run 135, closed) put a section and a line on two pages and was split.
-  The routing-only list **`addon-kinds-3`** puts both kinds on **one** page,
-  three ways: K3A Visit, K3B Order, K3C Classes.
-- **Its press** (routing only, nothing applied, about 1–3 credits a message,
-  so about 3–9, **needs your approval**):
-  - Run *edit canary* from `claude/help-needed-ehlwlj` with:
-    - *ROUTING-ONLY BATCH: …* = `addon-kinds-3`
-    - *Run the ONE paid edit as well (yes/no)* = `yes`
-    - *Refuse to spend unless the Worker reports this deploy sha …* =
-      `fef80b9b`
-    - *Refuse to spend unless a cold container reports this image id …* =
-      `4444d9d53d906b8d`
-  - Leave every other box blank.
-- **Afterwards:** a paid one-Add-on press follows only if a message comes
-  back as one `addon` answer with nothing held back, and only after its
-  words are read free against the live page. The overlap is then read free
-  with *read_job*.
+**Suites:** focused 87 of 87 and 13 of 13; **full suite `10800 / 10800 / 0 / 0`** on `abb57130`.
 
-**Probe pressed (run 147, 9 credits, 837 → 828):**
-- All three messages came back as one `addon` answer with nothing held
-  back.
-- Free read of the live pages: K3A contradicts Visit's "closed on bank
-  holidays" and K3C repeats Classes' "Saturday mornings only". **K3B (Order)
-  is the clean candidate** for the paid one-Add-on press, which awaits your
-  decision.
-- Run 146 refused before signing in (the name went into the scenario box),
-  nothing spent.
+**Image:** a release would build `0e06c1826e3c3c00` (206 inputs; three builder modules changed).
+Nothing was built. K3B runs on the current deployment.
+
+**The one K3B run: about 18–27 credits** (an estimate, not a cap). That is
+routing 3 plus one Add-on job of 15–24 (section alone 15 in run 144; line
+alone 9 in run 135). If the router splits it as it split K, it costs about
+30 and reports not exercised. **It needs your approval for one run:**
+1. **The balance opt-in for `acc-addon-k3b` alone.** 828 is above the
+   100-credit cap; I add that one name, and close it again after the run.
+2. **Image purchases off** and a redeploy of `main` (no code change), as for
+   run 144; on again afterwards.
+3. **Your press** from `claude/help-needed-ehlwlj`:
+   - the scenario box: `acc-addon-k3b`;
+   - spend: `yes`;
+   - deploy sha: `fef80b9b`;
+   - image: `4444d9d53d906b8d`;
+   - the balance box: the exact balance then.
 
 **Kept as they were:**
 - run 144 closed;
 - paid opt-ins closed;
-- no paid, image or fal call;
+- no paid, image or fal call in this batch;
 - no merge, deploy or container build;
-- every flag and limit unchanged.
+- every flag, limit and completed result unchanged.
 
 ---
+
+*Before this round (same day):* the attribution corrections (`a65bb5da`,
+`9c4e8f9c`, `93c90b9a`, `126aa05d`, `92fcd2e0`). Every component had to be
+found itself, by its imported source and its own new instance. First-load
+absence and props were never said to be a click. Console errors were named by
+timing. Suite `10779 / 10779`. The probe list `addon-kinds-3` prepared there
+was **pressed as run 147 (9 credits, 837 → 828)**. All three messages came
+back as one `addon` answer, and K3B (Order) was the only clean one against
+the live pages. Run 146 refused before signing in. Record:
+`docs/history/2026-10-13-attribution-corrections.md`.
 
 *Before this round (same day):* the connected batch.
 
@@ -1131,6 +1126,42 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-13 — A component on the page is not the request met; K3B prepared for two designers inside one Add-on (nothing spent, merged or deployed)
+
+Codex showed two card designs on the Visit page (free parking; dogs
+welcome). The writer put "Free parking." in both, and the builder told the
+reply model both requests were "added and seen", dogs included. **Fixed:**
+each new card is now kept by itself, with its own words and what the page
+showed of them. The requests stay "unverified", and the reply model is
+told what was added and that whether it matches is not checked here. The
+model compares the words; no keyword rule does.
+
+**K3B is prepared, not pressed.** The press reads, from the Add-on job's
+own trace, whether the picker chose two kinds that wait for nothing and
+whether their designers ran at the same time. A different route or pick is
+reported as not exercised, and nothing repeats. One run is about 18–27
+credits, and it needs your balance opt-in and image purchases off first.
+
+**Tests:** AT 10–17 and K3B 1–13. Sweeps: 16 of 16 and 12 of 12 killed,
+controls survived. Suite: `10800 / 10800`.
+
+Commits: `62bbd81b`, `abb57130`. Record:
+`docs/history/2026-10-13-presence-and-k3b.md`.
+
+## 2026-10-13 — Run 147: the addon-kinds-3 probe (9 credits, 837 → 828)
+
+You pressed the routing-only list `addon-kinds-3` as run 147 (run
+38460213169, from the branch at `ca820981`), after run 146 refused before
+signing in (the name was in the scenario box).
+- All three messages came back as one `addon` answer, nothing held back.
+  Each cost 3: **9 credits, balance 837 → 828.**
+- Read free against the live pages: K3A contradicts Visit's "closed on bank
+  holidays", K3C repeats Classes' "Saturday mornings only", and **K3B
+  (Order) is clean**.
+
+Record: `docs/history/2026-10-13-attribution-corrections.md` §7. (The
+handoff before this one still called the list "not pressed"; corrected.)
+
 ## 2026-10-13 — Codex's false success fixed: every added component found itself; no click claimed from a hidden text; console errors by timing (nothing spent, merged or deployed)
 
 Codex showed the builder could tell you a booking form was "added and seen"
@@ -1150,9 +1181,10 @@ when the writer had only changed a heading. **Fixed:**
 killed 12 of 13 mutants (1 equivalent), and the full suite is `10779 /
 10779`.
 
-**The next parallel-work test is prepared, not pressed:** a routing-only
-list, `addon-kinds-3`, with three one-page messages. It needs your approval,
-at about 3–9 credits.
+**The next parallel-work test was prepared here:** a routing-only list,
+`addon-kinds-3`, with three one-page messages, estimated at about 3–9
+credits. *(Corrected later the same day: you pressed it as run 147, which
+charged 9 credits, 837 → 828.)*
 
 Commits: `a65bb5da`, `9c4e8f9c`, `93c90b9a`, `126aa05d`, `92fcd2e0`.
 Record: `docs/history/2026-10-13-attribution-corrections.md`.

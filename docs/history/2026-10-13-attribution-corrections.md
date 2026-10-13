@@ -4,8 +4,10 @@ These corrections follow Codex's review of `73772b23`. The connected batch
 (`docs/history/2026-10-13-connected-cases.md`) is kept unchanged except for
 one wording assertion in CC 7.
 
-**Nothing was spent, merged, deployed or built.** No paid call, image or fal
-call, and no container build. Run 144 stays closed and the paid opt-ins stay
+**The corrections themselves spent nothing, and nothing was merged, deployed
+or built.** No paid call, image or fal call, and no container build. (The
+probe list prepared in §6 was pressed afterwards as run 147, which charged
+**9 credits**, balance 837 → 828: §7.) Run 144 stays closed and the paid opt-ins stay
 closed. The Build flags, the page and component limits, the task-isolation
 guards and correction reuse are unchanged. Main stays `fef80b9b`; production
 is deploy 2201.
@@ -195,7 +197,7 @@ at `93c90b9a`), against production's `4444d9d53d906b8d`. Nothing was built.
 - a real reply model writing from the split observation and behaviour facts;
 - whether a real page writer imports components in the forms resolved here.
 
-## 6. The next parallel-work test, prepared (not pressed)
+## 6. The next parallel-work test, prepared (pressed afterwards as run 147, 9 credits: §7)
 
 **What it is for:** plan item 1, two designers running at the same time
 inside one Add-on.
