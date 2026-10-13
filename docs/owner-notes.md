@@ -45,6 +45,7 @@ unchanged at `fef80b9b`, and production is deploy 2201 (image
   route cases fail with the Worker's hand-off cut.
 - **The image would move** to `98c56f9b20da4403` (from `4444d9d53d906b8d`,
   206 inputs) on any future release. Nothing was built.
+- **CI green:** unit tests 38435714080 on `90120f5f` and 38434683856 on `edfabc3e`; site build 38434683978 on `edfabc3e`. (Unit tests failed on `9a6e780b`, 38433639964: that was the missing Dockerfile line, fixed in `88dec2a0`.)
 - **Full suite `10753 / 10753 / 0 / 0`** on `edfabc3e`. The first full run
   caught the new module missing from the container's Dockerfile copy, fixed
   in `88dec2a0`. **Sweep: 18 of 19 killed**, controls survived; the one
