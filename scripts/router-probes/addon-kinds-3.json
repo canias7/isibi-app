@@ -1,0 +1,33 @@
+{
+  "batch": "addon-kinds-3",
+  "acceptance": true,
+  "probes": [
+    {
+      "id": "K3A",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "On the Visit page, add a short questions section answering 'Is there parking nearby?' with 'Yes, on Harbour Street after 6pm.' and add one line under the opening hours saying 'We close at noon on bank holidays.'",
+      "intended": null,
+      "basis": "recorded, not judged: a section and a line on ONE page (K put them on two pages and was split into two Add-on parts, run 135)",
+      "note": "Item 1 of the plan's live list (two designers inside one Add-on). Eligible only as one addon answer with nothing held back. The words were not read against the live page here; read them free before any paid press."
+    },
+    {
+      "id": "K3B",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add to the Order page, together: a short questions section answering 'Can I change my order?' with 'Yes, until 6pm the day before.', and one line under the collection times saying 'Orders open every Sunday at noon.'",
+      "intended": null,
+      "basis": "recorded, not judged: the same two kinds on one page, said as one addition",
+      "note": "Eligible only as one addon answer with nothing held back. Words not read against the live page here."
+    },
+    {
+      "id": "K3C",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a small welcome block to the Classes page: one line saying 'Classes run on Saturday mornings.' followed by a short questions section answering 'What should I bring?' with 'Just an apron.'",
+      "intended": null,
+      "basis": "recorded, not judged: a line and a section asked for as one block on one page",
+      "note": "Eligible only as one addon answer with nothing held back. Words not read against the live page here."
+    }
+  ]
+}
