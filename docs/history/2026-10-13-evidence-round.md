@@ -177,4 +177,13 @@ refusing with no network call, and the form.
   - the closed box.
 
   Both comment controls survived.
-- The full suite and CI are recorded in the handoff.
+- Commit `8626608a`.
+  - Full suite: `10726 / 10726 / 0 / 0` locally. The first full run had one
+    failure: `prepared-scope`'s exact `requestView` shape. It was updated so
+    evidence written before marks reads `marks: null`, with a valid and a
+    malformed case added.
+  - CI: unit tests run 38330114781, `10726 / 10682 / 0 / 44 skipped`; site
+    build run 38330114817, success.
+  - Image prediction (from the commit): `eda28cb21064287d` →
+    `16443a41923f7aeb`, 205 inputs.
+  - Nothing merged, deployed or built.

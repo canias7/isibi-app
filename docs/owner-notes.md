@@ -58,6 +58,13 @@ is in git; the dated entries further down are the full story.*
       validation-scheduling §1 (VA 0–5, UA 0–6). Not built.
   - **Closed: the old spending opt-in.** It admits no press, `acc-isolation`
     included.
+- **Commit `8626608a`** (code, tests and records).
+  - Full suite: `10726 / 10726 / 0 / 0` locally.
+  - CI: unit tests run 38330114781, `10726 / 10682 / 0 / 44 skipped` (the
+    totals match); site build run 38330114817, success.
+  - Image prediction: `eda28cb21064287d` → `16443a41923f7aeb` (205 inputs;
+    `worker.js` is an input).
+  - Nothing merged, deployed or built.
 - **No paid run is proposed yet.** `acc-isolation-page` is prepared but
   unpressed. Pressing it would need a merge and deploy (with a new image,
   since `worker.js` changed), a free runtime check, and your approval of the
@@ -964,6 +971,9 @@ preparation already paid for, without ever letting the refused answer near a
 page. It needs the 2026-10-11 rule's scope amended, so it's your call.
 
 **The old spending opt-in is closed.**
+
+**Where it's recorded**: commit `8626608a`, with the full suite and CI green.
+The next deploy would build image `16443a41923f7aeb`.
 
 ## 2026-10-13 — Run 141's remaining issues, investigated together (free; nothing spent, merged or deployed)
 
