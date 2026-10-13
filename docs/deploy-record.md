@@ -1833,3 +1833,21 @@ and names the wrong person to go and ask.
     charged";
   - balance 860, read by the run and again from the ledger at 13:52:05 UTC:
     last row still 453, no open job.
+
+## Deploy 2200 — image purchases off for the one `acc-isolation-page` press (2026-10-13)
+
+- **The owner's manual redeploy** (run 38417493475, `workflow_dispatch`,
+  14:55–14:56 UTC) of `main` `fef80b9b`, after setting the
+  `IMAGE_PURCHASES` secret to `off`, as deploy 2197 did. No code changed.
+- The container image was **reused** (`4444d9d53d906b8d`, "no changes"); no
+  image window was owed.
+- The log masks the switch's value, because the secret's value is the word
+  itself; the state is read from the runtime instead.
+- **Read by run 144's own preflight** (15:15:52 UTC): both readers
+  `fef80b9bc913`, a cold container `4444d9d53d906b8d`,
+  **`imagePurchases=false`** ("the live Worker buys none"). Run 144 then made
+  the one approved paid press (`docs/history/2026-10-13-run144.md`).
+- **Still to do, by the owner**: `IMAGE_PURCHASES` back to `on`, a manual
+  redeploy of `main` (deploy 2201, image reused), and a free press that
+  reads `imagePurchases=true`. Until then image purchases are off for every
+  customer.

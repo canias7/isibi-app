@@ -56,7 +56,12 @@ here; take a closed one out of both.**
   - correction reuse is live in deploy 2199 (runtime-confirmed by run 143),
     but unshown on a real refusal; only the Add-on designer's first
     request adopts it;
-  - isolation is unverified live;
+  - isolation was shown live **once** (run 144, Add-on first, discriminating;
+    `docs/history/2026-10-13-run144.md`); no rate, and why the router held
+    the heading back is unobservable;
+  - correction reuse was not exercised by run 144 (no refusal);
+  - the coverage judge said "unseen" again in run 144; one unidentified
+    console error on `/bake-list`;
   - other strippers still use `<[^>]+>`;
   - the coverage judge calls a collapsed answer "unseen".
 
@@ -1088,11 +1093,14 @@ here; take a closed one out of both.**
       *Closed the same day:* CR 2's tampered digest is joined by CR 9, a
       natural change of the cleaner's input (the site's day turns over) with
       the request unchanged.
-    - **Isolation is unverified live.** `acc-isolation-page` (prepared, not
-      pressed) now judges marks plus per-job versions. Only an
-      Add-on-first run discriminates; an edit-first pass is recorded as
-      consistent only. It needs a deploy (`worker.js` changed) and the
-      owner's approval.
+    - **Isolation: shown live once, by run 144** (2026-10-13, on deploy
+      2199's code with image purchases off, 23 credits). The router ran the
+      Add-on first; the Add-on's version left the heading as found; the
+      text job then changed only the heading; every call's marks clean.
+      One sample, no rate. The press's one FAIL was the instrument's
+      (a section and a heading on one page; fixed offline by
+      `headingSwapped`, `test/canary-section-heading.test.mjs`).
+      `docs/history/2026-10-13-run144.md`.
     - **Other strippers still use `<[^>]+>`**: `visible`
       (`scripts/canary-additions.mjs`), `addon-sweep`, `gap-sweep`,
       `lane-sweep` and `edit-canary`.

@@ -1,54 +1,64 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the consolidated release is LIVE and runtime-confirmed — deploy 2199, `main` `fef80b9b`, image `4444d9d53d906b8d`, confirmed by run 143; nothing charged; paid tests closed)
+## Current handoff — read this first (2026-10-13: run 144, the one approved `acc-isolation-page` press, showed isolation live once — Add-on first, heading untouched until the Edit; 23 credits, balance 837; the opt-in closed again; image purchases still OFF until you restore them)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
+**For Codex's review: the branch head** (`claude/help-needed-ehlwlj`, the
+commits named in the run 144 entry below). `main` is unchanged at
+`fef80b9b`; nothing was merged or deployed with code since deploy 2199.
+
 **Where it stands**
-- **Deploy 2199 is runtime-confirmed by run 143** (your free press, 13:50 UTC;
-  `docs/deploy-record.md`, *Deploy 2199*).
-  - Both readers answered `fef80b9bc913`.
-  - A cold container got `4444d9d53d906b8d`.
-  - `imagePurchases=true`, async and the runner on.
-  - Every free check passed, and the free job cost 0.
-  - The run stopped before any paid edit.
-- **No test credits charged:** balance 860, last ledger row 453, from before
-  the merge through 13:52:05 UTC, with no open job.
-- **How it got there:**
-  - preflight on `fef80b9b`: unit tests 38392132548, `10737 / 10693 / 0 / 44
-    skipped`; site build 38334767139 on `372f8ae0`; nothing in flight; the
-    rollback gave back `main`'s exact tree;
-  - one fast-forward, `64f17488` → `fef80b9b`, at 12:26:11 UTC;
-  - one deploy run, 38397272252, green;
-  - the image built, `eda28cb21064287d` → `4444d9d53d906b8d`.
-- **Unchanged:**
-  - the Build flags (`BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE` and
-    `DESIGN_GRAPH_EVERYONE` are `off`) and the limits;
-  - `BALANCE_OPT_IN` is empty;
-  - image purchases are on.
-- **What shipped** (`docs/history/2026-10-13-release-proposal.md`):
-  - the served reader;
-  - the Add-on `scoped` count;
-  - per-call task markings;
-  - the honest isolation verdict;
-  - the closed opt-in;
-  - correction reuse.
-- **Explicitly unverified, and not tested:**
-  - **real-model isolation:** no `acc-isolation-page` or other paid press,
-    and the opt-ins stay closed;
-  - **live correction reuse:** it shows only as `prepUse[].skipped` when a
-    real refusal happens;
-  - **run 141's cause:** its R2 record is still unread.
-- **Open** (`docs/backlog.md`, first item):
-  - the R2 read;
-  - live isolation and reuse;
-  - the other `<[^>]+>` strippers;
-  - the coverage judge calling a collapsed answer "unseen";
-  - the text and data steps adopting reuse;
-  - concurrency inside one Add-on, the missing-context clarification, and the
-    image-free first Build.
+- **Production code: deploy 2199** (`main` `fef80b9b`, image
+  `4444d9d53d906b8d`), runtime-confirmed by run 143.
+- **Image purchases are OFF** since **deploy 2200** (your manual redeploy,
+  run 38417493475, 14:55 UTC, image reused), read `imagePurchases=false` by
+  run 144's preflight. **To restore** (free):
+  1. set the `IMAGE_PURCHASES` secret back to `on`
+     (https://github.com/canias7/isibi-app/settings/secrets/actions);
+  2. run *deploy* on `main`
+     (https://github.com/canias7/isibi-app/actions/workflows/deploy.yml);
+     the image is reused, so no wait is owed;
+  3. press *edit canary* from `main`, spend `no`, site `fold-lane-bakery`,
+     deploy sha `fef80b9b`, image `4444d9d53d906b8d`, everything else blank.
+     It must read `imagePurchases=true` and charge nothing.
+- **Run 144** (`docs/history/2026-10-13-run144.md`): one press, through the
+  normal router, order not forced.
+  - The router answered `addon` and held the heading back as part 1.
+  - Add-on job `0e5b6622…` published `i9dk12` from `bt5fdp` (15:22:00,
+    15 credits).
+  - Part 1's route job `6fe78acc…` (3) and text job `96827052…` (2)
+    published `e07yu1` from `i9dk12` (15:25:16).
+  - **Isolation: demonstrated for this run** (discriminating). The Add-on
+    ran first; its version left the heading exactly as found; the Edit only
+    appended " — sent every Friday"; marks clean on every call (Add-on 4,
+    text 1). The Add-on added exactly one questions section and nothing
+    else.
+  - **The one FAIL was the instrument's**: the page-wide preservation check
+    did not excuse the asked heading on a page that also gained a section.
+    Fixed offline (`headingSwapped`; `test/canary-section-heading.test.mjs`,
+    3 cases, red-checked). Not re-run.
+  - **Correction reuse: not exercised** (no refusal; none manufactured).
+  - **Charged 23** (ledger rows 454–457: 3 + 15 + 3 + 2), **860 → 837**,
+    within the estimate of 26.
+- **Closed again:** `BALANCE_OPT_IN` is empty (form text "CLOSED").
+- **Unchanged:** the Build flags (all three `_EVERYONE` flags `off`), the
+  page and component limits.
+- **Still unverified or open:**
+  - isolation's rate (one sample), and why the router held back;
+  - live correction reuse;
+  - run 141's cause (its R2 record unread);
+  - the coverage judge calling a collapsed section "unseen" (again in run
+    144);
+  - one unidentified console error on `/bake-list` in run 144;
+  - the backlog's first items (`docs/backlog.md`).
+- **No further paid test or code deployment is approved.**
+
+**Before run 144: deploy 2199, the consolidated release** (runtime-confirmed by
+run 143; `docs/deploy-record.md`, *Deploy 2199*;
+`docs/history/2026-10-13-release-proposal.md`).
 
 **The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
 212 focused tests passed, three browser-dependent tests skipped, both
@@ -919,6 +929,42 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — Run 144: isolation shown live once (23 credits); the opt-in closed again; image purchases still off
+
+You approved one image-free `acc-isolation-page` press at 12–26 credits.
+What happened:
+- **The set-up.** The opt-in for that scenario alone was `b02871c3`. You
+  turned image purchases off and redeployed `main` (deploy 2200, run
+  38417493475, image reused). Then you pressed run 144 (run 38420443466,
+  job 115376056443) from the branch. Its preflight read `fef80b9bc913`, image
+  `4444d9d53d906b8d`, `imagePurchases=false` and balance 860. No photograph
+  was bought.
+- **The router ran the Add-on first.** It answered `addon` and held the
+  heading back. That made request `e09faa37…` two parts.
+- **The jobs and the versions:**
+  1. The Add-on job `0e5b6622…` published `i9dk12` from `bt5fdp`, with only
+     the questions section added and the heading exactly as found.
+  2. A route job `6fe78acc…` routed part 1 to text.
+  3. The text job `96827052…` published `e07yu1` from `i9dk12`, appending
+     " — sent every Friday" to the heading and nothing else.
+- **Isolation: demonstrated for this one run** (the canary's
+  "discriminating" verdict). Every model call's marks were clean: 4 in the
+  Add-on, 1 in the text job. One sample: it shows no rate, nor why the
+  router held back.
+- **The canary said FAIL on one check, its own fault.** The page-wide
+  preservation check did not excuse the heading you asked to change when the
+  same page also gained a section. Fixed offline in `72e82266`
+  (`headingSwapped`, 3 tests, red-checked). Not re-run.
+- **Correction reuse did not come up.** There was no refusal, and none was
+  manufactured.
+- **Money: 23 credits, 860 → 837** (ledger rows 454–457: routing 3, the
+  Add-on 15, routing 3, the text 2).
+- **The opt-in is closed again** (`209b4015`).
+- **Still yours to do:** set `IMAGE_PURCHASES` back to `on`, redeploy
+  `main`, and run the free press (the handoff has the steps).
+
+The full record is `docs/history/2026-10-13-run144.md`.
 
 ## 2026-10-13 — Deploy 2199 runtime-confirmed by run 143 (free)
 

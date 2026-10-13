@@ -8,12 +8,29 @@ stages and budgets, is in `docs/history/2026-10-11-acceptance-batch.md`,
 `docs/history/2026-10-12-acceptance-addon-two-parts.md`; nothing there is an
 instruction.*
 
-**As of 2026-10-12, branch `claude/help-needed-ehlwlj`.** P1 and P2 are done
+**As of 2026-10-13, branch `claude/help-needed-ehlwlj`** (§00 is the latest live press). P1 and P2 are done
 and closed. **The K0/K/E/M0/M batch (§4) was approved and run on 2026-10-12
 (74 credits, balance 876).** Its results are in
 `docs/history/2026-10-12-acceptance-addon-two-parts.md` and the owner-notes
 handoff, and they supersede §4–§6 as a plan. No further paid tests are
 approved.
+
+## 00. The one live `acc-isolation-page` press (approved; done 2026-10-13)
+
+**Run 144**, once, on deploy 2199's code (`fef80b9b`, image
+`4444d9d53d906b8d`) with image purchases off (deploy 2200), 23 credits
+(860 → 837). The record is `docs/history/2026-10-13-run144.md`.
+- The normal router ran the **Add-on first** (the heading held back as its
+  own part); versions `bt5fdp` → `i9dk12` (Add-on) → `e07yu1` (Edit).
+- **Isolation shown, discriminating, for this run**: every call's marks
+  clean (4 Add-on, 1 text); the Add-on's version left the heading exactly as
+  found; the Edit only appended " — sent every Friday".
+- The one FAIL was the checker's (a section and a heading on one page),
+  fixed offline; not re-run.
+- Correction reuse not exercised (no refusal).
+- **The opt-in is closed again.** Image purchases must be turned back on by
+  the owner (secret, redeploy, free press). No further paid tests are
+  approved.
 
 ## 0. The task-isolation release and one live check (approved; done 2026-10-12)
 
