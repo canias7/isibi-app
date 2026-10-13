@@ -92,17 +92,22 @@ test("CE 3 — INITIALLY COLLAPSED (run 144's shape): stored, not shown on first
   assert.equal(r.told[0].state, "unverified", "the content is there; nothing exercised it");
   assert.deepEqual(r.told[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
   const note = toldNote(r.told);
-  assert.match(note, /doesn't show when the page first loads/);
-  assert.match(note, /I haven't tried that from here/);
+  assert.match(note, /wasn't on the published page as it first loaded/);
+  assert.match(note, /I haven't checked whether anything a visitor does brings it up/);
+  assert.doesNotMatch(note, /waits behind|open it\b/, "the note claimed a visitor action reveals it (corrected 2026-10-13)");
   assert.doesNotMatch(note, /can't see from here whether/, "the old 'unseen' sentence came back");
   // THE REPLY MODEL'S FACTS: present in code, not shown on load, interaction unverified, by its own words.
   const facts = factsOf(r.told);
-  const f = facts.find((x) => /first loads/.test(x.text));
+  const f = facts.find((x) => /first loaded/.test(x.text));
   assert.ok(f, JSON.stringify(facts));
   assert.equal(f.kind, "note");
-  assert.match(f.text, /Added to the page's code, and not shown when the published page first loads/);
-  assert.match(f.text, /a question that opens to its answer/);
-  assert.match(f.text, /Nothing here opened, switched or sent anything, so whether it appears when a visitor does is not checked/);
+  assert.match(f.text, /^Added to the page's code, and not on the published page as it first loaded/);
+  // WHERE IT SITS, AS A LOCATION ONLY (corrected 2026-10-13): handed to a component, never "opens to its answer".
+  assert.match(f.text, /passed as a value to a component on the page, which decides where and when to draw it/);
+  assert.doesNotMatch(f.text, /opens|when a visitor|visitor/, "the observation fact claimed an interaction");
+  // BEHAVIOUR, ITS OWN FACT: nothing identified, nothing tried, not verified.
+  const u = facts.find((x) => /^Not verified: whether anything a visitor does/.test(x.text));
+  assert.ok(u && u.kind === "note" && /No such interaction was identified or tried/.test(u.text), JSON.stringify(facts));
   assert.match(f.text, /“Yes, reply STOP to any note\.”/);
   assert.ok(!facts.some((x) => /can see whether this is in place/.test(x.text)), "the reply model was still told nothing could be seen");
   assert.ok(!facts.some((x) => /\bworks\b/.test(x.text) && !/can check that it works/.test(x.text)), "a fact claimed the interaction works");
@@ -115,8 +120,11 @@ test("CE 4 — SHOWN ON LOAD: every added text on the first-load page — 'seen'
   assert.equal(r.told[0].told, "shown");
   assert.equal(r.told[0].hidden, undefined);
   assert.match(toldNote(r.told), /it shows on the published page as it first loads/);
-  const f = factsOf(r.told).find((x) => /first loads/.test(x.text));
-  assert.match(f.text, /^Added, and seen on the published page as it first loads \(nothing a visitor might do with it was tried\)/);
+  const facts4 = factsOf(r.told);
+  const f = facts4.find((x) => /first loads/.test(x.text));
+  assert.match(f.text, /^Added, and seen on the published page as it first loads: /);
+  assert.ok(facts4.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), "seen was not kept apart from untried");
+  assert.match(toldNote(r.told), /I haven't tried anything a visitor might do with it/);
   // FOLDING: curly quotes, dashes and spacing do not make a shown text hidden.
   const curly = BEFORE.replace("</main>", "<p>We’re open — come in.</p></main>");
   const e2 = routeEvidence("/bake-list", addedByRoute({ before: [page(BEFORE)], after: [page(curly)], parse }), render("We're  open - come in."));
@@ -124,18 +132,27 @@ test("CE 4 — SHOWN ON LOAD: every added text on the first-load page — 'seen'
   assert.equal(foldText("We’re — OPEN"), "we're - open");
 });
 
-test("CE 5 — MUTUALLY EXCLUSIVE VIEWS: a sentence added to the view the page is not in on load is in the code, not shown, placed in an alternative view; the same added to both views is shown where the page is", () => {
+test("CE 5 — MUTUALLY EXCLUSIVE VIEWS: a sentence in the view a component is not in on load is in the code, not shown, placed in an alternative view; the same added to both views is shown where the page is", () => {
+  // THE SIGN-UP COMPONENT THE CHANGE WROTE: its form, and what it shows once sent.
+  // (Revised 2026-10-13: the sentence now sits inside the component it is
+  // attributed to — a sentence added to the page outside any instance of it
+  // can no longer be taken for it.)
+  const PART = "import { useState } from 'react'\nexport function SignUp(){ const [sent] = useState(false);\n  if (sent) { return <section><h2>You're on the list</h2><p>We write every Friday.</p></section>; }\n  return <section><p>Your email, please.</p></section>;\n}\n";
+  const part = { path: "src/components/sign-up.tsx", name: "sign-up", source: PART, routes: ["/bake-list"], maybeRoutes: [] };
+  const withPart = BEFORE.replace("import { Faq }", "import { SignUp } from '@/components/sign-up'\nimport { Faq }").replace("</main>", "<SignUp /></main>");
+  const answers = [{ kind: "component", value: [{ page: "/bake-list", does: "a sign-up form", tsx: [{ name: "sign-up" }] }] }];
   const ev = componentEvidence({
-    answers: ANSWERS,
-    added: addedByRoute({ before: [page(VIEWS_BEFORE)], after: [page(VIEWS_AFTER)], parse }),
-    rendered: render("Bake List\nLeave your name and email."),
+    answers,
+    added: addedByRoute({ before: [page(BEFORE)], after: [page(withPart), part], parse }),
+    rendered: render("Bake List\nLeave your name and email.\nYour email, please."),
   });
-  assert.equal(ev.faq.shown, "none");
-  assert.deepEqual(ev.faq.hidden.map((h) => h.placement), [["conditional"]]);
-  const r = report(ev);
+  assert.equal(ev["sign-up"].shown, "some", JSON.stringify(ev));
+  assert.deepEqual(ev["sign-up"].hidden.map((h) => h.text), ["You're on the list", "We write every Friday."]);
+  for (const h of ev["sign-up"].hidden) assert.deepEqual(h.placement, ["conditional"]);
+  const r = requirementReport([REQ({ item: "sign-up", judged: { follows: "asked", carried: "yes", by: ["component:sign-up"], reason: "r" } })], { judged: true, reportable: ["component"], content: ev });
   assert.equal(r.told[0].told, "behind");
-  const f = factsOf(r.told).find((x) => /first loads/.test(x.text));
-  assert.match(f.text, /in one of the page's alternative views/);
+  const f = factsOf(r.told).find((x) => /first loaded/.test(x.text));
+  assert.match(f.text, /in code that is drawn only under a condition \(one of the page's alternative views\)/);
   assert.doesNotMatch(f.text, /a question that opens/, "a placement the code does not have was named");
   // BOTH VIEWS GET IT: the load shows its copy; one hidden copy is still a hidden text.
   const both = VIEWS_AFTER.replace("<p>Leave your name and email.</p>", "<p>Leave your name and email.</p><p>We write every Friday.</p>");
@@ -187,8 +204,10 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [], after: [part], parse }), rendered: render("x") });
   assert.equal(ev.faq.stored, "unread");
   // (f) A NEW COMPONENT WITH NO WORDS OF ITS OWN: added, content unread — 'in-code', never 'still to do'.
-  const tagOnly = BEFORE.replace("</main>", "<OpeningHours />" + "</main>");
-  ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [page(BEFORE)], after: [page(tagOnly)], parse }), rendered: render("Bake List Open Mon–Fri") });
+  // (Revised 2026-10-13: the questions component's own tag, imported — an
+  // unrelated <OpeningHours /> used to be taken for it.)
+  const tagOnly = BEFORE.replace("</main>", "<Faq />" + "</main>");
+  ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [page(BEFORE)], after: [page(tagOnly)], parse }), rendered: render("Bake List") });
   assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "unread" });
   assert.equal(report(ev).told[0].told, "in-code");
   // (g) NO EVIDENCE AT ALL (a failure exit, or a record written before this): the old reading, exactly.
@@ -244,7 +263,10 @@ test("CE 10 — the render check's first-load text: innerText as the page loaded
 const MSG = "add a questions section to the home page answering 'Can I leave the list?' with 'Yes, reply STOP to any note.'";
 const HOME_FAQ = '<Faq items={[{ question: "Can I leave the list?", answer: "Yes, reply STOP to any note." }]} />';
 const ROUTE_REQ = { need: "The home page has a short questions section answering whether someone can leave the list", status: "covered", by: "the questions section answers it", item: "faq", kind: "component", basis: "asked", words: "a questions section" };
-const viaRoute = (slug, { text, complete = true, written = [addedTo("/", HOME_FAQ)], reached = true, stored = [storedPage("/")] } = {}) => addon(slug, MSG, {
+// THE PAGE AS A WRITER RETURNS IT: the section and the import it needs (2026-10-13 —
+// a tag no import binds is no longer taken for any component).
+const withFaqImport = (p) => ({ ...p, source: "import { Faq } from '@/components/ui/faq'\n" + p.source });
+const viaRoute = (slug, { text, complete = true, written = [withFaqImport(addedTo("/", HOME_FAQ))], reached = true, stored = [storedPage("/")] } = {}) => addon(slug, MSG, {
   kinds: ["component"], publishes: true, storedPages: stored,
   answers: { component: { component: [{ page: "/", does: "a short questions section", components: ["faq"] }], requirements: [ROUTE_REQ] } },
   written,
@@ -258,7 +280,7 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   assert.equal(r.body.requirementsTold.length, 1, JSON.stringify(r.body.requirementsTold));
   assert.equal(r.body.requirementsTold[0].told, "behind", JSON.stringify(r.body.requirementsTold));
   assert.deepEqual(r.body.requirementsTold[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
-  assert.match(r.body.coverNote, /doesn't show when the page first loads/);
+  assert.match(r.body.coverNote, /wasn't on the published page as it first loaded/);
   assert.doesNotMatch(r.body.coverNote, /can't see from here whether/);
   // THE STORED RECORD SAYS THE SAME (the last write, after the pages shipped).
   const kept = storedAnswer(r, "ce-collapsed");
@@ -266,7 +288,8 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   const o = kept.coverage.requirements.find((x) => x.item === "faq");
   assert.ok(o && o.state === "unverified" && o.content && o.content.shown === "some", "the stored record does not carry the reading: " + JSON.stringify(o));
   const facts = addonReplyFacts(r.body).facts;
-  assert.ok(facts.some((x) => /not shown when the published page first loads/.test(x.text) && /not checked/.test(x.text)), JSON.stringify(facts));
+  assert.ok(facts.some((x) => /not on the published page as it first loaded/.test(x.text)), JSON.stringify(facts));
+  assert.ok(facts.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), JSON.stringify(facts));
   assert.ok(!facts.some((x) => /can see whether this is in place/.test(x.text)));
 });
 
@@ -292,9 +315,9 @@ test("CE 13 — the text read is the PUBLISHED build's: the repaired build's whe
   assert.equal(publishedTexts(null, null).size, 0);
 });
 
-test("CE 14 — the canary's console count tells errors before the first message apart (run 144's replayed 422), and counts whole when it cannot tell", () => {
+test("CE 14 — the canary's console count tells errors before the first message apart BY TIMING (labelled neutrally — what one was is claimed only on request evidence, AT 9), and counts whole when it cannot tell", () => {
   assert.equal(consoleLine({ consoleErrors: ["Failed to load resource: 422"], consoleAt: [28442], firstSendMs: 30000 }),
-    "console errors 1 (1 before the first message was sent: the app's reading of earlier work, not this press)");
+    "console errors 1 (1 logged before the first message was sent)");
   assert.equal(consoleLine({ consoleErrors: ["x"], consoleAt: [31000], firstSendMs: 30000 }), "console errors 1");
   assert.equal(consoleLine({ consoleErrors: ["x"], consoleAt: [100], firstSendMs: null }), "console errors 1", "a press that sent nothing told some errors apart");
   assert.equal(consoleLine({ consoleErrors: ["x", "y"], consoleAt: [100], firstSendMs: 500 }), "console errors 2", "times that do not line up were trusted");
@@ -307,9 +330,11 @@ test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — on
     { page: "/bake-list", does: "a quote from a customer", components: ["testimonial"] },
   ] }];
   const TESTI = '<Testimonial quote="The best sourdough in Bristol." name="Ana" />';
+  // Each component imported from its own module, as a written page has it.
+  const imp = (src) => src.replace("import { Faq }", "import { Testimonial } from '@/components/testimonial'\nimport { OpeningHours } from '@/components/opening-hours'\nimport { Faq }");
   const rendered = render("Bake List Can I leave the list? The best sourdough in Bristol. Ana");
   // BOTH WRITTEN: each its own texts, each shown as far as the page showed it.
-  let ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE.replace("</main>", FAQ + TESTI + "</main>"))], parse }), rendered });
+  let ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(imp(BEFORE.replace("</main>", FAQ + TESTI + "</main>")))], parse }), rendered });
   assert.deepEqual(readContent(ev.faq), { stored: "added", shown: "some", hidden: [{ text: "Yes, reply STOP to any note.", placement: ["handed"], route: "/bake-list" }] });
   assert.deepEqual(readContent(ev.testimonial), { stored: "added", shown: "all" });
   // ONLY THE QUESTIONS WRITTEN: the quote is not set up — and not "missing" on
@@ -323,7 +348,7 @@ test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — on
   assert.equal(ev.testimonial.stored, "none");
   // A NEW TAG WITH NO WORDS OF ITS OWN, beside the questions: that component's, content unread.
   ev = componentEvidence({ answers: [{ kind: "component", value: [both[0].value[0], { page: "/bake-list", does: "opening hours", components: ["opening-hours"] }] }],
-    added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE.replace("</main>", FAQ + "<OpeningHours /></main>"))], parse }), rendered });
+    added: addedByRoute({ before: [page(BEFORE)], after: [page(imp(BEFORE.replace("</main>", FAQ + "<OpeningHours /></main>")))], parse }), rendered });
   assert.deepEqual(readContent(ev["opening-hours"]), { stored: "added", shown: "unread" });
   assert.equal(ev.faq.stored, "added");
 });

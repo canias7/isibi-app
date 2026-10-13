@@ -1769,13 +1769,15 @@ async function collapsedInRequest(texts) {
     return { P, rec, ans: P.answerOf(job), texts: factTexts(P) };
   } finally { P.close(); compiler.uninstall(); }
 }
-test("CC 7 — A COLLAPSED SECTION ADDED AS ONE PART OF A REQUEST: the job's answer says it is in the code and not shown on first load, with the hidden answer; the background reply's facts say exactly that — and that opening it was not tried — never that it could not be seen; the heading part's facts are untouched", { timeout: 30000 }, async () => {
+test("CC 7 — A COLLAPSED SECTION ADDED AS ONE PART OF A REQUEST: the job's answer says it is in the code and not shown on first load, with the hidden answer; the background reply's facts say exactly that, and separately that no interaction was identified or tried — never that it could not be seen; the heading part's facts are untouched", { timeout: 30000 }, async () => {
   const { rec, ans, texts, P } = await collapsedInRequest([{ route: "/about", text: "Our story Since 2019. Do you deliver?", complete: true }]);
   assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
   assert.equal(ans.requirementsTold.length, 1, JSON.stringify(ans.requirementsTold));
   assert.equal(ans.requirementsTold[0].told, "behind", JSON.stringify(ans.requirementsTold));
   assert.deepEqual(ans.requirementsTold[0].hidden, [{ text: "Yes, on Fridays to Clifton.", placement: ["handed"] }]);
-  assert.ok(texts.some((t) => /not shown when the published page first loads/.test(t) && /not checked/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
+  // (Wording corrected 2026-10-13: the observation and the untried behaviour are two facts.)
+  assert.ok(texts.some((t) => /not on the published page as it first loaded/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
+  assert.ok(texts.some((t) => /^Not verified: whether anything a visitor does/.test(t)), JSON.stringify(P.replyLog));
   assert.ok(!texts.some((t) => /can see whether this is in place/.test(t)), "the reading was lost on the way to the reply");
   assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."));
 });

@@ -2421,9 +2421,9 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   //
   // Three readings of content this change put on a page, each its own
   // sentence: shown as the page first loads; in the page's code and NOT shown
-  // as it first loads (it waits behind something a visitor opens, switches to
-  // or sends, and nothing here tried that); in the code with the published
-  // page unread. None of them is a claim that an interaction works.
+  // as it first loads (why is not known: no interaction was identified or
+  // tried); in the code with the published page unread. None of them is a
+  // claim about what any interaction does.
   const shownTold = (r) => (r.content && r.content.shown === "all" ? "shown"
     : r.content && (r.content.shown === "some" || r.content.shown === "none") ? "behind"
       : r.content && r.content.shown === "unread" ? "in-code" : "");
@@ -2484,14 +2484,19 @@ export function toldNote(told) {
   }
   // WHAT THE PUBLISHED PAGE SHOWED (2026-10-13): three sentences, none of
   // which claims that anything a visitor does with it works.
+  // (Corrected 2026-10-13: text missing from the first load, or handed to a
+  // component, is never said to wait behind something a visitor does — that
+  // is a behaviour nothing here identified or tried, so it is said as
+  // unchecked, apart from what was seen.)
   const shown = of("shown");
   if (shown.length) {
-    parts.push("I've added that, and it shows on the published page as it first loads: " + shown.map((r) => r.need).join("; ") + ".");
+    parts.push("I've added that, and it shows on the published page as it first loads: " + shown.map((r) => r.need).join("; ")
+      + ". I haven't tried anything a visitor might do with it.");
   }
   const behind = of("behind");
   if (behind.length) {
-    parts.push("I've added that to the page, but it doesn't show when the page first loads — it waits behind something a visitor opens, switches to or sends, and I haven't tried that from here: "
-      + behind.map((r) => r.need).join("; ") + ". Have a look and open it.");
+    parts.push("I've added that to the page's code, but it wasn't on the published page as it first loaded, and I haven't checked whether anything a visitor does brings it up: "
+      + behind.map((r) => r.need).join("; ") + ". Have a look.");
   }
   const inCode = of("in-code");
   if (inCode.length) {

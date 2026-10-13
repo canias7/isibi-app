@@ -381,19 +381,31 @@ const partlySaid = (o) => (Array.isArray(o.partly) && o.partly.length
   ? " Part of what this change asked of the table it rests on did not go in: " + listOf(o.partly.map(pieceSaid)) + "."
   : "");
 // WHERE CONTENT THE FIRST LOAD DID NOT SHOW SITS IN THE CODE (2026-10-13): a
-// hint from the syntax tree, said as one. `conditional` is one of the page's
-// alternative views; `handed` is given to a part that decides when to show it.
+// hint from the syntax tree, said as one — a LOCATION, never a behaviour.
+// Text drawn under a condition, or handed to a component as a value, is not
+// thereby shown by any click, switch or submission: nothing here established
+// that (corrected 2026-10-13, after "a part that shows it only when a visitor
+// opens or chooses it" claimed what no evidence showed).
 const PLACED = Object.freeze({
-  conditional: "in one of the page's alternative views (for example what it shows after a form is sent)",
-  handed: "inside a part of the page that shows it only when a visitor opens or chooses it (for example a question that opens to its answer)",
-  direct: "in the page's own text, though the first load did not show it",
+  conditional: "in code that is drawn only under a condition (one of the page's alternative views)",
+  handed: "passed as a value to a component on the page, which decides where and when to draw it",
+  direct: "in the page's own text",
 });
 function whereSaid(hidden) {
   const got = new Set();
   for (const h of Array.isArray(hidden) ? hidden : []) for (const p of h.placement) got.add(p);
   const said = ["handed", "conditional", "direct"].filter((p) => got.has(p)).map((p) => PLACED[p]);
-  return said.length ? said.join(", and ") : "behind something a visitor opens, switches to or sends";
+  return said.length ? said.join(", and ") : "somewhere the first load did not draw";
 }
+/**
+ * WHAT NOTHING HERE DID, said as its own fact beside each content observation
+ * (2026-10-13): no interaction — opening, switching, choosing or sending — was
+ * identified as showing it, and none was tried, so whether one does is not
+ * verified. Hidden from the first load, or handed to a component, is never
+ * evidence that an action reveals it.
+ */
+const UNTRIED = Object.freeze(new Set(["shown", "behind", "in-code"]));
+const untriedSaid = (need) => "Not verified: whether anything a visitor does (opening, switching, choosing or sending) shows or changes it. No such interaction was identified or tried: " + need + ".";
 const hiddenSaid = (hidden) => (Array.isArray(hidden) && hidden.length
   ? " The words the first load did not show: " + hidden.map((h) => "\u201c" + flat(h.text) + "\u201d").join("; ") + "."
   : "");
@@ -406,9 +418,11 @@ const TOLD_FACTS = Object.freeze({
   // `content-evidence.mjs`): three facts, kept apart. Present in the page's
   // code is not shown, and shown is not that anything a visitor does with it
   // works — nothing here opens, switches or sends anything.
-  shown: ["note", (o) => "Added, and seen on the published page as it first loads (nothing a visitor might do with it was tried): " + o.need + "."],
-  behind: ["note", (o) => "Added to the page's code, and not shown when the published page first loads: it sits " + whereSaid(o.hidden)
-    + ". Nothing here opened, switched or sent anything, so whether it appears when a visitor does is not checked: " + o.need + "." + hiddenSaid(o.hidden)],
+  // OBSERVATIONS ONLY. What a visitor's action would do is its own fact
+  // (`UNTRIED`), said beside each of these, never folded into them.
+  shown: ["note", (o) => "Added, and seen on the published page as it first loads: " + o.need + "."],
+  behind: ["note", (o) => "Added to the page's code, and not on the published page as it first loaded: " + o.need + ". In the code it sits "
+    + whereSaid(o.hidden) + "." + hiddenSaid(o.hidden)],
   "in-code": ["note", (o) => "Added to the page's code; the published page could not be read, so whether it shows is not known: " + o.need + "."],
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
@@ -595,8 +609,10 @@ function coverFacts(F, a, { out = null } = {}) {
     return;
   }
   for (const o of told) {
-    const [kind, text] = TOLD_FACTS[toldAs(o, out)];
+    const as = toldAs(o, out);
+    const [kind, text] = TOLD_FACTS[as];
     F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}) }));
+    if (UNTRIED.has(as)) F.add("note", untriedSaid(flat(o.need)));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));
   const rest = out && out.database !== "applied" ? "" : said(a.coverOther);

@@ -4564,16 +4564,43 @@ export function describeUi(rec) {
 
 /**
  * THE CONSOLE COUNT, SPLIT AT THE FIRST MESSAGE THIS PRESS SENT (2026-10-13,
- * after run 144). Run 144's one error was the browser's own line for the
- * app's re-read of an earlier, failed job, logged 28 s in and before anything
- * was sent: history, not this press. An error before the first send is told
- * apart; one with no time, or a press that sent nothing, is counted whole.
+ * after run 144; label made neutral the same day). An error logged before the
+ * first send is told apart BY ITS TIMING ONLY — "before the first message was
+ * sent" says when, never what. It is said to be the app re-reading an earlier
+ * job only when the press's own record establishes it (`historicalRead`):
+ * exactly one recorded response that is that job's stored final answer
+ * (`x-gf-edit: final` on `GET /api/site/edit/<id>`), served with the status
+ * the console line names, within the same moment, and not one of this
+ * press's jobs. One with no time, or a press that sent nothing, is counted
+ * whole.
  */
+export const CONSOLE_MATCH_MS = 2000;
+export function historicalRead(text, ms, network, own = []) {
+  const m = /status of (\d{3})\b/.exec(String(text || ""));
+  if (!m || !Number.isFinite(ms) || !Array.isArray(network)) return null;
+  const status = Number(m[1]);
+  const hits = network.filter((e) => e && e.method === "GET" && e.final === true && e.status === status
+    && Number.isFinite(e.ms) && Math.abs(e.ms - ms) <= CONSOLE_MATCH_MS && /^\/api\/site\/edit\/[A-Za-z0-9_-]{1,64}$/.test(String(e.path || "")));
+  if (hits.length !== 1) return null;
+  const id = String(hits[0].path).split("/").pop();
+  return own.includes(id) ? null : { job: id, status };
+}
 export function consoleLine(rec) {
   const errs = Array.isArray(rec && rec.consoleErrors) ? rec.consoleErrors : [];
   const at = Array.isArray(rec && rec.consoleAt) ? rec.consoleAt : [];
   const first = rec && Number.isFinite(rec.firstSendMs) ? rec.firstSendMs : null;
   if (first === null || at.length !== errs.length) return `console errors ${errs.length}`;
-  const before = at.filter((ms) => Number.isFinite(ms) && ms < first).length;
-  return before ? `console errors ${errs.length} (${before} before the first message was sent: the app's reading of earlier work, not this press)` : `console errors ${errs.length}`;
+  const early = errs.map((t, i) => ({ t, ms: at[i] })).filter((x) => Number.isFinite(x.ms) && x.ms < first);
+  if (!early.length) return `console errors ${errs.length}`;
+  const own = Array.isArray(rec.ownJobs) ? rec.ownJobs.filter((x) => typeof x === "string") : [];
+  const used = new Set();
+  const known = [];
+  for (const x of early) {
+    const h = historicalRead(x.t, x.ms, rec.network, own);
+    if (h && !used.has(h.job)) { used.add(h.job); known.push(h); }
+  }
+  const said = known.length
+    ? `; ${known.length} of them the browser's line for the app re-reading earlier job${known.length > 1 ? "s" : ""} ${known.map((h) => h.job.slice(0, 8) + " (stored answer served " + h.status + ")").join(", ")}`
+    : "";
+  return `console errors ${errs.length} (${early.length} logged before the first message was sent${said})`;
 }
