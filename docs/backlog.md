@@ -53,9 +53,9 @@ here; take a closed one out of both.**
 
   Still open:
   - the refused-correction explanation is unconfirmed (no read path for R2);
-  - correction reuse is not live (it needs a deploy; a consolidated release
-    is proposed in `docs/history/2026-10-13-release-proposal.md`), and only
-    the Add-on designer's first request adopts it;
+  - correction reuse is deployed in deploy 2199 (2026-10-13), not yet
+    runtime-confirmed and unshown live; only the Add-on designer's first
+    request adopts it;
   - isolation is unverified live;
   - other strippers still use `<[^>]+>`;
   - the coverage judge calls a collapsed answer "unseen".

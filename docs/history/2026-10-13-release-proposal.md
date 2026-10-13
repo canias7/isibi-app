@@ -1,7 +1,12 @@
 # Release proposal: run 141's follow-up, task-marking diagnostics, isolation check, correction reuse (2026-10-13)
 
-**Status: a proposal for the owner's decision. Nothing is merged, deployed,
-built, pressed or spent.** One consolidated release of everything pending on
+**Status: APPROVED and deployed as deploy 2199** (`main` `fef80b9b`, image
+`4444d9d53d906b8d` built, 2026-10-13 12:26–12:29 UTC). Runtime confirmation
+waits for the owner's free press (`docs/deploy-record.md`). The optional
+isolation press (§5) was **not** approved or run. The proposal as written
+follows.
+
+**As proposed: nothing merged, deployed, built, pressed or spent.** One consolidated release of everything pending on
 `claude/help-needed-ehlwlj` since deploy 2198. No new audit. Run 141 stays
 closed, and **its cause stays unconfirmed**.
 

@@ -1,72 +1,70 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: correction reuse's validation gap closed offline — a natural change of the cleaner's input declines the old refusal; one consolidated release proposed for your decision; run 141's cause still unconfirmed; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-13: the consolidated release is deployed as deploy 2199 — `main` `fef80b9b`, image `4444d9d53d906b8d` built; NOT YET runtime-confirmed: your free press is next; nothing charged; paid tests closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Where it stands**
-- **Production is unchanged**: deploy 2198 (`main` `64f17488`, image
-  `eda28cb21064287d`, image purchases on). **Balance 860** (last read by run
-  142). Run 141 stays closed, and **its cause stays unconfirmed** (its R2
-  preparation record is unread).
-- **This round: the gap closed** (`docs/history/2026-10-13-correction-reuse.md`
-  §5). The job designer's cleaner reads the site's local date, which no
-  designer request carries.
-  - **CR 9:** the preparation runs at 23:59 site time and the job just after
-    midnight, with nothing stored touched. The job's first request is byte
-    for byte the preparation's, but the digest differs, so:
-    - the old refusal is **declined**;
-    - the request is asked fresh;
-    - the new answer is refused `past-date` against the new day, which shows
-      it was validated against the changed context;
-    - it is corrected once, and the job lands on the later day.
+- **Deploy 2199 is green, not yet runtime-confirmed**
+  (`docs/deploy-record.md`, *Deploy 2199*).
+  - `main` was fast-forwarded `64f17488` → **`fef80b9b`** at 12:26:11 UTC, on
+    your approval. That push started the one deploy run: 38397272252,
+    12:26–12:29 UTC.
+  - The image was **built**: `eda28cb21064287d` → **`4444d9d53d906b8d`**,
+    205 inputs, as predicted on both ends. The container application changed
+    at 12:29:12 UTC.
+  - 27 secrets uploaded; no asset uploads (nothing under `public/` changed).
+  - The Build flags are unchanged (`BAND_SPLIT_EVERYONE`,
+    `DESIGN_SPLIT_EVERYONE` and `DESIGN_GRAPH_EVERYONE` are `off`), and so are
+    the limits.
+- **Preflight passed on `fef80b9b`:**
+  - unit tests 38392132548, `10737 / 10693 / 0 / 44 skipped`, the totals
+    matching;
+  - site build 38334767139 on `372f8ae0`, success, with only `docs/` and
+    `test/` changed since;
+  - nothing in flight;
+  - the rollback gave back `main`'s exact tree in a throwaway worktree;
+  - `BALANCE_OPT_IN` is empty.
+- **No test credits charged:** balance 860 and last ledger row 453, before
+  and after the roll (read at 12:47:25 UTC), with no open job.
+- **Your free runtime press is next.** My one dispatch answered 403, and was
+  not retried. Use **edit canary**, from `main`, after 12:47 UTC:
+  - *Run the ONE paid edit as well (yes/no)*: `no`;
+  - *The site to edit*: `fold-lane-bakery`;
+  - *Refuse to spend unless the Worker reports this deploy sha*: `fef80b9b`;
+  - *Refuse to spend unless a cold container reports this image id*:
+    `4444d9d53d906b8d`;
+  - every other box blank.
 
-    Had the old refusal been taken, the addition would have been lost.
-  - **CR 9c (same day):** goes straight to the recorded correction.
-  - **Counts and charges match the calls used:** CR 9 is skipped 0, fresh 2,
-    replayed 2; CR 9c is skipped 1, fresh 0, replayed 3. Each charge equals
-    `pageCredits` over exactly those calls, and the wrong bills give different
-    sums.
-  - **Protections unchanged:** the rejected-answer and continuation rules
-    (VA 0–5, UA 0–6, CR 6, CR 8) are unchanged and pass.
-  - **No product code changed;** tests and one fixture line only.
-- **Ready for your decision: one consolidated release**
-  (`docs/history/2026-10-13-release-proposal.md`). It covers:
+  It passes when:
+  - both readers answer `fef80b9b`;
+  - a cold container reports `4444d9d53d906b8d`;
+  - `imagePurchases=true`;
+  - balance is 860 with no new ledger row.
+
+  Until then, deploy 2199 is "deployed, not runtime-confirmed".
+- **What shipped** (`docs/history/2026-10-13-release-proposal.md`):
   - the served reader;
   - the Add-on `scoped` count;
   - per-call task markings;
   - the honest isolation verdict;
   - the closed opt-in;
   - correction reuse.
-
-  It needs a new image, `eda28cb21064287d` → `4444d9d53d906b8d`. Nothing
-  under `public/` changed.
-  - **Steps (all free):** preflight and rollback check → fast-forward → one
-    deploy → 15–20 minutes → your free runtime press.
-  - **Optional and separate:** one `acc-isolation-page` press, estimate
-    12–26 credits. It needs three things from you:
-    - a scoped opt-in naming that scenario (paid acceptance presses send
-      nothing above balance 100, and the opt-in is closed);
-    - image purchases off for the press, then back on;
-    - your approval of the spend.
-  - **My recommendation:** release now, and decide the press separately.
-- **Commits:**
-  - `59faf01b`: CR 9 and CR 9c, the fixture line, the record;
-  - `b318e17b`: the proposal and the handoff.
-  - Full suite: `10737 / 10737 / 0 / 0` locally.
-  - CI: unit tests 38391184627 on `b318e17b`, `10737 / 10693 / 0 / 44
-    skipped` (the totals match). The run on `59faf01b` was cancelled when
-    `b318e17b` superseded it; the code is the same. The site build last ran
-    on `372f8ae0` (success); no product file has changed since.
-  - The predicted image is unchanged: `4444d9d53d906b8d`.
+- **Explicitly unverified, and not tested:**
+  - **real-model isolation:** no `acc-isolation-page` or other paid press,
+    and the opt-ins stay closed;
+  - **live correction reuse:** it shows only as `prepUse[].skipped` when a
+    real refusal happens;
+  - **run 141's cause:** its R2 record is still unread.
 - **Open** (`docs/backlog.md`, first item):
+  - the runtime press;
   - the R2 read;
-  - correction reuse and isolation, live;
-  - only the Add-on designer's first request adopts reuse;
+  - live isolation and reuse;
   - the other `<[^>]+>` strippers;
   - the coverage judge calling a collapsed answer "unseen";
+  - the text and data steps adopting reuse;
   - concurrency inside one Add-on, the missing-context clarification, and the
     image-free first Build.
 
@@ -939,6 +937,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — The consolidated release deployed (deploy 2199); runtime check waiting for your free press
+
+- **On your approval, I released the reviewed fixes and diagnostics.**
+  - The candidate was `fef80b9b`.
+  - CI was green on it, nothing was in flight, the image was predicted on
+    both ends, and the rollback was checked.
+  - Then I fast-forwarded `main` once, and the one deploy built the container
+    image `4444d9d53d906b8d`.
+- **No test credits were charged:** 860 before and after, with no new
+  ledger row.
+- **Build flags, limits and the closed paid-test opt-ins are unchanged.**
+- **The free runtime check needs your press.** My session cannot start
+  workflows (403, tried once). The exact inputs are in the handoff.
+- **Not run:** `acc-isolation-page` and every other paid test. Real-model
+  isolation, live correction reuse and run 141's cause stay unverified.
 
 ## 2026-10-13 — Correction reuse's validation gap closed; one release proposed (nothing spent, merged or deployed)
 

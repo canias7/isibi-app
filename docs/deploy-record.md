@@ -1784,3 +1784,42 @@ and names the wrong person to go and ask.
     `eda28cb21064287d`;
   - `imagePurchases=true`, async and the runner on;
   - balance 860, nothing charged.
+
+## Deploy 2199 — the consolidated release: diagnostics, isolation check, correction reuse (2026-10-13)
+
+- **On the owner's approval** of the consolidated release
+  (`docs/history/2026-10-13-release-proposal.md`). `main` fast-forwarded
+  `64f17488` → **`fef80b9b`** at 12:26:11 UTC. That is 9 commits:
+  - the run 141 follow-up, `1bf174fa`;
+  - the evidence round, `8626608a`;
+  - correction reuse, `372f8ae0`;
+  - its natural-change case, `59faf01b`;
+  - records.
+- **Preflight** (all on `fef80b9b`):
+
+  | Check | Result |
+  |---|---|
+  | Required CI | Unit tests run 38392132548: `10737 / 10693 / 0 / 44 skipped`, the totals matching. Site build run 38334767139 on `372f8ae0`: success. No file outside `docs/` and `test/` changed after it. |
+  | In flight | No Actions run queued or running; no edit job open. |
+  | Image prediction | Each end predicted from its own tree: `eda28cb21064287d` (matches production) → `4444d9d53d906b8d`, 205 inputs. |
+  | Rollback | `git revert --no-commit 64f17488..fef80b9b` in a throwaway worktree gave back `main`'s exact tree (`d4a71cbf…`). |
+  | Untouched | `wrangler.jsonc`, `deploy.yml`, the kit, `build-server.mjs`. No `_EVERYONE` flag line changed. `BALANCE_OPT_IN` is empty. |
+  | Balance before | 860, last ledger row 453 (2026-10-12 23:08 UTC). |
+- **One deploy run: 2199** (run 38397272252, push, 12:26:16–12:29:22 UTC),
+  green.
+  - The container image was **built**, as predicted on both ends:
+    `built isibi-app-sitebuildcontainer:4444d9d53d906b8d (registry answered
+    404; 205 inputs off ./Dockerfile)`.
+  - The container application moved `eda28cb21064287d` →
+    `4444d9d53d906b8d` at 12:29:12 UTC.
+  - 27 secrets uploaded; no updated asset files (nothing under `public/`
+    changed); Worker version `ce248600-…`.
+  - Build flags as before: `BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE` and
+    `DESIGN_GRAPH_EVERYONE` are `off`. The 1-page / 15-component limits are
+    untouched.
+- **After the roll** (12:47:25 UTC): balance 860, last ledger row 453, no
+  open job. Nothing was charged by the release.
+- **Runtime: NOT YET CONFIRMED.** The session's dispatch of the free canary
+  press answered 403 (the session lacks `actions: write`), once, not retried.
+  It is the owner's free press, after 12:47 UTC (the image window has
+  passed).
