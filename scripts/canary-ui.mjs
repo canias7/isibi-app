@@ -1403,6 +1403,63 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add a short questions section to the Visit page answering 'Can I bring my dog?' with 'Dogs are welcome inside.' And add one line under the collection times on the Order page saying 'Every loaf is baked the morning you collect it.'", ms: 22 * 60_000 }),
     ]),
   }),
+  // K3B — TWO DESIGNERS INSIDE ONE ADD-ON, JUDGED IN THE PRESS (2026-10-13,
+  // after run 147). The owner: *"prepare the exact K3B image-free scenario for
+  // testing two designers inside one Add-on … Require evidence that the
+  // picker selected at least two independent kinds and their actual designer
+  // calls overlapped — one Add-on routing answer alone proves neither."* The
+  // words are `addon-kinds-3`'s K3B exactly. Run 147 routed them as one
+  // `addon` answer with nothing held back (one sample), and a free read of
+  // the live Order page found none of them there and a Collection section to
+  // put the line under. A questions section (`component`) and one line
+  // (`words`) are two kinds that wait for nothing (`designWaits`).
+  //   IN THE PRESS, from the add-on job's own record (`innerDesignVerdict`):
+  //   one Add-on part, nothing held back; the job's trace tied to it alone;
+  //   `pick_adds` naming at least two kinds; their designers starting with no
+  //   `after`; their calls overlapping. The deployed job already marks all of
+  //   it (`pick_adds` kinds, `add:<kind>` start and `after`), so nothing
+  //   unreleased is a pass condition. A route or pick that differs is NOT
+  //   EXERCISED, said, never retried.
+  //   ALSO: both facts on /order, stored and served (each question opened);
+  //   everything else byte for byte; the press's own charges add up.
+  // ABOUT 18-27 (an estimate, not a cap; the balance is the bound): routing 3
+  // (run 147's K3B), an Add-on with a section 15 (run 144) and a line 9
+  // (run 135), sharing one picker, page writer and judgment, so 15-24 for
+  // both in one job. If the router splits it as it split K, about 30 (run 135).
+  "acc-addon-k3b": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 27, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["look", "page"]),
+    expect: Object.freeze({
+      sections: Object.freeze([
+        Object.freeze({
+          route: "/order", says: Object.freeze(["change", "order"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "can I change my order", any: Object.freeze(["change my order", "change your order", "change an order", "changing my order", "changing your order", "change orders"]) }),
+            Object.freeze({ fact: "until 6pm", any: Object.freeze(["until 6pm", "up to 6pm", "before 6pm", "by 6pm", "till 6pm"]) }),
+            Object.freeze({ fact: "the day before", any: Object.freeze(["the day before", "the previous day", "the day before collection", "the day before you collect"]) }),
+          ]),
+          denies: Object.freeze(["cannot change", "can't change", "no changes"]),
+        }),
+        Object.freeze({
+          route: "/order", says: Object.freeze(["sunday", "noon"]),
+          facts: Object.freeze([
+            Object.freeze({ fact: "orders open", any: Object.freeze(["orders open", "ordering opens", "orders opens", "order books open"]) }),
+            Object.freeze({ fact: "every Sunday", any: Object.freeze(["every sunday", "each sunday", "on sundays"]) }),
+            Object.freeze({ fact: "at noon", any: Object.freeze(["at noon", "at midday", "at 12pm", "at 12 noon", "12 noon"]) }),
+          ]),
+          only: Object.freeze({ days: Object.freeze(["sunday"]) }),
+        }),
+      ]),
+      reuse: Object.freeze({}),
+      shape: true,
+      inner: "in-run",
+    }),
+    covers: Object.freeze(["addon-inner"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add to the Order page, together: a short questions section answering 'Can I change my order?' with 'Yes, until 6pm the day before.', and one line under the collection times saying 'Orders open every Sunday at noon.'", ms: 22 * 60_000 }),
+    ]),
+  }),
   // B5 — TWO INDEPENDENT ADD-ON PARTS (2026-10-12, the open planning gap
   // after P1). One heading changed and two additions on two other pages. The
   // router's rules make one answer cover the whole message and hold back only

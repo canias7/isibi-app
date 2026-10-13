@@ -356,16 +356,18 @@ export function addonDesignOverlap(rec) {
   });
   if (beside.length) return { verdict: "candidate-only", why: `${beside.length} other job(s) on the site ran while that trace ran (${beside.map((j) => j.id).join(", ")}) — it cannot be tied to this job`, said };
   const list = intervals(mine.t);
-  if (list.length < 2) return { verdict: "unknown", why: `${list.length} designer(s) marked — nothing to run beside`, said };
+  if (list.length < 2) return { verdict: "unknown", why: `${list.length} designer(s) marked — nothing to run beside`, said, cid: mine.cid };
   const meets = [];
   for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     const x = list[i], y = list[j];
     const xEnd = x.end === null ? Infinity : x.end, yEnd = y.end === null ? Infinity : y.end;
     if (x.start < yEnd && y.start < xEnd) meets.push(`${x.kind} and ${y.kind}`);
   }
+  // `cid` NAMES THE ONE TRACE TIED TO THIS JOB (2026-10-13, K3B): a reader
+  // of the picker's kinds and each designer's start reads that trace only.
   return meets.length
-    ? { verdict: "overlapped", why: "", meets, said }
-    : { verdict: "not-overlapped", why: "every designer started after the one before it ended", said };
+    ? { verdict: "overlapped", why: "", meets, said, cid: mine.cid }
+    : { verdict: "not-overlapped", why: "every designer started after the one before it ended", said, cid: mine.cid };
 }
 
 export function describeJob(rec) {

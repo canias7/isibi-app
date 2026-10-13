@@ -64,7 +64,7 @@ import { chainOrdered, chainTarget, requestJobsOf } from "./canary-ui.mjs";
 // AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
 // use while a press runs.
 import { routeCallsOf, ownMoneyVerdict, ownMoneySaid, narrationChargeVerdict, laterChargesVerdict, laterChargesSaid, UI_LATER_READ_MS } from "./canary-ui.mjs";
-import { requestBatchVerdict, uploadsOf, newPagePhotoPaths, openReadRoutes } from "./canary-requests.mjs";
+import { requestBatchVerdict, innerDesignVerdict, uploadsOf, newPagePhotoPaths, openReadRoutes } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -1452,6 +1452,25 @@ if (UI_ASK) {
       if (Number.isFinite(UI_ASK.scenario.budget)) {
         const ob = overBudgetVerdict({ own: money.own, budget: UI_ASK.scenario.budget });
         check(`this press spent no more than its estimate of ${UI_ASK.scenario.budget} (a finding if not; the balance is the bound)`, ob.ok, ob.why);
+      }
+      // TWO DESIGNERS INSIDE ONE ADD-ON, FROM THIS PRESS'S OWN JOB RECORD
+      // (2026-10-13, K3B; `innerDesignVerdict`): the routing, the picker's
+      // kinds, each designer's start and the overlap, read off the job's own
+      // trace the reader above already holds. A route or a pick that differs
+      // is NOT EXERCISED — said, never a pass, and never repeated by itself.
+      if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.inner === "in-run") {
+        const iv = innerDesignVerdict({ steps: ui.steps, jobs: jobRecords });
+        requests.inner = iv;
+        console.log(`\n  INSIDE ONE ADD-ON  ${iv.state.toUpperCase()} (${iv.stage})${iv.why ? " — " + iv.why : ""}`);
+        if (iv.kinds) console.log(`    picked ${JSON.stringify(iv.kinds)}; independent ${JSON.stringify(iv.independent || [])}; overlap ${iv.overlap || "?"}${iv.pairs ? " (" + iv.pairs.join("; ") + ")" : ""}`);
+        if (iv.said) console.log(`    intervals ${iv.said}`);
+        if (iv.state === "not-exercised") {
+          check("inside one Add-on: the message was one Add-on part whose picker chose at least two kinds that wait for nothing", false, `NOT EXERCISED (${iv.stage}): ${iv.why} — recorded as not exercised, not retried`);
+          console.log(`  NOT VERIFIED  two designers inside one Add-on: not exercised (${iv.stage}) — no automatic repeat; a second press is the owner's decision`);
+        } else if (iv.state === "unverified") {
+          check("inside one Add-on: the add-on job's own trace shows its independent designers' calls overlapping", false, `UNVERIFIED (${iv.stage}): ${iv.why}`);
+          console.log(`  NOT VERIFIED  two designers inside one Add-on: ${iv.why}`);
+        } else check(`inside one Add-on: the picker chose ${JSON.stringify(iv.kinds || [])}, and the independent designers' calls overlapped${iv.pairs ? " (" + iv.pairs.join("; ") + ")" : ""}`, iv.ok, iv.why);
       }
       // THE MONEY AFTER OBSERVATION STOPPED (2026-10-08, run 107): the check
       // above is a snapshot; a request still open goes on charging. After one

@@ -29,6 +29,7 @@ import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 import { extractText } from "../builder/site-text.mjs";
+import { addonDesignOverlap } from "./canary-read-job.mjs";
 import ts from "typescript";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
@@ -1888,6 +1889,79 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  * sent, so a stopped press records why it did not pass. A press that asks for
  * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
+/**
+ * TWO DESIGNERS INSIDE ONE ADD-ON, JUDGED IN THE PRESS FROM ITS OWN JOB
+ * (2026-10-13, K3B; `expect.inner === "in-run"`). The owner: *"Require
+ * evidence that the picker selected at least two independent kinds and their
+ * actual designer calls overlapped — one Add-on routing answer alone proves
+ * neither."* Read, in order, from what the deployed job already records (its
+ * trace: `pick_adds` ok with `d.kinds`, each `add:<kind>` start with `d.after`
+ * only when it waited), never from the routing answer:
+ *   1. ROUTING: the first message's request is exactly one part, routed
+ *      `addon`, with nothing held back. Otherwise `not-exercised`.
+ *   2. THE JOB: that part filed exactly one add-on job, whose record was read.
+ *      Otherwise `unverified`.
+ *   3. ATTRIBUTION: `addonDesignOverlap` ties exactly one trace to that job
+ *      (`cid`). Otherwise `unverified` (its own why).
+ *   4. PICKING: the trace's last `pick_adds` mark is ok and names at least two
+ *      distinct designer kinds (`row` is no designer). A failed pick or one
+ *      kind is `not-exercised`; no pick mark is `unverified`.
+ *   5. INDEPENDENCE: at least two picked kinds have a first designer start
+ *      with no `after`. Fewer is `not-exercised` (the picker chose kinds that
+ *      wait for each other); a picked kind with no start is named.
+ *   6. OVERLAP: `addonDesignOverlap` says `overlapped` and names a pair of
+ *      those independent kinds: `pass`. `not-overlapped`, or overlap only
+ *      outside them: `fail`.
+ * Never a pass on anything but step 6. Not retried: one run, as recorded.
+ */
+export function innerDesignVerdict({ steps, jobs } = {}) {
+  const out = (state, why, extra = {}) => ({ state, ok: state === "pass", why, ...extra });
+  const first = arrOf(steps)[0];
+  if (!first || first.sent !== true) return out("not-exercised", "the first message was not sent", { stage: "routing" });
+  const view = finalOf(first);
+  if (!view) return out("unverified", "the request's view was never read", { stage: "routing" });
+  const parts = arrOf(view.parts);
+  const route = routeCallOf(first.network);
+  const held = (route && route.res && typeof route.res === "object" ? listOf(route.res.alsoAsked) : []).filter((x) => x.trim() && x.trim().toLowerCase() !== "none");
+  const adds = parts.filter((p) => p.route === "addon");
+  if (parts.length !== 1 || adds.length !== 1 || held.length) {
+    return out("not-exercised", `the router made ${parts.length} part(s) (${parts.map((p) => `${p.n}: ${p.route || "?"}`).join(", ") || "none"})${held.length ? `, holding back ${JSON.stringify(held)}` : ""} — not one Add-on part with nothing held back`, { stage: "routing", parts: parts.length, held });
+  }
+  const part = adds[0];
+  const ids = listOf(part.ids);
+  const recs = arrOf(jobs).filter((r) => ids.includes(r.job) && r.row && r.row.op === "addon");
+  if (recs.length !== 1) return out("unverified", `the Add-on part filed ${recs.length} add-on job(s) whose record was read (ids ${JSON.stringify(ids)})`, { stage: "job" });
+  const rec = recs[0];
+  const d = addonDesignOverlap(rec);
+  const trace = d.cid ? arrOf(rec.traces).find((t) => t.cid === d.cid) : null;
+  if (!trace) return out("unverified", `no trace is tied to the add-on job ${rec.job}: ${d.verdict}${d.why ? " — " + d.why : ""}`, { stage: "attribution", job: rec.job, overlap: d.verdict });
+  const events = arrOf(trace.events);
+  const picks = events.filter((e) => e.p === "pick_adds" && (e.s === "ok" || e.s === "fail"));
+  const pick = picks[picks.length - 1];
+  if (!pick) return out("unverified", `the add-on job's trace (${trace.cid}) holds no finished pick_adds mark`, { stage: "picking", job: rec.job });
+  const kinds = [...new Set(listOf(pick.d && pick.d.kinds))].filter((k) => k !== "row");
+  if (pick.s !== "ok") return out("not-exercised", "the picker failed", { stage: "picking", job: rec.job, kinds });
+  if (kinds.length < 2) return out("not-exercised", `the picker chose ${kinds.length} designer kind(s) (${JSON.stringify(kinds)}) — nothing to run beside`, { stage: "picking", job: rec.job, kinds });
+  const startOf = (k) => events.find((e) => e.p === "add:" + k && e.s === "start");
+  const waited = {}, unstarted = [];
+  for (const k of kinds) {
+    const st = startOf(k);
+    if (!st) { unstarted.push(k); continue; }
+    const after = listOf(st.d && st.d.after);
+    if (after.length) waited[k] = after;
+  }
+  const free = kinds.filter((k) => !unstarted.includes(k) && !Object.hasOwn(waited, k));
+  if (free.length < 2) {
+    return out("not-exercised", `the picker chose ${JSON.stringify(kinds)}, but ${free.length} of them started waiting for nothing${Object.keys(waited).length ? ` (${Object.entries(waited).map(([k, a]) => `${k} waited for ${a.join(", ")}`).join("; ")})` : ""}${unstarted.length ? `; no designer start for ${unstarted.join(", ")}` : ""}`, { stage: "independence", job: rec.job, kinds, waited, unstarted });
+  }
+  const pairs = listOf(d.meets).filter((m) => { const [x, y] = m.split(" and "); return free.includes(x) && free.includes(y); });
+  const read = { job: rec.job, cid: trace.cid, kinds, independent: free, waited, unstarted, overlap: d.verdict, meets: listOf(d.meets), said: d.said || "" };
+  if (d.verdict === "overlapped" && pairs.length) return out("pass", "", { stage: "overlap", ...read, pairs });
+  if (d.verdict === "overlapped") return out("fail", `the designers that overlapped (${listOf(d.meets).join("; ")}) are not two of the independent kinds ${JSON.stringify(free)}`, { stage: "overlap", ...read });
+  if (d.verdict === "not-overlapped") return out("fail", `the independent kinds ${JSON.stringify(free)} ran one after another: ${d.why}`, { stage: "overlap", ...read });
+  return out("unverified", `${d.verdict}${d.why ? " — " + d.why : ""}`, { stage: "overlap", ...read });
+}
+
 export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos, between = [] }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
