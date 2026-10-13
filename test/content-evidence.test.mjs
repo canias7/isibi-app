@@ -24,7 +24,7 @@ import { visibleTexts, addedByRoute, renderedTexts, routeEvidence, componentEvid
 import { requirementReport, toldNote, readContent, TOLD } from "../builder/site-requirements.mjs";
 import { addonReplyFacts, toldEntries, toldAs } from "../builder/site-reply.mjs";
 import { renderReport, textProbe } from "../builder/site-render.mjs";
-import { addon, addedTo, storedPage } from "./fixtures/addon-route.mjs";
+import { addon, addedTo, storedPage, storedAnswer } from "./fixtures/addon-route.mjs";
 
 const parse = await tweakParser();
 assert.ok(parse, "the TypeScript parser is not installed — every case below would be reading `unread`");
@@ -195,6 +195,14 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   assert.equal(report({ faq: { stored: "added", shown: "maybe" } }).told[0].told, "unseen", "a malformed reading was trusted");
 });
 
+test("CE 7b — A COMPONENT ON TWO ROUTES WITH CONTENT ON ONLY ONE is unread, never added and never missing", () => {
+  const two = [{ kind: "component", value: [{ page: "/bake-list", does: "a questions section", components: ["faq"] }, { page: "/visit", does: "a questions section", components: ["faq"] }] }];
+  const visit = { path: "visit.tsx", source: BEFORE.replace("/bake-list", "/visit"), routes: ["/visit"], maybeRoutes: [] };
+  const ev = componentEvidence({ answers: two, added: addedByRoute({ before: [page(BEFORE), visit], after: [page(AFTER_FAQ), visit], parse }), rendered: render("Can I leave the list? Yes, reply STOP to any note.") });
+  assert.deepEqual(readContent(ev.faq), { stored: "unread" });
+  assert.equal(report(ev).told[0].told, "unseen");
+});
+
 test("CE 8 — an existing part a page newly renders brings its text to that route; one already there adds nothing", () => {
   const partSrc = "export default function F(){ return <section><p>Yes, reply STOP to any note.</p></section> }";
   const was = { path: "src/routes/-parts/faq-band.tsx", name: "faq-band", source: partSrc, routes: ["/visit"], maybeRoutes: [] };
@@ -252,12 +260,10 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   assert.match(r.body.coverNote, /doesn't show when the page first loads/);
   assert.doesNotMatch(r.body.coverNote, /can't see from here whether/);
   // THE STORED RECORD SAYS THE SAME (the last write, after the pages shipped).
-  const rec = r.meta && r.meta();
-  const stored = rec && rec.coverage ? rec.coverage : null;
-  if (stored && Array.isArray(stored.requirements)) {
-    const o = stored.requirements.find((x) => x.item === "faq");
-    assert.ok(o && o.state === "unverified" && o.content && o.content.shown === "some", JSON.stringify(o));
-  }
+  const kept = storedAnswer(r, "ce-collapsed");
+  assert.ok(kept && kept.coverage && Array.isArray(kept.coverage.requirements), "no stored coverage to read: " + JSON.stringify(kept).slice(0, 300));
+  const o = kept.coverage.requirements.find((x) => x.item === "faq");
+  assert.ok(o && o.state === "unverified" && o.content && o.content.shown === "some", "the stored record does not carry the reading: " + JSON.stringify(o));
   const facts = addonReplyFacts(r.body).facts;
   assert.ok(facts.some((x) => /not shown when the published page first loads/.test(x.text) && /not checked/.test(x.text)), JSON.stringify(facts));
   assert.ok(!facts.some((x) => /can see whether this is in place/.test(x.text)));
