@@ -55,8 +55,13 @@ is in git; the dated entries further down are the full story.*
     markings it carried, whether the rule sentence was there, how many other
     parts' words appeared unmarked (must be 0), and whether it was replayed.
     No prompt text.
-- **Next deploy needs a new image**: `worker.js` is a container input. The
-  prediction is in the dated entry.
+- **Commit `1bf174fa`** (code, tests and records).
+  - Full suite: `10718 / 10718 / 0 / 0` locally.
+  - CI: unit tests run 38326266112, `10718 / 10674 / 0 / 44 skipped` (the
+    totals match); site build run 38326265984, success.
+  - Image prediction: `eda28cb21064287d` → `e665bbe43200079e` (205 inputs;
+    `worker.js` is an input).
+  - Nothing merged, deployed or built.
 - **Open** (`docs/backlog.md`, first item):
   - your decision on the refused-correction fix;
   - the free R2 read;
@@ -962,6 +967,8 @@ Run 141 stays closed.
 - **I prepared that live isolation check**: an edit appending words to the
   Bake List heading, beside a questions section on the same page. It is
   judged the same whichever part runs first.
+- **Where it's recorded**: commit `1bf174fa`, with full suite and CI green.
+  The next deploy would build image `e665bbe43200079e`.
 
 ## 2026-10-12 — The isolation release deployed and checked once (run 141); image purchases back on
 
