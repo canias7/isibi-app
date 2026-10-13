@@ -1460,6 +1460,60 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add to the Order page, together: a short questions section answering 'Can I change my order?' with 'Yes, until 6pm the day before.', and one line under the collection times saying 'Orders open every Sunday at noon.'", ms: 22 * 60_000 }),
     ]),
   }),
+  // CR — CLARIFY AND RESUME, CONSOLIDATED (2026-10-13, after run 150, the
+  // owner: *"prepare one consolidated, image-free clarification/resume test
+  // covering independent work continuing while another part genuinely needs an
+  // answer, dependency-bound work waiting, answering only resuming the waiting
+  // part, successful work surviving reload/reconnection, and no duplicate
+  // execution or charges. Keep this universal across task types."*). Run 119
+  // (lv-parallel) answered a question that came LAST, after the other parts
+  // had finished, and nothing depended on it; this one asks for three things
+  // of three kinds in one message:
+  //   - a heading on the Classes page (an edit; needs nothing);
+  //   - a footer link to an online shop whose address the message does not
+  //     give (it must ask — the address is genuinely unknown);
+  //   - one line on the Order page pointing to that shop link (it refers to
+  //     what the link part makes, so it should wait for it).
+  // Judged from the press's own record (`clarifyResumeVerdict`): at the
+  // question the heading is done, the link waits and the line is held on it
+  // with no job; the answer, sent with the tab closed and followed in a fresh
+  // browser session (`away: "fresh"`), resumes only the link; the line runs
+  // only after it; no finished part runs again; the money is one charge per
+  // job (`ownMoneyVerdict`). If the router or a step does not take that shape
+  // (no question, nothing finished first, nothing held on the asking part) the
+  // press says NOT EXERCISED and nothing repeats. Read off the live pages
+  // (free GETs, 2026-10-13): no page says "online" or "shop", no footer links
+  // a shop, and the Classes page has the heading "How a Saturday class
+  // runs". ABOUT 10-19: routing 3; the heading 2; the link's routing 1-3 and
+  // its step 1-2; the line's routing 1-3 and its step 1-3; the answer's
+  // routing 1-3.
+  "acc-clarify-resume": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 20, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "look", "nav"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/classes", from: "How a Saturday class runs", to: "How a Saturday class works" }),
+      ]),
+      social: Object.freeze({ network: "website", host: "shop.harbourloaf.co.uk", path: "/bread" }),
+      words: Object.freeze({ route: "/order", says: Object.freeze(["online", "shop"]) }),
+      clarify: true,
+      shape: true,
+    }),
+    covers: Object.freeze(["several-parts", "step-question", "answer-resumes", "waits-for-prerequisite"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Change the Classes page heading 'How a Saturday class runs' to 'How a Saturday class works', add a link to our online shop in the footer, and once that shop link is in, add one line on the Order page saying you can also order online from our shop, using the link at the bottom of every page.",
+        until: "question",
+        ms: 12 * 60_000,
+      }),
+      Object.freeze({
+        say: "It's shop.harbourloaf.co.uk/bread",
+        away: "fresh",
+        ms: 16 * 60_000,
+      }),
+    ]),
+  }),
   // B5 — TWO INDEPENDENT ADD-ON PARTS (2026-10-12, the open planning gap
   // after P1). One heading changed and two additions on two other pages. The
   // router's rules make one answer cover the whole message and hold back only

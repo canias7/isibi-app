@@ -87,6 +87,13 @@ here; take a closed one out of both.**
     **Open:** the deployed reply told both landed parts as "can't see from
     here" (pre-`62bbd81b` attribution); image purchases back on (deploy
     2203), to be confirmed by the next preflight;
+  - **clarify and resume, prepared (2026-10-13):** `acc-clarify-resume`
+    (an edit, a footer link that must ask, a line held on it), judged by
+    `clarifyResumeVerdict`; offline CR 1–2. Not pressed: needs the
+    owner's opt-in and images off, about 10–19 credits. Live-only: whether the
+    router names the dependency; whether the line asks a question of its own;
+  - **runtime `imagePurchases` after deploy 2203: not yet read** (needs the
+    owner's free canary press);
   - **flaky test, pre-existing (2026-10-13):** PLW 1
     (`test/progress-live-writer.test.mjs`) fails under load, at the line
     written at the photo call: 2 of 15 on `73772b23`, 1 of 15 after. A race

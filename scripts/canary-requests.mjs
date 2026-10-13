@@ -1890,6 +1890,59 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
  * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
 /**
+ * CLARIFY AND RESUME, JUDGED FROM THE PRESS'S OWN RECORD (2026-10-13, after
+ * run 150; `expect.clarify === true`). The owner: *"independent work
+ * continuing while another part genuinely needs an answer, dependency-bound
+ * work waiting, answering only resuming the waiting part, successful work
+ * surviving reload/reconnection, and no duplicate execution or charges."*
+ * Read off the request's own views (the step that ended on the question, and
+ * the last view after the answer) and the message's routing answer — never off
+ * its wording or a task type:
+ *   EXERCISED only when, at the question: the asking part is `waiting`; at
+ *   least one other part is `done` (independent work went on); and at least
+ *   one part is `blocked` and the routing answer says it needs the asking part
+ *   (`relationsOf`), with no job of its own yet. Anything else is
+ *   `not-exercised`, named by stage — never a pass, never retried.
+ *   Then, after the answer: every part `done`; every part done at the question
+ *   has exactly the jobs it had then (never run again); the asking part gained
+ *   a job (it was resumed); each held part ran only now.
+ * The money (one charge per job, nothing twice) is `ownMoneyVerdict`'s.
+ */
+export function clarifyResumeVerdict(steps) {
+  const out = (state, stage, why, extra = {}) => ({ state, ok: state === "pass", stage, why, ...extra });
+  const list = arrOf(steps);
+  const i = list.findIndex((x) => x && x.question && Number.isInteger(x.question.part) && typeof x.question.key === "string");
+  if (i < 0) return out("not-exercised", "question", "no part of a request asked a question");
+  const q = list[i].question;
+  const viewsOf = (from, to) => list.slice(from, to).filter((x) => x && x.request && x.request.key === q.key && x.request.final).map((x) => x.request.final);
+  const atQ = viewsOf(0, i + 1).pop();
+  if (!atQ) return out("unverified", "question", "the request's view at the question was never read");
+  const parts1 = arrOf(atQ.parts);
+  const asking = parts1.find((p) => p.n === q.part);
+  if (!asking || asking.status !== "waiting") return out("not-exercised", "question", `the asking part ${q.part} is ${asking ? asking.status : "missing"} at the question, not waiting`);
+  const done1 = parts1.filter((p) => p.n !== q.part && p.status === "done");
+  if (!done1.length) return out("not-exercised", "independent", `no other part had finished when part ${q.part} asked (${parts1.map((p) => p.n + ":" + p.status).join(", ")})`);
+  const opener = list.slice(0, i + 1).find((x) => x && x.request && x.request.key === q.key && routeCallOf(x.network));
+  const rel = opener ? relationsOf(opener).relations : [];
+  const held1 = parts1.filter((p) => p.status === "blocked" && rel.some((r) => r.part === p.n && r.needs === q.part));
+  if (!held1.length) return out("not-exercised", "dependency", `no part was held on part ${q.part}: blocked ${JSON.stringify(parts1.filter((p) => p.status === "blocked").map((p) => p.n))}, relations ${JSON.stringify(rel)}`);
+  const ranEarly = held1.filter((p) => listOf(p.ids).length);
+  if (ranEarly.length) return out("fail", "dependency", `held part(s) ${ranEarly.map((p) => p.n).join(", ")} had a job before the answer`);
+  const after = viewsOf(i + 1, list.length).pop();
+  if (!after) return out("unverified", "resume", "the request's view after the answer was never read");
+  const parts2 = arrOf(after.parts);
+  const by = (n) => parts2.find((p) => p.n === n);
+  const notDone = parts2.filter((p) => p.status !== "done");
+  if (notDone.length) return out("fail", "resume", `after the answer: ${notDone.map((p) => p.n + ":" + p.status).join(", ")}`);
+  const rerun = done1.filter((p) => JSON.stringify(listOf(by(p.n) && by(p.n).ids)) !== JSON.stringify(listOf(p.ids)));
+  if (rerun.length) return out("fail", "resume", `part(s) ${rerun.map((p) => p.n).join(", ")}, finished at the question, ran again after the answer`);
+  if (!(listOf(by(q.part).ids).length > listOf(asking.ids).length)) return out("fail", "resume", `the asking part ${q.part} filed no job after the answer`);
+  const idle = held1.filter((p) => !listOf(by(p.n).ids).length);
+  if (idle.length) return out("fail", "resume", `held part(s) ${idle.map((p) => p.n).join(", ")} never ran`);
+  return out("pass", "resume", "", { asking: q.part, independent: done1.map((p) => p.n), held: held1.map((p) => p.n) });
+}
+
+/**
  * TWO DESIGNERS INSIDE ONE ADD-ON, JUDGED IN THE PRESS FROM ITS OWN JOB
  * (2026-10-13, K3B; `expect.inner === "in-run"`). The owner: *"Require
  * evidence that the picker selected at least two independent kinds and their
@@ -2004,6 +2057,14 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
     if (isolation.exercised) checks.push(...isolation.checks.map((c) => ({ ...c, name: "isolation: " + c.name })));
     else checks.push({ name: "isolation: the request was split into the edit part and the Add-on part it needs", ok: false, why: isolation.why });
   }
+  // CLARIFY AND RESUME (2026-10-13): judged only when the request took the shape it tests;
+  // otherwise not exercised, which is never a pass.
+  let clarify = null;
+  if (spec && spec.expect && spec.expect.clarify === true) {
+    clarify = clarifyResumeVerdict(steps);
+    if (clarify.state === "not-exercised") checks.push({ name: "clarify: one part asked while another had finished and a third waited on it", ok: false, why: `NOT EXERCISED (${clarify.stage}): ${clarify.why} — recorded as not exercised, not retried` });
+    else checks.push({ name: "clarify: independent work finished while the question waited, the held part ran only after the answer, the answer resumed only the asking part, and no finished part ran again", ok: clarify.ok, why: clarify.ok ? "" : `${clarify.state.toUpperCase()} (${clarify.stage}): ${clarify.why}` });
+  }
   // THE REAL MODEL'S ANSWER TO WHAT IT WAS NOT SHOWN: recorded, judged by the final state, never passed on its own.
   const needs = spec && spec.expect && spec.expect.needs && typeof spec.expect.needs === "object" ? needsObservation(steps, spec.expect.needs.part) : null;
   // WHAT THE REAL ROUTER MADE OF IT: recorded, never a check.
@@ -2019,6 +2080,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   if (isolation && isolation.exercised && isolation.order) unverified.push(`which part ran first: ${isolation.order}`);
   if (isolation && isolation.strength === "consistent") unverified.push("task isolation: the edit had landed before the Add-on ran, so an Add-on that left the heading alone is consistent with isolation and equally with a model that saw the change already made — not proven; only an Add-on-first run discriminates");
   if (isolation && isolation.ok) unverified.push("task isolation: why a model left the other part's words alone (the rule, or its own judgment) is not observable; what it was shown and what it changed are");
+  if (clarify && clarify.state === "not-exercised") unverified.push(`clarify and resume: not exercised (${clarify.stage}) — no automatic repeat`);
   if (shape) unverified.push(`what the real router made of the message: ${shape.shape}${Number.isInteger(shape.parts) ? ` (${shape.parts} part(s))` : ""} — recorded, not judged`);
-  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}), ...(isolation ? { isolation } : {}) };
+  return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}), ...(isolation ? { isolation } : {}), ...(clarify ? { clarify } : {}) };
 }

@@ -289,6 +289,139 @@ test("C2 — a step asks while an independent part continues; a part that needs 
   });
 });
 
+// ─── CLARIFY AND RESUME, CONSOLIDATED (2026-10-13, after run 150) ──────────
+//
+// The owner: *"prepare one consolidated, image-free clarification/resume test
+// covering independent work continuing while another part genuinely needs an
+// answer, dependency-bound work waiting, answering only resuming the waiting
+// part, successful work surviving reload/reconnection, and no duplicate
+// execution or charges. Keep this universal across task types."* C2, E2, I4
+// and CC 3 each show a piece; these put every piece on one request and count
+// jobs and money across it. Two shapes, so no task type or stage is special:
+//   CR 1  the STEP of an edit asks (the description lane); the independent
+//         part is an addition; the dependent part is an edit of a page;
+//   CR 2  the ROUTING of an addition asks; the independent part is an edit;
+//         the dependent part is an edit that needs the addition.
+const LINE_CR = "add a line about the new wording to the Visit page";
+const QD_CR = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+const partOf = (key, j) => Number(String(j.idem_key).slice(key.length + 2).match(/^\d+/)[0]);
+const jobsByPart = (P, key) => {
+  const m = {};
+  for (const j of P.jobsOf(key)) (m[partOf(key, j)] ||= []).push(j.id + ":" + j.op + ":" + j.state);
+  return m;
+};
+async function clarifyResume(P, { asking, independent, dependent, landedBefore, unchangedBefore, landedAfter, answer }) {
+  const r = await sendMessage(P, { message: DESC + ", " + ADD + ", and " + LINE_CR + "." });
+  const s1 = await settle(P, r.key);
+  // 1. THE ASKING PART WAITS, THE INDEPENDENT ONE FINISHED, THE DEPENDENT ONE IS HELD.
+  const want = []; want[asking] = "waiting"; want[independent] = "done"; want[dependent] = "blocked";
+  assert.deepEqual(statuses(s1.rec), want, JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+  landedBefore(P);
+  unchangedBefore(P);
+  const q = P.question();
+  assert.equal(q.part, asking, "the question is not the asking part's");
+  const before = jobsByPart(P, r.key);
+  assert.ok(!before[dependent], "the dependent part ran a job before the answer: " + JSON.stringify(before));
+  assert.ok((before[independent] || []).every((x) => x.endsWith(":done")), JSON.stringify(before));
+  const spentBefore = P.spent();
+  // 2. RECONNECTION WHILE IT WAITS: another page or device finds the same request, the same
+  //    states and the question on its part — and reading it runs and charges nothing.
+  const other = await call(P, "GET", "/api/site/requests/" + P.slug);
+  assert.equal(other.status, 200);
+  const seen = other.body.requests.find((x) => x.key === r.key);
+  assert.ok(seen, "the request was not found from another device");
+  assert.deepEqual(seen.parts.map((p) => p.status), want);
+  assert.equal(seen.parts[asking].question.text, q.question.text);
+  assert.deepEqual((await call(P, "GET", "/api/site/" + P.slug + "/question")).body.question.request, { key: r.key, part: asking });
+  await tick(P);
+  assert.deepEqual(jobsByPart(P, r.key), before, "reading the request from elsewhere ran something");
+  assert.equal(P.spent(), spentBefore, "reading the request from elsewhere charged something");
+  // 3. THE ANSWER RESUMES ONLY THE ASKING PART; THE DEPENDENT ONE FOLLOWS ONCE.
+  const ans = await sendMessage(P, { message: answer, ask: { id: q.id, chosen: true } });
+  const s2 = await settle(P, r.key);
+  assert.deepEqual(statuses(s2.rec), ["done", "done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+  landedAfter(P);
+  const after = jobsByPart(P, r.key);
+  assert.deepEqual(after[independent], before[independent], "the finished part was run again after the answer");
+  assert.ok(after[asking].length > (before[asking] || []).length, "the asking part was never resumed");
+  assert.ok(after[dependent] && after[dependent].every((x) => x.endsWith(":done")), JSON.stringify(after));
+  const depOps = after[dependent].map((x) => x.split(":")[1]);
+  assert.equal(new Set(depOps).size, depOps.length, "the dependent part ran a step twice: " + JSON.stringify(depOps));
+  // 4. THE MONEY: one routing row for the message and one for the answer (each routed once,
+  //    by its own key), one reserve for every job, no refund, and the balance moved by exactly those.
+  const routeRefs = P.ledger.filter((e) => e.reason === "route").map((e) => e.ref).sort();
+  assert.deepEqual(routeRefs, ["route:" + P.slug + ":" + ans.key, "route:" + P.slug + ":" + r.key].sort());
+  assert.deepEqual(rows(P, "route"), [-1, -1]);
+  // A job whose step only asked may have taken nothing (an edit step asks before it charges);
+  // none is ever reserved twice, and every job that did work after the answer, and the
+  // independent part's, is reserved exactly once.
+  const beforeIds = new Set(Object.values(before).flat().map((x) => x.split(":")[0]));
+  for (const j of P.jobsOf(r.key)) {
+    const n = reserveOf(P, j.id).length;
+    assert.ok(n <= 1, j.op + " (part " + partOf(r.key, j) + ") was reserved " + n + " times");
+    if (!beforeIds.has(j.id) || partOf(r.key, j) === independent) assert.equal(n, 1, j.op + " (part " + partOf(r.key, j) + ") did its work without its one reserve");
+  }
+  assert.deepEqual(rows(P, "refund"), []);
+  assert.equal(P.spent(), 2 + P.jobsOf(r.key).reduce((n, j) => n + (reserveOf(P, j.id)[0] || 0), 0));
+  // 5. THE SAME ANSWER AGAIN (a lost response, a second tab): refused, nothing run or charged.
+  const spent = P.spent();
+  const again = await sendMessage(P, { message: answer, ask: { id: q.id, chosen: true } });
+  assert.equal(again.body.error, "stale-question");
+  await settle(P, r.key);
+  assert.deepEqual(jobsByPart(P, r.key), after);
+  assert.equal(P.spent(), spent);
+  // 6. A RELOAD AFTERWARDS: the ended request is found with every part done; nothing reruns.
+  const later = (await call(P, "GET", "/api/site/requests/" + P.slug)).body.requests.find((x) => x.key === r.key);
+  assert.equal(later.ended, true);
+  assert.deepEqual(later.parts.map((p) => p.status), ["done", "done", "done"]);
+  await tick(P);
+  assert.deepEqual(jobsByPart(P, r.key), after);
+  assert.equal(P.spent(), spent);
+}
+
+test("CR 1 — CLARIFY AND RESUME, AN EDIT'S STEP ASKS: the addition beside it finishes while it waits; the page edit that needs it is held; another device sees the same states and question at no cost; the answer resumes only the asking part, the held one runs once after it, the finished one is never run again; one reserve per job, a resent answer and a reload run and charge nothing", async () => {
+  await withPlatform({
+    slug: slugOf("cr1"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE_CR], dependsOn: [{ change: 2, after: [0] }] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }, { intent: "edit", layer: "look", page: "/visit" }],
+      [T.pick]: [
+        { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
+        { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
+        { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: LINE_CR }] },
+      ],
+      "lane:description": (args, n) => (n === 0 ? { question: QD_CR } : NEW_DESC),
+      [T.tweak]: { source: VISIT_MOVED },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, (P) => clarifyResume(P, {
+    asking: 0, independent: 1, dependent: 2, answer: "Overnight",
+    landedBefore: (P) => assert.ok(P.pages().includes("gallery.tsx"), "the independent addition did not land while the question waited"),
+    unchangedBefore: (P) => { assert.equal(P.look().description, OLD_DESC, "the asking part changed something before its answer"); assert.equal(P.page("visit.tsx"), VISIT, "the held part changed its page before the answer"); },
+    landedAfter: (P) => { assert.equal(P.look().description, NEW_DESC); assert.equal(P.page("visit.tsx"), VISIT_MOVED); assert.equal(P.pages().filter((x) => x === "gallery.tsx").length, 1); },
+  }));
+});
+
+test("CR 2 — CLARIFY AND RESUME, AN ADDITION'S ROUTING ASKS: the description edit beside it finishes while it waits; the page edit that needs the addition is held; the same reconnection, resume, single-run and money checks hold for this other task type and stage", async () => {
+  await withPlatform({
+    slug: slugOf("cr2"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE_CR], dependsOn: [{ change: 2, after: [1] }] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }, { intent: "edit", layer: "look", page: "/visit" }],
+      [T.pick]: [
+        { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
+        { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: LINE_CR }] },
+      ],
+      "lane:description": NEW_DESC,
+      [T.tweak]: { source: VISIT_MOVED },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, (P) => clarifyResume(P, {
+    asking: 1, independent: 0, dependent: 2, answer: "Loaves",
+    landedBefore: (P) => assert.equal(P.look().description, NEW_DESC, "the independent edit did not land while the question waited"),
+    unchangedBefore: (P) => { assert.ok(!P.pages().includes("gallery.tsx"), "the asking addition made its page before its answer"); assert.equal(P.page("visit.tsx"), VISIT, "the held part changed its page before the answer"); },
+    landedAfter: (P) => { assert.ok(P.pages().includes("gallery.tsx")); assert.equal(P.page("visit.tsx"), VISIT_MOVED); assert.equal(P.look().description, NEW_DESC); },
+  }));
+});
+
 test("C3 — a part's question never replaces one the customer is answering: it waits its turn on the part, and is put in the slot once that one is settled", async () => {
   await withPlatform({
     slug: slugOf("c3"),

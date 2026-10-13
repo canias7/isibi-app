@@ -1,127 +1,106 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: K3B pressed as run 150 — PASS, two designers ran at the same time inside one Add-on, 20 credits, 828 → 808; the balance box closed again; image purchases back on (deploy 2203); before it, presence ≠ request met fixed offline)
+## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; one consolidated clarify-and-resume test prepared, not pressed; the runtime image flag awaits your free press; nothing spent, merged or deployed since run 150)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**Run 150, K3B: PASS (2026-10-13, 21:52–22:04 UTC).**
-- **Routing:** one `addon` answer, nothing held back (routing 3).
-- **The one Add-on job** published `3oisvv` from `e07yu1` and was charged
-  17.
-- **Inside it, the picker chose two kinds** (`component`, `words`). Both
-  designers started without waiting, and their calls overlapped (about 67 s
-  together). **This is the first live showing of two designers running at
-  the same time inside one Add-on**: one sample, no rate.
-- **Every outcome, preservation and money check passed.**
-  - Both facts are on `/order`, stored and served.
-  - Everything else is byte for byte as it was.
-  - 20 credits, exactly the balance's move (828 → 808), within the
-    estimate of 27.
-- **A finding, not a failure:** the deployed reply said "I can't see from
-  here" for both parts, though both landed. That is the old attribution
-  code, from before `62bbd81b`, underselling rather than overclaiming.
-- Runs 148 (my site-box mistake) and 149 (the rehearsal) spent nothing.
-- **The balance box is closed again.**
-- **Image purchases: you set `IMAGE_PURCHASES` back to `on` and redeployed
-  `main`** (deploy 2203, run 38476539324, `fef80b9b`, green). The value is
-  hidden in the log; the next canary's preflight (`imagePurchases=`) will
-  confirm it.
-- Record: `docs/history/2026-10-13-presence-and-k3b.md` §10.
+**Production, as read now (2026-10-13):**
+- `main` `fef80b9b`, deploy **2203** (green, run 38476539324), container
+  image `4444d9d53d906b8d` (reused by deploys 2202 and 2203).
+- **Balance 808.** The last ledger row is 459 (run 150's Add-on, 21:59 UTC),
+  and nothing came after it. No job is open.
+- **Paid opt-ins are closed:** the balance box admits no press
+  (`BALANCE_OPT_IN = []`), and the form says "CLOSED".
+- **`imagePurchases` at runtime: not yet confirmed.** You set
+  `IMAGE_PURCHASES` back to `on` and deploy 2203 went green, but a green
+  deploy does not show the flag. Only a signed-in runtime read does, which
+  is your free press (below).
 
-**For Codex's review: `62bbd81b` and `abb57130`** on
-`claude/help-needed-ehlwlj`, plus the records commits after them.
-- `main` is unchanged at `fef80b9b`, and production is deploy 2201 (image
-  `4444d9d53d906b8d`).
-- The full record is `docs/history/2026-10-13-presence-and-k3b.md`.
+**Closed and not to be repeated:**
+- **K3B, run 150: PASS.** Codex checked the logs independently: the
+  component and words designers overlapped about 67 s inside one Add-on,
+  both changes landed, 20 credits, no image bought. The live coverage gap is
+  closed.
+- Run 144 stays closed.
 
-**A correction first: run 147 did spend.** The previous handoff called the
-probe list "prepared (not pressed)" and the round "nothing spent". You
-pressed it as **run 147**, which charged **9 credits (837 → 828)**. The
-wording is corrected here, in the dated entries and in
-`docs/history/2026-10-13-attribution-corrections.md`.
+**For Codex's review (unmerged, offline only; kept apart from production
+evidence):**
+- **`62bbd81b`:** a component on the page is no longer told as the request
+  met. Each addition is told with its own words, and the match is left to
+  the reply model. It is not deployed, so the live replies still use the old
+  wording (run 150's "I can't see from here").
+- **`abb57130`:** K3B's in-press verdict (used by run 150).
+- **This round:** the clarify-and-resume coverage below.
 
-**1. Component present ≠ request met (`62bbd81b`).**
-- **Codex's reproduction at `d0e76bdf`:** two card designs on `/visit`
-  (free parking; dogs welcome). The writer rendered "Free parking." twice.
-  Both requests were told "Added, and seen", the dogs one included.
-- **Now each addition is kept by itself:** each new instance on the page,
-  with its own words and what the first load showed of each. Two identical
-  cards are still two additions.
-- **The stored outcome stays `unverified`.** No request is recorded as met
-  because its component is there.
-- **The reply model is told** what was added, addition by addition, and
-  that whether it is what was asked "is not checked here". The model
-  compares the words; no keyword rule decides it.
-- **The note** now says "I've added something for this … but I haven't
-  checked that what it says is what you asked for".
+**1. Your free press: confirm `imagePurchases=true`** (spends nothing):
+- *edit canary*, from `claude/help-needed-ehlwlj`
+- *Run the ONE paid edit as well (yes/no)* = `no`
+- *Refuse to spend unless the Worker reports this deploy sha …* = `fef80b9b`
+- *Refuse to spend unless a cold container reports this image id …* =
+  `4444d9d53d906b8d`
+- every other box blank (the site box keeps its default).
 
-**Tests:** AT 10–17 in `test/content-attribution.test.mjs`. They cover:
-- one card with the wrong words;
-- repeated cards with one duplicated (Codex's) or one omitted;
-- a positive control;
-- Codex's shape through the real Add-on route, with a control;
-- nested and word-less instances;
-- strict reads.
+Its preflight prints the runtime line. `imagePurchases=true` is the
+confirmation.
 
-Each checks the stored outcome and the reply model's facts.
-- **Red check:** 4 of AT 10–14 fail on `d0e76bdf`.
-- **Sweep:** 16 product mutants, all killed once AT 15–17 covered the
-  first round's 4 survivors; controls survived.
+**2. Clarify and resume, prepared (not pressed).**
+- **Offline: CR 1–2** (`test/request-flow.test.mjs`). One request in two
+  shapes (an edit's step asks / an addition's routing asks). Each checks:
+  - independent work finishing while the question waits;
+  - the dependent part held with no job;
+  - another device seeing the same states at no cost;
+  - the answer resuming only the asking part;
+  - the held part running once after it;
+  - the finished part never running again;
+  - one charge per working job;
+  - a resent answer and a reload doing nothing.
 
-**2. K3B, prepared (`abb57130`), not pressed.**
-- **The scenario** `acc-addon-k3b` sends K3B's words exactly: one message,
-  on the Order page, no image.
-- **It needs no release.** The deployed job already records the picker's
-  kinds and each designer's start (with `after` when it waits) in its
-  trace, and the press already reads that job's record.
-- **The press judges, from that record:**
-  - one Add-on part, nothing held back;
-  - the trace tied to that job alone;
-  - the picker choosing at least two kinds;
-  - their designers starting without waiting;
-  - their calls overlapping.
+  Two mutants on the readiness rule were both killed.
+- **Live: `acc-clarify-resume`** on `fold-lane-bakery`, one message:
+  > Change the Classes page heading 'How a Saturday class runs' to 'How a
+  > Saturday class works', add a link to our online shop in the footer, and
+  > once that shop link is in, add one line on the Order page saying you can
+  > also order online from our shop, using the link at the bottom of every
+  > page.
 
-  Only then is it a **pass**. One routing answer proves neither the picking
-  nor the overlap.
-- **Another route or pick is "NOT EXERCISED"**: a failed check, a NOT
-  VERIFIED line, and **no automatic repeat**.
-- **Also checked:** both facts on `/order`, stored and served; everything
-  else preserved byte for byte; the press's own charges adding up.
-- The unreleased reporting change (1.) is not a pass condition.
-- **Tests:** K3B 1–13. The traces come from the real tracer, with the marks
-  pinned to the Worker's source.
-- **Sweep:** 12 of 12 killed, control survived.
+  Then the answer, *"It's shop.harbourloaf.co.uk/bread"*, sent with the tab
+  closed and followed in a fresh session.
+- **Expected:**
+  - At the question: the heading part done, the link part waiting, and the
+    line part held on it with no job.
+  - After the answer: all done; the heading never run again; the link
+    resumed; the line run only then.
+  - The three changes on the site, everything else byte for byte, and one
+    charge per job.
+  - Any other shape is **not exercised**, never a pass, and is not
+    repeated.
+- **About 10–19 credits** (an estimate, not a cap).
+- **It needs, for one run:** your balance opt-in naming
+  `acc-clarify-resume`, image purchases off with a redeploy (then on
+  again), and your press. Run step 1 first.
+- **Limits:**
+  - Whether the real router names the dependency is unknown.
+  - If the line asks a question of its own, the press fails rather than
+    passes.
+  - A second device reading the waiting question is shown offline only.
+- Record: `docs/history/2026-10-13-clarify-resume.md`.
 
-**Suites:** focused 87 of 87 and 13 of 13; **full suite `10800 / 10800 / 0 / 0`** on `abb57130`.
+**Suites:** full suite `10808 / 10808 / 0 / 0`; the clarify verdict's sweep
+killed 9 of 9, and its control survived.
 
-**Image:** a release would build `0e06c1826e3c3c00` (206 inputs; three builder modules changed).
-Nothing was built. K3B runs on the current deployment.
-
-**The one K3B run: about 18–27 credits** (an estimate, not a cap). That is
-routing 3 plus one Add-on job of 15–24 (section alone 15 in run 144; line
-alone 9 in run 135). If the router splits it as it split K, it costs about
-30 and reports not exercised. **It needs your approval for one run:**
-1. **The balance opt-in for `acc-addon-k3b` alone.** 828 is above the
-   100-credit cap; I add that one name, and close it again after the run.
-2. **Image purchases off** and a redeploy of `main` (no code change), as for
-   run 144; on again afterwards.
-3. **Your press** from `claude/help-needed-ehlwlj`:
-   - the scenario box: `acc-addon-k3b`;
-   - spend: `yes`;
-   - deploy sha: `fef80b9b`;
-   - image: `4444d9d53d906b8d`;
-   - the balance box: the exact balance then.
-
-**Kept as they were:**
-- run 144 closed;
-- paid opt-ins closed;
-- no paid, image or fal call in this batch;
-- no merge, deploy or container build;
-- every flag, limit and completed result unchanged.
+**Next, after this Edit/Add-on coverage:** the separate Build audit, not
+started.
 
 ---
+
+*Before this round (same day):* presence ≠ request met (`62bbd81b`), K3B
+prepared (`abb57130`), then **pressed as run 150: PASS** (20 credits, 828 →
+808). Runs 148 (site box left at `fretwork-1`) and 149 (rehearsal) were free.
+The balance box was opened for that one run and closed again (`68bfa7d9`).
+Image purchases were turned back on with deploy 2203. Records:
+`docs/history/2026-10-13-presence-and-k3b.md` §§1–10.
 
 *Before this round (same day):* the attribution corrections (`a65bb5da`,
 `9c4e8f9c`, `93c90b9a`, `126aa05d`, `92fcd2e0`). Every component had to be
@@ -1149,6 +1128,32 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-13 — After run 150: live state read, and a clarify-and-resume test prepared (nothing spent)
+
+Codex confirmed run 150 from its logs, and K3B is closed for good. I read
+the live state:
+- `main` `fef80b9b`, deploy 2203, image `4444d9d53d906b8d`;
+- balance 808, nothing charged since run 150, no job open;
+- the balance box closed.
+
+Whether image purchases are really back on can only be read by a signed-in
+press, so that is your free press next.
+
+Then I prepared the next live test: one message where a part needs an
+answer from you while other work carries on, and a third part waits for
+that answer. The offline version now runs two shapes on one request and
+counts every job and charge (CR 1–2). The live version, `acc-clarify-resume`,
+asks for:
+- a Classes heading change;
+- a footer link to an online shop, whose address it has to ask you for;
+- a line on the Order page pointing to that link.
+
+It passes only if the heading finishes while the question waits, the line
+waits for the answer, the answer resumes only the link, and nothing runs or
+is charged twice. About 10–19 credits, and it needs your go-ahead.
+
+Record: `docs/history/2026-10-13-clarify-resume.md`.
 
 ## 2026-10-13 — Run 150: K3B passed — two designers ran at the same time inside one Add-on (20 credits, 828 → 808)
 
