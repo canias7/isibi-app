@@ -155,6 +155,14 @@ test("AT 5 — REPEATED INSTANCES: two cards designed for /visit need two new ca
   const ev = evidence(design("card"), [page(had)], [page(added)], render("Free parking. Dogs welcome."));
   assert.deepEqual(readContent(ev.card), { stored: "added", shown: "all" });
   assert.equal(ev.card.texts, 1, "the existing card's text was counted as the new one's");
+  // THE SAME WORDS IN A NEW CARD PLACED BEFORE THE OLD ONE: the new card's copy
+  // is its text (found the sweep's one survivor, S4) — and shown only when the
+  // page shows both copies.
+  const again = had.replace("<main>", "<main><Card><p>Free parking.</p></Card>");
+  const twice = evidence(design("card"), [page(had)], [page(again)], render("Free parking. Visit us Open from 8. Free parking."));
+  assert.equal(twice.card.texts, 1, "the new card's copy of a repeated text was not taken as its own");
+  assert.equal(twice.card.shown, "all");
+  assert.equal(evidence(design("card"), [page(had)], [page(again)], render("Free parking. Visit us Open from 8.")).card.shown, "unread", "one copy on the page was taken for the new card's");
 });
 
 // ─── SOURCE IDENTITY, NOT SPELLING ──────────────────────────────────────────

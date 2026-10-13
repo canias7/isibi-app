@@ -365,11 +365,17 @@ export function addedByRoute({ before = [], after = [], parse = null } = {}) {
     for (const t of nowTags) if (t.outer && t.from) born[t.from] = (born[t.from] || 0) + 1;
     for (const t of thenTags) if (t.outer && t.from) born[t.from] = (born[t.from] || 0) - 1;
     const part = typeof f.name === "string" && f.name ? f.name.toLowerCase() : "";
-    const fileAdded = less(now, then).map((t) => ({
+    // A TEXT THE PAGE ALREADY SAID, SAID AGAIN: of its copies, the ones the
+    // page already had are matched first against the copies in untouched
+    // instances, so the copy kept as added is the one in the new instance —
+    // never the old card's, whatever order the two sit in.
+    const marked = now.map((t) => ({
       ...t,
       within: (Array.isArray(t.within) ? t.within : []).map((w) => ({ tag: w.tag, from: w.from, fresh: newSrc.has(w.src) })),
       ...(part ? { part } : {}),
     }));
+    const isFresh = (t) => t.within.some((w) => w.fresh);
+    const fileAdded = less([...marked.filter((t) => !isFresh(t)), ...marked.filter(isFresh)], then);
     const newTags = less(nowTags, thenTags, (x) => x.tag);
     for (const r of fresh) {
       const e = at(r);
