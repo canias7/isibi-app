@@ -1,30 +1,27 @@
 # Owner Notes
 
 
-## 2026-10-14 — The Build check's free rehearsal could not start; fixed on the branch
-
-Run 114 (the free `check-no-images` rehearsal, spend `no`, balance box blank)
-stopped before it signed in. The *build as owner* workflow never installed
-the packages its script imports. Since 2026-10-12 the build check has needed
-`typescript`, so every press of that workflow failed this way. Nothing was
-read or spent. I added an install step and a test, which fails without the
-step and passes with it. This is on the branch only, with no deploy.
-
-The slug `saltmarsh-cheese-counter` is free, the balance is 783, and no job
-is open. The account's design, graph and bands flags are still unread. They
-come from the rehearsal itself, so the next step is to press it again from
-the branch.
-
-GitHub CI on fb5f01f3 is green (10,784 passed, 44 skipped, 0 failed). The
-earlier local timing failure was local only. The 11–45 credits is an
-estimate, not an enforced limit. Details:
-`docs/history/2026-10-14-build-audit-batch.md` §7.
-
-## Current handoff — read this first (2026-10-14: run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-14: the Build audit's free rehearsal (run 114) stopped on a workflow install defect, fixed on the branch, to be pressed again; run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
+
+**The Build audit, now (2026-10-14):**
+- Run 114, the free `check-no-images` rehearsal, stopped before it signed
+  in (`ERR_MODULE_NOT_FOUND 'typescript'`): the *build as owner* workflow
+  had no install step. It is fixed on the branch (`f7267ea9`, plus a guard
+  test, red-checked). Nothing was read or spent.
+- Read free: `saltmarsh-cheese-counter` is free, the balance is 783, and no
+  job is open. The account's `design`, `graph` and `bands` flags are still
+  unread.
+- **Next step: press the same rehearsal from `claude/help-needed-ehlwlj`.**
+  If an image-free mode is on, record it. If none is on, prepare the
+  account-scoped canary change for review; do not enable it.
+- The 11–45 credits is an estimate, not an enforced limit.
+- CI on `fb5f01f3` is green (10,784 passed, 44 skipped, 0 failed). The
+  earlier REOPEN 1 timing failure was local only.
+- Details: `docs/history/2026-10-14-build-audit-batch.md` §7.
 
 **Production, as read now (2026-10-14):**
 - `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
@@ -1167,6 +1164,25 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-14 — The Build check's free rehearsal could not start; fixed on the branch
+
+Run 114 (the free `check-no-images` rehearsal, spend `no`, balance box blank)
+stopped before it signed in. The *build as owner* workflow never installed
+the packages its script imports. Since 2026-10-12 the build check has needed
+`typescript`, so every press of that workflow failed this way. Nothing was
+read or spent. I added an install step and a test, which fails without the
+step and passes with it. This is on the branch only, with no deploy.
+
+The slug `saltmarsh-cheese-counter` is free, the balance is 783, and no job
+is open. The account's design, graph and bands flags are still unread. They
+come from the rehearsal itself, so the next step is to press it again from
+the branch.
+
+GitHub CI on fb5f01f3 is green (10,784 passed, 44 skipped, 0 failed). The
+earlier local timing failure was local only. The 11–45 credits is an
+estimate, not an enforced limit. Details:
+`docs/history/2026-10-14-build-audit-batch.md` §7.
 
 ## 2026-10-14 — Run 152's evidence replayed offline: preservation closed, footer check corrected (nothing spent)
 
