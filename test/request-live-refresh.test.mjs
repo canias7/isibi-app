@@ -40,15 +40,15 @@ const view = (key, at, parts, ended = false) => ({ key, state: ended ? "done" : 
 // THE OWNER'S REPRODUCTION: an addition that made a page and a table.
 const ADDED = {
   ok: true, kinds: ["page", "table"], added: ["src/routes/gallery.tsx"], tables: ["bookings"], cost: 9,
-  reply: "✅ Your Gallery page is up, and bookings now have a table of their own.", replySource: "model",
+  reply: "Your Gallery page is up, and bookings now have a table of their own.", replySource: "model",
 };
 // A PAGE TAKEN AWAY, and a row with it — the kind of change that offers an undo.
 const REMOVED = {
   ok: true, layer: "page", removed: ["src/routes/visit.tsx"], applied: [{ table: "loaves", id: 3, removed: true, was: { name: "Rye" } }], cost: 0,
-  reply: "✅ The Visit page is gone, and so is the Rye loaf.", replySource: "model",
+  reply: "The Visit page is gone, and so is the Rye loaf.", replySource: "model",
 };
-const GALLERY_GONE = { ok: true, layer: "page", removed: ["src/routes/gallery.tsx"], cost: 0, reply: "✅ The Gallery page is gone.", replySource: "model" };
-const CONTACT = { ok: true, kinds: ["page"], added: ["src/routes/contact.tsx"], cost: 6, reply: "✅ Your Contact page is up.", replySource: "model" };
+const GALLERY_GONE = { ok: true, layer: "page", removed: ["src/routes/gallery.tsx"], cost: 0, reply: "The Gallery page is gone.", replySource: "model" };
+const CONTACT = { ok: true, kinds: ["page"], added: ["src/routes/contact.tsx"], cost: 6, reply: "Your Contact page is up.", replySource: "model" };
 
 /**
  * THE SERVER, SCRIPTED. `views` and `answers` are its requests and its jobs'
@@ -220,7 +220,7 @@ test("LIVE 3 — history (finished before this page first looked): shown once an
   // AND A HISTORY JOB THAT CHANGED NO PAGE reads no page list; it moves the preview on, once.
   const S2 = server();
   S2.views.set(KEY(21), view(KEY(21), T0, [part(0, "Change the home page heading", "done", [JOB(1)], "text")], true));
-  S2.answers.set(JOB(1), { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "✅ The heading now reads “Fed every morning”.", replySource: "model" });
+  S2.answers.set(JOB(1), { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "The heading now reads “Fed every morning”.", replySource: "model" });
   const d = opened(openPage(S2, siteFor(["/", "/visit"]), "paged"));
   await idle();
   await looks(d);
@@ -353,7 +353,7 @@ test("LIVE 8 — a part of another browser's request that did not go through, or
   const b = opened(openPage(S, siteFor(["/"])));
   await idle();
   await looks(b);
-  refused.finish({ ok: false, error: "no-pages", unchanged: true, cost: 0, msg: "Nothing was added.", reply: "⚠️ I couldn't add that page, so nothing changed.", replySource: "model", added: ["src/routes/gallery.tsx"], tables: ["bookings"] });
+  refused.finish({ ok: false, error: "no-pages", unchanged: true, cost: 0, msg: "Nothing was added.", reply: "I couldn't add that page, so nothing changed.", replySource: "model", added: ["src/routes/gallery.tsx"], tables: ["bookings"] });
   asks.finish({ ok: false, error: "clarify", clarify: { id: "d".repeat(32), text: "Which words should lead?", options: ["Overnight", "Slow"] }, reply: "One thing first.", replySource: "model" });
   await looks(b);
   assert.deepEqual(said(b, KEY(13)), [JOB(1)]);
@@ -416,8 +416,8 @@ test("LIVE 9 — reading the pages: a fresh read never takes the answer of one a
 });
 
 test("LIVE 10 — another browser's change that adds no page, finishing while this page watches (a text edit, an addition of only a table, one whose reply is still being written): the preview is drawn again at what is published now, and a reply settling later applies nothing again", async () => {
-  const TEXT = { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "✅ The home page heading now reads “Fed every morning”.", replySource: "model" };
-  const TABLE = { ok: true, kinds: ["table"], tables: ["orders"], cost: 3, reply: "✅ Orders now have a table of their own.", replySource: "model" };
+  const TEXT = { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "The home page heading now reads “Fed every morning”.", replySource: "model" };
+  const TABLE = { ok: true, kinds: ["table"], tables: ["orders"], cost: 3, reply: "Orders now have a table of their own.", replySource: "model" };
   const VISIT = { ok: true, layer: "text", changed: ["src/routes/visit.tsx"], files: 1, cost: 1 };
   const S = server();
   const text = running(S, KEY(17), T0, "Change the home page heading", 1, "text");
@@ -444,7 +444,7 @@ test("LIVE 10 — another browser's change that adds no page, finishing while th
   assert.ok(heldMsg() && b.ctx.EditPoll.heldOf(heldMsg()), "the reply's place is not held under its job");
   assert.deepEqual([b.s.previewV, drawn[drawn.length - 1]], [3, 3]);
   // THE REPLY IS WRITTEN: it settles in its place, and nothing is applied again.
-  S.answers.set(JOB(3), { ...VISIT, reply: "✅ The Visit page's heading now reads “Our shop”.", replySource: "model" });
+  S.answers.set(JOB(3), { ...VISIT, reply: "The Visit page's heading now reads “Our shop”.", replySource: "model" });
   await looks(b, 4);
   assert.equal(b.ctx.EditPoll.heldOf(heldMsg()), null, "the held reply did not settle");
   assert.match(heldMsg().t, /Our shop/);

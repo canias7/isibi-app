@@ -5848,7 +5848,7 @@ test("a failed publish whose look revert was refused says the addition is still 
   assert.equal(r.body.msg, "That addition didn't compile, so your live site wasn't changed — try describing it differently. The change itself is still saved, though, so it could go out with your next edit.");
   const said = browserReply(r.body, false);
   assert.ok(said.ok, "the browser's own composer could not run: " + said.why);
-  assert.equal(said.text, "⚠️ " + r.body.msg, "the screen is not the route's sentence");
+  assert.equal(said.text, r.body.msg, "the screen is not the route's sentence");
   assert.doesNotMatch(said.text, /untouched/, "the screen calls the site untouched with the addition still saved");
 });
 
@@ -8973,7 +8973,7 @@ test("a component answer whose second part was dropped says so, and the record k
     "a file name the DESIGNER coined reached the customer: " + said);
   // …AND IT IS STILL A SUCCESS, because it is: one of the two was built, the
   // page changed and the run was charged. A partial outcome is not a failure.
-  assert.match(said, /✅ Done/, "a partial outcome was reported as a failed change: " + said);
+  assert.match(said, /Done/, "a partial outcome was reported as a failed change: " + said);
 
   // 2. THE STORED OUTCOME KEEPS THE NAME, which is what a developer comes back
   // to and is exactly what the customer's sentence deliberately omits.

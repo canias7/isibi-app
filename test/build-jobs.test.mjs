@@ -233,7 +233,7 @@ test("…and that shape is exactly what the browser's success gate records and r
   assert.ok(at > 0, "the build POST is gone — rescope this guard");
   const send = CHAT.slice(at, CHAT.indexOf("\n}", at));
   assert.match(send, /if \(r\.ok && d && d\.error !== true && d\.slug\) \{/, "the browser's success gate moved — the lost verdict's shape rests on it");
-  assert.match(send, /const built = !d \|\| d\.page !== 'placeholder';/, "the browser no longer reads `page` to pick the ⚠️ sentence");
+  assert.match(send, /const built = !d \|\| d\.page !== 'placeholder';/, "the browser no longer reads `page` to pick the sentence");
   assert.match(send, /const said = \(d && typeof d\.notes === 'string'\) \? d\.notes\.trim\(\) : '';/, "the browser no longer renders `notes`");
   const lost = rowVerdict({ state: "lost", slug: "fold-lane", job: JOB }).body;
   assert.equal(lost.ok, false); assert.equal(typeof lost.error, "string"); assert.ok(lost.slug); assert.equal(lost.page, "placeholder"); assert.equal(lost.notes, LOST_SITE_MSG);

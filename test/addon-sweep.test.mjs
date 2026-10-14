@@ -803,7 +803,7 @@ test("the whole customer reply is reported, not one sentence of it, and the set 
     photos: 1, unlinked: ["/gallery"],
   }, 200).join("\n");
   assert.match(composed, /the customer's screen \(the browser's own \w+, executed, HTTP 200\)/, composed);
-  assert.match(composed, /▸ ✅ Done — added \/gallery, updated \/\./, "the success sentence is missing — " + composed);
+  assert.match(composed, /▸ Done — added \/gallery, updated \/\./, "the success sentence is missing — " + composed);
   assert.match(composed, /upload yours in the Data panel/, "the placeholder explanation is missing — " + composed);
   assert.match(composed, /Nothing links to \/gallery yet/, "the missing-link warning is missing — " + composed);
   // …and the reply it was composed from carries NOT ONE of the `*Note` fields,
@@ -880,16 +880,16 @@ test("the browser's own selection decides which screen a reply gets, status incl
   const REF = { ok: false, error: "lost-photos", msg: "Nothing was published and nothing was charged." };
   const refused = browserReply(REF, httpOkOf(422));
   assert.equal(refused.ok, true, "the browser's handling did not load: " + refused.why);
-  assert.equal(refused.text, "⚠️ Nothing was published and nothing was charged.",
+  assert.equal(refused.text, "Nothing was published and nothing was charged.",
     "a refusal is not getting the browser's own refusal screen: " + JSON.stringify(refused.text));
-  assert.ok(!/✅ Done/.test(refused.text), "THE REPORTED DEFECT: the success composer ran on a refusal — " + refused.text);
+  assert.ok(!/\bDone( —|\.)/.test(refused.text), "THE REPORTED DEFECT: the success composer ran on a refusal — " + refused.text);
   // …and through the reader the run really uses, where the label has to say which
   // function was executed — a report headed `addonReplyText` over a refusal is
   // the defect wearing the fix's own words.
   const refLines = customerLines(REF, 422).join("\n");
   assert.match(refLines, /the customer's screen \(the browser's own addonAnswer, executed, HTTP 422\)/, refLines);
-  assert.match(refLines, /▸ ⚠️ Nothing was published and nothing was charged\./, refLines);
-  assert.ok(!/✅ Done/.test(refLines), "the reported defect, through customerLines — " + refLines);
+  assert.match(refLines, /▸ Nothing was published and nothing was charged\./, refLines);
+  assert.ok(!/\bDone( —|\.)/.test(refLines), "the reported defect, through customerLines — " + refLines);
 
   // ── 2. A SUCCESS, THROUGH THE SAME HANDLING ────────────────────────────────
   //
@@ -899,9 +899,9 @@ test("the browser's own selection decides which screen a reply gets, status incl
   const OK = { ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"], unlinked: ["/gallery"] };
   const won = browserReply(OK, httpOkOf(200));
   assert.equal(won.ok, true, won.why);
-  assert.match(won.text, /^✅ Done — added \/gallery, updated \/\./, won.text);
+  assert.match(won.text, /^Done — added \/gallery, updated \/\./, won.text);
   assert.match(won.text, /Nothing links to \/gallery yet/, won.text);
-  assert.match(customerLines(OK, 200).join("\n"), /▸ ✅ Done — added \/gallery/);
+  assert.match(customerLines(OK, 200).join("\n"), /▸ Done — added \/gallery/);
 
   // ── 3. THE STATUS IS LOAD-BEARING, and only one pair proves it ─────────────
   //
@@ -912,16 +912,16 @@ test("the browser's own selection decides which screen a reply gets, status incl
   // not land, and reading a stale `ok:true` off it would report a change that
   // never happened as done.
   const CLAIMS = { ok: true, added: ["src/routes/gallery.tsx"] };
-  assert.match(browserReply(CLAIMS, httpOkOf(200)).text, /✅ Done — added \/gallery/,
+  assert.match(browserReply(CLAIMS, httpOkOf(200)).text, /Done — added \/gallery/,
     "the control failed: a 200 with ok:true must reach the success composer");
   const atFail = browserReply(CLAIMS, httpOkOf(422));
-  assert.ok(!/✅ Done/.test(atFail.text),
+  assert.ok(!/\bDone( —|\.)/.test(atFail.text),
     "the HTTP status is not being read — a body claiming success at 422 reached the success composer: " + atFail.text);
   // RE-ANCHORED 2026-09-24: this branch used to show nothing and fall to the
   // rewrite. A failing status over a body that does not say `ok: false` is not
   // knowing now, said in the page's own sentence — and it buys nothing.
   assert.equal(atFail.shown, true, "nothing is shown on that branch");
-  assert.match(atFail.text, /^⚠️ I didn’t get a usable answer about that addition/, atFail.text);
+  assert.match(atFail.text, /^I didn’t get a usable answer about that addition/, atFail.text);
   assert.deepEqual(atFail.actions, [], "a failing status bought something: " + JSON.stringify(atFail.actions));
   // ⚠ RE-ANCHORED 2026-09-24 (the owner's validation round) — THIS SHOWED THE
   // BODY'S OWN SENTENCE. `ok: true` at a 422 says two opposite things, and the
@@ -929,7 +929,7 @@ test("the browser's own selection decides which screen a reply gets, status incl
   // uncertainty": its `msg` is a sentence from a reply that cannot be trusted,
   // so the page says it does not know, and buys nothing.
   const both = browserReply({ ok: true, msg: "the body says both", added: ["src/routes/gallery.tsx"] }, httpOkOf(422));
-  assert.match(both.text, /^⚠️ I didn’t get a usable answer about that addition/, both.text);
+  assert.match(both.text, /^I didn’t get a usable answer about that addition/, both.text);
   assert.deepEqual(both.actions, [], "a contradictory reply bought something: " + JSON.stringify(both.actions));
 
   // ── 4. CANNOT-TELL REFUSES, in both directions ─────────────────────────────
@@ -984,10 +984,10 @@ test("the browser's own selection decides which screen a reply gets, status incl
   // operation."
   const fell = browserReply({ ok: false, error: "qr-dependency" }, httpOkOf(422));
   assert.equal(fell.shown, true, "a refusal with no msg shows nothing");
-  assert.equal(fell.text, "⚠️ That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.", fell.text);
+  assert.equal(fell.text, "That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.", fell.text);
   assert.deepEqual(fell.actions, [], "a refusal with no msg bought something: " + JSON.stringify(fell.actions));
   const unread = browserReply(null, httpOkOf(500));
-  assert.match(unread.text, /^⚠️ I didn’t get a usable answer about that addition/, unread.text);
+  assert.match(unread.text, /^I didn’t get a usable answer about that addition/, unread.text);
   assert.deepEqual(unread.actions, [], "a body that would not parse bought something: " + JSON.stringify(unread.actions));
   // …and both are on the report, labelled as NOT having happened.
   // THE OWNER'S THREE, AS THE PAID RUN'S READER WOULD RECORD THEM (2026-09-24):
@@ -1000,7 +1000,7 @@ test("the browser's own selection decides which screen a reply gets, status incl
   ]) {
     const r = browserReply(body, httpOkOf(status));
     assert.equal(r.ok, true, what + ": " + r.why);
-    assert.match(r.text, /^⚠️ I didn’t get a usable answer about that addition/, what + ": " + r.text);
+    assert.match(r.text, /^I didn’t get a usable answer about that addition/, what + ": " + r.text);
     assert.deepEqual(r.actions, [], what + " recorded a paid step: " + JSON.stringify(r.actions));
   }
   const hopLines = customerLines(HOP, 200).join("\n");
@@ -1112,8 +1112,8 @@ test("the report reads the photographs and the reply on a refusal, which is the 
   // this guard is about the refusal outcome, so it is where the refusal SCREEN
   // belongs). The harness ran the SUCCESS composer here and labelled a 422 that
   // published nothing `✅ Done.`; the browser shows the warning and the `msg`.
-  assert.match(lost.note, /▸ ⚠️ I'd have taken a photograph off your site doing that, so I've left it alone\./, lost.note);
-  assert.ok(!/✅ Done/.test(lost.note), "the success composer ran on a 422 — " + lost.note);
+  assert.match(lost.note, /▸ I'd have taken a photograph off your site doing that, so I've left it alone\./, lost.note);
+  assert.ok(!/\bDone( —|\.)/.test(lost.note), "the success composer ran on a 422 — " + lost.note);
   // AND ON A SUCCESS, the numbers and the sentence both.
   const ok = c.check(before, { build: "b2", text: "x".repeat(400), routes: ["/", "/gallery"] }, {
     ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"],
@@ -1131,7 +1131,7 @@ test("the report reads the photographs and the reply on a refusal, which is the 
   // RE-ANCHORED, NOT APPEASED: "sentence by sentence" was the per-field
   // breakdown's own wording. Both halves are asserted now — the screen a person
   // sees, and the two server sentences named beneath it.
-  assert.match(ok.note, /▸ ✅ Done — added \/gallery, updated \/\..*Made 1 photograph for the site\./, ok.note);
+  assert.match(ok.note, /▸ Done — added \/gallery, updated \/\..*Made 1 photograph for the site\./, ok.note);
   assert.match(ok.note, /server sentences carried whole \(2\):/, ok.note);
   // THE WIRING, by the branch rather than by position: a `check` that computed
   // these and left them off the note is the recorded value-never-forwarded

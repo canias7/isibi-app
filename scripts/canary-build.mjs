@@ -109,7 +109,11 @@ export const BUILD_CHECK_NO_IMAGES = Object.freeze({
   // sends nothing unless the account holds no more than the batch cap
   // (`ACCEPTANCE_CAP` in canary-ui.mjs, 100). And it sends nothing unless an
   // image-free parallel mode is on for this account (`buildFlagsVerdict`).
-  slug: "saltmarsh-cheese-counter",
+  // A FRESH SLUG (2026-10-14): `saltmarsh-cheese-counter` became a site in
+  // run 117, so "the slug is free" refuses it. Read free that day the press's
+  // own three ways: no row in site_backends, site_builds or site_project, and
+  // its address answered 404. Read again by the press before it sends.
+  slug: "saltmarsh-cheese-lewes",
   brief: "I run a cheese counter called Saltmarsh in the covered market in Lewes. We sell about forty British cheeses, cut to order, and a few chutneys and oatcakes to go with them. We're open Tuesday to Saturday, nine till four, and we make up cheese boards for parties if people order two days ahead. I want one page that tells people what we sell, when we're open, and how to order a board. No photographs please, just words, a clear layout and our prices for the boards: small £25, medium £40, large £60.",
   images: "none",
   runtimeSlug: "fold-lane-bakery",

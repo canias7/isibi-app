@@ -155,7 +155,7 @@ test("BUILD, PAID, AT 971: the strict check refuses before the one paid call; CO
 
 test("REQUEST PRESSES use the same cap: every acceptance scenario carries ACCEPTANCE_CAP, and the real driver's refusal at 971 sends nothing (test/canary-acceptance.test.mjs, THE PRESS REFUSES ABOVE THE CAP)", async () => {
   const { UI_SCENARIOS } = await import("../scripts/canary-ui.mjs");
-  for (const k of ["acc-pages-real", "acc-page-table", "acc-table-page", "acc-needs", "acc-mixed", "acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation", "acc-isolation-page"]) assert.equal(UI_SCENARIOS[k].cap, ACCEPTANCE_CAP, k);
+  for (const k of ["acc-pages-real", "acc-page-table", "acc-table-page", "acc-needs", "acc-mixed", "acc-mixed-talk", "acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation", "acc-isolation-page"]) assert.equal(UI_SCENARIOS[k].cap, ACCEPTANCE_CAP, k);
   const src = readFileSync(path.join(REPO, "test/canary-acceptance.test.mjs"), "utf8");
   assert.ok(src.includes('test("THE PRESS REFUSES ABOVE THE CAP: a balance of 971 sends nothing; 100 sends"'), "the driver-level refusal case is gone");
 });

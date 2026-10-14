@@ -50,15 +50,15 @@ const view = (key, at, parts, ended = false) => ({ key, state: ended ? "done" : 
 // THE OWNER'S REPRODUCTION: an addition that made a page and a table.
 const ADDED = {
   ok: true, kinds: ["page", "table"], added: ["src/routes/gallery.tsx"], tables: ["bookings"], cost: 9,
-  reply: "✅ Your Gallery page is up, and bookings now have a table of their own.", replySource: "model",
+  reply: "Your Gallery page is up, and bookings now have a table of their own.", replySource: "model",
 };
-const ORDERS = { ok: true, kinds: ["table"], tables: ["orders"], cost: 3, reply: "✅ Orders now have a table of their own.", replySource: "model" };
+const ORDERS = { ok: true, kinds: ["table"], tables: ["orders"], cost: 3, reply: "Orders now have a table of their own.", replySource: "model" };
 // A PAGE TAKEN AWAY, and a row with it — the kind of change that offers an undo.
 const REMOVED = {
   ok: true, layer: "page", removed: ["src/routes/visit.tsx"], applied: [{ table: "loaves", id: 3, removed: true, was: { name: "Rye" } }], cost: 0,
-  reply: "✅ The Visit page is gone, and so is the Rye loaf.", replySource: "model",
+  reply: "The Visit page is gone, and so is the Rye loaf.", replySource: "model",
 };
-const DATA_EDIT = { ok: true, layer: "data", applied: [{ table: "loaves", id: 3, column: "price" }], cost: 1, reply: "✅ The Rye loaf is now £5.", replySource: "model" };
+const DATA_EDIT = { ok: true, layer: "data", applied: [{ table: "loaves", id: 3, column: "price" }], cost: 1, reply: "The Rye loaf is now £5.", replySource: "model" };
 
 /**
  * THE SERVER, SCRIPTED. `views`/`answers` are its requests and its jobs' stored

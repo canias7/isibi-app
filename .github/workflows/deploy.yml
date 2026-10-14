@@ -215,6 +215,7 @@ jobs:
             DESIGN_GRAPH_EVERYONE
             MODEL_REPLIES
             PROGRESS_REPLIES
+            PROGRESS_TALK
             REQUEST_FLOW
             IMAGE_PURCHASES
         env:
@@ -409,6 +410,15 @@ jobs:
           # recorded, no task is sent and every answer is as before. Set the
           # secret to `on` and redeploy to switch it on.
           PROGRESS_REPLIES: ${{ secrets.PROGRESS_REPLIES || 'off' }}
+          # ── THE BUILDER TALKS WHILE IT WORKS (2026-10-13) ──────────────────
+          #
+          # On top of PROGRESS_REPLIES: a job's record opens conversational —
+          # an opening plan, each check and the publish recorded as facts, a
+          # short wait so close events share one update, and an optional
+          # model-written explanation (builder/site-progress.mjs, `talkOn`).
+          # Still not charged to the customer. OFF BY DEFAULT: off, every
+          # record is written exactly as before.
+          PROGRESS_TALK: ${{ secrets.PROGRESS_TALK || 'off' }}
           # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
           #
           # With this on, a site's message the routing call accepts is kept as a

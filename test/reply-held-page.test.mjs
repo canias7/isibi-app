@@ -245,8 +245,8 @@ const UNREADABLE = { ok: "true", layer: "look" };
 const ADDED = { ok: true, cost: 12, kinds: ["qr"], added: [], changed: ["index.tsx"], qrs: [{ label: "Menu", on: ["/"] }] };
 const ADD_REFUSED = { ok: false, cost: 0, msg: "I couldn’t design that part from what you asked." };
 
-const LOOK = "✅ Updated the look.";
-const REFUSED = "⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
+const LOOK = "Updated the look.";
+const REFUSED = EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
 const R1 = "I made the footer navy — every page shows it now.";
 const R2 = "The opening hours now read 9 till 5.";
 
@@ -459,20 +459,20 @@ test("duplicate looks never follow one reply twice, never re-apply the outcome, 
 });
 
 test("a held message is settled once: a settle after it, a malformed mark and a message with none are left as they are", () => {
-  const m = P.holdReply("✅ Updated the look.", "job-1", "Done — writing up what changed…", 1000);
-  assert.deepEqual(m, { t: "Done — writing up what changed…", held: { job: "job-1", at: 1000, else: "✅ Updated the look.", asked: "" } });
+  const m = P.holdReply("Updated the look.", "job-1", "Done — writing up what changed…", 1000);
+  assert.deepEqual(m, { t: "Done — writing up what changed…", held: { job: "job-1", at: 1000, else: "Updated the look.", asked: "" } });
   assert.equal(P.settleHeld(m, R1), true);
   assert.deepEqual(m, { t: R1 });
   assert.equal(P.settleHeld(m, "a second reply"), false);
   assert.deepEqual(m, { t: R1 });
   // THE PAGE'S OWN SENTENCE when there is no reply; THE QUESTION'S WORDS stay under a reply.
-  const q = P.holdReply({ t: "✅ Updated the look.\nWhich footer?", q: "Which footer?", opts: ["Main"], ask: QID, asked: "Which footer?" }, "job-2", "Partly done — …", 5);
-  assert.deepEqual(q, { t: "Partly done — …", q: "Which footer?", opts: ["Main"], ask: QID, held: { job: "job-2", at: 5, else: "✅ Updated the look.\nWhich footer?", asked: "Which footer?" } });
+  const q = P.holdReply({ t: "Updated the look.\nWhich footer?", q: "Which footer?", opts: ["Main"], ask: QID, asked: "Which footer?" }, "job-2", "Partly done — …", 5);
+  assert.deepEqual(q, { t: "Partly done — …", q: "Which footer?", opts: ["Main"], ask: QID, held: { job: "job-2", at: 5, else: "Updated the look.\nWhich footer?", asked: "Which footer?" } });
   const q2 = copy(q);
   P.settleHeld(q, "I made the footer navy.  ");
   assert.equal(q.t, "I made the footer navy.\nWhich footer?");
   P.settleHeld(q2, null);
-  assert.equal(q2.t, "✅ Updated the look.\nWhich footer?");
+  assert.equal(q2.t, "Updated the look.\nWhich footer?");
   // A MARK THAT DOES NOT READ IS NO MARK.
   for (const held of [null, "job-1", [], { job: "", else: "x" }, { job: 7, else: "x" }, { job: "j", else: 3 }, { job: "j".repeat(101), else: "x" }]) {
     const x = { t: "kept", held };

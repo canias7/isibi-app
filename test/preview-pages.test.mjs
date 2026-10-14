@@ -286,7 +286,7 @@ const liveSteps = (() => {
   // AND THE BUILD'S LIVE LINES' RENDERER (2026-10-09, round 5): the rail ends
   // with them now; taken out of the file the same way.
   // eslint-disable-next-line no-new-func
-  ctx.progressListHTML = new Function("ctx", "with (ctx) {" + src("function progressAt(") + "\n" + src("function progressListHTML(") + "\n return progressListHTML; }")(ctx);
+  ctx.progressListHTML = new Function("ctx", "with (ctx) {" + src("function progressListHTML(") + "\n return progressListHTML; }")(ctx);
   // eslint-disable-next-line no-new-func
   const fn = new Function("ctx", "with (ctx) {" + chat.slice(i, end) + "\n return reactLiveStepsHTML; }")(ctx);
   return (build) => {

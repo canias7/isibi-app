@@ -471,7 +471,7 @@ const rAsync = (runtime.json || {}).async;
 const rRunner = (runtime.json || {}).runner;
 
 console.log(`  build-health  ${health.status}  deploy=${hDeploy.slice(0, 12) || "(none)"}  image=${hImage || "(none/unstamped)"}`);
-console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}  imagePurchases=${(runtime.json || {}).imagePurchases}`);
+console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}  imagePurchases=${(runtime.json || {}).imagePurchases}  progressTalk=${(runtime.json || {}).progressTalk}  jobProgressTalk=${(runtime.json || {}).jobProgressTalk}`);
 if (CONTROL) console.log(`  control       ${cRuntime.status}  ${CONTROL} async=${cAsync}`);
 
 /** Floored at 7 on BOTH sides, so a short expectation cannot pass by being short. */
@@ -1165,7 +1165,7 @@ if (UI_ASK) {
       const s = ui.steps[0] || {};
       const rq = requestVerdict(s, UI_ASK.scenario);
       check(`the message left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rq.ok, JSON.stringify(rq));
-      check(`the reply on screen is a success that names ${RULES.table}`, /^✅/.test(s.reply || "") && String(s.reply || "").includes(RULES.table), JSON.stringify(s.reply || ""));
+      check(`the reply on screen names ${RULES.table}`, String(s.reply || "").includes(RULES.table), JSON.stringify(s.reply || ""));
       const cl = R.closing || null;
       check(`the job's stored reply closed ${RULES.table} by a supported way and changed nothing else, and the owner's listing agrees`, !!(cl && cl.ok),
         cl ? (cl.ok ? `by ${cl.method} (fields ${cl.fields.join(", ")}; ${cl.access.before} -> ${cl.access.after})${cl.refused.length ? `; refused beside it: ${JSON.stringify(cl.refused)}` : ""}` : cl.why)
@@ -1400,7 +1400,7 @@ if (UI_ASK) {
         before: { ...BEFORE, complete: BEFORE.readsComplete === true },
         after: after ? { ...after, complete: after.readsComplete === true } : null,
         served, beforeServed, servedOpen, beforeServedOpen, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
-        frameLoads: ui.frameLoads || [], photos, between: ui.between || [],
+        frameLoads: ui.frameLoads || [], photos, between: ui.between || [], talkSwitch: ui.talkSwitch || null,
       });
       requests.logo = logo;
       requests.photos = photos;

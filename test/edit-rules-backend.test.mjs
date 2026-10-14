@@ -280,7 +280,7 @@ test("a Supabase that cannot be read refuses above the rung, and starts nothing"
   // this edit cost — beside what the routing call cost, when the page holds
   // its reply (this harness hands none over, so that line is absent here).
   assert.equal(r.said.text,
-    "⚠️ I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. "
+    "I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. "
     + "Try again in a few minutes. Nothing on your site changed, and this edit cost you nothing.");
   assert.equal(r.body.unchanged, true, "the refusal no longer says it wrote nothing: " + JSON.stringify(r.body));
   // OWNERSHIP ENFORCEMENT IS UNCHANGED: the gate's own decision and its own
@@ -311,7 +311,7 @@ test("a site that is not yours is refused on the screen, not with a paid rewrite
   assert.deepEqual(r.said.actions, [],
     "a site that is not yours still starts a paid request: " + JSON.stringify(r.said.actions));
   assert.equal(r.said.text,
-    "⚠️ I can't find a site with that name on your account, so there was nothing for me to edit. "
+    "I can't find a site with that name on your account, so there was nothing for me to edit. "
     + "Nothing on your site changed, and this edit cost you nothing.");
 });
 
@@ -495,7 +495,7 @@ test("a table inventory that cannot be read stops; it is never an empty site", a
   // `backend` lane) no longer claims the whole site stood still.
   assert.equal(r.body.unchanged, true, "the refusal does not say this rung wrote nothing");
   assert.equal(r.said.text,
-    "⚠️ I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. "
+    "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. "
     + "Try again in a few minutes. Nothing on your site changed, and this edit cost you nothing.");
 });
 

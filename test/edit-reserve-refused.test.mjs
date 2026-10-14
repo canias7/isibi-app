@@ -143,8 +143,8 @@ const CSS = { pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#
 // only what happened; the money is stated by `wholeRequestNote` from what the
 // two replies RECORDED. `ROUTED` is run 31's own routing reply, verbatim.
 const ROUTED = { ok: true, intent: "edit", layer: "page", page: "/", cost: 2, usage: { in: 6774, out: 19, cacheRead: 512, cacheWrite: 0, model: "grok-4.6" } };
-const SHORT = "⚠️ That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again.";
-const DOWN = "⚠️ That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.";
+const SHORT = "That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again.";
+const DOWN = "That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.";
 const EDIT_FREE = " This edit cost you nothing.";
 const READING_2 = " Reading your message cost 2 credits.";
 

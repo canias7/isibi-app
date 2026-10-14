@@ -202,11 +202,11 @@ function assertNewerEachTime(loads, at, published, src) {
 
 const editAnswer = (changed, words) => ({
   ok: true, layer: "text", layers: ["text"], lanes: [], moved: [], changed: [words], files: 12, cost: 2, applied: 1, photos: 0,
-  reply: "✅ " + words, replySource: "model",
+  reply: words, replySource: "model",
 });
 const addonAnswer = (page, table) => ({
   ok: true, kinds: ["page", "table"], added: ["src/routes/" + page.slice(1) + ".tsx"], changed: [], tables: [table], cost: 9,
-  reply: "✅ Your new page is up.", replySource: "model",
+  reply: "Your new page is up.", replySource: "model",
 });
 
 /**

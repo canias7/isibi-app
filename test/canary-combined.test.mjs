@@ -146,11 +146,11 @@ const ANSWER_VIEWS = [
   view(KB, [HEAD_DONE, part(1, TIK, "done", { route: "addon", ids: ["t1", "t2"], jobs: ["t1", "t2"], said: S_TIK })], { ended: true }),
 ];
 const REPLIES = {
-  a1: { ok: true, msg: "✅ Done.", reply: "I've added your Allergens page.", replySource: "model" },
-  n1: { ok: true, msg: "✅ Done.", reply: "The Allergens page is in every menu now.", replySource: "model" },
-  h1: { ok: true, msg: "✅ Done.", reply: "The Order page heading now reads \"Choose your loaf and a collection time\".", replySource: "model" },
+  a1: { ok: true, msg: "Done.", reply: "I've added your Allergens page.", replySource: "model" },
+  n1: { ok: true, msg: "Done.", reply: "The Allergens page is in every menu now.", replySource: "model" },
+  h1: { ok: true, msg: "Done.", reply: "The Order page heading now reads \"Choose your loaf and a collection time\".", replySource: "model" },
   t1: { ok: true, msg: "Question", reply: Q.text, replySource: "model", clarify: { ...Q } },
-  t2: { ok: true, msg: "✅ Done.", reply: "Your TikTok is in every footer now.", replySource: "model" },
+  t2: { ok: true, msg: "Done.", reply: "Your TikTok is in every footer now.", replySource: "model" },
 };
 const FRESH = { access_token: "fresh-token", refresh_token: "fresh-r", expires_at: 2_000_000_000, user: { id: "22175f41-6fbf-49d7-b039-a65078a0141c" } };
 const plans = (over = {}) => (n) => (n === 0
@@ -210,7 +210,7 @@ test("A LINK THAT RAN BEFORE ITS PAGE WAS DONE fails message 1's order check by 
 
 test("NO QUESTION: message 2's request ends without asking, so the answer is NOT sent and the press says why", async () => {
   const asked = [B_VIEWS[0], view(KB, [HEAD_DONE, part(1, TIK, "done", { route: "addon", ids: ["t1"], jobs: ["t1"], said: S_TIK })], { ended: true })];
-  const h = lcApp({ b: asked, app: { replies: { ...REPLIES, t1: { ok: true, msg: "✅ Done.", reply: "Your TikTok is in the footer.", replySource: "model" } } } });
+  const h = lcApp({ b: asked, app: { replies: { ...REPLIES, t1: { ok: true, msg: "Done.", reply: "Your TikTok is in the footer.", replySource: "model" } } } });
   const rec = await lcDrive(h);
   assert.equal(rec.sent, 2);
   assert.match(rec.stopped.msg, /message 2 ended without the question message 3 answers — message 3 is NOT sent/);

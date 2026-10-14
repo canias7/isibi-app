@@ -228,11 +228,11 @@ test("applyNav: a menu the change leaves as it was is left as written, to the by
 
 test("navReply: the menus as they now read — one sentence when every changed page reads the same, each named when they differ", () => {
   assert.equal(navReply({ links: [HOME], changed: ["a.tsx", "b.tsx"], menus: { pages: 2, lists: [{ items: [HOME, MEN], pages: 2 }] } }),
-    "✅ Updated the menu on 2 pages: Home · Menu.");
+    "Updated the menu on 2 pages: Home · Menu.");
   assert.equal(navReply({ links: [HOME], changed: ["a.tsx", "b.tsx", "c.tsx"], menus: { pages: 2, lists: [{ items: [HOME, MEN], pages: 1 }, { items: [MEN], pages: 1 }] } }),
-    "✅ Updated the menu on 2 pages, each keeping its own items — Home · Menu (1 page); Menu (1 page).", "the count is not the pages whose menu changed");
+    "Updated the menu on 2 pages, each keeping its own items — Home · Menu (1 page); Menu (1 page).", "the count is not the pages whose menu changed");
   // WITHOUT THE MENUS, THE ANSWER'S OWN LIST, as before.
-  assert.equal(navReply({ links: [HOME, MEN], changed: ["a.tsx"] }), "✅ Updated the menu on 1 page: Home · Menu.");
+  assert.equal(navReply({ links: [HOME, MEN], changed: ["a.tsx"] }), "Updated the menu on 1 page: Home · Menu.");
 });
 
 test("runNavEdit: a button changed beside a menu answer that changed no menu is not reported as a menu change", async () => {
@@ -267,7 +267,7 @@ test("the owner's case through runNavEdit: Home, Menu, Visit us, Order, Status a
   assert.equal(r.ok, true, JSON.stringify({ reason: r.reason, msg: r.msg }));
   assert.deepEqual(menuOf(r.pages[0].source), [[ORD, STA, HOME, MEN, VIS]]);
   assert.deepEqual(r.changed, ["index.tsx"]);
-  assert.equal(r.msg, "✅ Updated the menu on 1 page: Order · Status · Home · Menu · Visit us.");
+  assert.equal(r.msg, "Updated the menu on 1 page: Order · Status · Home · Menu · Visit us.");
 });
 
 test("every one of the 120 orders of a five-item menu, answered by the editor, is the order that page ends up with (through runNavEdit)", async () => {
@@ -487,7 +487,7 @@ for (const mode of ["sync", "job"]) {
       "order.tsx": [],
       "takeaway.tsx": [],
     }, "remove " + mode);
-    assert.equal(r.reply.msg, "✅ Updated the menu on 3 pages, each keeping its own items — Home · Menu · Visit us (1 page); Menu · Visit (1 page); Home · Visit us · Menu (1 page).");
+    assert.equal(r.reply.msg, "Updated the menu on 3 pages, each keeping its own items — Home · Menu · Visit us (1 page); Menu · Visit (1 page); Home · Visit us · Menu (1 page).");
     assert.ok(!r.pages.some((p) => menuOf(p.source).flat().some((it) => it.href === "/order")), "a menu still lists Order");
   });
 
@@ -514,7 +514,7 @@ for (const mode of ["sync", "job"]) {
       "order.tsx": [],
       "takeaway.tsx": [],
     }, "two moved " + mode);
-    assert.equal(r.reply.msg, "✅ Updated the menu on 4 pages, each keeping its own items — Order · Home · Menu · Visit us (1 page); Order · Menu · Visit (1 page); Order · Home · Visit us · Menu (1 page); Status · Home (1 page).");
+    assert.equal(r.reply.msg, "Updated the menu on 4 pages, each keeping its own items — Order · Home · Menu · Visit us (1 page); Order · Menu · Visit (1 page); Order · Home · Visit us · Menu (1 page); Status · Home (1 page).");
   });
 
   // TWO MOVED ITEMS ON ONE PAGE, which is where the old placement went wrong:

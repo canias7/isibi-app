@@ -249,7 +249,7 @@ function assertDoorAsked(r, layer, ask, label) {
 // Every menu used to be rewritten, so those two came out reformatted, item for
 // item the same, and were counted as updated. A menu the change leaves as it
 // was is now left as written, and the reply counts the menus that changed.
-const MENU_SAID = "✅ Updated the menu on 2 pages: Today's bake · The starter · Visit.";
+const MENU_SAID = "Updated the menu on 2 pages: Today's bake · The starter · Visit.";
 
 /**
  * THE ACCEPTANCE FOR THE MENU MESSAGE, shared by every shape that must reach the
@@ -543,7 +543,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(built(r2), ["index.tsx", "order.tsx", "starter.tsx", "visit.tsx"]);
     assert.deepEqual(paths(r2), ["index.tsx", "order.tsx", "starter.tsx", "visit.tsx"]);
     for (const p of paths(r2)) assert.equal(page(r2, p), page(r1, p), p + " changed in the removal");
-    assert.equal(r2.said.text, "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back.");
+    assert.equal(r2.said.text, "Took /gallery off the site. Every publish is kept, so say the word if you want it back.");
     if (mode === "sync") assert.deepEqual(r2.debits, [], "the removal was charged");
     else {
       assert.deepEqual(r2.row, { state: "done", billing: "exempt", cost: 0 });
@@ -559,7 +559,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.builds.length, 0);
     assert.deepEqual(r.debits, []);
     for (const p of PAGES) assert.equal(page(r, p.path), p.source, p.path + " changed");
-    assert.equal(r.said.text, "⚠️ I left /gallery — / still links to it. Ask me to take the link out first. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.");
+    assert.equal(r.said.text, "I left /gallery — / still links to it. Ask me to take the link out first. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.");
     if (mode === "job") assert.equal(r.row.billing, "none");
   });
 
@@ -603,7 +603,7 @@ for (const mode of ["sync", "job"]) {
       // BOTH CHANGES ARE NAMED (2026-10-03, the mixed-work fixes, MW1/MW8): the
       // page the layout changed and the picture step's own account. This said
       // "✅ Updated the look." over both, naming neither.
-      assert.equal(r.said.text, "✅ Updated /. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
+      assert.equal(r.said.text, "Updated /. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
       assertCharged(r, mode, [3, 2], label);
     });
@@ -637,7 +637,7 @@ for (const mode of ["sync", "job"]) {
       assertDoorAsked(r, "picture", ask, label);
       // THE PART THAT DID NOT GO THROUGH IS NAMED BY WHAT IT WAS ABOUT (2026-10-03):
       // the router's own step carries no words of its own, so its part of the site.
-      assert.equal(r.said.text, "✅ Updated /. ⚠️ A photograph: I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
+      assert.equal(r.said.text, "Updated /. A photograph: I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
       assertCharged(r, mode, [3, 2], label);
     });
@@ -672,7 +672,7 @@ for (const mode of ["sync", "job"]) {
       assertOthersKept(r, label);
       assertDoorAsked(r, "nav", BAND_ASK, label);
       // BOTH NAMED (2026-10-03, MW1/MW8): the page and the menu editor's own account.
-      assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
+      assert.equal(r.said.text, "Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
       assertCharged(r, mode, [3, 2], label);
     });
   }
@@ -698,7 +698,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
     assertOthersKept(r, label);
     // BOTH SHIPPED CHANGES NAMED, AND THE REFUSED PART BY WHAT IT WAS ABOUT (2026-10-03).
-    assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit. ⚠️ What a control does: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
+    assert.equal(r.said.text, "Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit. What a control does: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
 }
@@ -779,7 +779,7 @@ for (const mode of ["sync", "job"]) {
     // THE SCREEN NAMES BOTH (2026-10-03, the mixed-work fixes, MW1/MW8): the
     // Visit page the move changed and the picture step's own account. It read
     // "✅ Updated the look." — the parked review #9 wording, naming neither.
-    assert.equal(r.said.text, "✅ Updated /visit. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
+    assert.equal(r.said.text, "Updated /visit. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
 }
@@ -893,7 +893,7 @@ for (const [name, picker] of [
     assert.ok(home.includes('alt="' + FRONT + '"') && home.includes("64eee06cebae214308ea0142e5163286.jpg"), "the other photograph went too");
     assert.equal(home, ORIG["index.tsx"].replace(BOULE_LINES, ""), "more than the one photograph changed");
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, p.path + " changed");
-    assert.ok(r.said.text.startsWith("✅ Took “" + BOULE + "” off the page."), r.said.text);
+    assert.ok(r.said.text.startsWith("Took “" + BOULE + "” off the page."), r.said.text);
     assertDoorAsked(r, "picture", PHOTO_ASK, name);
     assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: picker.routed || [], additional: [] }]);
     assert.deepEqual(r.debits, [3]);
@@ -931,8 +931,8 @@ const homeWriter = (args) => {
 test("THE UNDO HINT READS THE PICTURE STEP'S OWN COUNT — never `photosRemoved` against `photos`, in either direction", () => {
   // Found by the mutation sweep: every case above has the two counts agree
   // with the explicit one, so inferring it from them went unseen.
-  const said = (counts) => editBrowserReply({ ok: true, layer: "look", msg: "✅ Updated the look.", cost: 1, ...counts }, true, ROUTED).text;
-  const LOST = "✅ Updated the look. One photograph is no longer on the site. ";
+  const said = (counts) => editBrowserReply({ ok: true, layer: "look", msg: "Updated the look.", cost: 1, ...counts }, true, ROUTED).text;
+  const LOST = "Updated the look. One photograph is no longer on the site. ";
   // A PHOTOGRAPH GONE WITHOUT THE PICTURE STEP TAKING IT OFF (a rewrite dropped
   // it, no frame left): the counts say "more gone than framed", and the hint is
   // still the one that fits a photograph the picture step did not remove.
@@ -969,7 +969,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
     assert.equal(r.reply.photosRemoved, 1, label);
     assert.equal(r.reply.photos, 0, label + ": an empty frame was reported");
-    assert.equal(r.said.text, "✅ Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+    assert.equal(r.said.text, "Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label);
   });
 
@@ -984,7 +984,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(page(r, "visit.tsx"), T7_VISIT, label + ": the Visit page is not the fixture less the counter's element");
     for (const p of ["index.tsx", "order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
     assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
-    assert.equal(r.said.text, "✅ Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+    assert.equal(r.said.text, "Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
   });
 
   test(`KEEP THE SPACE (${mode}): asked for by name, the photograph goes and its frame stays — exactly as before`, async () => {
@@ -997,7 +997,7 @@ for (const mode of ["sync", "job"]) {
     for (const p of ["index.tsx", "order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
     assert.equal(r.reply.photosTakenOff, undefined, label + ": a kept space was reported as taken off");
     assert.equal(r.reply.photos, 1, label + ": the frame it left is not reported");
-    assert.equal(r.said.text, "✅ Took the picture off “" + COUNTER + "”. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+    assert.equal(r.said.text, "Took the picture off “" + COUNTER + "”. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
   });
 
   test(`A CONTRADICTION IS REFUSED BY NAME (${mode}), and the valid change beside it still ships`, async () => {
@@ -1008,7 +1008,7 @@ for (const mode of ["sync", "job"]) {
     // THE BOULE UNTOUCHED, THE FRONT REFRAMED — and nothing else.
     assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace('<SafeImage\n          src="/u/fold-lane-bakery/64eee06cebae214308ea0142e5163286.jpg"', '<SafeImage focus="bottom"\n          src="/u/fold-lane-bakery/64eee06cebae214308ea0142e5163286.jpg"'), label + ": the home page");
     assert.equal(r.reply.photosTakenOff, undefined, label);
-    assert.equal(r.said.text, "✅ Moved “" + FRONT + "” to show the bottom. I got conflicting instructions for “" + BOULE + "” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.", label + ": the screen");
+    assert.equal(r.said.text, "Moved “" + FRONT + "” to show the bottom. I got conflicting instructions for “" + BOULE + "” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.", label + ": the screen");
   });
 
   test(`A PHOTOGRAPH WRITTEN INSIDE CODE IS REFUSED (${mode}): nothing is cut, cleared or widened, and nothing is published`, async () => {
@@ -1024,7 +1024,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
     assert.equal(r.builds.length, 0, label + ": something was compiled");
     assert.equal(page(r, "visit.tsx"), inCode, label + ": the Visit page changed");
-    assert.ok(r.said.text.startsWith("⚠️ I couldn't take “" + COUNTER + "” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off."), label + ": " + r.said.text);
+    assert.ok(r.said.text.startsWith("I couldn't take “" + COUNTER + "” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off."), label + ": " + r.said.text);
   });
 
   // ── TEST 7'S MIXED TWO-PAGE MESSAGE: the photograph off one page, the band moved on another ──
@@ -1050,7 +1050,7 @@ for (const mode of ["sync", "job"]) {
       assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
       // BOTH NAMED (2026-10-03, MW1/MW8): the home page the move changed and the
       // picture step's own account of the counter it took off.
-      assert.equal(r.said.text, "✅ Updated /. Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+      assert.equal(r.said.text, "Updated /. Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
     });
   }
 }
@@ -1170,7 +1170,7 @@ for (const mode of ["sync", "job"]) {
       // MW1/MW8). It named neither — review #9, a multi-step look reply naming
       // only the look — and the owner's order now asks for every completed
       // operation with its target.
-      assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
+      assert.equal(r.said.text, "Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
       assertCharged(r, mode, [3, 2], label);
     });
   }
@@ -1195,7 +1195,7 @@ for (const mode of ["sync", "job"]) {
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
     assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.lanes]), [["look", "no-change", ["behavior"]]], label + ": partial");
     // THE REFUSED PART NAMED BY ITS OWN WORDS (2026-10-03): the picker scoped it.
-    assert.equal(r.said.text, "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
+    assert.equal(r.said.text, "Updated /. “" + MENU_WORDS + "”: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
   });
 }
 
@@ -1209,10 +1209,10 @@ for (const mode of ["sync", "job"]) {
   for (const [name, navAnswer, partial, cost, charged, said] of [
     ["the menu editor answers nothing it can apply", {},
       [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2],
-      "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
+      "Updated /. “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
     ["the menu editor cannot be reached", undefined,
       [["nav", "send", [MENU_LANE], undefined]], 3, [3],
-      "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't reach the model that sets the menu — try again in a moment."],
+      "Updated /. “" + MENU_WORDS + "”: I couldn't reach the model that sets the menu — try again in a moment."],
   ]) {
     test(`LOOK DOOR, THE MENU HALF FAILS (${mode}): ${name} — the layout ships alone, every menu is as it was, and the reply says the menu was not changed`, async () => {
       const answers = { [PICK]: MENU_AND_BAND, write_tweak: bandWriter };
@@ -1264,7 +1264,7 @@ for (const mode of ["sync", "job"]) {
       assertMenuLessGallery(r, {}, label);
       assertOthersKept(r, label);
       assertCharged(r, mode, [3], label);
-      assert.equal(r.said.text, MENU_SAID + " ⚠️ " + said, label + ": the screen");
+      assert.equal(r.said.text, MENU_SAID + " " + said, label + ": the screen");
     });
   }
 

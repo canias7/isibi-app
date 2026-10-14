@@ -44,7 +44,7 @@ test("NOTHING ATTACHED IS ITS OWN ANSWER, not a generic failure", () => {
     assert.equal(readLogoImage(empty, { sniff }).reason, "none");
   }
   assert.match(logoRefusal("none"), /Attach/);
-  assert.match(logoRefusal("none"), /📎/);
+  assert.match(logoRefusal("none"), /the \+ button/); // the composer's attach button (no emoji, 2026-10-13)
 });
 
 test("AN SVG IS REFUSED, and the message says what to send instead", () => {

@@ -116,7 +116,7 @@ test("REFUSE 1 — a designer's refusal beside a judgment that finished: every r
   assert.equal(replyOutcomeOf(addonReplyFacts(r.body)), "not-done");
   // THE SCREEN: the refusal's sentence, then the note the server composed.
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(said, r.body.msg + " " + r.body.coverNote);
   for (const n of [PAY, SPIN, EMAIL, LIGHT]) assert.ok(said.includes(n.need), "the screen lost " + n.need);
   assert.match(said, /Your site already had that in place, but I can't confirm from here that The owner is emailed about each new enquiry/);
   // NO CLAIM OF WORK, AND NO EXTRA, ANYWHERE THE CUSTOMER OR THE MODEL READS.
@@ -137,7 +137,7 @@ test("REFUSE 2 — the same refusal beside a judgment that did not finish (empty
     assert.equal(r.body.requirementsTold, undefined, slug);
     assert.equal(r.body.coverNote, "", slug);
     assert.deepEqual(facts(r.body), [refusalFact(r.body)], slug);
-    assert.equal(screen(r.body, false), "⚠️ " + r.body.msg, slug);
+    assert.equal(screen(r.body, false), r.body.msg, slug);
   }
 });
 
@@ -163,7 +163,7 @@ test("REFUSE 3 — every designer declined, each having said what the change nee
     "not-done: Nothing here can see whether this is in place: The model is lit from above.",
   ]);
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(said, r.body.msg + " " + r.body.coverNote);
   assert.doesNotMatch(said, NO_WORK);
   // THE DEVELOPER'S RECORD (this refusal is after it is written): found where
   // it already was.
@@ -474,7 +474,7 @@ test("WARN 4 — a code whose page did not come, shown on five new pages, throug
   // THE SCREEN SAYS EACH ONCE: the refusal's own sentence already says the
   // code and its pages, so its note leaves them out.
   assert.equal(z.body.coverNote, "");
-  assert.equal(screen(z.body, false), "⚠️ " + z.body.msg);
+  assert.equal(screen(z.body, false), z.body.msg);
 });
 
 test("WARN 5 — seed skips and empty tables through the route, past every old cut: eighteen refused rows over six tables, a skip for who can read a table beside one for a table that already had rows, and five tables nothing can fill — every one on the answer, a fact of its own, and on the screen", async () => {

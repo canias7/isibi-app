@@ -523,10 +523,17 @@ test("one page names the page", () => {
   assert.match(renderNote(renderReport([{ ...clean, route: "/book", text: 0, images: 0 }])), /\/book/);
 });
 
-test("the note reads as a second look, never as a refusal", () => {
+// SAID AS WHAT IT IS (2026-10-14, Codex's review of branch `new`): it read as
+// "I had a look at the finished pages", which claims somebody looked at the
+// design. It is an automated check in a browser, and says so.
+test("the note says an automated browser check flagged it, never that anybody looked, and never reads as a refusal", () => {
   const note = renderNote(renderReport([{ ...clean, route: "/", broken: ["/u/x.jpg"] }]));
-  assert.match(note, /had a look/i);
+  assert.match(note, /^An automated check that opened the finished pages in a browser flagged: \/ has an image that did not load\.$/);
+  assert.doesNotMatch(note, /\bI\b|look|review|saw/i, "the note claims somebody looked");
   assert.doesNotMatch(note, /fail|refus|could not build|stopped/i);
+  const unmet = renderNote(renderReport([{ ...clean, route: "/pay", unmet: ["stripe"] }]));
+  assert.match(unmet, /\/pay reads something the check can't reach, so it was not checked with real data\.$/, "the observer is not alive: " + unmet);
+  assert.doesNotMatch(unmet, /\bI\b|couldn't see/i, "the unreachable page is said as somebody's sight: " + unmet);
 });
 
 // ── severity ─────────────────────────────────────────────────────────────────

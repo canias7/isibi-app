@@ -449,9 +449,9 @@ test("PLACE 6 — questions go with their requests: an earlier question already 
     assert.equal(b.ask().id, qb.id);
     assert.deepEqual(b.ask().request, { key: K2, part: 0 });
     assert.equal(b.ctx.siteLiveAskHTML(asks(qa.id)[0], b.s), "", "the answered question still offers its answers");
-    assert.match(b.ctx.siteLiveAskHTML(asks(qb.id)[0], b.s), /data-ask-ans="Seven"/);
+    assert.match(b.ctx.siteLiveAskHTML(asks(qb.id)[0], b.s), /data-ask-pick="Seven"/);
     // ANSWERED HERE: the answer is that request's, and its reply comes after it.
-    b.click("data-ask-ans", "Seven");
+    (b.click("data-ask-pick", "Seven"), b.click("data-ask-go", "1"));
     await idle();
     await pump(P);
     await looks(b, 4);
@@ -490,7 +490,7 @@ test("PLACE 7 — an older thread, from before the marks: its messages keep thei
     // THE THREAD AS THE OLD PAGE KEPT IT: nothing marked, the record without `own`.
     const site = siteFor(P.slug);
     site.msgs = [
-      { r: "u", t: "Make the logo bigger" }, { r: "a", t: "✅ Made the logo bigger." },
+      { r: "u", t: "Make the logo bigger" }, { r: "a", t: "Made the logo bigger." },
       { r: "u", t: MSGS[0] + ", and " + ADD + "." }, { r: "a", t: "", request: K1 }, { r: "a", t: "Changed the description." },
       { r: "u", t: "Thanks" }, { r: "a", t: "You're welcome." },
     ];
@@ -554,13 +554,13 @@ test("PLACE 9 — an older thread's request card stays under the message that as
     // here (so the server's list is not asked to repeat it), nothing marked.
     const KL = "olderthreadrequest0001";
     const site = siteFor(P.slug);
-    site.msgs = [{ r: "u", t: "Make the logo bigger" }, { r: "a", t: "", request: KL }, { r: "a", t: "✅ Made the logo bigger." }];
+    site.msgs = [{ r: "u", t: "Make the logo bigger" }, { r: "a", t: "", request: KL }, { r: "a", t: "Made the logo bigger." }];
     site.requests = { [KL]: { at: Date.now(), view: { key: KL, state: "done", ended: true, at: at + 60000, parts: [] }, shown: [], replied: true, replies: ["end"], closed: true, approving: [] } };
     const b = opened(openPage(P, wire(P), { site }));
     await idle();
     await looks(b);
     assert.deepEqual(shape(b), ["card:" + K1, "a:" + K1 + "#", "u", "card:" + KL, "a:"]);
-    assert.deepEqual(b.s.msgs.slice(2).map((m) => m.t), ["Make the logo bigger", "", "✅ Made the logo bigger."]);
+    assert.deepEqual(b.s.msgs.slice(2).map((m) => m.t), ["Make the logo bigger", "", "Made the logo bigger."]);
   });
 });
 
@@ -613,7 +613,7 @@ test("PLACE 10 — an answer whose routing reply is lost on the way back, though
     await idle();
     await looks(b);
     assert.equal(b.ask().id, qb.id);
-    b.click("data-ask-ans", "Seven");
+    (b.click("data-ask-pick", "Seven"), b.click("data-ask-go", "1"));
     await idle();
     // THE SERVER TOOK THE ANSWER; THE PAGE NEVER HEARD, AND SAID SO.
     assert.notEqual(P.record(K2).parts[0].status, "waiting", "the server did not take the answer");
@@ -655,7 +655,7 @@ test("PLACE 6b — a question another device's request asks while this page is o
     assert.equal(b.ask() && b.ask().id, qb.id, "the waiting question was not made live here");
     assert.deepEqual(b.ask().request, { key: K2, part: 0 });
     // ANSWERED HERE: its reply after the answer, and the request now this page's own.
-    b.click("data-ask-ans", "Eight");
+    (b.click("data-ask-pick", "Eight"), b.click("data-ask-go", "1"));
     await idle();
     await pump(P);
     await looks(b, 4);

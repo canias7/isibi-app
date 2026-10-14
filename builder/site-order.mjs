@@ -438,6 +438,6 @@ export function sortReply({ table = "", order = "", dir = "asc", changed = [], r
       : table + " already comes out in that order — nothing to change.");
   }
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
-  return "✅ " + table + " now comes out in order of " + order +
+  return table + " now comes out in order of " + order +
     (dir === "desc" ? ", highest first" : ", lowest first") + " — on " + where + "." + left;
 }

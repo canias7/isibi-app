@@ -435,7 +435,7 @@ test("one name on the list and one not: the one there comes off, and the reply s
   assert.equal(screen.ok, true, screen.why);
   // (Which words name the field is the look sentence's business — backlog —
   // so this pins the note's place after it, not those words.)
-  assert.match(screen.text, /^✅ Updated the look[^.]*\. There was no extra language `de` to take off, so that part changed nothing\./, "the screen: " + JSON.stringify(screen.text));
+  assert.match(screen.text, /^Updated the look[^.]*\. There was no extra language `de` to take off, so that part changed nothing\./, "the screen: " + JSON.stringify(screen.text));
   // CONTROL: the same reply without the note shows no note.
   const plain = editBrowserReply({ ...r.reply, takeOffNote: undefined }, true);
   assert.ok(plain.ok && !plain.text.includes("to take off"), "a reply with no note shows one: " + JSON.stringify(plain.text));
@@ -451,7 +451,7 @@ test("a removal that took nothing off is shown as its sentence, said once that n
   // THE STEP SAYS WHAT IT FOUND; THE BROWSER SAYS NOTHING CHANGED AND WHAT IT
   // COST — once. The step's sentence said "Nothing was changed." as well until
   // the screenshot showed both.
-  assert.equal(screen.text, "⚠️ This site has no extra language `de` — its only extra language is `fr`. Nothing on your site changed, and this edit cost you nothing.",
+  assert.equal(screen.text, "This site has no extra language `de` — its only extra language is `fr`. Nothing on your site changed, and this edit cost you nothing.",
     "the screen: " + JSON.stringify(screen.text));
   assert.equal(screen.text.match(/[Nn]othing (?:on your site |was )?changed/g).length, 1, "the screen says twice that nothing changed");
   assert.deepEqual(screen.actions.filter((a) => /PAID/.test(a)), [], "the browser started a paid request after a refusal: " + JSON.stringify(screen.actions));

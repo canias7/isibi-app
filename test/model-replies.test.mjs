@@ -91,7 +91,7 @@ test("A FAILURE OF OURS IS DECIDED BY WHAT THE ANSWER SAYS, NEVER BY ITS STATUS:
 // 2. THE FACTS OF AN EDIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("COMPLETE SUCCESS: each layer's own result is a fact — the new wording, the entries, the page, the look, a step's own account — and the render sentence, the undo and a photograph lost are facts too", () => {
+test("COMPLETE SUCCESS: each layer's own result is a fact — the new wording, the entries, the page, the look, a step's own account — and the publish's checks, the undo and a photograph lost are facts too; the render sentence never is", () => {
   const text = editReplyFacts({ ok: true, layer: "text", applied: 2, changed: ["Fresh bread daily"], cost: 1 });
   assert.equal(text.skip, null);
   assert.deepEqual(text.facts, [{ id: "c1", kind: "changed", text: "Changed the wording in 2 places; it now reads “Fresh bread daily”." }]);
@@ -108,14 +108,19 @@ test("COMPLETE SUCCESS: each layer's own result is a fact — the new wording, t
   const removed = editReplyFacts({ ok: true, layer: "page", removed: ["src/routes/gallery.tsx"], cost: 0 });
   assert.deepEqual(texts(removed), ["Took /gallery off the site.", "Every published version is kept, so a page taken off can be put back if they ask."]);
 
-  const look = editReplyFacts({ ok: true, layer: "look", moved: ["description", "brand"], renamed: 3, pageOps: [{ page: "/visit" }], renderNote: "The page drew, but one heading is hard to read on its background." });
-  assert.deepEqual(kinds(look), ["changed", "changed", "changed", "note"]);
+  // THE PUBLISH'S CHECKS ARE FACTS, FROM ITS EVIDENCE (2026-10-14); THE
+  // RENDER SENTENCE IS NOT ONE ANY MORE — it said "I had a look", and what
+  // the check found reaches the reply as the check's own facts instead.
+  const checks = { compiled: true, browser: { ran: true, pages: 2, findings: [{ route: "/visit", kind: "contrast" }] }, published: true, version: "01791-abcdef" };
+  const look = editReplyFacts({ ok: true, layer: "look", moved: ["description", "brand"], renamed: 3, pageOps: [{ page: "/visit" }], renderNote: "The page drew, but one heading is hard to read on its background.", checks });
+  assert.deepEqual(kinds(look), ["changed", "changed", "changed", "check", "check", "check"]);
   assert.match(texts(look)[0], /^Changed the description and the name\.$/);
   assert.equal(texts(look)[1], "Updated /visit.");
   assert.equal(texts(look)[2], "Changed the name in 3 places on the pages too.");
-  assert.equal(texts(look)[3], "The page drew, but one heading is hard to read on its background.", "the render sentence is not a fact the reply must cover");
+  assert.match(texts(look)[4], /It flagged text that is nearly invisible \(\/visit\)\. It is automated: nobody looked at the design\.$/);
+  assert.ok(!texts(look).includes("The page drew, but one heading is hard to read on its background."), "the render sentence is still a fact");
 
-  const nav = editReplyFacts({ ok: true, layer: "nav", msg: "✅ Took Gallery out of the menu on every page." });
+  const nav = editReplyFacts({ ok: true, layer: "nav", msg: "Took Gallery out of the menu on every page." });
   assert.deepEqual(texts(nav), ["What the builder reports it did: “Took Gallery out of the menu on every page.”"]);
   const rules = editReplyFacts({ ok: true, layer: "rules", msg: "Bookings are closed." });
   assert.deepEqual(kinds(rules), ["changed", "note"]);

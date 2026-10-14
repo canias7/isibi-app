@@ -134,7 +134,7 @@ const LP_VIEWS = [
 const FRESH = { access_token: "fresh-token", refresh_token: "fresh-r", expires_at: 2_000_000_000, user: { id: "22175f41-6fbf-49d7-b039-a65078a0141c" } };
 const lpApp = (over = {}) => rqApp({
   progress: true, fresh: true,
-  replies: { f1: { ok: true, msg: "✅ Done.", reply: "I've added your FAQ page, with a link in the menu.", replySource: "model" }, c1: { ok: true, msg: "✅ Done.", reply: "The Classes page heading now reads \"Spend a Saturday morning at the bench\".", replySource: "model" } },
+  replies: { f1: { ok: true, msg: "Done.", reply: "I've added your FAQ page, with a link in the menu.", replySource: "model" }, c1: { ok: true, msg: "Done.", reply: "The Classes page heading now reads \"Spend a Saturday morning at the bench\".", replySource: "model" } },
   send: () => ({ request: { key: KEY, views: LP_VIEWS }, route: { intent: "addon" } }),
   ...over,
 });
@@ -277,7 +277,7 @@ test("A LATER MESSAGE GOES FROM THE FRESH SESSION'S TAB: once that session has s
   const v2 = [view(KEY2, [part(0, "change the Visit page heading …", "done", { route: "text", ids: ["h1"], jobs: ["h1"] })], { ended: true })];
   const h = lpApp({
     send: (i) => (i === 0 ? { request: { key: KEY, views: LP_VIEWS }, route: { intent: "addon" } } : { request: { key: KEY2, views: v2 }, route: { intent: "edit" } }),
-    replies: { f1: { ok: true, msg: "✅ Done.", reply: "I've added your FAQ page.", replySource: "model" }, c1: { ok: true, msg: "✅ Done.", reply: "The heading is changed.", replySource: "model" }, h1: { ok: true, msg: "✅ Done.", reply: "The Visit heading is changed.", replySource: "model" } },
+    replies: { f1: { ok: true, msg: "Done.", reply: "I've added your FAQ page.", replySource: "model" }, c1: { ok: true, msg: "Done.", reply: "The heading is changed.", replySource: "model" }, h1: { ok: true, msg: "Done.", reply: "The Visit heading is changed.", replySource: "model" } },
   });
   const rec = await lpDrive(h, {}, twoSteps);
   assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));

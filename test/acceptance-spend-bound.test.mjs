@@ -119,7 +119,7 @@ test("SEVERAL JOBS FINISHING BETWEEN READS, AND EVERY MESSAGE DELIVERED TWICE: t
 
 test("THE PRESS REFUSES BEFORE IT SENDS unless the account holds no more than the batch cap — the bound the ledger then enforces; the image-free Build too", () => {
   assert.equal(ACCEPTANCE_CAP, 100);
-  for (const k of ["acc-page-table", "acc-table-page", "acc-needs", "acc-mixed", "acc-pages-real", "acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation", "acc-isolation-page"]) {
+  for (const k of ["acc-page-table", "acc-table-page", "acc-needs", "acc-mixed", "acc-mixed-talk", "acc-pages-real", "acc-addon-inner", "acc-addon-edit", "acc-addon-pair", "acc-addon-kinds", "acc-addon-two-parts", "acc-isolation", "acc-isolation-page"]) {
     const sc = UI_SCENARIOS[k];
     assert.ok(sc, `no ${k}`);
     assert.equal(sc.cap, ACCEPTANCE_CAP, `${k} is not bound by the batch cap`);

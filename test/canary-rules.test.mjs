@@ -385,7 +385,7 @@ test("the notification record is one row with a real setting and a stamp that is
 
 // ── THE EDIT: EITHER SUPPORTED WAY OF CLOSING ───────────────────────────────
 
-const stored = (fields, over = {}) => ({ ok: true, layer: "rules", applied: [{ table: "bookings", fields }], refused: [], msg: "✅ **bookings** — changed it.", cost: 1, ...over });
+const stored = (fields, over = {}) => ({ ok: true, layer: "rules", applied: [{ table: "bookings", fields }], refused: [], msg: "**bookings** — changed it.", cost: 1, ...over });
 const T = (access = "collect", menu = "display") => tablesOf({ status: 200, json: { tables: [{ name: "bookings", access, rows: 0 }, { name: "menu_items", access: menu, rows: 6 }] } });
 
 test("either supported way of closing is accepted on what the job changed and what the listing shows, never on its wording", () => {
@@ -398,7 +398,7 @@ test("either supported way of closing is accepted on what the job changed and wh
   // `read` may ride along as long as it does not move.
   assert.equal(closingVerdict({ stored: stored(["read", "write"]), before: T(), after: T("read none / write none"), spec: SPEC }).ok, true);
   // THE WORDING IS NOT READ: any sentence, either implementation's or none, gives the same verdict.
-  for (const msg of ["✅ **bookings** — changed whether it's open.", "✅ **bookings** — changed who can add to it.", "anything at all", ""]) {
+  for (const msg of ["**bookings** — changed whether it's open.", "**bookings** — changed who can add to it.", "anything at all", ""]) {
     assert.equal(closingVerdict({ stored: stored(["retired"], { msg }), before: T(), after: T(), spec: SPEC }).ok, true, `the verdict read "${msg}"`);
   }
   // A refusal beside the closing is carried, not failed on.

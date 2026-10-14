@@ -374,7 +374,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.said.ok, true, label + ": " + r.said.why);
     // THE EDITED PAGE AND THE REMOVED ONE, BOTH NAMED — this said "✅ Updated
     // the look." until the reply correction.
-    assert.equal(r.said.text, "✅ Updated / and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated / and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
     assert.ok(!/home page/.test(r.said.text), label + ": the home-page refusal is still on the screen");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
@@ -399,7 +399,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.reply.removed, ["gallery.tsx"], label + ": the reply's removal");
     assertOps(r, [LAYOUT("/prices"), GONE], label);
     assertOneCharge(r, mode, label);
-    assert.equal(r.said.text, "✅ Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
 }
@@ -430,7 +430,7 @@ for (const mode of ["sync", "job"]) {
     assertOps(r, [LAYOUT("/"), MOVE], label);
     assertOneCharge(r, mode, label);
     // THE EDITED PAGE, AND THE MOVE'S OLD AND NEW ADDRESSES.
-    assert.equal(r.said.text, "✅ Updated / and moved /gallery to /photos.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated / and moved /gallery to /photos.", label + ": the customer's sentence");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
 
@@ -452,7 +452,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.renamedTo, "/photos", label + ": the reply's move");
     assertOps(r, [LAYOUT("/prices"), MOVE], label);
     assertOneCharge(r, mode, label);
-    assert.equal(r.said.text, "✅ Updated /prices and moved /gallery to /photos.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated /prices and moved /gallery to /photos.", label + ": the customer's sentence");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
 }
@@ -484,7 +484,7 @@ test("the router's remove flag opens the picture door and deletes nothing a layo
   assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["picture", "no-slots"]], label + ": partial");
   assert.equal(r.reply.removed, undefined, label + ": a page was reported removed");
   assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "✅ Updated /prices. ⚠️ I couldn't find a photograph on your site that I can change. If you'd like one added, say which page it should go on and where.", label + ": the customer's sentence");
+  assert.equal(r.said.text, "Updated /prices. I couldn't find a photograph on your site that I can change. If you'd like one added, say which page it should go on and where.", label + ": the customer's sentence");
   assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
 });
 
@@ -500,10 +500,10 @@ test("the router's remove flag opens the picture door and deletes nothing a layo
 const GALLERY_GONE = { "index.tsx": HOME, "prices.tsx": PRICES, "visit.tsx": VISIT };
 const GALLERY_MOVED = { "index.tsx": HOME, "prices.tsx": PRICES, "photos.tsx": MOVED, "visit.tsx": VISIT };
 const AS_STORED = Object.fromEntries(STORED.map((p) => [p.path, p.source]));
-const REMOVED_SAID = "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back.";
+const REMOVED_SAID = "Took /gallery off the site. Every publish is kept, so say the word if you want it back.";
 // A MOVE ON ITS OWN NAMES BOTH ADDRESSES. It said "✅ Updated /gallery." until
 // the reply correction — the address the page had just left.
-const MOVED_SAID = "✅ Moved /gallery to /photos.";
+const MOVED_SAID = "Moved /gallery to /photos.";
 
 for (const mode of ["sync", "job"]) {
   test("control: the router's own removal still removes the page it names, free (" + mode + ")", async () => {
@@ -560,7 +560,7 @@ test("control: the layout alone on a non-home page is one page operation", async
   assert.deepEqual(pageWriterCalls(r), [T.tweak]);
   assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, "layout alone");
   assertOneCharge(r, "sync", "layout alone");
-  assert.equal(r.said.text, "✅ Updated /prices.", "the customer's sentence");
+  assert.equal(r.said.text, "Updated /prices.", "the customer's sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -589,7 +589,7 @@ test("two layout lanes beside a removal are ONE page operation, and the removal 
   // ONE ENTRY FOR THE JOINED LAYOUT STEP, NOT ONE PER LANE.
   assertOps(r, [LAYOUT("/prices"), GONE], label);
   assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "✅ Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+  assert.equal(r.said.text, "Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -619,7 +619,7 @@ for (const mode of ["sync", "job"]) {
     assertOneCharge(r, mode, label);
     // THE REFUSED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
     // (The builder's sentence names the page, so the lead does not.)
-    assert.equal(r.said.text, "✅ Updated /prices. ⚠️ A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated /prices. A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
     assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
@@ -641,7 +641,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.renamedTo, undefined, label + ": a move was reported");
     assertOps(r, [LAYOUT("/prices")], label);
     assertOneCharge(r, mode, label);
-    assert.equal(r.said.text, "✅ Updated /prices. ⚠️ I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "Updated /prices. I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
     assert.ok(!/moved/i.test(r.said.text), label + ": the refused move was described as done");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
@@ -668,7 +668,7 @@ for (const mode of ["sync", "job"]) {
     // always did, so the screen states that and what the edit and the routing
     // call cost. It had no whole-request note at all.
     assert.equal(r.reply.unchanged, true, label + ": a refused move no longer says it wrote nothing");
-    assert.equal(r.said.text, "⚠️ I couldn't move that page — there is already a page at /visit. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "I couldn't move that page — there is already a page at /visit. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
   });
 
   test("control: a refused removal on its own is said, and nothing is removed (" + mode + ")", async () => {
@@ -682,7 +682,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.pageOps, undefined, label + ": a refused removal was listed as an operation");
     assert.deepEqual(r.debits, [], label + ": debits");
     assert.deepEqual(r.reserves, [], label + ": reserves");
-    assert.equal(r.said.text, "⚠️ I left / — that is the home page, and removing it would leave the site with no front door. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
+    assert.equal(r.said.text, "I left / — that is the home page, and removing it would leave the site with no front door. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
   });
 }
 
@@ -705,7 +705,7 @@ test("a move's reported address is the one the renamer published, not the one th
   assert.equal(r.reply.renamedTo, "/photos", label + ": the reply's move");
   assertOps(r, [LAYOUT("/prices"), MOVE], label);
   assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "✅ Updated /prices and moved /gallery to /photos.", label + ": the customer's sentence");
+  assert.equal(r.said.text, "Updated /prices and moved /gallery to /photos.", label + ": the customer's sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,7 +735,7 @@ test("a stylesheet change beside a removal names both: the look's own sentence, 
   assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
   assert.equal(r.reply.css, true, label + ": the stylesheet was not reported as changed");
   assertOps(r, [GONE], label);
-  assert.equal(r.said.text, "✅ Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+  assert.equal(r.said.text, "Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
 });
 
 for (const mode of ["sync", "job"]) {
@@ -753,7 +753,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
     assertOps(r, [GONE], label);
     assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
-    assert.equal(r.said.text, "✅ " + STYLING_SAME + " Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+    assert.equal(r.said.text, STYLING_SAME + " Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
     assert.ok(!/nothing to change/.test(r.said.text), label + ": the whole request was described as having nothing to change");
   });
 }
@@ -769,7 +769,7 @@ test("unchanged styling beside a move says the styling was already in place, the
   assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
   assertOps(r, [MOVE], label);
   assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, "✅ " + STYLING_SAME + " Moved /gallery to /photos.", label + ": the customer's sentence");
+  assert.equal(r.said.text, STYLING_SAME + " Moved /gallery to /photos.", label + ": the customer's sentence");
 });
 
 test("unchanged styling beside an ordinary page edit names the page it changed", async () => {
@@ -787,7 +787,7 @@ test("unchanged styling beside an ordinary page edit names the page it changed",
   assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
   assertOps(r, [LAYOUT("/prices")], label);
   assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, "✅ " + STYLING_SAME + " Updated /prices.", label + ": the customer's sentence");
+  assert.equal(r.said.text, STYLING_SAME + " Updated /prices.", label + ": the customer's sentence");
 });
 
 test("control: unchanged styling on its own still says the site already looks like that", async () => {
@@ -803,7 +803,7 @@ test("control: unchanged styling on its own still says the site already looks li
   assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
   assert.equal(r.reply.pageOps, undefined, label + ": a page operation was listed");
   assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, "✅ " + LOOK_SAME, label + ": the customer's sentence");
+  assert.equal(r.said.text, LOOK_SAME, label + ": the customer's sentence");
 });
 
 test("control: unchanged styling beside a REFUSED removal keeps the look's own sentence and warns about the refusal", async () => {
@@ -820,7 +820,7 @@ test("control: unchanged styling beside a REFUSED removal keeps the look's own s
   assert.equal(r.reply.pageOps, undefined, label + ": a refused removal was listed as an operation");
   assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
   // THE REFUSED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
-  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
+  assert.equal(r.said.text, LOOK_SAME + " A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
   assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
 });
 
@@ -837,7 +837,7 @@ test("control: unchanged styling beside a REFUSED move keeps the look's own sent
   assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "rename"]], label + ": partial");
   assert.equal(r.reply.pageOps, undefined, label + ": a refused move was listed as an operation");
   assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
+  assert.equal(r.said.text, LOOK_SAME + " I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
   assert.ok(!/moved/i.test(r.said.text), label + ": the refused move was described as done");
 });
 
@@ -855,5 +855,5 @@ test("two successful page steps on one page are named once", () => {
   const reply = { ok: true, layer: "look", layers: ["page", "page", "page"], pageOps: [LAYOUT("/"), LAYOUT("/"), GONE], cost: 6 };
   const said = editBrowserReply(reply, true, { cost: 2 });
   assert.equal(said.ok, true, said.why);
-  assert.equal(said.text, "✅ Updated / and took /gallery off the site. Every publish is kept, so say the word if you want it back.");
+  assert.equal(said.text, "Updated / and took /gallery off the site. Every publish is kept, so say the word if you want it back.");
 });

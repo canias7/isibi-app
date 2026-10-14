@@ -35,6 +35,7 @@
 //
 // Every answer here is SUPPLIED. This proves what the browser sends and says
 // for a reply, never how often a real route answers these shapes.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -239,9 +240,9 @@ const REWRITE = "/api/site/react-revise";
 
 // The edit's own not-knowing sentence (`unreadEditMsg`) — its advice corrected
 // on 2026-09-25 from "check the preview", which cannot show a data or rules change.
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
+const UNREAD = "I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
 // The routing stop's and the add-on's own sentence.
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
 
 // What every stop owes the customer: the requests it expected and not one more
 // — no rewrite, no add-on, no second edit — one sentence, and the send box free.
@@ -334,8 +335,8 @@ test("A 401 ASKS FOR SIGN-IN, beside the gate, and starts nothing more — decid
   const html = await drive({ answers: { route: [routeTo("look")], edit: [{ status: 401, body: "<html>401</html>", type: "text/html" }] } });
   assertStopped(html, ["POST " + EDIT], SIGNED_OUT);
   // ONE SENTENCE ON THREE PATHS: the routing stop and the add-on say it too.
-  assert.ok(CHAT.includes("'⚠️ You’re signed out. Sign in and send that again.'"), "the edit's sign-in sentence drifted from the others'");
-  assert.match(CHAT, /if \(kind === 'signed-out'\) return '⚠️ You’re signed out\. Sign in and send that again\.';/, "the add-on's sign-in sentence drifted");
+  assert.ok(CHAT.includes("'You’re signed out. Sign in and send that again.'"), "the edit's sign-in sentence drifted from the others'");
+  assert.match(CHAT, /if \(kind === 'signed-out'\) return 'You’re signed out\. Sign in and send that again\.';/, "the add-on's sign-in sentence drifted");
 });
 
 // ── A WATCH RESUMED AFTER A REFRESH READS WITH THE SAME RULE ─────────────────
@@ -371,7 +372,7 @@ test("CONTROL: a success is applied and said, straight back and queued — the r
   ]) {
     const o = await drive({ answers: { route: [routeTo("look")], edit: [edit], poll: [stored(SUCCESS)] } });
     assert.deepEqual(o.trail, trail);
-    assert.deepEqual(o.said, ["✅ Updated the look."]);
+    assert.deepEqual(o.said, ["Updated the look."]);
     assert.ok(o.events.includes("credit refresh"), "a published change did not refresh the balance");
     assert.equal(o.busy, false);
   }
@@ -393,7 +394,7 @@ test("CONTROL: the valid edit → add-on handoff posts the add-on once, in the c
     assert.deepEqual(o.trail, trail);
     assert.equal(o.reqs.find((r) => r.kind === "addon").body.instruction, ASK);
     assert.equal(o.said.length, 1, "the handoff's addition was not said once");
-    assert.match(o.said[0], /^✅/);
+    assert.doesNotMatch(o.said[0], PICTOGRAPH);
   }
 });
 
@@ -407,7 +408,7 @@ test("CONTROL: a hop to a cheaper rung posts one edit there with the same ask, s
     const posts = o.reqs.filter((r) => r.kind === "edit");
     assert.deepEqual(posts.map((r) => r.body.layer), ["data", "text"]);
     assert.equal(posts[1].body.instruction, ASK);
-    assert.deepEqual(o.said, ["✅ Updated the wording."]);
+    assert.deepEqual(o.said, ["Updated the wording."]);
   }
   const paged = await drive({ answers: { route: [routeTo("picture")], edit: [ok(PAGE_HOP)] } });
   const second = paged.reqs.filter((r) => r.kind === "edit")[1];
@@ -442,7 +443,7 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
   for (const [edit, poll] of [[[ok(EXPLAIN, 422)], []], [[RECEIPT], [stored(EXPLAIN, 422)]]]) {
     const o = await drive({ answers: { route: [routeTo("page")], edit, poll } });
     // THE ROUTING REPLY RIDES BOTH PATHS, so both name what reading the message cost.
-    assert.deepEqual(o.said, ["⚠️ " + EXPLAIN.msg + NOTE]);
+    assert.deepEqual(o.said, ["" + EXPLAIN.msg + NOTE]);
     assert.equal(o.trail.filter((t) => t.startsWith("POST")).length, 1);
   }
   // THE ALL-REFUSED MERGE: every step's sentence, no top-level `msg`.
@@ -451,13 +452,13 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
   const all = await drive({ answers: { route: [routeTo("look")], edit: [ok(ALL, 422)] } });
   // EACH LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes: a
   // part is named by its target, here the only one these parts carry, their layer).
-  assert.deepEqual(all.said, ["⚠️ The look: I couldn't find that colour. A page: The photo change was refused." + NOTE]);
+  assert.deepEqual(all.said, ["The look: I couldn't find that colour. A page: The photo change was refused." + NOTE]);
   // A refusal whose body carries a real `escalate: false` is a refusal.
   // (2026-09-25) Every refusal now states what the routing call cost when the
   // page holds its reply, and what the edit cost when the reply records it —
   // a reply with no `cost` says nothing about the edit rather than a guess.
   const f = await drive({ answers: { route: [routeTo("look")], edit: [ok({ ok: false, escalate: false, error: "x", msg: "No." }, 422)] } });
-  assert.deepEqual(f.said, ["⚠️ No. Reading your message cost 2 credits."]);
+  assert.deepEqual(f.said, ["No. Reading your message cost 2 credits."]);
   // editStopped and the reconcile's refund, as stored: their own sentences,
   // then the amounts each recorded.
   for (const [body, status, tail] of [
@@ -467,7 +468,7 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
       " Reading your message cost 2 credits."],
   ]) {
     const o = await drive({ answers: { route: [routeTo("look")], edit: [RECEIPT], poll: [stored(body, status)] } });
-    assert.deepEqual(o.said, ["⚠️ " + body.msg + tail]);
+    assert.deepEqual(o.said, ["" + body.msg + tail]);
   }
 });
 
@@ -475,14 +476,14 @@ test("CONTROL: a partial outcome is said beside the change that shipped, and esc
   const PARTIAL = { ...SUCCESS, partial: [{ layer: "page", msg: "The photo change was refused." }] };
   const o = await drive({ answers: { route: [routeTo("look")], edit: [ok(PARTIAL)] } });
   // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
-  assert.deepEqual(o.said, ["✅ Updated the look. ⚠️ A page: The photo change was refused."]);
+  assert.deepEqual(o.said, ["Updated the look. A page: The photo change was refused."]);
   const f = await drive({ answers: { route: [routeTo("look")], edit: [ok({ ...SUCCESS, escalate: false })] } });
-  assert.deepEqual(f.said, ["✅ Updated the look."]);
+  assert.deepEqual(f.said, ["Updated the look."]);
 });
 
 test("CONTROL: the sweep's recovered reply carries a job and is still a success, said in its own words", async () => {
   const o = await drive({ answers: { route: [routeTo("look")], edit: [RECEIPT], poll: [stored({ ok: true, recovered: true, reconciled: "committed", job: "job-e", cost: 2, build: null })] } });
-  assert.deepEqual(o.said, ["✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it."]);
+  assert.deepEqual(o.said, ["Your change was published — but the details of what it did were lost along the way. Reload the preview to see it."]);
 });
 
 test("CONTROL: needs-review blocks the site, and the next message is refused without an edit POST", async () => {
@@ -493,7 +494,7 @@ test("CONTROL: needs-review blocks the site, and the next message is refused wit
   const o = p.read();
   assert.deepEqual(o.trail, ["POST " + EDIT], "the second message reached the edit route");
   assert.equal(o.said.length, 2);
-  for (const t of o.said) assert.match(t, /^⚠️ That edit stopped while it was publishing/);
+  for (const t of o.said) assert.match(t, /^That edit stopped while it was publishing/);
 });
 
 test("CONTROL: a dropped POST and an unreadable body say the not-knowing sentence, as they did", async () => {

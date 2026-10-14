@@ -97,7 +97,7 @@ export function logoRefusal(reason, { files = 0, target = "logo" } = {}) {
       return "That came with " + files + " files, and a site has one " + what + ", so I haven't picked one — your site is unchanged. Send the one you want on its own and say it's your " + what + ".";
     }
     case "none":
-      return "Attach the logo with the 📎 button and say it's your logo — I'll put it in the header.";
+      return "Attach the logo with the + button and say it's your logo — I'll put it in the header.";
     case "svg":
       return "I can't use an SVG logo — export it as a PNG (with a transparent background if it has one) and attach that instead.";
     case "too_big":
@@ -168,7 +168,7 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
     const mark = where === "icon" ? "favicon" : "wordmark";
     return {
       ok: true, removed: true, target: where, left: left || null, files: gone.files,
-      msg: "✅ Took the " + (where === "icon" ? "tab icon" : "logo") + " off — back to " +
+      msg: "Took the " + (where === "icon" ? "tab icon" : "logo") + " off — back to " +
         markWords(mark, left) + ".",
     };
   }
@@ -214,7 +214,7 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
   return {
     ok: true, url, target: where, files: pub.files,
     msg: where === "icon"
-      ? "✅ That's your tab icon now — it shows in the browser tab and when somebody bookmarks the site."
-      : "✅ That's your logo in the header now, on every page.",
+      ? "That's your tab icon now — it shows in the browser tab and when somebody bookmarks the site."
+      : "That's your logo in the header now, on every page.",
   };
 }

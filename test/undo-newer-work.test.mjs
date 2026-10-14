@@ -141,8 +141,8 @@ const T0 = Date.now() - 60 * 60 * 1000;
 const siteFor = (extra = {}) => ({ id: "origin-1", slug: SLUG, react: true, name: "Fold Lane Bakery", url: URL0, pages: [{ path: "/" }], msgs: [], ...extra });
 const part = (n, words, status, jobs = [], route = "data") => ({ n, words, status, ids: jobs.slice(), jobs: jobs.slice(), charged: 0, route });
 const view = (key, at, parts, ended = false) => ({ key, state: ended ? "done" : "running", ended, stop: false, at, updatedAt: at, routedUnsaid: 0, parts });
-const REMOVED = { ok: true, layer: "data", applied: [{ table: "loaves", id: 3, removed: true, was: { name: "Rye" } }], cost: 1, reply: "✅ The Rye loaf is off the list.", replySource: "model" };
-const HEADING = { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "✅ The heading now reads “Fed every morning”.", replySource: "model" };
+const REMOVED = { ok: true, layer: "data", applied: [{ table: "loaves", id: 3, removed: true, was: { name: "Rye" } }], cost: 1, reply: "The Rye loaf is off the list.", replySource: "model" };
+const HEADING = { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "The heading now reads “Fed every morning”.", replySource: "model" };
 const RYE = [{ table: "loaves", was: { name: "Rye" } }];
 /** This browser's own request as a reload finds it: its message, its card, its last view. */
 function ownRecord(site, key, words, extraMsgs = []) {

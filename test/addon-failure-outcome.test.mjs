@@ -201,7 +201,7 @@ test("ROUTE 1 — Codex's second gap: the publish fails AFTER the database chang
   assert.equal(replyOutcomeOf(addonReplyFacts(r.body)), "partly");
   // THE SCREEN WITH NO MODEL REPLY: the sentence, then the note composed for it.
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(said, r.body.msg + " " + r.body.coverNote);
   assert.match(said, /I've set that up, but I can't confirm from here that Each signup is kept/);
   assert.match(said, /Still to do: A page lets visitors sign up\./);
 });
@@ -222,7 +222,7 @@ test("ROUTE 2 — the same request where the compile fails BEFORE the apply: not
     "not-done: Not done: " + FORM.need + ".",
   ]);
   assert.equal(replyOutcomeOf(addonReplyFacts(r.body)), "not-done");
-  assert.equal(screen(r.body, false), "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(screen(r.body, false), r.body.msg + " " + r.body.coverNote);
   assert.doesNotMatch(r.body.coverNote, /I've set that up|already had/);
 });
 
@@ -262,7 +262,7 @@ test("ROUTE 3 — the apply stops part-way: what went in is not known, and nothi
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", FORM.need], ["unseen", STORE.need]]);
   assert.equal(addonReplyFacts(r.body).skip, "technical");
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(said, r.body.msg + " " + r.body.coverNote);
   assert.doesNotMatch(said, /untouched|I've set that up/);
   assert.ok(said.includes(STORE.need) && said.includes(FORM.need), said);
 });
@@ -334,7 +334,7 @@ test("ROUTE 6 — a judgment that did not finish stops before anything is applie
   assert.deepEqual(r.body.outcome, NOTHING);
   assert.equal(addonReplyFacts(r.body).skip, "technical");
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg);
+  assert.equal(said, r.body.msg);
   assert.doesNotMatch(said, /set that up|already|Still to do/);
 });
 
@@ -352,7 +352,7 @@ test("ROUTE 7 — the site's database cannot be made: nothing changed, by where 
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", STORE.need], ["still-to-do", FORM.need]]);
   assert.equal(addonReplyFacts(r.body).skip, "technical");
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + r.body.msg + " " + r.body.coverNote);
+  assert.equal(said, r.body.msg + " " + r.body.coverNote);
   assert.ok(said.includes(STORE.need) && said.includes(FORM.need), said);
   assert.doesNotMatch(said, /I've set that up|already had/);
   // A 503 TO THE CREATE — the harness's own "unavailable", which is not Neon's
@@ -384,7 +384,7 @@ const OLD_REFUSAL = {
 
 test("REPLAY 1 — Codex's first gap, at the browser: an older refusal's note is never printed; what is shown beside a served outcome is composed by the reply's own rule, so the screen and the facts tell one story", () => {
   // THE RAW STORED BODY: the refusal's sentence, and nothing it cannot vouch for.
-  assert.equal(screen(OLD_REFUSAL, false), "⚠️ I couldn't add that.");
+  assert.equal(screen(OLD_REFUSAL, false), "I couldn't add that.");
   // THE FACTS, AS ACCEPTED: already there, never set up.
   const f = facts(OLD_REFUSAL);
   assert.deepEqual(f, [
@@ -400,11 +400,11 @@ test("REPLAY 1 — Codex's first gap, at the browser: an older refusal's note is
     + " I had starter rows ready for posts and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change.");
   const served = { ...OLD_REFUSAL, outcome: outcomeOf(OLD_REFUSAL), coverNote: note };
   const said = screen(served, false);
-  assert.equal(said, "⚠️ I couldn't add that. " + note);
+  assert.equal(said, "I couldn't add that. " + note);
   assert.doesNotMatch(said, /I've set that up/);
   // AN OUTCOME THE BROWSER CANNOT TRUST LEAVES THE NOTE UNSAID.
   for (const bad of [{ ...NOTHING, published: true }, { ...NOTHING, state: "maybe" }, { ...NOTHING, database: "yes" }, "none", []]) {
-    assert.equal(screen({ ...served, outcome: bad }, false), "⚠️ I couldn't add that.", JSON.stringify(bad));
+    assert.equal(screen({ ...served, outcome: bad }, false), "I couldn't add that.", JSON.stringify(bad));
   }
   // A LIST THAT DOES NOT READ COMPOSES NOTHING — never the old note.
   assert.equal(replayedCoverNote({ ...OLD_REFUSAL, requirementsTold: [{ need: 5, told: "set-up" }] }), "");
@@ -422,7 +422,7 @@ test("REPLAY 2 — older answers of the later exits: the compile exit's database
   assert.match(f[1], /^not-done: The rest of it did not go through: nothing was published, so the site's pages are as they were\./);
   assert.ok(!f.some((x) => /Nothing was added/.test(x)), JSON.stringify(f));
   assert.equal(replyOutcomeOf(addonReplyFacts(OLD_COMPILE)), "partly");
-  assert.equal(screen(OLD_COMPILE, false), "⚠️ " + OLD_COMPILE.msg);
+  assert.equal(screen(OLD_COMPILE, false), OLD_COMPILE.msg);
   // A LATER STOP STORED WITH NOTHING TO SAY WHAT IT LEFT.
   const OLD_STOP = {
     ok: false, error: "rewrote", cost: 0, msg: "I couldn't add that without changing what's already on the home page. Nothing was published.",
@@ -435,7 +435,7 @@ test("REPLAY 2 — older answers of the later exits: the compile exit's database
     "note: This answer does not record whether any part of the addition went in before it stopped, so that cannot be said either way.",
     "not-done: Nothing here can see whether this is in place: Each signup is kept.",
   ]);
-  assert.equal(screen(OLD_STOP, false), "⚠️ " + OLD_STOP.msg, "an older stop's note was printed");
+  assert.equal(screen(OLD_STOP, false), OLD_STOP.msg, "an older stop's note was printed");
   const note = replayedCoverNote(OLD_STOP);
   assert.match(note, /Each signup is kept/);
   assert.doesNotMatch(note, /I've set that up|already had/);
@@ -483,14 +483,14 @@ test("REPLAY 3 — through the real poll route: a refused addition's job is stor
     assert.doesNotMatch(old.body.coverNote, /I've set that up/);
     assert.equal(JSON.parse(job.result.body).coverNote, OLD_REFUSAL.coverNote, "the stored answer itself was rewritten");
     const said = screen(old.body, false);
-    assert.match(said, /^⚠️ I couldn't add that\. One thing your site can't do yet: People can pay by bank transfer/);
+    assert.match(said, /^I couldn't add that\. One thing your site can't do yet: People can pay by bank transfer/);
     assert.match(said, /Your site already had that in place/);
     assert.doesNotMatch(said, /I've set that up/);
     // AN OLDER ANSWER WITH NO LIST: its old note is not served at all.
     job.result = { ...job.result, body: JSON.stringify({ ok: false, error: "add", cost: 0, msg: "I couldn't add that.", coverNote: "I've set that up, but I can't confirm that X." }) };
     const bare = await call(P, "GET", "/api/site/edit/" + job.id);
     assert.equal(bare.body.coverNote, undefined, "an older note with nothing to stand in for it was served");
-    assert.equal(screen(bare.body, false), "⚠️ I couldn't add that.");
+    assert.equal(screen(bare.body, false), "I couldn't add that.");
   } finally { P.close(); compiler.uninstall(); }
 });
 
@@ -631,7 +631,7 @@ test("PROV 2 — the pageless path: the site's database made, then its apply sto
   assert.equal(r.body.msg, SCHEMA_MSG);
   assert.equal(r.body.coverNote, MADE_UNKNOWN);
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + MADE_UNKNOWN);
+  assert.equal(said, SCHEMA_MSG + " " + MADE_UNKNOWN);
   assert.doesNotMatch(said, /nothing from this|untouched/);
   assert.equal(addonReplyFacts(r.body).skip, "technical");
 });
@@ -648,7 +648,7 @@ test("PROV 3 — the publish path: the site's database made, then the apply at t
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", FORM.need], ["unseen", STORE.need]]);
   assert.ok(r.body.coverNote.endsWith(" " + MADE_UNKNOWN), r.body.coverNote);
   const said = screen(r.body, false);
-  assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + r.body.coverNote);
+  assert.equal(said, SCHEMA_MSG + " " + r.body.coverNote);
   assert.ok(said.includes(STORE.need) && said.includes(FORM.need), said);
   assert.doesNotMatch(said, /nothing from this|untouched|I've set that up/);
   assert.equal(addonReplyFacts(r.body).skip, "technical");
@@ -675,7 +675,7 @@ test("PROV 4 — controls through the route: a database made and an apply that l
   assert.ok(!c.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)), "the apply ran before a compile that failed");
   assert.deepEqual(c.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
   assert.equal(c.body.coverNote, MADE_NOTHING);
-  assert.equal(screen(c.body, false), "⚠️ " + c.body.msg + " " + MADE_NOTHING);
+  assert.equal(screen(c.body, false), c.body.msg + " " + MADE_NOTHING);
   assert.equal(facts(c.body)[0], "changed: The site has its own database now, made for this addition; nothing from it is stored in it yet.");
 });
 
@@ -705,7 +705,7 @@ test("PROV 5 — stored and replayed: the route's answer for a database made and
     assert.deepEqual(served.outcome, pub.body.outcome);
     assert.equal(served.coverNote, pub.body.coverNote);
     const said = screen(served, false);
-    assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + pub.body.coverNote);
+    assert.equal(said, SCHEMA_MSG + " " + pub.body.coverNote);
     assert.ok(said.endsWith(" " + MADE_UNKNOWN), said);
     assert.doesNotMatch(said, /nothing from this/);
     assert.equal(addonReplyFacts(served).skip, "technical");
@@ -714,7 +714,7 @@ test("PROV 5 — stored and replayed: the route's answer for a database made and
     job.result = { ...job.result, body: JSON.stringify(readable) };
     const again = (await call(P, "GET", "/api/site/edit/" + job.id)).body;
     assert.equal(again.coverNote, MADE_UNKNOWN);
-    assert.equal(screen(again, false), "⚠️ " + readable.msg + " " + MADE_UNKNOWN);
+    assert.equal(screen(again, false), readable.msg + " " + MADE_UNKNOWN);
     const g = facts(again);
     assert.equal(g[0], "changed: The site has its own database now, made for this addition.");
     assert.ok(g.includes(UNKNOWN_FACT), JSON.stringify(g));

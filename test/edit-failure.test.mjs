@@ -31,6 +31,7 @@
 // reply reserved (`edit_refund`), which is why the merge reports a refused
 // message's cost as 0 there. That half is read, not driven here.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -244,7 +245,7 @@ function assertExplained(r, before, store, { key, facts, status = 422, ours = fa
   // THE SCREEN: the sentence, then what the edit and the routing call cost,
   // and NOT ONE follow-up action — above all, no rewrite.
   assert.equal(r.said.shown, true, key + ": the browser showed nothing");
-  assert.equal(r.said.text, "⚠️ " + msg + NOTHING_CHANGED + ROUTING_2, key + ": the screen does not say what happened");
+  assert.equal(r.said.text, msg + NOTHING_CHANGED + ROUTING_2, key + ": the screen does not say what happened");
   assert.deepEqual(r.said.actions, [], key + ": the browser started a follow-up on a refusal");
 }
 
@@ -274,7 +275,7 @@ test("taking off a page the site does not have, through the lane picker, is a se
   // THE SENTENCE ITSELF, PINNED: accurate about what was asked, and naming the
   // pages the site really has.
   assert.equal(r.said.text,
-    "⚠️ Your site doesn't have a /blog page, so there was nothing to take off. Its pages are / and /news."
+    "Your site doesn't have a /blog page, so there was nothing to take off. Its pages are / and /news."
     + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.");
 });
 
@@ -361,7 +362,7 @@ test("the owner's all-withheld reproduction is one page operation now, and it sa
   assert.equal(snapshot(store), before, "the store moved on a refused message");
   assert.equal(r.compiles, 0);
   assert.deepEqual(r.seen.debits, []);
-  assert.equal(r.said.text, "⚠️ " + r.body.msg + NOTHING_CHANGED + ROUTING_2);
+  assert.equal(r.said.text, r.body.msg + NOTHING_CHANGED + ROUTING_2);
   assert.match(r.said.text, /taking a photograph off your site/);
   assert.deepEqual(r.said.actions, [], "a refused message started a follow-up");
 });
@@ -406,7 +407,7 @@ test("when every step is refused, each says why — the steps' own sentences, on
   // page steps refused for the one reason on the one page are named together,
   // still once.
   // (The page is in the builder's sentence, so it is not said in front of it too.)
-  assert.equal(r.said.text, "⚠️ A page’s building blocks and a part built for the site: " + noChange + " " + noSlots + NOTHING_CHANGED + ROUTING_2);
+  assert.equal(r.said.text, "A page’s building blocks and a part built for the site: " + noChange + " " + noSlots + NOTHING_CHANGED + ROUTING_2);
   assert.deepEqual(r.said.actions, [], "a message whose every step was refused started a follow-up");
 });
 
@@ -432,7 +433,7 @@ test("steps refused for different reasons each keep their own sentence", async (
   assert.deepEqual(r.body.partial.map((p) => p.msg), [noSlots, noChange], "each step's own sentence is not on the reply");
   // EACH LED BY WHAT IT WAS ABOUT (2026-10-03); the photograph's own sentence
   // already names it, so it is not named twice.
-  assert.equal(r.said.text, "⚠️ " + noSlots + " A part built for the site: " + noChange + NOTHING_CHANGED + ROUTING_2);
+  assert.equal(r.said.text, noSlots + " A part built for the site: " + noChange + NOTHING_CHANGED + ROUTING_2);
   assert.deepEqual(r.said.actions, []);
   assert.equal(snapshot(store), before);
   assert.deepEqual(r.seen.debits, []);
@@ -557,7 +558,7 @@ test("the data rung on an incomplete site changes the row through the four-state
   // THE CHARGE IS WHAT WAS DEBITED.
   assert.ok(r.body.cost > 0, "a successful edit reported no cost");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.match(r.said.text, /^✅/, "the screen does not report a made change");
+  assert.doesNotMatch(r.said.text, PICTOGRAPH, "the screen does not report a made change");
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
 
@@ -623,7 +624,7 @@ test("a photograph that lives only in a component is swapped where it lives, and
     "the stored component is not the swapped one");
   assert.equal(storedPages(store, slug)[0].source, PART_HOME, "a page moved on a component's photograph swap");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.match(r.said.text, /^✅/);
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
 
@@ -667,7 +668,7 @@ test("control: an ordinary wording edit publishes, and the screen reports it", a
   assert.equal(storedPages(store, slug).find((p) => p.path === "news.tsx").source, TWO_PAGES(slug)[1].source, "an unrelated page moved");
   assert.ok(r.body.cost > 0);
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.match(r.said.text, /^✅/);
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
   assert.ok(!r.said.text.includes("Nothing on your site changed"), "a published edit is reported as changing nothing");
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
@@ -693,8 +694,8 @@ test("control: a partial success keeps its green tick and names the half that di
   const noChange = failureMsg("page/no-change", { page: "/" });
   assert.deepEqual((r.body.partial || []).map((p) => p.msg), [noChange]);
   assert.equal(JSON.parse(store.store.get(CONFIG_KEY(slug))).css.includes("#1f2a44"), true, "the stylesheet change was not stored");
-  assert.match(r.said.text, /^✅/);
-  assert.ok(r.said.text.includes(" ⚠️ A part built for the site: " + noChange), "the refused half is not named, with what it was about, after the tick");
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
+  assert.ok(r.said.text.includes(" A part built for the site: " + noChange), "the refused half is not named, with what it was about, after the tick");
   assert.ok(!r.said.text.includes("Nothing on your site changed"), "a partial success claims nothing changed");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
   assert.deepEqual(r.said.actions, [REFRESH]);
@@ -825,7 +826,7 @@ test("a message whose steps did not all write nothing never claims the site is u
   // this path, and the routing call is its own.
   const n = r.body.cost;
   // EACH LED BY WHAT IT WAS ABOUT (2026-10-03, the mixed-work fixes).
-  assert.equal(r.said.text, "⚠️ A part built for the site: " + byLayer.page.msg + " The web address: " + byLayer.rename.msg
+  assert.equal(r.said.text, "A part built for the site: " + byLayer.page.msg + " The web address: " + byLayer.rename.msg
     + " This edit cost " + n + " credit" + (n === 1 ? "" : "s") + ". Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, []);
 });
@@ -837,7 +838,7 @@ test("a message whose steps did not all write nothing never claims the site is u
 test("a reply the browser cannot read says so and buys nothing", () => {
   const said = editBrowserReply(null, true, ROUTED("page", "/"));
   assert.ok(said.ok, said.why);
-  assert.match(said.text, /^⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through\./);
+  assert.match(said.text, /^I couldn’t read the answer to that change, so I can’t tell whether it went through\./);
   assert.deepEqual(said.actions, [], "an unreadable reply started a paid rewrite");
 });
 
@@ -845,7 +846,7 @@ test("a refusal with no sentence at all is still a refusal, never the rewrite", 
   const said = editBrowserReply({ ok: false, error: "something", cost: 0 }, false, ROUTED("page", "/"));
   assert.ok(said.ok, said.why);
   assert.equal(said.shown, true);
-  assert.match(said.text, /^⚠️ /);
+  assert.doesNotMatch(said.text, PICTOGRAPH);
   assert.deepEqual(said.actions, []);
 });
 
@@ -854,24 +855,24 @@ test("the screen states the edit's own charge and the routing charge as two amou
   // An edit that cost something while changing nothing, and a routing call of
   // one credit: singular, and apart.
   const said = editBrowserReply({ ok: false, error: "no-match", cost: 3, unchanged: true, msg }, false, { intent: "edit", layer: "text", cost: 1 });
-  assert.equal(said.text, "⚠️ " + msg + " Nothing on your site changed, but this edit cost 3 credits. Reading your message cost 1 credit.");
+  assert.equal(said.text, msg + " Nothing on your site changed, but this edit cost 3 credits. Reading your message cost 1 credit.");
   // A watch resumed after a refresh holds no routing reply: nothing is said
   // about the routing call rather than a guess.
   const resumed = editBrowserReply({ ok: false, error: "no-match", cost: 0, unchanged: true, msg }, false, undefined);
-  assert.equal(resumed.text, "⚠️ " + msg + NOTHING_CHANGED);
+  assert.equal(resumed.text, msg + NOTHING_CHANGED);
   // A refusal that does NOT say it wrote nothing makes no claim about the
   // site — and states the money it recorded all the same (2026-09-25).
   const unsure = editBrowserReply({ ok: false, error: "compile", cost: 0, msg }, false, ROUTED("data"));
-  assert.equal(unsure.text, "⚠️ " + msg + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(unsure.text, msg + " This edit cost you nothing. Reading your message cost 2 credits.");
   const charged = editBrowserReply({ ok: false, error: "no-match", cost: 1, msg }, false, ROUTED("data"));
-  assert.equal(charged.text, "⚠️ " + msg + " This edit cost 1 credit. Reading your message cost 2 credits.");
+  assert.equal(charged.text, msg + " This edit cost 1 credit. Reading your message cost 2 credits.");
   // A COST THAT IS NOT A RECORDED NUMBER SAYS NOTHING ABOUT THE EDIT — the
   // poll route leaves it off a job whose own row does not settle it — and the
   // routing call is still said.
   const unsettled = editBrowserReply({ ok: false, error: "stopped", msg }, false, ROUTED("data"));
-  assert.equal(unsettled.text, "⚠️ " + msg + " Reading your message cost 2 credits.");
+  assert.equal(unsettled.text, msg + " Reading your message cost 2 credits.");
   const unsettledSame = editBrowserReply({ ok: false, error: "no-match", unchanged: true, msg }, false, ROUTED("data"));
-  assert.equal(unsettledSame.text, "⚠️ " + msg + " Nothing on your site changed. Reading your message cost 2 credits.");
+  assert.equal(unsettledSame.text, msg + " Nothing on your site changed. Reading your message cost 2 credits.");
 });
 
 // NAMED, NOT COUNTED, SINCE 2026-10-03 (the mixed-work fixes: *"Do not replace
@@ -879,7 +880,7 @@ test("the screen states the edit's own charge and the routing charge as two amou
 // what it was about — here only its layer is known.
 test("a refused step with no sentence of its own is still named, never dropped", () => {
   const said = editBrowserReply({ ok: false, cost: 0, partial: [{ layer: "page", error: "compile" }] }, false, ROUTED("look"));
-  assert.match(said.text, /^⚠️ A page didn’t go through\. Ask for it again on its own and I’ll tell you why\./);
+  assert.match(said.text, /^A page didn’t go through\. Ask for it again on its own and I’ll tell you why\./);
   assert.deepEqual(said.actions, []);
 });
 
@@ -898,7 +899,7 @@ const REFUSED = "The photo change was refused.";
 const EXPLAINED = { layer: "picture", lanes: ["images"], page: "/", words: ["swap the window photo"], msg: REFUSED };
 const SILENT = (lanes, page, words) => ({ layer: "page", lanes, page, ...(words ? { words } : {}), error: "compile" });
 const ASK_AGAIN = " didn’t go through. Ask for it again on its own and I’ll tell you why.";
-const TOOK = "✅ Took the picture off “the window”.";
+const TOOK = "Took the picture off “the window”.";
 const EXPLAINED_SAID = "“swap the window photo” on /: " + REFUSED;
 
 // WHAT A REFUSAL ALSO STATES (2026-09-25): the edit's recorded cost and the
@@ -908,17 +909,17 @@ test("a refusal names the steps that gave no reason beside the ones that did —
   const refuse = (partial) => editBrowserReply({ ok: false, cost: 0, partial }, false, ROUTED("look"));
   const alone = refuse([EXPLAINED]);
   const mixed = refuse([EXPLAINED, SILENT(["shape"], "/visit", ["move the order band up"])]);
-  assert.equal(alone.text, "⚠️ " + EXPLAINED_SAID + PAID, "one explained failure alone");
-  assert.equal(mixed.text, "⚠️ " + EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN + PAID,
+  assert.equal(alone.text, EXPLAINED_SAID + PAID, "one explained failure alone");
+  assert.equal(mixed.text, EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN + PAID,
     "the step with no reason vanished beside the one with a reason, or was not named");
   assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
   // A DUPLICATE SENTENCE ON ONE PAGE IS ONE PROBLEM; TWO STEPS WITH NO SENTENCE
   // ARE TWO — each named, even two that look alike, because each is its own step.
   assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT(["tsx"], "/"), SILENT(["components"], "/")]).text,
-    "⚠️ " + EXPLAINED_SAID + " A part built for the site on /" + ASK_AGAIN + " A page’s building blocks on /" + ASK_AGAIN + PAID);
+    EXPLAINED_SAID + " A part built for the site on /" + ASK_AGAIN + " A page’s building blocks on /" + ASK_AGAIN + PAID);
   // EVERY EXPLANATION, NOT TWO AND A COUNT: three steps with three sentences are three.
   assert.equal(refuse([EXPLAINED, { layer: "nav", lanes: ["action"], msg: "The menu change was refused." }, { layer: "look", lanes: ["css"], msg: "The colour change was refused." }]).text,
-    "⚠️ " + EXPLAINED_SAID + " The menu or the header button: The menu change was refused. The styling: The colour change was refused." + PAID);
+    EXPLAINED_SAID + " The menu or the header button: The menu change was refused. The styling: The colour change was refused." + PAID);
   for (const partial of [[EXPLAINED], [EXPLAINED, SILENT(["shape"], "/visit")], [EXPLAINED, EXPLAINED, SILENT(["tsx"], "/"), SILENT(["components"], "/")]]) {
     const r = refuse(partial);
     assert.ok(r.ok, r.why);
@@ -931,8 +932,8 @@ test("a partial success names them too, after the tick, and starts nothing paid"
   const land = (partial) => editBrowserReply({ ok: true, layer: "picture", msg: TOOK, partial }, true, ROUTED("look"));
   const alone = land([EXPLAINED]);
   const mixed = land([EXPLAINED, SILENT(["shape"], "/visit", ["move the order band up"])]);
-  assert.equal(alone.text, TOOK + " ⚠️ " + EXPLAINED_SAID, "one explained failure after the tick");
-  assert.equal(mixed.text, TOOK + " ⚠️ " + EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN, "the step with no reason vanished after the tick");
+  assert.equal(alone.text, TOOK + " " + EXPLAINED_SAID, "one explained failure after the tick");
+  assert.equal(mixed.text, TOOK + " " + EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN, "the step with no reason vanished after the tick");
   assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
   for (const r of [alone, mixed]) {
     assert.ok(r.ok, r.why);
@@ -1226,7 +1227,7 @@ test("a table rule that went through beside a publish that failed is said, not c
   // THE RULE REALLY WENT IN: its policies reached the database.
   assert.ok(r.seen.sql.some((q) => /CREATE POLICY/i.test(q) && /"menu"/.test(q)), "the rule was never applied");
   assert.equal(r.compiles, 1, "the css change did not try to build");
-  assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
+  assert.equal(r.said.text, "That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
     + "your change to the menu table is in place. This edit cost " + r.body.cost + " credit" + (r.body.cost === 1 ? "" : "s") + "." + ROUTING_2);
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
 });
@@ -1250,6 +1251,6 @@ test("a row that was saved beside an order that did not publish is said, not cal
   // THE ROW REALLY CHANGED before the publish was asked.
   assert.ok(r.seen.sql.some((q) => /^UPDATE "menu" SET "price" = /.test(q)), "the row was never written");
   assert.equal(r.compiles, 1, "the new order did not try to build");
-  assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
+  assert.equal(r.said.text, "That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
     + "the rows you changed in menu are saved. This edit cost " + r.body.cost + " credit" + (r.body.cost === 1 ? "" : "s") + "." + ROUTING_2);
 });

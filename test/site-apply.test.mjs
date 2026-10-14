@@ -915,10 +915,10 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   // RE-ANCHORED 2026-10-02 (the audit's W7): and what was put off, from what
   // the post carried — never anything more that would start work.
   // AND WHAT A QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02, `putOff`).
-  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: o\.d && o\.d\.alsoAsked, putOff: o\.d && o\.d\.putOff \}, false\)\); return; \}/,
+  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\(unreadEditMsg\(\) \+ alsoTail\(\{ deferred: o\.d && o\.d\.alsoAsked, putOff: o\.d && o\.d\.putOff \}, false\)\); return; \}/,
     "an unreadable body no longer says it cannot tell");
   assert.ok(!/said\.act === 'unknown'[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
-  assert.match(b, /\}\)\.catch\(\(\) => \{ finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: d\.alsoAsked \}, false\)\); \}\)/,
+  assert.match(b, /\}\)\.catch\(\(\) => \{ finish\(unreadEditMsg\(\) \+ alsoTail\(\{ deferred: d\.alsoAsked \}, false\)\); \}\)/,
     "a network drop no longer says it cannot tell");
   assert.ok(!/\.catch\([^)]*\) => \{[^}]*fallback\(/.test(b), "a network drop still reaches the rewrite");
   // The escalate-before-failure ordering is asserted on `editAnswer` above,
@@ -1277,7 +1277,7 @@ test("the composer has a reply for the data layer, and names what moved", () => 
   // they cannot see in the page source.
   const from = CHAT.indexOf("function editReply(");
   assert.ok(from > 0, "editReply is gone");
-  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return '✅ Done.';", from));
+  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return 'Done.';", from));
   const b = CHAT.slice(from, to);
   assert.match(b, /e\.layer === 'data'/, "the client cannot describe a data edit");
   assert.match(b, /r\.table/, "the reply does not name which table changed");
@@ -1292,7 +1292,7 @@ test("a page edit NAMES the page, and never hides what it refused", () => {
   // and be told it worked, with the site left disagreeing with itself.
   const from = CHAT.indexOf("function editReply(");
   assert.ok(from > 0, "editReply is gone");
-  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return '✅ Done.';", from));
+  const to = CHAT.indexOf("\n}\n", CHAT.indexOf("return 'Done.';", from));
   const b = CHAT.slice(from, to);
   assert.match(b, /e\.layer === 'page'/, "the client cannot describe a page edit");
   assert.match(b, /e\.ignored/, "the pages this layer refused are never shown to the owner");

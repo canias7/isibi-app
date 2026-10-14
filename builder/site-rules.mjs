@@ -501,7 +501,6 @@ export function rulesReply({ applied = [], refused = [] } = {}) {
   let msg = bits.length ? bits.join(" ") : "";
   if (!bits.length && refused.length) msg = "I couldn't make that change.";
   else if (!bits.length) msg = "Nothing there was a rule I could change.";
-  else msg = "✅ " + msg;
   // A REFUSAL WITH NO WORDING STILL HAS TO SAY SOMETHING. Falling through to
   // silence is how a rule the customer asked for goes missing with the reply
   // reading like a success — the failure this whole `refused` list exists to

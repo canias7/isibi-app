@@ -173,6 +173,8 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // still name it because they explain that move; neither is a consumer.
 import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
+// WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
+import { checksOf, readChecks } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
@@ -257,6 +259,8 @@ import {
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
   takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
+  // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
+  talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -6975,8 +6979,12 @@ async function writeModelReply(env, kind, body, ask) {
  * connection's.
  */
 async function composeModelReply(env, kind, body, ask, { background = false } = {}) {
+  // THE CHECKS A PUBLISH MADE ARE AMONG THESE FACTS (`k`, 2026-10-14), read
+  // off the answer's own `checks` by the fact builders — not off the progress
+  // record, which is not there when narration was off, failed or came late.
   const read = replyFactsOf(kind, body, ask);
   if (read.skip || !read.facts.length) return { ok: false, skip: read.skip || "no-facts" };
+  const talk = talkOn(env);
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
@@ -6988,6 +6996,7 @@ async function composeModelReply(env, kind, body, ask, { background = false } = 
       context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
+      talk,
     });
   } catch (e) {
     out = { ok: false, why: "send", usage: [], attempts: 0 };
@@ -7025,6 +7034,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
       context: replyContext({ request, site: { name, slug, pages: [] } }),
       model: modelsFor(picker).quick,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
+      talk: talkOn(env),
     });
     console.log("reply: build", out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length);
     return out.ok ? withReplyText(body, out.text) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
@@ -7041,6 +7051,17 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
  * room in the container, live pages that could not be confirmed — which keep
  * their fixed messages.
  */
+/**
+ * WHAT A BUILD'S PUBLISH CHECKED (2026-10-14): only a build whose pages went
+ * live (`page: "app"`) — a placeholder's facts already say why it is not —
+ * from the render report of the compile that was published and the version
+ * it activated. Null otherwise.
+ */
+function buildChecks(pages) {
+  if (!pages || pages.page !== "app") return null;
+  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true });
+}
+
 function inlineFailure(pages, { cost = 0, short = false } = {}) {
   if (!pages || pages.page !== "placeholder") return null;
   if (pages.billing || pages.room || pages.sourceUnknown) return null;
@@ -7366,6 +7387,7 @@ async function writeJobReply(env, task) {
   const replyFor = body && typeof body === "object" && !Array.isArray(body) ? body.replyFor : null;
   if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" }, { tag });
   const { replyFor: _context, ...rest } = body;
+  // ITS CHECKS RIDE ON `rest` (`checks`, 2026-10-14): the stored answer's own.
   return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }), { tag });
 }
 
@@ -7660,7 +7682,9 @@ async function progressFromJob(env, ids, body) {
       // A BUILD CARRIED ON BY ITS NEXT RUN (round 5) takes its record over.
       if (rec && b.kind === "build" && b.take === true && rec.run !== run) { const t = takeOverRecord(rec, { run, uid }); return t ? { rec: t } : null; }
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
-      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request });
+      // CONVERSATIONAL ONLY WHEN THE JOB ASKED FOR IT AND THE SWITCH IS ON HERE
+      // (talk, 2026-10-13): the record keeps the flag for its whole life.
+      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request, talk: b.talk === true && talkOn(env) });
       return opened ? { rec: opened } : null;
     }, seen);
     if (r) await askProgress(env, id, uid, now);
@@ -7668,6 +7692,7 @@ async function progressFromJob(env, ids, body) {
   }
   if (b.op === "mark") {
     let ask = false;
+    let settle = 0;
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.uid !== uid) return null;
       const added = appendMark(rec, { stage: b.stage, facts: b.facts, at: now, key: b.seq });
@@ -7680,9 +7705,13 @@ async function progressFromJob(env, ids, body) {
         return null;
       }
       ask = writerNeeded(added.rec, now) === "ask";
+      // A CONVERSATIONAL RECORD'S WRITER IS ASKED A FEW SECONDS LATER (talk,
+      // `PROGRESS_SETTLE_S`), so milestones landing close together are said in
+      // one update; the ask is recorded now, so nobody else asks meanwhile.
+      settle = added.rec.talk === true ? PROGRESS_SETTLE_S : 0;
       return { rec: ask ? markAsked(added.rec, now) : added.rec };
     }, seen);
-    if (r && ask) await sendProgressTask(env, { id, uid });
+    if (r && ask) await sendProgressTask(env, { id, uid }, settle);
     return answer(r);
   }
   if (b.op === "close") {
@@ -7722,6 +7751,9 @@ async function progressFromJob(env, ids, body) {
  */
 function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
   if (!progressOn(env) || !isJobId(id) || typeof run !== "string" || !run) return null;
+  // CONVERSATIONAL (talk, 2026-10-13): read once, here, so every milestone of
+  // the job is recorded the same way whatever the switch does meanwhile.
+  const talk = talkOn(env);
   // THE WAY IN IS FIXED AT THE START: the container's gateway, held as it
   // was handed in, or the Worker's own door.
   const viaGateway = typeof env.JOB_PROGRESS === "function" ? env.JOB_PROGRESS : null;
@@ -7778,11 +7810,14 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
     return opened;
   };
   return {
+    /** Whether this job's record is conversational: the wiring records its plan, checks and publish only then. */
+    talk,
     begin({ op, words = "", picker = "", pages = [], request = null, take = false } = {}) {
       opening = {
         kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
         ...(take === true ? { take: true } : {}),
         ...(standalone ? { task: true } : {}),
+        ...(talk ? { talk: true } : {}),
         // THE JOB'S PLACE IN ITS REQUEST (2026-10-07): its writer reads the
         // request's other parts by it, as they stand when each line is written.
         ...(request && typeof request === "object" ? { request: { key: request.key, part: request.part } } : {}),
@@ -7820,7 +7855,9 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
   let p = null;
   const early = [];
   const send = (step) => {
-    const facts = buildStepFacts(step);
+    // A CONVERSATIONAL RECORD (talk, 2026-10-13) hears the container's turn
+    // as its result — the site built — beside every other step's own facts.
+    const facts = (p && p.talk) || (!p && talkOn(env)) ? talkBuildStepFacts(step) : buildStepFacts(step);
     if (!facts.length) return;
     const stage = "build-" + String(step.s || "");
     if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
@@ -7831,6 +7868,9 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       p = makeProgress(env, ctx, { id, run, uid, slug, standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take });
+      // THE OPENING PLAN (talk, 2026-10-13), once — never again on the run that
+      // carries a build on (`take`), whose record already said it.
+      if (p.talk && !take) p.mark("start", startFacts({ op: "build", slug }));
       for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
     },
     step(step) { try { if (step && typeof step === "object") send(step); } catch { /* lines never cost the build */ } },
@@ -7930,11 +7970,13 @@ async function writeProgressLine(env, task, owner) {
   // THE REQUEST'S OTHER PARTS AS THEY STAND NOW (2026-10-07): read off its
   // record for this line, so the writer is told what is finished and what is
   // still to come, and takes none of it for this job's own work.
-  const others = await requestOthersFor(env, rec);
+  const { others, waited } = await requestOthersFor(env, rec);
   const t0 = Date.now();
   let out;
   try {
-    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others }), model });
+    // A CONVERSATIONAL RECORD (talk, 2026-10-13) is written by its own call:
+    // nine states, recorded reasons, and an optional explanation.
+    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   // WHAT IT COST US, IN THE LOG: a line is not charged to the customer, so the
   // ledger never shows it, and this is where attempts, tokens — fresh and
@@ -7954,7 +7996,7 @@ async function writeProgressLine(env, task, owner) {
   const after = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (!after.ok) { await progressStops(env, job, owner, batch, after.why); return false; }
   const done = await progressUpdate(env, job, (r) => {
-    const next = commitLine(r, { owner, marks: batch.marks, text: out.text, now: Date.now() });
+    const next = commitLine(r, { owner, marks: batch.marks, text: out.text, explain: out.explain || "", now: Date.now() });
     return next ? { rec: next } : null;
   });
   if (!done) return false;
@@ -7968,15 +8010,20 @@ async function writeProgressLine(env, task, owner) {
   return pendingMarks(done.rec).length > 0;
 }
 
-/** A job's request's other parts for its writer (`otherParts`): [] for a job no request's, or a request that will not read — a line is never held for them. */
+/**
+ * A job's request as its writer reads it: the other parts (`otherParts`) and,
+ * on a conversational record, what its own part waited for (`waitedFor`).
+ * Both empty for a job no request's, or a request that will not read — a line
+ * is never held for them.
+ */
 async function requestOthersFor(env, rec) {
-  if (!rec || !rec.request) return [];
+  if (!rec || !rec.request) return { others: [], waited: [] };
   try {
     const found = await loadRequest(env, rec.slug, rec.request.key);
-    return otherParts(rec, found && found.rec);
+    return { others: otherParts(rec, found && found.rec), waited: rec.talk === true ? waitedFor(rec, found && found.rec) : [] };
   } catch (e) {
     console.error("progress: could not read the request of", rec.job, errorClassForLog(e));
-    return [];
+    return { others: [], waited: [] };
   }
 }
 
@@ -13492,6 +13539,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     tm("seam", "ok", { replaced });
   }
 
+  // ── THE CHECKS THIS PUBLISH RAN, AS FACTS (talk, 2026-10-13) ─────────────
+  //
+  // Recorded here because this is where every check's result is settled and
+  // nothing is written yet: the build that will ship (the seam's, when it
+  // replaced it), its automated browser pass, and the style rules this change
+  // wrote, each said only as far as it reaches (`spineCheckFacts`). A job
+  // whose record is not conversational records nothing here.
+  try {
+    if (job && job.progress && job.progress.talk) {
+      job.progress.mark("checked", spineCheckFacts({ render: built.render, cssChecked: verifyOnly ? verifyOnly.size : 0 }));
+    }
+  } catch { /* the record never costs the publish */ }
+
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
   // missing when it was a second copy.
   // ── EVERY OPERATION FROM HERE DOWN RUNS OUTSIDE ANY `try` ─────────────────
@@ -13747,6 +13807,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded });
+  // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
+  // answered ok — the pointer moved and the site's script went up (one that
+  // could not undoes itself). Said as published; no live page is fetched.
+  try { if (job && job.progress && job.progress.talk) job.progress.mark("published", publishedFacts()); } catch { /* the record never costs the publish */ }
   const wrote = staged.files;
   // THE CAP, kept clear of the pointer's version and its parent — the build a
   // visitor's previous document still asks for. Best-effort: storage, never
@@ -13778,6 +13842,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
+    // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
+    // report included, which `render` above leaves off the wire — so every
+    // final reply reads the checks from the answer, whatever the narration did.
+    checks: checksOf({ render: built.render, version, published: true, cssChecked: verifyOnly ? verifyOnly.size : 0 }),
     lookSoft: lookSoft.length ? lookSoft : undefined,
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
@@ -14886,7 +14954,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       if (fenced) await markPublished(env, jobId, bVersion);
       try { await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
-      return staged.files;
+      // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence.
+      return { files: staged.files, version: bVersion };
     },
     // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
     // publish-pages.mjs for why this is not in the failure branches. Its own key,
@@ -19832,7 +19901,34 @@ async function writeRequestReply(env, task) {
   const place = requestReplyPlace(rec);
   if (!place || place.forKey !== task.for) return settleReply(env, k, claim, task, { ok: false, skip: "moved-on" });
   const ask = { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] };
-  return settleReply(env, k, claim, task, await composeModelReply(env, "request", requestView(rec), ask, { background: true }));
+  const view = requestView(rec);
+  await partChecksFor(env, rec, view);
+  return settleReply(env, k, claim, task, await composeModelReply(env, "request", view, ask, { background: true }));
+}
+
+/**
+ * WHAT EACH PART'S PUBLISHES CHECKED (2026-10-14): every finished job of each
+ * part, read from its own stored answer (`checks`), put on that part of the
+ * view, so the request's reply says each check under the part it belongs to
+ * — never one part's check as another's, and never from the narration. A row
+ * that does not read, is not final, or carries no evidence adds nothing.
+ * Never throws.
+ */
+async function partChecksFor(env, rec, view) {
+  try {
+    for (const p of (view && Array.isArray(view.parts) ? view.parts : [])) {
+      const got = [];
+      for (const id of (Array.isArray(p.jobs) ? p.jobs : [])) {
+        let row = null;
+        try { row = await editGet(env, { p_id: id, p_uid: rec.uid }); } catch { row = null; }
+        if (!row || row.ok !== true || !isTerminalEdit(row.state) || !row.result || typeof row.result.body !== "string" || row.result.spillUnread) continue;
+        let body = null;
+        try { body = JSON.parse(servedEditReply(row, row.result.body)); } catch { body = null; }
+        if (body && readChecks(body.checks)) got.push(body.checks);
+      }
+      if (got.length) p.checks = got;
+    }
+  } catch (e) { console.error("reply: part checks unread", errorClassForLog(e)); }
 }
 
 /**
@@ -21004,6 +21100,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...(rContext ? { context: rContext } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
+          // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
+          checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
           failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }),
           design: design && design.designRecovery }) || undefined,
@@ -23967,6 +24065,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // compile, the live pages unconfirmed) keeps its fixed sentence.
         buildFacts: buildFacts({
           images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
+          checks: buildChecks(pages),
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
           // A design corrected on the way (the ninth batch), told as done.
           design: designRecovery,
@@ -26330,6 +26429,16 @@ async function handleRequest(request, env, ctx) {
         jobGraph: designGraphFor(jobSecrets(env), { uid: tu.id }),
         jobBands: bandSplitFor(jobSecrets(env), who),
         jobBandsEveryone: bandSplitEveryone(jobSecrets(env)),
+        // THE NARRATION SWITCHES, READ LIVE (2026-10-14, the owner: "don't
+        // assume its live state from an unset-secret fallback"). Whether the
+        // Worker narrates (`PROGRESS_REPLIES`) and talks while it works
+        // (`PROGRESS_TALK`, on top of it), and the same two as a container job
+        // sees them — a job's records open with its own env's answer.
+        // Booleans, like every field here.
+        progressReplies: progressOn(env),
+        progressTalk: talkOn(env),
+        jobProgressReplies: progressOn(jobSecrets(env)),
+        jobProgressTalk: talkOn(jobSecrets(env)),
       });
     }
 
@@ -28851,6 +28960,11 @@ async function handleRequest(request, env, ctx) {
             // words this turn runs on, the picked model and the site's pages.
             // Nothing is recorded on the synchronous path, which has no job.
             if (eJob && eJob.progress) eJob.progress.begin({ op: "edit", words: eRun, picker: eb && eb.picker, pages: eRoutes(), request: ePart });
+            // THE OPENING PLAN (talk, 2026-10-13): the kind of change the route
+            // sent here, and the steps an edit really runs, said as next — so the
+            // first update is the approach, written in the background while the
+            // work starts. The plan below (`plan`) revises it with the real steps.
+            if (eJob && eJob.progress && eJob.progress.talk) eJob.progress.mark("start", startFacts({ op: "edit", layer: eLayer, page: ePage }));
             if (!eSrc.length) {
               // Missing pages permit reconstruction only when the remaining
               // inputs can be read. Otherwise the rewrite meets the same fault.
@@ -30493,7 +30607,7 @@ async function handleRequest(request, env, ctx) {
                 sortChanged: dOut.sortChanged && dOut.sortChanged.length ? dOut.sortChanged : undefined,
                 files: dPub ? dPub.files : undefined,
                 render: dPub ? dPub.render : undefined,
-                renderNote: dPub ? dPub.renderNote : undefined,
+                renderNote: dPub ? dPub.renderNote : undefined, checks: dPub ? dPub.checks : undefined,
                 // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
                 // deleted row has: pages are archived on every publish and can
                 // be restored, rows are not. With the contents in the thread,
@@ -30998,7 +31112,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "nav", msg: nOut.msg,
-                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
+                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote, checks: nPub.checks,
                 links: nOut.links,
                 // AN ADDITION'S ITEMS THAT WERE THERE ALREADY (2026-10-04), by
                 // list — omitted on every other menu change.
@@ -31138,7 +31252,7 @@ async function handleRequest(request, env, ctx) {
               // one whose purchase it could not tell.
               return Response.json({
                 ok: true, layer: "picture", placed: plPlaced.length, made: plPlaced.length, changed: plPlaced.length,
-                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote,
+                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote, checks: plPub.checks,
                 notPlaced: plNot.length ? plNot : undefined,
                 msg: "I put " + (plPlaced.length === 1 ? "the photograph" : plPlaced.length + " photographs") + " into the frame" + (plPlaced.length === 1 ? "" : "s") + " the addition left waiting.",
                 cost: await eCharge([], { images: plPlaced.length }, plPub),
@@ -31303,7 +31417,7 @@ async function handleRequest(request, env, ctx) {
               const pImages = pOut.made.length ? { images: pOut.made.length } : null;
               return Response.json({
                 ok: true, layer: "picture", msg: pOut.msg,
-                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
+                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
                 // THE REMOVALS THIS STEP MADE, counted where they were made —
                 // photographs taken off WITH their space. The browser's undo
@@ -31552,7 +31666,7 @@ async function handleRequest(request, env, ctx) {
               // customer's calls somewhere nobody asked for.
               const staleTel = staleContactLinks(out.pages, out.edits);
               return Response.json({
-                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
+                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
@@ -32299,7 +32413,7 @@ async function handleRequest(request, env, ctx) {
                 // WHAT A REMOVAL NAMED THAT THE LIST DID NOT HOLD (W2): the rest
                 // came off, and this says which names took nothing off.
                 takeOffNote: takeOffMissed.length ? takeOffMissed.map((m) => takeOffNote(m.field, m.unknown)).join(" ") : undefined,
-                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
+                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
 
@@ -32386,7 +32500,7 @@ async function handleRequest(request, env, ctx) {
                 // decided this was already charged where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, removed: cut.removed,
-                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, cost: 0,
+                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, checks: cutPub.checks, cost: 0,
                 });
               }
 
@@ -32436,7 +32550,7 @@ async function handleRequest(request, env, ctx) {
                 // where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, renamedTo: rn.redirect.to, changed: rn.changed,
-                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, cost: 0,
+                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, checks: mvPub.checks, cost: 0,
                 });
               }
 
@@ -32605,7 +32719,7 @@ async function handleRequest(request, env, ctx) {
                   if (twPub.ok) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,
-                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
+                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote, checks: twPub.checks,
                       // THE JUDGE'S TOKENS ARE BILLED WITH THE EDIT, in the one
                       // rounding — only here, on a publish. A refusal above
                       // returned at cost 0 and charged nothing.
@@ -33386,7 +33500,7 @@ async function handleRequest(request, env, ctx) {
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
-                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
+                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
                 cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 keepUsage: pKeep.usage || undefined,
                 // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
@@ -34055,6 +34169,7 @@ async function handleRequest(request, env, ctx) {
               files: finalPub ? finalPub.files : (last && last.body.files),
               render: finalPub ? finalPub.render : (last && last.body.render),
               renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
+              checks: finalPub ? finalPub.checks : (last && last.body.checks),
               // WHAT HAPPENED TO EACH LANGUAGE, from the one publish (run 38,
               // 2026-09-04): the spine's account rode its result, the deferred
               // publish's stub answered the look branch first, and the reply
@@ -34473,6 +34588,9 @@ async function handleRequest(request, env, ctx) {
             // run's record, with the words this turn runs on, the picked model
             // and the site's pages.
             if (aJob && aJob.progress) aJob.progress.begin({ op: "addon", words: aInstruction, picker: ab && ab.picker, pages: aReplyOut.pages(), request: aPart });
+            // THE OPENING PLAN (talk, 2026-10-13), as an edit's: what this is and
+            // the steps an addition really runs; the picked kinds revise it.
+            if (aJob && aJob.progress && aJob.progress.talk) aJob.progress.mark("start", startFacts({ op: "addon" }));
             // Absence is not permission yet: backend, config and schema must
             // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
@@ -39636,6 +39754,7 @@ async function handleRequest(request, env, ctx) {
               // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
+              checks: aPub.checks,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
               // the harness, and the owner-build log. Absent when no round ran.
               repair: aRepairRound ? {
@@ -39715,7 +39834,7 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, cost: Number(out.langCharged) || 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, cost: Number(out.langCharged) || 0 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

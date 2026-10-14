@@ -59,7 +59,7 @@ export function heldApp(opt = {}) {
   const answerOf = (job) => {
     const timed = (opt.timed || {})[job];
     if (timed) return clone(since() >= timed.afterMs ? timed.res : timed.pending);
-    const list = (opt.answers || {})[job] || [{ ok: true, msg: "✅ Done.", reply: `Done: ${job}.`, replySource: "model" }];
+    const list = (opt.answers || {})[job] || [{ ok: true, msg: "Done.", reply: `Done: ${job}.`, replySource: "model" }];
     const i = Math.min(taken[job] || 0, list.length - 1);
     taken[job] = (taken[job] || 0) + 1;
     return clone(list[i]);

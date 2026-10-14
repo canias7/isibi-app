@@ -231,8 +231,8 @@ const AP = UI_SCENARIOS["acc-page-table"];
 const W0 = "change the Wholesale page heading 'Daily bread for Bristol cafés' to 'Daily bread for Bristol cafés and delis'";
 const W1 = "change the Country White's price to £4.90";
 const REPLIES = {
-  h1: { ok: true, msg: "✅ Changed.", reply: "Your Wholesale page heading now reads “Daily bread for Bristol cafés and delis”.", replySource: "model" },
-  p1: { ok: true, msg: "✅ Updated.", reply: "The Country White is now £4.90 on your Order page.", replySource: "model" },
+  h1: { ok: true, msg: "Changed.", reply: "Your Wholesale page heading now reads “Daily bread for Bristol cafés and delis”.", replySource: "model" },
+  p1: { ok: true, msg: "Updated.", reply: "The Country White is now £4.90 on your Order page.", replySource: "model" },
 };
 const PREP = { seq: 1, from: 1200, to: 4100, outcome: "ready", step: { from: 2000, to: 4000, calls: 1 } };
 const RAN = { h1: [1000, 6000], p1: [6100, 7000] };

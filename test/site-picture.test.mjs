@@ -4,6 +4,7 @@
 // MEANT, and nowhere else. Every guard below exists because the alternative is a
 // picture of the wrong thing on a real business's home page, which is worse than
 // the change not happening.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -248,7 +249,7 @@ test("A PICTURE THAT COULD NOT BE MADE IS SAID OUT LOUD", () => {
 
 test("nothing matched says so without a tick", () => {
   const msg = pictureReply({});
-  assert.ok(!msg.includes("✅"));
+  assert.ok(!PICTOGRAPH.test(msg));
   assert.match(msg, /couldn't match/);
 });
 
@@ -1324,7 +1325,7 @@ test("EXACT IDENTITY: a removal and a swap on one page land on the photographs c
     .replace('      <SafeImage src="/u/s/a.jpg" alt="The oven door" />\n', "")
     .replace('src="/u/s/b.jpg" alt="The bench"', 'src="https://gofarther.dev/u/s/shop-front.jpg" alt="The bench"'));
   assert.deepEqual([r.removed.length, r.used.length], [1, 1]);
-  assert.equal(r.msg, "✅ Put your own photograph on “The bench”, took “The oven door” off the page.");
+  assert.equal(r.msg, "Put your own photograph on “The bench”, took “The oven door” off the page.");
 });
 
 test("TWO EDITS THAT OVERLAP LEAVE THE PAGE AS IT WAS, and say which page — the guard is alive", () => {
@@ -1348,19 +1349,19 @@ test("the removal is reported as a removal; a refusal says what was left and not
     { instruction: "x", pages: [{ path: "p.tsx", source: src }] });
   const off = await run([{ page: "p.tsx", alt: "The counter", remove: true }]);
   assert.equal(off.ok, true);
-  assert.equal(off.msg, "✅ Took “The counter” off the page.");
+  assert.equal(off.msg, "Took “The counter” off the page.");
   assert.equal(off.pages[0].source, src.replace("      " + PHOTO + "\n", ""));
   // A BLOCK'S PICTURE REFUSED, AND THE INDEPENDENT CLEAR BESIDE IT STILL RUNS.
   const mixed = await run([{ page: "p.tsx", alt: "The mill", remove: true }, { page: "p.tsx", alt: "The quay", clear: true }]);
   assert.equal(mixed.ok, true);
   assert.deepEqual(mixed.refused.map((c) => [c.slot.alt, c.refused]), [["The mill", "part"]]);
   assert.equal(mixed.pages[0].source, src.replace('src="/u/s/q.jpg" alt="The quay"', 'src="" alt="The quay"'), "the block's photograph was touched");
-  assert.equal(mixed.msg, "✅ Took the picture off “The quay”. I couldn't take “The mill” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off.");
+  assert.equal(mixed.msg, "Took the picture off “The quay”. I couldn't take “The mill” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off.");
   // A CONTRADICTION BESIDE A VALID REMOVAL: the removal runs.
   const conflict = await run([{ page: "p.tsx", alt: "The quay", remove: true, clear: true }, { page: "p.tsx", alt: "The counter", remove: true }]);
   assert.equal(conflict.ok, true);
   assert.equal(conflict.pages[0].source, src.replace("      " + PHOTO + "\n", ""));
-  assert.equal(conflict.msg, "✅ Took “The counter” off the page. I got conflicting instructions for “The quay” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.");
+  assert.equal(conflict.msg, "Took “The counter” off the page. I got conflicting instructions for “The quay” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.");
   // NO READER: the removal is refused, not cut on a guess and not cleared.
   const blind = await run([{ page: "p.tsx", alt: "The counter", remove: true }], async () => null);
   assert.equal(blind.ok, false);
@@ -1380,7 +1381,7 @@ test("TWO PHOTOGRAPHS WITH ONE DESCRIPTION: the reply says why neither was touch
   }, { instruction: "take the oven photo off and show the top of the quay", pages: [{ path: "p.tsx", source: src }] });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.pages[0].source, src.replace('<SafeImage src="/u/s/q.jpg"', '<SafeImage focus="top" src="/u/s/q.jpg"'));
-  assert.equal(r.msg, "✅ Moved “The quay” to show the top. More than one photo on the page is described as “The oven”, so I couldn't tell which you meant and left it as it was.");
+  assert.equal(r.msg, "Moved “The quay” to show the top. More than one photo on the page is described as “The oven”, so I couldn't tell which you meant and left it as it was.");
 });
 
 test("A REMOVAL THAT WOULD TAKE ANOTHER CHOSEN PHOTOGRAPH WITH IT is a conflict for both — and the independent changes beside them still run", async () => {
@@ -1403,12 +1404,12 @@ test("A REMOVAL THAT WOULD TAKE ANOTHER CHOSEN PHOTOGRAPH WITH IT is a conflict 
     assert.deepEqual(r.refused.map((c) => [c.slot.alt, c.refused]), [["Outer", "conflict"], ["Inner", "conflict"]], JSON.stringify(inner));
     assert.equal(r.pages[0].source, P.replace('src="/u/s/t.jpg"', 'src="https://gofarther.dev/u/s/shop-front.jpg"'), "Outer or Inner was written: " + JSON.stringify(inner));
     assert.equal(r.pages[1].source, Q.replace('<SafeImage src="/u/s/q.jpg"', '<SafeImage focus="bottom" src="/u/s/q.jpg"'));
-    assert.equal(r.msg, "✅ Put your own photograph on “Third”, moved “The quay” to show the bottom. I got conflicting instructions for “Outer”, “Inner” and left them as they were — say for each whether to take it off, keep its space empty, or put another photo there.");
+    assert.equal(r.msg, "Put your own photograph on “Third”, moved “The quay” to show the bottom. I got conflicting instructions for “Outer”, “Inner” and left them as they were — say for each whether to take it off, keep its space empty, or put another photo there.");
   }
   // ON ITS OWN THE OUTER ONE COMES OFF, with what it holds.
   const alone = await run([{ page: "p.tsx", alt: "Outer", remove: true }]);
   assert.equal(alone.pages[0].source, P.replace(/ {6}<SafeImage src="\/u\/s\/a\.jpg"[^\n]*\n/, ""));
-  assert.equal(alone.msg, "✅ Took “Outer” off the page.");
+  assert.equal(alone.msg, "Took “Outer” off the page.");
 });
 
 test("A PAGE WITH NO REMOVAL NEVER ASKS FOR THE READER — swaps, reframes and keep-the-space run exactly as before", async () => {
@@ -1421,5 +1422,5 @@ test("A PAGE WITH NO REMOVAL NEVER ASKS FOR THE READER — swaps, reframes and k
   }, { instruction: "empty the quay frame and show the top of the counter", pages: [{ path: "p.tsx", source: src }] });
   assert.equal(asked, 0, "a message with no removal loaded the reader");
   assert.equal(r.pages[0].source, src.replace('src="/u/s/q.jpg"', 'src=""').replace('<SafeImage src="/u/s/c.jpg"', '<SafeImage focus="top" src="/u/s/c.jpg"'));
-  assert.equal(r.msg, "✅ Took the picture off “The quay”, moved “The counter” to show the top.");
+  assert.equal(r.msg, "Took the picture off “The quay”, moved “The counter” to show the top.");
 });

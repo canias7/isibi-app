@@ -6,6 +6,7 @@
 // of a ~27-credit rewrite. That is the on-disk-and-reachable-by-nothing shape
 // this repo has deleted 289 files over, so the wiring is what most of this file
 // asserts.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -208,7 +209,7 @@ test("an empty or absent contact object reads as no contact change", () => {
 
 test("the customer is told which fields moved, and never their values", () => {
   const msg = navReply({ changed: ["a.tsx", "b.tsx"], contact: { phone: "0113 200 0000", hours: "" } });
-  assert.match(msg, /✅/);
+  assert.doesNotMatch(msg, PICTOGRAPH);
   assert.match(msg, /phone/);
   assert.match(msg, /opening hours/, "`hours` is shown to the customer as a field name");
   assert.doesNotMatch(msg, /0113 200 0000/, "the reply prints the number back at them");

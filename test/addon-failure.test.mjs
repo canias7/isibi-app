@@ -46,6 +46,7 @@
 //
 // Every answer here is SUPPLIED. This proves what the browser sends and says,
 // never how often a real route answers these shapes.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -242,11 +243,11 @@ const EDIT = "/api/site/fretwork-1/edit";
 const REWRITE = "/api/site/react-revise";
 
 // The four sentences, as the owner will read them (the wording is theirs to change).
-const UNKNOWN = "⚠️ I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time.";
-const UNSAID = "⚠️ That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
-const SHOWN = "✅ That addition went through, but I couldn’t show the details of what it changed here.";
-const DONE = "✅ Done — added /gallery, updated /.";
+const UNKNOWN = "I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time.";
+const UNSAID = "That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
+const SHOWN = "That addition went through, but I couldn’t show the details of what it changed here.";
+const DONE = "Done — added /gallery, updated /.";
 
 const throwing = (name) => (ctx) => { ctx[name] = () => { throw new TypeError("injected: " + name + " threw"); }; };
 // A redraw that breaks only once there is a reply to draw: `siteSend` draws once
@@ -313,7 +314,7 @@ test("THE NOT-KNOWING SENTENCES CLAIM NOTHING THEY CANNOT KNOW", () => {
     assert.doesNotMatch(s, /untouched|nothing (on your site )?changed|refund|charg|cost|free|preview/i, s);
   }
   // …and the success that could not be shown is never called a failure.
-  assert.match(SHOWN, /^✅ That addition went through/);
+  assert.match(SHOWN, /^That addition went through/);
   assert.doesNotMatch(SHOWN, /didn’t|failed|can’t tell whether/, SHOWN);
 });
 
@@ -336,7 +337,7 @@ test("A REFUSAL KEPT: the redraw throws after the route's own sentence is out �
   // throw from this redraw reached it and a second sentence — "I didn't get a
   // usable answer" — contradicted the refusal already on the thread.
   const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok({ ok: false, error: "add", cost: 0, msg: "I can't add that." }, 422)] }, inject: redrawBreaksAfterReply });
-  assertStopped(o, ["POST " + ADD], "⚠️ I can't add that.");
+  assertStopped(o, ["POST " + ADD], "I can't add that.");
 });
 
 // ── THE EDIT ROUTE HANDS ITS ASK TO THE ADD-ON ROUTE ─────────────────────────
@@ -405,7 +406,7 @@ test("AN ADDITION THAT DIED AFTER ITS TABLES WENT IN: the watch's ended sentence
   const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [ended({ migration: { status: "applied_without_page" }, note: ENDED_NOTE })] } });
   assert.deepEqual(o.trail, ["POST " + ADD, "GET /api/site/edit/job-a"]);
   assert.equal(o.said.length, 1, JSON.stringify(o.said));
-  assert.ok(o.said[0].startsWith("⚠️ "), o.said[0]);
+  assert.ok(!PICTOGRAPH.test(o.said[0]), o.said[0]);
   assert.ok(o.said[0].includes(" " + ENDED_NOTE), "the server's note of what stands was not said: " + o.said[0]);
   assert.equal(o.busy, false);
   // NO NOTE: the outcome's own sentence, and nothing about a database.
@@ -421,7 +422,7 @@ test("AN ADDITION THAT DIED AFTER ITS TABLES WENT IN: the watch's ended sentence
 test("THE SHARED WATCHER: a queued EDIT whose stored reply cannot be read says so, and starts nothing", async () => {
   const o = await drive({ answers: { route: [ROUTE_EDIT], edit: [EDIT_RECEIPT], poll: [{ status: 200, body: "{oops", headers: FINAL }] } });
   assert.deepEqual(o.trail, ["POST " + EDIT, "GET /api/site/edit/job-e"]);
-  assert.deepEqual(o.said, ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice."]);
+  assert.deepEqual(o.said, ["I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice."]);
   assert.equal(o.busy, false);
   assert.equal(o.railRunning, false);
   assert.equal(o.clock.cleared, 1);
@@ -522,13 +523,13 @@ test("CONTROL: the sweep's recovered reply carries a job and is still a success,
   // cost, build}` — a job id on a FINAL reply, and not a receipt.
   const recovered = { ok: true, recovered: true, job: "job-a", cost: 12, build: "b1" };
   const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [stored(recovered)] } });
-  assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], "✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.");
+  assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], "Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.");
 });
 
 test("CONTROL: escalate: false is a real boolean — a refusal is shown and a success applied, and neither hops", async () => {
   for (const [body, status, said] of [
-    [{ ok: false, escalate: false, error: "add", msg: "I can't add that." }, 422, "⚠️ I can't add that."],
-    [{ ok: false, escalate: false, layer: "picture", error: "add", msg: "I can't add that." }, 200, "⚠️ I can't add that."],
+    [{ ok: false, escalate: false, error: "add", msg: "I can't add that." }, 422, "I can't add that."],
+    [{ ok: false, escalate: false, layer: "picture", error: "add", msg: "I can't add that." }, 200, "I can't add that."],
     [{ ok: false, escalate: false, error: "x" }, 503, UNSAID],
   ]) {
     const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(body, status)] } });
@@ -568,7 +569,7 @@ test("CONTROL: a refusal carrying its own sentence shows that sentence, straight
   const refusal = { ok: false, error: "add", cost: 0, msg: "I can't add that." };
   for (const answers of [{ addon: [ok(refusal, 422)] }, { addon: [RECEIPT], poll: [stored(refusal, 422)] }]) {
     const o = await drive({ answers: { route: [ROUTE_ADDON], ...answers } });
-    assert.deepEqual(o.said, ["⚠️ I can't add that."]);
+    assert.deepEqual(o.said, ["I can't add that."]);
     assert.ok(!o.trail.some((t) => t.endsWith(REWRITE)));
     assert.equal(o.busy, false);
   }
@@ -639,7 +640,7 @@ async function browserReply(r, expected = "stop") {
       // THE ROUTE'S SENTENCE, AND THE NOTE BESIDE ITS OUTCOME (2026-10-06): a
       // failure after the design says what it left behind under its sentence.
       const note = r.body.outcome && typeof r.body.coverNote === "string" && r.body.coverNote.trim() ? " " + r.body.coverNote.trim() : "";
-      assertStopped(o, before, "⚠️ " + r.body.msg + note);
+      assertStopped(o, before, r.body.msg + note);
       assert.ok(!o.trail.some(t => t === "POST " + EDIT), "no paid handoff");
     } else if (expected === "success") {
       assert.equal(r.body.ok, true, json(r.body));
@@ -763,7 +764,7 @@ for (const control of ["addition", "legacy", "empty-schema", "recovery"]) test(`
 // real send handler, direct and queued, beside a control where an ordinary
 // edit's hand-off still reaches the add-on.
 const FRAME_HOP = { ok: false, escalate: true, reason: "layer", cost: 0, layer: "nav", kind: "frame" };
-const STOP = "⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.";
+const STOP = "I couldn’t add that, so nothing on your site changed. Try describing it a little differently.";
 test("the frame hand-off posts the menu editor as an addition, and an edit handing it back to the add-on stops", async () => {
   for (const queued of [false, true]) {
     const editAnswers = queued ? { edit: [EDIT_RECEIPT], poll: [stored(HANDOFF)] } : { edit: [ok(HANDOFF)] };

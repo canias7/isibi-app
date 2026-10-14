@@ -27,6 +27,7 @@
 // NOTHING SECRET IS RECORDED. No header is kept, auth traffic is not recorded,
 // and an attached image travels into the record as its name, size and sha256.
 
+import { talkSwitchVerdict, mergeSeen } from "./canary-talk.mjs";
 import { WAIT_MS as REQUEST_WAIT_MS } from "../builder/request.mjs";
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -231,6 +232,32 @@ const RULES_SPEC = Object.freeze({
   record: LIDO_RECORD,
 });
 
+// A4, the mixed Edit and Add-on press, defined once: `acc-mixed` and
+// `acc-mixed-talk` are the same message judged on the same evidence.
+const ACC_MIXED = Object.freeze({
+  site: "fold-lane-bakery", request: true, images: "none",
+  budget: 34, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+  layers: Object.freeze(["text", "data", "nav", "page"]),
+  row: A4_ROW,
+  expect: Object.freeze({
+    pages: Object.freeze([Object.freeze({ about: Object.freeze(["bulk", "minimum"]) })]),
+    menu: Object.freeze({ page: 0 }),
+    overlap: true,
+    reuse: Object.freeze({ exact: 1, overlapped: true }),
+    // WHAT THE CUSTOMER IS SHOWN, AND THE RECONNECT (2026-10-14, on the
+    // owner's word: *"Include the requested Edit/Add-on reconnect and
+    // progress checks in the executable scenario rather than listing them
+    // as optional"*): sent with its tab closed once a progress line shows
+    // live on a running part, read through the requests list alone, then
+    // followed to its end in a fresh browser session (`progressChecks`).
+    progress: true,
+  }),
+  covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite", "closed-tab", "progress-each-part"]),
+  steps: Object.freeze([
+    Object.freeze({ say: "Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90.", away: "fresh", ms: 25 * 60_000 }),
+  ]),
+});
+
 /**
  * THE SCENARIOS, BY NAME. A form box takes a name and never a script: what is
  * sent is written here, reviewed with the code, and tied to the one site its
@@ -262,7 +289,7 @@ export const UI_SCENARIOS = Object.freeze({
     // the version its before-read saw.
     publishes: 0,
     // What the screen and the job's own stored reply must say.
-    reply: "✅ Updated one entry in loaves.",
+    reply: "Updated one entry in loaves.",
     applied: Object.freeze([Object.freeze({ table: "loaves", id: 6, columns: Object.freeze(["price"]) })]),
     row: D1_ROW,
     steps: Object.freeze([
@@ -350,7 +377,7 @@ export const UI_SCENARIOS = Object.freeze({
     budget: 8,
     layers: Object.freeze(["data"]),
     publishes: 0,
-    reply: "✅ Updated one entry in lessons.",
+    reply: "Updated one entry in lessons.",
     applied: Object.freeze([Object.freeze({ table: "lessons", id: 4, columns: Object.freeze(["price"]) })]),
     row: FOLLOW_ROW,
     steps: Object.freeze([
@@ -1109,21 +1136,23 @@ export const UI_SCENARIOS = Object.freeze({
   // add-on with its page 12-18 and its requirement judgment about 1; the menu
   // part's routing 1-3 and menu step 1-2; the price part's routing 1-3 and
   // data job 1. The largest single job, the add-on, is about 19.
-  "acc-mixed": Object.freeze({
-    site: "fold-lane-bakery", request: true, images: "none",
-    budget: 34, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
-    layers: Object.freeze(["text", "data", "nav", "page"]),
-    row: A4_ROW,
-    expect: Object.freeze({
-      pages: Object.freeze([Object.freeze({ about: Object.freeze(["bulk", "minimum"]) })]),
-      menu: Object.freeze({ page: 0 }),
-      overlap: true,
-      reuse: Object.freeze({ exact: 1, overlapped: true }),
-    }),
-    covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite"]),
-    steps: Object.freeze([
-      Object.freeze({ say: "Add a Bulk Orders page explaining how cafés can order bread in bulk: a minimum order of ten loaves, and orders in by 2pm for delivery the next morning. Put a link to it in the menu, and change the Olive & Rosemary's price to £5.90.", ms: 25 * 60_000 }),
-    ]),
+  "acc-mixed": ACC_MIXED,
+  // A4T — THE SAME PRESS WITH THE BUILDER TALKING (2026-10-14, prepared, not
+  // pressed). The owner: *"Prepare verification of PROGRESS_TALK itself:
+  // model-written first-person updates during work, correct task attribution
+  // and ordering, persistence after reconnect, explanations and final replies
+  // grounded in each task's evidence, and separately measured narration
+  // cost. Keep the feature off now."* A4's message, judged on everything A4
+  // is, and on `talkChecks` (canary-talk.mjs). It sends nothing — rehearsal or
+  // not — unless the live Worker and a container job both report
+  // PROGRESS_TALK on, so it can run only inside an approved test window
+  // (docs/history/2026-10-14-combined-candidate.md). Pressed INSTEAD of A4,
+  // never beside it: the message changes the site, and one sitting has one
+  // fixture. Narration is the platform's, measured after the press by
+  // `scripts/narration-usage.mjs`. ABOUT 17-34, as A4.
+  "acc-mixed-talk": Object.freeze({
+    ...ACC_MIXED,
+    expect: Object.freeze({ ...ACC_MIXED.expect, talk: true }),
   }),
   // A5 — TWO PAGE HEADINGS, THROUGH THE REAL ROUTER: what it does is recorded,
   // never assumed (`routingShape`). Both headings must land. No concurrency
@@ -3541,12 +3570,12 @@ export function failureVerdict(step, fails) {
   if (Array.isArray(fin.applied) && fin.applied.length) return { ...out, why: "the failure names rows it changed" };
   if (fin.cost !== 0) return { ...out, why: `the failed edit's own cost reads ${JSON.stringify(fin.cost === undefined ? null : fin.cost)}, not 0` };
   if (typeof fin.msg !== "string" || !fin.msg.trim()) return { ...out, why: "the failure carries no sentence to show" };
-  // ONE OF THE REPLIES THE MESSAGE GOT ON SCREEN is that warning: a note the
-  // app draws beside it does not hide it, and a sentence drawn as anything but
-  // a warning is not it.
+  // ONE OF THE REPLIES THE MESSAGE GOT ON SCREEN carries that sentence: a note
+  // the app draws beside it does not hide it. (It was also required to start
+  // with a warning sign until the owner's no-emoji rule, 2026-10-13.)
   const screen = Array.isArray(step && step.replies) && step.replies.length ? step.replies : [step && typeof step.reply === "string" ? step.reply : ""];
-  if (!screen.some((t) => typeof t === "string" && t.startsWith("⚠️") && t.includes(fin.msg))) {
-    return { ...out, why: "the page did not show the failure's own sentence as a warning" };
+  if (!screen.some((t) => typeof t === "string" && t.includes(fin.msg))) {
+    return { ...out, why: "the page did not show the failure's own sentence" };
   }
   return { ...out, ok: true, why: "" };
 }
@@ -3748,6 +3777,9 @@ export async function runUi(opts) {
   const noteView = (r, view) => {
     r.request.views++;
     r.request.final = view;
+    // EVERY PROGRESS LINE AS FIRST SEEN (2026-10-14, the talk check): a line
+    // that later changes or vanishes is caught (`mergeSeen`, canary-talk.mjs).
+    r.request.seen = mergeSeen(r.request.seen, view, Date.now() - (r.sentAt || t0));
     const parts = (Array.isArray(view.parts) ? view.parts : []).map((p) => [p.n, p.status]);
     // AND WHAT EACH PART'S PREPARATION HAD REACHED (2026-10-09): the view's own
     // `prep`, "preparing" or "prepared", for the overlap verdict.
@@ -4417,6 +4449,15 @@ export async function runUi(opts) {
         rec.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined, ok: !why };
         if (why) { stop(`step ${n}`, `${why} — nothing is sent`); break; }
         log("  photographs: the live Worker buys none (IMAGE_PURCHASES off)");
+      }
+      // THE BUILDER TALKING (2026-10-14): a press that asks (`expect.talk`)
+      // sends nothing — rehearsal or not — unless the live Worker and a
+      // container job both read PROGRESS_TALK on. Missing is cannot-tell.
+      if (n === 1 && scenario.expect && scenario.expect.talk === true) {
+        const rt = typeof runtimeNow === "function" ? await Promise.resolve().then(() => runtimeNow()).catch(() => null) : null;
+        rec.talkSwitch = talkSwitchVerdict(rt, true);
+        if (!rec.talkSwitch.ok) { stop(`step ${n}`, `${rec.talkSwitch.why} — nothing is sent`); break; }
+        log("  progress talk: on, as the live Worker and a container job read it");
       }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);

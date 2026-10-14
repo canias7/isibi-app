@@ -20,6 +20,7 @@
 // refused down to no kinds, the route answers `no-add`, and nothing is written —
 // so every success case below fails there (the red check is recorded in
 // `docs/history/2026-10-01-add-row.md`).
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -507,7 +508,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.body.rows.length, 1);
     assert.deepEqual(r.body.rows[0], { table: "loaves", id: 12, label: "Rye & Caraway", row: added });
     // WHAT THE CUSTOMER READS, from the browser's own composer.
-    assert.equal(r.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
     // NOTHING ELSE MOVED: the other list, the schema, the pages; no page call,
     // no compile, no publish.
     assert.deepEqual(db.rows("orders"), before.orders, "the visitors' list moved");
@@ -604,7 +605,7 @@ test("two entries asked in one message are saved in one statement, in the order 
   // THE ANSWER IN THE ORDER ASKED, each entry with the id the database gave it.
   assert.deepEqual(r.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"], ["loaves", 13, "Spelt"]]);
   assert.equal(writesOf(db).length, 1, "the entries were not written in one statement");
-  assert.equal(r.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12), added “Spelt” to loaves (entry 13).");
+  assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12), added “Spelt” to loaves (entry 13).");
 });
 
 test("the row designer is told the lists it may add to — the display list, never the visitors' one", async () => {
@@ -733,7 +734,7 @@ test("should the same job's request run again after its write, it answers the sa
     assert.equal(replay.body.cost, first.body.cost, "the second run's cost is not the first run's reserve");
     assert.equal(replay.ok, true);
     assert.equal(j.w.seen.rpc.filter((r) => r.fn === "edit_refund").length, 0);
-    assert.equal(screen(replay.status, replay.body).text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    assert.equal(screen(replay.status, replay.body).text, "Done — added “Rye & Caraway” to loaves (entry 12).");
   } finally { j.w.restore(); }
 });
 
@@ -848,7 +849,7 @@ for (const [name, answer, reason, said] of INVALID) {
     assert.deepEqual(writesOf(db), [], "a refused entry was written");
     assert.equal(db.rows("loaves").length, 6);
     assert.equal(r.seen.debits.length, 1, "the refusal was charged beside the routing");
-    assert.match(r.said.text, /^⚠️ /);
+    assert.doesNotMatch(r.said.text, PICTOGRAPH);
   });
 }
 
@@ -867,7 +868,7 @@ test("one good entry beside a refused one: the good one is saved and the other i
   assert.equal(db.rows("orders").length, 1, "an entry reached the visitors' list");
   assert.equal(r.body.notAdded.length, 1);
   assert.equal(r.body.notAdded[0].why, "row-not-list");
-  assert.match(r.said.text, /^✅ Done — added “Rye & Caraway” to loaves \(entry 12\)\. I left out “orders”: That list holds what visitors send in/);
+  assert.match(r.said.text, /^Done — added “Rye & Caraway” to loaves \(entry 12\)\. I left out “orders”: That list holds what visitors send in/);
 });
 
 for (const mode of ["sync", "job"]) {
@@ -1151,7 +1152,7 @@ test("the statement: entries and the request's key together, the key read back a
 test("the customer's reply names every entry it added", () => {
   const rows = Array.from({ length: 8 }, (_, i) => ({ table: "loaves", id: 12 + i, label: "L" + i, row: {} }));
   const said = screen(200, { ok: true, kinds: ["row"], rows, added: [], changed: [], removed: [], moved: [], cost: 2 });
-  assert.equal(said.text, "✅ Done — " + rows.map((r) => "added “" + r.label + "” to loaves (entry " + r.id + ")").join(", ") + ".");
+  assert.equal(said.text, "Done — " + rows.map((r) => "added “" + r.label + "” to loaves (entry " + r.id + ")").join(", ") + ".");
 });
 
 test("the cleaner: a display list's declared columns only, capped, each refusal named", async () => {
@@ -1245,7 +1246,7 @@ for (const [what, opt] of [["lost its answer", { loseAnswer: 1 }], ["answered ro
         assert.equal(r.body.ok, true, JSON.stringify(r.body));
         assert.deepEqual(r.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"]]);
         assert.deepEqual(r.body.rows[0].row, db.rows("loaves")[6]);
-        assert.equal(r.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+        assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
         assert.doesNotMatch(JSON.stringify(r.body), /nothing was added/i);
         assert.ok(afterWrite(db).some((q) => KEY_READ.test(q)), "the key was not read back after the write");
         if (mode === "sync") {
@@ -1301,7 +1302,7 @@ test("a lost answer whose key cannot be read is put under review — the money h
     assert.match(first.body.msg, /couldn't tell whether that entry was saved/);
     assert.match(first.body.msg, /paused changes to this site/);
     assert.match(first.body.msg, /Data panel/);
-    assert.equal(first.said.text, "⚠️ " + first.body.msg);
+    assert.equal(first.said.text, first.body.msg);
     // THE NEXT MESSAGE IS REFUSED BEFORE ANYTHING RUNS: no second entry.
     const again = await s.send();
     assert.equal(again.status, 409, JSON.stringify(again.body));
@@ -1320,7 +1321,7 @@ test("a lost answer whose key cannot be read is put under review — the money h
     assert.equal(now.body.reconciled, "saved");
     assert.deepEqual(now.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"]]);
     assert.equal(now.body.cost, k.cost);
-    assert.equal(now.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    assert.equal(now.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
     // AND THE SITE TAKES CHANGES AGAIN.
     const next = await s.send();
     assert.equal(next.body.ok, true, JSON.stringify(next.body));
@@ -1342,7 +1343,7 @@ test("inline, a lost answer whose key cannot be read is said as not knowing, and
     assert.match(r.body.msg, /couldn't tell whether that entry was saved/);
     assert.match(r.body.msg, /haven't charged for it/);
     assert.match(r.body.msg, /Data panel/);
-    assert.equal(r.said.text, "⚠️ " + r.body.msg);
+    assert.equal(r.said.text, r.body.msg);
     // IT WAS IN FACT SAVED — which is exactly why "nothing was added" would be false.
     assert.equal(db.rows("loaves").length, 7);
   } finally { s.restore(); }
@@ -1401,7 +1402,7 @@ test("protection the ledger does not answer: no write is issued, nothing is adde
     assert.equal(first.status, 503, JSON.stringify(first.body));
     assert.equal(first.body.error, "row-unprotected");
     assert.match(first.body.msg, /nothing was added/);
-    assert.equal(first.said.text, "⚠️ " + first.body.msg);
+    assert.equal(first.said.text, first.body.msg);
     assert.ok(j.publish_started_at, "the gate did not begin the write — this case tests nothing");
     assert.equal(j.artifact_build, null);
     assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_reconcile").length, 1, "the parked job was not settled");
@@ -1467,7 +1468,7 @@ test("a confirmed entry whose record the ledger refuses is parked and kept from 
     assert.equal(r.body.reconciled, "saved");
     assert.deepEqual(r.body.rows.map((x) => [x.id, x.label]), [[12, "Rye & Caraway"]]);
     assert.equal(r.body.cost, j.cost);
-    assert.equal(r.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
   } finally { s.restore(); }
 });
 
@@ -1511,7 +1512,7 @@ test("a committed write whose answer is lost while its consumer cannot settle: t
     assert.equal(now.body.ok, true, JSON.stringify(now.body));
     assert.equal(now.body.reconciled, "saved");
     assert.equal(now.body.cost, j.cost);
-    assert.equal(now.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    assert.equal(now.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
     // A SECOND DELIVERY OF THE JOB'S MESSAGE RUNS NOTHING.
     const writes = writesOf(db).length;
     await runJob(s.worker, s.env, id);
@@ -1619,7 +1620,7 @@ for (const [found, extra] of [["its check before the picker", {}], ["the write's
       assert.equal(now.body.repeat, true);
       assert.equal(now.body.cost, j.cost);
       assert.deepEqual(now.body.rows.map((x) => [x.id, x.label]), [[12, "Rye & Caraway"]]);
-      assert.equal(now.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+      assert.equal(now.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
     } finally { s.restore(); }
   });
 }
@@ -1953,7 +1954,7 @@ test("a review that keeps the entry names again every part the first reply put o
     assert.equal(now.body.ok, true, JSON.stringify(now.body));
     assert.equal(now.body.reconciled, "saved");
     assert.deepEqual(now.body.deferred, LATER_TWO, "the settled reply dropped what the first put off");
-    assert.match(now.said.text, /^✅ Done — added “Rye & Caraway” to loaves \(entry 12\)\./);
+    assert.match(now.said.text, /^Done — added “Rye & Caraway” to loaves \(entry 12\)\./);
     assert.match(now.said.text, /\nI only did part of it this time\. Say “make the header navy”, then “add a map of the shop”, and I’ll do those next\.$/);
     // THE NEIGHBOURS: the six entries as they were, and the one entry once.
     assert.equal(db.rows("loaves").length, 7);

@@ -810,7 +810,27 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     // asked of `jobSecrets(env)`, because a first build runs in the container
     // and the Worker's own answer above said "on" while every job read "off".
     jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false,
+    // THE NARRATION SWITCHES, READ LIVE (2026-10-14): neither is set here.
+    progressReplies: false, progressTalk: false, jobProgressReplies: false, jobProgressTalk: false,
   });
+});
+
+test("the narration switches read live: PROGRESS_TALK on with PROGRESS_REPLIES on is on in the Worker and a job; talk alone is not", async () => {
+  // THE POSITIVE CONTROL for the talk press (2026-10-14): the route the
+  // press reads (`talkSwitchVerdict`, scripts/canary-talk.mjs) answers true
+  // only from the secrets themselves, and the container's copy is asked of
+  // `jobSecrets(env)`, which must carry PROGRESS_TALK.
+  const base = { DEPLOY_ID: "talk000000", SITES_BUCKET: {}, SITE_BUILD_CONTAINER: {} };
+  const on = await runtime("talk-on", { env: { ...base, PROGRESS_REPLIES: "on", PROGRESS_TALK: "on" } });
+  assert.equal(on.status, 200, JSON.stringify(on.body));
+  for (const k of ["progressReplies", "progressTalk", "jobProgressReplies", "jobProgressTalk"]) assert.equal(on.body[k], true, k);
+  const { talkSwitchVerdict } = await import("../scripts/canary-talk.mjs");
+  assert.equal(talkSwitchVerdict({ status: on.status, json: on.body }, true).ok, true);
+  const alone = await runtime("talk-alone", { env: { ...base, PROGRESS_TALK: "on" } });
+  assert.equal(alone.body.progressTalk, false, "talk needs the progress replies on beneath it");
+  assert.equal(alone.body.jobProgressTalk, false);
+  const restored = await runtime("talk-off", { env: { ...base, PROGRESS_REPLIES: "on", PROGRESS_TALK: "off" } });
+  assert.equal(talkSwitchVerdict({ status: restored.status, json: restored.body }, false).ok, true, "the restore reads off");
 });
 
 test("every field is a boolean or the deploy id — never a value, never the canary list", async () => {

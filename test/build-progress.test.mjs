@@ -379,7 +379,7 @@ test("DRIVEN: the rows carry a planning step, a clock on the running one, and no
     fn("function reactLiveStepsHTML(") + "\n" +
     // AND THE BUILD'S LIVE LINES' RENDERER (2026-10-09, round 5), taken out of
     // the file for the same reason: the rail now ends with them.
-    fn("function progressAt(") + "\n" + fn("function progressListHTML(") + "\n" +
+    fn("function progressListHTML(") + "\n" +
     "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
     "const siteBuild = sb;\nreturn reactLiveStepsHTML();");
 

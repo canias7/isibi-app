@@ -36,8 +36,8 @@ const RUN47 = [
   { ok: false, error: "kept", cost: 0, unchanged: true, msg: "I left /gallery — / still links to it. Ask me to take the link out first." },
 ];
 const GOOD = [
-  { ok: true, layer: "nav", msg: "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit.", links: MENU },
-  { ok: true, layer: "page", removed: ["gallery.tsx"], msg: "✅ Took /gallery off the site." },
+  { ok: true, layer: "nav", msg: "Updated the menu on 4 pages: Today's bake · The starter · Visit.", links: MENU },
+  { ok: true, layer: "page", removed: ["gallery.tsx"], msg: "Took /gallery off the site." },
 ];
 const CHAIN2 = { verified: true, why: "verified", target: "v2", links: 2 };
 const MOVED = { status: 301, location: ORIGIN + "/" };
