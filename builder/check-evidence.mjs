@@ -46,30 +46,74 @@ function listOf(xs) {
 }
 
 /**
+ * WHAT THE BROWSER CHECK'S REPORT SAYS, AS FAR AS IT CAN BE READ (2026-10-14,
+ * Codex's review at 8a000d1f: an unreadable finding was filtered out, the list
+ * came back empty, and the facts called the check clean). Four outcomes, kept
+ * apart:
+ *   { ran: false }   no report came back, it says it did not run (`ok: false`),
+ *                    or it opened no page;
+ *   { ran: null }    a report is there but whether it ran cannot be read (no
+ *                    readable `ok` or page count) — never "passed", never
+ *                    "did not run";
+ *   { ran: true, … } it ran and opened `pages`; then
+ *     `findings`     each one understood: a known kind, with its page when the
+ *                    page reads (a known kind on an unreadable page is kept,
+ *                    without one);
+ *     `unread`       how many it reported that could not be understood (an
+ *                    unknown kind, not an object) — counted, never shown;
+ *     `unknown`      the list itself, or its count of more, could not be read,
+ *                    so whether it flagged anything (more) is not known;
+ *     `more`, `cut`  past the cap; cut short (`true`), or whether it was cut
+ *                    cannot be read (`null`).
+ * Clean is only `ran: true` with nothing flagged, nothing unread and nothing
+ * unknown. No raw text of a finding is ever carried.
+ */
+function browserOf(r) {
+  if (r === null || r === undefined) return { ran: false };
+  if (!plain(r)) return { ran: null };
+  if (r.ok === false) return { ran: false };
+  if (r.ok !== true) return { ran: null };
+  if (r.pages === 0) return { ran: false };
+  if (!Number.isInteger(r.pages) || r.pages < 1) return { ran: null };
+  const found = [];
+  let unread = 0;
+  let unknown = false;
+  if (Array.isArray(r.findings)) {
+    for (const f of r.findings) {
+      if (plain(f) && typeof f.kind === "string" && Object.hasOwn(FINDING_SAID, f.kind)) found.push(typeof f.route === "string" && ROUTE.test(f.route) ? { route: f.route, kind: f.kind } : { kind: f.kind });
+      else unread++;
+    }
+  } else unknown = true;
+  let more = Math.max(0, found.length - MAX_CHECK_FINDINGS);
+  if (r.more !== undefined) {
+    if (Number.isInteger(r.more) && r.more > 0) more += r.more;
+    else if (r.more !== 0) unknown = true;
+  }
+  const cut = r.partial === true ? true : r.partial === undefined || r.partial === false ? undefined : null;
+  return {
+    ran: true, pages: r.pages, findings: found.slice(0, MAX_CHECK_FINDINGS),
+    ...(more ? { more } : {}), ...(unread ? { unread } : {}), ...(unknown ? { unknown: true } : {}), ...(cut !== undefined ? { cut } : {}),
+  };
+}
+
+/**
  * THE EVIDENCE, FROM WHAT THE PUBLISH ITSELF HAD: the compile's render report
  * (`render`, read whole — a clean report included, which the wire otherwise
  * drops), the version it activated, whether activation answered ok, and how
- * many of the change's style rules were checked. Never throws; a report it
- * cannot read is a browser check that did not run, never one that passed.
+ * many of the change's style rules were checked. Never throws.
  */
 export function checksOf({ render = null, version = "", published = false, cssChecked = 0 } = {}) {
-  const r = plain(render) ? render : null;
-  const pages = r && Number.isInteger(r.pages) && r.pages > 0 ? r.pages : 0;
-  const ran = !!r && r.ok !== false && pages > 0;
-  const all = ran && Array.isArray(r.findings) ? r.findings.filter((f) => plain(f) && Object.hasOwn(FINDING_SAID, f.kind) && typeof f.route === "string" && ROUTE.test(f.route)) : [];
-  const more = (ran && Number.isInteger(r.more) && r.more > 0 ? r.more : 0) + Math.max(0, all.length - MAX_CHECK_FINDINGS);
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
   return {
     compiled: true,
-    browser: ran
-      ? { ran: true, pages, findings: all.slice(0, MAX_CHECK_FINDINGS).map((f) => ({ route: f.route, kind: f.kind })), ...(more ? { more } : {}), ...(r.partial === true ? { cut: true } : {}) }
-      : { ran: false },
+    browser: browserOf(render),
     ...(css ? { css } : {}),
     published: published === true,
     ...(typeof version === "string" && VERSION.test(version) ? { version } : {}),
   };
 }
 
+const posInt = (n) => Number.isInteger(n) && n > 0;
 /**
  * THE EVIDENCE AS AN ANSWER CARRIES IT, read strictly: anything that is not
  * exactly this shape is null — cannot-tell is never read as a check that ran,
@@ -79,14 +123,50 @@ export function readChecks(v) {
   if (!plain(v) || v.compiled !== true || typeof v.published !== "boolean" || !plain(v.browser)) return null;
   const b = v.browser;
   if (b.ran === true) {
-    if (!Number.isInteger(b.pages) || b.pages < 1 || !Array.isArray(b.findings) || b.findings.length > MAX_CHECK_FINDINGS) return null;
-    if (!b.findings.every((f) => plain(f) && Object.hasOwn(FINDING_SAID, f.kind) && typeof f.route === "string" && ROUTE.test(f.route))) return null;
-    if (b.more !== undefined && !(Number.isInteger(b.more) && b.more > 0)) return null;
-    if (b.cut !== undefined && b.cut !== true) return null;
-  } else if (b.ran !== false) return null;
-  if (v.css !== undefined && !(Number.isInteger(v.css) && v.css > 0)) return null;
+    if (!posInt(b.pages) || !Array.isArray(b.findings) || b.findings.length > MAX_CHECK_FINDINGS) return null;
+    if (!b.findings.every((f) => plain(f) && typeof f.kind === "string" && Object.hasOwn(FINDING_SAID, f.kind) && (f.route === undefined || (typeof f.route === "string" && ROUTE.test(f.route))))) return null;
+    if (b.more !== undefined && !posInt(b.more)) return null;
+    if (b.unread !== undefined && !posInt(b.unread)) return null;
+    if (b.unknown !== undefined && b.unknown !== true) return null;
+    if (b.cut !== undefined && b.cut !== true && b.cut !== null) return null;
+  } else if (b.ran === false || b.ran === null) {
+    if (Object.keys(b).length !== 1) return null;
+  } else return null;
+  if (v.css !== undefined && !posInt(v.css)) return null;
   if (v.version !== undefined && !(typeof v.version === "string" && VERSION.test(v.version))) return null;
   return v;
+}
+
+/** Whether a read browser check is CLEAN: it ran, flagged nothing, and nothing it reported is unread or unknown. */
+export const browserClean = (b) => !!b && b.ran === true && !b.findings.length && !b.more && !b.unread && !b.unknown;
+
+/**
+ * THE ONE SENTENCE FOR THE BROWSER CHECK, from read evidence — the final
+ * reply's fact and the progress record's milestone both say this, so the two
+ * can never disagree.
+ */
+export function browserSaid(b) {
+  if (b.ran === false) return "The automated check that opens the pages in a browser could not run, so nothing checked how the pages load.";
+  if (b.ran === null) return "An automated check in a browser was reported, but its result could not be read, so whether it ran and what it found are not known. It is not known to be clean.";
+  const opened = "An automated check opened " + (b.pages === 1 ? "the page" : b.pages + " pages") + " in a browser"
+    + (b.cut === true ? " and was cut short before it finished, so not every page was checked" : b.cut === null ? "; whether it reached every page could not be read" : "");
+  if (browserClean(b)) {
+    return opened + (b.cut === true ? ". On the pages it reached it" : ". It") + " flagged none of what it looks for (" + listOf(LOOKS_FOR.map((k) => FINDING_SAID[k])) + "). It is automated: nobody looked at the design.";
+  }
+  const parts = [];
+  if (b.findings.length || b.more) {
+    const by = new Map();
+    for (const f of b.findings) {
+      const where = f.route || "a page whose address could not be read";
+      if (!by.has(f.kind)) by.set(f.kind, []);
+      if (!by.get(f.kind).includes(where)) by.get(f.kind).push(where);
+    }
+    const said = [...by].map(([k, at]) => FINDING_SAID[k] + " (" + listOf(at) + ")");
+    parts.push("It flagged " + (said.length ? listOf(said) + (b.more ? ", and " + count(b.more, "more finding") + " not listed here" : "") : count(b.more, "finding") + " not listed here"));
+  }
+  if (b.unread) parts.push((b.unread === 1 ? "One finding it reported" : b.unread + " findings it reported") + " could not be read, so what " + (b.unread === 1 ? "it was" : "they were") + " is not known");
+  if (b.unknown) parts.push(b.findings.length || b.more || b.unread ? "Part of what it found could not be read, so whether it flagged more is not known" : "What it found could not be read, so whether it flagged anything is not known");
+  return opened + ". " + parts.join(". ") + (b.unread || b.unknown ? ". It is not known to be clean" : "") + ". It is automated: nobody looked at the design.";
 }
 
 /**
@@ -107,27 +187,16 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   const at = scope ? "For " + scope + (which ? " (its " + which + ")" : "") + ": " : which ? "For its " + which + ": " : "";
   const out = [];
   const add = (text) => out.push({ kind: "check", text: at + text });
-  add("The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.");
-  const b = c.browser;
-  if (b.ran !== true) {
-    add("The automated check that opens the pages in a browser could not run, so nothing checked how the pages load.");
-  } else {
-    const opened = "An automated check opened " + (b.pages === 1 ? "the page" : b.pages + " pages") + " in a browser" + (b.cut ? " and was cut short before it finished, so not every page was checked" : "");
-    if (!b.findings.length && !b.more) {
-      add(opened + (b.cut ? ". On the pages it reached it" : ". It") + " flagged none of what it looks for (" + listOf(LOOKS_FOR.map((k) => FINDING_SAID[k])) + "). It is automated: nobody looked at the design.");
-    } else {
-      const by = new Map();
-      for (const f of b.findings) { if (!by.has(f.kind)) by.set(f.kind, []); if (!by.get(f.kind).includes(f.route)) by.get(f.kind).push(f.route); }
-      const said = [...by].map(([k, routes]) => FINDING_SAID[k] + " (" + listOf(routes) + ")");
-      add(opened + ". It flagged " + listOf(said) + (b.more ? ", and " + count(b.more, "more finding") + " not listed here" : "") + ". It is automated: nobody looked at the design.");
-    }
-  }
-  if (c.css) add((c.css === 1 ? "The one style rule" : "Each of the " + c.css + " style rules") + " this change wrote was checked to match something on the page.");
+  add(COMPILED_SAID);
+  add(browserSaid(c.browser));
+  if (c.css) add(cssSaid(c.css));
   add(c.published
     ? "Published: the new version is now the one the site's address is set to serve. Nobody opened the live address afterwards to confirm it."
     : "Not published: the version this made is not the one the site's address serves.");
   return out;
 }
+export const COMPILED_SAID = "The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.";
+export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote was checked to match something on the page.";
 
 /**
  * AN ANSWER STORED BEFORE THE EVIDENCE EXISTED carries only the render report,
@@ -136,7 +205,6 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
  * that answer does not record.
  */
 export function browserOnlyFacts(render) {
-  if (!plain(render)) return [];
-  const all = checkFacts(checksOf({ render }));
-  return all.length >= 2 ? [all[1]] : [];
+  if (render === null || render === undefined) return [];
+  return [{ kind: "check", text: browserSaid(browserOf(render)) }];
 }

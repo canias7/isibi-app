@@ -943,24 +943,31 @@ export function renderNote(report) {
   const r = report && typeof report === "object" ? report : null;
   if (!r) return "";
   if (r.ok === false) return "";           // the check could not run; not the customer's problem
+  // A LIST THAT IS NOT A LIST IS NOT "NOTHING FOUND" (2026-10-14, Codex at
+  // 8a000d1f): what the check found could not be read, and the line says so
+  // rather than staying silent the way a clean report does.
+  if (r.findings !== undefined && !Array.isArray(r.findings)) return "An automated check that opened the finished pages in a browser reported findings that could not be read.";
   const f = Array.isArray(r.findings) ? r.findings : [];
   if (!f.length) return "";
 
   // Grouped by WHAT, not by page: three pages with the same low-contrast caption
   // is one thing to fix, and listing it three times reads as three problems.
+  // A FINDING OF NO KNOWN KIND is counted, never dropped and never shown as
+  // it came; one whose page cannot be read keeps its kind.
   const by = new Map();
+  let unread = 0;
   for (const x of f) {
-    if (!x || !WORD[x.kind]) continue;
+    if (!x || typeof x !== "object" || typeof x.kind !== "string" || !Object.hasOwn(WORD, x.kind)) { unread++; continue; }
     const g = by.get(x.kind) || new Set();
-    g.add(x.route);
+    g.add(typeof x.route === "string" && /^\/\S{0,200}$/.test(x.route) ? x.route : "a page whose address could not be read");
     by.set(x.kind, g);
   }
-  if (!by.size) return "";
   const bits = [...by].map(([kind, routes]) => {
     const n = routes.size;
     const where = n === 1 ? [...routes][0] : `${n} pages`;
     return `${where} ${WORD[kind]}`;
   });
+  if (unread) bits.push(unread === 1 ? "one finding that could not be read" : `${unread} findings that could not be read`);
   const list = bits.length === 1 ? bits[0] : bits.slice(0, -1).join(", ") + " and " + bits[bits.length - 1];
   // SAID AS WHAT IT IS (2026-10-14, Codex's review of branch `new`): an
   // automated check in a browser, never "I had a look", which reads as

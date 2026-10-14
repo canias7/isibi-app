@@ -41,11 +41,16 @@ test("EVIDENCE — made from what the publish had, and read strictly: anything n
   const clean = checksOf({ render: REPORT(), version: "01791-abcdef", published: true });
   assert.deepEqual(clean, { compiled: true, browser: { ran: true, pages: 3, findings: [] }, published: true, version: "01791-abcdef" });
   const flagged = checksOf({ render: REPORT({ findings: [{ route: "/menu", kind: "contrast", detail: "x" }, { route: "/", kind: "made-up" }], partial: true, more: 2 }), cssChecked: 2, published: true });
-  assert.deepEqual(flagged.browser, { ran: true, pages: 3, findings: [{ route: "/menu", kind: "contrast" }], more: 2, cut: true }, "an unknown kind or the detail rode along");
+  // THE UNKNOWN KIND IS COUNTED, NEVER DROPPED (2026-10-14, Codex at 8a000d1f), and its detail never rides along.
+  assert.deepEqual(flagged.browser, { ran: true, pages: 3, findings: [{ route: "/menu", kind: "contrast" }], more: 2, unread: 1, cut: true }, "an unknown kind was dropped or the detail rode along");
   assert.equal(flagged.css, 2);
-  // A REPORT THAT DID NOT RUN, OR CANNOT BE READ, IS A CHECK THAT DID NOT RUN — never one that passed.
-  for (const r of [null, undefined, "ok", { ok: false, pages: 3, findings: [] }, { ok: true, pages: 0, findings: [] }, { ok: true, findings: [] }]) {
+  // NO REPORT, OR ONE THAT SAYS IT DID NOT RUN OR OPENED NO PAGE: a check that did not run.
+  for (const r of [null, undefined, { ok: false, pages: 3, findings: [] }, { ok: true, pages: 0, findings: [] }]) {
     assert.deepEqual(checksOf({ render: r, published: true }).browser, { ran: false }, JSON.stringify(r));
+  }
+  // A REPORT WHOSE RUNNING CANNOT BE READ: neither passed nor "did not run".
+  for (const r of ["ok", [], { ok: true, findings: [] }, { pages: 3, findings: [] }, { ok: "yes", pages: 3, findings: [] }, { ok: true, pages: 1.5, findings: [] }]) {
+    assert.deepEqual(checksOf({ render: r, published: true }).browser, { ran: null }, JSON.stringify(r));
   }
   const many = checksOf({ render: REPORT({ findings: Array.from({ length: MAX_CHECK_FINDINGS + 3 }, (_, i) => ({ route: "/p" + i, kind: "image" })) }) });
   assert.equal(many.browser.findings.length, MAX_CHECK_FINDINGS);
@@ -57,7 +62,9 @@ test("EVIDENCE — made from what the publish had, and read strictly: anything n
   for (const bad of [null, "yes", [], { ...clean, compiled: "true" }, { ...clean, published: "yes" }, { ...clean, browser: { ran: "yes" } },
     { ...clean, browser: { ran: true, pages: 0, findings: [] } }, { ...clean, browser: { ran: true, pages: 2, findings: [{ route: "/", kind: "odd" }] } },
     { ...clean, browser: { ran: true, pages: 2, findings: [{ route: "menu", kind: "image" }] } }, { ...clean, css: 0 }, { ...clean, version: "a b" },
-    { ...clean, browser: { ran: true, pages: 2, findings: [], cut: false } }]) {
+    { ...clean, browser: { ran: true, pages: 2, findings: [], cut: false } }, { ...clean, browser: { ran: false, pages: 2 } }, { ...clean, browser: { ran: null, findings: [] } },
+    { ...clean, browser: { ran: true, pages: 2, findings: [], unread: 0 } }, { ...clean, browser: { ran: true, pages: 2, findings: [], unknown: false } },
+    { ...clean, browser: { ran: true, pages: 2, findings: [], cut: "yes" } }]) {
     assert.equal(readChecks(bad), null, "read as evidence: " + JSON.stringify(bad));
   }
 });

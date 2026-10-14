@@ -16,6 +16,7 @@
 // `says` check reads the model's own account of what it described, never its
 // prose, and the case "LIMIT" pins that a contradictory sentence with a true
 // account is accepted. Every model answer here is supplied.
+import { checksOf, browserSaid } from "../builder/check-evidence.mjs";
 import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -71,18 +72,23 @@ test("CHECKS — each check says only what it reached: a build is not a look at 
   const clean = spineCheckFacts({ render: { ok: true, pages: 3, findings: [] }, cssChecked: 0 });
   assert.deepEqual(clean.map((f) => f.state), ["checked", "checked", "doing"]);
   assert.match(clean[0].text, /built without errors/);
-  assert.match(clean[1].text, /opened 3 pages in a browser and flagged none/);
-  assert.match(clean[1].text, /automated check, not a look at the design/);
+  // THE SAME SENTENCE AS THE FINAL REPLY'S (2026-10-14, Codex at 8a000d1f): `browserSaid` over `checksOf`.
+  assert.equal(clean[1].text, browserSaid(checksOf({ render: { ok: true, pages: 3, findings: [] } }).browser));
+  assert.match(clean[1].text, /opened 3 pages in a browser\. It flagged none of what it looks for/);
+  assert.match(clean[1].text, /It is automated: nobody looked at the design\.$/);
+  // AN UNKNOWN KIND IS COUNTED, NOT DROPPED: it used to vanish here, and the line read as if only the known finding existed.
   const flagged = spineCheckFacts({ render: { ok: true, pages: 1, partial: true, findings: [{ route: "/", kind: "contrast" }, { route: "/a", kind: "contrast" }, { route: "/", kind: "made-up" }] } });
-  assert.match(flagged[1].text, /opened the page in a browser, but was cut short/);
-  assert.match(flagged[1].text, /flagged text that is nearly invisible\./, "a finding was said twice or an unknown kind was named");
-  assert.match(flagged[1].text, /It is an automated check, not a look at the design\.$/, "a flagged browser check reads as a visual review");
-  for (const render of [null, { ok: false, pages: 2 }, { ok: true, pages: 0 }]) {
+  assert.equal(flagged[1].state, "checked");
+  assert.match(flagged[1].text, /opened the page in a browser and was cut short/);
+  assert.match(flagged[1].text, /It flagged text that is nearly invisible \(\/ and \/a\)\. One finding it reported could not be read, so what it was is not known\. It is not known to be clean\./);
+  assert.doesNotMatch(flagged[1].text, /made-up/, "a finding's raw kind was shown");
+  assert.match(flagged[1].text, /It is automated: nobody looked at the design\.$/, "a flagged browser check reads as a visual review");
+  for (const render of [null, { ok: false, pages: 2 }, { ok: true, pages: 0 }, { pages: 2, findings: [] }]) {
     const f = spineCheckFacts({ render });
     assert.equal(f[1].state, "notdone", "a browser check that did not run was said as " + f[1].state);
     assert.ok(!f.some((x) => x.state === "checked" && /browser/.test(x.text)), "a browser check that did not run was said as checked");
   }
-  assert.equal(spineCheckFacts({ render: { ok: true, pages: 1 }, cssChecked: 2 })[2].text, "Each of the 2 style rules this change wrote matches something on the page.");
+  assert.equal(spineCheckFacts({ render: { ok: true, pages: 1, findings: [] }, cssChecked: 2 })[2].text, "Each of the 2 style rules this change wrote was checked to match something on the page.");
   assert.ok(!spineCheckFacts({ render: { ok: true, pages: 1 }, cssChecked: 0 }).some((f) => /style rule/.test(f.text)), "a style check that was not asked for was said");
   for (const f of [...clean, ...flagged]) assert.notEqual(f.state, "published", "a check said the site is published");
   assert.deepEqual(publishedFacts().map((f) => f.state), ["published"]);

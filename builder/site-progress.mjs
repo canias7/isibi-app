@@ -74,7 +74,7 @@
 // DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
-import { FINDING_SAID } from "./check-evidence.mjs";
+import { checksOf, browserSaid, cssSaid } from "./check-evidence.mjs";
 import { TERMINAL_STATES } from "./edit-job.mjs";
 import { pathOf } from "./site-reply.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
@@ -1054,8 +1054,6 @@ export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
 }
 
 /** The automated browser check's problem kinds, as a fact names them — what it looks for, never more. */
-// The render check's kinds, said once for the record and the reply alike (2026-10-14).
-const RENDER_KIND_SAID = FINDING_SAID;
 
 /**
  * THE CHECKS A PUBLISH RAN, from the compile's own report — recorded once
@@ -1070,20 +1068,15 @@ const RENDER_KIND_SAID = FINDING_SAID;
  * A check that could not run is said as not done, so it is never read as passed.
  */
 export function spineCheckFacts({ render = null, cssChecked = 0 } = {}) {
+  // THE SAME READING AS THE FINAL REPLY'S (2026-10-14, Codex at 8a000d1f):
+  // the browser check's sentence is `browserSaid` over `checksOf`, so a
+  // report with findings nobody could read is never "flagged none" here and
+  // something else there. Checked only when it ran; not done when it did not
+  // run or its result cannot be read.
+  const c = checksOf({ render, cssChecked });
   const out = [fact("checked", "The site built without errors.")];
-  const r = render && typeof render === "object" ? render : null;
-  if (!r || r.ok === false || !(Number(r.pages) > 0)) {
-    out.push(fact("notdone", "The automated check that opens the pages in a browser could not run this time, so the pages were not checked that way."));
-  } else {
-    const pages = Math.floor(Number(r.pages));
-    const opened = "An automated check opened " + (pages === 1 ? "the page" : pages + " pages") + " in a browser" + (r.partial ? ", but was cut short before it finished" : "");
-    const flagged = [...new Set((Array.isArray(r.findings) ? r.findings : []).map((x) => x && x.kind).filter((k) => Object.hasOwn(RENDER_KIND_SAID, k)))];
-    out.push(fact("checked", flagged.length
-      ? opened + ". It flagged " + listOf(flagged.map((k) => RENDER_KIND_SAID[k])) + ". It is an automated check, not a look at the design."
-      : opened + " and flagged none of what it looks for (" + listOf(Object.keys(RENDER_KIND_SAID).filter((k) => k !== "unmet" && k !== "slow").map((k) => RENDER_KIND_SAID[k])) + "). It is an automated check, not a look at the design."));
-  }
-  const n = Number(cssChecked) > 0 ? Math.floor(Number(cssChecked)) : 0;
-  if (n) out.push(fact("checked", (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote matches something on the page."));
+  out.push(fact(c.browser.ran === true ? "checked" : "notdone", browserSaid(c.browser)));
+  if (c.css) out.push(fact("checked", cssSaid(c.css)));
   out.push(fact("doing", "Publishing the site now."));
   return out;
 }
