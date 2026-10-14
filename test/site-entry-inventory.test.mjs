@@ -88,7 +88,7 @@ function cutClick() {
   assert.match(src, /siteAnswer\('', true\)/, "the skip button no longer reaches siteAnswer");
   // PICK, THEN CONTINUE (option E, 2026-10-14): a click picks, Continue sends the pick.
   assert.match(src, /sitePick\(sitePickKeyFirst\(siteById\(siteOpenId\)\), pick\.getAttribute\('data-pick'\)\)/, "an option no longer picks");
-  assert.match(src, /const v = sitePickTake\(sitePickKeyFirst\(siteById\(siteOpenId\)\)\); if \(v\) siteAnswer\(v\);/, "a pick no longer reaches siteAnswer");
+  assert.match(src, /const v = sitePickTake\(sitePickKeyFirst\(siteById\(siteOpenId\)\)\); if \(v\) siteAnswer\(v, false, true\);/, "a pick no longer reaches siteAnswer as a pick");
   return src;
 }
 

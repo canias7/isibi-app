@@ -19,6 +19,7 @@ import {
   readAlso, MAX_ALSO_CHARS, heldBack,
 } from "../builder/site-ask.mjs";
 import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
+import { CONVERSE_SYSTEM } from "../builder/site-converse.mjs";
 // ⚠ `editBrowserReply`, the browser's own edit composer executed — the add
 // composer answers a plausible "✅ Done." for an edit body.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
@@ -234,11 +235,16 @@ test("the enum and the reader agree, and every declared value is reachable", () 
   }
 });
 
-test("the answer's length is capped in the DESCRIPTION, not only in max_tokens", () => {
-  // max_tokens truncates mid-word; a description shortens. Output bills at 5x
-  // input, so this is the field that moves the bill on the cheap path.
+test("the router writes only a reply's gist, and its ceiling stays a routing call's", () => {
+  // REWRITTEN 2026-10-14 (the owner: *"Remove the rigid 1–3-sentence/no-Markdown
+  // restriction … Give conversational answers an appropriate output budget
+  // without blindly increasing every routing call."*). The reply they read is
+  // written by its own call (`builder/site-converse.mjs`); the router's `answer`
+  // is its gist, so the routing ceiling did not have to grow for it.
   const d = ASK_TOOL.input_schema.properties.answer.description;
-  assert.match(d, /sentences/, "nothing bounds the reply's length in words");
+  assert.match(d, /gist/, "the router is writing the whole reply again");
+  assert.match(d, /written separately/, "nothing says the reply they read is written elsewhere");
+  assert.doesNotMatch(d, /one to three sentences|no markdown/i, "the old reply rules are back on the router");
   assert.ok(ASK_MAX_TOKENS <= 1000, "the routing call's ceiling has drifted upward: " + ASK_MAX_TOKENS);
 });
 
@@ -905,7 +911,8 @@ test("a number picks the answer the card shows, Enter sends only a pick, and Esc
   assert.match(keys, /e\.key === 'Escape'.*siteAnswer\('', true\)/s, "esc does not skip");
   // ENTER SENDS ONLY A PICK, and only after the text-field guard: in the
   // composer it is still the composer's own send key.
-  assert.match(keys, /if \(e\.key === 'Enter'\) \{ const v = sitePickTake\(fkey\); if \(v\) \{ e\.preventDefault\(\); siteAnswer\(v\); \} return; \}/, "Enter sends something other than the pick");
+  // …AS A PICK (2026-10-14: `picked`, never read as conversation).
+  assert.match(keys, /if \(e\.key === 'Enter'\) \{ const v = sitePickTake\(fkey\); if \(v\) \{ e\.preventDefault\(\); siteAnswer\(v, false, true\); \} return; \}/, "Enter sends something other than the pick");
   assert.ok(keys.indexOf("tag === 'textarea'") > 0 && keys.indexOf("tag === 'textarea'") < keys.indexOf("'Enter'"), "Enter is handled before the text-field guard");
 });
 
@@ -1013,7 +1020,10 @@ test("a first build asks only when the answer changes the build — with a floor
 
   // TALKS LIKE A PERSON, which is the whole point of putting a conversation in
   // front of a build rather than a wizard.
-  assert.match(sys, /TALK LIKE A PERSON/, "the tone instruction is gone");
+  // MOVED 2026-10-14 to the reply's own call, which writes what they read; the
+  // router is told conversation is not work instead.
+  assert.match(CONVERSE_SYSTEM, /Write like a helpful person/, "the tone instruction is gone");
+  assert.match(sys, /CONVERSATION IS NOT WORK/, "the router is no longer told conversation is not work");
   const q = ASK_TOOL.input_schema.properties.question.properties.text.description;
   assert.match(q, /TWO SHORT SENTENCES/, "the question went back to a bare one-liner");
   assert.match(q, /pick up what they just told you/i,
@@ -1091,7 +1101,8 @@ test("the options must be the CUSTOMER's answers, not the assistant's next line"
   // "thanks!" — three different messages, one identical reply.
   const ans = ASK_TOOL.input_schema.properties.answer.description;
   assert.match(ans, /ANSWER WHAT THEY ACTUALLY SAID/);
-  assert.match(ans, /thank-you gets/i, "a thank-you and a greeting are still one case");
+  // The cases are spelled out where the reply is written (2026-10-14).
+  assert.match(CONVERSE_SYSTEM, /thank-you gets/i, "a thank-you and a greeting are still one case");
   assert.ok(!/Hey\. What are we building\?/.test(ans),
     "the stock line is back in the description and will be parroted verbatim");
 });
@@ -1117,18 +1128,21 @@ test("a question is never cut mid-word", () => {
   assert.equal(readQuestion({ text: "Who books?", options: ["A", "B"] }).text, "Who books?");
 });
 
-test("an answer to our own question is never answered with prose", () => {
+test("an answer PICKED from our own options is never answered with prose", () => {
   // MEASURED LIVE: two questions answered, third button press, and the reply was
   // "I'm not sure what you'd like me to build. Tell me about your business." —
   // to somebody who had just told us three times, using our own buttons.
+  // NARROWED 2026-10-14 to a picked answer: a TYPED reply may be a side
+  // question, which stays conversation (the owner's batch).
   const askReply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "I'm not sure what you'd like me to build." } }] };
-  assert.equal(readRouting(askReply, { answering: true }).intent, "build",
-    "an ask in reply to our own question is a dead end");
-  assert.equal(readRouting(askReply, { answering: true }).answer, "",
+  assert.equal(readRouting(askReply, { picked: true }).intent, "build",
+    "an ask in reply to a pressed answer is a dead end");
+  assert.equal(readRouting(askReply, { picked: true }).answer, "",
     "the prose must not be shown as though it were a reply");
-  // …and OUTSIDE a round it is still a perfectly good answer, or this fix would
-  // have removed the feature rather than bounded it.
-  assert.equal(readRouting(askReply, { answering: false }).intent, "ask");
+  // …a typed reply that is a side question is answered, and outside a round it
+  // is a perfectly good answer.
+  assert.equal(readRouting(askReply, { answering: true }).intent, "ask");
+  assert.equal(readRouting(askReply, { picked: false }).intent, "ask");
   assert.equal(readRouting(askReply, {}).intent, "ask");
 });
 
@@ -1141,13 +1155,19 @@ test("answering does not close off another question", () => {
   assert.equal(readRouting(clarifyReply, { canClarify: true, answering: true }).intent, "clarify");
 });
 
-test("routeMessage passes `answering` through to the reader", () => {
+test("routeMessage passes `picked` through to the reader, and a typed reply stays conversation", async () => {
   // The flag is read in `readRouting`, so a `routeMessage` that forgets to hand
   // it over leaves the bug exactly where it was with every unit test green.
   const reply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "hmm" } }] };
-  return routeMessage({ send: async () => reply },
-    { message: "Sleek and modern", site: {}, firstBuild: true, brief: "Book classes", answering: true, qa: [] })
-    .then((r) => assert.equal(r.intent, "build", "`answering` did not reach readRouting"));
+  const r = await routeMessage({ send: async () => reply },
+    { message: "Sleek and modern", site: {}, firstBuild: true, brief: "Book classes", answering: true, picked: true, qa: [] });
+  assert.equal(r.intent, "build", "`picked` did not reach readRouting");
+  let sent = null;
+  const typed = await routeMessage({ send: async (q) => { sent = q; return reply; } },
+    { message: "wait, can you take payments?", site: {}, firstBuild: true, brief: "Book classes", answering: true, qa: [{ q: "Who books?", a: "wait, can you take payments?" }] });
+  assert.equal(typed.intent, "ask", "a typed side question during a round was turned into work");
+  assert.match(String(sent.messages[0].content), /TYPED REPLY WHILE YOUR LAST QUESTION IS ON SCREEN/,
+    "the router is not told a typed reply may be a side question");
 });
 
 test("the route hands `answering` to the router, strictly", () => {
@@ -1167,7 +1187,9 @@ test("the route hands `answering` to the router, strictly", () => {
   const call = w.slice(i, end);
   assert.match(call, /qa: rb\.qa/, "this is not the call it was written for");
   assert.match(call, /answering:\s*rb\.answering === true/,
-    "the answer flag never reaches routeMessage, so a button press can still be answered with prose");
+    "the answer flag never reaches routeMessage");
+  assert.match(call, /picked:\s*rb\.picked === true/,
+    "the pressed-answer flag never reaches routeMessage, so a button press can still be answered with prose");
 });
 
 test("the composer says a button press is an answer", () => {
@@ -1177,10 +1199,15 @@ test("the composer says a button press is an answer", () => {
   const i = c.indexOf("function siteAnswer(");
   assert.ok(i > 0, "siteAnswer is gone");
   const body = c.slice(i, c.indexOf("\nfunction ", i + 10));
-  assert.match(body, /siteRoute\(site, said, origin, true, imgs, finish, true\)/,
-    "the composer no longer tells the server this is an answer");
-  // …and it is actually put on the wire.
+  assert.match(body, /siteRoute\(site, said, origin, true, imgs, finish, true, undefined, undefined, picked === true\)/,
+    "the composer no longer tells the server this is an answer, and whether it was pressed");
+  // …and both are actually put on the wire.
   assert.match(c, /answering:\s*!!answering/, "siteRoute drops the flag before sending it");
+  assert.match(c, /picked:\s*!!picked/, "siteRoute drops the pressed flag before sending it");
+  // A PRESS IS SAID TO BE ONE (2026-10-14): Continue on the card and Enter on a
+  // pick; a typed reply in the composer is not one.
+  assert.match(c, /if \(pickGo && thread\.contains\(pickGo\)\) \{ const v = sitePickTake\(sitePickKeyFirst\(siteById\(siteOpenId\)\)\); if \(v\) siteAnswer\(v, false, true\); return; \}/, "Continue on the card is not sent as a pick");
+  assert.match(c, /if \(site\.clarify\) \{ siteAnswer\(t\); return; \}/, "a typed reply is sent as a pick");
   // A plain first message must NOT claim to be an answer, or the ask feature is
   // gone: `siteSend` routes with no such argument.
   const j = c.indexOf("function siteSend(");
@@ -1203,19 +1230,14 @@ test("the trade is the first question when the brief does not name it", () => {
   assert.match(d, /Book classes/, "the measured case is what stops this reading as generic advice");
 });
 
-test("an attachment closes off prose without closing off the question", () => {
-  // AN ATTACHMENT USED TO SKIP THE ROUTING CALL ENTIRELY, which was right about
-  // one outcome and silently took a second one with it. A file plus a sentence
-  // is an instruction, so answering it with a paragraph drops the file on the
-  // floor — `attached` bounds that. It must NOT bound `clarify`, or attaching a
-  // logo opts a first build out of the one question the owner asked for.
+test("an attachment no longer closes off conversation, nor the question", () => {
+  // REVERSED 2026-10-14 (the owner: *"attachment discussion … must remain
+  // conversation; don't turn them into work merely because attached … is
+  // true"*). A file with "what do you think of this logo?" is talk, and the
+  // router decides; it must still not bound `clarify`.
   const askReply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "Nice logo!" } }] };
-  assert.equal(readRouting(askReply, { attached: true }).intent, "build",
-    "a message with a file attached must not be answered with prose");
-  assert.equal(readRouting(askReply, { attached: true }).answer, "",
-    "the prose must not be shown as though it were a reply");
-  // With nothing attached it is still an ordinary question, or this bounded
-  // nothing and removed the feature instead.
+  assert.equal(readRouting(askReply, { attached: true }).intent, "ask",
+    "a message with a file attached was turned into work by the flag alone");
   assert.equal(readRouting(askReply, { attached: false }).intent, "ask");
 
   const q = { text: "What do people do on it?", options: ["Book a slot", "Send an enquiry"] };
@@ -1224,23 +1246,23 @@ test("an attachment closes off prose without closing off the question", () => {
     "an attachment must not suppress the first-build question");
 });
 
-test("routeMessage passes `attached` through to the reader", () => {
-  // Where it dies silently: `readRouting` is correct and never told. The same
-  // hole `answering` had, one flag over.
+test("routeMessage leaves an attached message's conversation to the router", () => {
   const reply = { content: [{ type: "tool_use", input: { intent: "ask", answer: "hmm" } }] };
   return routeMessage({ send: async () => reply },
-    { message: "use this logo", site: {}, firstBuild: true, brief: "a barber shop", attached: true, qa: [] })
-    .then((r) => assert.equal(r.intent, "build", "`attached` did not reach readRouting"));
+    { message: "what do you think of this logo?", site: {}, firstBuild: true, brief: "a barber shop", attached: true, qa: [] })
+    .then((r) => assert.equal(r.intent, "ask", "`attached` turned conversation into work"));
 });
 
-test("the route hands `attached` to the router, strictly", () => {
+test("the route no longer hands `attached` to the router: a file does not make talk work (2026-10-14)", () => {
   const w = worker();
   const i = w.indexOf("await routeMessage(");
   assert.ok(i > 0, "the routing call is gone");
   const end = w.indexOf("\n      );", i);
   assert.ok(end > i, "could not find the end of the routing call");
-  assert.match(w.slice(i, end), /attached:\s*rb\.attached === true/,
-    "the attachment flag never reaches routeMessage, so a file can still be answered with prose");
+  const call = w.slice(i, end).replace(/^\s*\/\/.*$/gm, "");
+  assert.match(call, /qa: rb\.qa/, "this is not the call it was written for");
+  assert.doesNotMatch(call, /attached:/, "the attachment flag reaches the router again, which turns talk about a file into work");
+  assert.match(call, /history: rb\.history/, "the conversation never reaches the router");
 });
 
 test("the composer routes a first build even with a file attached", () => {
@@ -1490,10 +1512,11 @@ test("an answerless ask on an existing site becomes addon, not a rebuild", async
   // ladder applied. Before this it cost a full revise.
   const r = readRouting(toolReply({ intent: "ask", answer: "   " }), { hasSite: true });
   assert.equal(r.intent, "addon");
-  const bounded = readRouting(toolReply({ intent: "ask", answer: "Sure!" }), { hasSite: true, answering: true });
+  const bounded = readRouting(toolReply({ intent: "ask", answer: "Sure!" }), { hasSite: true, picked: true });
   assert.equal(bounded.intent, "addon");
+  // A file no longer makes conversation work (2026-10-14).
   const attached = readRouting(toolReply({ intent: "ask", answer: "Sure!" }), { hasSite: true, attached: true });
-  assert.equal(attached.intent, "addon");
+  assert.equal(attached.intent, "ask");
 });
 
 test("a real question on an existing site is still answered", () => {

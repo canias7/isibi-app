@@ -131,13 +131,15 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
  * for none), the busy flag, the rail's label, the rail clock's starts and
  * stops, and the screen-affecting calls in order.
  */
-async function drive({ site, message, route, follow, routes }) {
+// `prior` IS THE THREAD BEFORE THIS MESSAGE, and `talk` gives the page its
+// conversation script (`public/chat-talk.js`, 2026-10-14).
+async function drive({ site, message, route, follow, routes, prior = [], talk = false }) {
   const calls = [];
   const reads = [];
   const events = [];
   const clock = { started: 0, cleared: 0 };
   const s = JSON.parse(JSON.stringify(site));
-  s.msgs = [];
+  s.msgs = JSON.parse(JSON.stringify(prior));
   const ctx = vm.createContext({
     window: {}, Auth: { accessToken: async () => "token" },
     AbortController, encodeURIComponent,
@@ -180,11 +182,12 @@ async function drive({ site, message, route, follow, routes }) {
     browserTimeZone: () => "Europe/London",
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,
+    ...(talk ? { ChatTalk: createRequire(import.meta.url)("../public/chat-talk.js") } : {}),
   });
   vm.runInContext(SRC, ctx);
   ctx.siteSend(message);
   for (let i = 0; i < 40; i++) await tick();
-  const msgs = JSON.parse(JSON.stringify(s.msgs));
+  const msgs = JSON.parse(JSON.stringify(s.msgs)).slice(prior.length);
   assert.deepEqual(msgs[0], { r: "u", t: message }, "the message itself is the first thing on the thread");
   return {
     reads,
@@ -399,7 +402,8 @@ test("CONTROL: the route's zero-balance answer is a build, so the revise's own 4
 test("CONTROL: a question with an answer is said, and buys nothing", async () => {
   const o = await drive({ site: LIVE, message: "Can you read a URL?", route: ok200({ ok: true, intent: "ask", answer: "Yes — paste it.", cost: 1 }) });
   assert.deepEqual(o.posts, []);
-  assert.deepEqual(o.said, [{ r: "a", t: "Yes — paste it." }]);
+  // `md` (2026-10-14): a conversation's reply keeps its few marks when drawn.
+  assert.deepEqual(o.said, [{ r: "a", t: "Yes — paste it.", md: true }]);
   assert.equal(o.busy, false);
   assert.equal(o.rail, "(stopped)");
 });
@@ -540,3 +544,25 @@ for (const [what, follow] of [
     assert.equal(o.clock.cleared, 1, "and its clock cleared");
   });
 }
+
+// ── THE CONVERSATION, FROM THE PAGE (2026-10-14) ───────────────────────────
+
+test("CONVERSATION: the page sends this project's thread and the files' names, and draws the reply with its marks", async () => {
+  const prior = [{ r: "u", t: "Should I add a gallery?" }, { r: "a", t: "A gallery would suit a bakery.", md: true }];
+  const o = await drive({ site: LIVE, message: "What would go in it?", prior, talk: true, route: ok200({ ok: true, intent: "ask", answer: "## Ideas\n- loaves", cost: 2, replyFrom: "conversation" }) });
+  assert.deepEqual(o.routed.body.history, [{ role: "user", text: "Should I add a gallery?" }, { role: "assistant", text: "A gallery would suit a bakery." }],
+    "the thread was not sent, or the message itself went as history");
+  assert.equal(o.routed.body.picked, false);
+  assert.equal(o.routed.body.files, undefined, "file names were sent with no file");
+  assert.deepEqual(o.said, [{ r: "a", t: "## Ideas\n- loaves", md: true }]);
+  assert.deepEqual(o.posts, [], "a conversation posted work");
+});
+
+test("CONVERSATION: \"do that\" runs the request the router wrote out from the conversation", async () => {
+  const prior = [{ r: "a", t: "I could add a gallery page with your loaves.", md: true }];
+  const written = "Add a gallery page showing our loaves";
+  const o = await drive({ site: LIVE, message: "yes, do that", prior, talk: true, route: ok200({ ok: true, intent: "addon", cost: 2, resolved: written }) });
+  assert.equal(o.posts.length, 1);
+  assert.equal(o.posts[0].url, "/api/site/fretwork-1/addon");
+  assert.equal(o.posts[0].body.instruction, written, "the few words typed ran instead of the written-out request");
+});

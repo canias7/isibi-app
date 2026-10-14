@@ -327,6 +327,9 @@ export function probeBody(p, pages) {
     message: p.message,
     site: { name: p.name || p.site, url: `https://${p.site}.gofarther.app`, pages, tables: [] },
     firstBuild: false, brief: p.message, qa: [], answering: false, attached: p.attached === true, slug: p.site, hasSite: true,
+    // A PROBE IS A FRESH MESSAGE (2026-10-14): nothing pressed, and no
+    // conversation before it — what the browser sends for a first message.
+    picked: false, history: [],
   };
 }
 

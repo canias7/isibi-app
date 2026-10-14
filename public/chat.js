@@ -8350,7 +8350,7 @@ function renderSiteWorkspace(view, site) {
       const pickOwn = e.target.closest('[data-pick-own]');
       if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(); return; }
       const pickGo = e.target.closest('[data-pick-go]');
-      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v); return; }
+      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v, false, true); return; }
       const h = e.target.closest('[data-steptog]');
       if (h && thread.contains(h)) h.parentNode.classList.toggle('open');
     };
@@ -9645,7 +9645,10 @@ function siteTablesAfter(origin, e) {
 // when it is sent and kept with it if it comes back unsent, so the same message
 // sent again — a lost answer, another tab — is one request on the server,
 // routed and charged once (`siteMessageKey`).
-function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key) {
+// `picked` (2026-10-14): the answer was PRESSED from our own options, the only
+// reply that may never be read as conversation. A typed reply may be a side
+// question, and stays one.
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key, picked) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -9750,7 +9753,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // Pinned to the default, the router is that shape again with a different
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
-    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+      // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
+      // This project's own thread, never another's, without the message being
+      // sent; the server windows it and says what it left out. The files go by
+      // name and kind only, for a reply about them — never as if seen.
+      history: typeof ChatTalk !== 'undefined' ? ChatTalk.historyWire((siteById(origin) || site).msgs, t) : undefined,
+      files: typeof ChatTalk !== 'undefined' && ((imgs && imgs.length) || keptImgs.length) ? ChatTalk.fileWire(keptImgs.concat(Array.isArray(imgs) ? imgs : [])) : undefined,
       ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined,
       // ── WHAT THE SERVER KEEPS WHEN IT TAKES THE WORK ON (2026-10-03) ──────
       // A site's message the server accepts as a request is finished there,
@@ -9827,7 +9836,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // request that was waiting, word for word (`instruction`), instead of the
     // typed words, with what they told us BESIDE it (`context`), its question
     // count and what it put off earlier, to whichever step runs it; files go too.
-    if (!isBuild && d.ask) siteAskClear(origin);
+    // …UNLESS IT IS STILL WAITING (2026-10-14): a side question was answered as
+    // conversation, and the question stays on screen for its answer.
+    if (!isBuild && d.ask && d.ask.waiting !== true) siteAskClear(origin);
     let run = t;
     if (!isBuild && d.ask && d.ask.answered === true) {
       if (typeof d.instruction === 'string') { run = d.instruction; brief = run; }
@@ -9838,6 +9849,12 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       // (2026-10-03): `siteAskReply` held an answer that would take the two past
       // one request's files in the box before anything was sent.
       sendImgs = keptImgs.concat(sendImgs);
+    } else if (typeof d.resolved === 'string' && d.resolved.trim()) {
+      // "DO THAT", WRITTEN OUT (2026-10-14): the router wrote the work out in
+      // full from the conversation, and that is what runs — on the live site
+      // and on a first build alike — in place of the few words typed.
+      run = d.resolved;
+      if (!round) brief = run;
     }
     // ── THE SERVER TOOK IT ON (2026-10-03) ──────────────────────────────────
     // A request it finishes itself, every part, with no page needed: this page
@@ -9904,7 +9921,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // The answer alone. What it cost shows up in the ✦ pill, which `apiFetch`
     // already refreshes for this route — safe there, unlike the build, because
     // this is a plain JSON response whose charge is settled before it answers.
-    s.msgs.push({ r: 'a', t: String(d.answer) });
+    // A SIDE QUESTION TYPED UNDER A FIRST BUILD'S QUESTION (2026-10-14) was
+    // put in the round as its answer before it was sent; it was not one, so
+    // it comes out, and the question stays on screen for its answer.
+    if (isBuild && answering && !picked && s.clarify && Array.isArray(s.clarify.qa)) {
+      const last = s.clarify.qa[s.clarify.qa.length - 1];
+      if (last && last.a === t) s.clarify.qa.pop();
+    }
+    // `md`: the reply's few marks — headings, lists, bold, links — are drawn
+    // (`ChatTalk.markdownHTML`, escaped first).
+    s.msgs.push({ r: 'a', t: String(d.answer), md: true });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -14308,7 +14334,7 @@ document.addEventListener('keydown', (e) => {
   // about which answer is which.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
   const fkey = sitePickKeyFirst(site);
-  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v); } return; }
+  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v, false, true); } return; }
   const opts = (live && Array.isArray(live.opts)) ? live.opts.slice(0, 4) : [];
   const n = Number(e.key);
   if (!(n >= 1 && n <= opts.length)) return;
@@ -14316,7 +14342,10 @@ document.addEventListener('keydown', (e) => {
   sitePick(fkey, String(opts[n - 1]));
 });
 
-function siteAnswer(label, skip) {
+// `picked` (2026-10-14): the answer came from the card — an option pressed, or
+// their own answer written into it and sent with Continue — and not typed into
+// the composer, where it may be a side question.
+function siteAnswer(label, skip, picked) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy || !site.clarify) return;
   // WHOLE (2026-10-08): a typed answer was cut to 200 characters here. The
@@ -14384,7 +14413,7 @@ function siteAnswer(label, skip) {
   // 2026-08-09: three answers in, "Sleek and modern" came back as "I'm not sure
   // what you'd like me to build", nothing was built, and the round was left on
   // an already-answered question.
-  siteRoute(site, said, origin, true, imgs, finish, true);
+  siteRoute(site, said, origin, true, imgs, finish, true, undefined, undefined, picked === true);
 }
 
 // ── A QUESTION ON A SITE THAT EXISTS (2026-10-02) ──────────────────────────
@@ -14488,7 +14517,9 @@ function siteReplyMsg(reply) {
 // thread's own: escaped, with its links made live.
 function siteMsgText(m, linkify) {
   const h = EditPoll.heldOf(m);
-  if (!h) return linkify(m.t);
+  // A CONVERSATION'S REPLY (2026-10-14) keeps its few marks; every other
+  // message is drawn as it always was.
+  if (!h) return m.md === true && typeof ChatTalk !== 'undefined' ? ChatTalk.markdownHTML(m.t) : linkify(m.t);
   return '<div class="st-think"><i></i>' + esc(m.t) + '</div>' + (h.asked ? '<div>' + linkify(h.asked) + '</div>' : '');
 }
 // THE MESSAGE A QUESTION IS DRAWN UNDER: what was said before it, then the

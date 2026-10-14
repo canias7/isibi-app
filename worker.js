@@ -218,6 +218,7 @@ import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
+import { converse, readHistory } from "./builder/site-converse.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
@@ -8453,6 +8454,63 @@ async function routeDigest(env, user, rb) {
   const pagesFilled = Array.isArray(routes) && routes.length > 0;
   if (pagesFilled) out = { ...out, pages: routes };
   return { site: out, filled, pagesFilled, pagesComplete: pagesFilled };
+}
+
+// ── WHAT THE CONVERSATION IS TOLD ABOUT THE OWNER'S SITE (2026-10-14) ───────
+//
+// The owner: *"Supply relevant owner-authorized site context beyond names,
+// page paths and table names using existing read mechanisms; do not
+// indiscriminately include private customer records."* Read only when the
+// router has answered that a message is conversation, only for the verified
+// owner (`siteOwnerBySlug`, as `routeDigest`), each read bounded in time, and
+// each one that cannot answer said as not known (`null`) rather than as none:
+//   pages   the stored pages' own words (`extractText`, the text lane's reader)
+//   tables  each table's name, its columns and who may read and write it
+//           (`readStoredSpec`, `accessLabel`) — never a row
+//   files   the owner's file library (`siteUploadList`): name, kind, size,
+//           address — never a visitor's upload, never the contents
+const CONVERSE_READ_MS = 3000;
+async function readConverseContext(env, user, rb, digest) {
+  const site = digest && digest.site && typeof digest.site === "object" ? digest.site : {};
+  const base = { exists: true, name: typeof site.name === "string" ? site.name : "", url: typeof site.url === "string" ? site.url : "", paths: Array.isArray(site.pages) ? site.pages.filter((p) => typeof p === "string") : [] };
+  const slug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+  const uid = user && user.id;
+  if (!slug || !uid) return { ...base, pages: null, tables: null, files: null };
+  const owned = await withinMs(siteOwnerBySlug(slug, env).then((o) => o === uid), CONVERSE_READ_MS, "converse owner:", slug);
+  if (owned !== true) return { ...base, pages: null, tables: null, files: null };
+  const [src, spec, files] = await Promise.all([
+    withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, "converse pages:", slug),
+    withinMs((async () => {
+      const conn = await ownerSiteConn(env, slug);
+      if (!conn) return { ok: true, spec: { tables: [] } };
+      return readStoredSpec(conn);
+    })(), CONVERSE_READ_MS, "converse tables:", slug),
+    withinMs(env.SITES_BUCKET ? siteUploadList(env, slug) : Promise.resolve(null), CONVERSE_READ_MS, "converse files:", slug),
+  ]);
+  const routes = Array.isArray(src) ? sitePageRoutes(src) : [];
+  const pages = Array.isArray(src)
+    ? routes.map((path) => {
+      const p = src.find((x) => x && routeOf(x.path) === path);
+      let text = "";
+      try { text = p ? extractText(p.source).map((it) => it.text).join(" · ") : ""; } catch { text = ""; }
+      return { path, text };
+    })
+    : null;
+  const tables = spec && spec.ok && spec.spec && Array.isArray(spec.spec.tables)
+    ? spec.spec.tables.filter((t) => t && typeof t.name === "string" && ROUTE_TABLE_NAME.test(t.name)).slice(0, 24).map((t) => {
+      let who = "";
+      try { who = accessLabel(t); } catch { who = ""; }
+      const cols = (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : c && typeof c.name === "string" ? c.name : "")).filter((c) => ROUTE_TABLE_NAME.test(c)).slice(0, 30);
+      return { name: t.name, columns: cols, who: who ? "access: " + who : "" };
+    })
+    : null;
+  const lib = Array.isArray(files)
+    ? files.filter((f) => f && !f.visitor && typeof f.key === "string").map((f) => {
+      const name = f.key.slice(("uploads/" + slug + "/").length);
+      return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind: uploadIsImage(name) ? "image" : "doc", size: f.size };
+    })
+    : null;
+  return { ...base, pages, tables, files: lib };
 }
 
 /**
@@ -26946,6 +27004,9 @@ async function handleRequest(request, env, ctx) {
       }, { status: 409 });
       const closeLost = (c) => !c.ok && c.why !== "expired" && c.why !== "missing";
       let rWaiting = null;
+      // A WAITING QUESTION THIS MESSAGE DID NOT NAME (2026-10-14): closed after
+      // routing, unless the message is conversation.
+      let rOpenQ = null;
       if (rClaim !== undefined) {
         if (!rLive || !rClaim) return staleAnswer("other");
         let st = null;
@@ -26985,13 +27046,14 @@ async function handleRequest(request, env, ctx) {
         let st = null;
         try { st = await loadAsk(env.SITES_BUCKET, rSlug); } catch (e) { console.error("question read:", rSlug, errorClassForLog(e)); }
         if (!st) return rStoreFailed(undefined);
-        if (st.record && st.record.uid === ru.id && st.record.status === "pending") {
-          let closed = null;
-          try { closed = await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: st.record.id, uid: ru.id, status: "superseded" }); }
-          catch (e) { console.error("question close:", rSlug, errorClassForLog(e)); }
-          if (!closed) return rStoreFailed(undefined);
-          if (closeLost(closed)) return askBusy();
-        }
+        // A QUESTION WAITING IS CLOSED ONLY BY WORK (2026-10-14, the owner:
+        // *"Preserve pending work during side questions"*): it was closed here,
+        // before the router read the message, so "how long does a booking page
+        // take?" sent beside a question lost the request waiting on it. Now it
+        // is closed after routing, before anything runs, when the message is
+        // work or a question of its own — and a message the router answers as
+        // conversation leaves it waiting.
+        if (st.record && st.record.uid === ru.id && st.record.status === "pending") rOpenQ = st.record;
       }
       // A PART'S ROUTING JOB STOPPED BEFORE IT ASKS ANY MODEL: the request was
       // stopped while the job waited (`edit_cancel`, the job's own door). The
@@ -27035,12 +27097,15 @@ async function handleRequest(request, env, ctx) {
           // `=== true`, like `firstBuild` beside it: nothing merely truthy off a
           // public body changes how a paid call is read.
           answering: rb.answering === true,
-          // A FILE CAME WITH THE MESSAGE. Same effect as `answering` — "ask" is
-          // closed off, "clarify" is not — and a separate flag because it is a
-          // different fact. Before this, an attachment skipped the routing call
-          // altogether, so a first build with a logo attached was never asked
-          // anything, against the rule that every new project gets one question.
-          attached: rb.attached === true,
+          // …AND WHETHER IT WAS PRESSED (2026-10-14): only an answer picked from
+          // our own options closes "ask" off now. A typed reply may be a side
+          // question, and a file with a message may be talk about the file
+          // (the owner: *"don't turn them into work merely because attached or
+          // answering is true"*), so `attached` is no longer handed to the router.
+          picked: rb.picked === true,
+          // THE CONVERSATION SO FAR (2026-10-14): the page's own copy of this
+          // project's thread, read and windowed by `readHistory` there.
+          history: rb.history,
           // DOES THIS PROJECT ALREADY HAVE A SITE — the flag that opens `edit`
           // and `addon` at all, and the one that stops a colour change on a live
           // site costing a full rewrite of every page.
@@ -27123,6 +27188,16 @@ async function handleRequest(request, env, ctx) {
       let rAsk;
       let rInstruction;
       let rQuestion;
+      // A MESSAGE THAT DID NOT NAME THE WAITING QUESTION, AND IS NOT
+      // CONVERSATION, CLOSES IT NOW (2026-10-14) — before anything runs, as it
+      // did before routing; a close another writer won stops it, said.
+      if (rOpenQ && routed.failed !== true && routed.intent !== "ask") {
+        let closed = null;
+        try { closed = await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: rOpenQ.id, uid: ru.id, status: "superseded" }); }
+        catch (e) { console.error("question close:", rSlug, errorClassForLog(e)); }
+        if (!closed) return rStoreFailed(routed.decision);
+        if (closeLost(closed)) return askBusy();
+      }
       // WHAT IT TAKES TO OFFER A PART'S QUESTION AGAIN, for its request's step.
       let rQuestionFor;
       if (routed.failed !== true) {
@@ -27187,6 +27262,10 @@ async function handleRequest(request, env, ctx) {
           // WHAT THEY TOLD US rides beside the request to the step that runs
           // it, so every model there is shown it and none asks it again.
           rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
+        } else if (rWaiting && !resumed && routed.intent === "ask") {
+          // A SIDE QUESTION LEAVES THE QUESTION WAITING (2026-10-14): nothing is
+          // closed, and the page keeps its card (`waiting`).
+          rAsk = { answered: false, waiting: true };
         } else if (rWaiting && !resumed) {
           let closed = null;
           try { closed = await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: rWaiting.id, uid: ru.id, status: "superseded" }); }
@@ -27267,12 +27346,41 @@ async function handleRequest(request, env, ctx) {
           rInstruction = undefined;
         }
       }
+      // ── CONVERSATION GETS ITS OWN REPLY (2026-10-14) ─────────────────────
+      //
+      // The router answered that the message is conversation, and wrote only
+      // the gist. The reply they read is written now, by its own call
+      // (`builder/site-converse.mjs`): shown the conversation the page sent,
+      // the owner's site as this route can read it for them
+      // (`readConverseContext`), the files that came with the message by name
+      // only, and a question of ours still waiting — with a ceiling that fits
+      // an explanation or a plan, which no routing call is given. A part's
+      // routing job never gets here: its answer is read, never shown.
+      let rAnswer = routed.intent === "ask" ? routed.answer : undefined;
+      let rConverse = null;
+      if (routed.failed !== true && routed.intent === "ask" && !rJob) {
+        const firstBuild = !(rb.hasSite === true && rb.firstBuild !== true);
+        const cctx = firstBuild
+          ? { exists: false, brief: typeof rb.brief === "string" ? rb.brief : "", qa: Array.isArray(rb.qa) ? rb.qa.slice(0, 12) : [] }
+          : await readConverseContext(env, ru, rb, rDigest);
+        const wq = rWaiting || rOpenQ;
+        const lastQ = firstBuild && rb.answering === true && Array.isArray(rb.qa) && rb.qa.length ? rb.qa[rb.qa.length - 1] : null;
+        const pending = wq && wq.question && typeof wq.question.text === "string" ? { question: wq.question.text, request: wq.request }
+          : lastQ && typeof lastQ.q === "string" ? { question: lastQ.q } : null;
+        rConverse = await converse({ send: quickSend(env, "converse") }, {
+          message: rb.message, history: readHistory(rb.history), context: cctx,
+          attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel,
+        });
+        if (rConverse.ok) rAnswer = rConverse.answer;
+        else console.error("converse failed:", rConverse.stage, rConverse.error ? errorClassForLog(rConverse.error) : "");
+      }
       let rCost = 0;
       // Billed only when the model actually answered. `routeMessage` returns a
       // null usage on the failure path precisely so this reads the same way the
-      // build path does: our fault, our cost.
+      // build path does: our fault, our cost. THE REPLY'S CALL IS BILLED WITH
+      // IT, under the same charge (2026-10-14), only when it answered.
       if (routed.usage) {
-        rCost = pageCredits(routed.usage);
+        rCost = pageCredits(routed.usage) + (rConverse && rConverse.ok && rConverse.usage ? pageCredits(rConverse.usage) : 0);
         // ── CHARGED ONCE, HOWEVER OFTEN IT ARRIVES (2026-10-03) ─────────────
         //
         // A part's routing job pays through the job's own reserve (`job#1`):
@@ -27297,7 +27405,11 @@ async function handleRequest(request, env, ctx) {
       const rOut = {
         ok: true,
         intent: routed.intent,
-        answer: routed.intent === "ask" ? routed.answer : undefined,
+        answer: rAnswer,
+        // WHICH CALL WROTE THE REPLY (2026-10-14): the conversation's own, or —
+        // when it could not answer — the router's gist, said so.
+        replyFrom: routed.intent === "ask" && rConverse ? (rConverse.ok ? "conversation" : "router") : undefined,
+        replyCut: rConverse && rConverse.ok && rConverse.cut ? true : undefined,
         // WHICH LAYER, AND WHICH PAGE — and without them the entire edit lane is
         // unreachable. Measured live 2026-08-11, first run of `edit smoke`:
         // `intent=edit layer=undefined`. `readEdit` decides the layer, this
@@ -27386,6 +27498,11 @@ async function handleRequest(request, env, ctx) {
         // the step that runs it.
         ask: rAsk,
         instruction: rInstruction,
+        // THE WORK WRITTEN OUT FROM THE CONVERSATION (2026-10-14, `resolved`):
+        // runs in place of the message's own words — "do that" becomes what
+        // "that" was — on work the router read it on, and never over an
+        // answered question's own request.
+        resolved: rInstruction === undefined && routed.intent !== "ask" && routed.intent !== "clarify" && typeof routed.resolved === "string" ? routed.resolved : undefined,
         cost: rCost,
         usage: routed.usage || undefined,
         // WAS THIS A DECISION OR A FALLBACK? `routeMessage` computes failed:true
@@ -27433,7 +27550,7 @@ async function handleRequest(request, env, ctx) {
       if (rKey && routed.failed !== true) {
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for

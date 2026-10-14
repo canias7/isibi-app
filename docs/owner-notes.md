@@ -1,5 +1,22 @@
 # Owner Notes
 
+## Branch `new` — the conversation and video/audio batch (2026-10-14, after Codex's review of `9ceca1d4`; unmerged, undeployed, nothing pressed or spent)
+
+**1. The assistant (this commit).** A chat-only message now gets a reply
+written by its own call, with the conversation so far, the owner's own site
+(its pages' words, its tables' columns and who may write to them — never a
+row — and its file library) and room for a real explanation or plan; the
+routing call keeps its ceiling. The old "one to three sentences, no Markdown,
+no headings or bullets" and "it cannot do anything else" rules are gone, and
+the reply is told plainly what it did not do (open the site, browse, run
+anything, watch or listen). A side question, planning, or talk about an
+attached file stays conversation and leaves a waiting question waiting; "ok,
+do that" runs the request written out from the conversation. Suite `10822 /
+10819 / 1 / 2` before commit (the one failure is the image check that needs
+the new module committed); sweep 23 of 23 killed. Record:
+`docs/history/2026-10-14-conversation.md`. The video and audio half and the
+full handoff follow in the next commits.
+
 ## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
 
 **Where it stands (2026-10-14).**

@@ -73,8 +73,9 @@ const CASES = [
   ["clarify-unreadable", () => routed({ intent: "clarify", question: { text: "", options: [] } }, { firstBuild: true, hasSite: false, site: {} }), "fallback"],
   ["work-without-site", () => routed({ intent: "edit", layer: "look" }, { hasSite: false }), "fallback"],
   ["ask-empty", () => routed({ intent: "ask", answer: "  " }), "fallback"],
-  ["ask-while-answering", () => routed({ intent: "ask", answer: "Sure" }, { answering: true }), "fallback"],
-  ["ask-with-attachment", () => routed({ intent: "ask", answer: "Nice logo" }, { attached: true }), "fallback"],
+  // NARROWED 2026-10-14: only an answer PICKED from our options; a typed reply
+  // and a file stay conversation (test/site-ask.test.mjs).
+  ["ask-while-answering", () => routed({ intent: "ask", answer: "Sure" }, { answering: true, picked: true }), "fallback"],
   ["layer-missing", () => routed({ intent: "edit" }), "fallback"],
   ["layer-unknown", () => routed({ intent: "edit", layer: "menu" }), "fallback"],
   ["page-missing", () => routed({ intent: "edit", layer: "page" }), "fallback"],
@@ -134,6 +135,13 @@ const CASES = [
   ["tables-filled", () => routed({ intent: "edit", layer: "data" }, { tablesFilled: true }), "model"],
   // A SITE READ TO HAVE NO TABLES (2026-10-05): its own code, never the fill's.
   ["tables-none", () => routed({ intent: "edit", layer: "data" }, { tablesNone: true }), "model"],
+  // THE CONVERSATION (2026-10-14): its small window shown, cut, and a request
+  // written out from it — or one given where none is read.
+  ["history-shown", () => routed({ intent: "addon" }, { history: [{ role: "user", text: "a gallery?" }] }), "model"],
+  ["history-cut", () => routed({ intent: "addon" }, { history: Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i })) }), "model"],
+  ["resolved", () => routed({ intent: "addon", resolved: "Add a gallery page with the photos from the menu" }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
+  ["resolved-unread", () => routed({ intent: "addon", resolved: 42 }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
+  ["resolved-ignored", () => routed({ intent: "addon", resolved: "Add a gallery" }), "model"],
   // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
   // the waiting request already asked is sent its answer once — the router's
   // answer then is its own (`clarify-reused`, context) — and one still asked is

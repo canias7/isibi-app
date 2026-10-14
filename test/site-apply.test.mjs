@@ -2144,7 +2144,8 @@ test("the router RETURNS the layer it picked", () => {
   const code = obj.replace(/^\s*\/\/.*$/gm, "");
   // 2,000 SINCE 2026-10-03: two fields joined it (`dependsOn`, `questionFor`);
   // the whole route is many times that, which is what the bound catches.
-  assert.ok(code.length > 60 && code.length < 2000,
+  // 2,600 SINCE 2026-10-14: three more (`replyFrom`, `replyCut`, `resolved`).
+  assert.ok(code.length > 60 && code.length < 2600,
     "the response literal window looks wrong: " + code.length + " of code in " + obj.length + " bytes");
   // The PROPERTY: every field the client reads off this answer is on it, as a
   // real property with a value rather than as a word in a sentence.

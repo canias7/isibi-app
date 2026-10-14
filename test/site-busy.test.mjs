@@ -692,7 +692,13 @@ test("the editable copy: four editing readers read through the repairing reader,
   // PAGE LABELS. Accepting a request reads each page's headline once, so its
   // Add-on parts identify pages by what they said when the message was read.
   // It only reads labels: it never publishes and never opens a page for an edit.
-  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  //
+  // RE-ANCHORED 2026-10-14 — 8 → 9, AND THE NINTH IS THE CONVERSATION'S READ.
+  // A message the router answered as conversation is shown the pages' own
+  // words (`readConverseContext`). It only reads them for a reply: it never
+  // publishes and never opens a page for an edit.
+  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
