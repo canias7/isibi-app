@@ -619,15 +619,13 @@ test("NO PHOTOGRAPH, THE WIRING: `check-no-images` reaches this spec and its run
 // Build parallelism audit): the UI presses' box, for the Build workflow. It is
 // CLOSED; the owner names one mode by commit for one run.
 
-test("BUILD OPT-IN 1 — OPEN FOR ONE RUN (check-no-images, the owner's approval of the live verification batch, 2026-10-14): blank changes nothing; a malformed number says so; check-no-images is admitted; every other mode refuses; an empty list refuses as closed", async () => {
+test("BUILD OPT-IN 1 — CLOSED AGAIN after its one run (check-no-images, run 117, 2026-10-14): blank changes nothing; a malformed number says so; any number refuses as closed, check-no-images included; a list naming one mode admits only that mode", async () => {
   const { BUILD_BALANCE_OPT_IN, readBuildOptIn } = await import("../scripts/canary-build.mjs");
-  assert.deepEqual([...BUILD_BALANCE_OPT_IN], ["check-no-images"]);
+  assert.deepEqual([...BUILD_BALANCE_OPT_IN], []);
   assert.ok(Object.isFrozen(BUILD_BALANCE_OPT_IN));
   for (const blank of [undefined, null, "", "  "]) assert.deepEqual(readBuildOptIn(blank, { mode: "check-no-images" }), { ok: true, value: null, mode: "" });
   for (const bad of ["0", "-1", "783.5", "7 83", "abc", "0783", "+783", "12345678"]) assert.match(readBuildOptIn(bad, { mode: "check-no-images" }).msg, /whole credits/, bad);
-  assert.deepEqual(readBuildOptIn("773", { mode: "check-no-images" }), { ok: true, value: 773, mode: "check-no-images" });
-  for (const mode of ["check", "edit"]) assert.match(readBuildOptIn("773", { mode }).msg, /only for check-no-images/, mode);
-  for (const mode of ["check-no-images", "check"]) assert.match(readBuildOptIn("773", { mode, admitted: [] }).msg, /the build balance box is closed/, mode);
+  for (const mode of ["check-no-images", "check", "edit"]) assert.match(readBuildOptIn("773", { mode }).msg, /the build balance box is closed/, mode);
   const open = ["check-no-images"];
   assert.deepEqual(readBuildOptIn("783", { mode: "check-no-images", admitted: open }), { ok: true, value: 783, mode: "check-no-images" });
   assert.match(readBuildOptIn("783", { mode: "check", admitted: open }).msg, /only for check-no-images; this press is check/);

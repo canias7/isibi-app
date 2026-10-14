@@ -2208,12 +2208,9 @@ export function capRefusal({ now, cap }) {
 // 152: "Close the opt-in afterward"). Before that it admitted
 // `acc-clarify-resume` (run 152), `acc-addon-k3b` (run 150),
 // `acc-isolation-page` (run 144), `acc-isolation` (run 141), the
-// K0/K/E/M0/M batch and P1/P2, all closed.
-// OPEN FOR ONE RUN (2026-10-14, the owner's approval of the live verification
-// batch on the combined candidate: "one acc-mixed-talk Edit/Add-on check …
-// Open only the opt-ins needed for these two runs"). It admits
-// `acc-mixed-talk` alone, and is closed again by commit after that run.
-export const BALANCE_OPT_IN = Object.freeze(["acc-mixed-talk"]);
+// K0/K/E/M0/M batch and P1/P2, all closed. It admits no press now: every
+// press is bound by its cap until the owner names a new one.
+export const BALANCE_OPT_IN = Object.freeze([]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";
