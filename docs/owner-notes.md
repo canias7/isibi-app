@@ -1,44 +1,90 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the Build audit's one paid press ran (run 117: 10 credits, published, overlap not exercised; parallel design unused on first builds since 09-13; opt-in closed, images back on); run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-14: run 117's causes traced and fixed on the branch at `c00e7a06` — the build doors now travel into the container job, bands fan out in the container, every build send is listed by its attempt key and the press reconciles by it; nothing deployed, built, pressed or bought)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**The Build audit, now (2026-10-14, after run 117):**
-- **The paid press ran once: run 117**, on your approval at an estimated
-  11–45 credits (not a cap). Image purchases were off for it (deploy 2207,
-  checked by run 116).
-  - **It cost 10 credits**, 783 → 773: ledger rows 467–469, deposit 2,
-    settle 4, pages 4, all on one build ref.
-  - The build **published** https://saltmarsh-cheese-counter.gofarther.app:
-    done and ok at 12:29:11 UTC, one route, no photograph bought.
-- **Overlap was not exercised.** The design ran as one call and the page
-  as one band (`bands:sync`), although your account's design and graph
-  flags are on.
-- **Progress lines and fresh-session recovery were not exercised.** The
-  build request ended at about 285 s with no answer and no job, and the
-  press judged the build before it finished. So its "0 pages" and "not
-  done" are the press's misreading; the build's own record says done.
-- **Not retried.**
-- **Wider finding:** no first build has used the design graph or bands at
-  once since 2026-09-13 (the-hot-plate, 10-04, is the same). The cause is
-  not established. The audit is blocked by the build path, not by your
-  account's flags.
-- **Restored:**
-  - the opt-in is closed (`5056b7a8`);
-  - image purchases are on: deploy 2208, and free run 118 reads "the live
-    Worker still buys photographs";
-  - the container was not rebuilt (`4444d9d53d906b8d`, "no changes" both
-    times);
-  - balance 773, last row 469, no job open.
-- **Next (free):** reproduce through the real build route with supplied
-  answers and the graph flag on, to find why neither parallel designer is
-  chosen. Then the press should follow a build by its record when the
-  request drops.
-- Details: `docs/history/2026-10-14-build-audit-batch.md` §9.
+**Run 117's causes, fixed on the branch (2026-10-14; `c00e7a06`, unmerged):**
+- **Verified cause 1, the parallel doors were shut inside the job.** Since
+  09-14 a first build runs as a container job. Its env is a fixed list
+  (`JOB_ENV_NAMES`), and that list carried none of the design split, design
+  graph or band split names. So the job read every door shut, while the
+  Worker's runtime route (what run 115 read) said they were open.
+  Reproduced through the real route: with the old job env the build designs
+  in one call and records `bands:sync`, which is run 117's trace exactly.
+  This matches the split in the records: the last graph design was 09-13,
+  and every first build since 10-04 is single-call.
+- **Verified cause 2, bands could never split in the job.** The job's queue
+  refuses, so there is no fire and the band step always answered `sync`.
+- **Verified cause 3, a named build was never listed.** The press names its
+  slug, so run 117 left no marker, and nothing could find job `b6360027…`
+  once Cloudflare cut the request at about 285 s.
+- **Verified cause 4, the press dropped the error.** It kept only status 0,
+  skipped every poll and judged a build that was still running.
+- **Legitimately sequential (not defects):**
+  - the design before the database, the pages after the design, the
+    compile after the pages;
+  - a one-band plan;
+  - doors shut for an account;
+  - a container that will not start a fan-out (falls back to one call);
+  - a build on the Worker.
+- **Hypotheses (not verified):**
+  - that run 117's job ran in the container (there is no container log;
+    it follows from cause 1);
+  - whether 16 designers plus a band fan-out fit one live container;
+  - whether it is faster live;
+  - what the 129 s design mark measures.
+- **Fixes:**
+  - the six door names travel with the job;
+  - in a job, a band list runs on the container's own `/model/start`
+    (8 at a time), with the existing one-call fallback;
+  - the runtime route also reports the job's view (`jobDesign`,
+    `jobGraph`, `jobBands`, `jobBandsEveryone`), and the press judges by
+    it;
+  - every build send is listed with the caller's attempt key (a named send
+    claims no chat);
+  - the press keeps the original error, finds its own build by that key
+    (never the latest for the slug, never a resend), follows it to its end,
+    binds the trace to the job's row and counts only that job's charges;
+  - a free `judge-no-images` mode judges one finished build by job id.
+  - The one-page and 15-component limits are unchanged.
+- **Production acceptance** still answers within the request or loses it
+  at about 285 s. The work always survived (the queue). What was missing
+  was the way back to the job, and the listing by attempt is that way.
+- **Tests:**
+  - `test/build-parallel-route.test.mjs`, 14 cases: route selection, door
+    parity, independent vs dependent work, fallbacks, attempt listing,
+    connection loss then completion, another attempt's build or charges
+    never taken, and judge mode;
+  - guards updated in `band-build`, `canary-build`, `site-chat` and
+    `publish-integrity`;
+  - red checks against the old files (the fix's cases fail, the controls
+    pass);
+  - sweep 13 of 13 killed, and the comment control survived;
+  - full suite `10843 / 10843 / 0 / 0` locally on the final tree.
+- **Ledger, read at 14:09 UTC:** balance **773**, last row **469**.
+  Run 117 is exactly −10 on its three rows (467–469, ref
+  `build:b6360027…`). No job is queued or running.
+- **Image:** `worker.js` changed, so the next deploy would roll the
+  container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
+  inputs, 175 paths). Not built.
+- **Remaining live gaps:**
+  - nothing is deployed;
+  - parallel design and bands inside a live container job are unproven;
+  - reconnect by attempt is proven offline only;
+  - run 117's stored source has not been read here (it needs your
+    session). The served page shows one route and 15 distinct non-chrome
+    components, which is evidence, not the verdict.
+- **Your free press, to judge run 117's source** (*build as owner*):
+  - branch `claude/help-needed-ehlwlj`;
+  - mode `judge-no-images`;
+  - job `b6360027c827aa2048dfd199c0a5bc01`;
+  - spend `no`;
+  - balance box blank.
+- Details: `docs/history/2026-10-14-run117-causes.md`.
 
 **Production, as read now (2026-10-14):**
 - `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
@@ -48,8 +94,8 @@ is in git; the dated entries further down are the full story.*
   UTC): `imagePurchases=true`, both readers on `fef80b9bc913`, the cold
   container on `4444d9d53d906b8d`, nothing charged. They were off only for
   run 152 (deploy 2204).
-- **Balance 783.** The last ledger row is 466 (run 152's Order line). No
-  job is open.
+- **Balance 773** (after run 117). The last ledger row is 469. No job
+  is open.
 - **Paid opt-ins are closed** again (`BALANCE_OPT_IN = []`; the form says
   "CLOSED").
 
@@ -1183,6 +1229,33 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — Why run 117 ran in sequence, and why the press lost it: found and fixed on the branch (nothing spent)
+
+Run 117's build did not use the parallel designers because it never saw
+your flags. Since mid-September every first build runs inside the site's
+container as a job, and the job gets a fixed list of settings. That list
+never included the design and band switches, so inside the job they always
+read "off". The Worker's own check read them as "on", which is why the
+flags looked enabled. Even with the switches on, the page bands could not
+split inside a job, because the only way to split them was a route the job
+cannot use.
+
+The press lost the build for a separate reason. It names its site, and the
+app only listed builds that had no name. When Cloudflare cut the request at
+about 285 seconds, there was nothing to find the job by. The press also
+threw away the network error.
+
+Fixed on the branch at `c00e7a06`:
+- the switches now travel with the job;
+- the bands fan out on the container's own service;
+- every build is listed with a random key its sender chose;
+- the press keeps the error, finds its own build by that key (never "the
+  latest build for this site", never a second send), waits for it to
+  finish and counts only its own charges.
+
+There are 14 new tests, and a red check and a sweep were run. Balance 773,
+last row 469. Nothing was merged, deployed, built or bought.
 
 ## 2026-10-14 — Run 117: the image-free Build test, once; it published, but nothing ran in parallel
 
