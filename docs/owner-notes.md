@@ -1448,6 +1448,45 @@ since. Add new ones there.
 
 
 
+## 2026-10-14 — Your two free rehearsals from the candidate branch (nothing spent)
+
+You pressed both from `integ/combined-candidate` (`8af536af`), with spend
+`no`. Both stopped before sending anything, as they should against
+production, which still runs `fef80b9b`.
+
+**Run 38618272565, *build as owner*, `check-no-images` (18:48 UTC):**
+- **Met:**
+  - the balance was read;
+  - it covers the estimate of 45;
+  - **`saltmarsh-cheese-lewes` is free**, now confirmed by the press itself.
+- **Unmet:**
+  - the balance, 773, is above the cap of 100 (this needs your opt-in);
+  - photographs are still bought (`IMAGE_PURCHASES` on);
+  - production's runtime route does not report the job's own design,
+    graph and band switches, so the parallel mode reads unverified. The
+    candidate adds those fields. The Worker's own flags (design true,
+    graph true) were not taken as the build's.
+
+**Run 38618381410, *edit canary*, `acc-mixed-talk` on `fold-lane-bakery`
+(18:49 UTC):**
+- **The runtime line printed `progressTalk=undefined
+  jobProgressTalk=undefined`.** Production does not report the switch, and
+  the press did not read that as off.
+- **It stopped at step 1 on the image guard**: "the live Worker still buys
+  photographs — nothing is sent". The talk read comes after that guard, so
+  it was not reached.
+- **The row check** reads Olive & Rosemary at 5.8, as the scenario needs.
+  It also says the loaves table moved since its record: id 3's price
+  5.5 → 5.4 and id 5's 6.3 → 6.2. Neither is the target row, and this is
+  noted, not refused.
+- **Balance 773 → 773; 0 console errors; narration logs readable** (no
+  narration in the window).
+- **Its usual free preflight queued two zero-cost jobs**, `0c543689…` on the
+  bakery and `f1ad2f57…` on `washhouse-3`, as every preflight does.
+
+**Unit CI on `8af536af`, read from its log:** `10936 tests / 10892 passed /
+0 failed / 44 skipped`. The total equals the local 10936.
+
 ## 2026-10-14 — The combined candidate pushed for review, with the reconnect, progress and talk checks it runs (nothing spent)
 
 You asked me to finish the combined candidate before asking for deployment
