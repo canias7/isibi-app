@@ -65,6 +65,11 @@ is in git; the dated entries further down are the full story.*
     pass);
   - sweep 13 of 13 killed, and the comment control survived;
   - full suite `10843 / 10843 / 0 / 0` locally on the final tree.
+  - **Caught after the push:** `c00e7a06`'s workflow file did not parse
+    (a bare apostrophe in the new mode description), so GitHub refused it
+    (run 38578125153, no jobs) and the press could not have run. Fixed in
+    the next commit, with a guard (`test/workflow-quotes.test.mjs`, 2
+    cases; it fails on `c00e7a06`'s file). Press from that commit or later.
 - **Ledger, read at 14:09 UTC:** balance **773**, last row **469**.
   Run 117 is exactly −10 on its three rows (467–469, ref
   `build:b6360027…`). No job is queued or running.
