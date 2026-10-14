@@ -543,7 +543,10 @@ test("the route READS and never repairs — it takes no lease and moves nothing"
   const block = src.slice(at, nextLine).trimEnd();
   // AND THE LENGTH BOUND STAYS, as the tell that the derivation broke: a window
   // that grew past this is one that swallowed a neighbour's CODE.
-  assert.ok(block.length > 200 && block.length < 8000, "re-derive this window (" + block.length + " chars)");
+  // RE-MEASURED 2026-10-14: the by-job read's call (three lines, 209 chars;
+  // its body is `siteSourceByJob`, outside this window) took the route from
+  // 7,909 to 8,118 characters — its own code, not a neighbour's.
+  assert.ok(block.length > 200 && block.length < 9000, "re-derive this window (" + block.length + " chars)");
   // RE-ANCHORED, NOT APPEASED (2026-09-18): this was `loadSiteSource(env, sslug)`
   // and the route reads `readSiteSource` now — the three-state reader, whose
   // `{ok, pages, why}` is what lets the answer say which stores it really

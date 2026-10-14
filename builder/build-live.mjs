@@ -59,6 +59,19 @@ export const isLiveChat = (v) => typeof v === "string" && CHAT_RE.test(v);
 const ATTEMPT_RE = /^[a-z0-9][a-z0-9-]{15,63}$/;
 export const isAttempt = (v) => typeof v === "string" && ATTEMPT_RE.test(v);
 
+/**
+ * THE JOB, AS A NUMBER A TRACE CAN CARRY (2026-10-14, after run 117). A build
+ * trace (`site_builds`) is one row per SLUG, overwritten by the next build of
+ * that slug, and `makeTrace` keeps finite numbers only. So the build's own
+ * publish mark carries the first 48 bits of its job id: a reader binds the
+ * trace to the job by this, never by a time window that an overlapping or
+ * replacement attempt of the same site could fall inside. Null for anything
+ * that is not a job id.
+ */
+export function jobTagOf(job) {
+  return typeof job === "string" && /^[0-9a-f]{32}$/.test(job) ? parseInt(job.slice(0, 12), 16) : null;
+}
+
 /** The account's prefix: every key below lives under it, and a listing reads nothing else. */
 export function buildLiveRoot(uid) {
   if (!isLiveUid(uid)) throw new Error("build-live: refusing an account id we cannot key on");

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildFlagsVerdict, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
+import { jobTagOf } from "../builder/build-live.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = BUILD_CHECK.slug;
@@ -289,6 +290,10 @@ test("THE SLUG, VERIFIED FREE: the site table and the build records each answer 
 // A JOB'S LIFE AND ITS TRACE'S START, as the stored rows carry them (run 117's shape).
 const JOB_CREATED = "2026-10-14T12:21:23.901Z", JOB_UPDATED = "2026-10-14T12:29:12.903Z", TRACE_AT = "2026-10-14T12:23:43.435Z";
 
+// THE TRACE AS THE BUILD NOW WRITES IT (2026-10-14): its publish mark carries
+// the job's tag (`jobTagOf`, worker.js's `pages` mark), which binds it to the job.
+const tagged = (steps, job = JOB) => steps.map((x) => (x.s === "pages" ? { ...x, jobTag: jobTagOf(job) } : x));
+const VER = "01790600000000-abc123";
 function stub(over = {}) {
   const calls = [];
   let clock = 0;
@@ -306,10 +311,14 @@ function stub(over = {}) {
     existing: async (slug) => { calls.push(`existing:${slug}`); return FREE(); },
     post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.slug, SLUG); assert.equal(body.brief, BUILD_CHECK.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
     poll: async (t, job) => { calls.push(`poll:${t}`); assert.equal(job, JOB); const p = goodPolls()[Math.min(polled++, 3)]; return { status: p.status, json: p.status === 200 ? { ok: true, slug: SLUG, progress: p.progress } : { ok: false, pending: true, progress: p.progress } }; },
-    trace: async () => ({ steps: NOW_TRACE, done: true, ok: true, started_at: TRACE_AT }),
+    trace: async () => ({ steps: tagged(NOW_TRACE), done: true, ok: true, started_at: TRACE_AT }),
     // THE JOB'S OWN ROW (2026-10-14): the trace is bound to it by slug and time.
     jobRow: async function (job) { return { id: job, slug: this._slug || SLUG, op: "build", state: "done", created_at: JOB_CREATED, updated_at: JOB_UPDATED }; },
     source: async (t) => { calls.push(`source:${t}`); return { status: 200, json: src }; },
+    // ONE JOB'S OWN STORED VERSION (worker.js, `/api/site/source?job=`): the
+    // same content as the route reads it, named by the version whose manifest
+    // names the job, live when the pointer names it too.
+    sourceJob: async function (t, slug, job) { const r = await this.source(t, slug); return r && r.status === 200 ? { status: 200, json: { ...r.json, ok: true, slug, job, version: VER, live: { version: VER, job } } } : r; },
     served: async () => ({ status: 200, html: servedHtml([[P1, "The tea room's window seats"], [P2, "A slice of dark ginger cake"]]) }),
     image: async () => img,
     uploads: async (t) => { calls.push(`uploads:${t}`); return goodPhotos().uploads; },
@@ -331,12 +340,12 @@ test("END TO END, OFFLINE: the build is sent once by the first session, which th
   assert.ok(io.calls.filter((c) => c.startsWith("poll:")).every((c) => c === "poll:tok-2"), "a poll was made by the sender");
   assert.equal(rec.overlap.by, "bands");
   assert.equal(rec.money.net, 50);
-  assert.equal(rec.checks.length, 20); // the trace's own-build check joined on 2026-10-14
+  assert.equal(rec.checks.length, 21); // the trace's own-build check joined on 2026-10-14, the source's own-version check after it
   assert.ok(rec.checks.some((c) => /independent build work ran at once/.test(c.name)));
 });
 
 test("THE PRESS'S FAILURES REACH ITS VERDICT: no recorded overlap, a second session never signed in afresh, and a charge taken twice each fail the press with their own reason", async () => {
-  const noOverlap = await runBuildCheck(stub({ trace: async () => ({ steps: HOT_PLATE.concat([]), done: true, ok: true, started_at: TRACE_AT }) }), { spend: true });
+  const noOverlap = await runBuildCheck(stub({ trace: async () => ({ steps: tagged(HOT_PLATE.concat([])), done: true, ok: true, started_at: TRACE_AT }) }), { spend: true });
   assert.equal(noOverlap.ok, false);
   assert.ok(failed(noOverlap.checks).some((f) => /independent build work ran at once.*no recorded overlap/.test(f)));
   let n = 0;
@@ -443,7 +452,7 @@ const NI = BUILD_CHECK_NO_IMAGES;
 const NI_SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "src/routes/index.tsx", source: pageSrc(["hero-split", "card"]) + "function P(){ return <main><h1>Saltmarsh</h1><p>Forty British cheeses.</p></main> }\n" }], parts: [] };
 // THE ACCOUNT'S BUILD FLAGS AS THE RUNTIME ROUTE ANSWERS THEM (worker.js,
 // GET /api/site/runtime): page bands for everyone on, the rest off.
-const FLAGS = { design: false, graph: false, bandsEveryone: true, bands: true };
+const FLAGS = { design: false, graph: false, bandsEveryone: true, bands: true, runner: false, runnerEveryone: false };
 const RT = (imagePurchases, status = 200, flags = FLAGS) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...flags, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
 // THE BALANCE AT THE BATCH CAP (100), and a build of 30 inside its estimate of 45.
 const niStub = (over = {}) => stub({
@@ -492,7 +501,8 @@ test("NO PHOTOGRAPH, THE REFUSALS: a Worker that still buys photographs, one tha
 });
 
 test("NO PHOTOGRAPH, THE FREE REHEARSAL AT A BALANCE A PAID PRESS REFUSES (Codex on 23861838): at 971 it still reads the runtime, reports the image switch and the account's flags, and lists EVERY unmet prerequisite — never only the first; nothing is sent, and a paid press at 971 refuses before its one paid call", async () => {
-  const off = { design: false, graph: false, bandsEveryone: false, bands: false };
+  // A WORKER-ONLY ROUTE (builds not in the container), so the Worker's view is the build's.
+  const off = { design: false, graph: false, bandsEveryone: false, bands: false, runner: false, runnerEveryone: false };
   // AT 971, EVERYTHING ELSE MET: one unmet prerequisite, the cap — and the flags reported.
   const s = niStub({ balance: async () => 971 });
   const r = await runBuildCheck(s, { spec: NI, spend: false });
@@ -507,7 +517,7 @@ test("NO PHOTOGRAPH, THE FREE REHEARSAL AT A BALANCE A PAID PRESS REFUSES (Codex
   const r2 = await runBuildCheck(all, { spec: NI, spend: false });
   assert.deepEqual(r2.unmet, ["the balance is within the hard cap of 100", "the slug is free", "the live Worker buys no photograph", "an image-free parallel mode is already on for this account"]);
   for (const re of [/hard cap of 100/, /already a site/, /still buys photographs/, /no image-free parallel mode is on/]) assert.match(r2.stopped, re);
-  assert.deepEqual(r2.flags.read, off);
+  assert.deepEqual(r2.flags.read, { design: false, graph: false, bandsEveryone: false, bands: false });
   assert.deepEqual(r2.prereqs.map((p) => p.ok), [true, true, false, false, false, false]);
   // THE RUNTIME UNREADABLE: unknown, never a value — both runtime prerequisites unmet.
   const dark = await runBuildCheck(niStub({ balance: async () => 971, runtime: RT(false, 503) }), { spec: NI, spend: false });
@@ -524,11 +534,12 @@ test("NO PHOTOGRAPH, THE FREE REHEARSAL AT A BALANCE A PAID PRESS REFUSES (Codex
 });
 
 test("NO PHOTOGRAPH, THE PREREQUISITES READ BEFORE ANYTHING IS PAID: the account's own flags, unchanged — no image-free parallel mode on, bands only through the canary list, flags not reported, or the balance above the cap each stop the press before it sends; one mode on passes", async () => {
-  const off = { design: false, graph: false, bandsEveryone: false, bands: false };
+  // A WORKER-ONLY ROUTE (builds not in the container), so the Worker's view is the build's.
+  const off = { design: false, graph: false, bandsEveryone: false, bands: false, runner: false, runnerEveryone: false };
   for (const [flags, re] of [
     [off, /no image-free parallel mode is on for this account.*nothing is sent — no flag is switched on to make it pass/],
     [{ ...off, bands: true }, /bands only through a canary list that may name the site rather than the account/],
-    [{ design: false, graph: false }, /does not report every build flag/],
+    [{ design: false, graph: false, runner: false, runnerEveryone: false }, /does not report every build flag/],
   ]) {
     const s = niStub({ runtime: RT(false, 200, flags) });
     const r = await runBuildCheck(s, { spec: NI, spend: true });
@@ -588,7 +599,7 @@ test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap
   assert.ok(failed(unread.checks).some((f) => /uploads were read, and hold no image/.test(f)));
   // ONLY PHOTOGRAPHS OVERLAPPED: not shown for a build that may buy none.
   const photosOnly = [{ s: "design" }, { s: "photos-alongside", started: 1 }, { s: "gen" }, { s: "img" }, { s: "photos-wait", open: 1 }, { s: "photos-joined", unused: 0 }, { s: "compile" }, { s: "pages" }];
-  const ov = await runBuildCheck(niStub({ trace: async () => ({ steps: photosOnly, done: true, ok: true, started_at: TRACE_AT }) }), { spec: NI, spend: true });
+  const ov = await runBuildCheck(niStub({ trace: async () => ({ steps: tagged(photosOnly), done: true, ok: true, started_at: TRACE_AT }) }), { spec: NI, spend: true });
   assert.ok(failed(ov.checks).some((f) => /independent build work ran at once.*no recorded overlap/.test(f)), JSON.stringify(failed(ov.checks)));
   assert.equal(buildOverlapVerdict(photosOnly).by, "photos", "CONTROL: the same trace overlaps by photographs for a build that may buy them");
   assert.equal(buildNoImageVerdict({ pages: NI_SRC.pages, uploads: { ok: true, files: [] }, slug: NI.slug }).checks.every((c) => c.ok), true);

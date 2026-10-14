@@ -55,6 +55,7 @@
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 import { buildStepFacts } from "../builder/site-progress.mjs";
 import { photosOf } from "./canary-additions.mjs";
+import { jobTagOf } from "../builder/build-live.mjs";
 import { photoPath, servedPhotos } from "./canary-requests.mjs";
 
 /** The live Worker's own word on photographs (`/api/site/runtime`): "" only when it says none are bought. Kept here, not imported from the browser press, so this module loads without a browser. */
@@ -141,9 +142,20 @@ export function buildFlagsVerdict(rt) {
   // runner on, a first build runs in the container and asks its doors of the
   // job's env; the route reports that view as `jobDesign`/`jobGraph`/
   // `jobBands`/`jobBandsEveryone`. Run 117 was judged "on" from the Worker's
-  // view while the job read every door shut. A route too old to report the
-  // job's view leaves the Worker's view, as before.
-  const inJob = (raw.runnerEveryone === true || raw.runner === true) && ["jobDesign", "jobGraph", "jobBands", "jobBandsEveryone"].every((k) => typeof raw[k] === "boolean");
+  // view while the job read every door shut.
+  // KNOWN OR UNVERIFIED, NEVER BORROWED (2026-10-14, the owner's review): where
+  // builds run is itself read off the route (`runner`, `runnerEveryone`). Not
+  // reported → unverified. In the container with any of the job's four
+  // settings missing → unverified: the Worker's flags are the very evidence
+  // that misled run 117, so they never stand in for the job's. Only a route
+  // that says builds do NOT run in the container is judged by the Worker's view.
+  const JOB_KEYS = ["jobDesign", "jobGraph", "jobBands", "jobBandsEveryone"];
+  if (typeof raw.runner !== "boolean" || typeof raw.runnerEveryone !== "boolean") return { ok: false, unverified: true, modes: [], view: "unknown", why: "the runtime route does not report whether builds run in the container (runner, runnerEveryone), so which settings a first build uses is unverified — nothing is sent" };
+  const inJob = raw.runnerEveryone === true || raw.runner === true;
+  if (inJob) {
+    const missing = JOB_KEYS.filter((k) => typeof raw[k] !== "boolean");
+    if (missing.length) return { ok: false, unverified: true, modes: [], view: "as the container job sees it", why: `builds run in the container, but the runtime route does not report the job's own settings (${missing.join(", ")} not reported); the Worker's flags (design ${raw.design}, graph ${raw.graph}, bands for everyone ${raw.bandsEveryone}) are not the build's, so the mode is unverified — nothing is sent` };
+  }
   const j = inJob ? { design: raw.jobDesign, graph: raw.jobGraph, bands: raw.jobBands, bandsEveryone: raw.jobBandsEveryone } : raw;
   const modes = [j.design && "design agents at once", j.graph && "the design as a graph", j.bandsEveryone && "page bands at once (for everyone)"].filter(Boolean);
   const view = inJob ? "as the container job sees it" : "as the Worker sees it";
@@ -350,11 +362,30 @@ export function attemptMatch(list, attempt) {
 }
 
 /**
+ * A TRACE THAT IS NOT BOUND JUDGES NOTHING, BUT ITS READING IS SAID
+ * (2026-10-14). When the trace's attribution is unverified (no job tag), the
+ * overlap is not judged on it; the reason names that, and beside it what the
+ * unbound trace would read, so the evidence is kept and never credited.
+ */
+function unboundWhy(ta, raw, ov, spec) {
+  if (ta.ok || !ta.unverified || !raw) return ov.why;
+  const seen = buildOverlapVerdict(raw.steps, { photos: spec.images !== "none" });
+  return `not judged: trace attribution unverified (the unbound trace reads: ${seen.ok ? `${seen.by} — ${seen.detail}` : seen.why})`;
+}
+
+export const TRACE_BOUND = "the trace judged is this build's own (its job's row and its slug, bound by the job tag on its publish mark)";
+export const SOURCE_BOUND = "the source judged is this build's own stored version (the version whose manifest names its job), not the site as it stands";
+
+/**
  * IS THIS TRACE THIS BUILD'S (2026-10-14, after run 117)? The trace row is
  * kept per slug and overwritten by the next build of that slug, so a read by
- * slug alone can be another attempt's. It is taken only when the job's own
- * row (`edit_jobs`, by id) names this slug, was created after this send left,
- * and the trace's start falls inside that job's life.
+ * slug alone can be another attempt's. The job's own row (`edit_jobs`, by id)
+ * must name this slug and be created after this send left; then the trace is
+ * BOUND by the job tag its publish mark carries (`jobTagOf`). A time window is
+ * a consistency check only: an overlapping attempt of the same site, or a
+ * replacement trace written inside the window, falls inside it too. A trace
+ * with no tag (written before tags, or by a path that writes none) is
+ * `unverified`, said as such — never credited to the job by its timing.
  */
 export function traceAttribution({ trace, jobRow, job, slug, sentAt, skewMs = 120_000 } = {}) {
   const t = (v) => { const n = Date.parse(String(v || "")); return Number.isFinite(n) ? n : null; };
@@ -368,7 +399,33 @@ export function traceAttribution({ trace, jobRow, job, slug, sentAt, skewMs = 12
   const started = t(trace.started_at);
   if (started === null) return { ok: false, why: "the trace row has no start" };
   if (started < created - skewMs || started > updated + skewMs) return { ok: false, why: "the trace row started outside this job's life — another attempt's" };
-  return { ok: true, why: "" };
+  const tags = arr(trace.steps).filter((x) => x && typeof x === "object" && Object.hasOwn(x, "jobTag")).map((x) => x.jobTag);
+  const want = jobTagOf(job);
+  if (!tags.length) return { ok: false, unverified: true, why: "attribution unverified: the trace carries no job tag (written before tags, or by a path that writes none) — its start falls inside this job's life, but an overlapping or replacement attempt of the same site cannot be ruled out by time" };
+  const other = tags.filter((x) => x !== want);
+  if (other.length) return { ok: false, why: `the trace's job tag ${other[0]} is another attempt's (this job's is ${want})` };
+  return { ok: true, by: "job tag", why: "" };
+}
+
+/**
+ * IS THIS SOURCE THIS BUILD'S OUTPUT (2026-10-14, the owner's review)? The
+ * plain source read is the site as it stands NOW — a later edit, or another
+ * build of the same slug, may have replaced it. Read with `?job=`, the route
+ * answers the one stored version whose manifest names this job (each staged
+ * version records the job that staged it), from that version's own stored
+ * state, which nothing edits afterwards. Anything else — no such version
+ * (pruned, never staged), two of them, a route too old to answer by job, an
+ * answer naming another job — is `unverified`, never filled from the current
+ * copy. `live` says whether that version is the one serving now.
+ */
+export function sourceAttribution(src, job) {
+  const j = src && src.json && typeof src.json === "object" ? src.json : null;
+  if (!src) return { ok: false, unverified: true, why: "attribution unverified: this build's own stored version was not read" };
+  if (src.status === 404 && j && j.error) return { ok: false, unverified: true, why: `attribution unverified: ${j.error}${Array.isArray(j.versions) && j.versions.length ? ` (${j.versions.join(", ")})` : ""}` };
+  if (src.status !== 200 || !j || j.ok !== true) return { ok: false, unverified: true, why: `attribution unverified: the source by job answered ${src.status}${j && j.error ? ` (${j.error})` : ""}` };
+  if (j.job !== job || typeof j.version !== "string" || !j.version) return { ok: false, unverified: true, why: `attribution unverified: the answer does not name this job's own version (job ${JSON.stringify(j.job ?? null)}, version ${JSON.stringify(j.version ?? null)}) — a route that ignores ?job= answers the site as it stands now` };
+  const live = !!(j.live && j.live.job === job && j.live.version === j.version);
+  return { ok: true, version: j.version, live, why: "" };
 }
 
 /**
@@ -703,6 +760,11 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
     if (m && m.ok) job = m.job;
   }
   record.job = job;
+  // PROMPT ACCEPTANCE AND RECOVERED TRACKING ARE TWO DIFFERENT FACTS
+  // (2026-10-14, the owner's review): `prompt` — the send's own answer handed
+  // the job back (202); `recovered` — the answer was lost and the job was
+  // found afterwards by this send's attempt key; `none` — neither.
+  record.acceptance = answeredJob && record.accepted.status === 202 ? "prompt" : job ? "recovered" : "none";
   const polls = [];
   let final = null;
   if (job) {
@@ -723,9 +785,14 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const ta = traceAttribution({ trace: rawTrace, jobRow, job, slug: spec.slug, sentAt });
   record.traceAttribution = ta;
   const tr = ta.ok ? rawTrace : {};
-  const src = await B.get("source", (t) => io.source(t, spec.slug));
+  // THE SOURCE IS THIS JOB'S OWN STORED VERSION (2026-10-14, the owner's
+  // review), never the site as it stands: a later edit or another attempt of
+  // the slug may have replaced the editable copy. Unbound, nothing is judged.
+  const src = job && typeof io.sourceJob === "function" ? await B.get("source", (t) => io.sourceJob(t, spec.slug, job)) : null;
+  const sa = sourceAttribution(src, job);
+  record.sourceAttribution = sa;
   const site = await io.served(spec.slug);
-  const sourceBody = src && src.status === 200 ? src.json : null;
+  const sourceBody = sa.ok ? src.json : null;
   const pages = arr(sourceBody && sourceBody.pages);
   const placed = [...new Set(pages.flatMap((p) => [...photosOf(p && p.source, spec.slug).keys()].map((u) => photoPath(u, spec.slug)).filter(Boolean)))];
   const bytes = {};
@@ -738,10 +805,11 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const senderAfter = record.calls.slice(acceptedAt).filter((c) => c.who === "sender");
   const checks = [];
   checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status, reconciled: record.reconciled || null }));
-  checks.push({ name: "the trace judged is this build's own (its job's row, its slug, inside its job's life)", ok: ta.ok, why: ta.why });
+  checks.push({ name: TRACE_BOUND, ok: ta.ok, why: ta.why });
+  checks.push({ name: SOURCE_BOUND, ok: sa.ok, why: sa.why });
   checks.push(...buildShapeVerdict(sourceBody).checks);
   const ov = buildOverlapVerdict(tr.steps, { photos: spec.images !== "none" });
-  checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : ov.why });
+  checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : unboundWhy(ta, rawTrace, ov, spec) });
   record.overlap = ov;
   const order = buildOrderVerdict(tr);
   checks.push(...order.checks);
@@ -755,7 +823,7 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   checks.push(...ph.checks);
   const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job, max: spec.budget });
   checks.push({ name: `the whole balance move explained by the complete ledger window, the build's charges each taken once: moved ${money.spent ?? "?"}, recorded ${money.recorded ?? "?"} (this build ${money.net ?? "?"}, other rows ${money.other ?? "?"})`, ok: money.ok, why: money.why });
-  record.unverified = spec.images === "none" ? [] : [PURCHASE_UNVERIFIED];
+  record.unverified = [...(spec.images === "none" ? [] : [PURCHASE_UNVERIFIED]), ...(ta.unverified ? [ta.why] : []), ...(sa.unverified ? [sa.why] : [])];
   record.money = money;
   record.balanceEnd = end;
   record.checks = checks;
@@ -788,15 +856,18 @@ export async function judgeBuild(io, { spec, job } = {}) {
   const raw = await io.trace(spec.slug);
   const ta = traceAttribution({ trace: raw, jobRow, job, slug: spec.slug, sentAt });
   record.traceAttribution = ta;
-  add("the trace judged is this build's own (its job's row, its slug, inside its job's life)", ta.ok, ta.why);
+  add(TRACE_BOUND, ta.ok, ta.why);
   const tr = ta.ok ? raw : {};
-  const src = await io.source(who.token, spec.slug);
-  const shape = buildShapeVerdict(src && src.status === 200 ? src.json : null);
+  const src = typeof io.sourceJob === "function" ? await io.sourceJob(who.token, spec.slug, job) : null;
+  const sa = sourceAttribution(src, job);
+  record.sourceAttribution = sa;
+  add(SOURCE_BOUND, sa.ok, sa.why);
+  const shape = buildShapeVerdict(sa.ok ? src.json : null);
   record.shape = { pages: shape.pages, kit: shape.kit, parts: shape.parts };
   record.checks.push(...shape.checks);
   const ov = buildOverlapVerdict(tr.steps, { photos: spec.images !== "none" });
   record.overlap = ov;
-  record.checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : ov.why });
+  record.checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : unboundWhy(ta, raw, ov, spec) });
   const order = buildOrderVerdict(tr);
   record.order = order.order;
   record.checks.push(...order.checks);
@@ -808,6 +879,7 @@ export async function judgeBuild(io, { spec, job } = {}) {
   record.charges = mine ? { rows: mine.map((r) => ({ id: r.id, ref: r.ref, delta: Number(r.delta), at: r.at })), net } : null;
   add(`this build's own charges, each taken once: ${net ?? "?"} credits on ${refs.length} row(s)`, !!(rows && rows.ok && mine && mine.length && !twice.length && net > 0),
     !rows || !rows.ok ? "the ledger could not be read" : !mine.length ? "no ledger row carries this job's ref" : twice.length ? `taken twice: ${twice.join(", ")}` : `net ${net}`);
+  record.unverified = [...(ta.unverified ? [ta.why] : []), ...(sa.unverified ? [sa.why] : [])];
   record.ok = record.checks.every((c) => c.ok);
   return record;
 }

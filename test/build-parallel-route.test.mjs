@@ -27,9 +27,9 @@ import { driveBuild, GOOD_DESIGN, BRIEF, BUILD_USER, buildBucket } from "./fixtu
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { blockedFetch } from "./fixtures/no-network.mjs";
 import { jobSecrets, JOB_ENV_NAMES, designSplitFor, designGraphFor, bandSplitFor, bandSplitEveryone, designSplitEveryone, designGraphEveryone } from "../builder/edit-job.mjs";
-import { buildLiveKey, buildChatKey, readBuildLive, packBuildLive, isAttempt } from "../builder/build-live.mjs";
+import { buildLiveKey, buildChatKey, readBuildLive, packBuildLive, isAttempt, jobTagOf } from "../builder/build-live.mjs";
 import { resultKey, packResult } from "../builder/build-job.mjs";
-import { runBuildCheck, attemptMatch, traceAttribution, newAttempt, buildClosureVerdict, BUILD_CHECK_NO_IMAGES } from "../scripts/canary-build.mjs";
+import { runBuildCheck, attemptMatch, traceAttribution, newAttempt, buildClosureVerdict, BUILD_CHECK_NO_IMAGES, sourceAttribution, buildFlagsVerdict as flagsOf } from "../scripts/canary-build.mjs";
 
 const quiet = async (fn) => { const e = console.error, l = console.log; console.error = () => {}; console.log = () => {}; try { return await fn(); } finally { console.error = e; console.log = l; } };
 
@@ -241,7 +241,13 @@ test("PR 8 — THE ATTEMPT KEY IS READ STRICTLY: a malformed key is never stored
 const JOB = "c".repeat(32), OTHER_JOB = "d".repeat(32), SLUG = BUILD_CHECK_NO_IMAGES.slug;
 const UID = "22175f41-6fbf-49d7-b039-a65078a0141c";
 const ATT = "bc-" + "e".repeat(32);
-const TRACE = [{ s: "auth" }, { s: "design", in: 1, out: 1, graph: 16, agents: 16, agentMs: 90_000, waveMs: 40_000 }, { s: "provision" }, { s: "gen" }, { s: "bands", bands: 4, wrote: 4, agentMs: 80_000, waveMs: 30_000 }, { s: "fonts" }, { s: "img" }, { s: "compile" }, { s: "container" }, { s: "og" }, { s: "pages" }];
+// THE PUBLISH MARK CARRIES THE JOB'S TAG (worker.js's `pages` mark, `jobTagOf`), as a build now writes it.
+const tagFor = (steps, job) => steps.map((x) => (x.s === "pages" ? { ...x, jobTag: jobTagOf(job) } : x));
+const TRACE0 = [{ s: "auth" }, { s: "design", in: 1, out: 1, graph: 16, agents: 16, agentMs: 90_000, waveMs: 40_000 }, { s: "provision" }, { s: "gen" }, { s: "bands", bands: 4, wrote: 4, agentMs: 80_000, waveMs: 30_000 }, { s: "fonts" }, { s: "img" }, { s: "compile" }, { s: "container" }, { s: "og" }, { s: "pages" }];
+const TRACE = tagFor(TRACE0, "c".repeat(32));
+const VER = "01790600000000-abc123";
+/** `/api/site/source?job=` as the route answers it: the version whose manifest names the job, live when the pointer names it. */
+const byJob = (io) => async function (t, slug, job) { const r = await this.source(t, slug); return r && r.status === 200 ? { status: 200, json: { ...r.json, ok: true, slug, job, version: VER, live: { version: VER, job } } } : r; };
 const SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "src/routes/index.tsx", source: 'import { Hero } from "@/components/ui/hero";\nexport const Route = createFileRoute("/")({});' }], parts: [] };
 const rows = (list) => ({ ok: true, complete: true, rows: list.map((r, i) => ({ id: 467 + i, ...r })) });
 
@@ -259,7 +265,8 @@ function pressNet(over = {}, { moved = 10, last = 469 } = {}) {
     balance: async () => (calls.includes("post") ? 783 - moved : 783),
     ledgerLast: async () => ({ ok: true, id: calls.includes("post") ? last : 466 }),
     existing: async () => ({ backends: { status: 200, rows: [] }, builds: { status: 200, rows: [] }, host: { status: 404 } }),
-    runtime: async () => ({ status: 200, json: { imagePurchases: false, design: true, graph: true, bands: true, bandsEveryone: false } }),
+    // THE RUNNER TAKES BUILDS AND THE ROUTE REPORTS THE JOB'S OWN VIEW (the fixed route).
+    runtime: async () => ({ status: 200, json: { imagePurchases: false, design: true, graph: true, bands: true, bandsEveryone: false, runner: true, runnerEveryone: true, jobDesign: true, jobGraph: true, jobBands: true, jobBandsEveryone: false } }),
     post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.attempt, ATT); return { status: 0, json: null, why: "ECONNRESET" }; },
     // NOT LISTED YET ON THE FIRST READ, then listed — beside another attempt's newer build for the same name.
     builds: async (t) => { calls.push(`builds:${t}`); listed++; return { builds: listed < 2 ? [] : [{ job: OTHER_JOB, attempt: "bc-" + "f".repeat(32), state: "running", at: 9 }, { job: JOB, attempt: ATT, state: "running", at: 1 }] }; },
@@ -268,6 +275,7 @@ function pressNet(over = {}, { moved = 10, last = 469 } = {}) {
     trace: async () => ({ steps: TRACE, done: true, ok: true, started_at: "2026-10-14T12:23:43Z" }),
     jobRow: async (job) => ({ id: job, slug: SLUG, op: "build", state: "done", created_at: "2026-10-14T12:21:23Z", updated_at: "2026-10-14T12:29:12Z" }),
     source: async (t) => { calls.push(`source:${t}`); return { status: 200, json: SRC }; },
+    sourceJob: byJob(),
     served: async () => ({ status: 200, html: "<main><h1>Saltmarsh</h1></main>" }),
     uploads: async () => ({ ok: true, files: [] }),
     ledgerWindow: async () => rows([{ ref: `build:${JOB}:deposit`, delta: -2 }, { ref: `build:${JOB}:settle`, delta: -4 }, { ref: `build:${JOB}:pages`, delta: -4 }]),
@@ -305,7 +313,7 @@ test("PR 10 — ANOTHER ATTEMPT'S RESULT OR CHARGES NEVER COUNT: the other job's
   // Another attempt's trace (it started after this job ended): refused, and the overlap judged nothing.
   const foreign = await runBuildCheck(pressNet({ trace: async () => ({ steps: TRACE, done: true, ok: true, started_at: "2026-10-14T13:40:00Z" }) }), { spec: NI, spend: true, named: 783 });
   assert.equal(foreign.traceAttribution.ok, false);
-  assert.ok(failed(foreign.checks).some((f) => /this build's own/.test(f)));
+  assert.ok(failed(foreign.checks).some((f) => /trace judged is this build's own/.test(f)));
   assert.ok(failed(foreign.checks).some((f) => /independent build work ran at once/.test(f)), "another attempt's overlap passed this build");
   // Two listed builds carry the key: none is taken; no list at all: none; and the build is never sent again.
   for (const builds of [async () => ({ builds: [{ job: JOB, attempt: ATT, state: "running" }, { job: OTHER_JOB, attempt: ATT, state: "running" }] }), async () => ({ builds: [] }), async () => null]) {
@@ -325,13 +333,13 @@ test("PR 11 — THE PIECES, DRIVEN: attemptMatch reads only the key; traceAttrib
   assert.equal(attemptMatch({ builds: [{ job: "nope", attempt: ATT }] }, ATT).ok, false);
   assert.equal(attemptMatch({ builds: [{ job: JOB, attempt: ATT }, { job: JOB, attempt: ATT }] }, ATT).job, JOB, "the same job listed twice is still one job");
   const row = { id: JOB, slug: SLUG, created_at: "2026-10-14T12:21:23Z", updated_at: "2026-10-14T12:29:12Z" };
-  const tr = { started_at: "2026-10-14T12:23:43Z" };
+  const tr = { started_at: "2026-10-14T12:23:43Z", steps: TRACE };
   const sentAt = Date.parse("2026-10-14T12:21:23Z");
   assert.equal(traceAttribution({ trace: tr, jobRow: row, job: JOB, slug: SLUG, sentAt }).ok, true);
   assert.match(traceAttribution({ trace: tr, jobRow: { ...row, slug: "other-site" }, job: JOB, slug: SLUG, sentAt }).why, /names other-site/);
   assert.match(traceAttribution({ trace: tr, jobRow: { ...row, id: OTHER_JOB }, job: JOB, slug: SLUG, sentAt }).why, /job's own row/);
   assert.match(traceAttribution({ trace: tr, jobRow: row, job: JOB, slug: SLUG, sentAt: sentAt + 3_600_000 }).why, /before this send left/);
-  assert.match(traceAttribution({ trace: { started_at: "2026-10-14T11:00:00Z" }, jobRow: row, job: JOB, slug: SLUG, sentAt }).why, /outside this job's life/);
+  assert.match(traceAttribution({ trace: { started_at: "2026-10-14T11:00:00Z", steps: TRACE }, jobRow: row, job: JOB, slug: SLUG, sentAt }).why, /outside this job's life/);
   assert.match(traceAttribution({ trace: tr, jobRow: row, job: "", slug: SLUG, sentAt }).why, /no job/);
   const good = { senderAfter: [], sender: { token: "a", uid: UID }, fresh: { token: "b", uid: UID }, final: { status: 200, json: { ok: true, slug: SLUG } }, site: 200 };
   const lost = { status: 0, job: "", why: "ECONNRESET" };
@@ -354,6 +362,7 @@ function judgeNet(over = {}) {
     jobRow: async (job) => ({ id: job, slug: SLUG, op: "build", state: "done", created_at: "2026-10-14 12:21:23.901643+00", updated_at: "2026-10-14 12:29:12.903168+00" }),
     trace: async () => ({ done: true, ok: true, started_at: "2026-10-14 12:23:43.435254+00", steps: [{ s: "auth" }, { s: "body" }, { s: "gate" }, { s: "design-recovery", attempts: 0 }, { s: "design", in: 17751, out: 821 }, { s: "owner" }, { s: "normalize" }, { s: "provision", db: 0 }, { s: "schema", tables: 0 }, { s: "seed" }, { s: "merge" }, { s: "gen" }, { s: "bands:sync" }, { s: "fonts", beside: 1 }, { s: "img", viaContainer: 1 }, { s: "compile" }, { s: "container" }, { s: "og" }, { s: "pages", credits: 4 }] }),
     source: async (t) => { calls.push(`source:${t}`); return { status: 200, json: SRC }; },
+    sourceJob: byJob(),
     ledgerByJob: async (job) => ({ ok: true, rows: [{ id: 467, ref: `build:${job}:deposit`, delta: -2 }, { id: 468, ref: `build:${job}:settle`, delta: -4 }, { id: 469, ref: `build:${job}:pages`, delta: -4 }] }),
     ...over,
   };
@@ -366,13 +375,19 @@ test("PR 12 — THE FREE JUDGE ON RUN 117'S OWN ROWS: its job is a finished buil
   const by = (re) => r.checks.find((c) => re.test(c.name));
   assert.equal(r.sent, false);
   assert.ok(by(/finished build of this site/).ok);
-  assert.ok(by(/this build's own/).ok, r.traceAttribution.why);
+  // RUN 117'S TRACE CARRIES NO JOB TAG (written before tags): attribution is
+  // UNVERIFIED, said as such — never credited by its start time.
+  assert.equal(by(/trace judged is this build's own/).ok, false);
+  assert.equal(r.traceAttribution.unverified, true);
+  assert.match(by(/trace judged is this build's own/).why, /attribution unverified: the trace carries no job tag/);
+  assert.ok(by(/source judged is this build's own stored version/).ok, r.sourceAttribution.why);
   assert.ok(by(/exactly 1 page/).ok);
   assert.ok(by(/at most 15 components/).ok);
   assert.ok(by(/own charges/).ok);
   assert.equal(r.charges.net, 10);
   assert.equal(by(/independent build work ran at once/).ok, false);
-  assert.match(by(/independent build work ran at once/).why, /design in a single call \(no agents\)/);
+  assert.match(by(/independent build work ran at once/).why, /not judged: trace attribution unverified \(the unbound trace reads: .*design in a single call \(no agents\)/);
+  assert.ok(r.unverified.some((u) => /no job tag/.test(u)), "the unverified attribution was not reported");
   assert.equal(r.ok, false, "a build with no overlap was judged a pass");
 });
 
@@ -384,7 +399,7 @@ test("PR 13 — THE JUDGE NEVER TAKES ANOTHER BUILD'S RESULT OR CHARGES: no job 
     assert.ok(r.stopped, "it judged a build that is not a finished build of this site");
   }
   const foreign = await judgeBuild(judgeNet({ trace: async () => ({ steps: TRACE, started_at: "2026-10-14T14:00:00Z" }) }), { spec: BUILD_CHECK_NO_IMAGES, job: RUN117 });
-  assert.equal(foreign.checks.find((c) => /this build's own/.test(c.name)).ok, false);
+  assert.equal(foreign.checks.find((c) => /trace judged is this build's own/.test(c.name)).ok, false);
   assert.equal(foreign.checks.find((c) => /independent build work/.test(c.name)).ok, false, "another attempt's overlap was credited");
   const others = await judgeBuild(judgeNet({ ledgerByJob: async () => ({ ok: true, rows: [{ id: 1, ref: `build:${OTHER_JOB}:pages`, delta: -9 }] }) }), { spec: BUILD_CHECK_NO_IMAGES, job: RUN117 });
   assert.match(others.checks.find((c) => /own charges/.test(c.name)).why, /no ledger row carries this job's ref/);
@@ -395,14 +410,17 @@ test("PR 13 — THE JUDGE NEVER TAKES ANOTHER BUILD'S RESULT OR CHARGES: no job 
 
 test("PR 14 — THE PRESS READS THE BUILD'S OWN VIEW OF THE DOORS: with the runner taking builds, run 117's runtime answer (Worker design and graph on, the job's view all off) is no mode at all and names both views; with the job's view on it is a mode; an older route with no job view keeps the Worker's answer", async () => {
   const { buildFlagsVerdict } = await import("../scripts/canary-build.mjs");
-  const worker = { design: true, graph: true, bands: true, bandsEveryone: false, runnerEveryone: true };
+  const worker = { design: true, graph: true, bands: true, bandsEveryone: false, runner: true, runnerEveryone: true };
   const r117 = buildFlagsVerdict({ status: 200, json: { ...worker, jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false } });
   assert.equal(r117.ok, false);
   assert.match(r117.why, /as the container job sees it.*the Worker's own view reads design true, graph true/);
   const fixed = buildFlagsVerdict({ status: 200, json: { ...worker, jobDesign: true, jobGraph: true, jobBands: true, jobBandsEveryone: false } });
   assert.deepEqual([fixed.ok, fixed.view, fixed.modes], [true, "as the container job sees it", ["design agents at once", "the design as a graph"]]);
+  // A ROUTE THAT DOES NOT REPORT THE JOB'S VIEW, WITH BUILDS IN THE CONTAINER:
+  // unverified — the Worker's flags (the evidence that misled run 117) never stand in.
   const old = buildFlagsVerdict({ status: 200, json: worker });
-  assert.deepEqual([old.ok, old.view], [true, "as the Worker sees it"]);
+  assert.deepEqual([old.ok, old.unverified, old.modes], [false, true, []]);
+  assert.match(old.why, /does not report the job's own settings \(jobDesign, jobGraph, jobBands, jobBandsEveryone not reported\).*unverified — nothing is sent/);
   const noRunner = buildFlagsVerdict({ status: 200, json: { ...worker, runnerEveryone: false, runner: false, jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false } });
   assert.deepEqual([noRunner.ok, noRunner.view], [true, "as the Worker sees it"], "with the runner off the build runs in the Worker, whose view decides");
 });

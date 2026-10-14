@@ -46,7 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT, priorRefusalOf, valueDigest, stagedRecord } from "./builder/prepared.mjs";
-import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, isAttempt, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, isAttempt, jobTagOf, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -10977,6 +10977,39 @@ async function saveSiteSource(env, slug, pages) {
     });
     return true;
   } catch (e) { console.error("source save failed:", slug, e && e.message); return false; }
+}
+
+/**
+ * ONE JOB'S OWN OUTPUT (`GET /api/site/source?job=`, 2026-10-14, after run
+ * 117). The route's plain read is the editable copy — the site as it stands
+ * now, which a later edit or another build of the same slug may have replaced.
+ * A reader judging ONE build gets the version whose manifest names that job —
+ * each staged version records the job that staged it — from the version's own
+ * stored state, which nothing edits afterwards, beside the live pointer
+ * (`liveRead: false` is cannot-tell, never "none live"). Exactly one such
+ * version, or no answer: none (pruned, never staged) and two are each said,
+ * never filled from the current copy. The caller has already proven the owner.
+ */
+async function siteSourceByJob(env, sslug, sJob) {
+  if (!/^[0-9a-f]{32}$/.test(sJob)) return Response.json({ ok: false, error: "bad job id" }, { status: 400 });
+  let sLive = null, sLiveRead = false;
+  try { const lp = env.SITES_BUCKET ? await readPointer(buildDeps(env), sslug) : undefined; if (lp !== undefined) { sLive = lp ? { version: String(lp.version || ""), job: typeof lp.job === "string" ? lp.job : null } : null; sLiveRead = true; } } catch { sLive = null; sLiveRead = false; }
+  let sList = null;
+  try { sList = env.SITES_BUCKET ? await listBuilds(buildDeps(env), sslug) : null; } catch { sList = null; }
+  if (!Array.isArray(sList)) return Response.json({ ok: false, error: "the site's versions could not be read", job: sJob, live: sLive, liveRead: sLiveRead }, { status: 503 });
+  const sMine = sList.filter((b) => b && b.job === sJob);
+  if (sMine.length !== 1) return Response.json({ ok: false, error: sMine.length ? "more than one stored version names that job" : "no stored version of this site was staged by that job", job: sJob, versions: sMine.map((b) => b.id), live: sLive, liveRead: sLiveRead }, { status: 404 });
+  let sRb = null;
+  try { sRb = await readBuild(buildDeps(env), sslug, sMine[0].id); } catch { sRb = null; }
+  const sParse = (t) => { try { const v = t ? JSON.parse(t) : null; return Array.isArray(v) ? v : null; } catch { return null; } };
+  const vPages = sParse(sRb && sRb.pages), vParts = sParse(sRb && sRb.parts);
+  return Response.json({
+    ok: true, slug: sslug, job: sJob, version: sMine[0].id,
+    pages: (vPages || []).filter((x) => x && typeof x.path === "string" && typeof x.source === "string"),
+    parts: (vParts || []).filter((x) => x && typeof x.name === "string" && typeof x.source === "string").map((x) => ({ name: x.name, path: x.name, source: x.source })),
+    reads: { pages: !!vPages, parts: !!vParts },
+    live: sLive, liveRead: sLiveRead,
+  });
 }
 
 /**
@@ -23539,6 +23572,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // writes are here whether the build returned or threw.
         ...(genPath.tried ? [["genTried", 1]] : []),
         ...(genPath.via ? [["genVia", genPath.via === "container" ? 1 : 0]] : []),
+        // WHICH JOB WROTE THIS TRACE (2026-10-14, after run 117): the row is
+        // one per slug, so a reader binds it to a job by this tag (`jobTagOf`,
+        // a number, as the trace keeps), never by when it started.
+        ...(jobTagOf(jobId) !== null ? [["jobTag", jobTagOf(jobId)]] : []),
         ...Object.keys(pages)
           .filter((k) => /Ms$/.test(k) && typeof pages[k] === "number")
           .map((k) => [k, pages[k]]),
@@ -25692,6 +25729,9 @@ async function handleRequest(request, env, ctx) {
       if (!sslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
       const sown = await siteOwnerBySlug(sslug, env);
       if (!sown || sown !== su.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      // ONE JOB'S OWN OUTPUT (`?job=`, 2026-10-14): `siteSourceByJob` says why.
+      const sJob = (url.searchParams.get("job") || "").toLowerCase();
+      if (sJob) return siteSourceByJob(env, sslug, sJob);
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.

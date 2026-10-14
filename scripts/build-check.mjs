@@ -110,6 +110,9 @@ export async function main() {
       } catch { return null; }
     },
     source: (token, slug) => get(`/api/site/source?slug=${encodeURIComponent(slug)}`, token),
+    // ONE JOB'S OWN STORED VERSION (2026-10-14): the version whose manifest
+    // names the job, never the site as it stands now.
+    sourceJob: (token, slug, job) => get(`/api/site/source?slug=${encodeURIComponent(slug)}&job=${encodeURIComponent(job)}`, token),
     served: async (slug) => {
       try { const r = await fetch(`https://${slug}.gofarther.app/`, { headers: { "cache-control": "no-cache" } }); return { status: r.status, html: await r.text() }; }
       catch { return { status: 0, html: "" }; }
@@ -150,6 +153,7 @@ export async function main() {
     console.log(`PAGES: ${JSON.stringify(jr.shape && jr.shape.pages)}  KIT: ${JSON.stringify(jr.shape && jr.shape.kit)}  WRITTEN: ${JSON.stringify(jr.shape && jr.shape.parts)}`);
     console.log(`TIMELINE: ${jr.order || "(no trace)"}`);
     for (const c of jr.checks) console.log(`  ${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.ok ? "" : ` — ${c.why}`}`);
+    for (const u of jr.unverified || []) console.log(`  UNVERIFIED  ${u}`);
     console.log(jr.ok ? "JUDGED: PASS" : "JUDGED: FAILED");
     return jr.ok ? 0 : 1;
   }
@@ -157,7 +161,8 @@ export async function main() {
   const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value });
   fs.writeFileSync(LOG_FILE, JSON.stringify(rec, null, 2));
   if (rec.stopped) { console.log(`\n${rec.stopped}`); return rec.sent ? 1 : 0; }
-  console.log(`\nTHE BUILD'S TIMELINE: ${rec.order || "(no trace)"}`);
+  console.log(`\nACCEPTANCE: ${rec.acceptance === "prompt" ? "prompt — the send's own answer handed the job back" : rec.acceptance === "recovered" ? "recovered — the answer was lost; the job was found afterwards by this send's attempt key (not prompt acceptance)" : "none — no job was handed back or found"}`);
+  console.log(`THE BUILD'S TIMELINE: ${rec.order || "(no trace)"}`);
   if (rec.overlap) console.log(`OVERLAP: ${rec.overlap.ok ? `${rec.overlap.by} — ${rec.overlap.detail}` : rec.overlap.why}`);
   console.log("\nTHE MODEL'S LINES:");
   for (const l of rec.lines || []) console.log(`  ${l.n}: ${l.text}`);
