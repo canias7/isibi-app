@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import { ownerSession } from "./owner-session.mjs";
-import { runBuildCheck, BUILD_CHECK, BUILD_CHECK_NO_IMAGES, windowComplete, readBuildOptIn } from "./canary-build.mjs";
+import { runBuildCheck, judgeBuild, BUILD_CHECK, BUILD_CHECK_NO_IMAGES, windowComplete, readBuildOptIn } from "./canary-build.mjs";
 import { uploadsOf } from "./canary-requests.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -17,7 +17,11 @@ const BASE = process.env.OWNER_BASE_URL || "https://gofarther.dev";
 const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const SPEND = String(process.env.OWNER_SPEND || "").trim().toLowerCase() === "yes";
 // THE IMAGE-FREE CHECK (2026-10-11): `mode: check-no-images`.
-const SPEC = String(process.env.OWNER_MODE || "").trim().toLowerCase() === "check-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK;
+const MODE_NAME = String(process.env.OWNER_MODE || "").trim().toLowerCase();
+const SPEC = MODE_NAME === "check-no-images" || MODE_NAME === "judge-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK;
+// THE FREE JUDGE (2026-10-14): one finished build, named by its job id.
+const JUDGE = MODE_NAME === "judge-no-images";
+const JOB = String(process.env.OWNER_JOB || "").trim().toLowerCase();
 const LOG_FILE = "build-check.json";
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
@@ -90,9 +94,20 @@ export async function main() {
     post: (token, body) => postLong(`${BASE}/api/site/react-build`, { Authorization: `Bearer ${token}`, "content-type": "application/json" }, JSON.stringify(body)),
     poll: (token, job) => get(`/api/site/build/${encodeURIComponent(job)}`, token),
     trace: async (slug) => {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,steps,updated_at`, { headers: svc });
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_builds?slug=eq.${encodeURIComponent(slug)}&select=done,ok,steps,started_at,updated_at`, { headers: svc });
       const rows = await r.json().catch(() => null);
       return Array.isArray(rows) && rows[0] ? rows[0] : null;
+    },
+    // THE ACCOUNT'S LISTED BUILDS, each with the attempt key its send carried
+    // (2026-10-14, after run 117): how a lost answer finds its own job.
+    builds: (token) => get("/api/site/builds", token).then((r) => (r && r.status === 200 ? r.json : null)),
+    // THE JOB'S OWN ROW, by id, non-secret columns only: binds the per-slug trace to this job.
+    jobRow: async (job) => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?id=eq.${encodeURIComponent(job)}&select=id,slug,op,state,created_at,updated_at`, { headers: svc });
+        const rows = await r.json().catch(() => null);
+        return r.status === 200 && Array.isArray(rows) && rows[0] ? rows[0] : null;
+      } catch { return null; }
     },
     source: (token, slug) => get(`/api/site/source?slug=${encodeURIComponent(slug)}`, token),
     served: async (slug) => {
@@ -108,6 +123,14 @@ export async function main() {
     runtime: (token, slug) => get(`/api/site/runtime?slug=${encodeURIComponent(slug)}`, token),
     // THE WINDOW, READ WHOLE: the exact count asked for, and the answer's
     // range must describe every row it served (`0-(n-1)/n`, or `*/0`).
+    // EVERY LEDGER ROW WHOSE REF IS THIS JOB'S, and nothing else (the judge's charges).
+    ledgerByJob: async (job) => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?uid=eq.${uid}&ref=like.${encodeURIComponent(`build:${job}:*`)}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: svc });
+        const rows = await r.json().catch(() => null);
+        return { ok: r.status === 200 && Array.isArray(rows), rows: Array.isArray(rows) ? rows : null };
+      } catch { return { ok: false, rows: null }; }
+    },
     ledgerWindow: async (from, to) => {
       try {
         const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?uid=eq.${uid}&id=gt.${Number(from)}&id=lte.${Number(to)}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: { ...svc, Prefer: "count=exact" } });
@@ -118,6 +141,18 @@ export async function main() {
       } catch { return { ok: false, complete: false, rows: null }; }
     },
   };
+  if (JUDGE) {
+    // NOTHING IS SENT: no spend, no balance box, no routing or build call.
+    console.log(`JUDGING ONE FINISHED BUILD (sends nothing): slug ${SPEC.slug}, job ${JOB || "(none)"}`);
+    const jr = await judgeBuild(io, { spec: SPEC, job: JOB });
+    fs.writeFileSync(LOG_FILE, JSON.stringify(jr, null, 2));
+    if (jr.stopped) { console.log(`STOPPED: ${jr.stopped}`); return 1; }
+    console.log(`PAGES: ${JSON.stringify(jr.shape && jr.shape.pages)}  KIT: ${JSON.stringify(jr.shape && jr.shape.kit)}  WRITTEN: ${JSON.stringify(jr.shape && jr.shape.parts)}`);
+    console.log(`TIMELINE: ${jr.order || "(no trace)"}`);
+    for (const c of jr.checks) console.log(`  ${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.ok ? "" : ` — ${c.why}`}`);
+    console.log(jr.ok ? "JUDGED: PASS" : "JUDGED: FAILED");
+    return jr.ok ? 0 : 1;
+  }
   console.log(`THE FIRST-BUILD CHECK${SPEC === BUILD_CHECK_NO_IMAGES ? " (no photographs)" : ""}: slug ${SPEC.slug}, budget ${SPEC.budget}, hard cap ${SPEC.cap}, spend ${SPEND ? "yes" : "no"}`);
   const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value });
   fs.writeFileSync(LOG_FILE, JSON.stringify(rec, null, 2));

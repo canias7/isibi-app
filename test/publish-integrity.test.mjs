@@ -806,6 +806,10 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     bands: false, bandsEveryone: false,
     design: false, designEveryone: false,
     graph: false, graphEveryone: false,
+    // THE SAME DOORS AS A CONTAINER JOB SEES THEM (2026-10-14, after run 117):
+    // asked of `jobSecrets(env)`, because a first build runs in the container
+    // and the Worker's own answer above said "on" while every job read "off".
+    jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false,
   });
 });
 

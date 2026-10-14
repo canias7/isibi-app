@@ -388,8 +388,13 @@ test("the chat is read from the request ONCE, on a first build, through the refu
   const at = w.indexOf("async function liveBuildStart(");
   assert.ok(at > 0, "liveBuildStart is gone; this guard is watching nothing");
   const fn = w.slice(at, w.indexOf("\n}\n", at));
-  assert.ok(fn.indexOf("if (!first) return out;") > 0 && fn.indexOf("if (!first) return out;") < fn.indexOf("cleanChatId(body.chat)"),
-    "the acceptance reads the chat before it has refused anything but a first build");
+  // SINCE 2026-10-14 (run 117) EVERY BUILD SEND IS LISTED, a named one too,
+  // but the CHAT is still read only for an unnamed one: a named send claims no
+  // chat. The refusal of every other path still comes first.
+  assert.ok(fn.indexOf("if (!buildPath) return out;") > 0 && fn.indexOf("if (!buildPath) return out;") < fn.indexOf("cleanChatId(body.chat)"),
+    "the acceptance reads the chat before it has refused every path but a build");
+  assert.match(fn, /const chatId = !named && body \? cleanChatId\(body\.chat\) : "";/,
+    "the acceptance reads the chat of a named send — a named send must claim no chat");
   // NEVER `body.chat` raw anywhere: a reader that skipped the refusal would be
   // the coercion bug at the one hop that decides which site a customer is
   // answered with.

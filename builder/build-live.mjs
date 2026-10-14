@@ -47,6 +47,17 @@ const CHAT_RE = /^[A-Za-z0-9_-]{1,80}$/;
 
 export const isLiveUid = (v) => typeof v === "string" && UID_RE.test(v);
 export const isLiveChat = (v) => typeof v === "string" && CHAT_RE.test(v);
+/**
+ * THE CALLER'S OWN NAME FOR ONE SEND (2026-10-14, after run 117). A build's
+ * job id is minted here and travels back only in the answer, so a caller
+ * whose connection drops before the answer (Cloudflare resets a request at
+ * about 285 s; a build takes longer) cannot tell which listed build is its
+ * own. The caller may send `attempt`, a random key it made before sending;
+ * it rides on the marker and the listing, so the caller finds exactly the
+ * build it sent — never "the latest for this name", never a resend.
+ */
+const ATTEMPT_RE = /^[a-z0-9][a-z0-9-]{15,63}$/;
+export const isAttempt = (v) => typeof v === "string" && ATTEMPT_RE.test(v);
 
 /** The account's prefix: every key below lives under it, and a listing reads nothing else. */
 export function buildLiveRoot(uid) {
@@ -94,15 +105,16 @@ export const BUILD_ACCEPT_MS = 5 * 60 * 1000;
  *             request: never listed (there is no job to follow), but it still
  *             owns its chat until it ends.
  */
-export function packBuildLive({ job, uid, chat, words = "", at, accepted = false, inline = false }) {
-  return { v: BUILD_LIVE_VERSION, job, uid, chat: isLiveChat(chat) ? chat : "", words: str(words), at, ...(accepted ? { accepted: true } : {}), ...(inline ? { inline: true } : {}) };
+export function packBuildLive({ job, uid, chat, words = "", at, accepted = false, inline = false, attempt = "" }) {
+  return { v: BUILD_LIVE_VERSION, job, uid, chat: isLiveChat(chat) ? chat : "", words: str(words), at, ...(accepted ? { accepted: true } : {}), ...(inline ? { inline: true } : {}), ...(isAttempt(attempt) ? { attempt } : {}) };
 }
 /** A stored marker, read strictly: null for anything that is not one. */
 export function readBuildLive(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== BUILD_LIVE_VERSION) return null;
   if (!isJobId(raw.job) || !isLiveUid(raw.uid) || num(raw.at) === null) return null;
   if (typeof raw.chat !== "string" || (raw.chat && !isLiveChat(raw.chat)) || typeof raw.words !== "string") return null;
-  return { job: raw.job, uid: raw.uid, chat: raw.chat, words: raw.words, at: raw.at, accepted: raw.accepted === true, inline: raw.inline === true };
+  if (raw.attempt !== undefined && !isAttempt(raw.attempt)) return null;
+  return { job: raw.job, uid: raw.uid, chat: raw.chat, words: raw.words, at: raw.at, accepted: raw.accepted === true, inline: raw.inline === true, attempt: isAttempt(raw.attempt) ? raw.attempt : "" };
 }
 
 /** The kept final answer: its status, its body as the poll would serve it, its type, and when. */
@@ -267,7 +279,7 @@ export function doneOutcome(done) {
  */
 export function buildLiveState({ marker, done = null, row = null, run = null, now }) {
   if (!marker) return null;
-  const base = { job: marker.job, chat: marker.chat, words: marker.words, at: marker.at };
+  const base = { job: marker.job, chat: marker.chat, words: marker.words, at: marker.at, ...(marker.attempt ? { attempt: marker.attempt } : {}) };
   const age = num(now) !== null ? now - marker.at : 0;
   if (done) return { ...base, state: doneOutcome(done), answer: { status: done.status, body: done.body, type: done.type } };
   // THE EXECUTION RECORD OUTRANKS THE MARKER'S OWN FLAGS (round 4): a build

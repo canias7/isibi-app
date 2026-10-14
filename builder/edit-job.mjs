@@ -1031,6 +1031,17 @@ export const JOB_ENV_NAMES = [
   // THE IMAGE-PURCHASE SWITCH (2026-10-11): a job in the container buys its
   // photographs there, so without it here the switch would stop at the Worker.
   "IMAGE_PURCHASES",
+  // THE BUILD'S PARALLEL DOORS (2026-10-14, after run 117). Since 2026-09-14
+  // (`JOB_RUNNER_EVERYONE` on) a first build runs inside the container, and
+  // the design split, the design graph and the page bands are each asked
+  // THERE (`designSplitFor`, `designGraphFor`, `bandSplitFor`). Without these
+  // names the job read every door as shut while the Worker's runtime route
+  // read them open: every first build since 09-14 designed in one call. The
+  // canary lists hold ids and slugs, nothing secret, and the job only answers
+  // the same question the Worker would.
+  "DESIGN_SPLIT_CANARY", "DESIGN_SPLIT_EVERYONE",
+  "DESIGN_GRAPH_CANARY", "DESIGN_GRAPH_EVERYONE",
+  "BAND_SPLIT_CANARY", "BAND_SPLIT_EVERYONE",
 ];
 
 /** The subset of `env` a job is handed: the names above, strings only. */

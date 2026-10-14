@@ -134,12 +134,21 @@ export const BUILD_CHECK_NO_IMAGES = Object.freeze({
  */
 export function buildFlagsVerdict(rt) {
   if (!rt || rt.status !== 200 || !rt.json || typeof rt.json !== "object") return { ok: false, modes: [], why: `the runtime route could not be read (${rt ? rt.status || "nothing" : "not read"}), so the account's build flags are not known` };
-  const j = rt.json;
+  const raw = rt.json;
   const flags = ["design", "graph", "bandsEveryone", "bands"];
-  if (flags.some((k) => typeof j[k] !== "boolean")) return { ok: false, modes: [], why: "the runtime route does not report every build flag as true or false" };
+  if (flags.some((k) => typeof raw[k] !== "boolean")) return { ok: false, modes: [], why: "the runtime route does not report every build flag as true or false" };
+  // THE BUILD'S OWN ENV DECIDES (2026-10-14, after run 117). With the job
+  // runner on, a first build runs in the container and asks its doors of the
+  // job's env; the route reports that view as `jobDesign`/`jobGraph`/
+  // `jobBands`/`jobBandsEveryone`. Run 117 was judged "on" from the Worker's
+  // view while the job read every door shut. A route too old to report the
+  // job's view leaves the Worker's view, as before.
+  const inJob = (raw.runnerEveryone === true || raw.runner === true) && ["jobDesign", "jobGraph", "jobBands", "jobBandsEveryone"].every((k) => typeof raw[k] === "boolean");
+  const j = inJob ? { design: raw.jobDesign, graph: raw.jobGraph, bands: raw.jobBands, bandsEveryone: raw.jobBandsEveryone } : raw;
   const modes = [j.design && "design agents at once", j.graph && "the design as a graph", j.bandsEveryone && "page bands at once (for everyone)"].filter(Boolean);
-  if (!modes.length) return { ok: false, modes, why: `no image-free parallel mode is on for this account (design ${j.design}, graph ${j.graph}, bands for everyone ${j.bandsEveryone}${j.bands ? ", bands only through a canary list that may name the site rather than the account" : ""}): a first build here would show no measurable overlap, so nothing is sent — no flag is switched on to make it pass` };
-  return { ok: true, modes, why: "" };
+  const view = inJob ? "as the container job sees it" : "as the Worker sees it";
+  if (!modes.length) return { ok: false, modes, view, why: `no image-free parallel mode is on for this account ${view} (design ${j.design}, graph ${j.graph}, bands for everyone ${j.bandsEveryone}${j.bands ? ", bands only through a canary list that may name the site rather than the account" : ""}${inJob && (raw.design || raw.graph) ? `; the Worker's own view reads design ${raw.design}, graph ${raw.graph}, which no first build uses while the runner takes builds` : ""}): a first build here would show no measurable overlap, so nothing is sent — no flag is switched on to make it pass` };
+  return { ok: true, modes, view, why: "" };
 }
 
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -315,18 +324,78 @@ export function buildProgressVerdict(polls) {
 // ── THE CLOSURE ──────────────────────────────────────────────────────────────
 
 /**
+ * THIS SEND'S OWN NAME (2026-10-14, after run 117): a random key made before
+ * the send and sent with it as `attempt`. The listing carries it back, so a
+ * caller whose answer was lost finds its own build and no other.
+ */
+export function newAttempt(uuid = () => globalThis.crypto.randomUUID()) {
+  return "bc-" + String(uuid()).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32);
+}
+
+/**
+ * THE ONE LISTED BUILD THAT IS THIS SEND (2026-10-14). `list` is the
+ * account's `GET /api/site/builds` answer; a match is the attempt key, read
+ * exactly. None, or more than one, is not a job: the caller is told why and
+ * nothing is guessed — never the latest for the slug, never by words or time.
+ */
+export function attemptMatch(list, attempt) {
+  if (typeof attempt !== "string" || !attempt) return { ok: false, attempt: "", job: "", why: "this send carried no attempt key" };
+  const builds = list && Array.isArray(list.builds) ? list.builds : null;
+  if (!builds) return { ok: false, attempt, job: "", why: "the account's build list could not be read" };
+  const mine = builds.filter((b) => b && b.attempt === attempt && typeof b.job === "string" && /^[0-9a-f]{32}$/.test(b.job));
+  const jobs = [...new Set(mine.map((b) => b.job))];
+  if (jobs.length === 1) return { ok: true, attempt, job: jobs[0], state: String(mine[0].state || ""), why: "" };
+  if (jobs.length > 1) return { ok: false, ambiguous: true, attempt, job: "", why: `${jobs.length} listed builds carry this attempt key (${jobs.join(", ")}) — none is taken` };
+  return { ok: false, attempt, job: "", why: `no listed build carries this attempt key (${builds.length} listed)` };
+}
+
+/**
+ * IS THIS TRACE THIS BUILD'S (2026-10-14, after run 117)? The trace row is
+ * kept per slug and overwritten by the next build of that slug, so a read by
+ * slug alone can be another attempt's. It is taken only when the job's own
+ * row (`edit_jobs`, by id) names this slug, was created after this send left,
+ * and the trace's start falls inside that job's life.
+ */
+export function traceAttribution({ trace, jobRow, job, slug, sentAt, skewMs = 120_000 } = {}) {
+  const t = (v) => { const n = Date.parse(String(v || "")); return Number.isFinite(n) ? n : null; };
+  if (!(typeof job === "string" && /^[0-9a-f]{32}$/.test(job))) return { ok: false, why: "no job to bind the trace to" };
+  if (!jobRow || jobRow.id !== job) return { ok: false, why: "the job's own row could not be read" };
+  if (jobRow.slug !== slug) return { ok: false, why: `the job's row names ${jobRow.slug || "no site"}, not ${slug}` };
+  const created = t(jobRow.created_at), updated = t(jobRow.updated_at);
+  if (created === null || updated === null) return { ok: false, why: "the job's row has no times" };
+  if (Number.isFinite(sentAt) && created < sentAt - skewMs) return { ok: false, why: "the job was created before this send left — another attempt" };
+  if (!trace) return { ok: false, why: "no trace row for the slug" };
+  const started = t(trace.started_at);
+  if (started === null) return { ok: false, why: "the trace row has no start" };
+  if (started < created - skewMs || started > updated + skewMs) return { ok: false, why: "the trace row started outside this job's life — another attempt's" };
+  return { ok: true, why: "" };
+}
+
+/**
  * ACCEPTED WORK SURVIVES THE SENDER GOING AWAY. `accepted` is the sending
  * session's answer (`{ status, job }`); `senderAfter` the calls that session
  * made after it (none expected); `fresh` the second session (`{ token,
  * uid }`) beside the first (`sender`); `final` the fresh session's last read
  * of the build (`{ status, json }`); `site` the served home page's status.
  */
-export function buildClosureVerdict({ accepted, senderAfter, sender, fresh, final, site } = {}) {
+export function buildClosureVerdict({ accepted, senderAfter, sender, fresh, final, site, reconciled = null } = {}) {
   const out = [];
   const add = check(out);
   const job = accepted && typeof accepted.job === "string" ? accepted.job : "";
-  add("API continuation: the build was accepted and handed back a job (202) — the generation runs on the server", !!(accepted && accepted.status === 202 && /^[0-9a-f]{32}$/.test(job)),
-    accepted ? `answered ${accepted.status}${job ? ` job ${job}` : ", no job"}` : "not sent");
+  // THE SEND'S OWN ANSWER, OR ITS OWN ATTEMPT (2026-10-14, after run 117). A
+  // build outlives the request that sent it (Cloudflare resets it at about
+  // 285 s), so the answer can be lost while the build goes on. Then the job
+  // counts as known only when the fresh session found EXACTLY ONE listed
+  // build carrying this send's own attempt key — never the latest build for
+  // the slug, never a resend. The lost answer stays in the record and in this
+  // line either way.
+  const answered = !!(accepted && accepted.status === 202 && /^[0-9a-f]{32}$/.test(job));
+  const found = !answered && !!(reconciled && reconciled.ok === true && /^[0-9a-f]{32}$/.test(String(reconciled.job || "")));
+  const lost = accepted ? `answered ${accepted.status}${accepted.why ? ` (${accepted.why})` : ""}${job ? ` job ${job}` : ", no job"}` : "not sent";
+  add("API continuation: the build was accepted and its job is known — handed back (202), or found by this send's own attempt key after its answer was lost — the generation runs on the server",
+    answered || found,
+    found ? "" : reconciled ? `${lost}; reconciling by attempt ${reconciled.attempt || "?"}: ${reconciled.why || "not found"}` : lost);
+  if (found) out[out.length - 1].detail = `${lost}; found by attempt ${reconciled.attempt} as job ${reconciled.job}`;
   add("API continuation: the session that sent it made no call after the build was accepted", Array.isArray(senderAfter) && senderAfter.length === 0, `${arr(senderAfter).length} call(s): ${JSON.stringify(arr(senderAfter).slice(0, 4))}`);
   add("API continuation: a session signed in afresh through the API, as the same account, followed the build (not a browser-closed test)", !!(fresh && sender && fresh.token && fresh.token !== sender.token && fresh.uid && fresh.uid === sender.uid),
     fresh ? (fresh.token === (sender && sender.token) ? "the fresh session holds the sender's token" : "a different account, or no sign-in") : "no fresh session");
@@ -601,16 +670,39 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   // THE STRICT CHECK BEFORE THE PAID CALL: any prerequisite unmet, nothing is sent.
   if (unmet.length) { record.stopped = `${unmet.map((p) => p.why).join("; ")} — nothing is sent`; log(`STOPPED: ${record.stopped}`); return record; }
   record.ledgerMark = startReading.id;
-  const accepted = await A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug }));
+  // THIS SEND'S OWN NAME, made before it leaves (2026-10-14, after run 117).
+  const attempt = typeof io.attempt === "function" ? io.attempt() : newAttempt();
+  record.attempt = attempt;
+  const sentAt = io.now();
+  const accepted = await A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug, attempt }));
   record.sent = true;
   const acceptedAt = record.calls.length;
-  const job = accepted && accepted.json && typeof accepted.json.job === "string" ? accepted.json.job : "";
-  record.accepted = { status: accepted ? accepted.status : 0, job, stage: accepted && accepted.json ? accepted.json.stage : undefined };
-  log(`accepted: ${record.accepted.status} job ${job || "(none)"}`);
+  const answeredJob = accepted && accepted.json && typeof accepted.json.job === "string" ? accepted.json.job : "";
+  // THE ORIGINAL ANSWER IS KEPT AS IT CAME, its network error included: a
+  // reconciled job never overwrites what the send itself was told.
+  record.accepted = { status: accepted ? accepted.status : 0, job: answeredJob, stage: accepted && accepted.json ? accepted.json.stage : undefined, ...(accepted && accepted.why ? { why: String(accepted.why) } : {}) };
+  log(`accepted: ${record.accepted.status}${record.accepted.why ? ` (${record.accepted.why})` : ""} job ${answeredJob || "(none)"}`);
   // THE SENDER LETS GO HERE. Everything after is the fresh session's.
   const fresh = await io.signIn();
   record.fresh = { uid: fresh && fresh.uid, sameToken: !!(fresh && fresh.token === sender.token) };
   const B = tagged("fresh", fresh.token);
+  // NO JOB IN THE ANSWER, AND NO FINAL ANSWER EITHER: the connection was lost
+  // (or answered nothing usable). The fresh session looks for THIS send's
+  // build by its attempt key — it never sends again.
+  let job = answeredJob;
+  if (!job && !(accepted && accepted.status === 200) && typeof io.builds === "function") {
+    const t0 = io.now();
+    let m = null;
+    while (io.now() - t0 < (spec.reconcileMs || 120_000)) {
+      m = attemptMatch(await B.get("builds", (t) => io.builds(t)), attempt);
+      if (m.ok || m.ambiguous) break;
+      await io.sleep(spec.pollMs);
+    }
+    record.reconciled = m;
+    log(`reconciled by attempt ${attempt}: ${m && m.ok ? `job ${m.job}` : (m && m.why) || "not tried"}`);
+    if (m && m.ok) job = m.job;
+  }
+  record.job = job;
   const polls = [];
   let final = null;
   if (job) {
@@ -624,7 +716,13 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   } else if (accepted && accepted.status === 200) final = accepted;
   record.polls = polls;
   record.final = final ? { status: final.status, ok: final.json && final.json.ok, slug: final.json && final.json.slug } : null;
-  const tr = (await io.trace(spec.slug)) || {};
+  // THE TRACE IS TAKEN ONLY WHEN IT IS THIS JOB'S (2026-10-14): read by slug,
+  // bound to the job's own row by time; another attempt's trace judges nothing.
+  const rawTrace = (await io.trace(spec.slug)) || null;
+  const jobRow = job && typeof io.jobRow === "function" ? await io.jobRow(job) : null;
+  const ta = traceAttribution({ trace: rawTrace, jobRow, job, slug: spec.slug, sentAt });
+  record.traceAttribution = ta;
+  const tr = ta.ok ? rawTrace : {};
   const src = await B.get("source", (t) => io.source(t, spec.slug));
   const site = await io.served(spec.slug);
   const sourceBody = src && src.status === 200 ? src.json : null;
@@ -639,7 +737,8 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const rows = endReading.ok ? await io.ledgerWindow(startReading.id, endReading.id) : { ok: false };
   const senderAfter = record.calls.slice(acceptedAt).filter((c) => c.who === "sender");
   const checks = [];
-  checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status }));
+  checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status, reconciled: record.reconciled || null }));
+  checks.push({ name: "the trace judged is this build's own (its job's row, its slug, inside its job's life)", ok: ta.ok, why: ta.why });
   checks.push(...buildShapeVerdict(sourceBody).checks);
   const ov = buildOverlapVerdict(tr.steps, { photos: spec.images !== "none" });
   checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : ov.why });
@@ -663,3 +762,53 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   record.ok = checks.every((c) => c.ok);
   return record;
 }
+
+/**
+ * JUDGE ONE FINISHED BUILD, SENDING NOTHING (2026-10-14, after run 117). The
+ * press that sent run 117 read the build before it ended, so its shape and
+ * order checks judged an empty source. This reads a build that has ended —
+ * named by its JOB ID, never "the latest for the slug" — and judges what it
+ * really left: the stored source's one page and fifteen components, its own
+ * trace (bound to the job's row), its order, its overlap and its charges
+ * (every ledger row whose ref is this job's, and only those). No routing
+ * call, no build, no photograph: the owner's own free read.
+ */
+export async function judgeBuild(io, { spec, job } = {}) {
+  const record = { mode: "judge", spec: { slug: spec && spec.slug }, job: String(job || ""), sent: false, checks: [] };
+  const add = check(record.checks);
+  if (!(typeof job === "string" && /^[0-9a-f]{32}$/.test(job))) { record.stopped = "a judge needs the build's job id (32 hex characters)"; return record; }
+  const who = await io.signIn();
+  record.reader = { uid: who && who.uid };
+  const jobRow = typeof io.jobRow === "function" ? await io.jobRow(job) : null;
+  record.jobRow = jobRow ? { id: jobRow.id, slug: jobRow.slug, op: jobRow.op, state: jobRow.state, created_at: jobRow.created_at, updated_at: jobRow.updated_at } : null;
+  add("the job is a finished build of this site", !!(jobRow && jobRow.id === job && jobRow.slug === spec.slug && jobRow.op === "build" && jobRow.state === "done"),
+    jobRow ? `row ${JSON.stringify(record.jobRow)}` : "no row for the job");
+  if (!record.checks[0].ok) { record.stopped = record.checks[0].why; record.ok = false; return record; }
+  const sentAt = Date.parse(jobRow.created_at);
+  const raw = await io.trace(spec.slug);
+  const ta = traceAttribution({ trace: raw, jobRow, job, slug: spec.slug, sentAt });
+  record.traceAttribution = ta;
+  add("the trace judged is this build's own (its job's row, its slug, inside its job's life)", ta.ok, ta.why);
+  const tr = ta.ok ? raw : {};
+  const src = await io.source(who.token, spec.slug);
+  const shape = buildShapeVerdict(src && src.status === 200 ? src.json : null);
+  record.shape = { pages: shape.pages, kit: shape.kit, parts: shape.parts };
+  record.checks.push(...shape.checks);
+  const ov = buildOverlapVerdict(tr.steps, { photos: spec.images !== "none" });
+  record.overlap = ov;
+  record.checks.push({ name: "independent build work ran at once, by the build's recorded times and order", ok: ov.ok, why: ov.ok ? "" : ov.why });
+  const order = buildOrderVerdict(tr);
+  record.order = order.order;
+  record.checks.push(...order.checks);
+  const rows = typeof io.ledgerByJob === "function" ? await io.ledgerByJob(job) : null;
+  const mine = rows && Array.isArray(rows.rows) ? rows.rows.filter((r) => r && typeof r.ref === "string" && r.ref.startsWith(`build:${job}:`)) : null;
+  const refs = mine ? mine.map((r) => r.ref) : [];
+  const twice = refs.filter((r, i) => refs.indexOf(r) !== i);
+  const net = mine ? mine.reduce((n, r) => n - Number(r.delta), 0) : null;
+  record.charges = mine ? { rows: mine.map((r) => ({ id: r.id, ref: r.ref, delta: Number(r.delta), at: r.at })), net } : null;
+  add(`this build's own charges, each taken once: ${net ?? "?"} credits on ${refs.length} row(s)`, !!(rows && rows.ok && mine && mine.length && !twice.length && net > 0),
+    !rows || !rows.ok ? "the ledger could not be read" : !mine.length ? "no ledger row carries this job's ref" : twice.length ? `taken twice: ${twice.join(", ")}` : `net ${net}`);
+  record.ok = record.checks.every((c) => c.ok);
+  return record;
+}
+

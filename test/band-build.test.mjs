@@ -269,7 +269,17 @@ test("a container that will not take a fan-out falls through to the one call", (
   // The sentinel is thrown by the fire and by nothing else, and only for a list.
   assert.ok(/if \(!genId && Array\.isArray\(req\)\) throw noFanoutError\(\);/.test(WCODE),
     "the fire no longer refuses a fan-out it could not start");
-  assert.equal((WCODE.match(/noFanoutError\(\)/g) || []).length, 1, "the sentinel is thrown from more than one place");
+  // SINCE 2026-10-14 (run 117) THE CONTAINER-LOCAL FAN-OUT throws it too, for
+  // the same two reasons — a list it could not start, a job the container no
+  // longer knows — and nothing else does: every throw sits inside one of the
+  // two fan-out callers.
+  const fire = between(WCODE, "function containerPagesFire(", "\n}\n", "the fire");
+  const local = between(WCODE, "function containerPagesFanLocal(", "\n}\n", "the local fan-out");
+  const inFire = (fire.match(/noFanoutError\(\)/g) || []).length;
+  const inLocal = (local.match(/noFanoutError\(\)/g) || []).length;
+  assert.equal(inFire, 1, "the fire throws the sentinel " + inFire + " times");
+  assert.equal(inLocal, 2, "the local fan-out throws the sentinel " + inLocal + " times");
+  assert.equal((WCODE.match(/noFanoutError\(\)/g) || []).length, inFire + inLocal, "the sentinel is thrown outside the two fan-out callers");
   // Driven, because a name comparison is the whole of `isNoFanout` and a
   // mutant that compares the wrong field is invisible in a read.
   const e = noFanoutError();
@@ -596,7 +606,8 @@ test("the door is asked with the account, and the account is the one the caller 
   // HOP 2 — what the DECISION does with it.
   const doorWin = between(WCODE, "const bandDoor =", "const bandWhy =", "the band door");
   const doorExpr = doorWin.slice(doorWin.indexOf("=") + 1).trim().replace(/;[\s\S]*$/, "");
-  const doorOf = new Function("resumeCall", "canFire", "bandSplitFor", "env", "uid", "slug",
+  // `canSplit` SINCE 2026-10-14 (run 117): the fire OR the container-local fan-out.
+  const doorOf = new Function("resumeCall", "canSplit", "bandSplitFor", "env", "uid", "slug",
     "return (" + doorExpr + ");");
 
   // THE CHAIN, END TO END: the canary account's own build really opens the door.

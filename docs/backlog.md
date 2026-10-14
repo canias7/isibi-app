@@ -20,20 +20,20 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **First builds no longer take the parallel design (since 2026-09-13)**
-  (run 117, 2026-10-14). The account's `design` and `graph` flags read true,
-  and the census says the frontend tool splits. But every first build since
-  09-13 records one design call and `bands:sync` (the-hot-plate 10-04,
-  saltmarsh-cheese-counter 10-14). The cause is not established. No route
-  test asserts which designer runs with the flag on. Under the kept
-  one-page limit, page bands may never be more than one. The image-free
-  Build audit is blocked until this is understood.
-  `docs/history/2026-10-14-build-audit-batch.md` §9.
-- **The Build press stops at a dropped connection** (run 117). The build
-  request runs inside the press's own connection, which ends at about 285 s
-  with no answer. The press then judges the build before it ends: no job,
-  so no polls, an early source read, and no money check. It should follow
-  the slug's build record to `done` when no job is handed back.
+- **First builds no longer took the parallel design (since 2026-09-13)**
+  (run 117, 2026-10-14). **Cause verified and fixed on the branch, not
+  deployed**: a first build runs as a container job whose env
+  (`JOB_ENV_NAMES`) carried none of the design or band door names, and in
+  the job the band split always answered `sync` (no fire). The doors now
+  travel with the job and bands fan out on the container's own
+  `/model/start`. Remaining: parallel work inside a live container job is
+  unproven until a deploy and a live build.
+  `docs/history/2026-10-14-run117-causes.md`.
+- **The Build press stopped at a dropped connection** (run 117). **Fixed on
+  the branch, offline only**: every build send is listed with the caller's
+  attempt key; the press keeps the original error, finds its own build by
+  that key (never the latest for the slug, never a resend), follows it to
+  its end and counts only its own job's charges. Not yet run live.
 - **`build-check.json`'s met prerequisites keep their unmet sentence**
   (2026-10-14, run 115). `buildPrerequisites` sets `why` without checking
   `ok`. "The balance covers the estimate of 45" reads `ok: true` with "does

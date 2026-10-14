@@ -164,8 +164,8 @@ const goodClosure = () => ({
 test("API CONTINUATION (NOT A BROWSER-CLOSED TEST): accepted with a job, the sender silent after, a fresh sign-in of the same account reads the build's own final answer, and the site serves", () => {
   assert.deepEqual(failed(buildClosureVerdict(goodClosure())), []);
   const one = (over, re) => assert.ok(failed(buildClosureVerdict({ ...goodClosure(), ...over })).some((f) => re.test(f)), `${re} did not fail`);
-  one({ accepted: { status: 200, job: "" } }, /accepted and handed back a job/);
-  one({ accepted: { status: 202, job: "not-a-job" } }, /accepted and handed back a job/);
+  one({ accepted: { status: 200, job: "" } }, /accepted and its job is known/);
+  one({ accepted: { status: 202, job: "not-a-job" } }, /accepted and its job is known/);
   one({ senderAfter: [{ who: "sender", name: "poll" }] }, /made no call after/);
   one({ senderAfter: undefined }, /made no call after/);
   one({ fresh: { token: "tok-a", uid: goodClosure().sender.uid } }, /signed in afresh/);
@@ -286,6 +286,9 @@ test("THE SLUG, VERIFIED FREE: the site table and the build records each answer 
 
 // ── THE PRESS, DRIVEN OFFLINE ────────────────────────────────────────────────
 
+// A JOB'S LIFE AND ITS TRACE'S START, as the stored rows carry them (run 117's shape).
+const JOB_CREATED = "2026-10-14T12:21:23.901Z", JOB_UPDATED = "2026-10-14T12:29:12.903Z", TRACE_AT = "2026-10-14T12:23:43.435Z";
+
 function stub(over = {}) {
   const calls = [];
   let clock = 0;
@@ -303,7 +306,9 @@ function stub(over = {}) {
     existing: async (slug) => { calls.push(`existing:${slug}`); return FREE(); },
     post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.slug, SLUG); assert.equal(body.brief, BUILD_CHECK.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
     poll: async (t, job) => { calls.push(`poll:${t}`); assert.equal(job, JOB); const p = goodPolls()[Math.min(polled++, 3)]; return { status: p.status, json: p.status === 200 ? { ok: true, slug: SLUG, progress: p.progress } : { ok: false, pending: true, progress: p.progress } }; },
-    trace: async () => ({ steps: NOW_TRACE, done: true, ok: true }),
+    trace: async () => ({ steps: NOW_TRACE, done: true, ok: true, started_at: TRACE_AT }),
+    // THE JOB'S OWN ROW (2026-10-14): the trace is bound to it by slug and time.
+    jobRow: async function (job) { return { id: job, slug: this._slug || SLUG, op: "build", state: "done", created_at: JOB_CREATED, updated_at: JOB_UPDATED }; },
     source: async (t) => { calls.push(`source:${t}`); return { status: 200, json: src }; },
     served: async () => ({ status: 200, html: servedHtml([[P1, "The tea room's window seats"], [P2, "A slice of dark ginger cake"]]) }),
     image: async () => img,
@@ -326,12 +331,12 @@ test("END TO END, OFFLINE: the build is sent once by the first session, which th
   assert.ok(io.calls.filter((c) => c.startsWith("poll:")).every((c) => c === "poll:tok-2"), "a poll was made by the sender");
   assert.equal(rec.overlap.by, "bands");
   assert.equal(rec.money.net, 50);
-  assert.equal(rec.checks.length, 19);
+  assert.equal(rec.checks.length, 20); // the trace's own-build check joined on 2026-10-14
   assert.ok(rec.checks.some((c) => /independent build work ran at once/.test(c.name)));
 });
 
 test("THE PRESS'S FAILURES REACH ITS VERDICT: no recorded overlap, a second session never signed in afresh, and a charge taken twice each fail the press with their own reason", async () => {
-  const noOverlap = await runBuildCheck(stub({ trace: async () => ({ steps: HOT_PLATE.concat([]), done: true, ok: true }) }), { spend: true });
+  const noOverlap = await runBuildCheck(stub({ trace: async () => ({ steps: HOT_PLATE.concat([]), done: true, ok: true, started_at: TRACE_AT }) }), { spend: true });
   assert.equal(noOverlap.ok, false);
   assert.ok(failed(noOverlap.checks).some((f) => /independent build work ran at once.*no recorded overlap/.test(f)));
   let n = 0;
@@ -340,7 +345,7 @@ test("THE PRESS'S FAILURES REACH ITS VERDICT: no recorded overlap, a second sess
   const twice = await runBuildCheck(stub({ ledgerWindow: async () => rowsOf([{ ref: `build:${JOB}:pages`, delta: -25 }, { ref: `build:${JOB}:pages`, delta: -25 }]) }), { spend: true });
   assert.ok(failed(twice.checks).some((f) => /taken twice/.test(f)));
   const inline = await runBuildCheck(stub({ post: async function () { this.calls.push("post"); return { status: 200, json: { ok: true, slug: SLUG } }; } }), { spend: true });
-  assert.ok(failed(inline.checks).some((f) => /accepted and handed back a job/.test(f)), "an inline answer passed the closure");
+  assert.ok(failed(inline.checks).some((f) => /accepted and its job is known/.test(f)), "an inline answer passed the closure");
 });
 
 test("THE FREE REHEARSAL AND THE REFUSALS: with spend not yes, or the balance outside the window, or the slug already a site, nothing is sent", async () => {
@@ -360,7 +365,7 @@ test("THE FREE REHEARSAL AND THE REFUSALS: with spend not yes, or the balance ou
 
 test("THE WIRING: build-as-owner hands `check` to the build check before its own validation; the workflow offers it with its spend box and keeps its record", () => {
   const owner = fs.readFileSync(ROOT + "scripts/build-as-owner.mjs", "utf8");
-  const hook = owner.indexOf('if (MODE === "check" || MODE === "check-no-images") {');
+  const hook = owner.indexOf('if (MODE === "check" || MODE === "check-no-images" || MODE === "judge-no-images") {');
   const own = owner.indexOf('if (!EMAIL) fail("OWNER_EMAIL is not set");');
   assert.ok(hook > 0 && own > 0 && hook < own, "the check is not reached before build-as-owner's own validation");
   assert.ok(owner.includes('const { main } = await import("./build-check.mjs");'));
@@ -368,10 +373,10 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   const hand = owner.indexOf("if (!process.env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = ANON_KEY;");
   assert.ok(hand > hook && hand < owner.indexOf('await import("./build-check.mjs")') && owner.indexOf("const ANON_KEY") < hook, "the anon key is not handed to the check");
   const wf = fs.readFileSync(ROOT + ".github/workflows/build-as-owner.yml", "utf8");
-  assert.ok(wf.includes("options: [edit, build, check, check-no-images]"));
+  assert.ok(wf.includes("options: [edit, build, check, check-no-images, judge-no-images]"));
   // A CHECK DISPATCHED FROM THE BRANCH never waits for a deploy of its own commit.
   const wait = wf.indexOf("- name: wait for this push's deploy");
-  assert.ok(wait > 0 && wf.slice(wait, wait + 160).includes("if: github.event.inputs.mode != 'check' && github.event.inputs.mode != 'check-no-images'"), "the deploy wait would block the check");
+  assert.ok(wait > 0 && wf.slice(wait, wait + 220).includes("if: github.event.inputs.mode != 'check' && github.event.inputs.mode != 'check-no-images' && github.event.inputs.mode != 'judge-no-images'"), "the deploy wait would block the check or the judge");
   assert.ok(wf.includes("OWNER_SPEND: ${{ github.event.inputs.spend || 'no' }}"));
   assert.ok(wf.includes("            build-check.json"));
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
@@ -380,7 +385,7 @@ test("THE WIRING: build-as-owner hands `check` to the build check before its own
   // 2026-10-10 before the approved press. A wrong column fails every ledger
   // read, so the press could never get past its own steady reading.
   const ledgerReads = bc.match(/credit_events\?[a-z_]+=eq\./g) || [];
-  assert.equal(ledgerReads.length, 2, "the ledger reads were not found");
+  assert.equal(ledgerReads.length, 3, "the ledger reads were not found (the window, the last row, and the judge's by-job read)");
   assert.ok(ledgerReads.every((q) => q === "credit_events?uid=eq."), `a ledger read names the wrong column: ${JSON.stringify(ledgerReads)}`);
   assert.ok(bc.includes("rest/v1/credits?user_id=eq."), "the balance read lost its column");
 });
@@ -442,6 +447,7 @@ const FLAGS = { design: false, graph: false, bandsEveryone: true, bands: true };
 const RT = (imagePurchases, status = 200, flags = FLAGS) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...flags, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
 // THE BALANCE AT THE BATCH CAP (100), and a build of 30 inside its estimate of 45.
 const niStub = (over = {}) => stub({
+  _slug: NI.slug,
   runtime: RT(false),
   balance: async function () { return this.calls.some((c) => c === "post") ? 70 : 100; },
   ledgerWindow: async (from, to) => { assert.equal(from, 430); assert.equal(to, 432); return rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -18 }]); },
@@ -582,7 +588,7 @@ test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap
   assert.ok(failed(unread.checks).some((f) => /uploads were read, and hold no image/.test(f)));
   // ONLY PHOTOGRAPHS OVERLAPPED: not shown for a build that may buy none.
   const photosOnly = [{ s: "design" }, { s: "photos-alongside", started: 1 }, { s: "gen" }, { s: "img" }, { s: "photos-wait", open: 1 }, { s: "photos-joined", unused: 0 }, { s: "compile" }, { s: "pages" }];
-  const ov = await runBuildCheck(niStub({ trace: async () => ({ steps: photosOnly, done: true, ok: true }) }), { spec: NI, spend: true });
+  const ov = await runBuildCheck(niStub({ trace: async () => ({ steps: photosOnly, done: true, ok: true, started_at: TRACE_AT }) }), { spec: NI, spend: true });
   assert.ok(failed(ov.checks).some((f) => /independent build work ran at once.*no recorded overlap/.test(f)), JSON.stringify(failed(ov.checks)));
   assert.equal(buildOverlapVerdict(photosOnly).by, "photos", "CONTROL: the same trace overlaps by photographs for a build that may buy them");
   assert.equal(buildNoImageVerdict({ pages: NI_SRC.pages, uploads: { ok: true, files: [] }, slug: NI.slug }).checks.every((c) => c.ok), true);
@@ -590,11 +596,12 @@ test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap
 
 test("NO PHOTOGRAPH, THE WIRING: `check-no-images` reaches this spec and its runtime reader; the workflow offers it and keeps the deploy wait off it", () => {
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
-  assert.ok(bc.includes('String(process.env.OWNER_MODE || "").trim().toLowerCase() === "check-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK'));
+  assert.ok(bc.includes('const SPEC = MODE_NAME === "check-no-images" || MODE_NAME === "judge-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK;'));
+  assert.ok(bc.includes('const MODE_NAME = String(process.env.OWNER_MODE || "").trim().toLowerCase();'));
   assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value })"));
   assert.ok(bc.includes("runtime: (token, slug) => get(`/api/site/runtime?slug=${encodeURIComponent(slug)}`, token),"));
   const owner = fs.readFileSync(ROOT + "scripts/build-as-owner.mjs", "utf8");
-  assert.ok(owner.includes('if (MODE === "check" || MODE === "check-no-images") {'));
+  assert.ok(owner.includes('if (MODE === "check" || MODE === "check-no-images" || MODE === "judge-no-images") {'));
 });
 
 // ── THE BUILD CHECK'S BALANCE OPT-IN (2026-10-14, preparing the image-free

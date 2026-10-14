@@ -46,7 +46,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT, priorRefusalOf, valueDigest, stagedRecord } from "./builder/prepared.mjs";
-import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
+import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, isAttempt, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, jobMetaKey, packJobMeta, readJobMeta, resultKey, contextKey, newJobId, isJobId, packJob, readJob, packResult, readResult, resultKind, nextResult, settlementFacts, knownSettlement, narrationKey, narrationPlan, newerNarration, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
@@ -142,6 +142,7 @@ import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, lift
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
+import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
 // rather than importing either, so a guard can run the whole orchestration
@@ -5445,6 +5446,65 @@ function containerPagesFire(env, slug, out, jobId = null) {
     // in ONE instance's memory, and a recomputed lane would ask a container
     // that never had the work and be told `unknown`.
     throw firedError({ genId, lane: laneName(slug), report, firedAt: Date.now() });
+  };
+}
+
+/**
+ * A FAN-OUT THAT WAITS WHERE IT STANDS (2026-10-14, after run 117) — for a
+ * build already running inside its container, where nothing has a clock to
+ * walk away from and the queue a fire would resume through is a refusal.
+ *
+ * One request goes the synchronous way (`containerPagesCall`), unchanged. A
+ * LIST goes to the same `/model/start` the fire uses, which runs it through
+ * `runFanout` (`MAX_MODEL_FANOUT` at once) and keeps the answers; this polls
+ * `/model/result` until they are there and hands back the same `answers` the
+ * fire's resume hands back, so `generateSiteBands` reads one shape. A start
+ * that does not land, or a job the container no longer knows, is
+ * `noFanoutError()` — the named fallback to the single call that a fire
+ * already takes — and a fan-out that never answers inside its calls' own
+ * bound is an error like any slow call.
+ */
+function containerPagesFanLocal(env, slug, out) {
+  const sync = containerPagesCall(env, slug, out);
+  return async (keys, req, budget) => {
+    if (!Array.isArray(req)) return sync(keys, req, budget);
+    const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
+    out.tried = 1;
+    let c = null;
+    let id = "";
+    try {
+      c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const r = await c.fetch(new Request("http://build/model/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reqs: req, callMs }),
+        signal: AbortSignal.timeout(FIRE_HOP_MS),
+      }));
+      const raw = await r.text().catch(() => "");
+      let ans = null;
+      try { ans = JSON.parse(raw); } catch { ans = null; }
+      if (r.ok && ans && ans.ok === true && typeof ans.id === "string" && ans.id) id = ans.id;
+      else console.error("build: the local fan-out was not taken —", r.status, raw ? raw.slice(0, 200) : "empty body");
+    } catch (e) {
+      console.error("build: could not start the local fan-out —", String((e && e.name) || "Error"), String((e && e.message) || e));
+    }
+    if (!id) throw noFanoutError();
+    // THE BOUND IS THE CALLS' OWN: rounds of `MAX_MODEL_FANOUT`, each a call's cap.
+    const rounds = Math.max(1, Math.ceil(req.length / MAX_MODEL_FANOUT));
+    const deadline = Date.now() + rounds * callMs + MODEL_HOP_SLACK_MS;
+    for (let n = 0; Date.now() < deadline; n++) {
+      await new Promise((r) => setTimeout(r, pollDelayMs(n)));
+      let ans = null;
+      try {
+        const r = await c.fetch(new Request("http://build/model/result?id=" + encodeURIComponent(id), { method: "GET", signal: AbortSignal.timeout(FIRE_HOP_MS) }));
+        ans = JSON.parse(await r.text());
+      } catch { ans = null; }
+      if (!ans || ans.ok !== true) continue;
+      if (ans.state === "done" && Array.isArray(ans.answers)) { out.via = "container"; return ans.answers; }
+      if (ans.state === "unknown") throw noFanoutError();
+      if (ans.state === "failed") throw new Error(String(ans.message || "the local fan-out failed"));
+    }
+    throw new Error("the local fan-out did not answer within " + (rounds * callMs + MODEL_HOP_SLACK_MS) + "ms");
   };
 }
 
@@ -14115,8 +14175,18 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // `canFire`     start it in the container and walk away, so no single
       //               consumer invocation is ever long. Throws the sentinel.
       // otherwise     hold the hop for the whole generation, as before.
+      // A BUILD RUNNING INSIDE ITS CONTAINER CAN STILL FAN OUT (2026-10-14,
+      // after run 117). There the queue is a refusal, so `canFire` is false,
+      // and the band split answered `sync` for every first build since the
+      // job runner took them (2026-09-14): the page was always one call. But
+      // a job has no fifteen-minute clock to walk away from — it can wait on
+      // the container's own `/model/start` fan-out where it stands
+      // (`containerPagesFanLocal`). Only where the namespace IS the local
+      // service (`makeContainerEnv` marks it), never on the Worker.
+      const localFan = !resumeCall && !canFire && !!(env.SITE_BUILD_CONTAINER && env.SITE_BUILD_CONTAINER.local === true);
+      const canSplit = canFire || localFan;
       const call = resumeCall
-        || (canFire ? containerPagesFire(env, slug, genPath, jobId) : containerPagesCall(env, slug, genPath));
+        || (canFire ? containerPagesFire(env, slug, genPath, jobId) : localFan ? containerPagesFanLocal(env, slug, genPath) : containerPagesCall(env, slug, genPath));
       // ── ONE CALL, OR ONE PER BAND (2026-09-09, the band split) ────────────
       //
       // `splitPlan` answers the band lines or NOTHING, and nothing means today's
@@ -14176,7 +14246,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // proves the door reads one and says nothing about whether anybody
       // supplies one — this repository's own wiring trap, and `picked-model`'s
       // lesson word for word. So the guard now drives what the CALLER passes.
-      const bandDoor = !resumeCall && canFire && bandSplitFor(env, { uid, slug });
+      const bandDoor = !resumeCall && canSplit && bandSplitFor(env, { uid, slug });
       // ── AND WHY, WHEN IT DOES NOT (2026-09-10, owner: "OK GO") ────────────
       //
       // `bandRefusal` is the whole ladder in one word — the two conditions this
@@ -14187,7 +14257,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // reports a reason it did not act on. The answer is `""` exactly when the
       // old three-term chain was true.
       const bandWhy = resumeCall ? "" : bandRefusal({
-        pages: planned.length, canFire, door: bandDoor,
+        pages: planned.length, canFire: canSplit, door: bandDoor,
         shape: plan && plan.shape, route: planned[0], tsx, priorPages,
         mode: revise ? "revise" : "build",
       });
@@ -15302,19 +15372,30 @@ async function liveBuildStart(env, { url, body, uid, id }) {
   const out = { claimed: false, marked: false, running: "", uncertain: false };
   if (!env.SITES_BUCKET || !isLiveUid(uid)) return out;
   let chat = "";
+  let attempt = "";
   try {
     const path = new URL(url).pathname;
-    const first = (path === "/api/site/react-build" || path === "/api/site/build") && !(body && typeof body.slug === "string" && body.slug);
-    if (!first) return out;
+    // EVERY BUILD SEND IS LISTED, A NAMED ONE TOO (2026-10-14, after run 117).
+    // This read `first` as "no slug", but the build route's own rule is that
+    // a named slug with no site is still a first build (`firstBuild`), and a
+    // caller that chose its own name — the build check does — was never
+    // listed: when its connection dropped it had no way to find its job.
+    // Listing carries no ownership; only a chat claim does, and that stays
+    // with the unnamed build exactly as before (a named send claims no chat,
+    // so a revise sent from a second chat still cannot re-bind the site).
+    const buildPath = path === "/api/site/react-build" || path === "/api/site/build";
+    if (!buildPath) return out;
+    const named = !!(body && typeof body.slug === "string" && body.slug);
+    attempt = body && isAttempt(body.attempt) ? body.attempt : "";
     // THROUGH THE SAME REFUSAL AS THE BUILD ROUTE'S OWN READ (`cleanChatId`), never raw.
-    const chatId = body ? cleanChatId(body.chat) : "";
+    const chatId = !named && body ? cleanChatId(body.chat) : "";
     chat = isLiveChat(chatId) ? chatId : "";
   } catch { return out; }
   // NOT YET ACCEPTED (round 3): it owns its chat from here, and is listed
   // only once its message is sent (`liveBuildAccept`).
   let markerOk = true;
   try {
-    out.marker = { job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now() };
+    out.marker = { job: id, uid, chat, words: body && typeof body.brief === "string" ? body.brief : "", at: Date.now(), attempt };
     await env.SITES_BUCKET.put(buildLiveKey(uid, id), JSON.stringify(packBuildLive(out.marker)));
     out.marked = true;
   } catch (e) {
@@ -26198,6 +26279,17 @@ async function handleRequest(request, env, ctx) {
         // another's slugs.
         graph: designGraphFor(env, { uid: tu.id }),
         graphEveryone: designGraphEveryone(env),
+        // AND THE SAME DOORS AS A CONTAINER JOB SEES THEM (2026-10-14, after
+        // run 117), asked of `jobSecrets(env)` — the exact strings a job is
+        // handed. The four above are the Worker's answer; a build that runs in
+        // the container asks its own env, and that env once lacked every one
+        // of these names, so the Worker said "on" while every first build ran
+        // with the doors shut. A reader judging a build's mode reads this.
+        // Booleans, like every field on this route — four flat names, never an object.
+        jobDesign: designSplitFor(jobSecrets(env), { uid: tu.id }),
+        jobGraph: designGraphFor(jobSecrets(env), { uid: tu.id }),
+        jobBands: bandSplitFor(jobSecrets(env), who),
+        jobBandsEveryone: bandSplitEveryone(jobSecrets(env)),
       });
     }
 
@@ -27648,7 +27740,7 @@ async function handleRequest(request, env, ctx) {
           // one abandoned before its message was sent, or one running inline
           // has no job a browser could follow, and is never handed one.
           if (!listsBuild(view)) continue;
-          const item = { job: view.job, chat: view.chat, words: view.words, at: view.at, state: view.state };
+          const item = { job: view.job, chat: view.chat, words: view.words, at: view.at, state: view.state, ...(view.attempt ? { attempt: view.attempt } : {}) };
           if (view.answer) {
             let body = null;
             try { body = JSON.parse(view.answer.body); } catch { body = null; }
