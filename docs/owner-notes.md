@@ -1,11 +1,80 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the combined candidate `4507747c` (this branch `55e381cc` + `new` `9ceca1d4`, local, unpushed) passes the full suite 10913/10913 and every site-build step; image predicted `e386c7a31377e66e`; rollback rehearsed; one image-free two-press live plan proposed at about 28–79 credits; nothing merged, deployed, built, pressed or spent; `PROGRESS_TALK` off)
+## Current handoff — read this first (2026-10-14: the combined candidate is pushed as `integ/combined-candidate` `8af536af` for review and CI; `acc-mixed` now carries the reconnect and progress checks; `acc-mixed-talk` and the live switch reading are ready for an approved PROGRESS_TALK window; fresh Build slug `saltmarsh-cheese-lewes`; image predicted `e1582f6f71a41dfb`; nothing merged, deployed, built, switched on, pressed or spent)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
+
+**The pushed candidate (2026-10-14, for your and Codex's review):**
+- **Branch `integ/combined-candidate`, head `8af536af`.** It is the merge
+  `1c3eef7f` (this branch `44a24b17` + `new` `9ceca1d4`, the same two
+  conflict resolutions as `4507747c`) plus one commit.
+- `main` (`fef80b9b`), `new` (`9ceca1d4`) and this branch are unchanged by
+  it.
+- **CI on `8af536af`:** green — *unit tests* run 38612760374 (job `test`, `completed`/`success`) and *site build* run 38612760404 (all eight jobs `success`: kit and generator checks, theme checks, published-site checks, `site-build.mjs` shards 1–4, and "all checks"); the per-test counts in their logs could not be read from this session (GitHub serves logs from a host its client does not contact), so only the jobs' own conclusions are claimed.
+- **Local:** the full suite is `10936 / 10936 / 0 / 0` on `8af536af` itself (measured; `10935 / 10935 / 0 / 0` on the tree before the two sweep-driven cases); the sweep killed 31 of 33, and
+  the 2 controls survived.
+- **The container image is predicted `e1582f6f71a41dfb`** (not built). It
+  was `e386c7a31377e66e` before, and `worker.js` is an input.
+- **What the commit adds:**
+  - **The narration switches are read live.** The runtime route answers
+    `progressReplies`, `progressTalk`, `jobProgressReplies` and
+    `jobProgressTalk` (the `job…` ones as a container job sees them).
+    "Off" is now a reading, not an assumption from the unset secret's
+    fallback.
+  - **`acc-mixed` carries the reconnect and progress checks.** It is sent
+    with its tab closed once a line shows live, and followed to its end in
+    a fresh browser session. These checks are no longer optional.
+  - **`acc-mixed-talk`** is the same press plus eight talk checks:
+    - the switch read on;
+    - lines on every part;
+    - first person;
+    - each job's lines on its own part;
+    - in order;
+    - kept word for word after the reconnect;
+    - explanations held to their own job's checks;
+    - the model's own final replies, held to their own job's checks.
+
+    It sends nothing unless the Worker and a job both read talk on.
+  - **The image-free Build check's slug is now `saltmarsh-cheese-lewes`.**
+    It was read free today: no row in the site, build or project tables,
+    and its address answered 404.
+  - **The paid opt-ins stay empty.**
+- **The one planned batch, in order** (each step yours; full steps in
+  `docs/history/2026-10-14-combined-candidate.md` §6.4):
+  1. Review and CI.
+  2. The opt-in commits, on your word.
+  3. Images off.
+  4. Fast-forward `main` (one deploy, image `e1582f6f71a41dfb`, wait 15–20
+     minutes).
+  5. Free runtime press: `progressTalk=false`, read live for the first
+     time.
+  6. **The talk window:** set the secret `PROGRESS_TALK` to `on`, dispatch
+     the deploy, free press reads all four true.
+  7. **Press A:** *build as owner* `check-no-images`.
+  8. **Press B:** *edit canary* `acc-mixed-talk`. Its narration usage step
+     measures the narration cost separately.
+  9. **Close the window:** set `PROGRESS_TALK` to `off`, dispatch the
+     deploy, free press reads talk false.
+  10. Images on, opt-ins closed.
+- **Without the window:** Press B is `acc-mixed`, which still runs the
+  reconnect and progress checks.
+- **Cost:** about 28–79 credits (Press A 11–45, Press B 17–34). The
+  redeploys and runtime presses are free. Narration is the platform's,
+  measured after Press B. Nothing caps a request; the balance is the bound.
+- **Still not provable** (§6.5):
+  - prompt acceptance of a long Build (recovered tracking is expected);
+  - the talk checks on the Build itself (they run on Press B; the Build's
+    own progress checks still apply);
+  - content claims in a progress line (only machine-check claims are held
+    to evidence);
+  - rates (one sample);
+  - untagged traces;
+  - photographs.
+
+**Earlier in the day, still true:**
 
 **Run 117's causes, fixed on the branch (2026-10-14; `c00e7a06`, unmerged):**
 - **Verified cause 1, the parallel doors were shut inside the job.** Since
@@ -1378,6 +1447,50 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — The combined candidate pushed for review, with the reconnect, progress and talk checks it runs (nothing spent)
+
+You asked me to finish the combined candidate before asking for deployment
+or spending.
+
+- **Pushed as a separate branch:** `integ/combined-candidate`, head
+  `8af536af`. Codex can read the real merged code there, and GitHub ran
+  unit tests and the site build on that exact commit: green — *unit tests* run 38612760374 (job `test`, `completed`/`success`) and *site build* run 38612760404 (all eight jobs `success`: kit and generator checks, theme checks, published-site checks, `site-build.mjs` shards 1–4, and "all checks"); the per-test counts in their logs could not be read from this session (GitHub serves logs from a host its client does not contact), so only the jobs' own conclusions are claimed.
+  - `main`, `new` and this branch were left as they were.
+- **The Edit/Add-on reconnect and progress checks are now in the press
+  itself.** `acc-mixed` closes its tab once a progress line shows and
+  finishes in a fresh browser session.
+- **`PROGRESS_TALK` can now be checked, not assumed.**
+  - The runtime route reports it, as the Worker and a container job each
+    see it.
+  - The new `acc-mixed-talk` press holds the builder's lines to eight
+    checks: first person; on the right task, in order; kept after the
+    reconnect; explanations and final replies grounded in each task's own
+    checks.
+  - It refuses to send unless talk reads on.
+  - Its narration cost is measured separately by the existing narration
+    usage step.
+- **The feature stays off.** `docs/history/2026-10-14-combined-candidate.md`
+  §6.4 has the exact on → verify → test → off → verify steps.
+- **A fresh Build slug is ready:** `saltmarsh-cheese-lewes`, checked free
+  today.
+- **Paid opt-ins are still closed.**
+- **Verified:**
+  - 22 new talk cases, with a positive control through the real Worker
+    route;
+  - sweep 31 of 33 killed, 2 controls kept;
+  - local full suite `10936 / 10936 / 0 / 0` on `8af536af` itself (measured; `10935 / 10935 / 0 / 0` on the tree before the two sweep-driven cases);
+  - image predicted `e1582f6f71a41dfb`.
+- **Cost estimate for the batch:** about 28–79 credits, plus free
+  redeploys and checks.
+- **Limits:**
+  - prompt acceptance of a long Build is still not provable;
+  - the talk checks judge the Edit/Add-on press, not the Build;
+  - only claims about the checks are held to evidence, not claims about
+    content;
+  - one sample is not a rate.
+- **Not repeated:** every completed audit, and run 117, K3B,
+  `acc-clarify-resume`, `lv-combined` and `lv-progress`.
 
 ## 2026-10-14 — Both lines of work combined into one candidate (nothing spent)
 
