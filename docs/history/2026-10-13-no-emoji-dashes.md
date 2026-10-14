@@ -89,3 +89,19 @@ replies lost their ✅.
 - **Screenshots**: real Chromium, the repo's own `public/`, supplied model
   answers (`test/progress-browser.test.mjs` with `PROGRESS_SHOTS`), sent to
   the owner in the conversation.
+
+## Follow-up: a single task's lines stack while it runs (2026-10-13)
+
+- The owner: *"i dont want it to be replaced , i want everything to show"*.
+- A job this page watches drew only its newest line where "Thinking" was
+  (`siteBuild.progressLine`). It now keeps every line so far
+  (`siteBuild.progressLines`) and draws them with `progressListHTML`, the
+  same dash-and-thread list as a request's card and a finished reply; no dot.
+  The model's lines are set in the app's sans face inside the code-faced
+  steps rail. The `.st-think-prog` rules are gone.
+- Tests: the poll keeps both lines (`progress-page` WATCH), the bubble draws
+  every line with the newest live (`progress-page` BUBBLE), the real page
+  shows both while running (`progress-browser` PATH B), and the steps-rail
+  guard (`topbar-layout`) reads each return whole. Sweep: newest-only in the
+  poll and in the draw both killed; the comment control survived. Full
+  suite `10741 / 10738 / 0 / 3` locally.

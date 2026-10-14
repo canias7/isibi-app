@@ -180,9 +180,9 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
   ctx.watchEditJob({ slug: s.slug }, {}, JOB, s.id, (reply) => { s.msgs.push({ r: "a", t: reply }); }, null, "Change the heading", [], undefined, false);
   const run = async () => { const fn = timers.shift(); fn(); for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r)); };
   await run();
-  assert.equal(ctx.siteBuild.progressLine, "Found the heading.", "the newest line was not painted");
+  assert.deepEqual(ctx.siteBuild.progressLines.map((l) => l.text), ["Found the heading."], "the line was not painted");
   await run();
-  assert.equal(ctx.siteBuild.progressLine, "Publishing now.");
+  assert.deepEqual(ctx.siteBuild.progressLines.map((l) => l.text), ["Found the heading.", "Publishing now."], "the earlier line was replaced, not kept");
   assert.ok(paints >= 2, "the line was not painted");
   await run();
   const reply = s.msgs[s.msgs.length - 1];
@@ -191,14 +191,17 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
   assert.deepEqual(copy(reply.prog).map((l) => [l.job, l.n, l.text]), [[JOB, 0, "Found the heading."], [JOB, 1, "Publishing now."]]);
 });
 
-test("BUBBLE — the newest line replaces \"Thinking\", escaped, in its own style; a waiting sentence still comes first; with no line, \"Thinking\" as before", () => {
+test("BUBBLE — every line so far stacks where \"Thinking\" was, escaped, in the card's own list, the newest live; a waiting sentence still comes first; with no line, \"Thinking\" as before", () => {
   const draw = (sb) => {
     const ctx = vm.createContext({ siteBuild: sb, stBuildRunning: () => false, esc: (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") });
-    vm.runInContext(cut("function reactLiveStepsHTML("), ctx);
+    vm.runInContext(cut("function progressListHTML(") + "\n" + cut("function reactLiveStepsHTML("), ctx);
     return ctx.reactLiveStepsHTML();
   };
-  assert.equal(draw({ progressLine: "Found <it>." }), '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>Found &lt;it&gt;.</span></div></div>');
-  assert.match(draw({ progressLine: "Found it.", waitNote: "Waiting — busy." }), /<div class="st-think"><i><\/i>Waiting — busy\.<\/div>/);
+  // EVERY LINE, NOT ONLY THE NEWEST (the owner, 2026-10-13).
+  assert.equal(draw({ progressLines: [{ text: "Found <it>." }, { text: "Publishing." }] }),
+    '<div class="st-steps st-steps-live"><ul class="st-req-prog"><li>Found &lt;it&gt;.</li><li class="live">Publishing.</li></ul></div>');
+  assert.match(draw({ progressLines: [{ text: "Found it." }], waitNote: "Waiting — busy." }), /<div class="st-think"><i><\/i>Waiting — busy\.<\/div>/);
+  assert.equal(draw({ progressLines: [] }), '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>');
   assert.equal(draw({}), '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>');
 });
 

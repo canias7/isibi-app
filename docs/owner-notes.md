@@ -961,6 +961,9 @@ since. Add new ones there.
 - **Kept**: the 🔔 email toggle, the ★ pricing badge and the ▶ chevrons are
   interface labels, not replies.
 - **The canary instruments** no longer look for ✅/⚠️ on screen.
+- **And one task's updates now stack while it runs** (your follow-up: *"i
+  want everything to show"*): none is replaced; the newest goes under the
+  last, in the same dash-and-thread list.
 - **Evidence**: 4 new guard cases; 558 test lines updated, each checked for
   a check that had gone vacuous; 10 of 10 mutants killed, control survived;
   full suite `10741 / 10738 / 0 / 3` locally against `main`'s

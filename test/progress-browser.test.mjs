@@ -221,11 +221,14 @@ test("PATH B — a job this page watches: its newest line replaces \"Thinking\";
   const app = await openApp(S, { seed: { site, watch } });
   try {
     const { page } = app;
-    await page.waitForFunction(() => !!document.querySelector(".st-busy .st-think-prog"), null, { timeout: 20000 });
-    assert.match(await page.textContent(".st-busy .st-think-prog"), /found the Gallery heading/);
-    assert.equal(await page.$(".st-busy .st-think:not(.st-think-prog)"), null, "\"Thinking\" stayed beside the line");
+    await page.waitForFunction(() => !!document.querySelector(".st-busy .st-req-prog li"), null, { timeout: 20000 });
+    assert.match(await page.textContent(".st-busy .st-req-prog"), /found the Gallery heading/);
+    assert.equal(await page.$(".st-busy .st-think"), null, "\"Thinking\" stayed beside the line");
     shown = 2;
-    await page.waitForFunction(() => { const e = document.querySelector(".st-busy .st-think-prog"); return !!e && e.textContent.includes("putting it on your site now"); }, null, { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll(".st-busy .st-req-prog li").length === 2, null, { timeout: 20000 });
+    // EVERY LINE STAYS WHILE IT RUNS (the owner, 2026-10-13): the newest is
+    // added under the first, never in its place.
+    assert.deepEqual(await page.$$eval(".st-busy .st-req-prog li", (els) => els.map((e) => e.textContent)), SOLO_LINES.map((l) => l.text), "a running job's earlier line was replaced");
     await shot(page, "progress-b-running.png");
     finished = true;
     await page.waitForFunction(() => [...document.querySelectorAll(".st-msg.a")].some((m) => m.textContent.includes("now reads")), null, { timeout: 30000 });
@@ -359,7 +362,7 @@ test("CANARY — THE REPLY READ APART FROM THE PROGRESS KEPT ABOVE IT: a watched
   const app = await openApp(S, { seed: { site, watch } });
   try {
     const { page } = app;
-    await page.waitForFunction(() => !!document.querySelector(".st-busy .st-think-prog"), null, { timeout: 20000 });
+    await page.waitForFunction(() => !!document.querySelector(".st-busy .st-req-prog li"), null, { timeout: 20000 });
     finished = true;
     await page.waitForFunction((m) => [...document.querySelectorAll(".st-msg.a")].some((e) => e.textContent.includes(m)), NO_MATCH, { timeout: 30000 });
     assert.equal(await page.$$eval(".st-msg.a .st-prog-done li", (els) => els.length), 2, "the lines were not kept above the reply");

@@ -8975,11 +8975,14 @@ function reactLiveStepsHTML() {
   // markup and total at runtime.
   // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
   // lock or a deploy's gate says so, in the sentence the poll module chose.
-  // AND A RUNNING JOB'S LATEST PROGRESS LINE (2026-10-06) in its place, in
-  // the model's own words — never ahead of a waiting sentence. One gate, so
-  // the rail still asks the shared predicate once.
+  // AND A RUNNING JOB'S PROGRESS LINES (2026-10-06) in its place, in the
+  // model's own words — never ahead of a waiting sentence. One gate, so the
+  // rail still asks the shared predicate once.
+  // EVERY LINE, NOT ONLY THE NEWEST (the owner, 2026-10-13: "i dont want it
+  // to be replaced, i want everything to show"): they stack in the same list
+  // a request's card and a finished reply draw.
   if (!stBuildRunning()) {
-    if (!sb.waitNote && sb.progressLine) return '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';
+    if (!sb.waitNote && Array.isArray(sb.progressLines) && sb.progressLines.length) return '<div class="st-steps st-steps-live">' + progressListHTML(sb.progressLines, true) + '</div>';
     return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   }
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
@@ -11657,10 +11660,11 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       // long as the poll says `waiting`, and the ordinary poll paints nothing.
       const waitNote = EditPoll.waitingMessage(e);
       if (siteBuild && siteOpenId === origin && (siteBuild.waitNote || '') !== waitNote) { siteBuild.waitNote = waitNote; paintReactLive(); }
-      // AND THE LATEST PROGRESS LINE (2026-10-06) where "Thinking" was — never
-      // ahead of the waiting sentence (`reactLiveStepsHTML`).
-      const line = lines.length ? lines[lines.length - 1].text : '';
-      if (siteBuild && siteOpenId === origin && (siteBuild.progressLine || '') !== line) { siteBuild.progressLine = line; paintReactLive(); }
+      // AND EVERY PROGRESS LINE SO FAR (2026-10-06; all of them since
+      // 2026-10-13) where "Thinking" was — never ahead of the waiting sentence
+      // (`reactLiveStepsHTML`).
+      const said = lines.map((l) => l.text).join('\n');
+      if (siteBuild && siteOpenId === origin && (siteBuild.progressLines || []).map((l) => l.text).join('\n') !== said) { siteBuild.progressLines = lines.slice(); paintReactLive(); }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }
