@@ -485,3 +485,133 @@ and `waits-for-prerequisite` are all covered.
     - **`imagePurchases=true`**;
     - the free job settled at cost 0;
     - the balance read 783, and the run stopped before the paid edit.
+
+## 9. Run 152's evidence, replayed offline (2026-10-14): the live gaps closed
+
+**Codex's review.** Codex read run 152's logs and downloaded its evidence
+(artifact 11861418406, from Actions run 38489594737):
+- the clarification and resume behaviour is proven in this sample;
+- removing exactly the new "Online shop" small-print entry from the 11 framed
+  pages, putting the Classes heading back and removing the one Order
+  paragraph leaves every stored page byte for byte the same;
+- every component source is identical.
+
+**The evidence, kept in the tree.** `test/fixtures/run152-evidence.json.gz`
+(68 KB) was built unchanged from that artifact's zip, SHA-256
+`f2c3f669156386a6b7f7afdaf6076f7084db1fbe688484f45fa710d4eb240ff9`, and the
+test pins that digest. It holds:
+- both inventories, both stored source reads, all 12 served pages on each
+  side;
+- the UI run's steps (the timed trail included);
+- the verdict the press printed.
+
+**The timing values, read from the saved verdict** (the log printed only the
+passing check):
+- `waitFrom {ms: 135691, after: 102221}`;
+- `during [{part: 1, how: "running", ms: 135691}]`;
+- `release: "observed"`.
+
+The heading part was queued and running from +135.7 s and done at +309.8 s,
+in reads where the link part was still waiting.
+
+**Preservation, reproduced** (`test/canary-run152-replay.test.mjs`, R152 2).
+The comparison anyone can rerun:
+1. Each of the 11 framed pages had no small print before. After, it has
+   exactly `[{label: "Online shop", href: "https://shop.harbourloaf.co.uk/bread"}]`.
+2. Clear that list with the menu step's own writer.
+3. Put back `title="How a Saturday class runs"` on `classes.tsx`.
+4. Remove the one added `<p>` on `order.tsx`.
+
+Every page is then byte for byte what it was. The frameless `starter.tsx`
+never changed, and the component list is the same (empty on both sides).
+**The preservation gap is closed.**
+
+**The footer checker, corrected** (`footerLinkVerdict`, shared by the
+request verifier and the additions verifier). The footer has two link
+lists: the social icons (`social`, by network) and the small print
+(`legal`, by label). On every framed page:
+- every entry each list had is kept, in order;
+- a page that already linked the destination gains nothing;
+- otherwise exactly one entry is gained, across both lists, going to the
+  requested destination (host and path);
+- a social entry must name the asked network; a small-print entry must carry
+  a label;
+- a list is required **only when the request named it** (`list`, with
+  `asked` quoting the message's own words; a guard holds every scenario to
+  that).
+
+The preservation comparison now strips both footer lists, because this check
+judges both. The served check, that every served footer links to the
+destination, is unchanged.
+
+**Replayed** (R152 3). Under the corrected checker, run 152 passes every
+content check:
+- the footer link counts in the small print (11 pages, 0 social icons);
+- the byte-for-byte check passes;
+- every other check reads exactly as the press printed it;
+- the clarify verdict still passes.
+
+**The original verdict is preserved** beside it (R152 1). The saved verdict
+is `ok: false`, with exactly two content failures (the social-only footer
+check and the byte-for-byte check); the test pins both names and reasons.
+
+**Negative controls on run 152's own evidence** (R152 4–9):
+
+| Defect | What catches it |
+|---|---|
+| A wrong destination (`/cakes`) | The footer check and the served check fail |
+| A page missing the link | The footer check fails |
+| A second link gained | The footer check fails |
+| An existing social icon lost | The footer check fails ("did not keep what they had in order") |
+| An unrelated change (the footer tagline, or a page heading) | The byte-for-byte check fails; the footer check still passes |
+| A small-print link when the request named the social icons | The footer check fails |
+
+`footerLinkVerdict` is also tested directly: the right network, the wrong
+network, a link already present, an unlabelled small-print entry.
+
+**Red check:** with the committed request verifier, 5 of the 11 replay tests
+fail: the corrected replay, wrong destination, lost link, unrelated change,
+and placement as asked.
+
+**Sweep:** 15 mutants, 14 killed (the frame reader, the strip, the order
+check, the destination, extra entries, the network, the label, the asked
+list, the already-had rule, the wiring, and four on the Build opt-in); the
+comment-only control survived.
+
+**The cost overrun stays explicit.** Run 152 spent **25 against the first
+estimate of 20** (10–19). The Order line went through the Add-on step at 12,
+a valid route. The scenario's estimate is now set by every valid route each
+part can take, never by the cheapest one, and the Add-on route is not walled
+off to make it cheaper:
+- message routing 3;
+- heading 2–5;
+- link 1–5;
+- line 2–18 (an edit or an Add-on of words);
+- answer 1–3.
+
+That gives **9–34**, and the budget is 34. A guard (R152 10) keeps run 152's
+25 inside the estimate and the Add-on route open. The same rule raised the
+image-free Build check's estimate to 45 (the measured top of first builds),
+rather than subtracting the photographs it cannot buy.
+
+**Closed live gaps:**
+- independent work while a question waits, dependency hold, answer resumes
+  the right part, finished work reused, single charges: run 152;
+- preservation of the 11 footer-edited pages: the offline comparison above.
+
+**Remaining:**
+- one sample of each live behaviour, no rate;
+- the reply's placement words ("small print") are not judged;
+- the next image-free Build parallelism batch, prepared in
+  `docs/history/2026-10-14-build-audit-batch.md`.
+
+**Suites (2026-10-14):**
+- focused: the replay 11 of 11; the Build check 38 of 38; additions and
+  requests 64 of 64;
+- full suite `10828 / 10827 / 1 / 0`. The one failure is `REOPEN 1`
+  (`test/canary-reopen-browser.test.mjs`, a real-browser timing case that
+  this round did not touch). It passes 3 of 3 run alone.
+- Three expectations were reworded for the footer check's new name. One
+  more, an unrelated small-print link added beside an asked-for footer link,
+  is now caught by the footer check instead of the frame check.
+

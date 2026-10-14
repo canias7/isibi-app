@@ -702,7 +702,7 @@ test("R3 lands when the Visit heading reads the new words and every footer gains
   const lost = failed(judge(spec, site(R3_BEFORE), r3After(() => [FB])).checks);
   assert.ok(lost.some((f) => /kept every link it had/.test(f)), JSON.stringify(lost));
   const other = failed(judge(spec, site(R3_BEFORE), r3After((items) => [...items, { network: "facebook", href: "https://facebook.com/harbourloaf" }])).checks);
-  assert.ok(other.some((f) => /facebook link to facebook\.com\/harbourloafbristol/.test(f)), "a guessed address passed");
+  assert.ok(other.some((f) => /footer gained a link to facebook\.com\/harbourloafbristol/.test(f)), "a guessed address passed");
   const heading = failed(judge(spec, site(R3_BEFORE), r3After(undefined, 'title="Our shop"')).checks);
   assert.ok(heading.some((f) => /byte for byte/.test(f)), "a heading made of other words passed as the named change");
 });

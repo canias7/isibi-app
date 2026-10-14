@@ -91,12 +91,19 @@ here; take a closed one out of both.**
     clarify verdict ok. The heading ran 00:23:30–00:26:24 while the link's
     question waited (asked 00:23:30, answered 00:26:55); the line was held
     until the link was published; nothing reran; every charge was single.
-    **Open from it:** (a) the shop link landed in the footer's small print,
-    not the social list the scenario's stored check expects, so the stored
-    footer check and the byte-for-byte check failed; preservation of the 11
-    footer-edited pages is unverified here (the sources are in the evidence
-    bundle); (b) a one-line addition routed to the Add-on step cost 12, so
-    25 against an estimate of 10–19; one sample;
+    **Closed 2026-10-14:** (a) preservation of the 11 footer-edited pages,
+    reproduced offline from the saved evidence (`run152-evidence.json.gz`,
+    R152 2); the footer checker now honours the destination in either
+    footer list unless one was asked for (`footerLinkVerdict`), replayed
+    passing with the original FAIL kept (R152 1, 3). **Kept explicit:** (b)
+    25 against the first estimate of 20 (the Order line validly took the
+    Add-on step, 12); estimates now count every valid route (this scenario
+    9–34). One sample;
+  - **image-free Build parallelism audit, prepared (2026-10-14):** one batch
+    (`docs/history/2026-10-14-build-audit-batch.md`), `check-no-images` at
+    about 11–45; the Build press's balance opt-in added, closed. Blocked on
+    the owner's approval and on whether an image-free parallel mode is on
+    for the account (read by the free rehearsal);
   - **clarify and resume, prepared (2026-10-13; timing corrected after
     Codex's false pass on `4d60a2a3`):** `acc-clarify-resume` (a footer
     link that must ask, first; an edit; a line held on the link), judged by

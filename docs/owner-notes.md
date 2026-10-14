@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-14: run 152, the clarify-and-resume test, pressed once — its clarify verdict passed, the press FAILED on three other checks; image purchases back ON, confirmed by run 153; the balance box is closed)
+## Current handoff — read this first (2026-10-14: run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -20,6 +20,8 @@ is in git; the dated entries further down are the full story.*
   "CLOSED").
 
 **Closed and not to be repeated:**
+- **Run 152's preservation question:** closed by the offline comparison of
+  its saved evidence (item 2).
 - **`acc-clarify-resume`, run 152:** pressed once, not repeated. Its
   clarify verdict passed; see item 2.
 - **K3B, run 150: PASS.** Codex checked the logs independently: the
@@ -44,56 +46,68 @@ evidence):**
 - `false` by run 152's own gate (deploy 2204), before anything was sent;
 - `true` again by run 153 (deploys 2205 and 2206).
 
-**2. Run 152, `acc-clarify-resume`** (2026-10-14, 00:20–00:39 UTC, 25
+**2. Run 152, `acc-clarify-resume`: live gaps closed** (2026-10-14, 25
 credits, 808 → 783).
-- **The real router:** one request of three parts. The line waits for the
-  link (`dependsOn`).
-- **The timing evidence (server job times, UTC):**
-  - the link's menu step asked "What is the web address of your online
-    shop?" at **00:23:30**;
-  - the heading's routing and edit then ran **00:23:30 → 00:26:24**,
-    published at 00:26:15;
-  - the answer was routed at **00:26:55**, sent from a closed tab and
-    followed in a fresh session;
-  - the link then ran and published at 00:30:54;
-  - the line's first job came only at 00:31:10, and it published at
-    00:36:47.
+- **Proven in this sample** (Codex agreed after reading the logs and the
+  evidence):
+  - the heading ran 00:23:30–00:26:24 while the link's question waited
+    (asked 00:23:30, answered 00:26:55). The press's own timed reads say the
+    same: first read waiting between +102.2 s and +135.7 s, the heading
+    running from +135.7 s, released `observed`;
+  - the dependent line stayed blocked until the link was published;
+  - the answer resumed only the link;
+  - the heading was not rerun;
+  - every charge was single.
+- **Preservation, closed by an offline comparison anyone can rerun**
+  (`test/canary-run152-replay.test.mjs`). It reads run 152's own evidence,
+  kept as `test/fixtures/run152-evidence.json.gz` with the zip's digest
+  pinned. Take out the one new "Online shop" small-print entry on 11 pages,
+  put the Classes heading back and remove the one Order paragraph, and every
+  page is byte for byte the same. No component changed.
+- **The footer checker, corrected** (`footerLinkVerdict`):
+  - the requested destination counts in either footer list (social icons or
+    small print) unless the request named one;
+  - every existing link must be kept, in order;
+  - the rest of the page is still compared byte for byte.
 
-  The press's own timing-aware verdict said **ok**. Its trail values are
-  in the run's evidence bundle; the log shows only the passing check.
-- **Your five checks:**
-  - independent work went on while the question waited: **yes**;
-  - the dependent part stayed blocked until the link finished: **yes**;
-  - the answer resumed only the link: **yes**;
-  - the heading was not rerun after the answer: **yes**;
-  - no duplicate execution or charges: **yes** (seven ledger rows, each
-    once, no refund, no later charge, no job open).
-- **Outcome:**
-  - the Classes heading reads "How a Saturday class works";
-  - `/order` gained the online-shop line;
-  - every served footer links to the shop as "Online shop".
-- **Why the press still says FAIL** (none of it in the clarify verdict):
-  1. The link landed in the footer's small print, not the social-icon list
-     the scenario's stored check looked in. That gave a FAIL; the served
-     check passed.
-  2. The byte-for-byte check therefore counted the 11 footer edits as
-     unexplained. **Whether anything else changed in those 11 pages is
-     unverified:** the stored sources are in the evidence bundle, which I
-     cannot download. You can, from the run page, if you want it read.
-  3. It spent **25 against the estimate of 10–19.** The Order line went
-     through the Add-on step at 12, not an edit at 1–3. That is a cost
-     finding; only the balance bounded it.
-- **Remaining gaps:**
-  - preservation of those 11 pages outside the footer;
-  - whether the scenario's footer check should accept a small-print link;
-  - the cost of a one-line addition routed to the Add-on step;
-  - one sample, no rate.
-- Record: `docs/history/2026-10-13-clarify-resume.md` §8.
+  Replayed on run 152, every content check passes. The original verdict
+  (FAIL: the social-only footer check and the byte-for-byte check) is kept
+  beside it in the same test. Controls on run 152's own evidence: a wrong
+  destination, a missing link, an extra link, a lost social icon, an
+  unrelated change, and a placement that was asked for. Red check: 5 of 11
+  fail on the old checker. Sweep: 14 of 15 mutants killed, and the
+  comment-only control survived.
+- **The cost overrun stays explicit: 25 against the first estimate of 20.**
+  The Order line validly went through the Add-on step (12). Estimates are
+  now set by every valid route each part can take, not the cheapest one,
+  and no route is walled off to fit a test: this scenario is now 9–34
+  (budget 34), and the image-free Build check 11–45 (budget 45).
+- Record: `docs/history/2026-10-13-clarify-resume.md` §8–9.
 
-**Suites:** full suite `10814 / 10814 / 0 / 0` (10,808 + six new timing
-cases). The timing sweep killed 20 of 21; the survivor is equivalent, and
-the control survived. On `4d60a2a3`'s check, 6 of the 12 clarify tests
-fail, Codex's sequence among them.
+**3. Next: the image-free Build parallelism audit, prepared as one batch**
+(`docs/history/2026-10-14-build-audit-batch.md`):
+- **The press:** `check-no-images` on `saltmarsh-cheese-counter`; one page,
+  at most 15 components; the limits unchanged.
+- **The verdicts:** overlap by page bands or design agents, never
+  photographs, plus order, progress, a fresh-session follow, no image, and
+  money.
+- **New this round:** the Build press's balance opt-in, closed (it could not
+  run above 100 before).
+- **Steps** (yours):
+  1. approve one run at about 11–45;
+  2. a commit opens the box for `check-no-images`;
+  3. images off and a redeploy;
+  4. a free rehearsal, which must show an image-free parallel mode already on
+     for the account (nothing is switched on for it);
+  5. the paid press;
+  6. images on, and the free check;
+  7. the box closed again.
+- **Unknown until step 4:** whether such a mode is on for the account.
+
+**Suites:** full suite `10828 / 10827 / 1 / 0`. The one failure is a
+real-browser timing case (`REOPEN 1`) that this round did not touch; it
+passes 3 of 3 run alone. The footer-link and Build opt-in sweep killed 14 of
+15 mutants, and the comment-only control survived.
 
 **Next, after this Edit/Add-on coverage:** the separate Build audit, not
 started.
@@ -1133,6 +1147,37 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-14 — Run 152's evidence replayed offline: preservation closed, footer check corrected (nothing spent)
+
+Codex downloaded run 152's saved evidence and showed that, apart from the
+three things you asked for, nothing on the site changed. I've made that a
+test anyone can rerun: the evidence is kept in the repository, and the test
+undoes exactly the new footer link, the heading and the Order line, then
+checks every page is identical to before. It is.
+
+The check that failed was looking for the shop link among the social icons.
+The builder put it in the footer's small print, which is a fine place for a
+website link you didn't say where to put. The check now accepts the link in
+either footer list unless you asked for a specific one. It still requires
+every existing link to stay, and still catches any other change. I tried it
+against run 152's own evidence with deliberate mistakes (a wrong address, a
+missing link, a lost Instagram icon, an unrelated wording change), and each
+one is caught. Run 152's original failed verdict is kept on record beside
+the corrected one.
+
+The overspend stays on record: 25 credits against an estimate of 20,
+because the Order line went through the bigger Add-on step. That route was
+valid, so estimates now count every valid route instead of assuming the
+cheapest. This one is now 9–34, and the Build check 11–45.
+
+The next thing, the image-free Build test, is prepared as one batch with
+the same one-page and 15-component limits. Its press couldn't run at your
+current balance, so it now has the same kind of closed opt-in box as the
+other tests. Nothing was spent, merged or deployed.
+
+Record: `docs/history/2026-10-13-clarify-resume.md` §9 and
+`docs/history/2026-10-14-build-audit-batch.md`.
 
 ## 2026-10-14 — Run 152: the clarify-and-resume test, pressed once (25 credits)
 

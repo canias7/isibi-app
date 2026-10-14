@@ -165,13 +165,16 @@ export function additionReplyVerdict(step, expect) {
 export function frameOf(pages) {
   const out = new Map();
   const at = (page) => {
-    if (!out.has(page)) out.set(page, { menus: [], action: null, second: null, social: [], contact: null });
+    if (!out.has(page)) out.set(page, { menus: [], action: null, second: null, social: [], legal: [], contact: null });
     return out.get(page);
   };
   for (const s of navSlots(pages)) at(s.page).menus.push(s.items.map((it) => ({ label: it.label, href: it.href })));
   for (const s of actionSlots(pages, "action")) if (s.action) at(s.page).action = { label: s.action.label, href: s.action.href };
   for (const s of actionSlots(pages, "secondAction")) if (s.action) at(s.page).second = { label: s.action.label, href: s.action.href };
   for (const s of chromeListSlots(pages, "social")) if (Array.isArray(s.items)) at(s.page).social.push(...s.items.map((it) => ({ network: it.network, href: it.href })));
+  // THE FOOTER'S SMALL PRINT (2026-10-14, run 152): the menu step's other
+  // footer list, where a link to a website that is no social profile lands.
+  for (const s of chromeListSlots(pages, "legal")) if (Array.isArray(s.items)) at(s.page).legal.push(...s.items.map((it) => ({ label: it.label, href: it.href })));
   for (const s of contactSlots(pages)) if (s.contact) at(s.page).contact = s.contact;
   return out;
 }
@@ -208,8 +211,66 @@ export function withoutAdditions(path, src, want = {}) {
   let pages = [{ path, source: String(src == null ? "" : src) }];
   if (want && want.menu) pages = applyNav(pages, []).pages;
   if (want && want.button) pages = applyAction(pages, null, true, "secondAction").pages;
-  if (want && want.social) pages = applyChromeList(pages, "social", []).pages;
+  // BOTH FOOTER LISTS (2026-10-14, run 152): a footer link may land in either,
+  // and `footerLinkVerdict` judges both — every entry kept, in order, and the
+  // one asked for gained — so the rest of the page is compared byte for byte.
+  if (want && want.social) pages = applyChromeList(applyChromeList(pages, "social", []).pages, "legal", []).pages;
   return pages[0].source;
+}
+
+/**
+ * A LINK ASKED FOR IN THE FOOTER, ON EVERY FRAMED PAGE (2026-10-14, after run
+ * 152: the owner, "honor the requested destination and footer scope without
+ * assuming social-icon placement unless the user requested it; retain checks
+ * for existing links and unrelated content"). The footer's two link lists are
+ * read from each page's frame — the social icons (`social`, by network) and
+ * the small print (`legal`, by label) — and, page by page:
+ *   - every entry it had is still there, in its own list, in its order;
+ *   - a page that already linked the destination gained nothing;
+ *   - otherwise exactly one entry was gained, across both lists, and it goes
+ *     to the destination (`profileMatches`: host and path);
+ *   - in the social list it names the network asked for (`network`), and in
+ *     the small print it carries a label;
+ *   - only when the request named the list (`list`, "social" or "legal") must
+ *     it be in that one.
+ * Run 152's spec asked for a `website` link and its checker read only the
+ * social list, so a link the menu step rightly put in the small print read as
+ * missing. `{ ok, bad, gained, placed }`; `bad` names each page that fails.
+ */
+export function footerLinkVerdict({ framed, fb, fa, want }) {
+  const bad = [];
+  const placed = { social: 0, legal: 0 };
+  let gained = 0;
+  const same = (k) => (x, y) => x.href === y.href && x[k] === y[k];
+  const LISTS = { social: same("network"), legal: same("label") };
+  for (const p of Array.isArray(framed) ? framed : []) {
+    const was = fb.get(p) || { social: [], legal: [] }, now = fa.get(p) || { social: [], legal: [] };
+    const extra = [];
+    for (const [list, eq] of Object.entries(LISTS)) {
+      const w = Array.isArray(was[list]) ? was[list] : [], n = Array.isArray(now[list]) ? now[list] : [];
+      const kept = n.filter((it) => w.some((x) => eq(x, it)));
+      if (JSON.stringify(kept) !== JSON.stringify(w)) bad.push(`${p}'s footer ${list} links did not keep what they had in order: ${JSON.stringify(w)} → ${JSON.stringify(n)}`);
+      for (const it of n) if (!w.some((x) => eq(x, it))) extra.push({ list, ...it });
+    }
+    const had = ["social", "legal"].some((list) => (was[list] || []).some((x) => profileMatches(x.href, want)));
+    if (had) {
+      if (extra.length) bad.push(`${p}'s footer already linked it and gained ${JSON.stringify(extra)}`);
+      continue;
+    }
+    const e = extra.length === 1 ? extra[0] : null;
+    const fits = !!e && profileMatches(e.href, want)
+      && (e.list !== "social" || !want.network || lower(e.network) === lower(want.network))
+      && (e.list !== "legal" || (typeof e.label === "string" && e.label.trim() !== ""))
+      && (!want.list || e.list === want.list);
+    if (!fits) bad.push(`${p}'s footer gained ${JSON.stringify(extra)}${want.list ? ` (asked for in its ${want.list} links)` : ""}`);
+    else { gained++; placed[e.list]++; }
+  }
+  return { ok: !bad.length, bad, gained, placed };
+}
+
+/** The footer check's name, for both verifiers. */
+export function footerLinkName(want) {
+  return `every page's footer gained a link to ${want.host}${want.path}${want.list ? ` in its ${want.list === "social" ? "social" : "small-print"} links (as asked)` : " (in either footer list: no placement was asked for)"} and kept every link it had`;
 }
 
 /**
@@ -336,16 +397,11 @@ export function storedAdditionsVerdict({ spec, before, after, slug }) {
     }
     add(`every page's menu gained "${want.menu.label}" → ${want.menu.href} and kept every item it had`, complete && !bad.length, bad.join("; "));
   }
-  // THE FOOTER'S SOCIAL LINKS: the one profile asked for, once, beside what was there.
+  // THE FOOTER LINK: the destination asked for, once, in either footer list
+  // unless the request named one, beside everything that was there.
   if (want.social) {
-    const bad = [];
-    for (const p of framed) {
-      const was = fb.get(p).social, now = (fa.get(p) || { social: [] }).social;
-      const extra = now.filter((it) => !was.some((x) => x.network === it.network && x.href === it.href));
-      if (extra.length !== 1 || !ADDITION_KINDS.social(extra[0], want.social)) bad.push(`${p}'s footer gained ${JSON.stringify(extra)}`);
-      if (!was.every((x) => now.some((it) => it.network === x.network && it.href === x.href))) bad.push(`${p}'s footer lost a link`);
-    }
-    add(`every page's footer gained the ${want.social.network} link to ${want.social.host}${want.social.path} and kept every link it had`, complete && !bad.length, bad.join("; "));
+    const f = footerLinkVerdict({ framed, fb, fa, want: want.social });
+    add(footerLinkName(want.social), complete && f.ok, f.bad.join("; "));
   }
   // THE HEADER: the button they had stays as it was, and the new one is the second.
   if (want.button) {

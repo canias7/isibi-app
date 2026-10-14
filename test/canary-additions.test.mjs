@@ -202,7 +202,8 @@ test("each way a delivery can go wrong fails its own stored check", () => {
     "the menu item on all pages but one": [delivered(PAGES).map((p) => (p.path === "order.tsx" ? delivered([PAGES[1]], { menu: false })[0] : p)), /menu gained "Order"/],
     "one menu written over every page": [delivered(applyNav(PAGES, [{ label: "Today's bake", href: "/" }, { label: "Order", href: "/order" }]).pages, { menu: false }), /menu gained "Order"/],
     "the button replaced, not joined": [delivered(applyAction(PAGES, { label: "Call us", href: "tel:01174960000" }, false, "action").pages, { button: false }), /kept its button/],
-    "the Instagram link to another account": [delivered(PAGES, { instagram: "https://instagram.com/someoneelse" }), /instagram link/],
+    // The footer check's name since 2026-10-14 names the destination, not the network (`footerLinkName`).
+    "the Instagram link to another account": [delivered(PAGES, { instagram: "https://instagram.com/someoneelse" }), /footer gained a link to instagram\.com\/harbourloaf/],
     "no line": [delivered(PAGES, { words: false }), /gained one line/],
     "no photograph": [delivered(PAGES, { photo: false }), /one more photograph/],
     "the line and photograph on the home page": [delivered(PAGES, { on: "index.tsx" }), /byte for byte as it was/],
@@ -287,7 +288,11 @@ test("a change to the frame's other fields fails, on any page, the Visit page in
   for (const [why, after] of Object.entries(cases)) {
     assert.notDeepEqual(after.map((p) => p.source), delivered(PAGES).map((p) => p.source), `${why}: the case changed nothing`);
     const names = failing(stored(after));
-    assert.ok(names.some((n) => /frame keeps everything else|byte for byte as it was/.test(n)), `${why}: no check failed for it (${JSON.stringify(names)})`);
+    // A SMALL-PRINT LINK beside the asked-for footer link (2026-10-14): both
+    // footer lists are the footer check's (`footerLinkVerdict`), so it fails
+    // there — two entries gained where one was asked for.
+    const by = why.startsWith("small-print") ? /frame keeps everything else|byte for byte as it was|footer gained a link to/ : /frame keeps everything else|byte for byte as it was/;
+    assert.ok(names.some((n) => by.test(n)), `${why}: no check failed for it (${JSON.stringify(names)})`);
   }
   assert.deepEqual(failing(stored(delivered(PAGES))), [], "the control: the delivery alone passes");
 });

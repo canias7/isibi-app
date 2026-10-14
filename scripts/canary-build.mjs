@@ -92,9 +92,14 @@ export const BUILD_CHECK = Object.freeze({
  * owns), and the build must store no image and place none of its own
  * (`buildNoImageVerdict`). Its overlap must then come from the page bands or
  * the design's agents — never from photographs, which it may not buy.
- * ABOUT 11-30: first builds measured 11-45, the top with two photographs
- * (about 19 each), which this one cannot buy. A build is one charge the server
- * takes in one place; the balance at the press bounds it (`cap`).
+ * ABOUT 11-45, BY EVERY VALID ROUTE (revised 2026-10-14, after run 152 showed
+ * an estimate built on the cheapest route underestimates): first builds
+ * measured 11-45 (runs 21-37). This one cannot buy a photograph, but a build
+ * may also take its corrective design call (`recoverDesign`), a page repair or
+ * a salvage, each a valid route, so the estimate keeps the measured top
+ * rather than subtracting the photographs. A build is one charge the server
+ * takes in one place; the balance at the press bounds it (`cap`, or the
+ * owner's exact-balance opt-in, `BUILD_BALANCE_OPT_IN`).
  */
 export const BUILD_CHECK_NO_IMAGES = Object.freeze({
   // BOUND BY THE BALANCE (2026-10-11, corrected on Codex's review of
@@ -107,7 +112,7 @@ export const BUILD_CHECK_NO_IMAGES = Object.freeze({
   brief: "I run a cheese counter called Saltmarsh in the covered market in Lewes. We sell about forty British cheeses, cut to order, and a few chutneys and oatcakes to go with them. We're open Tuesday to Saturday, nine till four, and we make up cheese boards for parties if people order two days ahead. I want one page that tells people what we sell, when we're open, and how to order a board. No photographs please, just words, a clear layout and our prices for the boards: small £25, medium £40, large £60.",
   images: "none",
   runtimeSlug: "fold-lane-bakery",
-  budget: 40,
+  budget: 45,
   cap: 100,
   pollMs: 6_000,
   followMs: 25 * 60_000,
@@ -471,6 +476,30 @@ export function slugFreeVerdict(existing) {
   return { free: true, why: "" };
 }
 
+/**
+ * THE OWNER'S BALANCE OPT-IN FOR A BUILD PRESS (2026-10-14, preparing the
+ * image-free Build parallelism audit). A Build check refuses above its hard
+ * cap (`cap`, 100 for `check-no-images`), and the account holds more, so a
+ * paid check could never run. This is the UI presses' opt-in
+ * (`readBalanceOptIn` in canary-ui.mjs), for the Build workflow's own box:
+ * the owner names one mode here, by commit, for one run, and the box then
+ * lets that mode run only while the balance is exactly the number typed.
+ * CLOSED: it admits no mode. Not a budget: the build may spend up to the
+ * whole balance; the server is the only bound.
+ */
+export const BUILD_BALANCE_OPT_IN = Object.freeze([]);
+
+/** The box, read before the sign-in: blank (`value` null), a whole number for an admitted mode, or a refusal (`ok` false). */
+export function readBuildOptIn(raw, { mode = "", admitted = BUILD_BALANCE_OPT_IN } = {}) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return { ok: true, value: null, mode: "" };
+  if (!/^[1-9][0-9]{0,6}$/.test(s)) return { ok: false, msg: `the balance box takes the account's balance in whole credits (e.g. 783), not "${s}"` };
+  if (!admitted.length) return { ok: false, msg: "the build balance box is closed: no build check may run above its cap until the owner names one" };
+  const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
+  if (!admitted.includes(m)) return { ok: false, msg: `the build balance box is only for ${admitted.join(", ")}; this press is ${m || "no check"}` };
+  return { ok: true, value: Number(s), mode: m };
+}
+
 /** The press's refusals before anything is sent: a balance outside its window or unread, and a slug not verified free. */
 export function buildPreflight({ balance, budget, cap, existing }) {
   if (num(balance) === null) return "the balance could not be read — nothing is sent";
@@ -486,13 +515,18 @@ export function buildPreflight({ balance, budget, cap, existing }) {
  * each `{ name, ok, why }` — never only the first that fails, so a rehearsal
  * shows everything a paid press would refuse on.
  */
-export function buildPrerequisites({ balance, budget, cap, existing }) {
+export function buildPrerequisites({ balance, budget, cap, existing, named = null }) {
   const read = num(balance) !== null;
   const f = slugFreeVerdict(existing);
+  // WITH THE OWNER'S OPT-IN (`named`, from `readBuildOptIn`), the hard cap is
+  // replaced by "exactly the balance the owner typed" — never removed.
+  const capCheck = Number.isInteger(named) && named > 0
+    ? { name: `the balance is exactly the ${named} the owner allowed this press to run against`, ok: read && balance === named, why: read ? `the balance (${balance}) is not the ${named} credits this press was allowed to run against` : "the balance could not be read" }
+    : { name: `the balance is within the hard cap of ${cap}`, ok: read && balance <= cap, why: read ? `the balance, ${balance}, is above this press's hard cap of ${cap}` : "the balance could not be read" };
   return [
     { name: "the balance was read", ok: read, why: read ? "" : "the balance could not be read" },
     { name: `the balance covers the estimate of ${budget}`, ok: read && balance >= budget, why: read ? `the balance, ${balance}, does not cover this press's budget of ${budget}` : "the balance could not be read" },
-    { name: `the balance is within the hard cap of ${cap}`, ok: read && balance <= cap, why: read ? `the balance, ${balance}, is above this press's hard cap of ${cap}` : "the balance could not be read" },
+    capCheck,
     { name: "the slug is free", ok: f.free, why: f.why },
   ];
 }
@@ -520,7 +554,7 @@ export async function stableReading(io) {
  * `sleep(ms)`; `now()`; `log`.
  * With `spend` false it stops after the preflight: a free rehearsal.
  */
-export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = {}) {
+export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, named = null } = {}) {
   const log = typeof io.log === "function" ? io.log : () => {};
   const record = { spec: { slug: spec.slug, budget: spec.budget, cap: spec.cap }, sent: false, stopped: "", calls: [] };
   const tagged = (who, token) => ({
@@ -540,7 +574,7 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false } = 
   // still reports the image switch and the account's flags, and lists every
   // prerequisite that is not met rather than the first. A paid press refuses
   // on any of them before its one paid call.
-  const prereqs = buildPrerequisites({ balance: start, budget: spec.budget, cap: spec.cap, existing });
+  const prereqs = buildPrerequisites({ balance: start, budget: spec.budget, cap: spec.cap, existing, named });
   if (spec.images === "none") {
     const rt = typeof io.runtime === "function" ? await io.runtime(sender.token, spec.runtimeSlug) : null;
     record.imagesOff = { status: rt ? rt.status : 0, imagePurchases: rt && rt.json ? rt.json.imagePurchases : undefined };

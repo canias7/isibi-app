@@ -1494,12 +1494,17 @@ export const UI_SCENARIOS = Object.freeze({
   // finished before the question (stage `timing`). Read off the live pages
   // (free GETs, 2026-10-13): no page says "online" or "shop", no footer links
   // a shop, and the Classes page has the heading "How a Saturday class
-  // runs". ABOUT 10-19: routing 3; the heading 2; the link's routing 1-3 and
-  // its step 1-2; the line's routing 1-3 and its step 1-3; the answer's
-  // routing 1-3.
+  // runs". ABOUT 9-34, BY EVERY VALID ROUTE (revised 2026-10-14 after run
+  // 152 spent 25 against the first estimate of 10-19, which assumed each
+  // part's cheapest route): routing 3; the heading's routing 1-3 and its edit
+  // 1-2; the link's routing 1-3 (or an Add-on hand-over, 0) and its menu step
+  // 1-2; the line's routing 1-3 and EITHER an edit 1-3 OR an Add-on of words
+  // 9-15 (run 152 took the Add-on, 12: a valid route, never forced away by a
+  // layer wall); the answer's routing 1-3. Measured: run 152, 25 (3 + 3 + 2 +
+  // 1 + 1 + 3 + 12).
   "acc-clarify-resume": Object.freeze({
     site: "fold-lane-bakery", request: true, images: "none",
-    budget: 20, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    budget: 34, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
     layers: Object.freeze(["text", "look", "nav"]),
     expect: Object.freeze({
       headings: Object.freeze([

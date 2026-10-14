@@ -25,7 +25,7 @@
 // A REPLY IS NOT AN OUTCOME (run 47): every check reads what the operations
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
-import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
+import { frameOf, footerLinkVerdict, footerLinkName, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict, waitedWork } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 import { extractText } from "../builder/site-text.mjs";
@@ -1393,16 +1393,12 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, serve
     const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && labelFits(x.text, want.menuFinish)));
     add(`every served header links ${words ? `"${words}" to ${href} (the words asked for)` : `${href} with a label (no words were asked for)`}`, framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
   }
-  // THE FOOTER'S SOCIAL LINKS: the one profile, once, beside what was there.
+  // THE FOOTER LINK (2026-10-14, after run 152): the destination asked for,
+  // once, in either footer list unless the request named one
+  // (`footerLinkVerdict`), beside everything that was there.
   if (want.social) {
-    const bad = [];
-    for (const p of framed) {
-      const was = fb.get(p).social, now = (fa.get(p) || { social: [] }).social;
-      const extra = now.filter((it) => !was.some((x) => x.network === it.network && x.href === it.href));
-      if (extra.length !== 1 || plain(extra[0].network) !== plain(want.social.network) || !profileMatches(extra[0].href, want.social)) bad.push(`${p}'s footer gained ${JSON.stringify(extra)}`);
-      if (!was.every((x) => now.some((it) => it.network === x.network && it.href === x.href))) bad.push(`${p}'s footer lost a link`);
-    }
-    add(`every page's footer gained the ${want.social.network} link to ${want.social.host}${want.social.path} and kept every link it had`, complete && framed.length > 0 && !bad.length, bad.join("; ") || "no footer was read");
+    const f = footerLinkVerdict({ framed, fb, fa, want: want.social });
+    add(footerLinkName(want.social), complete && framed.length > 0 && f.ok, f.bad.join("; ") || "no footer was read");
     const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "footer")).some((x) => profileMatches(x.href, want.social)));
     add(`every served footer links to ${want.social.host}${want.social.path}`, framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
   }

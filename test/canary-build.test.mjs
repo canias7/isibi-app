@@ -440,7 +440,7 @@ const NI_SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ pa
 // GET /api/site/runtime): page bands for everyone on, the rest off.
 const FLAGS = { design: false, graph: false, bandsEveryone: true, bands: true };
 const RT = (imagePurchases, status = 200, flags = FLAGS) => async (t, slug) => ({ status, json: status === 200 ? { ok: true, slug, ...flags, ...(imagePurchases === undefined ? {} : { imagePurchases }) } : null });
-// THE BALANCE AT THE BATCH CAP (100), and a build of 30 inside its estimate of 40.
+// THE BALANCE AT THE BATCH CAP (100), and a build of 30 inside its estimate of 45.
 const niStub = (over = {}) => stub({
   runtime: RT(false),
   balance: async function () { return this.calls.some((c) => c === "post") ? 70 : 100; },
@@ -544,7 +544,7 @@ test("NO PHOTOGRAPH, THE PREREQUISITES READ BEFORE ANYTHING IS PAID: the account
   assert.ok(!rich.calls.includes("post"));
 });
 
-test("NO PHOTOGRAPH, A CHARGE ABOVE THE ESTIMATE FAILS: Codex's simulated build of 60 against a budget of 40 is not a pass, through buildMoneyVerdict and through runBuildCheck — the estimate is no bound, the balance is", async () => {
+test("NO PHOTOGRAPH, A CHARGE ABOVE THE ESTIMATE FAILS: Codex's simulated build of 60 against a budget of 40 (45 since 2026-10-14) is not a pass, through buildMoneyVerdict and through runBuildCheck — the estimate is no bound, the balance is", async () => {
   const at = (balance, id) => ({ ok: true, balance, id });
   const sixty = buildMoneyVerdict({ start: at(100, 430), end: at(40, 432), rows: rowsOf([{ ref: `build:${JOB}:deposit`, delta: -12 }, { ref: `build:${JOB}:pages`, delta: -48 }]), job: JOB, max: 40 });
   assert.equal(sixty.ok, false);
@@ -556,7 +556,7 @@ test("NO PHOTOGRAPH, A CHARGE ABOVE THE ESTIMATE FAILS: Codex's simulated build 
   }), { spec: NI, spend: true });
   const money = rec.checks.find((c) => /whole balance move explained/.test(c.name));
   assert.equal(money.ok, false);
-  assert.match(money.why, /more than this press's budget of 40/);
+  assert.match(money.why, /more than this press's budget of 45/);
   assert.equal(rec.ok, false);
 });
 
@@ -591,8 +591,52 @@ test("NO PHOTOGRAPH, END TO END OFFLINE: sent once, followed afresh, its overlap
 test("NO PHOTOGRAPH, THE WIRING: `check-no-images` reaches this spec and its runtime reader; the workflow offers it and keeps the deploy wait off it", () => {
   const bc = fs.readFileSync(ROOT + "scripts/build-check.mjs", "utf8");
   assert.ok(bc.includes('String(process.env.OWNER_MODE || "").trim().toLowerCase() === "check-no-images" ? BUILD_CHECK_NO_IMAGES : BUILD_CHECK'));
-  assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND })"));
+  assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value })"));
   assert.ok(bc.includes("runtime: (token, slug) => get(`/api/site/runtime?slug=${encodeURIComponent(slug)}`, token),"));
   const owner = fs.readFileSync(ROOT + "scripts/build-as-owner.mjs", "utf8");
   assert.ok(owner.includes('if (MODE === "check" || MODE === "check-no-images") {'));
+});
+
+// ── THE BUILD CHECK'S BALANCE OPT-IN (2026-10-14, preparing the image-free
+// Build parallelism audit): the UI presses' box, for the Build workflow. It is
+// CLOSED; the owner names one mode by commit for one run.
+
+test("BUILD OPT-IN 1 — the box is closed: blank changes nothing; a malformed number says so; any number refuses as closed; a named mode is admitted only when the owner names it, and only that mode", async () => {
+  const { BUILD_BALANCE_OPT_IN, readBuildOptIn } = await import("../scripts/canary-build.mjs");
+  assert.deepEqual([...BUILD_BALANCE_OPT_IN], []);
+  assert.ok(Object.isFrozen(BUILD_BALANCE_OPT_IN));
+  for (const blank of [undefined, null, "", "  "]) assert.deepEqual(readBuildOptIn(blank, { mode: "check-no-images" }), { ok: true, value: null, mode: "" });
+  for (const bad of ["0", "-1", "783.5", "7 83", "abc", "0783", "+783", "12345678"]) assert.match(readBuildOptIn(bad, { mode: "check-no-images" }).msg, /whole credits/, bad);
+  assert.match(readBuildOptIn("783", { mode: "check-no-images" }).msg, /the build balance box is closed/);
+  // AS THE OWNER WOULD OPEN IT (a list naming one mode), and only for that mode.
+  const open = ["check-no-images"];
+  assert.deepEqual(readBuildOptIn("783", { mode: "check-no-images", admitted: open }), { ok: true, value: 783, mode: "check-no-images" });
+  assert.match(readBuildOptIn("783", { mode: "check", admitted: open }).msg, /only for check-no-images; this press is check/);
+  assert.match(readBuildOptIn("783", { mode: "edit", admitted: open }).msg, /only for check-no-images/);
+});
+
+test("BUILD OPT-IN 2 — with an admitted number, the hard cap becomes 'exactly the balance allowed', never removed; without one the hard cap stands", async () => {
+  const { buildPrerequisites } = await import("../scripts/canary-build.mjs");
+  const free = { backends: { status: 200, rows: [] }, builds: { status: 200, rows: [] }, host: { status: 404 } };
+  const capOf = (ps) => ps.find((p) => /hard cap|exactly the/.test(p.name));
+  assert.equal(capOf(buildPrerequisites({ balance: 783, budget: 40, cap: 100, existing: free })).ok, false, "783 passed a hard cap of 100");
+  const named = capOf(buildPrerequisites({ balance: 783, budget: 40, cap: 100, existing: free, named: 783 }));
+  assert.deepEqual({ name: named.name, ok: named.ok }, { name: "the balance is exactly the 783 the owner allowed this press to run against", ok: true });
+  const moved = capOf(buildPrerequisites({ balance: 790, budget: 40, cap: 100, existing: free, named: 783 }));
+  assert.equal(moved.ok, false);
+  assert.match(moved.why, /the balance \(790\) is not the 783 credits/);
+});
+
+test("BUILD OPT-IN 3 — the wiring: the workflow's box says CLOSED and reaches the script; build-check reads it before the sign-in and refuses with exit 2; the admitted number reaches the prerequisites", () => {
+  const wf = fs.readFileSync(new URL("../.github/workflows/build-as-owner.yml", import.meta.url), "utf8");
+  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'CLOSED: no build check may run above its hard cap\. Leave blank; anything typed here refuses before the sign-in\.'\n {8}required: false\n {8}default: ''\n/);
+  assert.match(wf, /\n {10}OWNER_ACCEPT_BALANCE: \$\{\{ github\.event\.inputs\.accept_balance \}\}\n/);
+  const inputs = wf.slice(wf.indexOf("workflow_dispatch:"), wf.indexOf("\njobs:")).match(/^ {6}[a-z_]+:$/gm);
+  assert.ok(inputs && inputs.length <= 25);
+  const bc = fs.readFileSync(new URL("../scripts/build-check.mjs", import.meta.url), "utf8");
+  const read = bc.indexOf("readBuildOptIn(process.env.OWNER_ACCEPT_BALANCE, { mode: process.env.OWNER_MODE })");
+  const signIn = bc.indexOf("ownerSession({");
+  assert.ok(read > 0 && signIn > read, "the box is not read before the sign-in");
+  assert.ok(bc.slice(read, read + 300).includes("return 2;"));
+  assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value })"));
 });

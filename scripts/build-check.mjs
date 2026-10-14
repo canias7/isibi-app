@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import { ownerSession } from "./owner-session.mjs";
-import { runBuildCheck, BUILD_CHECK, BUILD_CHECK_NO_IMAGES, windowComplete } from "./canary-build.mjs";
+import { runBuildCheck, BUILD_CHECK, BUILD_CHECK_NO_IMAGES, windowComplete, readBuildOptIn } from "./canary-build.mjs";
 import { uploadsOf } from "./canary-requests.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -45,6 +45,10 @@ const get = async (path, token) => {
 };
 
 export async function main() {
+  // THE OWNER'S BALANCE BOX (2026-10-14), read before the sign-in: malformed,
+  // closed, or for another mode, nothing is read or sent (exit 2).
+  const optIn = readBuildOptIn(process.env.OWNER_ACCEPT_BALANCE, { mode: process.env.OWNER_MODE });
+  if (!optIn.ok) { console.log(`REFUSED before the sign-in: ${optIn.msg}`); return 2; }
   if (!EMAIL || !SERVICE_KEY || !ANON_KEY) { console.log("FATAL: OWNER_EMAIL, SUPABASE_SERVICE_KEY and SUPABASE_ANON_KEY are needed"); return 1; }
   let uid = "";
   const io = {
@@ -115,7 +119,7 @@ export async function main() {
     },
   };
   console.log(`THE FIRST-BUILD CHECK${SPEC === BUILD_CHECK_NO_IMAGES ? " (no photographs)" : ""}: slug ${SPEC.slug}, budget ${SPEC.budget}, hard cap ${SPEC.cap}, spend ${SPEND ? "yes" : "no"}`);
-  const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND });
+  const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value });
   fs.writeFileSync(LOG_FILE, JSON.stringify(rec, null, 2));
   if (rec.stopped) { console.log(`\n${rec.stopped}`); return rec.sent ? 1 : 0; }
   console.log(`\nTHE BUILD'S TIMELINE: ${rec.order || "(no trace)"}`);
