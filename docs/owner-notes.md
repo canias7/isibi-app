@@ -1,26 +1,32 @@
 # Owner Notes
 
-## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; waiting for the other branch's Build investigation; nothing merged, deployed, built, switched on, pressed or spent)
+## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
 
 **Where it stands (2026-10-14).**
 - **The round is closed.** Codex reviewed `new` at `3fbc8259` and
   independently confirmed the three evidence-integrity reproductions are
   corrected, with the genuinely clean control preserved. The correction
   round is closed there.
-- **Branch `new` is ready, unchanged:** the progress-message work and every
-  correction, with `PROGRESS_TALK` off.
+- **Branch `new` is ready and paused:** the progress-message work and every
+  correction, unchanged, with `PROGRESS_TALK` off.
 - **The records stand as written below:**
   - CI green: unit run 38565424953 and site build run 38565425192 on
     `9573b5ea`;
   - integration merge `a295c1e9` (local, never pushed): `10885 / 10883 / 0
     / 2`.
 - **No further audit, and no completed test repeated.**
-- **Waiting.** The combined release candidate is not refreshed until the
-  main working branch's Build investigation finishes. At this writing
-  `claude/help-needed-ehlwlj` is at `5056b7a8` (the same head as the last
-  integration check), and its own handoff still has the Build audit waiting
-  on your approval of one paid run.
-- **When it finishes, in order:**
+- **The main working branch's latest findings** (`claude/help-needed-ehlwlj`,
+  as you reported them, 2026-10-14):
+  - **Build run 117 already happened.** It was the paid run, so nothing is
+    waiting for approval any more.
+  - **It eventually published, for 10 credits.**
+  - **It did not demonstrate parallelism.**
+  - **The main branch is now investigating route selection and
+    connection-loss tracking.**
+- **Paused until those fixes finish.** The isolated combined candidate and
+  its verification plan are not prepared before then: the main branch's
+  head will change, and the candidate must carry its fixes.
+- **When they finish, in order:**
   1. Fetch its final head.
   2. Merge `new` into it in an isolated worktree, never pushed: the
      Dockerfile's COPY line and `owner-notes.md` resolved as before, both
