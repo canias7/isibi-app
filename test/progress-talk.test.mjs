@@ -16,6 +16,7 @@
 // `says` check reads the model's own account of what it described, never its
 // prose, and the case "LIMIT" pins that a contradictory sentence with a true
 // account is accepted. Every model answer here is supplied.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -123,7 +124,7 @@ test("INSTRUCTIONS — every new state defined, the evidence rules said, no work
   assert.match(TALK_SYSTEM, /If you have not written an update yet, begin with how you will go about it/);
   assert.doesNotMatch(TALK_SYSTEM, /for example|e\.g\.|such as "|like this:/i, "a worked example to copy");
   assert.doesNotMatch(TALK_SYSTEM, /\b\d+\s*(characters|chars|words|sentences)\b/i, "a word count");
-  assert.doesNotMatch(TALK_SYSTEM, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(TALK_SYSTEM, PICTOGRAPH);
 });
 
 test("READ — adversarial answers: a check said as published, a plan said as done, an id in the explanation, a fact left out — each refused; an explanation that is no string is none; an ordinary call never takes one", () => {

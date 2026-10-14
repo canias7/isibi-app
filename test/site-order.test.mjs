@@ -1,3 +1,4 @@
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -307,14 +308,14 @@ test("NOTHING MOVED IS NOT A SUCCESS", () => {
   // is reachable on the ordinary path: a table read only through a computed
   // options object refuses every slot.
   const said = sortReply({ table: "appointments", order: "time", changed: [], refused: [{ page: "book.tsx" }] });
-  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(said, PICTOGRAPH);
   assert.match(said, /book\.tsx/);
   assert.match(said, /couldn't change how appointments is ordered/);
 });
 
 test("already in that order is its own sentence, not a failure and not a tick", () => {
   const said = sortReply({ table: "dishes", order: "price", changed: [], refused: [] });
-  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(said, PICTOGRAPH);
   assert.match(said, /already comes out in that order/);
 });
 
@@ -326,7 +327,7 @@ test("a success names the column, the direction and how many pages", () => {
 
 test("a partial success still names what was left alone", () => {
   const said = sortReply({ table: "dishes", order: "price", changed: ["a.tsx"], refused: [{ page: "book.tsx" }] });
-  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(said, PICTOGRAPH);
   assert.match(said, /I left book\.tsx alone/);
 });
 

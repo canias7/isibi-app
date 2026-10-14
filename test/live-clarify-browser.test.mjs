@@ -18,6 +18,7 @@
 // Every server answer here is SUPPLIED, in the shapes `worker.js` answers
 // (test/live-clarify-route.test.mjs drives those routes themselves). This
 // proves what the page does with each answer, never what a model asks.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { page, settle, copy, fakeIndexedDB } from "./fixtures/browser-page.mjs";
@@ -440,7 +441,7 @@ test("A MIXED REPLY: what ran is said first, the question last with its card; a 
     p.ctx.siteSend("Change the description, then move the band");
     await settle();
     const m = p.last();
-    assert.doesNotMatch(m.t, /\p{Extended_Pictographic}/u, "what ran is not said first: " + m.t);
+    assert.doesNotMatch(m.t, PICTOGRAPH, "what ran is not said first: " + m.t);
     assert.ok(m.t.endsWith(STEP_Q.text), "the question is not last: " + m.t);
     assert.doesNotMatch(m.t, /didn’t go through/, "the step that asked was reported as a failure");
     assert.equal(m.ask, QID2);
@@ -456,7 +457,7 @@ test("A MIXED REPLY: what ran is said first, the question last with its card; a 
     // question nobody's answer could resume is never on the thread.
     assert.equal(p.ask(), null, "an id-less question became the live card");
     assert.ok(!p.said().some((m) => m.t === STEP_Q.text), "a question nobody can answer was drawn as words");
-    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "an unreadable reply was not said as one: " + p.last().t);
+    assert.doesNotMatch(p.last().t, PICTOGRAPH, "an unreadable reply was not said as one: " + p.last().t);
   }
 });
 
@@ -469,7 +470,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
     const p = page({ site: { ...LIVE, draft: { t: "", imgs: [IMG] } }, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } } : url === EDIT ? { body: reply } : null) });
     p.ctx.siteSend("Change the description, then " + REST);
     await settle();
-    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "what ran was not said: " + p.last().t);
+    assert.doesNotMatch(p.last().t, PICTOGRAPH, "what ran was not said: " + p.last().t);
     assert.deepEqual(copy(p.s.unsent), [{ t: REST, imgs: [IMG] }], "what the question left to do was not put back with its files");
     assert.equal(p.ask(), null, "a question that was not kept became a card");
   }
@@ -493,7 +494,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
       await settle();
       assert.equal(p.s.unsent, undefined, "a malformed resume reached the message box: " + JSON.stringify(resume).slice(0, 40));
       assert.ok(!p.said().some((m) => String(m.t).includes("THE ROUTE'S OWN SENTENCE")), "a reply with a malformed resume was read as a refusal: " + JSON.stringify(resume).slice(0, 40));
-      assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u);
+      assert.doesNotMatch(p.last().t, PICTOGRAPH);
     }
   }
 });

@@ -47,6 +47,7 @@
 // from the site this rung compares against and there is nothing to protect.
 // `test/edit-page-protect.test.mjs` drives both halves end to end.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -377,7 +378,7 @@ test("a wording edit that loses the photographs is WITHHELD, not published", asy
       //     outside is indistinguishable from never having been computed. The
       //     reply half is asserted above; this is the hop.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("2 photographs"),
         "the refusal does not say how many on screen: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's
@@ -512,7 +513,7 @@ test("a photograph stripped out of a COMPONENT is withheld too", async () => {
 
       // AND THE SCREEN SAYS SO.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("a photograph"),
         "the component's loss never reached the screen: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's

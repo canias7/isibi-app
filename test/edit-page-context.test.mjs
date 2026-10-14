@@ -24,6 +24,7 @@
 // tool's own shape; the container is the opt-in compiler, which echoes the
 // files it was handed.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import { renderPart } from "./fixtures/render-part.mjs";
 import assert from "node:assert/strict";
@@ -632,7 +633,7 @@ test("a wording edit REFUSES an unreadable components store, and spends nothing"
       // behind a warning sign; a refusal the screen draws as a success is the
       // failure this whole file is about.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("sections"), "the refusal's own sentence did not reach the screen: " + JSON.stringify(said.text));
       // ⚠ AND IT IS **NOT** COMPLETED BY THE WHOLE-REQUEST CLAUSE (2026-09-21).
       // `wholeRequestNote` exists for the `withheld` refusals, whose sentences

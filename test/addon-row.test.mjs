@@ -20,6 +20,7 @@
 // refused down to no kinds, the route answers `no-add`, and nothing is written —
 // so every success case below fails there (the red check is recorded in
 // `docs/history/2026-10-01-add-row.md`).
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -848,7 +849,7 @@ for (const [name, answer, reason, said] of INVALID) {
     assert.deepEqual(writesOf(db), [], "a refused entry was written");
     assert.equal(db.rows("loaves").length, 6);
     assert.equal(r.seen.debits.length, 1, "the refusal was charged beside the routing");
-    assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(r.said.text, PICTOGRAPH);
   });
 }
 

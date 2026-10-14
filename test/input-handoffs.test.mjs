@@ -22,6 +22,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer is supplied: whether a real
 // model acts on the last line of a long message, or asks a good question, is
 // the real-model audit's to measure, not this file's.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -806,6 +807,6 @@ test("A STEP'S UNUSABLE QUESTION ON A LONG REQUEST, ON THE PAGE: the request com
     assert.equal(edit.body.error, "ask-unusable", JSON.stringify(edit.body).slice(0, 300));
     assert.deepEqual(copy(p.s.unsent), [{ t: LONG_MOVE, imgs: [PNG_A] }], "the request did not come back to the box whole, with its file");
     assert.equal(p.ask(), null, "an unusable question became a card");
-    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, p.last().t);
+    assert.doesNotMatch(p.last().t, PICTOGRAPH, p.last().t);
   }, { slug });
 });

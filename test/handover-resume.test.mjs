@@ -37,6 +37,7 @@
 //
 // Every model answer is SUPPLIED: what is shown is what the code does with an
 // answer, never how often a real model gives one.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -415,7 +416,7 @@ test("a GIVE-UP: the generation failed upstream — the final reply is a failure
   assert.equal(r.store.has("current/" + r.slug + ".json"), false, "a failed generation moved the live pointer");
   assert.deepEqual(storedPages(r), PRIOR, "a failed generation wrote over the stored pages");
   const b = await browser([{ status: 202, body: r.post.body }, { status: r.poll.status, body: r.poll.body }]);
-  assert.ok(!/\p{Extended_Pictographic}/u.test(b.said), "a failure was shown as a success: " + b.said);
+  assert.ok(!PICTOGRAPH.test(b.said), "a failure was shown as a success: " + b.said);
   assert.ok(b.said.endsWith(tailLeft([LATER, MAP])), "the screen does not say the parts were left untried: " + b.said);
   assert.ok(!b.said.includes("I only did"), "the screen claims something was done: " + b.said);
 });

@@ -18,6 +18,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer here is supplied: whether a
 // real router asks a good question, and whether a real step asks when it should
 // and acts when it can, is a live measurement this file cannot make.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
@@ -494,7 +495,7 @@ test("A MIXED REQUEST: the part that can run runs and is published; the step tha
       assert.equal((r.body.partial || []).some((p) => p && Object.hasOwn(p, "ask")), false, "the question's internals reached the browser");
       const said = editBrowserReply(r.body, true, {});
       assert.ok(said.ok, said.why);
-      assert.doesNotMatch(said.text, /\p{Extended_Pictographic}/u, "what ran is not said first");
+      assert.doesNotMatch(said.text, PICTOGRAPH, "what ran is not said first");
       assert.ok(said.text.endsWith("Which band is the order band — the one on Visit?"), "the question is not last, above its answers: " + said.text);
       assert.ok(!/didn’t go through/.test(said.text), "the step that asked was reported as a failure: " + said.text);
       assert.equal(said.asked.id, q.id);

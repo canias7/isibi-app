@@ -35,6 +35,7 @@
 //
 // Every answer here is SUPPLIED. This proves what the browser sends and says
 // for a reply, never how often a real route answers these shapes.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -393,7 +394,7 @@ test("CONTROL: the valid edit → add-on handoff posts the add-on once, in the c
     assert.deepEqual(o.trail, trail);
     assert.equal(o.reqs.find((r) => r.kind === "addon").body.instruction, ASK);
     assert.equal(o.said.length, 1, "the handoff's addition was not said once");
-    assert.doesNotMatch(o.said[0], /\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(o.said[0], PICTOGRAPH);
   }
 });
 

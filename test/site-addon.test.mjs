@@ -4,6 +4,7 @@
 // drops pages publishes a site consisting of the new page alone; a merge that
 // reports pages as "changed" when they came back byte-identical sends the owner
 // looking for damage that is not there.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -174,8 +175,8 @@ test("an unreachable page is said plainly, with the fix", () => {
 });
 
 test("an empty reply is still a sentence", () => {
-  assert.doesNotMatch(addonReply(), /\p{Extended_Pictographic}/u);
-  assert.doesNotMatch(addonReply({}), /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(addonReply(), PICTOGRAPH);
+  assert.doesNotMatch(addonReply({}), PICTOGRAPH);
 });
 
 // ── the prompt half ──────────────────────────────────────────────────────────

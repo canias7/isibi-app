@@ -50,6 +50,7 @@
 // and the CUSTOMER'S SCREEN — composed by `public/chat.js`'s own `editAnswer`
 // selection, including whether another paid action would start.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -439,7 +440,7 @@ test("a change whose ONLY effect is taking a photograph off is withheld", async 
       assert.equal(storedHome(store, slug), homeWith(slug), "a refusal wrote to the page store");
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("take a photograph off your page"),
         "the customer is not told what the change would have done: " + JSON.stringify(said.text));
       assert.deepEqual(said.actions, [], "the refusal still started something: " + JSON.stringify(said.actions));
@@ -613,8 +614,8 @@ test("a rung that WITHHELD beside a rung that shipped still reaches the screen",
       // (c) AND THE CUSTOMER IS TOLD. The refusal's own sentence, verbatim,
       //     under a warning inside a reply that opens with a green tick.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "the successful half is no longer reported: " + JSON.stringify(said.text));
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "the withheld half is not flagged: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the successful half is no longer reported: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the withheld half is not flagged: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("couldn't put it back safely"),
         "the refusal's own sentence never reached the screen: " + JSON.stringify(said.text));
       assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
@@ -669,7 +670,7 @@ test("a rung that failed WITHOUT a sentence is named rather than dropped", async
         "the refused step reached the merge with no sentence: " + JSON.stringify(body.partial[0]));
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "the half that landed is not reported: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the half that landed is not reported: " + JSON.stringify(said.text));
       // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
       // (The builder's sentence names the page, so the lead does not.)
       assert.ok(said.text.includes("A part built for the site: The page writer didn't send the / page back"),
@@ -728,7 +729,7 @@ test("a loss the restoration cannot reach is withheld, not published", async () 
 
       // (c) THE SCREEN, AND WHAT IT DOES NOT START.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
       //   the words *"left your site exactly as it was"*, which the rung no
       //   longer says — it cannot, because the same sentence is printed beside
@@ -1089,7 +1090,7 @@ test("a component-only refusal answers for itself instead of buying a full rewri
       //     costing ~25 credits: `actions` records every paid request the
       //     browser would fire, and the refusal branch fires none.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("card-b"), "the screen does not name the component: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
       //   the words *"left your site exactly as it was"*, which the rung no

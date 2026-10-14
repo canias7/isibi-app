@@ -26,6 +26,11 @@ here; take a closed one out of both.**
 - **`progress-live-writer` PLW 4 failed once under the full suite**
   (2026-10-12): it passes alone, so it is likely load-sensitive. Not fixed.
   In full under Backlog below.
+- **The build card's step marks and stage chips carry ✓ and ✕** (2026-10-14,
+  found when the emoji scanner's set was pinned): progress, which the
+  2026-10-13 no-checkmark rule covers, but the marks are the owner's own
+  treatment E (2026-09-07). **The owner's choice.** In full under Backlog
+  below.
 - **`renderNote`'s "I had a look at the finished pages" reads as a visual
   review** (2026-10-14, found by the talk batch on branch `new`): the
   sentence is code-composed and describes an automated browser check. Not
@@ -2787,6 +2792,27 @@ product.)*
   - That change touched neither the test nor the product code it covers.
   - It is an intermittent failure, likely load-sensitive. **It is not
     fixed** and was not investigated further.
+
+- **The build card's step marks and stage chips carry ✓ and ✕** (2026-10-14).
+  - Found when the emoji scanner's character set was pinned (unit run
+    38503645857: CI's Node 22.23 ships Unicode 17, which took ★ and 688 other
+    characters out of `\p{Extended_Pictographic}`; ✓ U+2713 and ✕ U+2715 were
+    never in it, so the scanner never saw them on any Node).
+  - `stStepRow` (`public/chat.js`) draws ● ○ ✓ ✕ for running, waiting, done
+    and failed; `buildStageHTML` prefixes each passed stage's chip with "✓ ".
+    Both are the build's progress card, which the owner's 2026-10-13 rule
+    covers ("no checkmarks or emojis in the progress stuff").
+  - The marks are the owner's own treatment E (2026-09-07), and a guard
+    (`test/preview-pages.test.mjs`, `test/build-progress.test.mjs`) requires a
+    failed step to differ from a done one by shape, not colour alone. A dash
+    for both would break that.
+  - Allowed by name in `test/no-emoji-replies.test.mjs`, marked as waiting
+    for the owner. **Not changed.** Options to render for the owner: a dash
+    for done and a bold "!" for failed; words ("done", "failed"); or keep.
+  - The other ✓ and ✕ found the same way are interface controls or form
+    notes (close buttons, menu selection, "Code re-sent ✓", "Password updated
+    ✓", a pricing line, the link-preview toggle, the component list's
+    generator) and are allowed by name.
 
 - **`renderNote`'s "I had a look at the finished pages" reads as a visual
   review** (2026-10-14, found while building the talk batch on branch `new`,

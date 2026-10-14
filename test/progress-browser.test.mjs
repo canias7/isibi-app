@@ -22,6 +22,7 @@
 // IT NEEDS A BROWSER, and runs where one is installed: `playwright-core` at the
 // root and Chromium. Unit CI has neither, so there it is skipped; the drawing
 // itself is also driven without a browser in `test/progress-page.test.mjs`.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -370,7 +371,7 @@ test("CANARY — THE REPLY READ APART FROM THE PROGRESS KEPT ABOVE IT: a watched
     const replies = newReplies(1, s.messages);
     assert.equal(replies.length, 1, JSON.stringify(s.messages.map((m) => m.text)));
     const reply = replies[0];
-    assert.ok(!/\p{Extended_Pictographic}/u.test(reply.text), "the reply as the canary reads it does not begin with its warning: " + JSON.stringify(reply.text.slice(0, 80)));
+    assert.ok(!PICTOGRAPH.test(reply.text), "the reply as the canary reads it does not begin with its warning: " + JSON.stringify(reply.text.slice(0, 80)));
     assert.ok(reply.text.includes(NO_MATCH));
     for (const l of SOLO_LINES) assert.ok(!reply.text.includes(l.text), "a kept line was read as part of the reply");
     assert.deepEqual(reply.progress, SOLO_LINES.map((l) => l.text), "the kept lines were not read apart");

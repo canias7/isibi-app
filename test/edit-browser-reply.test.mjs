@@ -10,6 +10,7 @@
 // lost photograph and two picture spaces came back through `addonAnswer` as
 // three words. The assertions below pin the discrimination itself.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -130,7 +131,7 @@ test("the selection is the real `editAnswer`, so a refusal is drawn as one", () 
   // reason `browserReply` runs `addonAnswer` rather than `addonReplyText`.
   const r = editBrowserReply({ ok: false, error: "parts-unreadable", cost: 0, msg: "I couldn't read this site's sections just now." }, false);
   assert.equal(r.ok, true, "the reader could not compose a refusal: " + r.why);
-  assert.ok(!/\p{Extended_Pictographic}/u.test(r.text), "a refusal was not drawn as one: " + JSON.stringify(r.text));
+  assert.ok(!PICTOGRAPH.test(r.text), "a refusal was not drawn as one: " + JSON.stringify(r.text));
   assert.ok(r.text.includes("sections"), "the server's own sentence did not reach the screen: " + JSON.stringify(r.text));
   // AND NOTHING WAS SET IN MOTION. A refusal carrying a `msg` is answered
   // where it stands; falling through to the ~25-credit rewrite would charge

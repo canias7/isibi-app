@@ -4,6 +4,7 @@
 // MEANT, and nowhere else. Every guard below exists because the alternative is a
 // picture of the wrong thing on a real business's home page, which is worse than
 // the change not happening.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -248,7 +249,7 @@ test("A PICTURE THAT COULD NOT BE MADE IS SAID OUT LOUD", () => {
 
 test("nothing matched says so without a tick", () => {
   const msg = pictureReply({});
-  assert.ok(!/\p{Extended_Pictographic}/u.test(msg));
+  assert.ok(!PICTOGRAPH.test(msg));
   assert.match(msg, /couldn't match/);
 });
 

@@ -44,6 +44,7 @@
 // handed another operation's words, shows up as an unchanged page rather than
 // being papered over by a stub that edits whatever it sees.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -372,7 +373,7 @@ for (const mode of ["sync", "job"]) {
     // omission (review #9), which the owner keeps separate.
     assert.equal(r.body.partial, undefined, "a step refused" + why(r));
     assert.equal(r.body.deferred, undefined, why(r));
-    assert.ok(!/\p{Extended_Pictographic}/u.test(r.said.text), "the screen carries a warning" + why(r));
+    assert.ok(!PICTOGRAPH.test(r.said.text), "the screen carries a warning" + why(r));
     assert.ok(!/I only did one thing/.test(r.said.text), "the screen says work was put off" + why(r));
     assert.match(r.said.text, /^Updated the look — the description\./, why(r));
   });
@@ -445,7 +446,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.body.ok, true, why(r));
     assert.equal(r.body.deferred, VISIT_WORDS, "the route did not say what it held back" + why(r));
     assert.equal(r.body.partial, undefined, "a step refused" + why(r));
-    assert.ok(!/\p{Extended_Pictographic}/u.test(r.said.text), "the screen carries a warning about work that never ran" + why(r));
+    assert.ok(!PICTOGRAPH.test(r.said.text), "the screen carries a warning about work that never ran" + why(r));
     assert.ok(r.said.text.endsWith(tail(VISIT_WORDS)), "the screen does not say what was put off" + why(r));
   });
 }
@@ -503,7 +504,7 @@ test("a put-off part the route cannot find in the message is not guessed at: not
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(r.compiles, 0, why(r));
   assert.deepEqual(r.said.actions, [], "the browser followed up on a refusal" + why(r));
-  assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u, why(r));
+  assert.doesNotMatch(r.said.text, PICTOGRAPH, why(r));
 });
 
 // ── THE ADD-ON ROUTE, THROUGH TO ITS DESIGNERS AND ITS REPLY ─────────────────
@@ -560,7 +561,7 @@ test("an add-on whose held-back part cannot be found runs nothing, costs nothing
   assert.deepEqual(r.sql, [], "the database was touched");
   const screen = browserReply(r.body, true);
   assert.ok(screen.ok, screen.why);
-  assert.doesNotMatch(screen.text, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(screen.text, PICTOGRAPH);
   assert.deepEqual(screen.actions, [], "the browser followed up on a refusal");
 });
 

@@ -42,6 +42,7 @@
 //
 // Every answer here is SUPPLIED. This proves what the browser says and holds,
 // never how often a real route answers these shapes.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -609,7 +610,7 @@ test("the known-result sentence is a success and says nothing uncertain", () => 
   const ctx = vm.createContext({});
   vm.runInContext(cut("function editShownMsg(") + cut("function addonOutcomeMsg("), ctx);
   assert.equal(ctx.editShownMsg(), SHOWN);
-  assert.ok(!/\p{Extended_Pictographic}/u.test(SHOWN), "the known result is not drawn as a success");
+  assert.ok(!PICTOGRAPH.test(SHOWN), "the known result is not drawn as a success");
   for (const unsure of ["couldn’t read", "can’t tell", "whether", "didn’t", "try again"]) {
     assert.ok(!SHOWN.includes(unsure), "the known-result sentence says something uncertain: " + JSON.stringify(unsure));
   }

@@ -31,6 +31,7 @@
 // reply reserved (`edit_refund`), which is why the merge reports a refused
 // message's cost as 0 there. That half is read, not driven here.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -557,7 +558,7 @@ test("the data rung on an incomplete site changes the row through the four-state
   // THE CHARGE IS WHAT WAS DEBITED.
   assert.ok(r.body.cost > 0, "a successful edit reported no cost");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u, "the screen does not report a made change");
+  assert.doesNotMatch(r.said.text, PICTOGRAPH, "the screen does not report a made change");
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
 
@@ -623,7 +624,7 @@ test("a photograph that lives only in a component is swapped where it lives, and
     "the stored component is not the swapped one");
   assert.equal(storedPages(store, slug)[0].source, PART_HOME, "a page moved on a component's photograph swap");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
 
@@ -667,7 +668,7 @@ test("control: an ordinary wording edit publishes, and the screen reports it", a
   assert.equal(storedPages(store, slug).find((p) => p.path === "news.tsx").source, TWO_PAGES(slug)[1].source, "an unrelated page moved");
   assert.ok(r.body.cost > 0);
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
-  assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
   assert.ok(!r.said.text.includes("Nothing on your site changed"), "a published edit is reported as changing nothing");
   assert.deepEqual(r.said.actions, [REFRESH]);
 });
@@ -693,7 +694,7 @@ test("control: a partial success keeps its green tick and names the half that di
   const noChange = failureMsg("page/no-change", { page: "/" });
   assert.deepEqual((r.body.partial || []).map((p) => p.msg), [noChange]);
   assert.equal(JSON.parse(store.store.get(CONFIG_KEY(slug))).css.includes("#1f2a44"), true, "the stylesheet change was not stored");
-  assert.doesNotMatch(r.said.text, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(r.said.text, PICTOGRAPH);
   assert.ok(r.said.text.includes(" A part built for the site: " + noChange), "the refused half is not named, with what it was about, after the tick");
   assert.ok(!r.said.text.includes("Nothing on your site changed"), "a partial success claims nothing changed");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
@@ -845,7 +846,7 @@ test("a refusal with no sentence at all is still a refusal, never the rewrite", 
   const said = editBrowserReply({ ok: false, error: "something", cost: 0 }, false, ROUTED("page", "/"));
   assert.ok(said.ok, said.why);
   assert.equal(said.shown, true);
-  assert.doesNotMatch(said.text, /\p{Extended_Pictographic}/u);
+  assert.doesNotMatch(said.text, PICTOGRAPH);
   assert.deepEqual(said.actions, []);
 });
 

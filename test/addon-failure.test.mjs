@@ -46,6 +46,7 @@
 //
 // Every answer here is SUPPLIED. This proves what the browser sends and says,
 // never how often a real route answers these shapes.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -405,7 +406,7 @@ test("AN ADDITION THAT DIED AFTER ITS TABLES WENT IN: the watch's ended sentence
   const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [ended({ migration: { status: "applied_without_page" }, note: ENDED_NOTE })] } });
   assert.deepEqual(o.trail, ["POST " + ADD, "GET /api/site/edit/job-a"]);
   assert.equal(o.said.length, 1, JSON.stringify(o.said));
-  assert.ok(!/\p{Extended_Pictographic}/u.test(o.said[0]), o.said[0]);
+  assert.ok(!PICTOGRAPH.test(o.said[0]), o.said[0]);
   assert.ok(o.said[0].includes(" " + ENDED_NOTE), "the server's note of what stands was not said: " + o.said[0]);
   assert.equal(o.busy, false);
   // NO NOTE: the outcome's own sentence, and nothing about a database.

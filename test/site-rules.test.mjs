@@ -5,6 +5,7 @@
 // refusal here exists because the schema engine would have skipped the rule
 // silently, and a booking table that still takes double bookings looks exactly
 // like one where the change worked.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -296,7 +297,7 @@ test("the same refusal twice is said once", () => {
 
 test("nothing applied and nothing refused says so without a tick", () => {
   const msg = rulesReply({});
-  assert.ok(!/\p{Extended_Pictographic}/u.test(msg));
+  assert.ok(!PICTOGRAPH.test(msg));
   assert.match(msg, /Nothing there was a rule/);
 });
 

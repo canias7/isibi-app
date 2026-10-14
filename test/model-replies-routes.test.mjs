@@ -29,6 +29,7 @@
 // shown in that fact's own words and lists them all; whether a real model
 // writes a good, faithful reply — and how long it takes — is a live
 // measurement this file cannot make.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -235,7 +236,7 @@ test("THE REPLY IS ADDED, NOTHING ELSE MOVES: the same request with replies on a
     const shownOff = editBrowserReply(off.r.body, true, { layer: "look", cost: 2 });
     assert.ok(shownOn.ok && shownOff.ok, shownOn.why || shownOff.why);
     assert.equal(shownOn.text, on.r.body.reply);
-    assert.doesNotMatch(shownOff.text, /\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(shownOff.text, PICTOGRAPH);
     assert.match(shownOff.text, /add a gallery page/, "without a reply the page lost its own tail");
     assert.notEqual(shownOff.text, shownOn.text);
     assert.ok(shownOn.actions.includes("refresh the credit balance"), "the page stopped refreshing the balance once it had a reply to show");
@@ -385,7 +386,7 @@ test("A REPLY THAT CANNOT BE WRITTEN CHANGES NOTHING: the reply model failing, o
         assert.equal(seen.lanes.length, 1, name + ": the change was made again");
         const shown = editBrowserReply(r.body, true, { layer: "look", cost: 2 });
         assert.ok(shown.ok, shown.why);
-        assert.doesNotMatch(shown.text, /\p{Extended_Pictographic}/u, name + ": the page did not say it the way it always has: " + shown.text);
+        assert.doesNotMatch(shown.text, PICTOGRAPH, name + ": the page did not say it the way it always has: " + shown.text);
       }, { slug });
     }
   } finally { compiler.uninstall(); }
@@ -447,7 +448,7 @@ test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the writer's failed try waits 
       const p = await poll(worker, QE(store2, sent2), id, doneRow(slug2, r));
       assert.equal(p.body.replyState, "failed");
       assert.deepEqual(EditPoll.readPoll(p.status, p.final, p.body), { act: "reply" });
-      assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, /\p{Extended_Pictographic}/u, "the page did not say what it always said");
+      assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, PICTOGRAPH, "the page did not say what it always said");
     }, { slug: slug2 });
   } finally { compiler.uninstall(); }
 });
@@ -834,7 +835,7 @@ test("A FAILURE OF OURS KEEPS ITS FIXED SENTENCE: a question that could not be k
       assert.equal(log[0].body.failed, true, "the routing call did not fail as this case needs: " + JSON.stringify(log[0].body).slice(0, 200));
       assert.equal(log[0].body.reply, undefined);
       assert.equal(replyCalls(seen), 0);
-      assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "a failed routing call was not said by the page's own sentence");
+      assert.doesNotMatch(p.last().t, PICTOGRAPH, "a failed routing call was not said by the page's own sentence");
     }, { slug });
   }
 });

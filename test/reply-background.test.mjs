@@ -15,6 +15,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer — the router's, each lane's,
 // the add-on's, the reply writer's — is supplied. Nothing here shows how long
 // a real model takes, or what it writes; that is the live verification's.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -149,7 +150,7 @@ test("BG2 — the provider refuses every try: three tries, 30 s and 120 s apart,
     assert.equal(p.body.replyState, "failed");
     assert.equal(p.body.reply, undefined);
     assert.deepEqual(EditPoll.readPoll(p.status, p.headers.get(EditPoll.FINAL_HEADER), p.body), { act: "reply" });
-    assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, /\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, PICTOGRAPH);
     // ASKED AGAIN, NOTHING MORE: a failed reply is not tried a fourth time by a read or the cron.
     await poll(P, jobs[0]);
     await tick(P);
@@ -361,7 +362,7 @@ test("BG8 — a job whose reply was never asked is asked for by the first read i
         assert.equal(p.body.reply, undefined);
         assert.equal(queued(), 0, "a read asked for the reply of a job that ended hours ago");
         assert.equal(replyRec(P, job0), null, "a read made a record for a job that ended hours ago");
-        assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, /\p{Extended_Pictographic}/u, "the page did not say what it always said");
+        assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, PICTOGRAPH, "the page did not say what it always said");
       } else {
         assert.equal(p.body.replyState, "pending");
         assert.equal(queued(), 1, "the read did not ask for the reply");
