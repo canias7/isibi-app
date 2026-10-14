@@ -74,6 +74,7 @@
 // DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
+import { FINDING_SAID } from "./check-evidence.mjs";
 import { TERMINAL_STATES } from "./edit-job.mjs";
 import { pathOf } from "./site-reply.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
@@ -1053,12 +1054,8 @@ export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
 }
 
 /** The automated browser check's problem kinds, as a fact names them — what it looks for, never more. */
-const RENDER_KIND_SAID = Object.freeze({
-  threw: "a page that stops with an error", logged: "an error written while a page loads", blank: "a page that shows nothing",
-  slow: "a page that took longer to open than the check waits", unmet: "a page that reads something the check cannot reach",
-  image: "an image that did not load", overflow: "a page that scrolls sideways", contrast: "text that is nearly invisible",
-  seethrough: "a see-through menu or dialog",
-});
+// The render check's kinds, said once for the record and the reply alike (2026-10-14).
+const RENDER_KIND_SAID = FINDING_SAID;
 
 /**
  * THE CHECKS A PUBLISH RAN, from the compile's own report — recorded once

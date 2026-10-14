@@ -920,7 +920,7 @@ const WORD = {
   // not load" state and the real content was never on screen to be judged. The
   // sentence says what was not checked, never that the page is faulty: a
   // synthetic answer cannot prove live behaviour in either direction.
-  unmet: "reads something the check can't reach, so I couldn't see it with real data",
+  unmet: "reads something the check can't reach, so it was not checked with real data",
   image: "has an image that did not load",
   overflow: "scrolls sideways",
   contrast: "has text that is nearly invisible",
@@ -962,7 +962,12 @@ export function renderNote(report) {
     return `${where} ${WORD[kind]}`;
   });
   const list = bits.length === 1 ? bits[0] : bits.slice(0, -1).join(", ") + " and " + bits[bits.length - 1];
-  return `I had a look at the finished pages: ${list}.`;
+  // SAID AS WHAT IT IS (2026-10-14, Codex's review of branch `new`): an
+  // automated check in a browser, never "I had a look", which reads as
+  // somebody looking at the design. The reply model is handed the findings
+  // themselves (`check-evidence.mjs`); this line is what the page shows
+  // when no written reply is there.
+  return `An automated check that opened the finished pages in a browser flagged: ${list}.`;
 }
 
 // ── THE LANDMARK MAP (2026-08-31, owner's call) ─────────────────────────────

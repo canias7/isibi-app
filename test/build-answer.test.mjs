@@ -92,7 +92,7 @@ test("DRIVEN: siteAnswer names the site, and says nothing it cannot", () => {
 test("DRIVEN: pageNotes says what happened to the pages, and stays silent when nothing did", () => {
   assert.deepEqual(pageNotes({ salvageNote: "A page was replaced by a stub." }), { salvageNote: "A page was replaced by a stub." });
   assert.equal(pageNotes({ render: { ok: true, findings: [{ route: "/", kind: "threw", detail: "boom" }] } }).renderNote,
-    "I had a look at the finished pages: / threw an error.");
+    "An automated check that opened the finished pages in a browser flagged: / threw an error.");
   assert.equal(pageNotes({ images: { made: 1, planned: 2, budget: 2, overflow: 0 } }).imagesNote, "Made 1 photograph for the site.");
   // A REMOVAL THE REWRITE ASKED FOR AND THE RULE REFUSED (2026-10-02, the
   // whole-router audit's W3) rides on the answer as `publishPages` wrote it.

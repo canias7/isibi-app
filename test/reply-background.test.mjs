@@ -54,12 +54,14 @@ const poll = (P, id) => call(P, "GET", "/api/site/edit/" + id);
 const part0 = (facts) => facts.some((f) => f.text.startsWith("Changed the description"));
 /**
  * Everything the work left behind — the site, the jobs, the money — for
- * comparing two runs: each job's id, which is random, read as its op and place.
+ * comparing two runs: each job's id, which is random, read as its op and place,
+ * and each version a publish made (its check evidence, 2026-10-14), random too.
  */
 const workOf = (P, key) => {
   const jobs = P.jobsOf(key);
   const named = (ref) => jobs.reduce((t, j, i) => t.split(j.id).join(j.op + "@" + i), String(ref));
-  return JSON.stringify({ look: P.look(), pages: P.pages(), jobs: jobs.map((j) => [j.op, j.state, j.billing, j.cost, j.result && j.result.body]), ledger: P.ledger.map((e) => [named(e.ref), e.reason, e.delta]) });
+  return JSON.stringify({ look: P.look(), pages: P.pages(), jobs: jobs.map((j) => [j.op, j.state, j.billing, j.cost, j.result && j.result.body]), ledger: P.ledger.map((e) => [named(e.ref), e.reason, e.delta]) })
+    .replace(/\\"version\\":\\"[^\\"]*\\"/g, '\\"version\\":\\"V\\"');
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

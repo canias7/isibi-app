@@ -2011,7 +2011,7 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   const tx = w.slice(pos(w, 'label: "Edited the wording",', "the wording edit"), pos(w, "applied: ed.applied, files: out.files", "the wording reply"));
   assert.match(tx, /charge: \(usage\) => collectCredits\(request\.headers\.get\("Authorization"\) \|\| "", pageCredits\(\.\.\.usage\)\),/,
     "the owner's wording edit translates for nothing");
-  assert.match(w, /applied: ed\.applied, files: out\.files, render: out\.render, renderNote: out\.renderNote, cost: Number\(out\.langCharged\) \|\| 0 \}/,
+  assert.match(w, /applied: ed\.applied, files: out\.files, render: out\.render, renderNote: out\.renderNote, checks: out\.checks, cost: Number\(out\.langCharged\) \|\| 0 \}/,
     "the wording edit's reply does not say what the translation cost");
 
   // ── THE PLATFORM REBUILD hands none: it spends no credits, and translates for nothing as it always did ──

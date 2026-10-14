@@ -23,6 +23,7 @@ import { platform, sendMessage, deliver, settle, tick, call, T } from "./fixture
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { PROGRESS_SETTLE_S, TALK_SYSTEM, PROGRESS_SYSTEM } from "../builder/site-progress.mjs";
+import { checkFacts, readChecks } from "../builder/check-evidence.mjs";
 
 const ADD = "add a gallery page";
 const DESC = "Change the site description to say we bake overnight sourdough";
@@ -160,19 +161,23 @@ test("CHECKS AND PUBLISH — the job records the checks its publish ran and the 
     assert.ok(checks.some((f) => f.state === "checked" && /built without errors/.test(f.text)));
     assert.ok(checks.some((f) => /automated check/.test(f.text)), "the browser check was not said as automated");
     assert.ok(rec.closed, "the record was not closed at the job's end");
-    // THE FINAL REPLY'S CHECKS: the record's checked and published facts, as k facts, and no others.
+    // THE FINAL REPLY'S CHECKS (2026-10-14): the stored answer's own evidence,
+    // as k facts, and no others — not the record's lines, which narration owns.
+    const fin = await call(P, "GET", "/api/site/edit/" + job.id);
+    const ev = readChecks(fin.body.checks);
+    assert.ok(ev, "the answer carries no readable check evidence: " + JSON.stringify(fin.body.checks));
+    assert.equal(ev.published, true);
+    assert.match(String(ev.version || ""), /\S/, "the evidence does not name the version that went live");
     const reply = P.replyLog.find((facts) => facts.some((f) => f.id.startsWith("k")));
     assert.ok(reply, "the final reply was not handed the checks: " + JSON.stringify(P.replyLog.map((f) => f.map((x) => x.id))));
-    const ks = reply.filter((f) => f.id.startsWith("k")).map((f) => f.text);
-    const want = rec.marks.flatMap((m) => m.facts).filter((f) => f.state === "checked" || f.state === "published").map((f) => f.text);
-    assert.deepEqual(ks, [...new Set(want)]);
+    assert.deepEqual(reply.filter((f) => f.id.startsWith("k")).map((f) => f.text), checkFacts(ev).map((f) => f.text));
     const sys = P.modelLog.filter((m) => m.tool === "write_reply").map((m) => m.system);
     assert.ok(sys.length > 0, "no final reply was written");
     assert.ok(sys.every((s) => typeof s === "string" && /THEY HAVE BEEN FOLLOWING YOUR UPDATES/.test(s)), "the final reply was not told it follows a conversation");
   });
 });
 
-test("OFF IS AS BEFORE — the same add-on with the switch off: no plan, no check or publish milestone, the ordinary writer asked at once, and a final reply with no checks", async () => {
+test("OFF IS AS BEFORE — the same add-on with the switch off: no plan, no check or publish milestone, the ordinary writer asked at once; and the final reply still has its checks, from the answer", async () => {
   const g = gate();
   await withPlatform({ slug: slugOf("off"), replies: true, progress: true, answers: heldAddon(g) }, async (P) => {
     const { r, job, running } = await startAddon(P, g);
@@ -191,7 +196,12 @@ test("OFF IS AS BEFORE — the same add-on with the switch off: no plan, no chec
     await settle(P, r.key);
     const after = P.progressOf(job.id);
     assert.ok(!stagesOf(after).some((s) => s === "start" || s === "checked" || s === "published"), stagesOf(after).join(","));
-    assert.ok(P.replyLog.every((facts) => !facts.some((f) => f.id.startsWith("k"))), "a final reply was handed checks with the switch off");
+    // THE CHECKS NO LONGER WAIT ON THE NARRATION (2026-10-14): with the
+    // switch off the final reply is still handed the answer's own evidence.
+    const fin = await call(P, "GET", "/api/site/edit/" + job.id);
+    const ks = P.replyLog.flat().filter((f) => f.id.startsWith("k")).map((f) => f.text);
+    assert.ok(ks.length > 0, "with the switch off the final reply was handed no checks");
+    assert.deepEqual(ks, checkFacts(fin.body.checks).map((f) => f.text));
   });
 });
 

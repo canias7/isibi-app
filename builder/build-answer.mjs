@@ -1,4 +1,5 @@
 import { renderNote } from "./site-render.mjs";
+import { readChecks } from "./check-evidence.mjs";
 import { imageNote } from "./site-images.mjs";
 
 // WHICH SITE THIS BUILD MADE — the half of a build's answer that says so.
@@ -203,8 +204,11 @@ export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "desi
 export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
 const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null } = {}) {
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null } = {}) {
   const out = {};
+  // WHAT THE PUBLISH CHECKED (2026-10-14, `check-evidence.mjs`), kept only
+  // when it reads, for the reply's `k` facts.
+  if (readChecks(checks)) out.checks = checks;
   if (design && typeof design === "object" && DESIGN_OUTCOMES.includes(design.outcome)) {
     const tried = (Array.isArray(design.attempts) ? design.attempts : []).filter((a) => DESIGN_ATTEMPT_READINGS.includes(a));
     if (tried.length) out.design = { outcome: design.outcome, attempts: tried };

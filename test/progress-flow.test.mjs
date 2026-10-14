@@ -528,7 +528,8 @@ test("SAME — EXECUTION, PUBLISHING, MONEY AND THE FINAL REPLY ARE THE SAME wit
       const { progress: lines, outcome: _outcome, ...answer } = fin.body;
       out = {
         lines: lines || null,
-        answer: JSON.stringify(answer).split(job.id).join("JOB"),
+        // …AND THE VERSION IT PUBLISHED (its check evidence, 2026-10-14), random per run like the job's id.
+        answer: JSON.stringify(answer).split(job.id).join("JOB").replace(/"version":"[^"]*"/g, '"version":"V"'),
         work: JSON.stringify({ pages: P.pages(), state: job.state, billing: job.billing, cost: job.cost, ledger: P.ledger.map((e) => [String(e.ref).split(job.id).join("JOB"), e.reason, e.delta]), balance: P.credits.balance }),
       };
     });

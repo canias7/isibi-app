@@ -29,6 +29,7 @@
 // shown in that fact's own words and lists them all; whether a real model
 // writes a good, faithful reply — and how long it takes — is a live
 // measurement this file cannot make.
+import { checkFacts } from "../builder/check-evidence.mjs";
 import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -82,6 +83,10 @@ function writer(log, tag = "Here is what happened") {
 const replyCalls = (seen) => seen.calls.filter((c) => c === W).length;
 const builds = (compiler) => compiler.calls.filter((c) => String(c.url).includes("/build")).length;
 const withoutReply = (body) => { const { reply, replySource, ...rest } = body; return rest; };
+// THE STEPS' OWN FACTS, the publish's checks (`k`, 2026-10-14) set apart: every published change carries those.
+const own = (facts) => facts.filter((f) => !/^k\d+$/.test(f.id));
+// A RUN'S VERSION is random (its check evidence names it), so two runs are compared without it.
+const sameVersion = (body) => JSON.parse(JSON.stringify(body).replace(/"version":"[^"]*"/g, '"version":"V"'));
 
 /** A finished job's answer, as the poll route hands it back, from the row `edit_get` would read. */
 async function poll(worker, env, id, row) {
@@ -193,10 +198,13 @@ test("COMPLETE SUCCESS, ON THE PAGE: the change is made, published and charged o
       // THE REPLY, WRITTEN ONCE, AFTER THE WORK, FROM THE ROUTE'S OWN ANSWER.
       assert.equal(replyCalls(seen), 1);
       assert.equal(seen.calls[seen.calls.length - 1], W, "the reply was written before the work was done");
-      assert.deepEqual(replies[0].facts.map((f) => f.text), [
+      assert.deepEqual(own(replies[0].facts).map((f) => f.text), [
         "Changed the description.",
         "Left for later, so not tried this time (they can send it next): “add a gallery page”",
       ]);
+      // AND THE ONE PUBLISH'S CHECKS, from the evidence on the answer (2026-10-14).
+      assert.deepEqual(replies[0].facts.filter((f) => /^k\d+$/.test(f.id)).map((f) => f.text), checkFacts(edit.body.checks).map((f) => f.text));
+      assert.ok(checkFacts(edit.body.checks).length > 0, "the answer carries no evidence");
       assert.equal(edit.body.replySource, "model");
       // THE PAGE SHOWS THE REPLY, WHOLE: no headline, tail or money sentence of its own.
       assert.deepEqual(p.said(), [{ r: "u", t: DESC_WORDS + ". Then add a gallery page." }, { r: "a", t: edit.body.reply }]);
@@ -223,7 +231,7 @@ test("THE REPLY IS ADDED, NOTHING ELSE MOVES: the same request with replies on a
     const on = await runOnce(true);
     const off = await runOnce(false);
     assert.equal(on.r.status, off.r.status);
-    assert.deepEqual(withoutReply(on.r.body), off.r.body, "a field the route said changed when its reply was written");
+    assert.deepEqual(sameVersion(withoutReply(on.r.body)), sameVersion(off.r.body), "a field the route said changed when its reply was written");
     assert.equal(off.r.body.reply, undefined);
     assert.equal(on.built, 1);
     assert.equal(off.built, 1);
@@ -279,7 +287,7 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
       // THE QUEUE'S WRITER: one call, the reply kept.
       await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
       assert.equal(replyCalls(seen), 1);
-      assert.deepEqual(replies[0].facts.map((f) => f.text), ["Changed the description."]);
+      assert.deepEqual(own(replies[0].facts).map((f) => f.text), ["Changed the description."]);
       assert.equal(recordOf(store, id).state, "written", "the reply was not kept");
       const p1 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
       assert.equal(p1.status, 200);
@@ -480,12 +488,12 @@ test("PARTIAL COMPLETION, ON THE PAGE: the part that could run is made and charg
       assert.equal(builds(compiler), 1);
       const part = (edit.body.partial || [])[0];
       assert.equal(part && part.error, "no-page", JSON.stringify(edit.body.partial));
-      assert.deepEqual(replies[0].facts.map((f) => f.id), ["c1", "f1"]);
+      assert.deepEqual(own(replies[0].facts).map((f) => f.id), ["c1", "f1"]);
       // NAMED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes: *"report
       // every completed, failed, declined and pending operation with its
       // target"*): the change's own words, and the page it was for.
       assert.deepEqual([part.page, part.words], ["/gallery", [MOVE_WORDS]], "the withheld change lost its target: " + JSON.stringify(part));
-      assert.equal(replies[0].facts[1].text, "This part was not done: “" + MOVE_WORDS + "” on /gallery. The builder's own reason: “" + part.msg + "”");
+      assert.equal(own(replies[0].facts)[1].text, "This part was not done: “" + MOVE_WORDS + "” on /gallery. The builder's own reason: “" + part.msg + "”");
       assert.equal(p.last().t, edit.body.reply, "the page added to the reply, or did not show it");
     }, { slug });
   } finally { compiler.uninstall(); }
@@ -515,8 +523,8 @@ test("A STEP'S QUESTION BESIDE WORK DONE: the reply says what was done and leads
       const q = question(store, slug);
       assert.equal(q.id, r.body.clarify.id);
       assert.equal(q.request, MOVE_WORDS, "the question keeps more than the part that asked");
-      assert.deepEqual(replies[0].facts.map((f) => f.id), ["c1", "q1"]);
-      assert.match(replies[0].facts[1].text, /^A question for them will be shown right under your reply[^]*“Which band is the order band — the one about holding a loaf\?”/);
+      assert.deepEqual(own(replies[0].facts).map((f) => f.id), ["c1", "q1"]);
+      assert.match(own(replies[0].facts)[1].text, /^A question for them will be shown right under your reply[^]*“Which band is the order band — the one about holding a loaf\?”/);
       const shown = editBrowserReply(r.body, true, { layer: "look", cost: 2 });
       assert.ok(shown.ok, shown.why);
       assert.equal(shown.text, r.body.reply + "\n" + Q2.text, "the page did not draw the question under the reply, alone");

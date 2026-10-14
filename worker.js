@@ -172,6 +172,8 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // still name it because they explain that move; neither is a consumer.
 import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
+// WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
+import { checksOf, readChecks } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
@@ -6912,13 +6914,13 @@ async function writeModelReply(env, kind, body, ask) {
  * (`runReplyTask`) — with the background's budget instead of the customer's
  * connection's.
  */
-async function composeModelReply(env, kind, body, ask, { background = false, checks = [] } = {}) {
+async function composeModelReply(env, kind, body, ask, { background = false } = {}) {
+  // THE CHECKS A PUBLISH MADE ARE AMONG THESE FACTS (`k`, 2026-10-14), read
+  // off the answer's own `checks` by the fact builders — not off the progress
+  // record, which is not there when narration was off, failed or came late.
   const read = replyFactsOf(kind, body, ask);
   if (read.skip || !read.facts.length) return { ok: false, skip: read.skip || "no-facts" };
-  // THE CHECKS THAT RAN, FROM THE JOB'S OWN PROGRESS RECORD (talk, 2026-10-13):
-  // each a `k` fact, so the final message may name a check only if it ran.
   const talk = talkOn(env);
-  const ks = talk ? (Array.isArray(checks) ? checks : []).filter((t) => typeof t === "string" && t.trim()).map((text, i) => ({ id: "k" + (i + 1), text })) : [];
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
@@ -6926,7 +6928,7 @@ async function composeModelReply(env, kind, body, ask, { background = false, che
   let out;
   try {
     out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
-      facts: [...read.facts, ...ks],
+      facts: read.facts,
       context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
@@ -6985,6 +6987,17 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
  * room in the container, live pages that could not be confirmed — which keep
  * their fixed messages.
  */
+/**
+ * WHAT A BUILD'S PUBLISH CHECKED (2026-10-14): only a build whose pages went
+ * live (`page: "app"`) — a placeholder's facts already say why it is not —
+ * from the render report of the compile that was published and the version
+ * it activated. Null otherwise.
+ */
+function buildChecks(pages) {
+  if (!pages || pages.page !== "app") return null;
+  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true });
+}
+
 function inlineFailure(pages, { cost = 0, short = false } = {}) {
   if (!pages || pages.page !== "placeholder") return null;
   if (pages.billing || pages.room || pages.sourceUnknown) return null;
@@ -7278,24 +7291,6 @@ async function runReplyTask(env, task) {
   } catch (e) { console.error("reply: task failed", errorClassForLog(e)); }
 }
 
-/**
- * THE CHECKS A JOB RAN AND ITS PUBLISH, as its final reply's `k` facts (talk,
- * 2026-10-13): every `checked` and `published` fact on its progress record, in
- * order, once each, whether or not a line said it — so the final message can
- * name the checks that really ran and no other. [] when there is no record,
- * it does not read, or it is not conversational: the reply is written from
- * its own facts alone, as before.
- */
-async function jobChecksFor(env, job) {
-  try {
-    const at = await progressRecordAt(env, job);
-    if (!at.read || !at.rec || at.rec.talk !== true) return [];
-    const out = [];
-    for (const m of at.rec.marks) for (const f of m.facts) if ((f.state === "checked" || f.state === "published") && !out.includes(f.text)) out.push(f.text);
-    return out;
-  } catch { return []; }
-}
-
 /** What a job's kept context tells its reply (`keepReplyFor`'s own fields). */
 function askOfReplyFor(replyFor) {
   return {
@@ -7328,9 +7323,8 @@ async function writeJobReply(env, task) {
   const replyFor = body && typeof body === "object" && !Array.isArray(body) ? body.replyFor : null;
   if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" }, { tag });
   const { replyFor: _context, ...rest } = body;
-  // THE CHECKS THE JOB RAN (talk, 2026-10-13), read off its progress record.
-  const checks = talkOn(env) ? await jobChecksFor(env, task.id) : [];
-  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true, checks }), { tag });
+  // ITS CHECKS RIDE ON `rest` (`checks`, 2026-10-14): the stored answer's own.
+  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }), { tag });
 }
 
 /**
@@ -13751,6 +13745,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
+    // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
+    // report included, which `render` above leaves off the wire — so every
+    // final reply reads the checks from the answer, whatever the narration did.
+    checks: checksOf({ render: built.render, version, published: true, cssChecked: verifyOnly ? verifyOnly.size : 0 }),
     lookSoft: lookSoft.length ? lookSoft : undefined,
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
@@ -14849,7 +14847,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       if (fenced) await markPublished(env, jobId, bVersion);
       try { await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
-      return staged.files;
+      // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence.
+      return { files: staged.files, version: bVersion };
     },
     // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
     // publish-pages.mjs for why this is not in the failure branches. Its own key,
@@ -19784,7 +19783,34 @@ async function writeRequestReply(env, task) {
   const place = requestReplyPlace(rec);
   if (!place || place.forKey !== task.for) return settleReply(env, k, claim, task, { ok: false, skip: "moved-on" });
   const ask = { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] };
-  return settleReply(env, k, claim, task, await composeModelReply(env, "request", requestView(rec), ask, { background: true }));
+  const view = requestView(rec);
+  await partChecksFor(env, rec, view);
+  return settleReply(env, k, claim, task, await composeModelReply(env, "request", view, ask, { background: true }));
+}
+
+/**
+ * WHAT EACH PART'S PUBLISHES CHECKED (2026-10-14): every finished job of each
+ * part, read from its own stored answer (`checks`), put on that part of the
+ * view, so the request's reply says each check under the part it belongs to
+ * — never one part's check as another's, and never from the narration. A row
+ * that does not read, is not final, or carries no evidence adds nothing.
+ * Never throws.
+ */
+async function partChecksFor(env, rec, view) {
+  try {
+    for (const p of (view && Array.isArray(view.parts) ? view.parts : [])) {
+      const got = [];
+      for (const id of (Array.isArray(p.jobs) ? p.jobs : [])) {
+        let row = null;
+        try { row = await editGet(env, { p_id: id, p_uid: rec.uid }); } catch { row = null; }
+        if (!row || row.ok !== true || !isTerminalEdit(row.state) || !row.result || typeof row.result.body !== "string" || row.result.spillUnread) continue;
+        let body = null;
+        try { body = JSON.parse(servedEditReply(row, row.result.body)); } catch { body = null; }
+        if (body && readChecks(body.checks)) got.push(body.checks);
+      }
+      if (got.length) p.checks = got;
+    }
+  } catch (e) { console.error("reply: part checks unread", errorClassForLog(e)); }
 }
 
 /**
@@ -20956,6 +20982,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...(rContext ? { context: rContext } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
+          // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
+          checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
           failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }),
           design: design && design.designRecovery }) || undefined,
@@ -23915,6 +23943,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // compile, the live pages unconfirmed) keeps its fixed sentence.
         buildFacts: buildFacts({
           images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
+          checks: buildChecks(pages),
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
           // A design corrected on the way (the ninth batch), told as done.
           design: designRecovery,
@@ -30432,7 +30461,7 @@ async function handleRequest(request, env, ctx) {
                 sortChanged: dOut.sortChanged && dOut.sortChanged.length ? dOut.sortChanged : undefined,
                 files: dPub ? dPub.files : undefined,
                 render: dPub ? dPub.render : undefined,
-                renderNote: dPub ? dPub.renderNote : undefined,
+                renderNote: dPub ? dPub.renderNote : undefined, checks: dPub ? dPub.checks : undefined,
                 // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
                 // deleted row has: pages are archived on every publish and can
                 // be restored, rows are not. With the contents in the thread,
@@ -30937,7 +30966,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "nav", msg: nOut.msg,
-                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
+                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote, checks: nPub.checks,
                 links: nOut.links,
                 // AN ADDITION'S ITEMS THAT WERE THERE ALREADY (2026-10-04), by
                 // list — omitted on every other menu change.
@@ -31077,7 +31106,7 @@ async function handleRequest(request, env, ctx) {
               // one whose purchase it could not tell.
               return Response.json({
                 ok: true, layer: "picture", placed: plPlaced.length, made: plPlaced.length, changed: plPlaced.length,
-                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote,
+                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote, checks: plPub.checks,
                 notPlaced: plNot.length ? plNot : undefined,
                 msg: "I put " + (plPlaced.length === 1 ? "the photograph" : plPlaced.length + " photographs") + " into the frame" + (plPlaced.length === 1 ? "" : "s") + " the addition left waiting.",
                 cost: await eCharge([], { images: plPlaced.length }, plPub),
@@ -31242,7 +31271,7 @@ async function handleRequest(request, env, ctx) {
               const pImages = pOut.made.length ? { images: pOut.made.length } : null;
               return Response.json({
                 ok: true, layer: "picture", msg: pOut.msg,
-                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
+                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
                 // THE REMOVALS THIS STEP MADE, counted where they were made —
                 // photographs taken off WITH their space. The browser's undo
@@ -31491,7 +31520,7 @@ async function handleRequest(request, env, ctx) {
               // customer's calls somewhere nobody asked for.
               const staleTel = staleContactLinks(out.pages, out.edits);
               return Response.json({
-                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote,
+                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
@@ -32238,7 +32267,7 @@ async function handleRequest(request, env, ctx) {
                 // WHAT A REMOVAL NAMED THAT THE LIST DID NOT HOLD (W2): the rest
                 // came off, and this says which names took nothing off.
                 takeOffNote: takeOffMissed.length ? takeOffMissed.map((m) => takeOffNote(m.field, m.unknown)).join(" ") : undefined,
-                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
+                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
 
@@ -32325,7 +32354,7 @@ async function handleRequest(request, env, ctx) {
                 // decided this was already charged where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, removed: cut.removed,
-                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, cost: 0,
+                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, checks: cutPub.checks, cost: 0,
                 });
               }
 
@@ -32375,7 +32404,7 @@ async function handleRequest(request, env, ctx) {
                 // where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, renamedTo: rn.redirect.to, changed: rn.changed,
-                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, cost: 0,
+                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, checks: mvPub.checks, cost: 0,
                 });
               }
 
@@ -32544,7 +32573,7 @@ async function handleRequest(request, env, ctx) {
                   if (twPub.ok) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,
-                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
+                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote, checks: twPub.checks,
                       // THE JUDGE'S TOKENS ARE BILLED WITH THE EDIT, in the one
                       // rounding — only here, on a publish. A refusal above
                       // returned at cost 0 and charged nothing.
@@ -33325,7 +33354,7 @@ async function handleRequest(request, env, ctx) {
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
-                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
+                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
                 cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 keepUsage: pKeep.usage || undefined,
                 // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
@@ -33994,6 +34023,7 @@ async function handleRequest(request, env, ctx) {
               files: finalPub ? finalPub.files : (last && last.body.files),
               render: finalPub ? finalPub.render : (last && last.body.render),
               renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
+              checks: finalPub ? finalPub.checks : (last && last.body.checks),
               // WHAT HAPPENED TO EACH LANGUAGE, from the one publish (run 38,
               // 2026-09-04): the spine's account rode its result, the deferred
               // publish's stub answered the look branch first, and the reply
@@ -39546,6 +39576,7 @@ async function handleRequest(request, env, ctx) {
               // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
+              checks: aPub.checks,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
               // the harness, and the owner-build log. Absent when no round ran.
               repair: aRepairRound ? {
@@ -39625,7 +39656,7 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, cost: Number(out.langCharged) || 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, cost: Number(out.langCharged) || 0 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

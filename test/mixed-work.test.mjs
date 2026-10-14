@@ -142,7 +142,10 @@ async function editRun({ message, routed = { layer: "look" }, answers, mode = "s
         question: question(store, slug),
         charges: mode === "job" ? seen.rpc.filter((x) => x.fn === "edit_reserve").map((x) => x.args.p_cost) : seen.debits.slice(),
         reply: said.ok ? said.text : assert.fail("the page could not read the answer: " + said.why),
-        facts: Array.isArray(facts.facts) ? facts.facts.map((f) => f.text) : assert.fail("no reply facts: " + JSON.stringify(facts)),
+        // THE STEPS' OWN FACTS, and apart from them the publish's checks (`k`,
+        // 2026-10-14), which every published change now carries.
+        facts: Array.isArray(facts.facts) ? facts.facts.filter((f) => f.kind !== "check").map((f) => f.text) : assert.fail("no reply facts: " + JSON.stringify(facts)),
+        checks: Array.isArray(facts.facts) ? facts.facts.filter((f) => f.kind === "check").map((f) => f.text) : [],
       };
     }, { slug });
   } finally { compiler.uninstall(); }
@@ -202,6 +205,7 @@ test("WORKS, AND FIXED MW8 — THE SAME KIND OF CHANGE ON TWO PAGES (two layout 
   assert.equal(r.builds, 1, "the two moves were not published together");
   assert.deepEqual(r.charges, [1, 1], "each page operation is not billed once");
   assert.deepEqual(r.facts, ["Updated /.", "Updated /visit."], "a model reply would not be told both pages");
+  assert.equal(r.checks.length, 3, "the one publish's checks were not each a fact: " + JSON.stringify(r.checks));
   // FIXED MW8: the page's own reply (no model replies) names both pages, where
   // it read "✅ Updated the look."
   assert.equal(r.reply, "Updated / and /visit.");
