@@ -152,3 +152,72 @@ the balance bounds the spend.
 skipped, 0 failed. The earlier local failure (REOPEN 1, a timing test) was
 this machine's only. It did not reproduce on CI, and it is not a code
 failure.
+
+## 8. Step 4 done: run 115, the free rehearsal (2026-10-14 11:34 UTC)
+
+The owner pressed it again from `claude/help-needed-ehlwlj` at `0d92f16e`.
+Mode `check-no-images`, spend `no`, the balance box blank. The install step
+ran (`npm ci`, 18 packages). The script signed in and read everything; the
+run is green. **Nothing was sent:** `sent: false`, no routing or build
+calls, nothing charged. Read from artifact 11889739463, `build-check.json`:
+
+| What | Read |
+|---|---|
+| The sender | uid `22175f41…` (the building account) |
+| The slug `saltmarsh-cheese-counter` | free: backends 200 with no rows, builds 200 with no rows, host 404 |
+| The balance | 783 |
+| The image switch | `imagePurchases: true` (photographs are still bought) |
+| `design` (design agents at once) | **true** |
+| `graph` (the design as a graph) | **true** |
+| `bands` (through a canary list) | true |
+| `bandsEveryone` | false |
+| Modes counted | "design agents at once", "the design as a graph" |
+
+**Two prerequisites are unmet, both expected:**
+- the balance, 783, is above the press's hard cap of 100 (the balance box
+  was blank);
+- the live Worker still buys photographs (`IMAGE_PURCHASES` is on).
+
+Neither is a defect, and neither stops this free reading. Every other
+prerequisite is met: the balance was read, it covers the estimate, the slug
+is free, and an image-free parallel mode is on.
+
+**What this means for the paid press (step 5).** An image-free parallel
+mode is already on for the account: the design split and the design graph.
+So nothing needs switching on, and no account-scoped change is prepared.
+The press can show overlap through the design's agents: at least two design
+agents whose calls together took longer than the wave
+(`buildOverlapVerdict`, by `design`). With `bands` true through a canary
+list, the build can also show page bands written in one wave, if the build
+writes two or more bands. That is a possible second form, not something the
+flags guarantee. Photographs cannot supply the overlap: the press passes
+`photos: false`, and image purchases will be off.
+
+**What it cannot show.** A build whose design runs as one call, or whose
+agents finish one after another, shows no overlap. That is recorded as the
+build's behaviour, not a pass, and it is not retried. Bands for everyone
+stay off; the press measures this account only.
+
+**A reporting defect, noted, not fixed here** (backlog). A met
+prerequisite in `build-check.json` keeps the sentence written for its unmet
+case. "The balance covers the estimate of 45" reads `ok: true` with "the
+balance, 783, does not cover this press's budget of 45". The console line
+and the verdict read `ok` correctly. Only the JSON's `why` is wrong for a
+met item (`buildPrerequisites`, `scripts/canary-build.mjs` ~527–531).
+
+**The estimate is not a limit.** About 11–45 credits is what first builds
+measured (runs 21–37), across every valid route. Nothing in the product
+stops a build at 45. The press's hard cap compares the balance before
+sending, and the balance box pins the run to the exact balance then. Once
+sent, only the balance bounds the spend.
+
+**The next step is the owner's.** Steps 1–3 of §5:
+1. approve one paid run at about 11–45 credits;
+2. a commit naming `check-no-images` in `BUILD_BALANCE_OPT_IN`;
+3. `IMAGE_PURCHASES` off, then *Deploy to Cloudflare* on `main`. No code
+   change: `main` stays `fef80b9b` and the image `4444d9d53d906b8d` is
+   reused.
+
+After that, a free rehearsal must read `imagePurchases=false` before the
+paid press (spend `yes`, the balance box set to the exact balance). The
+switch is turned back on afterwards (step 6). None of this has been done.

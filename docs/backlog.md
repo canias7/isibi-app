@@ -20,6 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **`build-check.json`'s met prerequisites keep their unmet sentence**
+  (2026-10-14, run 115). `buildPrerequisites` sets `why` without checking
+  `ok`. "The balance covers the estimate of 45" reads `ok: true` with "does
+  not cover". The console and the verdict are right; only the saved JSON
+  misleads. Small, and kept out of the Build audit.
 - **`canary-reopen-browser` REOPEN 1 failed once under the full suite**
   (2026-10-09): it passes alone, so it is likely load-sensitive. In full
   under Backlog below.

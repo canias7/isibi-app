@@ -1,27 +1,40 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the Build audit's free rehearsal (run 114) stopped on a workflow install defect, fixed on the branch, to be pressed again; run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-14: the Build audit's free rehearsal read the account (run 115: design and graph on; run 114's install defect fixed on the branch); run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **The Build audit, now (2026-10-14):**
-- Run 114, the free `check-no-images` rehearsal, stopped before it signed
-  in (`ERR_MODULE_NOT_FOUND 'typescript'`): the *build as owner* workflow
-  had no install step. It is fixed on the branch (`f7267ea9`, plus a guard
-  test, red-checked). Nothing was read or spent.
-- Read free: `saltmarsh-cheese-counter` is free, the balance is 783, and no
-  job is open. The account's `design`, `graph` and `bands` flags are still
-  unread.
-- **Next step: press the same rehearsal from `claude/help-needed-ehlwlj`.**
-  If an image-free mode is on, record it. If none is on, prepare the
-  account-scoped canary change for review; do not enable it.
-- The 11–45 credits is an estimate, not an enforced limit.
+- **Run 115, the free rehearsal, read everything** (11:34 UTC, from the
+  branch at `0d92f16e`, after the install fix `f7267ea9`; run 114 had died
+  before signing in). Nothing was sent or charged.
+- **The account's flags:** `design` true, `graph` true, `bands` true
+  (through a canary list), `bandsEveryone` false. **An image-free parallel
+  mode is on**: design agents at once, and the design as a graph. Nothing
+  needs switching on, so no configuration change is prepared.
+- The slug `saltmarsh-cheese-counter` is free and the balance is 783.
+  `imagePurchases` is true.
+- **Unmet, as expected:** the balance is above the 100 cap (the box was
+  blank), and the Worker still buys photographs.
+- The paid press could show overlap through the design's agents, and
+  through page bands if the build writes two or more. A build that runs its
+  design as one call would show none: recorded, not retried.
+- **11–45 credits is an estimate, not an enforced limit.** Only the balance
+  bounds a sent build.
+- **Next, yours:**
+  1. approve one paid run at about 11–45 credits;
+  2. I commit the opt-in for `check-no-images`;
+  3. you turn `IMAGE_PURCHASES` off and redeploy `main` (no code change,
+     the image reused);
+  4. a free rehearsal must read `imagePurchases=false`;
+  5. the paid press runs with the exact balance;
+  6. image purchases go back on.
 - CI on `fb5f01f3` is green (10,784 passed, 44 skipped, 0 failed). The
   earlier REOPEN 1 timing failure was local only.
-- Details: `docs/history/2026-10-14-build-audit-batch.md` §7.
+- Details: `docs/history/2026-10-14-build-audit-batch.md` §7–8.
 
 **Production, as read now (2026-10-14):**
 - `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
@@ -1164,6 +1177,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+
+## 2026-10-14 — Run 115: the Build check read the account; parallel design is on
+
+With the install fixed, the free rehearsal signed in and read everything.
+Your account has design agents at once and the design graph on, so the
+image-free Build test can show real overlap without switching anything on.
+The slug is free and the balance is 783. The only unmet items were the
+expected ones: image purchases are on, and the balance is above the
+press's 100 cap. Nothing was spent. The paid press waits for your approval,
+the opt-in commit, and image purchases off. One small reporting slip went
+to the backlog: the saved JSON gives a met check the wording of its unmet
+case.
 
 ## 2026-10-14 — The Build check's free rehearsal could not start; fixed on the branch
 
