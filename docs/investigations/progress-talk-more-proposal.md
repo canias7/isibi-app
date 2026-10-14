@@ -1,10 +1,12 @@
 # The builder talks while it works: design, as built (2026-10-13)
 
 **Status: built and tested offline on branch `new`, behind a new switch
-(`PROGRESS_TALK`, off by default). Nothing is merged, deployed, built into an
-image, switched on, pressed or spent.** The commits, test results and the one
-consolidated live verification are in
-`docs/history/2026-10-13-progress-talk.md`.
+(`PROGRESS_TALK`, off by default), and corrected after Codex's review
+(2026-10-14). Nothing is merged, deployed, built into an image, switched on,
+pressed or spent.** The batch is in `docs/history/2026-10-13-progress-talk.md`.
+The correction batch, with its integration check, its single release proposal
+and the one consolidated live verification as it now stands, is in
+`docs/history/2026-10-14-check-evidence.md`.
 
 This document started as five options (2026-10-13, morning). The owner then
 asked for them built as one batch, with corrections; this is the design as
@@ -140,14 +142,30 @@ from facts, labelled as a summary, never presented as live thinking.
 ### 5. The final message
 
 When the switch is on, the reply writer is told it follows a conversation
-(`REPLY_TALK_RULES`): do not retell the updates; say what was done, which
-checks ran, and what is not done or still open; a next step only when a fact
-makes one useful; undo only where a fact gives it (the existing `u` facts
-are added only where the operation supports one). For a queued Edit or
-Add-on job, the checks and publish its record holds are added as `k` facts
-(`jobChecksFor`), so the message can name the checks that really ran and no
-others. A Build's reply and a request's combined reply are not given `k`
-facts (see the limits).
+(`REPLY_TALK_RULES`):
+- do not retell the updates;
+- say what was done, which checks ran and which could not, and what is not
+  done or still open;
+- give a next step only when a fact makes one useful;
+- offer undo only where a fact gives it (the existing `u` facts are added
+  only where the operation supports one).
+
+**What a publish checked is handed to every final reply, from the answer
+itself** (corrected 2026-10-14, `builder/check-evidence.mjs`).
+- **Made once, at the publish.** The publish makes the evidence: compiled;
+  the automated browser check (ran clean, flagged by page, cut short, or
+  could not run); the style rules checked; published; and the version.
+- **Kept on every stored answer.** That covers an Edit, an Add-on and a
+  Build (`buildFacts.checks`).
+- **Read as `k` facts by every reply.** An Edit's, an Add-on's, a Build's,
+  and each part of a combined request, said under that part's own words,
+  numbered when a part published more than once.
+- **Independent of narration.** Switched off, failed, lost or late
+  narration changes none of it.
+- **Defined in the main instructions.** `REPLY_SYSTEM` defines `k` for every
+  reply, and how far each check reaches.
+- **Gone: `jobChecksFor`.** The record-based handoff it replaced held only
+  the checks that passed, only with the switch on.
 
 ## Truthful states
 
@@ -160,6 +178,19 @@ facts (see the limits).
 | "I checked …" | a `checked` fact, and only as far as its text reaches |
 | "It's published / live" | a `published` fact |
 | "I couldn't …" | `notdone`, kept in every later update |
+
+**Five things kept apart** (the owner, through Codex's review, 2026-10-14:
+*"Clearly distinguish compilation, automated browser checks, visual review,
+publication and live-page verification; don't imply checks beyond the
+available evidence"*):
+
+| Thing | Made? | How it is said |
+|---|---|---|
+| compilation | every publish | "compiled without errors … it is not a look at any page" |
+| automated browser check | when it runs | "an automated check opened N pages … It is automated: nobody looked at the design"; cut short, could not run and each finding by page are said as such |
+| visual review | **never** | only as not made ("nobody looked at the design") |
+| publication | when `activate` answers ok | "Published: the new version is now the one the site's address is set to serve" |
+| live-page verification | **never** | only as not made ("Nobody opened the live address afterwards to confirm it") |
 
 A `checked` fact is worded to its reach: "the site built without errors" is
 not a look at the page; the browser check is "an automated check …, not a
@@ -214,14 +245,14 @@ count is promised only after the live verification measures it.
    reason; picker, designer and router choices record none yet.
 3. **No live read of the published page.** "Published" is the activation's
    own evidence; a fetch of the live address is not made.
-4. **Build's final reply and a request's combined reply are not given the
-   `k` facts.** A Build's reply already carries its own build facts
-   (`buildFacts`); a request's reply covers its parts' replies.
-5. **The old `renderNote` sentence** ("I had a look at the finished pages:
-   …"), composed by code on `main` and used by final replies when the render
-   check found something, reads as a visual review. It is in the file the
-   concurrent session is changing (`builder/site-render.mjs`), so it is
-   recorded here and in the backlog rather than changed in this batch.
+4. ~~Build's final reply and a request's combined reply are not given the
+   `k` facts.~~ **Resolved 2026-10-14**: every final reply reads them from
+   the answer's own evidence.
+5. ~~The old `renderNote` sentence ("I had a look at the finished pages: …")
+   reads as a visual review.~~ **Resolved 2026-10-14**: it is never a reply
+   fact, and its fixed line says "An automated check that opened the finished
+   pages in a browser flagged: …". The integration check found no conflict
+   with the concurrent session's changes to that file.
 6. **A browser check cut short** is said as cut short; which routes it did
    not reach is not listed.
 7. **The 3-second wait** is a judgement, not a measurement; the live
@@ -229,3 +260,13 @@ count is promised only after the live verification measures it.
 8. **Supplied-model evidence only.** Every test answer is supplied; what a
    real model writes, how often, how long it takes and what it costs are
    unmeasured until the live verification.
+9. **What recovery settles carries no evidence.** A lost Build that recovery
+   finds did go live has no render report, so its reply claims no check. A
+   recovered Edit or Add-on answer is not written by the model at all
+   (`recovered`): it keeps its fixed sentence.
+10. **The inline Build's publish wire is shown by a source guard.** No
+    fixture drives an inline build to a publish; the queued build's is
+    driven end to end.
+11. **The build card's ✓ and ✕ marks** are waiting for the owner's choice
+    (backlog): they are progress, which the no-checkmark rule covers, and
+    they are the owner's own treatment E.

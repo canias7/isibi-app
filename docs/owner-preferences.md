@@ -1249,3 +1249,16 @@
     measured;
   - behind switches, unmerged, with one consolidated live verification
     prepared rather than a paid test per switch.
+- **Say each check exactly as far as it reaches** (2026-10-14, the owner's
+  correction batch through Codex's review): *"Clearly distinguish
+  compilation, automated browser checks, visual review, publication and
+  live-page verification; don't imply checks beyond the available
+  evidence."* With it:
+  - the final message must get an accurate account of the checks even when
+    narration failed, was skipped or came late;
+  - successful checks, what they found, checks that were unavailable or
+    partial, and publication, each with its task and version;
+  - no "I had a look" for an automated check.
+- **One release for work on two branches, not two** (2026-10-14): prepare an
+  isolated integration check against the other session's current head and
+  resolve shared files there, without merging either branch into production.

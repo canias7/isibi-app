@@ -4,6 +4,14 @@
 merged, deployed, built into an image, switched on, pressed or spent.** The
 design as built is `docs/investigations/progress-talk-more-proposal.md`.
 
+> **Corrected on 2026-10-14, after Codex's review at `f1c6f9b0`:
+> `docs/history/2026-10-14-check-evidence.md`.** It replaces this record's
+> account of the final reply's checks: they now come from each answer's own
+> evidence, not from `jobChecksFor`, and Build and combined replies get them
+> too. It also replaces §5 (one release built from an integrated candidate,
+> instead of two in turn), §6 (the live verification, with what it now reads)
+> and §7 (limits, resolved and remaining).
+
 ## 1. What the owner asked
 
 *"Proceed with the progress-message work described in
