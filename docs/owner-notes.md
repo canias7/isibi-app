@@ -1,14 +1,16 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the combined candidate is pushed as `integ/combined-candidate` `8af536af` for review and CI; `acc-mixed` now carries the reconnect and progress checks; `acc-mixed-talk` and the live switch reading are ready for an approved PROGRESS_TALK window; fresh Build slug `saltmarsh-cheese-lewes`; image predicted `e1582f6f71a41dfb`; nothing merged, deployed, built, switched on, pressed or spent)
+## Current handoff — read this first (2026-10-14: the combined candidate is pushed as `integ/combined-candidate`, head `e75ff483` (the talk-check correction on top of `8af536af`), for review and CI; `acc-mixed` now carries the reconnect and progress checks; `acc-mixed-talk` and the live switch reading are ready for an approved PROGRESS_TALK window; fresh Build slug `saltmarsh-cheese-lewes`; image predicted `e1582f6f71a41dfb`; nothing merged, deployed, built, switched on, pressed or spent)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **The pushed candidate (2026-10-14, for your and Codex's review):**
-- **Branch `integ/combined-candidate`, head `8af536af`.** It is the merge
+- **Branch `integ/combined-candidate`, head now `e75ff483`**: the
+  narration-check correction (below) on top of `8af536af`.
+- **`8af536af`:** It is the merge
   `1c3eef7f` (this branch `44a24b17` + `new` `9ceca1d4`, the same two
   conflict resolutions as `4507747c`) plus one commit.
 - `main` (`fef80b9b`), `new` (`9ceca1d4`) and this branch are unchanged by
@@ -1447,6 +1449,76 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — The talk checks read "not yet", "couldn't" and "I'll … next" correctly now (nothing spent)
+
+You reproduced that the talk check rejected three true sentences: "I
+haven't published this yet", "The browser check could not run" and "I'll run
+the browser check next". The evidence correctly said unpublished, with no
+browser check. The check had taken any mention of publishing or a browser as
+a claim that it was done.
+
+**Fixed on the candidate, `integ/combined-candidate` `e75ff483`** (on top of
+`8af536af`), in `scripts/canary-talk.mjs`:
+- **Each mention is read in its own clause** and given one of four modes
+  from that clause's grammar:
+  - done ("I've put it live");
+  - not done ("hasn't gone live", "could not run");
+  - still to come ("I'll publish", "the check is next");
+  - uncertain ("should be live", "if the check runs").
+- **The grammar comes from the language's own markers**: negatives, future
+  words and hedges. It is not a list of accepted sentences, so the model is
+  not forced into fixed phrases.
+- **Only a "done" claim is held to the job's checks.** False success claims
+  are still rejected, including in a sentence that also states a true
+  limitation ("not live yet, but the browser check found no problems"
+  fails on its second half). A negation never carries over onto a new
+  subject: "It isn't perfect yet: it's live" still counts as claiming it is
+  live.
+- **For lines said during the work, final success is not proof.**
+  - Every progress line and explanation is now held, not only
+    explanations.
+  - One the final checks contradict fails.
+  - One the final checks support is reported as **unverified in time**,
+    because nothing recorded dates a publish or a browser check against the
+    line. It goes into the press's own list of unverified items, and is
+    never counted as a pass.
+
+**Verified:**
+- 9 new test groups in `test/canary-talk.test.mjs` (31 cases in the file),
+  with varied wording. They cover:
+  - true limitations;
+  - uncertain wording;
+  - the mode each clause is read in;
+  - false claims;
+  - mixed sentences;
+  - honest reports of findings;
+  - timing during the work, and the press and its verdict carrying that
+    timing.
+- **Red check** of the same wordings against `8af536af`'s reader: it
+  rejected 13 of 19 true sentences and missed 1 of 11 false claims. The
+  new reader gets all 30 right.
+- **Sweep:** all 16 mutants killed; the 2 comment-only controls survived.
+- **Affected tests:** 787 / 787.
+- **Full suite (local):** `10945 / 10945 / 0 / 0`.
+- **Unit CI on `e75ff483`:** run 38624052804, `10945 / 10901 / 0 / 44`,
+  success. The site build did not start, because its path filter excludes
+  `scripts/` and `test/`. Nothing it builds changed since `8af536af`, where
+  it passed.
+- **Image prediction:** still `e1582f6f71a41dfb`.
+
+**Unchanged:**
+- the combined coverage;
+- both scenarios;
+- the switch read;
+- the slug;
+- the closed opt-ins.
+
+**Still a limit:**
+- Grammar markers can't cover every possible phrasing. A sentence outside
+  them is read as "done", the strict side, so the error case is a false
+  failure, never a false pass.
+- Claims about content are still not held to evidence.
 
 ## 2026-10-14 — Your two free rehearsals from the candidate branch (nothing spent)
 

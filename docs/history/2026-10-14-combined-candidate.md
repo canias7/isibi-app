@@ -459,3 +459,40 @@ the talk checks are then not exercised.
 
 **Not repeated:** run 117, K3B, `acc-clarify-resume`, `lv-combined`,
 `lv-progress` and every closed audit.
+
+### 6.6 Correction: the talk checks read negation, intent and uncertainty (`e75ff483`)
+
+The owner reproduced three false rejections on `8af536af`'s check.
+`ungrounded()` held "I haven't published this yet", "The browser check could
+not run" and "I'll run the browser check next" as claims of completion
+against evidence that correctly said unpublished, with no browser check.
+
+**The fix, in `scripts/canary-talk.mjs`:**
+- `claimsIn` reads each mention in its own clause and gives it a mode:
+  affirmed, negated, intended or hedged. The mode comes from the clause's
+  own negators, future auxiliaries and hedges.
+- A clause with no subject of its own continues the clause before it.
+- After a colon or "then", a clause continues an intended or hedged framing
+  only. A negation never carries onto a new subject.
+- Only affirmed mentions are claims of completion (`claimsOf`), and only
+  those are held (`groundingOf`).
+
+**During the work:**
+- Every progress line and explanation is held.
+- A claim the final checks contradict fails.
+- A claim they hold is unverified in time: `talkVerdict` returns it, and
+  `requestBatchVerdict` adds it to the press's unverified list.
+
+**Results:**
+
+| Check | Result |
+|---|---|
+| Red check (the same wordings through `8af536af`'s reader) | 13 of 19 truthful sentences rejected, 1 of 11 false claims missed; now 0 and 0 |
+| Sweep | 16 of 16 killed, 2 controls survived |
+| Affected tests | 787 / 787 |
+| Full suite (local) | `10945 / 10945 / 0 / 0` |
+| Unit CI, run 38624052804 | `10945 / 10901 / 0 / 44` |
+
+- The site build was not triggered (path filter). Its inputs have not
+  changed since `8af536af`, where it passed.
+- The image prediction is still `e1582f6f71a41dfb`.
