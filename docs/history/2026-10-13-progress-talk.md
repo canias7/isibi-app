@@ -121,8 +121,8 @@ reads, and even it is a sample.
 **What would ship:** branch `new` = `main` (`fef80b9b`, the code deploy 2203
 runs) plus three customer-visible changes and their tests:
 1. no emoji or checkmarks in replies; dashes on the request card
-   (`9e9819b5`);
-2. one task's updates stack instead of replacing each other (`adacb5b0`);
+   (`9e9819be`);
+2. one task's updates stack instead of replacing each other (`adacb5b8`);
 3. this batch, **switched off** until `PROGRESS_TALK` is set (`d5925da5`,
    `9de0ab8e`).
 

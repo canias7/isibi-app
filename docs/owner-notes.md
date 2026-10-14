@@ -7,10 +7,10 @@ named `new`, cut from `main` (`fef80b9b`, the code deploy 2203 runs). The
 handoff below this one is the other session's and is unchanged.*
 
 **Commits, oldest first** (review together):
-1. `9e9819b5` — no emoji or checkmarks in replies unless asked; dashes on
+1. `9e9819be` — no emoji or checkmarks in replies unless asked; dashes on
    the request card (E) and before each progress line with the thin thread
    (4c). `docs/history/2026-10-13-no-emoji-dashes.md`.
-2. `adacb5b0` — one task's updates stack while it runs, never replaced.
+2. `adacb5b8` — one task's updates stack while it runs, never replaced.
 3. `af5cf61a` — the five "talk more" options, written for review.
 4. `d5925da5` — **the builder talks while it works**, behind
    `PROGRESS_TALK` (off): an opening plan; the checks a publish ran and the
