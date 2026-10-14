@@ -25,6 +25,7 @@
 // A REPLY IS NOT AN OUTCOME (run 47): every check reads what the operations
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
+import { talkChecks } from "./canary-talk.mjs";
 import { frameOf, footerLinkVerdict, footerLinkName, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict, waitedWork } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
@@ -2029,7 +2030,7 @@ export function innerDesignVerdict({ steps, jobs } = {}) {
   return out("unverified", `${d.verdict}${d.why ? " — " + d.why : ""}`, { stage: "overlap", ...read });
 }
 
-export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos, between = [] }) {
+export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, servedOpen, beforeServedOpen, logo, row, tables, slug, frameLoads, photos, between = [], talkSwitch = null }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
   want.forEach((_, i) => {
@@ -2085,6 +2086,8 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   const shape = spec && spec.expect && spec.expect.shape === true ? routingShape(steps) : null;
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
+  // AND THE BUILDER TALKING WHILE IT WORKS (2026-10-14), for a press that asks.
+  if (spec && spec.expect && spec.expect.talk === true) checks.push(...talkChecks({ steps, talkSwitch }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
   const unverified = [...(o.unverified || [])];

@@ -26429,6 +26429,16 @@ async function handleRequest(request, env, ctx) {
         jobGraph: designGraphFor(jobSecrets(env), { uid: tu.id }),
         jobBands: bandSplitFor(jobSecrets(env), who),
         jobBandsEveryone: bandSplitEveryone(jobSecrets(env)),
+        // THE NARRATION SWITCHES, READ LIVE (2026-10-14, the owner: "don't
+        // assume its live state from an unset-secret fallback"). Whether the
+        // Worker narrates (`PROGRESS_REPLIES`) and talks while it works
+        // (`PROGRESS_TALK`, on top of it), and the same two as a container job
+        // sees them — a job's records open with its own env's answer.
+        // Booleans, like every field here.
+        progressReplies: progressOn(env),
+        progressTalk: talkOn(env),
+        jobProgressReplies: progressOn(jobSecrets(env)),
+        jobProgressTalk: talkOn(jobSecrets(env)),
       });
     }
 
