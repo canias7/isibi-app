@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { talkSwitchVerdict, mergeSeen, firstPerson, ungrounded, talkChecks } from "../scripts/canary-talk.mjs";
+import { talkSwitchVerdict, mergeSeen, firstPerson, ungrounded, talkChecks, talkVerdict, claimsIn, groundingOf } from "../scripts/canary-talk.mjs";
 import { UI_SCENARIOS, BALANCE_OPT_IN } from "../scripts/canary-ui.mjs";
 import { requestBatchVerdict } from "../scripts/canary-requests.mjs";
 import { BUILD_CHECK_NO_IMAGES, BUILD_BALANCE_OPT_IN } from "../scripts/canary-build.mjs";
@@ -190,7 +190,7 @@ test("ungrounded: each claim held to the checks; no claim needs none", () => {
 test("an explanation that claims more than its own job's checks fails — another job's evidence does not rescue it", () => {
   // A's explanation says it is live and clean; A's own checks say unpublished; B's are clean
   const network = [answer(A, reply("I added the page.", UNPUBLISHED)), answer(B, reply("I changed the price.", CLEAN))];
-  const f = failsOn(good({ network }), /every explanation claims only/);
+  const f = failsOn(good({ network }), /claims nothing its own job's checks contradict/);
   assert.match(f.why, new RegExp(A.slice(0, 8)));
 });
 
@@ -254,4 +254,120 @@ test("the press reads the switch before the rehearsal stop and records each view
   assert.match(src.slice(nv, nv + 600), /r\.request\.seen = mergeSeen\(r\.request\.seen, view/);
   const ec = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
   assert.match(ec, /talkSwitch: ui\.talkSwitch \|\| null/);
+});
+
+// ── NEGATION, INTENT, UNCERTAINTY AND COMPLETION (2026-10-14, after the
+// owner reproduced three false rejections: a truthful "not yet", "could not"
+// or "I'll … next" was read as a claim of the thing done). Varied natural
+// wording, none of it a fixed phrase the model must use.
+
+const NOT_YET = { compiled: true, published: false, browser: { ran: false } };
+
+test("TRUTHFUL LIMITATIONS pass against evidence that says unpublished and no browser check — the owner's three, and more wordings", () => {
+  for (const t of [
+    "I haven’t published this yet.",
+    "The browser check could not run.",
+    "I’ll run the browser check next.",
+    "Nothing's live yet — I'm still putting the page together.",
+    "The page isn't published, and the browser check didn't get to run.",
+    "I wasn't able to run the browser check this time.",
+    "Once it's ready I'll publish it and open the pages in a browser.",
+    "Next up: publishing, then the automated check.",
+    "If the build passes, I'll put it live.",
+    "I'm going to publish once the check is done.",
+    "No browser check ran, so I can't say how the page loads.",
+    "Publishing failed, so the site still shows the old version.",
+    "I couldn't confirm there were no problems.",
+    "I haven't been able to publish or check it in a browser yet.",
+    "We're yet to publish.",
+  ]) assert.equal(ungrounded(t, NOT_YET), "", t);
+});
+
+test("HEDGED wording is not a completion claim: it is neither held as true nor failed", () => {
+  for (const t of ["It should go live in a minute or two.", "I think the browser check will be fine.", "It may already be published — I'm checking.", "Whether the browser check ran, I can't tell yet."]) {
+    assert.equal(ungrounded(t, NOT_YET), "", t);
+    assert.ok(claimsIn(t).length > 0 && claimsIn(t).every((c) => c.mode !== "affirmed"), `${t}: ${JSON.stringify(claimsIn(t))}`);
+  }
+});
+
+test("each mention is given the mode its own clause says it in", () => {
+  const modes = (t) => claimsIn(t).map((c) => `${c.topic}:${c.mode}`);
+  assert.deepEqual(modes("I haven't published it."), ["published:negated"]);
+  assert.deepEqual(modes("I'll publish it next."), ["published:intended"]);
+  assert.deepEqual(modes("It should be live soon."), ["published:intended"]);
+  assert.deepEqual(modes("It might be live."), ["published:hedged"]);
+  assert.deepEqual(modes("It's live."), ["published:affirmed"]);
+  // a later clause without its own subject carries on the clause before it…
+  assert.deepEqual(modes("I'll publish it and open the pages in a browser."), ["published:intended", "browser:intended"]);
+  // …and one with its own subject reads its own grammar
+  assert.deepEqual(modes("I'll publish it soon, and the browser check found no problems."), ["published:intended", "browser:affirmed", "clean:affirmed"]);
+  // "nothing was flagged" is affirmative though it holds a negative word
+  assert.deepEqual(modes("Nothing was flagged."), ["clean:affirmed"]);
+});
+
+test("UNSUPPORTED AFFIRMATIVE CLAIMS are still rejected, in varied wording", () => {
+  for (const t of ["It's live now.", "I've published the Bulk Orders page.", "The page went live a moment ago.", "A browser opened the page and nothing was flagged.", "Everything looks good and it's live.", "Done — it's published."]) {
+    assert.notEqual(ungrounded(t, NOT_YET), "", t);
+  }
+});
+
+test("MIXED sentences: a truthful limitation does not excuse a false success beside it", () => {
+  for (const t of [
+    "I haven't changed the menu yet, but the page is live.",
+    "The menu link isn't there yet; the browser check found no problems.",
+    "Not finished with the price, though I've published the page.",
+    "I couldn't add the link, but everything else is published and the browser check came back clean.",
+    "It isn't perfect yet: it's live, though.",
+  ]) assert.notEqual(ungrounded(t, NOT_YET), "", t);
+  // the false half is what is named
+  assert.match(ungrounded("I haven't run the browser check, but it's live.", NOT_YET), /not published/);
+  assert.match(ungrounded("I haven't published it, but the browser check found no problems.", NOT_YET), /none ran/);
+});
+
+test("affirmed claims the evidence holds pass; a clean claim against findings fails, an honest report of them passes", () => {
+  const CLEAN_K = { compiled: true, published: true, browser: { ran: true, pages: 2, findings: [] } };
+  const FOUND = { compiled: true, published: true, browser: { ran: true, pages: 1, findings: [{ kind: "blank", route: "/bulk-orders" }] } };
+  assert.equal(ungrounded("It's live, and the automated check found no problems.", CLEAN_K), "");
+  assert.equal(ungrounded("I put it live and opened both pages in a browser.", CLEAN_K), "");
+  assert.match(ungrounded("It's live and the browser check found nothing wrong.", FOUND), /not clean/);
+  assert.equal(ungrounded("It's live; the browser check flagged a page that shows nothing.", FOUND), "");
+});
+
+test("DURING THE WORK, eventual success is not proof: a completion claim the final checks hold is unverified in time, never passed or failed on it", () => {
+  const FINAL = { compiled: true, published: true, browser: { ran: true, pages: 1, findings: [] } };
+  const g = groundingOf("I've published it and the browser check found no problems.", FINAL, { during: true });
+  assert.deepEqual(g.bad, []);
+  assert.deepEqual(g.timing, ["published", "the browser check", "a clean result"]);
+  // the same words as a final reply are simply held
+  assert.deepEqual(groundingOf("I've published it and the browser check found no problems.", FINAL).timing, []);
+  // a limitation said during the work is not contradicted by the final success
+  assert.deepEqual(groundingOf("I haven't published it yet; I'll run the browser check next.", FINAL, { during: true }), { bad: [], timing: [] });
+  // and a claim the final checks contradict fails during the work too
+  assert.notDeepEqual(groundingOf("It's live now.", NOT_YET, { during: true }).bad, []);
+});
+
+test("the talk press reports a progress line's completion claim as UNVERIFIED IN TIME, and passes a truthful limitation in a line", () => {
+  const early = { job: A, n: 1, ms: 100, text: "I've published the page already." };
+  const honest = { job: B, n: 1, ms: 200, text: "I haven't changed the price yet; I'll publish once it's done." };
+  const parts = [part(0, [A], [early]), part(1, [B], [honest])];
+  const seen = mergeSeen(null, viewOf(parts), 300);
+  const steps = [{ n: 1, sent: true, request: { key: "k1", final: viewOf(parts), seen }, network: [answer(A, reply("I added the Bulk Orders page and published it.", CLEAN)), answer(B, reply("I changed the price to £5.90.", CLEAN))] }];
+  const v = talkVerdict({ steps, talkSwitch: talkSwitchVerdict(rt(ON), true) });
+  assert.deepEqual(v.checks.filter((c) => !c.ok).map((c) => c.name), []);
+  assert.equal(v.unverified.length, 1);
+  assert.match(v.unverified[0], new RegExp(`job ${A.slice(0, 8)} line 1 said published as done while the work ran`));
+  assert.match(v.unverified[0], /unverified/);
+  // a progress line claiming what the final checks deny fails the press
+  const lie = [part(0, [A], [{ ...early }]), part(1, [B], [honest])];
+  const steps2 = [{ ...steps[0], request: { key: "k1", final: viewOf(lie), seen: mergeSeen(null, viewOf(lie), 300) }, network: [answer(A, reply("I added the page, but it isn't published.", UNPUBLISHED)), answer(B, reply("I changed the price to £5.90.", CLEAN))] }];
+  const f = talkVerdict({ steps: steps2, talkSwitch: talkSwitchVerdict(rt(ON), true) }).checks.filter((c) => !c.ok);
+  assert.deepEqual(f.map((c) => c.name), ["message 1: every progress line and explanation claims nothing its own job's checks contradict"]);
+});
+
+test("requestBatchVerdict carries the talk press's unverified timing into the press's own unverified list", () => {
+  const early = { job: A, n: 1, ms: 100, text: "I've published the page already." };
+  const parts = [part(0, [A], [early])];
+  const steps = [{ n: 1, sent: true, request: { key: "k1", final: viewOf(parts), seen: mergeSeen(null, viewOf(parts), 300) }, network: [answer(A, reply("I added the page and published it.", CLEAN))] }];
+  const v = requestBatchVerdict({ before: null, after: null, served: {}, beforeServed: {}, steps, spec: { expect: { talk: true } }, talkSwitch: talkSwitchVerdict(rt(ON), true) });
+  assert.ok(v.unverified.some((u) => /said published as done while the work ran/.test(u)), JSON.stringify(v.unverified));
 });

@@ -25,7 +25,7 @@
 // A REPLY IS NOT AN OUTCOME (run 47): every check reads what the operations
 // did — the request's own view, the stored source, the served pages, the
 // owner's table listing, the logo's bytes — never how many replies came back.
-import { talkChecks } from "./canary-talk.mjs";
+import { talkVerdict } from "./canary-talk.mjs";
 import { frameOf, footerLinkVerdict, footerLinkName, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
 import { requestKeyOf, routeCallOf, liveOnItsPart, answerResumedVerdict, waitedWork } from "./canary-ui.mjs";
 import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
@@ -2087,7 +2087,8 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   // WHAT THE CUSTOMER WAS SHOWN WHILE THE WORK RAN (2026-10-06), for a press that asks.
   if (spec && spec.expect && spec.expect.progress === true) checks.push(...progressChecks({ steps }));
   // AND THE BUILDER TALKING WHILE IT WORKS (2026-10-14), for a press that asks.
-  if (spec && spec.expect && spec.expect.talk === true) checks.push(...talkChecks({ steps, talkSwitch }));
+  const talk = spec && spec.expect && spec.expect.talk === true ? talkVerdict({ steps, talkSwitch }) : null;
+  if (talk) checks.push(...talk.checks);
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
   const unverified = [...(o.unverified || [])];
@@ -2098,6 +2099,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   if (isolation && isolation.strength === "consistent") unverified.push("task isolation: the edit had landed before the Add-on ran, so an Add-on that left the heading alone is consistent with isolation and equally with a model that saw the change already made — not proven; only an Add-on-first run discriminates");
   if (isolation && isolation.ok) unverified.push("task isolation: why a model left the other part's words alone (the rule, or its own judgment) is not observable; what it was shown and what it changed are");
   if (clarify && clarify.state === "not-exercised") unverified.push(`clarify and resume: not exercised (${clarify.stage}) — no automatic repeat`);
+  if (talk) unverified.push(...talk.unverified);
   if (shape) unverified.push(`what the real router made of the message: ${shape.shape}${Number.isInteger(shape.parts) ? ` (${shape.parts} part(s))` : ""} — recorded, not judged`);
   return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages, unverified, ...(timeline ? { timeline } : {}), ...(reuse ? { reuse } : {}), ...(needs ? { needs } : {}), ...(shape ? { shape } : {}), ...(isolation ? { isolation } : {}), ...(clarify ? { clarify } : {}) };
 }

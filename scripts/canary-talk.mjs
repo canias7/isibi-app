@@ -72,30 +72,116 @@ export function firstPerson(text) {
   return /(^|[^A-Za-z'])(I|I'm|I've|I'll|I'd)(?![A-Za-z])/.test(t) || /\b(my|we|we're|we've|we'll|our)\b/i.test(t);
 }
 
-/**
- * WHAT A SENTENCE CLAIMS ABOUT THE CHECKS, so it can be held to them: that
- * the change is live, that a browser looked at it, that nothing was found.
- * Words only; the evidence is the answer's `checks`.
- */
-export function claimsOf(text) {
-  const t = str(text).toLowerCase();
-  return {
-    published: /\b(published|is live|now live|went live|live now)\b/.test(t),
-    browser: /\b(browser|opened the (finished )?pages?|automated check)\b/.test(t),
-    clean: /\b(no problems|nothing (was )?(wrong|flagged)|flagged nothing|all clear|looks? (fine|good|clean))\b/.test(t),
-  };
+// ── WHAT A SENTENCE CLAIMS, AND HOW (2026-10-14, after the owner reproduced
+// three false rejections: "I haven't published this yet", "The browser check
+// could not run" and "I'll run the browser check next" were each read as a
+// claim of the thing done, because a topic word was taken as a claim). A
+// mention is now read in its own clause and given a MODE from that clause's
+// grammar — never from a list of accepted sentences:
+// - "affirmed": said as done or true now ("I've put it live", "a browser
+//   opened the page and nothing was flagged");
+// - "negated": said as not done or not possible ("hasn't gone live", "could
+//   not run", "without a browser check");
+// - "intended": said as still to come ("I'll publish", "the browser check is
+//   next", "going to run");
+// - "hedged": said as uncertain or conditional ("should be live", "if the
+//   check runs", "I think it's live").
+// Only an affirmed claim is a claim of completion, and only that is held to
+// the job's checks. A sentence with a true limitation and a false success
+// ("not live yet, but the browser check found no problems") is two clauses,
+// and the second is held on its own. The markers are the language's own
+// negators, future auxiliaries and hedges, so any wording that uses them is
+// read the same way; a phrasing outside them reads as affirmed, the strict
+// side.
+
+const TOPICS = Object.freeze({
+  published: /\b(?:publish(?:ed|es|ing)?|(?:is|are|was|went|gone|go|goes|going|now|be|been|being|put it|put them|it's|its|they're) live|live now|live on the site)\b/,
+  browser: /\b(?:browser|automated check|opened (?:the |each |every |all the )?(?:finished )?pages?)\b/,
+  clean: /\b(?:no (?:problems?|issues?|errors?)|nothing (?:was |is |got )?(?:wrong|flagged|found|broken)|flagged nothing|found nothing|all clear|looks? (?:fine|good|clean|right))\b/,
+});
+// "nothing was flagged" is affirmative though it holds "nothing": a clean
+// phrase is taken out of a clause before its grammar is read, for every topic.
+const CLEAN_ALL = new RegExp(TOPICS.clean.source, "g");
+const NEGATED = /n't\b|\b(?:not|never|no|none|without|unable|cannot|failed|fails|yet to)\b/;
+const INTENDED = /\b(?:will|'ll|shall|going to|gonna|about to|plans? to|planning to|intend(?:s|ing)? to|next|soon|still to)\b/;
+const HEDGED = /\b(?:may|might|maybe|perhaps|probably|possibly|likely|should|could|seems?|appears?|hopefully|if|whether|i think|i believe|i expect|i hope)\b/;
+// A clause that opens with its own subject reads its own grammar; one that
+// does not ("…and run the browser check") carries on the clause before it.
+const OWN_SUBJECT = /^(?:i|we|it|its|it's|they|the|this|that|these|those|nothing|everything|all|a|an|my|our|there|each|every|one|page|pages|your)\b/;
+
+const norm = (text) => str(text).toLowerCase().replace(/[‘’ʼ]/g, "'").replace(/\s+/g, " ");
+
+function modeOf(clause) {
+  const bare = clause.replace(CLEAN_ALL, " ");
+  if (NEGATED.test(bare)) return "negated";
+  if (INTENDED.test(bare)) return "intended";
+  if (HEDGED.test(bare)) return "hedged";
+  return "affirmed";
 }
 
-/** A claim the job's own checks do not hold, or "" when every claim is held. */
-export function ungrounded(text, checks) {
+/**
+ * EVERY MENTION OF A CHECK IN A TEXT, with the mode its clause says it in:
+ * `[{ topic, mode, clause }]`, in order. Pure.
+ */
+export function claimsIn(text) {
+  const out = [];
+  for (const sentence of norm(text).split(/[.!?;\n]+/)) {
+    // Each clause with the word that joined it. A clause with no subject of
+    // its own ("…and run the check") continues the clause before it. After a
+    // colon or "then", a clause also continues an INTENDED or HEDGED framing
+    // ("next up: publishing, then the check") whatever it opens with; a
+    // negation never carries across onto a clause with its own subject ("it
+    // isn't perfect yet: it's live" claims it is live).
+    const parts = sentence.split(/(\s*:\s*|\s*,?\s+(?:but|although|though|however|whereas|while|and|so|then)\s+|\s*,\s+)/);
+    let carried = null;
+    for (let i = 0; i < parts.length; i += 2) {
+      const clause = parts[i].trim();
+      const join = i ? parts[i - 1].trim().replace(/^,\s*/, "") : "";
+      if (!clause) continue;
+      const own = modeOf(clause);
+      const framed = (join === ":" || join === "then") && (carried === "intended" || carried === "hedged");
+      const continues = framed || !OWN_SUBJECT.test(clause);
+      const mode = own === "affirmed" && carried && carried !== "affirmed" && continues ? carried : own;
+      carried = mode;
+      for (const [topic, re] of Object.entries(TOPICS)) if (re.test(clause)) out.push({ topic, mode, clause });
+    }
+  }
+  return out;
+}
+
+/**
+ * WHAT A TEXT CLAIMS AS DONE about the checks, so it can be held to them:
+ * that the change is live, that a browser looked at it, that nothing was
+ * found. Only affirmed mentions count (`claimsIn`).
+ */
+export function claimsOf(text) {
+  const done = claimsIn(text).filter((c) => c.mode === "affirmed");
+  return { published: done.some((c) => c.topic === "published"), browser: done.some((c) => c.topic === "browser"), clean: done.some((c) => c.topic === "clean") };
+}
+
+/**
+ * HOLD A TEXT'S COMPLETION CLAIMS TO ITS OWN JOB'S CHECKS. `{ bad, timing }`:
+ * `bad` the claims the checks contradict; `timing`, for a text said WHILE THE
+ * WORK RAN (`during`), the claims the final checks do hold. The final checks
+ * say what was true at the end, not when it became true, and nothing the
+ * press records dates a publish or a browser check against a progress line,
+ * so such a claim is reported as unverified in time, never as passed.
+ */
+export function groundingOf(text, checks, { during = false } = {}) {
   const c = claimsOf(text);
+  const bad = [], timing = [];
+  if (!c.published && !c.browser && !c.clean) return { bad, timing };
   const k = readChecks(checks);
-  if (!c.published && !c.browser && !c.clean) return "";
-  if (!k) return "it claims a check, and the job's answer carries no readable checks";
-  if (c.published && k.published !== true) return "it says the change is live, and the job's checks say it was not published";
-  if (c.browser && k.browser.ran !== true) return "it speaks of a browser check, and the job's checks say none ran";
-  if (c.clean && !browserClean(k.browser)) return "it says nothing was found, and the job's browser check is not clean";
-  return "";
+  if (!k) return { bad: ["it claims a check as done, and the job's answer carries no readable checks"], timing };
+  if (c.published) (k.published === true ? timing : bad).push(k.published === true ? "published" : "it says the change is live, and the job's checks say it was not published");
+  if (c.browser) (k.browser.ran === true ? timing : bad).push(k.browser.ran === true ? "the browser check" : "it says a browser check ran, and the job's checks say none ran");
+  if (c.clean) (browserClean(k.browser) ? timing : bad).push(browserClean(k.browser) ? "a clean result" : "it says nothing was found, and the job's browser check is not clean");
+  return { bad, timing: during ? timing : [] };
+}
+
+/** The first completion claim the job's own checks do not hold, or "" when every one is held. */
+export function ungrounded(text, checks, opts) {
+  return groundingOf(text, checks, opts).bad[0] || "";
 }
 
 /**
@@ -105,13 +191,19 @@ export function ungrounded(text, checks) {
  * carries `request` (`final`, `seen`) and `network`. Each check fails the
  * press; a reason names what was found.
  */
-export function talkChecks({ steps, talkSwitch } = {}) {
+export function talkChecks(o = {}) {
+  return talkVerdict(o).checks;
+}
+
+/** `talkChecks` with what it could not establish: `{ checks, unverified }`. */
+export function talkVerdict({ steps, talkSwitch } = {}) {
   const out = [];
+  const unverified = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
   add("PROGRESS_TALK read on before the message was sent, as the Worker and a container job see it", !!(talkSwitch && talkSwitch.ok === true),
     talkSwitch ? talkSwitch.why : "the switch was not read");
   const sent = arr(steps).filter((s) => s && s.sent === true && s.request && s.request.final);
-  if (!sent.length) { add("a message was sent and its request read", false, "no request was read"); return out; }
+  if (!sent.length) { add("a message was sent and its request read", false, "no request was read"); return { checks: out, unverified }; }
   for (const s of sent) {
     const view = s.request.final;
     const seen = s.request.seen || { lines: {}, changed: [] };
@@ -159,16 +251,20 @@ export function talkChecks({ steps, talkSwitch } = {}) {
     }
     add(`${tag}: every line and explanation shown during the work is kept, unchanged, after the reconnect`, Object.keys(seen.lines || {}).length > 0 && !lost.length && !altered.length && !arr(seen.changed).length,
       !Object.keys(seen.lines || {}).length ? "no line was seen during the work" : [lost.length ? `gone: ${lost.slice(0, 3).join(", ")}` : "", altered.length ? `altered: ${altered.slice(0, 3).join(", ")}` : "", arr(seen.changed).length ? `${seen.changed.length} line(s) changed between reads` : ""].filter(Boolean).join("; "));
-    // GROUNDED: every explanation, and every final reply, claims only what its own job's checks hold.
+    // GROUNDED: every progress line and explanation, said WHILE THE WORK RAN,
+    // claims nothing its own job's checks contradict; a completion claim the
+    // final checks do hold is unverified in time (`groundingOf`). Another
+    // job's evidence never counts.
     const answers = jobAnswers(s.network);
     const bad = [];
     for (const l of lines) {
-      if (!l.explain) continue;
       const a = answers.get(l.job);
-      const why = ungrounded(l.explain, a && a.res ? a.res.checks : null);
-      if (why) bad.push(`job ${l.job.slice(0, 8)} line ${l.n}: ${why}`);
+      const said = [l.text, l.explain].filter(Boolean).join("\n");
+      const g = groundingOf(said, a && a.res ? a.res.checks : null, { during: true });
+      for (const why of g.bad) bad.push(`job ${l.job.slice(0, 8)} line ${l.n}: ${why}`);
+      if (g.timing.length) unverified.push(`${tag}: job ${l.job.slice(0, 8)} line ${l.n} said ${g.timing.join(", ")} as done while the work ran; the job's final checks hold it, but nothing recorded dates it against the line, so whether it was true when said is unverified`);
     }
-    add(`${tag}: every explanation claims only what its own job's checks hold`, !bad.length, bad.slice(0, 3).join("; "));
+    add(`${tag}: every progress line and explanation claims nothing its own job's checks contradict`, !bad.length, bad.slice(0, 3).join("; "));
     const replies = [];
     for (const [job] of byJob) {
       const a = answers.get(job);
@@ -179,5 +275,5 @@ export function talkChecks({ steps, talkSwitch } = {}) {
     }
     add(`${tag}: every job's final reply is model-written and claims only what its own checks hold`, byJob.size > 0 && !replies.length, replies.slice(0, 3).join("; ") || "no job had lines");
   }
-  return out;
+  return { checks: out, unverified };
 }
