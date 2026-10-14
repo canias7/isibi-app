@@ -88,9 +88,33 @@ no number of supplied answers shows that a real model never writes an
 unsupported sentence or leaks a detail. That is what the live verification
 reads, and even it is a sample.
 
-**Results** — stamped after the runs:
-- the new and touched test files: see §6;
-- mutation check, full suite, CI: see §6.
+**Results, measured after the runs:**
+- **Focused files**: `progress-talk` 14/14, `progress-talk-flow` 10/10,
+  `progress-talk-page` 3/3, `build-parallel` BLD TALK and BLD 10 2/2; every
+  existing progress file (`progress*`) 130/130 after two existing tests were
+  re-anchored (MPH 9 reads the writer's new `{ others, waited }`; RECORD 1's
+  property — an ordinary record holding a state it cannot know reads as
+  nothing — kept by a reader check, not weakened).
+- **Mutation check**: 30 mutants, one per property (the switch, each state
+  rule, the plan, each check fact's wording, the reasons, the id check on
+  the explanation, each wire in the Worker — plan, checks, publish, wait,
+  writer, explanation, the reply's checks — the request view, the poll, the
+  page's section, the reply's kept copy, the resumed build's plan, the
+  container's switch): **29 killed on the first pass; the survivor — a
+  flagged browser check losing its "automated, not a look at the design"
+  wording — was a missing assertion, added (`9de0ab8e`), and killed on its
+  rerun: 30 of 30.** The comment-only control survived.
+- **Full suite**: `10769 / 10767 / 0 / 2` locally on `9de0ab8e` (the branch
+  before this batch: `10741 / 10738 / 0 / 3`; the skip that went is
+  `site-searchpath`'s, which runs once the clone is unshallowed — done here,
+  after the clone's fetch of every branch made it fail as `CLAUDE.md`
+  warns).
+- **Image**: predicted, not built — `main` `4444d9d53d906b8d` (production's,
+  reproduced) → **`de8c30066bf602a1`** on `9de0ab8e`, 205 inputs. To be
+  predicted again on the exact release candidate after the merge with the
+  concurrent branch.
+- **CI**: the push runs unit tests on the branch; read its own top-level
+  fields and compare totals, never `pass`.
 
 ## 5. The release, proposed (one, for the owner's decision)
 
@@ -99,7 +123,8 @@ runs) plus three customer-visible changes and their tests:
 1. no emoji or checkmarks in replies; dashes on the request card
    (`9e9819b5`);
 2. one task's updates stack instead of replacing each other (`adacb5b0`);
-3. this batch, **switched off** until `PROGRESS_TALK` is set (`d5925da5`).
+3. this batch, **switched off** until `PROGRESS_TALK` is set (`d5925da5`,
+   `9de0ab8e`).
 
 The ChatGPT-style black-and-white design is a prototype only, not on the
 branch.

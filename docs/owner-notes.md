@@ -1,5 +1,52 @@
 # Owner Notes
 
+## Branch `new` — handoff for you and Codex (2026-10-13/14, this session; nothing merged, deployed, built, switched on, pressed or spent)
+
+*A second line of work beside `claude/help-needed-ehlwlj`, on the branch you
+named `new`, cut from `main` (`fef80b9b`, the code deploy 2203 runs). The
+handoff below this one is the other session's and is unchanged.*
+
+**Commits, oldest first** (review together):
+1. `9e9819b5` — no emoji or checkmarks in replies unless asked; dashes on
+   the request card (E) and before each progress line with the thin thread
+   (4c). `docs/history/2026-10-13-no-emoji-dashes.md`.
+2. `adacb5b0` — one task's updates stack while it runs, never replaced.
+3. `af5cf61a` — the five "talk more" options, written for review.
+4. `d5925da5` — **the builder talks while it works**, behind
+   `PROGRESS_TALK` (off): an opening plan; the checks a publish ran and the
+   publish itself as facts in two new states (`checked`, `published`);
+   recorded reasons; a 3-second ask so close events are one update; an
+   optional folded explanation ("More detail"), never hidden reasoning; the
+   final reply handed the checks that really ran; across Build, Edit and
+   Add-on, on the existing record, writer, lease, confirmation and UI.
+5. `9de0ab8e` — the sweep's one survivor closed; the records: the design as
+   built (`docs/investigations/progress-talk-more-proposal.md`), the batch,
+   its tests, the release proposal and the one consolidated live
+   verification (`docs/history/2026-10-13-progress-talk.md`).
+
+**Evidence (offline, supplied model answers only):** 28 new cases (14
+module, 10 through the real Worker, 3 page, 1 Build) separating state from
+prose; one pinned limit — words saying "it's live" with a true account are
+accepted, because the prose is not checked; mutation 30 of 30 killed, the
+control survived; full suite `10769 / 10767 / 0 / 2` locally on
+`9de0ab8e`; image predicted `de8c30066bf602a1` (production's
+`4444d9d53d906b8d` reproduced for `main`).
+
+**Before any release:** the concurrent branch also changes
+`scripts/canary-ui.mjs`, `scripts/canary-additions.mjs` and
+`builder/site-reply.mjs`; the canary files will conflict with commit 1's
+✅/⚠️ reads. Proposed order: release theirs first, bring `main` into `new`,
+resolve, re-run the suite, predict the image again, then one release.
+After it: `PROGRESS_TALK` on (redeploy, no code change) and the one live
+verification — one new site: a photo-free Build, then one message with an
+Edit, an Add-on page and a menu link that waits for it, and a reconnect —
+**about 17–65 credits**, narration platform-paid and measured, image
+purchases off for it. Each step needs your word.
+
+**Open for your decision:** the black-and-white ChatGPT-style design is a
+prototype in screenshots only, not on the branch; the merge order; the live
+verification and its spend.
+
 ## Current handoff — read this first (2026-10-13: correction reuse's validation gap closed offline — a natural change of the cleaner's input declines the old refusal; one consolidated release proposed for your decision; run 141's cause still unconfirmed; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
