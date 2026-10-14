@@ -410,6 +410,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # INSTALL WHAT THE SCRIPT IMPORTS (2026-10-14). The first-build check
+      # (`build-check.mjs`) imports `canary-requests.mjs`, which gained the
+      # `typescript` parser on 2026-10-12 (6dae03bc); with no install step the
+      # free `check-no-images` rehearsal (run 114) died on ERR_MODULE_NOT_FOUND
+      # before it signed in or read anything. The edit canary's own rule:
+      # `test/build-as-owner.test.mjs` walks this workflow's import closure.
+      - name: install what the build check imports
+        run: npm ci
       # The deploy for this same push replaces the Worker (~3.5 min). Wait it
       # out so the build runs against the code that just shipped rather than
       # racing the rollout — the exact mistake edit-smoke recorded on

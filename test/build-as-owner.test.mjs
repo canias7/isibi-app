@@ -342,3 +342,47 @@ test("ONE TRACE READ SERVES BOTH THE LINE AND THE DECISION", () => {
   // row" are different, and the second is what a build that never started is.
   assert.match(CODE, /return \{ err: `trace read \$\{r\.status\}` \}/, "a failed read stopped naming itself");
 });
+
+// THE WORKFLOW INSTALLS WHAT THE BUILD CHECK IMPORTS (2026-10-14). The free
+// `check-no-images` rehearsal (run 114) died on ERR_MODULE_NOT_FOUND
+// ('typescript', via build-check.mjs → canary-requests.mjs, which gained the
+// parser on 2026-10-12) before it signed in: the workflow had no install step.
+// The edit canary's own guard, on this workflow's scripts: walk the real
+// transitive imports, static and the one dynamic `import("./build-check.mjs")`,
+// and if any bare specifier is reached, an install step must run before the
+// script, and every package must be declared.
+test("the build-as-owner workflow installs what its scripts' import closure needs, before it runs them", () => {
+  const ROOT = new URL("../", import.meta.url).pathname;
+  const seen = new Set(); const bare = new Map();
+  const tryPaths = (p) => [p, p + ".mjs", p + ".js"].find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
+  (function walk(file) {
+    if (!file || seen.has(file)) return;
+    seen.add(file);
+    const src = fs.readFileSync(file, "utf8");
+    // Static imports load with the module; a dynamic `import()` of a LOCAL
+    // file is followed (that is how build-as-owner reaches build-check), but a
+    // dynamic import of a package inside a function is lazy and guarded where
+    // it is used (canary-ui's playwright, with a playwright-core fallback), so
+    // it is not a load-time need.
+    const specs = [...src.matchAll(/(?:^|\n)\s*import[^;]*?from\s*["']([^"']+)["']/g), ...[...src.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)].filter((m) => m[1].startsWith("."))].map((m) => m[1]);
+    for (const spec of specs) {
+      if (spec.startsWith("node:")) continue;
+      if (spec.startsWith(".")) walk(tryPaths(new URL(spec, "file://" + file).pathname));
+      else if (!bare.has(spec)) bare.set(spec, file.slice(ROOT.length));
+    }
+  })(ROOT + "scripts/build-as-owner.mjs");
+  assert.ok(seen.has(ROOT + "scripts/build-check.mjs"), "the walk never reached build-check.mjs");
+  assert.ok(seen.size >= 4, `the import walk only reached ${seen.size} file(s)`);
+  assert.ok(bare.has("typescript"), "the walk no longer finds typescript; the case this guard was written for is gone, so re-read it");
+  const wf = fs.readFileSync(new URL("../.github/workflows/build-as-owner.yml", import.meta.url), "utf8");
+  const install = wf.search(/\n\s+run: npm (ci|install)\b/);
+  const run = wf.indexOf("run: node scripts/build-as-owner.mjs");
+  assert.ok(install > 0, `the closure needs ${[...bare.keys()].join(", ")} and build-as-owner.yml has no install step`);
+  assert.ok(run > install, "the install step comes after the script it is for");
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const declared = new Set([...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.devDependencies || {})]);
+  for (const [spec, from] of bare) {
+    const name = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+    assert.ok(declared.has(name), `${from} imports ${name}, which package.json does not declare`);
+  }
+});

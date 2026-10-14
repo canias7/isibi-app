@@ -1,5 +1,25 @@
 # Owner Notes
 
+
+## 2026-10-14 — The Build check's free rehearsal could not start; fixed on the branch
+
+Run 114 (the free `check-no-images` rehearsal, spend `no`, balance box blank)
+stopped before it signed in. The *build as owner* workflow never installed
+the packages its script imports. Since 2026-10-12 the build check has needed
+`typescript`, so every press of that workflow failed this way. Nothing was
+read or spent. I added an install step and a test, which fails without the
+step and passes with it. This is on the branch only, with no deploy.
+
+The slug `saltmarsh-cheese-counter` is free, the balance is 783, and no job
+is open. The account's design, graph and bands flags are still unread. They
+come from the rehearsal itself, so the next step is to press it again from
+the branch.
+
+GitHub CI on fb5f01f3 is green (10,784 passed, 44 skipped, 0 failed). The
+earlier local timing failure was local only. The 11–45 credits is an
+estimate, not an enforced limit. Details:
+`docs/history/2026-10-14-build-audit-batch.md` §7.
+
 ## Current handoff — read this first (2026-10-14: run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for

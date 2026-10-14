@@ -105,3 +105,50 @@ or the account's state, never as a pass.
   what the account gets.
 - **Image purchases off stops photographs for every customer** while it is
   off (the existing switch), as for runs 144, 150 and 152.
+
+## 7. Step 4's first press: run 114 never read anything (2026-10-14)
+
+The owner pressed the free rehearsal as asked (*build as owner*, mode
+`check-no-images`, spend `no`, balance box blank). **It died before the
+sign-in**: `ERR_MODULE_NOT_FOUND 'typescript'`. Nothing was read, spent or
+changed.
+
+- **Cause, a workflow defect, not the build.** `build-check.mjs` imports
+  `canary-requests.mjs`, which gained the `typescript` parser on 2026-10-12
+  (6dae03bc). The *build as owner* workflow had no install step, so the Build
+  check has been unrunnable since then. The last successful run of that
+  workflow was 2026-10-10.
+- **Fix, on the branch only** (a workflow change; `main` and the deploy are
+  untouched): an `npm ci` step before the script runs, and a guard in
+  `test/build-as-owner.test.mjs`. The guard walks the script's import
+  closure: static imports, plus dynamic imports of local files, which is how
+  build-as-owner reaches build-check. A lazy dynamic import of a package
+  inside a function is not counted (canary-ui's `playwright`, which falls
+  back to `playwright-core`). It requires `build-check.mjs` and `typescript`
+  to be reached, every package to be declared, and the install to come
+  before the run. Red check: on the workflow without the step it fails
+  (`not ok 11`), and with it it passes (11 of 11).
+- **Read free beforehand from the database:** `saltmarsh-cheese-counter` is
+  free (no backend row, no build row, the host answers 404); the balance is
+  783, the last ledger row 466, and no job is open. The flags and the image
+  switch are read only by the rehearsal, from `/api/site/runtime`.
+
+**Next:** the owner presses the same rehearsal again from
+`claude/help-needed-ehlwlj`. Then record `design`, `graph`, `bands`,
+`bandsEveryone` and `imagePurchases` as read.
+- If an image-free mode (`design` or `graph`) is on, record it and what the
+  paid press could show.
+- If none is on, prepare the account-scoped change for review: the account's
+  uid in the `DESIGN_SPLIT_CANARY` or `DESIGN_GRAPH_CANARY` secret. The
+  deploy fallbacks suggest `design` may already be on, but that is not
+  confirmed.
+
+The prerequisites the rehearsal lists as unmet are expected and are not
+failures: image purchases on, and the 100-credit cap below a balance of 783.
+**The 11–45 figure is an estimate, not a limit.** Nothing enforces it; only
+the balance bounds the spend.
+
+**CI vs local.** GitHub's unit run on `fb5f01f3` is green: 10,784 passed, 44
+skipped, 0 failed. The earlier local failure (REOPEN 1, a timing test) was
+this machine's only. It did not reproduce on CI, and it is not a code
+failure.
