@@ -357,8 +357,8 @@ const LIST = ok200({ ok: true, slug: "fretwork-1", routes: PAGES });
 const EDIT = ok200({ ok: true, intent: "edit", layer: "look", cost: 2 });
 const LOGO = ok200({ ok: true, intent: "edit", layer: "logo", cost: 2 });
 const BUILD = ok200({ ok: true, intent: "build", cost: 2 });
-const NO_PAGES = "⚠️ I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
+const NO_PAGES = "I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
 const SKIP_SAID = "Skip the questions — just build it";
 
 // THE LIVE SITE'S ROUTING CALL, as it must go out once the list is in hand.
@@ -1288,7 +1288,7 @@ test("a new project's round, skipped, still goes straight to the build with no r
 // is held on the site it was sent from BEFORE `finish` redraws, so that redraw
 // hands it back to that site's composer and to no other. Nothing sends it again:
 // the routing call is billed, so sending is the customer's press.
-const LOST = "⚠️ I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
+const LOST = "I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
 // The round a first-build question stored on this site, holding a picture made
 // by the attach code: the words and the file the customer sent with it.
 const ATT_ROUND = { ...LOADED, msgs: [{ r: "u", t: OWNER_ASK }, Q], clarify: { brief: OWNER_ASK, qa: [], imgs: [LOGO_ATT] } };

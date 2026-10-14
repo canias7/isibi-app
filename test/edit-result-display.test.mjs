@@ -274,13 +274,13 @@ const HTML = { status: 200, body: "<!doctype html><title>oops</title>", type: "t
 
 // WHAT IS SAID. `SHOWN` is the new sentence, spelled out once so a change to it
 // is a change somebody makes on purpose; the rest are the page's own.
-const SHOWN = "✅ That change went through, but I couldn’t show the details of what it changed here.";
-const ADDON_SHOWN = "✅ That addition went through, but I couldn’t show the details of what it changed here.";
-const LOOK = "✅ Updated the look.";
-const WORDING = "✅ Updated the wording.";
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
-const REFUSED = "⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
+const SHOWN = "That change went through, but I couldn’t show the details of what it changed here.";
+const ADDON_SHOWN = "That addition went through, but I couldn’t show the details of what it changed here.";
+const LOOK = "Updated the look.";
+const WORDING = "Updated the wording.";
+const UNREAD = "I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
+const REFUSED = EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
 
 /** The page idle: the latch free, nothing busy or waiting, nothing escaped. */
 function assertIdle(p, when) {
@@ -524,7 +524,7 @@ test("a watch resumed after a refresh whose hop is refused, and whose redraw thr
   await settle();
   assert.deepEqual(p.lines(), ["poll job-z", "edit text: " + M1]);
   // No routing call was made in this page, so the refusal names no routing cost.
-  assert.deepEqual(p.said(), ["⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing."]);
+  assert.deepEqual(p.said(), ["" + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing."]);
   assertIdle(p, "after the resumed hop was refused");
   await thenMessage2(p);
 });
@@ -609,7 +609,7 @@ test("the known-result sentence is a success and says nothing uncertain", () => 
   const ctx = vm.createContext({});
   vm.runInContext(cut("function editShownMsg(") + cut("function addonOutcomeMsg("), ctx);
   assert.equal(ctx.editShownMsg(), SHOWN);
-  assert.ok(SHOWN.startsWith("✅"), "the known result is not drawn as a success");
+  assert.ok(!/\p{Extended_Pictographic}/u.test(SHOWN), "the known result is not drawn as a success");
   for (const unsure of ["couldn’t read", "can’t tell", "whether", "didn’t", "try again"]) {
     assert.ok(!SHOWN.includes(unsure), "the known-result sentence says something uncertain: " + JSON.stringify(unsure));
   }
@@ -645,7 +645,7 @@ test('a terminal job still releases and reports its outcome when credit scheduli
   await twoMessages({ first, credit: { from: '(?:Immediate[.])?step' }, redraw: {},
     // (2026-09-25) The ended job's sentence, then what the routing call cost:
     // this job-state answer records no edit cost, so none is claimed.
-    lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['⚠️ The edit was cancelled. Reading your message cost 2 credits.'] });
+    lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['The edit was cancelled. Reading your message cost 2 credits.'] });
 });
 
 test('an attached logo reaches only its selected edit and is not carried into the next message', async () => {

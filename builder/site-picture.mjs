@@ -1408,7 +1408,7 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
     const where = (c) => c.focus === "centre" ? "the middle again" : "the " + c.focus;
     bits.push("moved " + framed.map((c) => name(c) + " to show " + where(c)).join(", "));
   }
-  let msg = bits.length ? "✅ " + bits.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "";
+  let msg = bits.length ? bits.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "";
   // THE REFUSALS, NAMED. Folded into the generic "I couldn't match that" they
   // read as the picture not existing, which is the one thing that is certainly
   // not true — the model found it and copied its description back.

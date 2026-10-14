@@ -215,7 +215,7 @@ test("A BROWSER WITHOUT THE FILES DOES NOT ANSWER WITHOUT THEM: nothing is sent,
   p.click("data-ask-ans", "Browser tab");
   await settle();
   assert.deepEqual(p.calls, [], "an answer was sent without the file its question is about");
-  assert.match(p.last().t, /^⚠️ That question is about the file you sent with your request, and this browser no longer has it/);
+  assert.match(p.last().t, /^That question is about the file you sent with your request, and this browser no longer has it/);
   assert.deepEqual(copy(p.s.unsent), [{ t: "Browser tab", imgs: [] }], "the answer was not kept to send again");
   assert.equal(p.ask().id, QID, "the question was dropped");
   assert.equal(p.busy(), false);
@@ -237,7 +237,7 @@ test("A STALE ANSWER STARTS NOTHING: the card comes off and the route's own sent
   await settle();
   assert.equal(p.calls.length, 1, "work was sent on a stale answer");
   assert.equal(p.ask(), null, "a question the server has closed kept its card");
-  assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + STALE });
+  assert.deepEqual(p.last(), { r: "a", t: STALE });
   assert.equal(p.busy(), false);
 });
 
@@ -248,7 +248,7 @@ test("AN ANSWER LONGER THAN A REPLY TO ONE QUESTION STARTS NOTHING: the question
   await settle();
   assert.equal(p.calls.length, 1);
   assert.equal(p.ask().id, QID, "a question still open lost its card");
-  assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+  assert.deepEqual(p.last(), { r: "a", t: msg });
   assert.deepEqual(copy(p.s.unsent), [{ t: "y".repeat(600), imgs: [] }], "the answer was not put back to shorten");
 });
 
@@ -259,7 +259,7 @@ test("AN ANSWER A FULL HISTORY CANNOT TAKE STARTS NOTHING (2026-10-03, the owner
   await settle();
   assert.equal(p.calls.length, 1, "work was sent on an answer the route refused");
   assert.equal(p.ask().id, QID, "a question still waiting lost its card");
-  assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+  assert.deepEqual(p.last(), { r: "a", t: msg });
   assert.deepEqual(copy(p.s.unsent), [{ t: "Visit", imgs: [] }], "what they typed was lost");
   assert.equal(p.busy(), false);
 });
@@ -269,7 +269,7 @@ test("A ROUTE THAT FAILS ON AN ANSWER IS A FAILURE, SAID: the answer is held to 
   p.ctx.siteSend("Visit");
   await settle();
   assert.equal(p.calls.length, 1, "a failed routing call on an answer started work");
-  assert.match(p.last().t, /^⚠️ I couldn’t work out what to do with that just now/);
+  assert.match(p.last().t, /^I couldn’t work out what to do with that just now/);
   assert.deepEqual(copy(p.s.unsent), [{ t: "Visit", imgs: [] }]);
   assert.equal(p.ask().id, QID, "a technical failure took the question away");
 });
@@ -280,7 +280,7 @@ test("A SETTLEMENT THE PAGE CANNOT READ IS NOT ACTED ON: held to send again, sai
     p.ctx.siteSend("Visit");
     await settle();
     assert.equal(p.calls.length, 1, JSON.stringify(ask) + ": work was sent on a settlement nobody can read");
-    assert.match(p.last().t, /^⚠️ I couldn’t work out what to do with that just now/, JSON.stringify(ask));
+    assert.match(p.last().t, /^I couldn’t work out what to do with that just now/, JSON.stringify(ask));
     assert.deepEqual(copy(p.s.unsent), [{ t: "Visit", imgs: [] }], JSON.stringify(ask));
     assert.equal(p.ask().id, QID, JSON.stringify(ask) + ": the question was taken away");
   }
@@ -317,7 +317,7 @@ test("A CANCEL THAT DOES NOT GO THROUGH SAYS SO, and the question stays open", a
     p.ctx.siteAskCancel();
     await settle();
     assert.equal(p.ask().id, QID);
-    assert.equal(p.last().t, "⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.");
+    assert.equal(p.last().t, "I couldn’t cancel that just now, so the question is still open. Try again in a moment.");
     assert.equal(p.busy(), false);
   }
 });
@@ -440,7 +440,7 @@ test("A MIXED REPLY: what ran is said first, the question last with its card; a 
     p.ctx.siteSend("Change the description, then move the band");
     await settle();
     const m = p.last();
-    assert.match(m.t, /^✅/, "what ran is not said first: " + m.t);
+    assert.doesNotMatch(m.t, /\p{Extended_Pictographic}/u, "what ran is not said first: " + m.t);
     assert.ok(m.t.endsWith(STEP_Q.text), "the question is not last: " + m.t);
     assert.doesNotMatch(m.t, /didn’t go through/, "the step that asked was reported as a failure");
     assert.equal(m.ask, QID2);
@@ -456,7 +456,7 @@ test("A MIXED REPLY: what ran is said first, the question last with its card; a 
     // question nobody's answer could resume is never on the thread.
     assert.equal(p.ask(), null, "an id-less question became the live card");
     assert.ok(!p.said().some((m) => m.t === STEP_Q.text), "a question nobody can answer was drawn as words");
-    assert.match(p.last().t, /^⚠️ /, "an unreadable reply was not said as one: " + p.last().t);
+    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "an unreadable reply was not said as one: " + p.last().t);
   }
 });
 
@@ -469,7 +469,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
     const p = page({ site: { ...LIVE, draft: { t: "", imgs: [IMG] } }, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } } : url === EDIT ? { body: reply } : null) });
     p.ctx.siteSend("Change the description, then " + REST);
     await settle();
-    assert.match(p.last().t, /^✅/, "what ran was not said: " + p.last().t);
+    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "what ran was not said: " + p.last().t);
     assert.deepEqual(copy(p.s.unsent), [{ t: REST, imgs: [IMG] }], "what the question left to do was not put back with its files");
     assert.equal(p.ask(), null, "a question that was not kept became a card");
   }
@@ -478,7 +478,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
     const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } } : url === EDIT ? { status: 503, body: reply } : null) });
     p.ctx.siteSend("Move the order band up");
     await settle();
-    assert.ok(p.last().t.startsWith("⚠️ " + unkept), "the route's sentence was not said: " + p.last().t);
+    assert.ok(p.last().t.startsWith(unkept), "the route's sentence was not said: " + p.last().t);
     assert.deepEqual(copy(p.s.unsent), [{ t: "Move the order band up", imgs: [] }]);
   }
   {
@@ -493,7 +493,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
       await settle();
       assert.equal(p.s.unsent, undefined, "a malformed resume reached the message box: " + JSON.stringify(resume).slice(0, 40));
       assert.ok(!p.said().some((m) => String(m.t).includes("THE ROUTE'S OWN SENTENCE")), "a reply with a malformed resume was read as a refusal: " + JSON.stringify(resume).slice(0, 40));
-      assert.match(p.last().t, /^⚠️ /);
+      assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u);
     }
   }
 });
@@ -505,7 +505,7 @@ test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A
     p.ctx.siteSend("Actually, make the footer blue");
     await settle();
     assert.equal(p.calls.length, 1, "work was sent after the replacement lost its race");
-    assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+    assert.deepEqual(p.last(), { r: "a", t: msg });
     assert.deepEqual(copy(p.s.unsent), [{ t: "Actually, make the footer blue", imgs: [] }], "the message was not held to send again");
     assert.equal(p.ask(), null, "the card of a question closed elsewhere stayed up");
   }

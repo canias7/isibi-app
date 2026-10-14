@@ -216,8 +216,8 @@ const CF_HTML = "<!DOCTYPE html><html><head><title>Worker threw exception | Clou
 const json = (o) => JSON.stringify(o);
 const ok200 = (o) => ({ status: 200, body: json(o) });
 const REWRITE = { url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ASK, images: [], picker: "grok" } };
-const STOPPED = "⚠️ I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
+const STOPPED = "I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
 
 // What every stop owes the customer: nothing sent, the busy flag and the rail
 // cleared, no clarify round left waiting for an answer, and the one sentence.
@@ -534,7 +534,7 @@ for (const [what, follow] of [
     const o = await drive({ site: LIVE, message: ask, route: ok200({ ok: true, intent: "addon", cost: 2 }), follow });
     assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/fretwork-1/addon"], "a rewrite or a second add-on followed the add-on");
     assert.equal(o.posts[0].body.instruction, ask);
-    assert.deepEqual(o.said, [{ r: "a", t: "⚠️ I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time." }]);
+    assert.deepEqual(o.said, [{ r: "a", t: "I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time." }]);
     assert.equal(o.busy, false, "the busy flag is cleared");
     assert.equal(o.rail, "(stopped)", "the rail is stopped");
     assert.equal(o.clock.cleared, 1, "and its clock cleared");

@@ -145,6 +145,6 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   const msg = rewroteMsg([{ path: "index.tsx", lost: ["Open daily"] }]);
   const seen = browserReply({ ok: false, error: "rewrote", cost: 0, msg }, false);
   assert.equal(seen.ok, true, "the browser's own reader could not run: " + seen.why);
-  assert.equal(seen.text, "⚠️ " + msg, "a refusal's sentence does not reach the customer");
+  assert.equal(seen.text, msg, "a refusal's sentence does not reach the customer");
   assert.deepEqual(seen.actions, [], "a refusal with its sentence bought something");
 });

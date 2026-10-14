@@ -90,7 +90,7 @@ test("DEAD 1 — AN ADDITION'S JOB DIES WITH NO ANSWER AFTER ITS TABLES WENT IN:
     const toldOf = () => p.said().find((m) => m && !m.jobCard && Array.isArray(m.jobs) && m.jobs.includes(first.id));
     for (let i = 0; i < 6 && !toldOf(); i++) { p.flush(); await pageTick(400); }
     assert.ok(toldOf(), "the other device said nothing for the ended job: " + JSON.stringify(p.said()));
-    assert.ok(toldOf().t.startsWith("⚠️ ") && toldOf().t.endsWith(" " + poll.body.note), "the ended sentence does not carry the server's note: " + toldOf().t);
+    assert.ok(!/\p{Extended_Pictographic}/u.test(toldOf().t) && toldOf().t.endsWith(" " + poll.body.note), "the ended sentence does not carry the server's note: " + toldOf().t);
     // THE PART KEPT WHAT STANDS while it was tried again.
     const mid = P.record(r.key);
     assert.equal(mid.parts[0].left, "partial", JSON.stringify(mid.parts[0]));

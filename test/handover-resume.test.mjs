@@ -369,7 +369,7 @@ test("202 → resume → final browser reply: the parts put off reach no model, 
   const b = await browser([{ status: 202, body: r.post.body }, { status: 202, body: { ok: false, pending: true, job: r.job } }, { status: r.poll.status, body: r.poll.body }]);
   assert.deepEqual(b.reqs.map((q) => q.method + " " + q.url), ["POST /api/site/react-revise", "GET /api/site/build/" + r.job, "GET /api/site/build/" + r.job]);
   assert.deepEqual(b.reqs[0].body.alsoAsked, [LATER, MAP], "the browser did not post the parts put off");
-  assert.equal(b.said, "✅ Updated the home page." + tailDone([LATER, MAP]), "the screen does not say what waits");
+  assert.equal(b.said, "Updated the home page." + tailDone([LATER, MAP]), "the screen does not say what waits");
 });
 
 test("a RETRY: the generation is lost, the build fires again and rewrites the record — the parts survive the refire, reach neither job, and are named at the end", async () => {
@@ -393,7 +393,7 @@ test("a RETRY: the generation is lost, the build fires again and rewrites the re
   assert.deepEqual(r.poll.body.deferred, [LATER, MAP]);
   assert.deepEqual(storedPages(r), EDITED, "the stored pages are not the site with the one change");
   const b = await browser([{ status: 202, body: r.post.body }, { status: r.poll.status, body: r.poll.body }]);
-  assert.equal(b.said, "✅ Updated the home page." + tailDone([LATER, MAP]));
+  assert.equal(b.said, "Updated the home page." + tailDone([LATER, MAP]));
 });
 
 test("a GIVE-UP: the generation failed upstream — the final reply is a failure naming the parts as left for later; nothing published, nothing claimed done", async () => {
@@ -415,7 +415,7 @@ test("a GIVE-UP: the generation failed upstream — the final reply is a failure
   assert.equal(r.store.has("current/" + r.slug + ".json"), false, "a failed generation moved the live pointer");
   assert.deepEqual(storedPages(r), PRIOR, "a failed generation wrote over the stored pages");
   const b = await browser([{ status: 202, body: r.post.body }, { status: r.poll.status, body: r.poll.body }]);
-  assert.ok(b.said.startsWith("⚠️ "), "a failure was shown as a success: " + b.said);
+  assert.ok(!/\p{Extended_Pictographic}/u.test(b.said), "a failure was shown as a success: " + b.said);
   assert.ok(b.said.endsWith(tailLeft([LATER, MAP])), "the screen does not say the parts were left untried: " + b.said);
   assert.ok(!b.said.includes("I only did"), "the screen claims something was done: " + b.said);
 });
@@ -505,14 +505,14 @@ test("the browser: a followed build's final answer names its own parts; with non
   assert.deepEqual(fired.deferred, [LATER, MAP]);
   // THE FINAL ANSWER'S OWN ACCOUNT WINS (made to differ from the 202's here).
   const own = await browser([{ status: 202, body: fired }, { status: 200, body: { ...bare, deferred: LATER } }]);
-  assert.equal(own.said, "✅ Updated the home page.\nI only did one thing this time. Say “" + LATER + "” and I’ll do that next.");
+  assert.equal(own.said, "Updated the home page.\nI only did one thing this time. Say “" + LATER + "” and I’ll do that next.");
   // NONE OF ITS OWN — a verdict whose record is gone — the 202 said what the
   // server took out, and is named.
   const none = await browser([{ status: 202, body: fired }, { status: 200, body: bare }]);
-  assert.equal(none.said, "✅ Updated the home page." + tailDone([LATER, MAP]), "a followed build's final answer without `deferred` named nothing");
+  assert.equal(none.said, "Updated the home page." + tailDone([LATER, MAP]), "a followed build's final answer without `deferred` named nothing");
   // A DIRECT ANSWER WITH NONE NAMES NOTHING: the route took nothing out, though the post carried parts.
   const direct = await browser([{ status: 200, body: bare }]);
-  assert.equal(direct.said, "✅ Updated the home page.");
+  assert.equal(direct.said, "Updated the home page.");
 });
 
 test("the browser: stopped following, or a Stop press mid-follow — the 202's parts are named, not what the post carried; with no 202, what the post carried", async () => {
@@ -524,12 +524,12 @@ test("the browser: stopped following, or a Stop press mid-follow — the 202's p
   // so the build is still running when we stop watching.
   const blips = Array.from({ length: 6 }, () => ({ reject: new TypeError("Failed to fetch") }));
   const stopped = await browser([{ status: 202, body: fired }, ...blips]);
-  assert.equal(stopped.said, "⏳ " + fired.msg + one, "the 202's account was not the one named");
+  assert.equal(stopped.said, fired.msg + one, "the 202's account was not the one named");
   // A STOP PRESS WHILE FOLLOWING: the follow's own abort, caught by the send.
   const abort = Object.assign(new Error("aborted"), { name: "AbortError" });
   const pressed = await browser([{ status: 202, body: fired }, { reject: abort }]);
   assert.equal(pressed.said, "■ Stopped. (A build already running may still finish server-side.)" + one);
   // NO 202 AT ALL — the POST itself lost — names what the post carried.
   const lost = await browser([{ reject: new TypeError("Failed to fetch") }]);
-  assert.equal(lost.said, "⚠️ Lost the connection while building — check your internet and try again in a moment." + tailLeft([LATER, MAP]));
+  assert.equal(lost.said, "Lost the connection while building — check your internet and try again in a moment." + tailLeft([LATER, MAP]));
 });

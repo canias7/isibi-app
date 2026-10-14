@@ -445,7 +445,7 @@ test("no raw internal detail is ever rendered", () => {
   // a provider message — but "nothing to leak" is a property of today's server,
   // and this is the side that renders.
   for (const bad of ["e.kind", "e.failedPhase", "e.phase", "e.stack", "err.message", "e.detail"]) {
-    assert.ok(w.indexOf("finish('⚠️ ' + " + bad) < 0, `${bad} is rendered to the customer`);
+    assert.ok(w.indexOf("finish(" + bad) < 0, `${bad} is rendered to the customer`);
   }
   // Only the sentence the handler wrote for a customer, or a fixed one.
   assert.match(w, /e\.msg === 'string' && e\.msg\) \|\| EditPoll\.outcomeMessage\(/,
@@ -783,7 +783,7 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   assert.ok(a.includes("if (said.act === 'refusal') {"), "the failure branch is gone — this guard would pass over nothing");
   // RE-ANCHORED 2026-09-25: the sentence is followed by what the edit and the
   // routing call cost, so the landmark is the sentence's own opening.
-  assert.ok(a.includes("o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')"), "the failure branch no longer ends in a sentence");
+  assert.ok(a.includes("o.finish(EditPoll.outcomeMessage('failed')"), "the failure branch no longer ends in a sentence");
   assert.ok(!/fallback\(/.test(a), "a failure or an unreadable reply still reaches the rewrite: " + (a.match(/.*fallback\(.*/) || [""])[0]);
 });
 

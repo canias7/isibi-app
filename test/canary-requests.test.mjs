@@ -470,11 +470,11 @@ test("each part's reply passes when it is the model's own and on screen; a compo
   const view = { ended: true, parts: [{ n: 0, jobs: ["j1"] }, { n: 1, jobs: ["j2", "j4"] }] };
   const steps = [
     { n: 1, sent: true, replies: ["I changed the Visit page's heading to “Our shop on the street”.", "What is your Facebook page's address?"],
-      network: [final("j1", { ok: true, msg: "✅ Changed.", reply: "I changed the Visit page's heading to “Our shop on the street”.", replySource: "model" }),
+      network: [final("j1", { ok: true, msg: "Changed.", reply: "I changed the Visit page's heading to “Our shop on the street”.", replySource: "model" }),
         final("j2", { ok: false, clarify: { id: "q1", text: "What is your Facebook page's address?" } })],
       request: { final: { parts: [{ n: 0, jobs: ["j1"] }, { n: 1, jobs: ["j2"] }] } } },
     { n: 2, sent: true, replies: ["Your footer now links to facebook.com/harbourloafbristol, beside Instagram."],
-      network: [final("j4", { ok: true, msg: "✅ Added.", reply: "Your footer now links to facebook.com/harbourloafbristol, beside Instagram.", replySource: "model" })],
+      network: [final("j4", { ok: true, msg: "Added.", reply: "Your footer now links to facebook.com/harbourloafbristol, beside Instagram.", replySource: "model" })],
       request: { final: view } },
   ];
   const c = replyChecks(steps);
@@ -482,8 +482,8 @@ test("each part's reply passes when it is the model's own and on screen; a compo
   assert.equal(c.length, 3, "a job was judged twice, or one was missed");
   assert.deepEqual(repliesOf(steps[0]).map((r) => r.source), ["model", "question"]);
   const composed = JSON.parse(JSON.stringify(steps));
-  composed[1].network[0].res = { ok: true, msg: "✅ Added a link." };
-  composed[1].replies = ["✅ Added a link."];
+  composed[1].network[0].res = { ok: true, msg: "Added a link." };
+  composed[1].replies = ["Added a link."];
   assert.ok(failed(replyChecks(composed)).some((f) => /composed/.test(f)));
   const off = JSON.parse(JSON.stringify(steps));
   off[1].replies = ["something else"];
@@ -832,9 +832,9 @@ const R3_ANSWERED = [
   view(RQ_KEY(3), [part(0, "change the heading …", "done", { route: "text", ids: ["j1"], jobs: ["j1"] }), part(1, "add a link to our Facebook page in the footer", "done", { route: "nav", addition: true, ids: ["j2", "j3", "j4"], jobs: ["j2", "j4"] })], { ended: true }),
 ];
 const R3_REPLIES = {
-  j1: { ok: true, msg: "✅ Changed.", reply: "The Visit page's heading now reads “Our shop on the street”.", replySource: "model" },
+  j1: { ok: true, msg: "Changed.", reply: "The Visit page's heading now reads “Our shop on the street”.", replySource: "model" },
   j2: { ok: false, clarify: { id: "q1", text: "What is the address of your Facebook page?" } },
-  j4: { ok: true, msg: "✅ Added.", reply: "Your footer now links to your Facebook page, beside Instagram.", replySource: "model" },
+  j4: { ok: true, msg: "Added.", reply: "Your footer now links to your Facebook page, beside Instagram.", replySource: "model" },
 };
 
 test("R3 END TO END: the first message ends on the step's question with the heading done; the answer, typed into the composer, resumes that part, and its jobs are only the new ones", async () => {
@@ -1254,9 +1254,9 @@ test("LV IN RUN 101'S SHAPE: the first tab moves its own preview right after the
 });
 
 test("LV with the old placement: another request's reply drawn after the second message fails the press, by name", async () => {
-  const rec = await drive(lvApp({ misplace: { after: "g1", text: "✅ Updated an older heading.", job: "old1" } }), LV, { siteOrigin: SITE });
+  const rec = await drive(lvApp({ misplace: { after: "g1", text: "Updated an older heading.", job: "old1" } }), LV, { siteOrigin: SITE });
   assert.equal(rec.sent, 2, JSON.stringify(rec.stopped));
-  assert.deepEqual(rec.steps[1].otherReplies, ["✅ Updated an older heading."]);
+  assert.deepEqual(rec.steps[1].otherReplies, ["Updated an older heading."]);
   assert.deepEqual(failed(lvChecks(rec)).map((x) => x.split(" — ")[0]), ["message 2: no other request's reply is drawn after it"]);
 });
 

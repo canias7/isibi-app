@@ -235,7 +235,7 @@ test("THE REPLY IS ADDED, NOTHING ELSE MOVES: the same request with replies on a
     const shownOff = editBrowserReply(off.r.body, true, { layer: "look", cost: 2 });
     assert.ok(shownOn.ok && shownOff.ok, shownOn.why || shownOff.why);
     assert.equal(shownOn.text, on.r.body.reply);
-    assert.match(shownOff.text, /^✅/);
+    assert.doesNotMatch(shownOff.text, /\p{Extended_Pictographic}/u);
     assert.match(shownOff.text, /add a gallery page/, "without a reply the page lost its own tail");
     assert.notEqual(shownOff.text, shownOn.text);
     assert.ok(shownOn.actions.includes("refresh the credit balance"), "the page stopped refreshing the balance once it had a reply to show");
@@ -385,7 +385,7 @@ test("A REPLY THAT CANNOT BE WRITTEN CHANGES NOTHING: the reply model failing, o
         assert.equal(seen.lanes.length, 1, name + ": the change was made again");
         const shown = editBrowserReply(r.body, true, { layer: "look", cost: 2 });
         assert.ok(shown.ok, shown.why);
-        assert.match(shown.text, /^✅ /, name + ": the page did not say it the way it always has: " + shown.text);
+        assert.doesNotMatch(shown.text, /\p{Extended_Pictographic}/u, name + ": the page did not say it the way it always has: " + shown.text);
       }, { slug });
     }
   } finally { compiler.uninstall(); }
@@ -447,7 +447,7 @@ test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the writer's failed try waits 
       const p = await poll(worker, QE(store2, sent2), id, doneRow(slug2, r));
       assert.equal(p.body.replyState, "failed");
       assert.deepEqual(EditPoll.readPoll(p.status, p.final, p.body), { act: "reply" });
-      assert.match(editBrowserReply(p.body, true, {}).text, /^✅ /, "the page did not say what it always said");
+      assert.doesNotMatch(editBrowserReply(p.body, true, {}).text, /\p{Extended_Pictographic}/u, "the page did not say what it always said");
     }, { slug: slug2 });
   } finally { compiler.uninstall(); }
 });
@@ -800,7 +800,7 @@ test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an 
     assert.equal(replyTasks(sent).length, 0, "a reply was asked for a failure of ours");
     assert.equal(recordOf(store, "d".repeat(32)).state, "none");
     assert.equal(replies.length, 1);
-    assert.match(editBrowserReply(p2.body, false, {}).text, /^⚠️ That change was stopped before it could publish/);
+    assert.match(editBrowserReply(p2.body, false, {}).text, /^That change was stopped before it could publish/);
     assert.equal(Object.hasOwn(p2.body, "replyFor"), false);
   }, { slug });
 });
@@ -820,7 +820,7 @@ test("A FAILURE OF OURS KEEPS ITS FIXED SENTENCE: a question that could not be k
       assert.equal(r.body.ours, true);
       assert.equal(replyCalls(seen), 0, "a failure of ours was sent to the reply model");
       assert.equal(r.body.reply, undefined);
-      assert.ok(editBrowserReply(r.body, false, {}).text.startsWith("⚠️ " + r.body.msg));
+      assert.ok(editBrowserReply(r.body, false, {}).text.startsWith(r.body.msg));
     }, { slug });
   }
   {
@@ -834,7 +834,7 @@ test("A FAILURE OF OURS KEEPS ITS FIXED SENTENCE: a question that could not be k
       assert.equal(log[0].body.failed, true, "the routing call did not fail as this case needs: " + JSON.stringify(log[0].body).slice(0, 200));
       assert.equal(log[0].body.reply, undefined);
       assert.equal(replyCalls(seen), 0);
-      assert.match(p.last().t, /^⚠️ /, "a failed routing call was not said by the page's own sentence");
+      assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, "a failed routing call was not said by the page's own sentence");
     }, { slug });
   }
 });

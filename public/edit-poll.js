@@ -160,7 +160,7 @@
     // finalized it with a reply that says only that. The change IS live and
     // WAS charged for; the one wrong sentence here is any that says the site
     // is untouched or the money came back.
-    if (kind === "recovered") return "✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.";
+    if (kind === "recovered") return "Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.";
     // WHAT HAPPENED, AND NOTHING ABOUT MONEY (2026-09-25). "You haven't been
     // charged" and "anything it cost has been refunded" were said whatever the
     // job's own row recorded, and the routing call that chose the edit is a

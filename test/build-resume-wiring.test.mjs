@@ -535,7 +535,7 @@ test("THE BROWSER FOLLOWS A BUILD THAT FIRED, rather than reading 202 as done", 
 });
 
 test("…and never claims a build that has not finished", () => {
-  const at = CHAT.indexOf("const canned = mode === 'revise'");
+  const at = CHAT.indexOf("const canned = !built ?");
   assert.ok(at > 0, "the build reply is gone — rescope this guard");
   const reply = CHAT.slice(at, CHAT.indexOf("siteFinishBuild(", at) + 200);
   // THE SUCCESS SENTENCE IS BEHIND THE FLAG. `built` is true on a 202 (`page`

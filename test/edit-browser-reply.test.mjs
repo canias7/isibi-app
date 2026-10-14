@@ -130,7 +130,7 @@ test("the selection is the real `editAnswer`, so a refusal is drawn as one", () 
   // reason `browserReply` runs `addonAnswer` rather than `addonReplyText`.
   const r = editBrowserReply({ ok: false, error: "parts-unreadable", cost: 0, msg: "I couldn't read this site's sections just now." }, false);
   assert.equal(r.ok, true, "the reader could not compose a refusal: " + r.why);
-  assert.ok(r.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(r.text));
+  assert.ok(!/\p{Extended_Pictographic}/u.test(r.text), "a refusal was not drawn as one: " + JSON.stringify(r.text));
   assert.ok(r.text.includes("sections"), "the server's own sentence did not reach the screen: " + JSON.stringify(r.text));
   // AND NOTHING WAS SET IN MOTION. A refusal carrying a `msg` is answered
   // where it stands; falling through to the ~25-credit rewrite would charge
@@ -243,7 +243,7 @@ test("a published edit whose composer throws is drawn as the known result, not a
   const r = editBrowserReply(reply, true);
   assert.equal(r.ok, true, "the reader threw on a reply the page draws as a success: " + r.why);
   assert.equal(r.shown, true, "the known result was not said");
-  assert.equal(r.text, "✅ That change went through, but I couldn’t show the details of what it changed here.");
+  assert.equal(r.text, "That change went through, but I couldn’t show the details of what it changed here.");
   // WHAT RAN BEFORE THE THROW STANDS, and nothing paid was set in motion.
   assert.deepEqual(r.actions, ["refresh the credit balance"], "a published edit that failed to show recorded: " + JSON.stringify(r.actions));
 });

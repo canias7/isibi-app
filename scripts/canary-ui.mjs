@@ -262,7 +262,7 @@ export const UI_SCENARIOS = Object.freeze({
     // the version its before-read saw.
     publishes: 0,
     // What the screen and the job's own stored reply must say.
-    reply: "✅ Updated one entry in loaves.",
+    reply: "Updated one entry in loaves.",
     applied: Object.freeze([Object.freeze({ table: "loaves", id: 6, columns: Object.freeze(["price"]) })]),
     row: D1_ROW,
     steps: Object.freeze([
@@ -350,7 +350,7 @@ export const UI_SCENARIOS = Object.freeze({
     budget: 8,
     layers: Object.freeze(["data"]),
     publishes: 0,
-    reply: "✅ Updated one entry in lessons.",
+    reply: "Updated one entry in lessons.",
     applied: Object.freeze([Object.freeze({ table: "lessons", id: 4, columns: Object.freeze(["price"]) })]),
     row: FOLLOW_ROW,
     steps: Object.freeze([
@@ -3341,12 +3341,12 @@ export function failureVerdict(step, fails) {
   if (Array.isArray(fin.applied) && fin.applied.length) return { ...out, why: "the failure names rows it changed" };
   if (fin.cost !== 0) return { ...out, why: `the failed edit's own cost reads ${JSON.stringify(fin.cost === undefined ? null : fin.cost)}, not 0` };
   if (typeof fin.msg !== "string" || !fin.msg.trim()) return { ...out, why: "the failure carries no sentence to show" };
-  // ONE OF THE REPLIES THE MESSAGE GOT ON SCREEN is that warning: a note the
-  // app draws beside it does not hide it, and a sentence drawn as anything but
-  // a warning is not it.
+  // ONE OF THE REPLIES THE MESSAGE GOT ON SCREEN carries that sentence: a note
+  // the app draws beside it does not hide it. (It was also required to start
+  // with a warning sign until the owner's no-emoji rule, 2026-10-13.)
   const screen = Array.isArray(step && step.replies) && step.replies.length ? step.replies : [step && typeof step.reply === "string" ? step.reply : ""];
-  if (!screen.some((t) => typeof t === "string" && t.startsWith("⚠️") && t.includes(fin.msg))) {
-    return { ...out, why: "the page did not show the failure's own sentence as a warning" };
+  if (!screen.some((t) => typeof t === "string" && t.includes(fin.msg))) {
+    return { ...out, why: "the page did not show the failure's own sentence" };
   }
   return { ...out, ok: true, why: "" };
 }

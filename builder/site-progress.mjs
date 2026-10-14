@@ -990,7 +990,7 @@ export const PROGRESS_SYSTEM =
   "- Do not repeat what your earlier updates said.\n" +
   "- The request's other parts are separate work: never describe them as this update's, or as done unless their state says finished.\n" +
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
-  "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting or sign-off.\n" +
+  "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting, sign-off, emoji or symbols unless asked.\n" +
   "- In says, list every fact's id with the state you described it as.";
 
 // ── EACH TASK'S LINE, IN EVERY STATE IT CAN BE IN ──────────────────────────
@@ -1034,7 +1034,7 @@ export const TASK_SYSTEM =
   "- Speak in the first person, naturally and conversationally, the way you would tell them yourself.\n" +
   "- Say what the task is in your own words; never hand their words back as an instruction.\n" +
   "- Never say a change is published or live, and never mention steps, tools, files, code, models or ids.\n" +
-  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting.";
+  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.";
 
 /** The request one task-lines call sends: every task, each with its id and the customer's words for it. `fix` names what a first answer got wrong. */
 export function taskRequest({ tasks, context = "", model, fix = null }) {

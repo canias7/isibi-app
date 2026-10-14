@@ -157,7 +157,10 @@ export function additionReplyVerdict(step, expect) {
     if (fin.length !== 1) return { ...out, ok: false, why: `${fin.length} stored replies, not the add-on step's one` };
     if (fin[0].ok !== true) return { ...out, ok: false, why: `the add-on step did not succeed (${fin[0].error || "no error named"}${fin[0].msg ? " — " + fin[0].msg : ""})` };
   }
-  if (!shown.startsWith("✅")) return { ...out, ok: false, why: "the reply on screen is not a success" };
+  // The stored replies above say whether it succeeded; the screen carries no
+  // success mark since the owner's no-emoji rule (2026-10-13), so it must only
+  // have said something.
+  if (!shown.trim()) return { ...out, ok: false, why: "nothing was said on screen" };
   return { ...out, ok: true, why: "" };
 }
 

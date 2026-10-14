@@ -186,7 +186,7 @@ const VIEWS = [run([]), run([]), run([{ n: 0, ms: 4000, text: L1 }]), run([{ n: 
 const FRESH = { access_token: "fresh-token", refresh_token: "fresh-r", expires_at: 2_000_000_000, user: { id: "22175f41-6fbf-49d7-b039-a65078a0141c" } };
 const app = () => rqApp({
   progress: true, fresh: true,
-  replies: { b1: { ok: true, msg: "✅ Done.", reply: "I've added a Meet the Bakers page with a photograph of the three of you at the bench, and a link to it in the menu.", replySource: "model" } },
+  replies: { b1: { ok: true, msg: "Done.", reply: "I've added a Meet the Bakers page with a photograph of the three of you at the bench, and a link to it in the menu.", replySource: "model" } },
   send: () => ({ request: { key: KEY, views: VIEWS }, route: { intent: "addon" } }),
 });
 const listed = (h) => async () => { const r = await h.requestsNow(); return { ...r, json: { ...r.json, jobs: [] } }; };

@@ -1265,7 +1265,7 @@ test("a failed build's own diagnosis reaches the screen", () => {
   //    and that the reply still tells a published site from a placeholder.
   assert.match(client, /siteFinishBuild\(origin,[^;]*buildWhy\(d\)\)/,
     "buildWhy is defined and never called on the build path");
-  assert.match(client, /built \? '✅ ' : '⚠️ '/,
+  assert.match(client, /const canned = !built \? 'Your site didn’t finish building/,
     "the build reply no longer distinguishes a published site from the placeholder");
 
   // 4. IT IS STORED, so it survives a reload — the thread is rebuilt from

@@ -208,7 +208,7 @@ test("an empty or absent contact object reads as no contact change", () => {
 
 test("the customer is told which fields moved, and never their values", () => {
   const msg = navReply({ changed: ["a.tsx", "b.tsx"], contact: { phone: "0113 200 0000", hours: "" } });
-  assert.match(msg, /✅/);
+  assert.doesNotMatch(msg, /\p{Extended_Pictographic}/u);
   assert.match(msg, /phone/);
   assert.match(msg, /opening hours/, "`hours` is shown to the customer as a field name");
   assert.doesNotMatch(msg, /0113 200 0000/, "the reply prints the number back at them");

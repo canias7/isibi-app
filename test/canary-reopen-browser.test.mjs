@@ -53,7 +53,7 @@ const RECONCILE = "function siteReqRefresh(origin, httpOk, body, addon) {";
 assert.ok(CHAT.includes(RECONCILE), "the reconcile is gone from chat.js — this case would cut nothing");
 const CHAT_CUT = CHAT.replace(RECONCILE, RECONCILE + " return;");
 
-const edit = (words) => ({ ok: true, layer: "text", layers: ["text"], lanes: [], moved: [], changed: [words], files: 12, cost: 2, applied: 1, photos: 0, reply: "✅ " + words, replySource: "model" });
+const edit = (words) => ({ ok: true, layer: "text", layers: ["text"], lanes: [], moved: [], changed: [words], files: 12, cost: 2, applied: 1, photos: 0, reply: words, replySource: "model" });
 const part = (words, done, job) => ({ n: 0, words, route: "text", charged: 0, status: done ? "done" : "started", ids: [job], jobs: done ? [job] : [] });
 
 async function run({ cutReconcile }) {

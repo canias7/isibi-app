@@ -192,8 +192,8 @@ test("expecting `intent=addon`: the router's addon answer is posted to the add-o
   assert.equal(sent.layer, undefined, "the add-on POST carried an edit layer");
   assert.equal(r.paidEdits.length, 0, "a paid edit was posted beside the addition");
   assert.match(r.out, /the route matches the expectation \(intent=addon alsoAsked=none\)/);
-  assert.match(r.out, /WHAT THE CUSTOMER READS\n  ✅ Done — added “Rye & Caraway” to loaves \(entry 12\)\./);
-  assert.equal(r.customer, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+  assert.match(r.out, /WHAT THE CUSTOMER READS\n  Done — added “Rye & Caraway” to loaves \(entry 12\)\./);
+  assert.equal(r.customer, "Done — added “Rye & Caraway” to loaves (entry 12).");
   assert.match(r.out, /saved       loaves #12 “Rye & Caraway”/);
   // NOTHING WAS PUBLISHED, AND THE AFTER-READ SAYS SO OF EVERY PAGE.
   assert.match(r.out, /VERIFIED — the edit did not publish, and every page still reports 01790404806543-kk6qsh/);
@@ -232,7 +232,7 @@ test("an addition the step refused is a failed press, read through the add route
   const r = await runCanary("refused", { route: { ok: true, intent: "addon", cost: 2 }, box: "intent=addon", addon: REFUSED, addonStatus: 422 });
   assert.equal(r.code, 1, r.out + r.err);
   assert.equal(r.addonPosts.length, 1);
-  assert.equal(r.customer, "⚠️ " + REFUSED.msg);
+  assert.equal(r.customer, REFUSED.msg);
   assert.match(r.err, /CANARY FAILED: the add-on step answered "add"/);
 });
 
@@ -241,7 +241,7 @@ test("an addition whose save could not be confirmed fails and exits 1, and its l
   assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
   assert.equal(r.addonPosts.length, 1);
   assert.equal(r.code, 1, r.out + r.err);
-  assert.equal(r.customer, "⚠️ " + UNSURE.msg);
+  assert.equal(r.customer, UNSURE.msg);
   assert.match(r.err, /CANARY FAILED: the add-on step answered "row-uncertain" — I couldn't tell whether that entry was saved/);
   assert.match(r.err, /so it may be on the site, and the site takes no new change until the review settles it/);
   assert.doesNotMatch(r.out + r.err, /added nothing|CANARY PASSED/);

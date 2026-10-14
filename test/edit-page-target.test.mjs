@@ -292,7 +292,7 @@ test("a look change aimed at /gallery is made on /gallery — router, browser an
   assert.ok(r.body.cost > 0, why);
   assert.equal(r.editDebits.reduce((a, b) => a + b, 0), r.body.cost, "the edit's debits and its reported cost disagree" + why);
   // (g) THE SCREEN names the page that changed, and nothing paid follows.
-  assert.equal(r.said.text, "✅ Updated /gallery.", "the customer was told about the wrong page" + why);
+  assert.equal(r.said.text, "Updated /gallery.", "the customer was told about the wrong page" + why);
   assert.deepEqual(r.said.actions, [REFRESH], why);
 });
 
@@ -318,7 +318,7 @@ test("the positive control: a look change the router names as / is made on the h
   assert.equal(r.sentPage("gallery.tsx"), GALLERY, "the gallery page moved on a home-page change" + why);
   assert.equal(storedPage(store, slug, "index.tsx"), bandsSwapped(HOME), why);
   assert.equal(storedPage(store, slug, "gallery.tsx"), GALLERY, why);
-  assert.equal(r.said.text, "✅ Updated /.", why);
+  assert.equal(r.said.text, "Updated /.", why);
   assert.deepEqual(r.said.actions, [REFRESH], why);
 });
 
@@ -341,7 +341,7 @@ test("a look change that names no page still lands on the home page — the docu
   assert.equal(r.seen.shown[0].path, "index.tsx", why);
   assert.equal(storedPage(store, slug, "index.tsx"), bandsSwapped(HOME), why);
   assert.equal(storedPage(store, slug, "gallery.tsx"), GALLERY, why);
-  assert.equal(r.said.text, "✅ Updated /.", why);
+  assert.equal(r.said.text, "Updated /.", why);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -376,7 +376,7 @@ test("a look change aimed at a page the site does not have is said before anythi
   // and the screen states it as its own amount.
   assert.deepEqual(r.editDebits, [], "a refusal that reports cost 0 debited credits" + why);
   assert.ok(r.routingDebits.length >= 1 && r.d.cost > 0, "the routing call's charge is missing, so the screen's last clause tests nothing" + why);
-  assert.equal(r.said.text, "⚠️ " + msg + " Nothing on your site changed, and this edit cost you nothing." + routingCost(r.d), why);
+  assert.equal(r.said.text, msg + " Nothing on your site changed, and this edit cost you nothing." + routingCost(r.d), why);
   assert.deepEqual(r.said.actions, [], "the browser started a follow-up on a refusal" + why);
 });
 

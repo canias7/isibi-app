@@ -1591,22 +1591,25 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    happened is said in the replies above and below it, so the card stays quiet:
    a list, a muted status, and the question card's own quiet buttons. */
 .st-req { margin: .15rem 0 .2rem; }
-.st-req-parts { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: .3rem; }
-.st-req-part { font-size: .84rem; line-height: 1.4; }
+.st-req-parts { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: .3rem; }
+/* A dash before each part, not a number (the owner, 2026-10-13, choosing from
+   rendered options). */
+.st-req-part { position: relative; padding-left: 1rem; font-size: .84rem; line-height: 1.4; }
+.st-req-part::before { content: '\2013'; position: absolute; left: 0; top: 0; color: var(--muted); }
 .st-req-words { display: block; overflow-wrap: anywhere; }
 .st-req-status { display: block; font-size: .74rem; color: var(--muted); }
 .st-req-done .st-req-status { color: var(--text); }
 .st-req-go { margin-top: .15rem; }
 /* A job's progress lines (2026-10-06): the model's words under a part's fixed
    label, on a found job's card, or kept above the reply of a job this page
-   watched (muted once it has ended). The newest line of running work is live. */
-.st-req-prog { list-style: none; margin: .35rem 0 .15rem; padding: 0 0 0 .65rem; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: .3rem; }
-.st-req-prog li { font-size: .8rem; line-height: 1.42; color: var(--text); }
-.st-req-prog .at { font-size: .68rem; color: var(--graphite-3); margin-right: .4rem; font-variant-numeric: tabular-nums; }
-.st-req-prog li.live { display: flex; gap: .45rem; align-items: baseline; }
-.st-req-prog li.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--text); flex: none; transform: translateY(-1px); }
+   watched (muted once it has ended). Each starts with a dash, with a thin
+   thread down to the next; no time and no dot (the owner, 2026-10-13,
+   choosing from rendered options). */
+.st-req-prog { list-style: none; margin: .35rem 0 .15rem; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.st-req-prog li { position: relative; padding-left: 1rem; font-size: .8rem; line-height: 1.42; color: var(--text); }
+.st-req-prog li::before { content: '\2013'; margin-right: .35rem; color: var(--muted); }
+.st-req-prog li:not(:last-child)::after { content: ''; position: absolute; left: 4px; top: .35em; bottom: calc(-.3rem - .35em); width: 1px; background: rgba(51,49,61,.18); }
 .st-req-done .st-req-prog li, .st-prog-done li { color: var(--muted); }
-.st-req-done .st-req-prog, .st-prog-done { border-left-color: rgba(51,49,61,.14); }
 .st-prog-done { margin: 0 0 .5rem; }
 /* The latest progress line where "Thinking" was, for a job this page watches. */
 .st-think.st-think-prog { font-weight: 500; font-size: .86rem; color: var(--text); align-items: baseline; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }

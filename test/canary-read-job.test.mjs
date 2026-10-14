@@ -528,7 +528,7 @@ test("the workflow carries the mode, and the read job beats a stale spend", () =
 // written: this free read is how to learn, afterwards, whether it was written.
 
 const FIN = (body, status = 200) => ({ status, final: "final", body, text: JSON.stringify(body) });
-const OUTCOME = { ok: true, layer: "nav", msg: "✅ Added “Classes” to the menu on 3 pages.", cost: 1 };
+const OUTCOME = { ok: true, layer: "nav", msg: "Added “Classes” to the menu on 3 pages.", cost: 1 };
 
 test("the account says what the poll's answer means for the job's reply: written by the model, still pending, failed, a hand-over, or none on it — and says when the answer cannot tell 'none owed' from 'never asked'", () => {
   assert.match(replyReading(FIN({ ...OUTCOME, reply: "I've put Classes in every menu that lacked it.", replySource: "model" })).says, /^WRITTEN by the model: "I've put Classes in every menu that lacked it\."$/);

@@ -449,7 +449,7 @@ test("TOLD 11 — RE-ANCHORED 2026-10-06, the limitation it pinned now closed: a
   assert.match(facts(r.body)[0], /^not-done: Nothing was added\. The builder's own reason: /, "the refusal's own fact is no longer first");
   const b = browserReply(r.body, false);
   assert.ok(b.ok, b.why);
-  assert.equal(b.text, "⚠️ " + r.body.msg + " " + r.body.coverNote, b.text);
+  assert.equal(b.text, r.body.msg + " " + r.body.coverNote, b.text);
 });
 
 test("TOLD 12 — what the note says beside the requirements reaches the reply model once, as its own fact: four undone requirements and a page the writer did not produce, through the route", async () => {

@@ -93,7 +93,7 @@ test("A STOP THAT IS NOT AN ORDINARY OUTCOME KEEPS THE PAGE'S OWN SENTENCE, WHAT
     p.ctx.siteSend("Make the footer blue");
     await settle();
     // THE PAGE'S OWN SENTENCE, by its kind (the harness stands `outcomeMessage` in as "outcome:<kind>").
-    assert.equal(p.last().t, "⚠️ outcome:needs_review", "a reply beside a site under review was shown");
+    assert.equal(p.last().t, "outcome:needs_review", "a reply beside a site under review was shown");
     assert.ok(p.ctx.editBlocked.has(SLUG), "the site under review was not blocked from more edits");
   }
   {

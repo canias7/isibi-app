@@ -115,7 +115,7 @@ test("COMPLETE SUCCESS: each layer's own result is a fact — the new wording, t
   assert.equal(texts(look)[2], "Changed the name in 3 places on the pages too.");
   assert.equal(texts(look)[3], "The page drew, but one heading is hard to read on its background.", "the render sentence is not a fact the reply must cover");
 
-  const nav = editReplyFacts({ ok: true, layer: "nav", msg: "✅ Took Gallery out of the menu on every page." });
+  const nav = editReplyFacts({ ok: true, layer: "nav", msg: "Took Gallery out of the menu on every page." });
   assert.deepEqual(texts(nav), ["What the builder reports it did: “Took Gallery out of the menu on every page.”"]);
   const rules = editReplyFacts({ ok: true, layer: "rules", msg: "Bookings are closed." });
   assert.deepEqual(kinds(rules), ["changed", "note"]);

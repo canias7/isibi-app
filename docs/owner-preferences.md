@@ -1210,3 +1210,20 @@
     live presses, until you say otherwise;
   - image work is tested offline with mocks only;
   - real images stay explicitly **unverified** in every record.
+
+## What you've asked for since (2026-10-13)
+
+- **No emoji or checkmarks in what the builder says, unless the customer
+  asks** (2026-10-13): *"i dont want checkmarks or emojis in the progress
+  stuff neither regular chats unless requested"*. So:
+  - no ✅, ⚠️, ⏳ or any other emoji in a sentence our code composes (chat
+    replies, refusals, build and edit outcomes);
+  - every model that writes to the customer (the final reply, progress
+    lines, task lines, the router's chat answers) is told: no emoji or
+    symbols unless they asked for them;
+  - interface labels that are not replies (the 🔔 email toggle, the ★ pricing
+    badge, the ▶ chevrons) are not part of this.
+- **A request's card: a dash before each part, and a dash before each
+  progress line with the thin thread between them; no numbers, no times, no
+  dot** (2026-10-13, chosen from rendered options: "E" for the parts, "4c"
+  for the lines).

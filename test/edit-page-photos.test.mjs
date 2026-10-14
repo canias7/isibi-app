@@ -377,7 +377,7 @@ test("a wording edit that loses the photographs is WITHHELD, not published", asy
       //     outside is indistinguishable from never having been computed. The
       //     reply half is asserted above; this is the hop.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("2 photographs"),
         "the refusal does not say how many on screen: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's
@@ -512,7 +512,7 @@ test("a photograph stripped out of a COMPONENT is withheld too", async () => {
 
       // AND THE SCREEN SAYS SO.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!/\p{Extended_Pictographic}/u.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("a photograph"),
         "the component's loss never reached the screen: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's

@@ -307,26 +307,26 @@ test("NOTHING MOVED IS NOT A SUCCESS", () => {
   // is reachable on the ordinary path: a table read only through a computed
   // options object refuses every slot.
   const said = sortReply({ table: "appointments", order: "time", changed: [], refused: [{ page: "book.tsx" }] });
-  assert.doesNotMatch(said, /✅/);
+  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
   assert.match(said, /book\.tsx/);
   assert.match(said, /couldn't change how appointments is ordered/);
 });
 
 test("already in that order is its own sentence, not a failure and not a tick", () => {
   const said = sortReply({ table: "dishes", order: "price", changed: [], refused: [] });
-  assert.doesNotMatch(said, /✅/);
+  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
   assert.match(said, /already comes out in that order/);
 });
 
 test("a success names the column, the direction and how many pages", () => {
   const said = sortReply({ table: "dishes", order: "price", dir: "asc", changed: ["a.tsx", "b.tsx"] });
-  assert.match(said, /✅ dishes now comes out in order of price, lowest first — on 2 pages\./);
+  assert.match(said, /dishes now comes out in order of price, lowest first — on 2 pages\./);
   assert.match(sortReply({ table: "d", order: "c", dir: "desc", changed: ["a.tsx"] }), /highest first — on 1 page\./);
 });
 
 test("a partial success still names what was left alone", () => {
   const said = sortReply({ table: "dishes", order: "price", changed: ["a.tsx"], refused: [{ page: "book.tsx" }] });
-  assert.match(said, /✅/);
+  assert.doesNotMatch(said, /\p{Extended_Pictographic}/u);
   assert.match(said, /I left book\.tsx alone/);
 });
 
@@ -367,7 +367,7 @@ test("an order-only change publishes pages and writes no rows", () => {
     assert.equal(applied, 0, "no row was written");
     assert.deepEqual(out.sortChanged, ["i.tsx"]);
     assert.ok(out.sortPages, "the rewritten pages come back for the caller to publish");
-    assert.match(out.sortMsg, /✅ dishes now comes out in order of price/);
+    assert.match(out.sortMsg, /dishes now comes out in order of price/);
   });
 });
 

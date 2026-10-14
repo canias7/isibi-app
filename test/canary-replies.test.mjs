@@ -43,9 +43,9 @@ const drive = (h, scenario, over = {}) => runUi({
 });
 
 // THE ANSWERS A JOB'S POLL HANDS BACK, as the server writes them.
-const PENDING = (outcome = "done") => ({ ok: true, layer: "nav", msg: "✅ Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, replyState: "pending", replyOutcome: outcome });
-const WRITTEN = (reply) => ({ ok: true, layer: "nav", msg: "✅ Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, reply, replySource: "model" });
-const FAILED = () => ({ ok: true, layer: "nav", msg: "✅ Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, replyState: "failed" });
+const PENDING = (outcome = "done") => ({ ok: true, layer: "nav", msg: "Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, replyState: "pending", replyOutcome: outcome });
+const WRITTEN = (reply) => ({ ok: true, layer: "nav", msg: "Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, reply, replySource: "model" });
+const FAILED = () => ({ ok: true, layer: "nav", msg: "Added “Classes” to the menu on 3 pages (the other 2 already had it), beside the items each had.", cost: 1, replyState: "failed" });
 const MENU_REPLY = "I've put Classes in the menu on the Order, Visit and Gallery pages, beside the links each already had. The home and Classes pages had it already.";
 const pendingThen = (n, last) => [...Array.from({ length: n }, () => PENDING()), last];
 // THE LOOK AT WHICH THE RELOAD CASE RELOADS: after the request has closed (the
@@ -90,7 +90,7 @@ test("FAILURE: a reply the server gives up on is settled into the page's own sen
   assert.deepEqual(w.jobs.map((j) => [j.state, j.holding]), [["failed", false]]);
   const f = failed(replyChecks(rec.steps));
   assert.equal(f.length, 1, f.join("\n"));
-  assert.match(f[0], /part 0's reply is the model's own, and on screen — failed: the reply was not written \(the server gave up\), and the page showed its own sentence instead: "✅ Added “Classes”/);
+  assert.match(f[0], /part 0's reply is the model's own, and on screen — failed: the reply was not written \(the server gave up\), and the page showed its own sentence instead: "Added “Classes”/);
   // THE PAGE'S OWN SENTENCE IS WHAT IS ON SCREEN.
   assert.deepEqual(rec.steps[0].replies, [FAILED().msg]);
 });
@@ -162,7 +162,7 @@ test("A STEP'S QUESTION: the heading's reply, still being written when the quest
   const h = heldApp({
     send: () => ({ request: { key: KEY(3), views: R3_VIEWS }, route: { intent: "edit", layer: "text", alsoAsked: "add a link to our Facebook page in the footer" } }),
     answerViews: R3_ANSWERED,
-    answers: { j1: pendingThen(5, { ok: true, msg: "✅ Changed.", reply: HEADING, replySource: "model" }), j2: [QUESTION], j4: pendingThen(4, { ok: true, msg: "✅ Added.", reply: FOOTER, replySource: "model" }) },
+    answers: { j1: pendingThen(5, { ok: true, msg: "Changed.", reply: HEADING, replySource: "model" }), j2: [QUESTION], j4: pendingThen(4, { ok: true, msg: "Added.", reply: FOOTER, replySource: "model" }) },
   });
   const rec = await drive(h, R3);
   assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
@@ -188,9 +188,9 @@ test("a question whose reply is still being written is drawn under the waiting l
   const h = heldApp({
     send: () => ({ request: { key: KEY(3), views: R3_VIEWS } }), answerViews: R3_ANSWERED,
     answers: {
-      j1: [{ ok: true, msg: "✅ Changed.", reply: HEADING, replySource: "model" }],
+      j1: [{ ok: true, msg: "Changed.", reply: HEADING, replySource: "model" }],
       j2: pendingThen(3, { ...asks, reply: "I can add the Facebook link once I know its address.", replySource: "model" }).map((a, i) => (i < 3 ? { ...asks, replyState: "pending", replyOutcome: "asked" } : a)),
-      j4: [{ ok: true, msg: "✅ Added.", reply: FOOTER, replySource: "model" }],
+      j4: [{ ok: true, msg: "Added.", reply: FOOTER, replySource: "model" }],
     },
   });
   const rec = await drive(h, R3);
@@ -216,7 +216,7 @@ const R5_VIEWS = [
 test("THE CLOSED TAB: the tab opened afterwards finds a reply still being written, holds its place and closes the request; the canary waits in that tab until the reply is written and drawn", async () => {
   const h = heldApp({
     send: () => ({ request: { key: KEY(5), views: R5_VIEWS }, route: { intent: "addon", layer: "" } }), followAfter: 2,
-    answers: { k1: [{ ok: true, msg: "✅ Added.", reply: "The Order page now says orders close at 8pm the night before.", replySource: "model" }], k2: pendingThen(5, { ok: true, msg: "✅ Changed.", reply: "The Gallery heading now reads “Photographs from the bakery”.", replySource: "model" }) },
+    answers: { k1: [{ ok: true, msg: "Added.", reply: "The Order page now says orders close at 8pm the night before.", replySource: "model" }], k2: pendingThen(5, { ok: true, msg: "Changed.", reply: "The Gallery heading now reads “Photographs from the bakery”.", replySource: "model" }) },
   });
   const rec = await drive(h, R5);
   assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
@@ -237,8 +237,8 @@ test("THE CLOSED TAB: the tab opened afterwards finds a reply still being writte
 
 const OLD = KEY(9);
 test("HISTORY CANNOT BLOCK: another request's reply that is never written, and its other replies drawn after the new message, do not hold the wait up — it ends when this request's own reply is written", async () => {
-  const history = [{ key: OLD, atLook: 2, jobs: ["h1", "h2"], own: "⚠️ I changed the site description, and a link to the new Classes page was not put in the menu." }];
-  const h = menuApp({ history, answers: { m1: pendingThen(4, WRITTEN(MENU_REPLY)), h1: [PENDING()], h2: [{ ok: true, msg: "✅ Updated the look — the description." }] } });
+  const history = [{ key: OLD, atLook: 2, jobs: ["h1", "h2"], own: "I changed the site description, and a link to the new Classes page was not put in the menu." }];
+  const h = menuApp({ history, answers: { m1: pendingThen(4, WRITTEN(MENU_REPLY)), h1: [PENDING()], h2: [{ ok: true, msg: "Updated the look — the description." }] } });
   const rec = await drive(h, MENU, { stepMs: 20_000, stepCapMs: 20_000 });
   const s = rec.steps[0];
   const w = s.replyWatch;
@@ -251,20 +251,20 @@ test("HISTORY CANNOT BLOCK: another request's reply that is never written, and i
   assert.deepEqual(s.replies, [MENU_REPLY]);
   // THE OTHER REQUEST'S REPLIES, DRAWN AFTER THE MESSAGE: kept apart, and
   // judged by the live check alone (`liveChecks`, 2026-10-05).
-  assert.deepEqual(s.otherReplies, ["✅ Updated the look — the description.", "⚠️ I changed the site description, and a link to the new Classes page was not put in the menu."]);
+  assert.deepEqual(s.otherReplies, ["Updated the look — the description.", "I changed the site description, and a link to the new Classes page was not put in the menu."]);
   assert.match(describeUi(rec), /also drawn after the message, not this request's \(judged by the live check alone\): 2/);
 });
 
 test("HISTORY CANNOT SATISFY: with this request's reply never written, another request's replies drawn after the message — one in the very words it would have had — answer nothing: the reply times out and the message has no reply on screen", async () => {
   const history = [{ key: OLD, atLook: 2, jobs: ["h1", "h2"] }];
-  const h = menuApp({ history, answers: { m1: [PENDING()], h1: [WRITTEN(MENU_REPLY)], h2: [{ ok: true, msg: "✅ Done — added /classes, updated /." }] } });
+  const h = menuApp({ history, answers: { m1: [PENDING()], h1: [WRITTEN(MENU_REPLY)], h2: [{ ok: true, msg: "Done — added /classes, updated /." }] } });
   const rec = await drive(h, MENU, { stepMs: 500, stepCapMs: 500 });
   const s = rec.steps[0];
   assert.deepEqual(s.replyWatch.jobs.map((j) => [j.state, j.shown]), [["timeout", false]]);
   assert.match(failed(replyChecks(rec.steps)).join("\n"), /timed out/);
   // "MESSAGE 1 GOT A REPLY ON SCREEN" READS THIS REQUEST'S REPLIES ONLY (edit-canary's check).
   assert.equal(s.reply, "", "another request's reply was taken for this message's");
-  assert.deepEqual(s.otherReplies, [MENU_REPLY, "✅ Done — added /classes, updated /."]);
+  assert.deepEqual(s.otherReplies, [MENU_REPLY, "Done — added /classes, updated /."]);
 });
 
 test("HISTORY CANNOT STAND IN BY ITS WORDS: a reply written at once but never drawn is not on screen, though another request's reply in the very same words is", async () => {
@@ -372,7 +372,7 @@ test("a reply's state is read off its own answer: the model's words, still being
   assert.equal(replyStateOf(PENDING()), "pending");
   assert.equal(replyStateOf(FAILED()), "failed");
   assert.equal(replyStateOf(QUESTION), "question");
-  assert.equal(replyStateOf({ ok: true, msg: "✅ Done." }), "composed");
+  assert.equal(replyStateOf({ ok: true, msg: "Done." }), "composed");
   assert.equal(replyStateOf({ ok: false, escalate: true, layer: "nav", replyState: "pending" }), "none", "a hand-over's reply was waited for");
   assert.equal(replyStateOf(null), "unread");
   // READ AS THE PAGE READS IT: a blank reply, or one not marked the model's, is not the model's.
@@ -517,7 +517,7 @@ test("the reader inside the app reads each message's held job off the page's own
   const kept = [
     { r: "u", t: "Put the Classes page in the menu on every page." },
     { r: "a", t: "", request: KEY(1) },
-    { r: "a", t: HOLD_LINE, held: { job: "m1", at: 5, else: "✅ Added." }, job: "m1" },
+    { r: "a", t: HOLD_LINE, held: { job: "m1", at: 5, else: "Added." }, job: "m1" },
   ];
   const run = (drawn, site) => {
     const ctx = vm.createContext({
@@ -560,7 +560,7 @@ test("the reader inside the app reads a reply's own words apart from the progres
   const li = (at, text) => ({ innerText: at + text, textContent: at + text, querySelector: (sel) => (sel === ".at" ? { innerText: at, textContent: at } : null) });
   const LINES = [li("0:05", "I found the lesson and I'm changing its price."), li("0:08", "I'm putting it on your site now.")];
   const block = { innerText: LINES.map((l) => l.innerText).join("\n"), textContent: LINES.map((l) => l.textContent).join(""), querySelectorAll: (sel) => (sel === "li" ? LINES : []) };
-  const WARN = "⚠️ I couldn't find that lesson, so nothing was changed.";
+  const WARN = "I couldn't find that lesson, so nothing was changed.";
   const msg = (cls, text, { kept = [], card = false } = {}) => ({
     classList: { contains: (c) => cls.includes(c) }, innerText: text, textContent: text,
     querySelector: (sel) => (sel === ".st-req" && card ? {} : null),
@@ -569,7 +569,7 @@ test("the reader inside the app reads a reply's own words apart from the progres
   const drawn = [
     msg(["st-msg", "u"], "Change the hour lesson to 45."),
     msg(["st-msg"], block.innerText + "\n" + WARN + "\n⧉", { kept: [block] }),
-    msg(["st-msg"], "✅ Done.\n⧉"),
+    msg(["st-msg"], "Done.\n⧉"),
     msg(["st-msg"], "1. Change the price\nIn progress\n0:05 a part's own line", { card: true }),
   ];
   const ctx = vm.createContext({
@@ -582,7 +582,7 @@ test("the reader inside the app reads a reply's own words apart from the progres
   const s = JSON.parse(JSON.stringify(vm.runInContext("readComposerInPage()", ctx)));
   assert.equal(s.messages[1].text, WARN, "the reply's own text carries the kept lines, or lost its warning's mark");
   assert.deepEqual(s.messages[1].progress, ["I found the lesson and I'm changing its price.", "I'm putting it on your site now."]);
-  assert.deepEqual([s.messages[2].text, s.messages[2].progress], ["✅ Done.", []], "a reply with nothing kept read differently");
+  assert.deepEqual([s.messages[2].text, s.messages[2].progress], ["Done.", []], "a reply with nothing kept read differently");
   assert.deepEqual([s.messages[3].card, s.messages[3].progress], [true, []], "a request's card was read as a reply's kept lines");
   assert.match(s.messages[3].text, /a part's own line/, "a request card's own lines were cut from its text");
 });

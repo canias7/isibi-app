@@ -76,8 +76,8 @@ const SAID_SOLO = {
   partial: "I've updated part of the Gallery heading, but not all of it.",
   notdone: "I couldn't update the Gallery heading.",
 };
-const ADDON_ANSWER = { ok: true, kinds: ["page", "table"], added: ["src/routes/tasting-evenings.tsx"], tables: ["tasting_list"], cost: 18, reply: "✅ Your Tasting Evenings page is up, and sign-ups are kept.", replySource: "model" };
-const EDIT_ANSWER = { ok: true, layer: "text", changed: ["src/routes/gallery.tsx"], files: 1, cost: 2, reply: "✅ The Gallery heading now reads “Photographs from our ovens”.", replySource: "model" };
+const ADDON_ANSWER = { ok: true, kinds: ["page", "table"], added: ["src/routes/tasting-evenings.tsx"], tables: ["tasting_list"], cost: 18, reply: "Your Tasting Evenings page is up, and sign-ups are kept.", replySource: "model" };
+const EDIT_ANSWER = { ok: true, layer: "text", changed: ["src/routes/gallery.tsx"], files: 1, cost: 2, reply: "The Gallery heading now reads “Photographs from our ovens”.", replySource: "model" };
 
 const siteRecord = (over = {}) => ({
   id: SITE_ID, slug: SLUG, react: true, name: "Fold Lane Bakery", url: "https://" + SLUG + ".gofarther.app/",
@@ -311,7 +311,7 @@ test("TENSES — one request, three parts: each named by the model's line for th
     polls: {
       [SOLO]: () => ({ final: true, body: { ...EDIT_ANSWER } }),
       [JOB]: () => (stage === 0 ? { body: { ok: true, status: "building", progress: LINES.slice(0, 2) } } : { final: true, body: { ...ADDON_ANSWER } }),
-      [JOB3]: () => (stage < 2 ? { body: { ok: true, status: "editing" } } : { final: true, body: { ok: true, layer: "nav", changed: ["src/routes/index.tsx"], cost: 2, reply: "✅ Tasting Evenings is in your menu.", replySource: "model" } }),
+      [JOB3]: () => (stage < 2 ? { body: { ok: true, status: "editing" } } : { final: true, body: { ok: true, layer: "nav", changed: ["src/routes/index.tsx"], cost: 2, reply: "Tasting Evenings is in your menu.", replySource: "model" } }),
     },
   };
   const app = await openApp(S);
@@ -367,16 +367,18 @@ test("CANARY — THE REPLY READ APART FROM THE PROGRESS KEPT ABOVE IT: a watched
     const replies = newReplies(1, s.messages);
     assert.equal(replies.length, 1, JSON.stringify(s.messages.map((m) => m.text)));
     const reply = replies[0];
-    assert.ok(reply.text.startsWith("⚠️"), "the reply as the canary reads it does not begin with its warning: " + JSON.stringify(reply.text.slice(0, 80)));
+    assert.ok(!/\p{Extended_Pictographic}/u.test(reply.text), "the reply as the canary reads it does not begin with its warning: " + JSON.stringify(reply.text.slice(0, 80)));
     assert.ok(reply.text.includes(NO_MATCH));
     for (const l of SOLO_LINES) assert.ok(!reply.text.includes(l.text), "a kept line was read as part of the reply");
     assert.deepEqual(reply.progress, SOLO_LINES.map((l) => l.text), "the kept lines were not read apart");
     const step = (texts) => ({ replies: texts, reply: texts.join("\n"), network: [{ method: "GET", path: "/api/site/edit/" + SOLO, status: 422, final: true, res: FAILED }] });
     assert.deepEqual(failureVerdict(step(replies.map((m) => m.text)), { error: "no-match" }).ok, true, "the failure check missed the warning on the reply's own text");
-    // AS BEFORE: the message read whole begins with the kept lines, and the check misses it.
+    // The message read whole begins with the kept lines. That once hid the
+    // warning sign the check required; since the owner's no-emoji rule
+    // (2026-10-13) the check needs only the failure's sentence, which the
+    // whole reading also carries.
     const whole = await page.$$eval(".st-msg.a", (els, m) => els.filter((e) => e.textContent.includes(m)).map((e) => String(e.innerText).replace(/⧉\s*$/, "").trim()), NO_MATCH);
-    assert.ok(!whole[0].startsWith("⚠️"), "the case no longer shows the old reading's failure");
-    assert.equal(failureVerdict(step(whole), { error: "no-match" }).ok, false);
+    assert.ok(whole[0].startsWith(SOLO_LINES[0].text), "the message read whole does not begin with the kept lines");
     await shot(page, "canary-reply-with-kept-lines.png");
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }
@@ -482,8 +484,8 @@ test("PARALLEL — a part prepared beside another part's job is shown in progres
     ],
   });
   const S = { requests: () => [view()], view, polls: {
-    [JOB]: () => (stage >= 2 ? { final: true, body: { ...EDIT_ANSWER, reply: "✅ Your TikTok link now goes to @foldlane." } } : { body: { ok: true, status: "editing" } }),
-    [SOLO]: () => (stage === 3 ? { final: true, body: { ok: true, layer: "picture", changed: ["src/routes/gallery.tsx"], files: 1, cost: 3, reply: "✅ A new sourdough picture is in your gallery.", replySource: "model" } } : { body: { ok: true, status: "editing" } }),
+    [JOB]: () => (stage >= 2 ? { final: true, body: { ...EDIT_ANSWER, reply: "Your TikTok link now goes to @foldlane." } } : { body: { ok: true, status: "editing" } }),
+    [SOLO]: () => (stage === 3 ? { final: true, body: { ok: true, layer: "picture", changed: ["src/routes/gallery.tsx"], files: 1, cost: 3, reply: "A new sourdough picture is in your gallery.", replySource: "model" } } : { body: { ok: true, status: "editing" } }),
   } };
   const app = await openApp(S);
   try {

@@ -255,7 +255,7 @@ export const REPLY_SYSTEM =
   "- Use their own words for things on their site where the facts quote them.\n" +
   "- Write in the language they wrote their message in. Warm and direct; no apologies beyond one short one when something " +
   "did not work; no marketing.\n" +
-  "- You may start with ✅ when everything they asked for was done, or ⚠️ when part or all of it was not. Otherwise no emoji.\n" +
+  "- No emoji and no checkmark or warning symbols, unless they asked for them.\n" +
   "- Never put a fact's id in the reply itself.";
 
 // ── FACTS ────────────────────────────────────────────────────────────────

@@ -490,7 +490,7 @@ test("PLACE 7 — an older thread, from before the marks: its messages keep thei
     // THE THREAD AS THE OLD PAGE KEPT IT: nothing marked, the record without `own`.
     const site = siteFor(P.slug);
     site.msgs = [
-      { r: "u", t: "Make the logo bigger" }, { r: "a", t: "✅ Made the logo bigger." },
+      { r: "u", t: "Make the logo bigger" }, { r: "a", t: "Made the logo bigger." },
       { r: "u", t: MSGS[0] + ", and " + ADD + "." }, { r: "a", t: "", request: K1 }, { r: "a", t: "Changed the description." },
       { r: "u", t: "Thanks" }, { r: "a", t: "You're welcome." },
     ];
@@ -554,13 +554,13 @@ test("PLACE 9 — an older thread's request card stays under the message that as
     // here (so the server's list is not asked to repeat it), nothing marked.
     const KL = "olderthreadrequest0001";
     const site = siteFor(P.slug);
-    site.msgs = [{ r: "u", t: "Make the logo bigger" }, { r: "a", t: "", request: KL }, { r: "a", t: "✅ Made the logo bigger." }];
+    site.msgs = [{ r: "u", t: "Make the logo bigger" }, { r: "a", t: "", request: KL }, { r: "a", t: "Made the logo bigger." }];
     site.requests = { [KL]: { at: Date.now(), view: { key: KL, state: "done", ended: true, at: at + 60000, parts: [] }, shown: [], replied: true, replies: ["end"], closed: true, approving: [] } };
     const b = opened(openPage(P, wire(P), { site }));
     await idle();
     await looks(b);
     assert.deepEqual(shape(b), ["card:" + K1, "a:" + K1 + "#", "u", "card:" + KL, "a:"]);
-    assert.deepEqual(b.s.msgs.slice(2).map((m) => m.t), ["Make the logo bigger", "", "✅ Made the logo bigger."]);
+    assert.deepEqual(b.s.msgs.slice(2).map((m) => m.t), ["Make the logo bigger", "", "Made the logo bigger."]);
   });
 });
 

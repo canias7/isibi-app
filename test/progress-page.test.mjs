@@ -37,7 +37,9 @@ test("CARD — a request part's lines are drawn under its fixed label, escaped, 
     return p.ctx.siteRequestHTML({ request: view.key }, p.s);
   };
   const running = draw(partView("started", LINES));
-  assert.match(running, /<span class="st-req-status">In progress<\/span><ul class="st-req-prog"><li><span class="at">0:30<\/span>Adding a page &lt;with&gt; a form\.<\/li><li class="live"><i><\/i><span><span class="at">1:31<\/span>The list is designed\.<\/span><\/li><\/ul>/);
+  assert.match(running, /<span class="st-req-status">In progress<\/span><ul class="st-req-prog"><li>Adding a page &lt;with&gt; a form\.<\/li><li class="live">The list is designed\.<\/li><\/ul>/);
+  // NO TIME AND NO DOT (the owner, 2026-10-13): the stylesheet draws a dash.
+  assert.doesNotMatch(running, /0:30|1:31|class="at"|<i>/, "a line still carries its time or the live dot");
   const ended = draw(partView("done", LINES));
   assert.match(ended, /st-req-done/);
   const list = ended.match(/<ul class="st-req-prog">(.*?)<\/ul>/);
@@ -89,7 +91,7 @@ test("FOUND — the card is followed to its end: the model's reply is said right
     answer: (url) => {
       if (url !== "/api/site/edit/" + SOLO) return null;
       return done
-        ? { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ The heading is changed.", replySource: "model", outcome: "done", progress: [{ n: 0, ms: 5000, text: "Found it." }, { n: 1, ms: 8000, text: "Publishing now." }] }, headers: { "x-gf-edit": "final" } }
+        ? { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "The heading is changed.", replySource: "model", outcome: "done", progress: [{ n: 0, ms: 5000, text: "Found it." }, { n: 1, ms: 8000, text: "Publishing now." }] }, headers: { "x-gf-edit": "final" } }
         : { status: 202, body: { ok: true, status: "editing", outcome: "running", progress: [{ n: 0, ms: 5000, text: "Found it." }] } };
     },
   });
@@ -106,7 +108,7 @@ test("FOUND — the card is followed to its end: the model's reply is said right
   assert.match(p.ctx.siteJobCardHTML({ jobCard: SOLO }, p.s), /<span class="st-req-status">Finished<\/span>/);
   assert.equal(card().view.progress.length, 2);
   const msgs = p.said();
-  assert.deepEqual(msgs.map((m) => (m.jobCard ? "card" : m.t)), ["card", "✅ The heading is changed."]);
+  assert.deepEqual(msgs.map((m) => (m.jobCard ? "card" : m.t)), ["card", "The heading is changed."]);
   assert.deepEqual(msgs[1].jobs, [SOLO], "the reply does not name its job");
   p.flush();
   await settle();
@@ -121,8 +123,8 @@ test("PLACE — a request's reply goes with its request, never under a found job
   p.ctx.siteReqState("origin-1", v.key, { ...v, at: 4000 });
   p.ctx.siteReqCard(p.s, v.key);
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "editing", words: "later", at: 9000 });
-  p.ctx.siteReqSay("origin-1", "✅ The request is done.", { key: v.key });
-  assert.deepEqual(p.said().map((m) => (m.jobCard ? "job" : m.request ? "request" : m.t)), ["request", "✅ The request is done.", "job"]);
+  p.ctx.siteReqSay("origin-1", "The request is done.", { key: v.key });
+  assert.deepEqual(p.said().map((m) => (m.jobCard ? "job" : m.request ? "request" : m.t)), ["request", "The request is done.", "job"]);
 });
 
 test("LIST — the requests list's jobs are drawn, and a list with none (progress off) draws nothing new", async () => {
@@ -139,7 +141,7 @@ test("LIST — the requests list's jobs are drawn, and a list with none (progres
 test("KEPT — a watched job's lines are kept on the reply its finish put on the thread, each with its job; a hop's job is added beside it; nothing is doubled; a finish that put nothing on the thread keeps nothing", () => {
   const p = page({ site: { ...SITE, msgs: [{ r: "u", t: "ask" }] } });
   const before = p.s.msgs.length;
-  p.s.msgs.push({ r: "a", t: "✅ Done." });
+  p.s.msgs.push({ r: "a", t: "Done." });
   p.ctx.siteKeepJobProgress("origin-1", JOB, before, [{ n: 0, ms: 1000, text: "one" }]);
   p.ctx.siteKeepJobProgress("origin-1", SOLO, before, [{ n: 0, ms: 2000, text: "two" }]);
   p.ctx.siteKeepJobProgress("origin-1", JOB, before, [{ n: 0, ms: 1000, text: "one" }]);
@@ -158,7 +160,7 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
   const polls = [
     { status: 202, body: { ok: true, status: "editing", progress: [{ n: 0, ms: 3000, text: "Found the heading." }] } },
     { status: 202, body: { ok: true, status: "editing", progress: [{ n: 0, ms: 3000, text: "Found the heading." }, { n: 1, ms: 6000, text: "Publishing now." }] } },
-    { status: 200, final: true, body: { ok: true, layer: "text", reply: "✅ Changed.", replySource: "model", progress: [{ n: 0, ms: 3000, text: "Found the heading." }, { n: 1, ms: 6000, text: "Publishing now." }] } },
+    { status: 200, final: true, body: { ok: true, layer: "text", reply: "Changed.", replySource: "model", progress: [{ n: 0, ms: 3000, text: "Found the heading." }, { n: 1, ms: 6000, text: "Publishing now." }] } },
   ];
   const timers = [];
   let paints = 0;
@@ -184,7 +186,7 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
   assert.ok(paints >= 2, "the line was not painted");
   await run();
   const reply = s.msgs[s.msgs.length - 1];
-  assert.equal(reply.t, "✅ Changed.");
+  assert.equal(reply.t, "Changed.");
   assert.deepEqual(copy(reply.jobs), [JOB]);
   assert.deepEqual(copy(reply.prog).map((l) => [l.job, l.n, l.text]), [[JOB, 0, "Found the heading."], [JOB, 1, "Publishing now."]]);
 });
@@ -301,7 +303,7 @@ test("SAID — the card's follow takes the lines from the job's poll, and keeps 
       if (n === 1) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
       if (n === 2) return { status: 202, body: { ok: true, status: "editing", progress: [], said: SAID } };
       if (n === 3) return { status: 202, body: { ok: true, status: "editing", progress: [] } };
-      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", outcome: "done", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
+      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "Done.", replySource: "model", outcome: "done", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
     },
   });
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });
@@ -326,7 +328,7 @@ test("OUTCOME — an answer that carries no outcome of the server's never leaves
       if (url !== "/api/site/edit/" + SOLO) return null;
       n++;
       if (n === 1) return { status: 202, body: { ok: true, status: "editing", outcome: "running", progress: [], said: SAID } };
-      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "✅ Done.", replySource: "model", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
+      return { body: { ok: true, layer: "text", changed: ["src/routes/index.tsx"], cost: 1, reply: "Done.", replySource: "model", progress: [], said: SAID }, headers: { "x-gf-edit": "final" } };
     },
   });
   p.ctx.siteJobDiscovered("origin-1", { job: SOLO, op: "edit", state: "queued", words: "Change the heading", at: 1, progress: [] });

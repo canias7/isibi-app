@@ -210,7 +210,7 @@ test("8: an ordinary inline failure on the ERROR branch, narrated — the model'
     await send(page, "Harbour Loaf.");
     await page.waitForTimeout(800);
     const t = await threadText(page);
-    assert.ok(t.includes("⚠️ " + told), "the model's account does not lead: " + t.slice(-600));
+    assert.ok(t.includes(told), "the model's account does not lead: " + t.slice(-600));
     assert.doesNotMatch(t, /CANNED DESIGNER SENTENCE/);
     assert.match(t, /Cost: nothing charged\./);
     assert.doesNotMatch(t, /builder is busy|temporarily unavailable/, "an ordinary stop was shown as an outage");
@@ -243,8 +243,8 @@ test("8: an ordinary stop on the SUCCESS branch (a placeholder build, 200) — t
     await send(page, "Harbour Loaf.");
     await page.waitForTimeout(800);
     const t = await threadText(page);
-    assert.ok(t.includes("⚠️ " + told), t.slice(-600));
-    assert.doesNotMatch(t, /CANNED PAGES SENTENCE|✅ Built/);
+    assert.ok(t.includes(told), t.slice(-600));
+    assert.doesNotMatch(t, /CANNED PAGES SENTENCE|Built (“|your site)/);
     assert.match(t, /Cost: 12 credits\./);
   } finally { await browser.close(); }
 });
@@ -257,7 +257,7 @@ test("8: a fixed REFUSAL (402) carrying a refund keeps its own sentence and show
     await send(page, "Harbour Loaf.");
     await page.waitForTimeout(800);
     const t = await threadText(page);
-    assert.match(t, /⚡ A build needs about 20 credits and you have 3\./);
+    assert.match(t, /A build needs about 20 credits and you have 3\./);
     assert.match(t, /Refund: 2 credits returned\./);
   } finally { await browser.close(); }
 });

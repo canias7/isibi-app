@@ -742,7 +742,7 @@ test("THE PAGE AT THE BOUND: a message past it is not sent and stays in the box 
     assert.deepEqual(p.calls, [], "an answer past the bound was sent");
     assert.equal(p.ask().id, qid, "the question came off");
     assert.equal(p.s.draft.t, PAST_BOUND);
-    assert.match(p.last().t, /^⚠️ That answer is 16,001 characters/);
+    assert.match(p.last().t, /^That answer is 16,001 characters/);
   }
   {
     // AT THE BOUND IT GOES, WHOLE.
@@ -806,6 +806,6 @@ test("A STEP'S UNUSABLE QUESTION ON A LONG REQUEST, ON THE PAGE: the request com
     assert.equal(edit.body.error, "ask-unusable", JSON.stringify(edit.body).slice(0, 300));
     assert.deepEqual(copy(p.s.unsent), [{ t: LONG_MOVE, imgs: [PNG_A] }], "the request did not come back to the box whole, with its file");
     assert.equal(p.ask(), null, "an unusable question became a card");
-    assert.match(p.last().t, /^⚠️ /, p.last().t);
+    assert.doesNotMatch(p.last().t, /\p{Extended_Pictographic}/u, p.last().t);
   }, { slug });
 });

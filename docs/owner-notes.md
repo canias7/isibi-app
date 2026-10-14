@@ -940,6 +940,33 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-13 — No emoji or checkmarks, and dashes on the request card (on branch `new`; nothing merged, deployed or spent)
+
+- **What you asked**: no checkmarks or emojis in progress updates or regular
+  chat replies unless the customer asks; a dash instead of 1, 2, 3 before a
+  request's parts (option E); a dash instead of the time before each
+  progress line, with the thin thread kept and no dot (option 4c); all on a
+  new branch called `new`.
+- **What a customer sees now**: replies read as plain sentences ("Updated
+  the menu on 2 pages: …", "I couldn't load your site's pages just now …")
+  with no ✅, ⚠️, ⏳, ↩, ↻, ⏹ or ⚡ in front. The request card shows dashes
+  and a thin thread; no numbers, times or dots.
+- **One sentence changed in words**: a build that ended on the placeholder,
+  with no model summary, used to show "⚠️ Built “X” …"; without the warning
+  sign that would have read as a success, so it now says the site didn't
+  finish building and the address shows a placeholder.
+- **The models are told**: no emoji or symbols unless the customer asked
+  (the final reply, progress lines, task lines, the router's chat answers).
+  Not yet seen live.
+- **Kept**: the 🔔 email toggle, the ★ pricing badge and the ▶ chevrons are
+  interface labels, not replies.
+- **The canary instruments** no longer look for ✅/⚠️ on screen.
+- **Evidence**: 4 new guard cases; 558 test lines updated, each checked for
+  a check that had gone vacuous; 10 of 10 mutants killed, control survived;
+  full suite `10741 / 10738 / 0 / 3` locally against `main`'s
+  `10737 / 10734 / 0 / 3`. Record:
+  `docs/history/2026-10-13-no-emoji-dashes.md`.
+
 ## 2026-10-13 — Correction reuse's validation gap closed; one release proposed (nothing spent, merged or deployed)
 
 You asked for an end-to-end case where a cleaner input really changes while

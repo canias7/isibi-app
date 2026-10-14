@@ -1165,7 +1165,7 @@ if (UI_ASK) {
       const s = ui.steps[0] || {};
       const rq = requestVerdict(s, UI_ASK.scenario);
       check(`the message left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rq.ok, JSON.stringify(rq));
-      check(`the reply on screen is a success that names ${RULES.table}`, /^✅/.test(s.reply || "") && String(s.reply || "").includes(RULES.table), JSON.stringify(s.reply || ""));
+      check(`the reply on screen names ${RULES.table}`, String(s.reply || "").includes(RULES.table), JSON.stringify(s.reply || ""));
       const cl = R.closing || null;
       check(`the job's stored reply closed ${RULES.table} by a supported way and changed nothing else, and the owner's listing agrees`, !!(cl && cl.ok),
         cl ? (cl.ok ? `by ${cl.method} (fields ${cl.fields.join(", ")}; ${cl.access.before} -> ${cl.access.after})${cl.refused.length ? `; refused beside it: ${JSON.stringify(cl.refused)}` : ""}` : cl.why)

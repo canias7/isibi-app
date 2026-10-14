@@ -1673,7 +1673,7 @@ test("the deletion path reaches the route and calls no model", () => {
   // the removal rung's own reply shape (`page`, `removed`, `cost: 0`).
   const said = editBrowserReply({ ok: true, layer: "page", page: "/gallery", removed: ["gallery.tsx"], cost: 0 }, true);
   assert.equal(said.ok, true, said.why);
-  assert.match(said.text, /^✅ Took \/gallery off the site\./, "the customer is not told the page went");
+  assert.match(said.text, /^Took \/gallery off the site\./, "the customer is not told the page went");
 });
 
 test("EVERY FIELD `readEdit` DECIDES REACHES THE CLIENT", () => {

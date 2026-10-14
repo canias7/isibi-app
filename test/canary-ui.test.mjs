@@ -88,9 +88,9 @@ test("the replies are the assistant's messages after the send, never a Working r
     { who: "a", busy: false, text: "an older reply" },
     { who: "u", busy: false, text: "Use this picture as the logo." },
     { who: "a", busy: true, text: "Working" },
-    { who: "a", busy: false, text: "✅ That's your logo in the header now, on every page." },
+    { who: "a", busy: false, text: "That's your logo in the header now, on every page." },
   ];
-  assert.deepEqual(newReplies(1, msgs).map((m) => m.text), ["✅ That's your logo in the header now, on every page."]);
+  assert.deepEqual(newReplies(1, msgs).map((m) => m.text), ["That's your logo in the header now, on every page."]);
   assert.deepEqual(newReplies(4, msgs), []);
   assert.deepEqual(newReplies(0, null), []);
 });
@@ -102,9 +102,9 @@ test("the replies are counted after the message itself, so an earlier request pu
     { who: "a", busy: false, text: "Changed the description." },
     { who: "u", busy: false, text: "Use this picture as the logo." },
     { who: "a", busy: false, card: true, text: "" },
-    { who: "a", busy: false, text: "✅ That's your logo in the header now, on every page." },
+    { who: "a", busy: false, text: "That's your logo in the header now, on every page." },
   ];
-  assert.deepEqual(newReplies(0, msgs).map((m) => m.text), ["✅ That's your logo in the header now, on every page."]);
+  assert.deepEqual(newReplies(0, msgs).map((m) => m.text), ["That's your logo in the header now, on every page."]);
   // NOTHING SENT ON THE THREAD YET: the count alone, as before.
   assert.deepEqual(newReplies(1, msgs.slice(0, 2)).map((m) => m.text), ["Changed the description."]);
 });
@@ -248,7 +248,7 @@ function standIn(opt = {}) {
         q.shown = true;
         if (!q.stopped) {
           await respond("GET", `/api/site/edit/${q.job}`, 200, null, q.reply, { "x-gf-edit": "final" });
-          st.messages.push({ who: "a", busy: false, text: q.reply.msg || "✅ Done." });
+          st.messages.push({ who: "a", busy: false, text: q.reply.msg || "Done." });
         } else st.messages.push({ who: "a", busy: false, text: "Stopped at your request." });
         st.requests[q.key] = { closed: true, ended: true };
       }
@@ -272,7 +272,7 @@ function standIn(opt = {}) {
           if (opt.onDone) opt.onDone(p.n);
           // WHAT THE APP DRAWS for that reply: a warning with the stored
           // sentence and the money for a refusal, the sentence for a success.
-          st.messages.push({ who: "a", busy: false, text: opt.screen ? opt.screen(p.n, p.reply) : (p.reply.msg || "✅ Done.") });
+          st.messages.push({ who: "a", busy: false, text: opt.screen ? opt.screen(p.n, p.reply) : (p.reply.msg || "Done.") });
           st.busy = false;
           // A PAGE THAT RELOADS ITSELF once a reply is out: a new document.
           if (opt.reloadAfter === p.n) { st.mark = ""; st.origin += 1; }
@@ -522,7 +522,7 @@ test("the wall aborts the work a scenario never asks for, and passes everything 
 const D1 = UI_SCENARIOS["4b-d1-price"];
 const D1_BACK = UI_SCENARIOS["4b-d1-restore"];
 const D1_SAY = "In today's bake list, change the Sea Salt Focaccia's price to £4.60.";
-const D1_REPLY = { ok: true, layer: "data", applied: [{ table: "loaves", id: 6, columns: ["price"] }], failed: 0, cost: 1, msg: "✅ Updated one entry in loaves." };
+const D1_REPLY = { ok: true, layer: "data", applied: [{ table: "loaves", id: 6, columns: ["price"] }], failed: 0, cost: 1, msg: "Updated one entry in loaves." };
 const SITE = "https://fold-lane-bakery.gofarther.app";
 
 test("D1 is one message, tied to the bakery, with a data-only wall and the proposal's record", () => {
@@ -533,7 +533,7 @@ test("D1 is one message, tied to the bakery, with a data-only wall and the propo
   assert.equal(D1.site, "fold-lane-bakery");
   assert.deepEqual([...D1.layers], ["data"]);
   assert.equal(D1.publishes, 0);
-  assert.equal(D1.reply, "✅ Updated one entry in loaves.");
+  assert.equal(D1.reply, "Updated one entry in loaves.");
   assert.deepEqual(JSON.parse(JSON.stringify(D1.applied)), [{ table: "loaves", id: 6, columns: ["price"] }]);
   assert.ok(D1.budget >= 3 && D1.budget <= 6, `budget ${D1.budget}`);
   const row = D1.row;
@@ -1153,7 +1153,7 @@ const LIDO = "https://lido-axes-b.gofarther.app";
 const DENIED_BOOKING = { code: "42501", details: null, hint: null, message: "permission denied for table bookings" };
 const rulesReply = (fields = ["retired"], over = {}) => ({
   ok: true, layer: "rules", applied: [{ table: "bookings", fields }], refused: [], cost: 1,
-  msg: fields.includes("write") ? "✅ **bookings** — changed who can add to it." : "✅ **bookings** — changed whether it's open.", ...over,
+  msg: fields.includes("write") ? "**bookings** — changed who can add to it." : "**bookings** — changed whether it's open.", ...over,
 });
 const LIDO_SURFACE = () => {
   const r = RULES.rules.record;
@@ -1753,8 +1753,8 @@ test("the driver walls each message to its own layers from the moment it is sent
     routed: (n) => ({ ok: true, intent: "edit", layer: ["nav", "page"][n], cost: 2 }),
     editBody: (n, said) => ({ layer: ["nav", "page"][n], instruction: said }),
     reply: (n) => [
-      { ok: true, layer: "nav", msg: "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit." },
-      { ok: true, layer: "page", removed: ["gallery.tsx"], msg: "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back." },
+      { ok: true, layer: "nav", msg: "Updated the menu on 4 pages: Today's bake · The starter · Visit." },
+      { ok: true, layer: "page", removed: ["gallery.tsx"], msg: "Took /gallery off the site. Every publish is kept, so say the word if you want it back." },
     ][n],
     // AT EACH SEND, what the wall would do with a menu edit and a page edit.
     onSend: (n) => {
@@ -1770,8 +1770,8 @@ test("the driver walls each message to its own layers from the moment it is sent
   assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
   assert.equal(rec.sent, 2);
   assert.deepEqual(rec.steps.map((s) => s.reply), [
-    "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit.",
-    "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back.",
+    "Updated the menu on 4 pages: Today's bake · The starter · Visit.",
+    "Took /gallery off the site. Every publish is kept, so say the word if you want it back.",
   ]);
   assert.deepEqual(await Promise.all(seen), [[0, "fallback", "abort", "fallback"], [1, "abort", "fallback", "fallback"]]);
   assert.deepEqual(rec.blocked.map((b) => b.why), [
@@ -1912,9 +1912,9 @@ const NO_MATCH_MSG = "I couldn't match that to anything the site stores — say 
 // THE POLL ROUTE'S ANSWER for a refunded job: the handler's stored reply, its
 // cost taken from the job's row (0 once refunded) and the refund named.
 const T9_NO_MATCH = { ok: false, error: "no-match", cost: 0, refunded: 1, usage: { in: 900, out: 13 }, msg: NO_MATCH_MSG };
-const T9_DONE = { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, columns: ["price"] }], failed: 0, cost: 1, msg: "✅ Updated one entry in lessons." };
+const T9_DONE = { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, columns: ["price"] }], failed: 0, cost: 1, msg: "Updated one entry in lessons." };
 // What the app draws for each: `editAnswer`'s warning and money, or the success sentence.
-const t9Screen = (n, reply) => (reply.ok === false ? "⚠️ " + reply.msg + " This edit cost you nothing. Reading your message cost 2 credits." : reply.msg);
+const t9Screen = (n, reply) => (reply.ok === false ? "" + reply.msg + " This edit cost you nothing. Reading your message cost 2 credits." : reply.msg);
 
 function lessons(calls, rows = T9.row.record) {
   const db = { rows: JSON.parse(JSON.stringify(rows)), patches: [] };
@@ -1962,7 +1962,7 @@ test("Test 9 is a failing message and then a follow-up that needs that failure, 
   assert.equal(T9.steps[1].fails, undefined);
   assert.deepEqual(T9.layers, ["data"]);
   assert.equal(T9.publishes, 0);
-  assert.equal(T9.reply, "✅ Updated one entry in lessons.");
+  assert.equal(T9.reply, "Updated one entry in lessons.");
   assert.deepEqual(T9.applied, [{ table: "lessons", id: 4, columns: ["price"] }]);
   assert.ok(Number.isFinite(T9.budget) && T9.budget > 0 && T9.budget <= 10, `budget ${T9.budget}`);
   const row = T9.row;
@@ -1987,11 +1987,10 @@ test("a failure is the named one, naming no row, costing the edit nothing, and s
     [step({ ...T9_NO_MATCH, cost: 1 }), /cost reads 1, not 0/],
     [step((({ cost, ...r }) => r)(T9_NO_MATCH)), /cost reads null, not 0/],
     [step({ ...T9_NO_MATCH, msg: " " }), /no sentence/],
-    // SHOWN, AND AS A WARNING: a page that drew a success, or another sentence, did not show it.
-    [step(T9_NO_MATCH, "✅ Done."), /did not show/],
-    [step(T9_NO_MATCH, NO_MATCH_MSG), /did not show/],
-    [step(T9_NO_MATCH, "⚠️ Something went wrong."), /did not show/],
-    [{ reply: "⚠️ " + NO_MATCH_MSG, network: [] }, /no stored reply/],
+    // SHOWN: a page that drew a success, or another sentence, did not show it.
+    [step(T9_NO_MATCH, "Done."), /did not show/],
+    [step(T9_NO_MATCH, "Something went wrong."), /did not show/],
+    [{ reply: NO_MATCH_MSG, network: [] }, /no stored reply/],
   ];
   for (const [s, why] of bad) {
     const got = failureVerdict(s, { error: "no-match" });
@@ -1999,13 +1998,11 @@ test("a failure is the named one, naming no row, costing the edit nothing, and s
     assert.match(got.why, why);
   }
   assert.match(failureVerdict(step(T9_NO_MATCH), {}).why, /no failure named/, "a step with no failure named passes as one");
-  // THE REPLIES AS THE PAGE DREW THEM: the warning among them is enough, and
-  // a warning that is not this failure's sentence, or the sentence drawn
-  // without the warning, is not.
-  const warned = "⚠️ " + NO_MATCH_MSG + " This edit cost you nothing.";
+  // THE REPLIES AS THE PAGE DREW THEM: this failure's sentence among them is
+  // enough, and a sentence that is not this failure's is not.
+  const warned = NO_MATCH_MSG + " This edit cost you nothing.";
   assert.equal(failureVerdict({ ...step(T9_NO_MATCH), replies: ["Checking your lessons…", warned] }, { error: "no-match" }).ok, true);
-  assert.match(failureVerdict({ ...step(T9_NO_MATCH), replies: ["Checking your lessons…", NO_MATCH_MSG] }, { error: "no-match" }).why, /did not show/);
-  assert.match(failureVerdict({ ...step(T9_NO_MATCH), replies: ["⚠️ Something else went wrong.", NO_MATCH_MSG] }, { error: "no-match" }).why, /did not show/);
+  assert.match(failureVerdict({ ...step(T9_NO_MATCH), replies: ["Checking your lessons…", "Something else went wrong."] }, { error: "no-match" }).why, /did not show/);
 });
 
 test("the follow-up goes only after the failure it follows, and only once the table read after it is the baseline", () => {
@@ -2019,7 +2016,7 @@ test("the follow-up goes only after the failure it follows, and only once the ta
     [{ ...failed, network: [] }, /no stored reply/],
     [{ ...failed, network: [{ ...failed.network[0], status: 200, res: T9_DONE }] }, /not the failure this message follows up \(the message succeeded\)/],
     [{ ...failed, network: [{ ...failed.network[0], res: { ...T9_NO_MATCH, error: "no-change" } }] }, /failed as no-change/],
-    [{ ...failed, reply: "✅ Done." }, /did not show/],
+    [{ ...failed, reply: "Done." }, /did not show/],
     [{ ...failed, untouched: { ok: false, why: "moved" } }, /not known to be as it was \(moved\)/],
     [{ ...failed, untouched: undefined }, /not known to be as it was \(not read\)/],
   ];
@@ -2070,7 +2067,7 @@ test("TEST 9 END TO END: the failure is shown and changes nothing, the follow-up
   assert.equal(rec.sent, 2);
   const [one, two] = rec.steps;
   // MESSAGE 1: the failure, shown, and the table read against the baseline before message 2.
-  assert.equal(one.reply, "⚠️ " + NO_MATCH_MSG + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(one.reply, NO_MATCH_MSG + " This edit cost you nothing. Reading your message cost 2 credits.");
   assert.deepEqual(one.failure, { ok: true, why: "", error: "no-match", cost: 0, refunded: 1 });
   assert.deepEqual(one.untouched, { ok: true, why: "unchanged" });
   assert.equal(requestVerdict(one, T9).ok, true, JSON.stringify(requestVerdict(one, T9)));
@@ -2117,9 +2114,9 @@ test("a first message that succeeds, fails another way, is not shown, or moves t
   const hourGone = (n, db) => { if (n === 0) db.rows = db.rows.filter((r) => r.id !== 4); };
   for (const [opt, why] of [
     // THE PICKER TOOK A ROW OFF after all: a success, so there is no failure to follow up.
-    [{ reply: (n) => (n === 0 ? { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, removed: true }], failed: 0, cost: 1, msg: "✅ Removed one entry from lessons." } : T9_DONE), onDone: hourGone }, /the message succeeded/],
+    [{ reply: (n) => (n === 0 ? { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, removed: true }], failed: 0, cost: 1, msg: "Removed one entry from lessons." } : T9_DONE), onDone: hourGone }, /the message succeeded/],
     [{ reply: (n) => (n === 0 ? { ...T9_NO_MATCH, error: "send", msg: "I couldn't reach the model that makes that change — try again in a moment." } : T9_DONE) }, /failed as send, not as no-match/],
-    [{ screen: (n, reply) => (reply.ok === false ? "✅ Done." : reply.msg) }, /did not show/],
+    [{ screen: (n, reply) => (reply.ok === false ? "Done." : reply.msg) }, /did not show/],
     // A FAILURE THAT STILL MOVED A ROW is not the failure a follow-up is sent after.
     [{ onDone: (n, db) => { if (n === 0) db.rows[0].price = 5; } }, /not known to be as it was \(moved\)/],
   ]) {
@@ -2249,8 +2246,8 @@ test("request mode, pure: the routing answer names the request; a card is not a 
   assert.equal(requestKeyOf([{ method: "POST", path: "/api/site/route", res: { ok: true, intent: "edit" } }]), "");
   assert.equal(requestKeyOf([{ method: "POST", path: "/api/site/route", res: { request: { key: "short" } } }]), "");
   assert.equal(requestKeyOf(null), "");
-  const msgs = [{ who: "u", text: "x" }, { who: "a", busy: false, card: true, text: "x Queued" }, { who: "a", busy: false, text: "✅ Done." }];
-  assert.deepEqual(newReplies(1, msgs).map((m) => m.text), ["✅ Done."]);
+  const msgs = [{ who: "u", text: "x" }, { who: "a", busy: false, card: true, text: "x Queued" }, { who: "a", busy: false, text: "Done." }];
+  assert.deepEqual(newReplies(1, msgs).map((m) => m.text), ["Done."]);
   assert.deepEqual(requestJobsOf({ parts: [{ ids: ["a", "b"] }, { ids: [] }, { ids: ["c", 7, ""] }] }), ["a", "b", "c"]);
   assert.deepEqual(requestJobsOf(null), []);
   // THE WALL'S OWN DOOR: a stop of this site's request; another site's, or any other DELETE, is refused.
@@ -2299,11 +2296,11 @@ test("request mode, pure: the verdict is one routing call with the words, no edi
 });
 
 test("request mode end to end: the card is not the reply; the step ends once the request has ended and the page has shown it; its jobs are the request's; the file is on the routing call", async () => {
-  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "logo", reply: { ok: true, layer: "logo", msg: "✅ That's your logo." } }) });
+  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "logo", reply: { ok: true, layer: "logo", msg: "That's your logo." } }) });
   const rec = await drive(h, { scenario: LOGO_ONLY, viewEveryMs: 0 });
   assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
   const s0 = rec.steps[0];
-  assert.equal(s0.reply, "✅ That's your logo.", "the card, or nothing, was taken for the reply");
+  assert.equal(s0.reply, "That's your logo.", "the card, or nothing, was taken for the reply");
   assert.equal(s0.request.key, KEY_N(1));
   assert.equal(s0.request.final.ended, true);
   assert.deepEqual(s0.jobs, ["1".padStart(32, "0")]);
@@ -2317,7 +2314,7 @@ test("request mode end to end: the card is not the reply; the step ends once the
 });
 
 test("request mode's wall: a part routed outside the message's layers is stopped through the request's own Stop at once, recorded, and the step ends with the request stopped", async () => {
-  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "page", reply: { ok: true, layer: "page", msg: "✅ Rewrote it." } }) });
+  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "page", reply: { ok: true, layer: "page", msg: "Rewrote it." } }) });
   const rec = await drive(h, { scenario: LOGO_ONLY, viewEveryMs: 0 });
   const s0 = rec.steps[0];
   assert.equal(h.st.stops, 1, "the misrouted part was not stopped exactly once");
@@ -2341,7 +2338,7 @@ test("request mode, additions: one routing call and nothing posted after it; the
   const SITE = "fold-lane-bakery";
   const say = "Add Order to the menu.";
   const net = (extra = []) => [{ method: "POST", path: "/api/site/route", req: { message: say }, res: { ok: true, intent: "addon", cost: 2, decision: { source: "model", raw: { intent: "addon" } }, request: { key: KEY_N(2) } } }, ...extra];
-  const step = (part, extra) => ({ say, network: net(extra), request: { key: KEY_N(2), final: { key: KEY_N(2), ended: true, state: "done", parts: [part] } }, replies: ["✅ Added Order to the menu."] });
+  const step = (part, extra) => ({ say, network: net(extra), request: { key: KEY_N(2), final: { key: KEY_N(2), ended: true, state: "done", parts: [part] } }, replies: ["Added Order to the menu."] });
   const hop = { hop: "nav" };
   assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "nav", addition: true, ids: ["a", "b"] }), SITE, hop).ok, true);
   assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "nav", ids: ["a", "b"] }), SITE, hop).ok, false, "an edit not handed over by the add-on step passed");

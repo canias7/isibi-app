@@ -296,7 +296,7 @@ test("the same refusal twice is said once", () => {
 
 test("nothing applied and nothing refused says so without a tick", () => {
   const msg = rulesReply({});
-  assert.ok(!msg.includes("✅"));
+  assert.ok(!/\p{Extended_Pictographic}/u.test(msg));
   assert.match(msg, /Nothing there was a rule/);
 });
 
