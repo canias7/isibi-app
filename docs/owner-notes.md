@@ -80,19 +80,26 @@ is in git; the dated entries further down are the full story.*
 - **Image:** `worker.js` changed, so the next deploy would roll the
   container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
   inputs, 175 paths). Not built.
+**Run 121** (your free `judge-no-images` press, 15:18 UTC, from
+`384b3012`) read run 117's stored source and judged it:
+- **The stored source has exactly 1 page** (`index.tsx`), read whole: PASS.
+- **The page draws at most 15 components**: PASS. The kit components it
+  imports are cta-band, feature-grid, hero, lead-time, location-card,
+  open-now, opening-hours, pricing-table, section-header, steps and
+  turnaround-note (11). It wrote none of its own.
+- **The trace is this build's own** (its job's row, its slug, inside the
+  job's life): PASS.
+- **Done and ok**: PASS. **Dependency order**: PASS.
+- **Its own charges**: 10 credits on 3 rows, each taken once: PASS.
+- **Overlap: FAIL**, "design in a single call (no agents)", with
+  `bands:sync` in the timeline. That is run 117 as it ran, the defect this
+  round fixed, not a new finding.
+- It charged nothing: balance 773, last row 469, no job open (read after
+  the press).
 - **Remaining live gaps:**
   - nothing is deployed;
   - parallel design and bands inside a live container job are unproven;
-  - reconnect by attempt is proven offline only;
-  - run 117's stored source has not been read here (it needs your
-    session). The served page shows one route and 15 distinct non-chrome
-    components, which is evidence, not the verdict.
-- **Your free press, to judge run 117's source** (*build as owner*):
-  - branch `claude/help-needed-ehlwlj`;
-  - mode `judge-no-images`;
-  - job `b6360027c827aa2048dfd199c0a5bc01`;
-  - spend `no`;
-  - balance box blank.
+  - reconnect by attempt is proven offline only.
 - Details: `docs/history/2026-10-14-run117-causes.md`.
 
 **Production, as read now (2026-10-14):**
@@ -1238,6 +1245,15 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — Run 121: run 117's stored source judged (free)
+
+Your free press read the finished cheese-counter build from its own
+records. It has one page and 11 kit components, both inside the limits, and
+it ran in the right order. It was charged 10 credits once, and the record
+it judged was its own. The one failure is the expected one: the design ran
+as one call and the page as one band. That is exactly what this round fixed
+on the branch. Nothing was charged.
 
 ## 2026-10-14 — Why run 117 ran in sequence, and why the press lost it: found and fixed on the branch (nothing spent)
 
