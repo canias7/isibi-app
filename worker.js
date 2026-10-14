@@ -256,6 +256,8 @@ import {
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
   takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
+  // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
+  talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -6910,9 +6912,13 @@ async function writeModelReply(env, kind, body, ask) {
  * (`runReplyTask`) — with the background's budget instead of the customer's
  * connection's.
  */
-async function composeModelReply(env, kind, body, ask, { background = false } = {}) {
+async function composeModelReply(env, kind, body, ask, { background = false, checks = [] } = {}) {
   const read = replyFactsOf(kind, body, ask);
   if (read.skip || !read.facts.length) return { ok: false, skip: read.skip || "no-facts" };
+  // THE CHECKS THAT RAN, FROM THE JOB'S OWN PROGRESS RECORD (talk, 2026-10-13):
+  // each a `k` fact, so the final message may name a check only if it ran.
+  const talk = talkOn(env);
+  const ks = talk ? (Array.isArray(checks) ? checks : []).filter((t) => typeof t === "string" && t.trim()).map((text, i) => ({ id: "k" + (i + 1), text })) : [];
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
@@ -6920,10 +6926,11 @@ async function composeModelReply(env, kind, body, ask, { background = false } = 
   let out;
   try {
     out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
-      facts: read.facts,
+      facts: [...read.facts, ...ks],
       context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
+      talk,
     });
   } catch (e) {
     out = { ok: false, why: "send", usage: [], attempts: 0 };
@@ -6961,6 +6968,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
       context: replyContext({ request, site: { name, slug, pages: [] } }),
       model: modelsFor(picker).quick,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
+      talk: talkOn(env),
     });
     console.log("reply: build", out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length);
     return out.ok ? withReplyText(body, out.text) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
@@ -7270,6 +7278,24 @@ async function runReplyTask(env, task) {
   } catch (e) { console.error("reply: task failed", errorClassForLog(e)); }
 }
 
+/**
+ * THE CHECKS A JOB RAN AND ITS PUBLISH, as its final reply's `k` facts (talk,
+ * 2026-10-13): every `checked` and `published` fact on its progress record, in
+ * order, once each, whether or not a line said it — so the final message can
+ * name the checks that really ran and no other. [] when there is no record,
+ * it does not read, or it is not conversational: the reply is written from
+ * its own facts alone, as before.
+ */
+async function jobChecksFor(env, job) {
+  try {
+    const at = await progressRecordAt(env, job);
+    if (!at.read || !at.rec || at.rec.talk !== true) return [];
+    const out = [];
+    for (const m of at.rec.marks) for (const f of m.facts) if ((f.state === "checked" || f.state === "published") && !out.includes(f.text)) out.push(f.text);
+    return out;
+  } catch { return []; }
+}
+
 /** What a job's kept context tells its reply (`keepReplyFor`'s own fields). */
 function askOfReplyFor(replyFor) {
   return {
@@ -7302,7 +7328,9 @@ async function writeJobReply(env, task) {
   const replyFor = body && typeof body === "object" && !Array.isArray(body) ? body.replyFor : null;
   if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" }, { tag });
   const { replyFor: _context, ...rest } = body;
-  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }), { tag });
+  // THE CHECKS THE JOB RAN (talk, 2026-10-13), read off its progress record.
+  const checks = talkOn(env) ? await jobChecksFor(env, task.id) : [];
+  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true, checks }), { tag });
 }
 
 /**
@@ -7596,7 +7624,9 @@ async function progressFromJob(env, ids, body) {
       // A BUILD CARRIED ON BY ITS NEXT RUN (round 5) takes its record over.
       if (rec && b.kind === "build" && b.take === true && rec.run !== run) { const t = takeOverRecord(rec, { run, uid }); return t ? { rec: t } : null; }
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
-      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request });
+      // CONVERSATIONAL ONLY WHEN THE JOB ASKED FOR IT AND THE SWITCH IS ON HERE
+      // (talk, 2026-10-13): the record keeps the flag for its whole life.
+      const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request, talk: b.talk === true && talkOn(env) });
       return opened ? { rec: opened } : null;
     }, seen);
     if (r) await askProgress(env, id, uid, now);
@@ -7604,6 +7634,7 @@ async function progressFromJob(env, ids, body) {
   }
   if (b.op === "mark") {
     let ask = false;
+    let settle = 0;
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.uid !== uid) return null;
       const added = appendMark(rec, { stage: b.stage, facts: b.facts, at: now, key: b.seq });
@@ -7616,9 +7647,13 @@ async function progressFromJob(env, ids, body) {
         return null;
       }
       ask = writerNeeded(added.rec, now) === "ask";
+      // A CONVERSATIONAL RECORD'S WRITER IS ASKED A FEW SECONDS LATER (talk,
+      // `PROGRESS_SETTLE_S`), so milestones landing close together are said in
+      // one update; the ask is recorded now, so nobody else asks meanwhile.
+      settle = added.rec.talk === true ? PROGRESS_SETTLE_S : 0;
       return { rec: ask ? markAsked(added.rec, now) : added.rec };
     }, seen);
-    if (r && ask) await sendProgressTask(env, { id, uid });
+    if (r && ask) await sendProgressTask(env, { id, uid }, settle);
     return answer(r);
   }
   if (b.op === "close") {
@@ -7658,6 +7693,9 @@ async function progressFromJob(env, ids, body) {
  */
 function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
   if (!progressOn(env) || !isJobId(id) || typeof run !== "string" || !run) return null;
+  // CONVERSATIONAL (talk, 2026-10-13): read once, here, so every milestone of
+  // the job is recorded the same way whatever the switch does meanwhile.
+  const talk = talkOn(env);
   // THE WAY IN IS FIXED AT THE START: the container's gateway, held as it
   // was handed in, or the Worker's own door.
   const viaGateway = typeof env.JOB_PROGRESS === "function" ? env.JOB_PROGRESS : null;
@@ -7714,11 +7752,14 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
     return opened;
   };
   return {
+    /** Whether this job's record is conversational: the wiring records its plan, checks and publish only then. */
+    talk,
     begin({ op, words = "", picker = "", pages = [], request = null, take = false } = {}) {
       opening = {
         kind: op, words: typeof words === "string" ? words : "", picker: typeof picker === "string" ? picker : "", pages: Array.isArray(pages) ? pages : [],
         ...(take === true ? { take: true } : {}),
         ...(standalone ? { task: true } : {}),
+        ...(talk ? { talk: true } : {}),
         // THE JOB'S PLACE IN ITS REQUEST (2026-10-07): its writer reads the
         // request's other parts by it, as they stand when each line is written.
         ...(request && typeof request === "object" ? { request: { key: request.key, part: request.part } } : {}),
@@ -7756,7 +7797,9 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
   let p = null;
   const early = [];
   const send = (step) => {
-    const facts = buildStepFacts(step);
+    // A CONVERSATIONAL RECORD (talk, 2026-10-13) hears the container's turn
+    // as its result — the site built — beside every other step's own facts.
+    const facts = (p && p.talk) || (!p && talkOn(env)) ? talkBuildStepFacts(step) : buildStepFacts(step);
     if (!facts.length) return;
     const stage = "build-" + String(step.s || "");
     if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
@@ -7767,6 +7810,9 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       p = makeProgress(env, ctx, { id, run, uid, slug, standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take });
+      // THE OPENING PLAN (talk, 2026-10-13), once — never again on the run that
+      // carries a build on (`take`), whose record already said it.
+      if (p.talk && !take) p.mark("start", startFacts({ op: "build", slug }));
       for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
     },
     step(step) { try { if (step && typeof step === "object") send(step); } catch { /* lines never cost the build */ } },
@@ -7866,11 +7912,13 @@ async function writeProgressLine(env, task, owner) {
   // THE REQUEST'S OTHER PARTS AS THEY STAND NOW (2026-10-07): read off its
   // record for this line, so the writer is told what is finished and what is
   // still to come, and takes none of it for this job's own work.
-  const others = await requestOthersFor(env, rec);
+  const { others, waited } = await requestOthersFor(env, rec);
   const t0 = Date.now();
   let out;
   try {
-    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others }), model });
+    // A CONVERSATIONAL RECORD (talk, 2026-10-13) is written by its own call:
+    // nine states, recorded reasons, and an optional explanation.
+    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   // WHAT IT COST US, IN THE LOG: a line is not charged to the customer, so the
   // ledger never shows it, and this is where attempts, tokens — fresh and
@@ -7890,7 +7938,7 @@ async function writeProgressLine(env, task, owner) {
   const after = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (!after.ok) { await progressStops(env, job, owner, batch, after.why); return false; }
   const done = await progressUpdate(env, job, (r) => {
-    const next = commitLine(r, { owner, marks: batch.marks, text: out.text, now: Date.now() });
+    const next = commitLine(r, { owner, marks: batch.marks, text: out.text, explain: out.explain || "", now: Date.now() });
     return next ? { rec: next } : null;
   });
   if (!done) return false;
@@ -7904,15 +7952,20 @@ async function writeProgressLine(env, task, owner) {
   return pendingMarks(done.rec).length > 0;
 }
 
-/** A job's request's other parts for its writer (`otherParts`): [] for a job no request's, or a request that will not read — a line is never held for them. */
+/**
+ * A job's request as its writer reads it: the other parts (`otherParts`) and,
+ * on a conversational record, what its own part waited for (`waitedFor`).
+ * Both empty for a job no request's, or a request that will not read — a line
+ * is never held for them.
+ */
 async function requestOthersFor(env, rec) {
-  if (!rec || !rec.request) return [];
+  if (!rec || !rec.request) return { others: [], waited: [] };
   try {
     const found = await loadRequest(env, rec.slug, rec.request.key);
-    return otherParts(rec, found && found.rec);
+    return { others: otherParts(rec, found && found.rec), waited: rec.talk === true ? waitedFor(rec, found && found.rec) : [] };
   } catch (e) {
     console.error("progress: could not read the request of", rec.job, errorClassForLog(e));
-    return [];
+    return { others: [], waited: [] };
   }
 }
 
@@ -13395,6 +13448,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     tm("seam", "ok", { replaced });
   }
 
+  // ── THE CHECKS THIS PUBLISH RAN, AS FACTS (talk, 2026-10-13) ─────────────
+  //
+  // Recorded here because this is where every check's result is settled and
+  // nothing is written yet: the build that will ship (the seam's, when it
+  // replaced it), its automated browser pass, and the style rules this change
+  // wrote, each said only as far as it reaches (`spineCheckFacts`). A job
+  // whose record is not conversational records nothing here.
+  try {
+    if (job && job.progress && job.progress.talk) {
+      job.progress.mark("checked", spineCheckFacts({ render: built.render, cssChecked: verifyOnly ? verifyOnly.size : 0 }));
+    }
+  } catch { /* the record never costs the publish */ }
+
   // THE SAME META A BUILD PUBLISHES. Every field here is one this path was
   // missing when it was a second copy.
   // ── EVERY OPERATION FROM HERE DOWN RUNS OUTSIDE ANY `try` ─────────────────
@@ -13650,6 +13716,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded });
+  // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
+  // answered ok — the pointer moved and the site's script went up (one that
+  // could not undoes itself). Said as published; no live page is fetched.
+  try { if (job && job.progress && job.progress.talk) job.progress.mark("published", publishedFacts()); } catch { /* the record never costs the publish */ }
   const wrote = staged.files;
   // THE CAP, kept clear of the pointer's version and its parent — the build a
   // visitor's previous document still asks for. Best-effort: storage, never
@@ -28715,6 +28785,11 @@ async function handleRequest(request, env, ctx) {
             // words this turn runs on, the picked model and the site's pages.
             // Nothing is recorded on the synchronous path, which has no job.
             if (eJob && eJob.progress) eJob.progress.begin({ op: "edit", words: eRun, picker: eb && eb.picker, pages: eRoutes(), request: ePart });
+            // THE OPENING PLAN (talk, 2026-10-13): the kind of change the route
+            // sent here, and the steps an edit really runs, said as next — so the
+            // first update is the approach, written in the background while the
+            // work starts. The plan below (`plan`) revises it with the real steps.
+            if (eJob && eJob.progress && eJob.progress.talk) eJob.progress.mark("start", startFacts({ op: "edit", layer: eLayer, page: ePage }));
             if (!eSrc.length) {
               // Missing pages permit reconstruction only when the remaining
               // inputs can be read. Otherwise the rewrite meets the same fault.
@@ -34337,6 +34412,9 @@ async function handleRequest(request, env, ctx) {
             // run's record, with the words this turn runs on, the picked model
             // and the site's pages.
             if (aJob && aJob.progress) aJob.progress.begin({ op: "addon", words: aInstruction, picker: ab && ab.picker, pages: aReplyOut.pages(), request: aPart });
+            // THE OPENING PLAN (talk, 2026-10-13), as an edit's: what this is and
+            // the steps an addition really runs; the picked kinds revise it.
+            if (aJob && aJob.progress && aJob.progress.talk) aJob.progress.mark("start", startFacts({ op: "addon" }));
             // Absence is not permission yet: backend, config and schema must
             // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened

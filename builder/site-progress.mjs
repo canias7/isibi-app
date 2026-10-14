@@ -84,6 +84,22 @@ export function progressOn(env) {
   return !!(env && typeof env.PROGRESS_REPLIES === "string" && env.PROGRESS_REPLIES.trim().toLowerCase() === "on");
 }
 
+/**
+ * THE CONVERSATIONAL PROGRESS SWITCH (2026-10-13): `PROGRESS_TALK` = "on", on
+ * top of `PROGRESS_REPLIES`. The owner: *"I want the builder to communicate
+ * naturally throughout the work across Build, Edit and Add-on: explain its
+ * initial approach, tell me what it is doing, share useful findings and
+ * decisions … and finish with a clear account of what actually happened."*
+ * A record opened with it on carries `talk`, and keeps it for its life, so a
+ * job never changes its writer half-way: its opening plan, its checks and
+ * publish as facts, recorded reasons, the coalescing wait and the optional
+ * explanation all ride on that flag. Off, every record reads and is written
+ * exactly as before.
+ */
+export function talkOn(env) {
+  return progressOn(env) && !!(env && typeof env.PROGRESS_TALK === "string" && env.PROGRESS_TALK.trim().toLowerCase() === "on");
+}
+
 /** Where a job's progress is kept: beside its other objects under `jobs/`, whose seven-day sweep (`job-retention.mjs`) takes it out. */
 export const progressKey = (job) => "jobs/" + job + ".progress.json";
 
@@ -104,6 +120,23 @@ export const progressKey = (job) => "jobs/" + job + ".progress.json";
 //   notdone    could not be made; the final message says why.
 // There is no "published" and no "finished": the final reply says those.
 export const PROGRESS_STATES = Object.freeze(["decided", "designed", "prepared", "applied", "doing", "next", "notdone"]);
+/**
+ * A CONVERSATIONAL RECORD'S STATES (`talk`, 2026-10-13): the seven above and
+ * two more, each recorded only where its evidence is — never from a plan:
+ *   checked    a named check RAN and this is its result, said as narrowly as
+ *              the check reaches (a build that compiled is not a look at the
+ *              page; an automated browser pass is not a visual review);
+ *   published  the publish finished: the site's live pointer moved to the
+ *              new version AND the site's own script was uploaded (`activate`
+ *              answered ok; an activation that could not serve undoes itself,
+ *              site-builds.mjs). ⚠ NOT a fetch of the live address: nothing
+ *              here reads the page back from the internet.
+ * The owner: *"Distinguish intended, running, prepared, applied, published and
+ * verified states: 'I'll check' is a plan, while 'I checked,' 'nothing else
+ * changed,' 'it looks right' and 'it's live' require evidence from the
+ * corresponding check."*
+ */
+export const TALK_STATES = Object.freeze([...PROGRESS_STATES, "checked", "published"]);
 
 // ── THE WRITER'S BUDGET, AND WHY EACH NUMBER IS WHAT IT IS ─────────────────
 //
@@ -148,6 +181,18 @@ export const PROGRESS_MAX_MARKS = 200;
  * answer was lost is recorded once (`appendMark`'s `already`).
  */
 export const PROGRESS_SEND_WAITS_MS = Object.freeze([250, 500, 1000, 2000, 4000, 8000, 15000]);
+/**
+ * THE COALESCING WAIT (talk, 2026-10-13): a milestone on a conversational
+ * record asks for its writer this many seconds later, not at once, so events
+ * that land close together — a step finishing and the next starting — are
+ * read and said in one update (`batchFor` takes every milestone waiting). The
+ * owner: *"Combine closely spaced events without losing important findings,
+ * questions, failures or completed work."* Nothing is dropped by it: every
+ * settled fact of every waiting milestone is in the batch; only an earlier
+ * milestone's "now" and "next", which a later one has overtaken, are not.
+ * The work itself never waits for it.
+ */
+export const PROGRESS_SETTLE_S = 3;
 /** How long a standalone job stays discoverable from another device after it ends: the request list's day. */
 export const PROGRESS_DISCOVERY_MS = 24 * 3600 * 1000;
 
@@ -183,9 +228,14 @@ const quote = (v) => "“" + flat(v) + "”";
 
 function readFact(f) {
   if (!f || typeof f !== "object" || typeof f.id !== "string" || !/^f\d{1,6}$/.test(f.id)) return null;
-  if (typeof f.state !== "string" || !PROGRESS_STATES.includes(f.state)) return null;
+  if (typeof f.state !== "string" || !TALK_STATES.includes(f.state)) return null;
   const text = flat(f.text);
-  return text ? { id: f.id, state: f.state, text } : null;
+  if (!text) return null;
+  // A RECORDED REASON (talk, 2026-10-13): set by the code that made the
+  // decision, from what it really decided on — the only "because" a line may
+  // give. A reason that does not read is left off, never the fact.
+  const why = typeof f.why === "string" ? flat(f.why) : "";
+  return { id: f.id, state: f.state, text, ...(why ? { why } : {}) };
 }
 
 function readMark(m) {
@@ -209,7 +259,10 @@ function readLine(l) {
   const at = num(l.at);
   const text = typeof l.text === "string" ? l.text.replace(/\r\n/g, "\n").trim() : "";
   if (at === null || !text || !Array.isArray(l.marks) || l.marks.some((n) => !Number.isInteger(n) || n < 0)) return null;
-  return { n: l.n, at, text, marks: l.marks.slice(), ...(l.confirmed === true ? { confirmed: true } : {}) };
+  // THE LINE'S EXPLANATION (talk, 2026-10-13): optional, the model's own
+  // concise account of its approach and decisions for the folded section.
+  const explain = typeof l.explain === "string" ? l.explain.replace(/\r\n/g, "\n").trim() : "";
+  return { n: l.n, at, text, marks: l.marks.slice(), ...(explain ? { explain } : {}), ...(l.confirmed === true ? { confirmed: true } : {}) };
 }
 
 /** What each task is, in the customer's words: `[{ n, words }]`, [] when there are none, null when the list does not read. */
@@ -282,6 +335,9 @@ export function readProgressRecord(raw) {
   const marks = raw.marks.map(readMark);
   const lines = raw.lines.map(readLine);
   if (marks.some((m) => !m) || lines.some((l) => !l)) return null;
+  // A STATE ONLY A CONVERSATIONAL RECORD KNOWS, on one that is not, is a
+  // record that does not read — never one read with the fact dropped.
+  if (raw.talk !== true && marks.some((m) => m.facts.some((f) => !PROGRESS_STATES.includes(f.state)))) return null;
   const taskWords = readTaskWords(raw.taskWords);
   if (taskWords === null) return null;
   const tasks = readTaskLines(raw.tasks, taskWords);
@@ -300,6 +356,7 @@ export function readProgressRecord(raw) {
     tries: Number.isInteger(raw.tries) && raw.tries >= 0 ? raw.tries : 0,
     ...(num(raw.retryAt) !== null ? { retryAt: raw.retryAt } : {}),
     taskWords, tasks,
+    ...(raw.talk === true ? { talk: true } : {}),
     taskTries: Number.isInteger(raw.taskTries) && raw.taskTries >= 0 ? raw.taskTries : 0,
     tasksWhy: typeof raw.tasksWhy === "string" && raw.tasksWhy ? raw.tasksWhy.slice(0, 40) : null,
     // A JOB'S PLACE IN ITS REQUEST (2026-10-07), so its writer can be told the
@@ -315,7 +372,7 @@ export function readProgressRecord(raw) {
  * the writer to give each its line in every state; none, and there is
  * nothing for a writer until a milestone comes.
  */
-export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at, request = null }) {
+export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at, request = null, talk = false }) {
   if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
   if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request" && op !== "build")) return null;
   const ref = op === "request" ? null : readRequestRef(request);
@@ -325,6 +382,7 @@ export function openRecord({ job, uid, slug, op, run, words = "", picker = "", p
     nf: 0, marks: [], lines: [], writer: null, closed: null, asked: 0, tries: 0,
     taskWords: Array.isArray(tasks) ? tasks : [], tasks: null, taskTries: 0, tasksWhy: null,
     ...(ref ? { request: ref } : {}),
+    ...(talk === true ? { talk: true } : {}),
   });
 }
 
@@ -435,6 +493,9 @@ export function appendMark(rec, { stage, facts, at, key }) {
   for (const f of list) {
     const read = readFact({ ...f, id: "f" + (nf + 1) });
     if (!read) return { refused: "fact" };
+    // A STATE ONLY A CONVERSATIONAL RECORD KNOWS (`checked`, `published`) is
+    // never put before the ordinary writer, whose tool cannot even name it.
+    if (rec.talk !== true && !PROGRESS_STATES.includes(read.state)) return { refused: "fact" };
     nf += 1;
     out.push(read);
   }
@@ -611,16 +672,19 @@ export function batchFor(rec) {
  * handed it until a read of the job's row made after this finds the job still
  * running (`confirmLines`).
  */
-export function commitLine(rec, { owner, marks, text, now }) {
+export function commitLine(rec, { owner, marks, text, explain = "", now }) {
   if (!holds(rec, owner, now)) return null;
   const t = typeof text === "string" ? text.replace(/\r\n/g, "\n").trim() : "";
   if (!t) return null;
+  // AN EXPLANATION ONLY ON A CONVERSATIONAL RECORD (talk): one handed to any
+  // other is dropped, so a record's readers never meet a field it never asked for.
+  const ex = rec.talk === true && typeof explain === "string" ? explain.replace(/\r\n/g, "\n").trim() : "";
   const covered = new Set(Array.isArray(marks) ? marks : []);
   const n = rec.lines.length;
   return {
     ...rec,
     marks: rec.marks.map((m) => (covered.has(m.n) && m.state === "pending" ? { ...m, state: "said", line: n } : m)),
-    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b) }],
+    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b), ...(ex ? { explain: ex } : {}) }],
     writer: null, tries: 0, retryAt: undefined,
   };
 }
@@ -660,7 +724,7 @@ export function releaseWriter(rec, owner) {
  */
 export function linesOf(rec) {
   if (!rec) return [];
-  return rec.lines.filter((l) => l.confirmed === true).map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text }));
+  return rec.lines.filter((l) => l.confirmed === true).map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text, ...(l.explain ? { explain: l.explain } : {}) }));
 }
 
 /** How many lines the record holds that are not confirmed yet. */
@@ -943,6 +1007,111 @@ export function addonPublishFacts(pending = []) {
   return out;
 }
 
+// ── A CONVERSATIONAL RECORD'S OWN FACTS (talk, 2026-10-13) ─────────────────
+//
+// Recorded only on a record opened with `PROGRESS_TALK` on. Each says what is
+// known where it is recorded, and nothing further: the opening plan is the
+// steps the job will really run, said as `next` (a plan, never a result); the
+// checks are each check's own result, said as narrowly as the check reaches;
+// the publish is said once the serving was read back.
+
+/** What each edit layer changes, as the opening plan names it. */
+const LAYER_SAID = Object.freeze({
+  text: "the wording", data: "entries stored in one of the site's lists", rules: "who can see or do what on the site",
+  look: "how the site looks or is laid out", picture: "a photograph", logo: "the logo or the tab icon",
+  nav: "the menu, header or footer", page: "a whole page",
+});
+
+/**
+ * THE OPENING PLAN, at the job's start: what kind of work this is, from the
+ * route that sent it here, and the steps this kind of job really runs, as
+ * `next`. Said once, from what is known now; a later milestone's own facts
+ * (the edit's plan, the add-on's picked kinds) revise it.
+ */
+export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
+  if (op === "edit") {
+    const what = Object.hasOwn(LAYER_SAID, layer) ? LAYER_SAID[layer] : "";
+    const where = typeof page === "string" && page.charAt(0) === "/" ? " on " + page : "";
+    return [
+      fact("decided", "Read the request as a change to what the site already has" + (what ? ": " + what : "") + where + ". Nothing is changed yet."),
+      fact("next", "Work out exactly where on the site it goes and make the change; then the site is built, an automated check opens its pages in a browser, and it is published."),
+    ];
+  }
+  if (op === "addon") {
+    return [
+      fact("decided", "Read the request as an addition to the site. Nothing is built yet."),
+      fact("next", "Work out exactly what to add and design it, then build it; then the site is built, an automated check opens its pages in a browser, and it is published."),
+    ];
+  }
+  if (op === "build") {
+    return [
+      fact("decided", "Building a new site from their description" + (SLUG_RE.test(slug) ? ", at the address " + slug : "") + ". Nothing is built yet."),
+      fact("next", "Design the page, its look and anything it needs to store; write it; then the site is built and published."),
+    ];
+  }
+  return [];
+}
+
+/** The automated browser check's problem kinds, as a fact names them — what it looks for, never more. */
+const RENDER_KIND_SAID = Object.freeze({
+  threw: "a page that stops with an error", logged: "an error written while a page loads", blank: "a page that shows nothing",
+  slow: "a page that took longer to open than the check waits", unmet: "a page that reads something the check cannot reach",
+  image: "an image that did not load", overflow: "a page that scrolls sideways", contrast: "text that is nearly invisible",
+  seethrough: "a see-through menu or dialog",
+});
+
+/**
+ * THE CHECKS A PUBLISH RAN, from the compile's own report — recorded once
+ * the build that will be published is settled (after the add-on's repair seam)
+ * and before anything is written:
+ *   the build itself: the site built without errors (the publish refuses one that did not);
+ *   the automated browser check (`render`): how many pages it opened, and
+ *     what it flagged — or that it flagged none of the kinds it looks for —
+ *     said as an automated check, never as anybody looking at the design;
+ *   the style rules this change wrote (`cssChecked`): each matches something
+ *     on the page, only when that check was asked for and passed.
+ * A check that could not run is said as not done, so it is never read as passed.
+ */
+export function spineCheckFacts({ render = null, cssChecked = 0 } = {}) {
+  const out = [fact("checked", "The site built without errors.")];
+  const r = render && typeof render === "object" ? render : null;
+  if (!r || r.ok === false || !(Number(r.pages) > 0)) {
+    out.push(fact("notdone", "The automated check that opens the pages in a browser could not run this time, so the pages were not checked that way."));
+  } else {
+    const pages = Math.floor(Number(r.pages));
+    const opened = "An automated check opened " + (pages === 1 ? "the page" : pages + " pages") + " in a browser" + (r.partial ? ", but was cut short before it finished" : "");
+    const flagged = [...new Set((Array.isArray(r.findings) ? r.findings : []).map((x) => x && x.kind).filter((k) => Object.hasOwn(RENDER_KIND_SAID, k)))];
+    out.push(fact("checked", flagged.length
+      ? opened + ". It flagged " + listOf(flagged.map((k) => RENDER_KIND_SAID[k])) + ". It is an automated check, not a look at the design."
+      : opened + " and flagged none of what it looks for (" + listOf(Object.keys(RENDER_KIND_SAID).filter((k) => k !== "unmet" && k !== "slow").map((k) => RENDER_KIND_SAID[k])) + "). It is an automated check, not a look at the design."));
+  }
+  const n = Number(cssChecked) > 0 ? Math.floor(Number(cssChecked)) : 0;
+  if (n) out.push(fact("checked", (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote matches something on the page."));
+  out.push(fact("doing", "Publishing the site now."));
+  return out;
+}
+
+/**
+ * THE PUBLISH FINISHED: `activate` answered ok — the live pointer moved to the
+ * new version and the site's own script was uploaded (one that could not be
+ * undoes itself). Said as published, never as "checked live": no read of the
+ * page from the internet is made.
+ */
+export function publishedFacts() {
+  return [fact("published", "Published: the new version is now the one the site's address is set to serve.")];
+}
+
+/**
+ * A FIRST BUILD'S STEP ON A CONVERSATIONAL RECORD: as `buildStepFacts`, and
+ * the container's turn coming back said as its result — the site built (the
+ * build publishes only one that did) — and the publish starting.
+ */
+export function talkBuildStepFacts(step) {
+  const name = step && typeof step === "object" && typeof step.s === "string" ? step.s : "";
+  if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", "Publishing the site now.")];
+  return buildStepFacts(step);
+}
+
 // ── THE CALL ────────────────────────────────────────────────────────────────
 
 export const PROGRESS_TOOL = {
@@ -992,6 +1161,88 @@ export const PROGRESS_SYSTEM =
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
   "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting, sign-off, emoji or symbols unless asked.\n" +
   "- In says, list every fact's id with the state you described it as.";
+
+// ── THE CONVERSATIONAL UPDATE (talk, 2026-10-13) ────────────────────────────
+//
+// The same call, the same checks on the same `says` list, for a record opened
+// with `PROGRESS_TALK` on: nine states, a recorded reason beside a fact where
+// one exists, and an optional explanation for the folded section. CONCISE,
+// AND NO EXAMPLE TO COPY, as the instructions above. ⚠ WHAT IT DOES NOT ASK
+// FOR: the model's hidden reasoning. `explain` is a summary the model writes
+// for the customer from the facts and their recorded reasons — the owner: *"Do
+// not promise to expose everything the model thinks, request hidden internal
+// reasoning, or present invented reasoning as a live thought stream."* No
+// provider-specific reasoning or summary feature is requested by any call
+// here; `test/progress-talk.test.mjs` holds the request free of one.
+
+export const TALK_TOOL = {
+  name: "write_update",
+  description: "Write the update the customer reads now, optionally a short explanation, and list each fact you described with the state you described it as.",
+  input_schema: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "The update, in your own words." },
+      explain: { type: "string", description: "Optional. A short account of your approach and decisions so far, giving only reasons the facts record. Empty when there is nothing new to explain." },
+      says: {
+        type: "array",
+        description: "Every fact's id, exactly as written in brackets, with the state you described it as.",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, as: { type: "string", enum: [...TALK_STATES] } },
+          required: ["id", "as"],
+        },
+      },
+    },
+    required: ["text", "says"],
+  },
+};
+
+export const TALK_SYSTEM =
+  "You are an AI website builder talking with a customer in the chat while you work on their request. " +
+  "Your code records what really happens and gives you the facts since your last update, each with an id and a state; some carry the reason recorded for a decision. " +
+  "Write the next update yourself.\n\n" +
+  "THE STATES\n" +
+  "decided: worked out what to do; nothing has changed yet.\n" +
+  "designed: designed; nothing has been built yet.\n" +
+  "prepared: made in the builder but not published; visitors cannot see it.\n" +
+  "applied: in effect in the site's database.\n" +
+  "checked: a check ran and this is its result; it covers only what its text says.\n" +
+  "published: the new version was put live at the site's address.\n" +
+  "doing: happening now; not finished.\n" +
+  "next: planned; not started.\n" +
+  "notdone: could not be done; the final message will say why.\n\n" +
+  "RULES\n" +
+  "- Speak in the first person, naturally. If you have not written an update yet, begin with how you will go about it, from the decided and next facts; later, when the facts change the plan, say how it changed.\n" +
+  "- Say only what the facts say, each as its state says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done, found or could not do.\n" +
+  "- Say you checked something only for a checked fact, and only what that check covers: a site that builds has not been looked at, an automated check is not a visual review, and something existing does not mean what they asked for is met.\n" +
+  "- Say something is live only for a published fact, and never that their whole request is finished: the final message says that.\n" +
+  "- Give a reason only where a fact's recorded reason gives it.\n" +
+  "- Anything not done stays not done in every update: never say or suggest it is on the site.\n" +
+  "- The request's other parts are separate work: mention them only to say what runs alongside this or what this waits for, as their states say.\n" +
+  "- Say what matters to them, in their words; never mention files, tools, models, ids or states, and never repeat an earlier update.\n" +
+  "- Be as long as the news needs and no longer. Write in the language of their request, with no greeting, sign-off, emoji or symbols unless asked.\n" +
+  "- explain is optional: a short account of your approach and the decisions so far, with reasons only from recorded reasons. Leave it empty when there is nothing new; it is never a stream of thoughts.\n" +
+  "- In says, list every fact's id with the state you described it as.";
+
+/** The request one conversational call sends: every fact of the batch, whole, each recorded reason beside its fact. */
+export function talkRequest({ facts, context = "", model, fix = null }) {
+  const told = [];
+  if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST UPDATE LEFT OUT " + fix.missing.join(", ") + ".");
+  if (fix && fix.wrong && fix.wrong.length) told.push("YOUR LAST UPDATE DESCRIBED " + fix.wrong.map((w) => w.id + " as " + (w.as || "nothing") + ", but its state is " + w.state).join("; ") + ".");
+  if (fix && fix.ids) told.push("YOUR LAST UPDATE PUT A FACT'S ID IN ITS TEXT OR EXPLANATION.");
+  const body = (context ? context + "\n\n" : "") +
+    "WHAT HAS HAPPENED SINCE (describe each fact in its state; list each id with that state in says):\n" +
+    facts.map((f) => "[" + f.id + "] (" + f.state + ") " + f.text + (f.why ? " — recorded reason: " + f.why : "")).join("\n") +
+    (told.length ? "\n\n" + told.join(" ") + " Write the update again." : "");
+  return {
+    model,
+    max_tokens: PROGRESS_MAX_TOKENS,
+    tools: [TALK_TOOL],
+    tool_choice: { type: "tool", name: TALK_TOOL.name },
+    system: [{ type: "text", text: TALK_SYSTEM }],
+    messages: [{ role: "user", content: body }],
+  };
+}
 
 // ── EACH TASK'S LINE, IN EVERY STATE IT CAN BE IN ──────────────────────────
 
@@ -1122,21 +1373,31 @@ export async function writeTasks(deps, { tasks, context = "", model, deadlineMs 
 }
 
 /** What the model is shown besides the facts: their site, its pages, their words, and the updates already written. */
-export function progressContext(rec, { others = [] } = {}) {
+export function progressContext(rec, { others = [], waited = [] } = {}) {
   const lines = [];
+  const talk = !!(rec && rec.talk === true);
   if (rec && rec.slug) lines.push("THEIR SITE: " + rec.slug);
   if (rec && rec.pages && rec.pages.length) lines.push("ITS PAGES: " + rec.pages.join(", "));
   // WHAT KIND OF WORK THIS IS (2026-10-07): a change to what is there, or an
   // addition — the record has always known, and the writer was never told.
-  if (rec && Object.hasOwn(WORK_SAID, rec.op)) lines.push("THIS WORK: " + WORK_SAID[rec.op]);
+  // A FIRST BUILD SAID TOO on a conversational record (talk, 2026-10-13).
+  const work = talk ? TALK_WORK_SAID : WORK_SAID;
+  if (rec && Object.hasOwn(work, rec.op)) lines.push("THIS WORK: " + work[rec.op]);
   const words = rec && typeof rec.words === "string" ? rec.words.trim() : "";
   if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
   // THE REQUEST'S OTHER PARTS AS THEY STAND (2026-10-07, after run 105): work
   // of its own, finished or still to come, that this update must not take for
   // its own — read off the request when the line is written (`otherParts`).
   const rest = (Array.isArray(others) ? others : []).filter((o) => o && typeof o.words === "string" && o.words.trim() && Object.hasOwn(STATE_SAID, o.state));
-  if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + (Object.hasOwn(PREP_SAID, o.prep) ? PREP_SAID[o.prep] : STATE_SAID[o.state]) + ")").join("\n"));
+  // WHAT EACH WAITS FOR, on a conversational record (talk): the parts it
+  // needs finished first, by the request's own plan (`needs`), so a line can
+  // say what runs alongside and what must wait — from the plan, never guessed.
+  const waitsSaid = (o) => (talk && Array.isArray(o.waits) && o.waits.length ? "; it waits for " + listOf(o.waits.map((w) => quote(w))) + " to finish first" : "");
+  if (rest.length) lines.push("THE OTHER PARTS OF THE SAME REQUEST (separate work, not this update's):\n" + rest.map((o) => "- " + quote(flat(o.words)) + " (" + (Object.hasOwn(PREP_SAID, o.prep) ? PREP_SAID[o.prep] : STATE_SAID[o.state]) + waitsSaid(o) + ")").join("\n"));
+  const wait = talk ? (Array.isArray(waited) ? waited : []).map(flat).filter(Boolean) : [];
+  if (wait.length) lines.push("THIS PART'S REQUEST PLAN: it needed " + listOf(wait.map(quote)) + " done first, and ran only after that (a recorded reason for its order).");
   if (rec && rec.lines.length) lines.push("WHAT YOUR EARLIER UPDATES SAID, IN ORDER:\n" + rec.lines.map((l) => "- " + flat(l.text)).join("\n"));
+  else if (talk) lines.push("YOU HAVE NOT WRITTEN AN UPDATE YET.");
   // NOT DONE, AS IT STANDS (2026-10-10): told on every later line, after the earlier
   // updates, so nothing written then can take it back.
   const missing = missingFacts(rec);
@@ -1146,6 +1407,7 @@ export function progressContext(rec, { others = [] } = {}) {
 
 /** What each kind of job's work is, as the writer is told it. */
 const WORK_SAID = Object.freeze({ edit: "a change to what the site already has", addon: "an addition to the site" });
+const TALK_WORK_SAID = Object.freeze({ ...WORK_SAID, build: "a new site, built from their description" });
 
 /**
  * A REQUEST PART'S STATUS AS A TASK'S STATE — the very map the page uses to
@@ -1190,9 +1452,35 @@ export function otherParts(rec, request) {
     // its card says — never finished until its own job applied it.
     // The record's own reading (`prepState`), freshness included.
     const prep = prepState(p);
-    out.push({ n: p.n, words, state: prep ? "doing" : PART_STATE[p.status], ...(prep ? { prep } : {}) });
+    // WHAT IT WAITS FOR (2026-10-13): the parts it needs that are not finished.
+    const waits = needsWords(request, p).filter((x) => x.status !== "done").map((x) => x.words);
+    out.push({ n: p.n, words, state: prep ? "doing" : PART_STATE[p.status], ...(prep ? { prep } : {}), ...(waits.length ? { waits } : {}) });
   }
   return out;
+}
+
+/** A part's needs as `{ words, status }`, from the request's own plan; none that does not read. */
+function needsWords(request, part) {
+  const parts = request && Array.isArray(request.parts) ? request.parts : [];
+  const out = [];
+  for (const k of part && Array.isArray(part.needs) ? part.needs : []) {
+    const q = parts.find((x) => x && x.n === k);
+    if (!q) continue;
+    const words = (typeof q.shown === "string" && q.shown.trim()) ? q.shown : typeof q.words === "string" ? q.words : "";
+    if (words.trim()) out.push({ words, status: q.status });
+  }
+  return out;
+}
+
+/**
+ * WHAT A JOB'S OWN PART NEEDED DONE FIRST (talk, 2026-10-13): the words of
+ * each part the request's plan made it wait for — the one recorded reason for
+ * its order. [] for a job no request's, another owner's request, or none.
+ */
+export function waitedFor(rec, request) {
+  if (!rec || !rec.request || !request || typeof request !== "object" || request.uid !== rec.uid || !Array.isArray(request.parts)) return [];
+  const own = request.parts.find((p) => p && p.n === rec.request.part);
+  return own ? needsWords(request, own).map((x) => x.words) : [];
 }
 
 /** The request one progress call sends: every fact of the batch, whole. `fix` names what a first answer got wrong. */
@@ -1223,15 +1511,19 @@ export function progressRequest({ facts, context = "", model, fix = null }) {
  * every fact rightly and still calls the page live passes here (the module's
  * header says why, and what stands behind it instead).
  */
-export function readProgress(reply, facts) {
-  const none = (why) => ({ ok: false, text: "", missing: [], wrong: [], ids: false, why });
-  const block = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use" && b.name === PROGRESS_TOOL.name) : null;
+export function readProgress(reply, facts, { talk = false } = {}) {
+  const none = (why) => ({ ok: false, text: "", explain: "", missing: [], wrong: [], ids: false, why });
+  const tool = talk ? TALK_TOOL.name : PROGRESS_TOOL.name;
+  const block = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use" && b.name === tool) : null;
   const input = block && block.input && typeof block.input === "object" ? block.input : null;
   if (!input || typeof input.text !== "string" || !Array.isArray(input.says)) return none(reply && reply.stop_reason === "max_tokens" ? "cut" : "unreadable");
   const text = input.text.replace(/\r\n/g, "\n").trim();
   if (!text) return none("unreadable");
+  // THE EXPLANATION, ON A CONVERSATIONAL CALL ONLY: a string or nothing (one
+  // that is not a string is read as none, never coerced).
+  const explain = talk && typeof input.explain === "string" ? input.explain.replace(/\r\n/g, "\n").trim() : "";
   const list = Array.isArray(facts) ? facts : [];
-  const ids = list.some((f) => new RegExp("\\[" + f.id + "\\]").test(text));
+  const ids = list.some((f) => new RegExp("\\[" + f.id + "\\]").test(text + "\n" + explain));
   const said = new Map();
   const twice = new Set();
   for (const s of input.says) {
@@ -1244,7 +1536,7 @@ export function readProgress(reply, facts) {
   const missing = list.filter((f) => !said.has(f.id)).map((f) => f.id);
   const wrong = list.filter((f) => said.has(f.id) && (twice.has(f.id) || said.get(f.id) !== f.state)).map((f) => ({ id: f.id, as: twice.has(f.id) ? "two states" : said.get(f.id), state: f.state }));
   const ok = !ids && !missing.length && !wrong.length;
-  return { ok, text: ok ? text : "", missing, wrong, ids, why: ok ? "" : ids ? "ids" : wrong.length ? "misstated" : "uncovered" };
+  return { ok, text: ok ? text : "", explain: ok ? explain : "", missing, wrong, ids, why: ok ? "" : ids ? "ids" : wrong.length ? "misstated" : "uncovered" };
 }
 
 /** The four token kinds of one answer, in the shape `pageCredits` prices. */
@@ -1284,7 +1576,7 @@ export function usageLogLine({ kind, id, ok, why = "", model, milestones = 0, fa
  * two calls: a first answer that left a fact out, misstated one, or put an id
  * in its words is asked once more, told which.
  */
-export async function writeProgress(deps, { facts, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now() } = {}) {
+export async function writeProgress(deps, { facts, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now(), talk = false } = {}) {
   const usage = [];
   if (!Array.isArray(facts) || !facts.length) return { ok: false, why: "no-facts", usage, attempts: 0 };
   if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
@@ -1300,7 +1592,7 @@ export async function writeProgress(deps, { facts, context = "", model, deadline
     let reply;
     try {
       reply = await Promise.race([
-        Promise.resolve().then(() => deps.send(progressRequest({ facts, context, model, fix }))),
+        Promise.resolve().then(() => deps.send(talk ? talkRequest({ facts, context, model, fix }) : progressRequest({ facts, context, model, fix }))),
         new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("progress deadline"), { deadline: true })), left); }),
       ]);
     } catch (e) {
@@ -1309,8 +1601,8 @@ export async function writeProgress(deps, { facts, context = "", model, deadline
       if (timer) clearTimeout(timer);
     }
     usage.push(progressUsage(reply, model));
-    const read = readProgress(reply, facts);
-    if (read.ok) return { ok: true, text: read.text, usage, attempts };
+    const read = readProgress(reply, facts, { talk });
+    if (read.ok) return { ok: true, text: read.text, ...(read.explain ? { explain: read.explain } : {}), usage, attempts };
     why = read.why;
     if (why === "unreadable" || why === "cut") break;
     fix = { missing: read.missing, wrong: read.wrong, ids: read.ids };

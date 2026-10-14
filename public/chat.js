@@ -10644,11 +10644,19 @@ function siteSaidFor(said, which) {
 // EACH LINE STARTS WITH A DASH, NOT A TIME OR A DOT (the owner, 2026-10-13,
 // choosing from rendered options: the dash in place of the time, the thin
 // thread between lines kept). The dash is drawn by the stylesheet.
+// AND THE EXPLANATION, FOLDED (talk, 2026-10-13): the owner asked for *"an
+// optional expandable explanation section for concise, model-written
+// summaries of the approach, relevant decisions and reasons supported by
+// available evidence"*. Each line's own `explain`, in order, under one fixed
+// label, closed until opened — never a stream of thoughts, and absent when no
+// line carries one.
 function progressListHTML(lines, live, done) {
   const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
   if (!list.length) return '';
+  const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
   return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) =>
-    '<li' + (live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>';
+    '<li' + (live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
+    (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '');
 }
 /**
  * A JOB THIS PAGE WATCHED HAS ENDED: its lines kept on the reply its finish put
@@ -10665,7 +10673,7 @@ function siteKeepJobProgress(origin, job, before, lines) {
   const jobs = Array.isArray(m.jobs) ? m.jobs : [];
   if (!jobs.includes(job)) m.jobs = jobs.concat([job]);
   const kept = Array.isArray(m.prog) ? m.prog : [];
-  const add = (Array.isArray(lines) ? lines : []).filter((l) => !kept.some((x) => x.job === job && x.n === l.n)).map((l) => ({ job, n: l.n, ms: l.ms, text: l.text }));
+  const add = (Array.isArray(lines) ? lines : []).filter((l) => !kept.some((x) => x.job === job && x.n === l.n)).map((l) => ({ job, n: l.n, ms: l.ms, text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }));
   if (add.length) m.prog = kept.concat(add);
   s.updatedAt = Date.now();
   sitesSave();

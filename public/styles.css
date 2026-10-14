@@ -1610,6 +1610,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-req-prog li::before { content: '\2013'; margin-right: .35rem; color: var(--muted); }
 .st-req-prog li:not(:last-child)::after { content: ''; position: absolute; left: 4px; top: .35em; bottom: calc(-.3rem - .35em); width: 1px; background: rgba(51,49,61,.18); }
 .st-req-done .st-req-prog li, .st-prog-done li { color: var(--muted); }
+/* The folded explanation under a task's lines (talk, 2026-10-13): closed by
+   default, a quiet label, the model's short account inside. */
+.st-req-why { margin: .25rem 0 .15rem 1rem; font-size: .78rem; color: var(--muted); }
+.st-req-why summary { cursor: pointer; list-style: none; display: inline; }
+.st-req-why summary::-webkit-details-marker { display: none; }
+.st-req-why summary::after { content: ' \203A'; }
+.st-req-why[open] summary::after { content: ' \2039'; }
+.st-req-why p { margin: .3rem 0 0; line-height: 1.45; color: var(--text); }
 .st-prog-done { margin: 0 0 .5rem; }
 /* Every progress line so far where "Thinking" was, for a job this page watches. */
 .st-steps-live .st-req-prog { margin: 0; }

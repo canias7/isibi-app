@@ -382,13 +382,14 @@ function progressStand(b, id) {
       let bd = {};
       try { bd = JSON.parse(String((init && init.body) || "{}")); } catch { bd = {}; }
       const asked = (bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.function && bd.tool_choice.function.name))) || "";
-      if (asked === "write_progress") {
+      // THE CONVERSATIONAL WRITER (2026-10-13) answered the same way, its tool by its own name.
+      if (asked === "write_progress" || asked === "write_update") {
         const text = (bd.messages || []).filter((m) => m && m.role === "user").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");
         const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => ({ id: m[1], state: m[2], text: m[3] }));
         written.push(facts);
         const input = { text: "MODEL: " + facts.map((f) => f.text).join(" "), says: facts.map((f) => ({ id: f.id, as: f.state })) };
         return json(anthropic
-          ? { stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "p1", name: "write_progress", input }] }
+          ? { stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "p1", name: asked, input }] }
           : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
       }
     }
@@ -399,7 +400,7 @@ function progressStand(b, id) {
 const taskQueue = () => ({ sent: [], async send(m) { this.sent.push(m); }, async sendBatch() { throw new Error("no batch"); } });
 const PROGRESS_ENV = { PROGRESS_REPLIES: "on", SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k" };
 /** Every progress task the build queued, delivered through the real consumer until none is left — the browser plays no part. */
-async function deliverProgress(b, q, stand, { install = true } = {}) {
+async function deliverProgress(b, q, stand, { install = true, env = {} } = {}) {
   for (let round = 0; round < 6; round++) {
     const tasks = q.sent.filter((m) => m && m.kind === "edit-progress");
     q.sent = q.sent.filter((m) => !(m && m.kind === "edit-progress"));
@@ -418,7 +419,7 @@ async function deliverProgress(b, q, stand, { install = true } = {}) {
     try {
       const worker = await loadWorker();
       const ctx = makeCtx();
-      await worker.queue({ messages: tasks.map((t) => ({ body: t, ack() {}, retry() {} })) }, { ...PROGRESS_ENV, SITES_BUCKET: b, BUILD_QUEUE: q }, ctx);
+      await worker.queue({ messages: tasks.map((t) => ({ body: t, ack() {}, retry() {} })) }, { ...PROGRESS_ENV, ...env, SITES_BUCKET: b, BUILD_QUEUE: q }, ctx);
       for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
     } finally { globalThis.fetch = install ? blockedFetch : prior; }
   }
@@ -635,3 +636,30 @@ test("NET — no request in this file left the machine", () => {
 
 void BRIEF;
 void clearUnexpected;
+
+test("BLD TALK — A FIRST BUILD THAT TALKS (2026-10-13): its record opens conversational with the opening plan once, the run that carries it on adds no second plan, the container's turn is said as the site built, and nothing is said as published by a build step", async () => {
+  const b = buildBucket();
+  const id = newId();
+  const img = images();
+  const stand = progressStand(b, id);
+  const both = async (u, init) => (await stand.over(u, init)) || img.over(u, init);
+  const TALK = { FAL_KEY: "k", PROGRESS_REPLIES: "on", PROGRESS_TALK: "on" };
+  const q = await fireInterim(b, id, ledger(), { design: DESIGN, brief: BRIEF_MANY, env: TALK, over: both });
+  const first = stand.recOf();
+  assert.ok(first, "the first run opened no progress record");
+  assert.equal(first.talk, true, "the build's record was not opened conversational");
+  assert.equal(first.marks[0].stage, "start", "the opening plan is not the build's first milestone");
+  assert.deepEqual(first.marks[0].facts.map((f) => f.state), ["decided", "next"]);
+  assert.match(first.marks[0].facts[0].text, new RegExp(SLUG));
+  await deliverProgress(b, q, stand, { env: { PROGRESS_TALK: "on" } });
+  assert.ok(stand.recOf().lines.length >= 1, "no line was written for the build's first milestones");
+  const rq = taskQueue();
+  await finishResume(b, id, ledger(), { credits: 400, env: { ...TALK, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", BUILD_QUEUE: rq }, source: pageOf(PICS), over: both });
+  const last = stand.recOf();
+  assert.equal(last.marks.filter((m) => m.stage === "start").length, 1, "the resumed run said the plan again");
+  const container = last.marks.find((m) => m.stage === "build-container");
+  assert.ok(container, "the container's turn was not said: " + last.marks.map((m) => m.stage).join(","));
+  assert.deepEqual(container.facts.map((f) => [f.state, f.text]), [["checked", "The site built without errors."], ["doing", "Publishing the site now."]]);
+  assert.ok(!allFacts(last).some((f) => f.state === "published"), "a build step said the site published");
+  assert.ok(last.closed, "the resume did not close the record at the build's end");
+});

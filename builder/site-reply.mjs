@@ -1581,8 +1581,23 @@ export function replyContext({ request = "", answers = [], site = null } = {}) {
   return lines.join("\n\n");
 }
 
-/** The request one reply call sends: every fact, whole. `missed` names the facts a first answer left out. */
-export function replyRequest({ facts, context = "", model, missed = [] }) {
+/**
+ * THE FINAL MESSAGE AFTER A CONVERSATION (talk, 2026-10-13), added to the
+ * instructions when `PROGRESS_TALK` is on. The owner: *"The final message
+ * should explain completed work, actual checks, unresolved requirements and
+ * useful next steps without repeating the whole progress history; mention
+ * undo only where it is supported for that operation."* A `k` fact is a check
+ * that ran during the work, read from the job's own progress record — the
+ * only checks the message may name.
+ */
+export const REPLY_TALK_RULES =
+  "\n\nTHEY HAVE BEEN FOLLOWING YOUR UPDATES WHILE YOU WORKED\n" +
+  "k: a check that ran during the work; it covers only what its text says.\n" +
+  "- Do not retell the updates: say plainly what was done, which checks ran (only k facts, each as narrowly as it says), and what is not done or still open.\n" +
+  "- End with a useful next step only when a fact makes one useful: something not done, a question, or a way to undo that a u fact gives. Never offer an undo no fact gives.";
+
+/** The request one reply call sends: every fact, whole. `missed` names the facts a first answer left out. `talk` adds the rules above. */
+export function replyRequest({ facts, context = "", model, missed = [], talk = false }) {
   const body = (context ? context + "\n\n" : "") +
     "WHAT REALLY HAPPENED (explain every fact; list each id you explained in covers):\n" +
     facts.map((f) => "[" + f.id + "] " + f.text).join("\n") +
@@ -1592,7 +1607,7 @@ export function replyRequest({ facts, context = "", model, missed = [] }) {
     max_tokens: REPLY_MAX_TOKENS,
     tools: [REPLY_TOOL],
     tool_choice: { type: "tool", name: REPLY_TOOL.name },
-    system: [{ type: "text", text: REPLY_SYSTEM }],
+    system: [{ type: "text", text: talk ? REPLY_SYSTEM + REPLY_TALK_RULES : REPLY_SYSTEM }],
     messages: [{ role: "user", content: body }],
   };
 }
@@ -1634,7 +1649,7 @@ export function replyUsage(reply, model) {
  * `deadline`, `unreadable`, `uncovered`. At most two calls: a first answer
  * that left a fact out is asked once more, naming what it missed.
  */
-export async function writeReply(deps, { facts, context = "", model, deadlineMs = REPLY_DEADLINE_MS, maxChars = REPLY_MAX_CHARS, now = () => Date.now() } = {}) {
+export async function writeReply(deps, { facts, context = "", model, deadlineMs = REPLY_DEADLINE_MS, maxChars = REPLY_MAX_CHARS, now = () => Date.now(), talk = false } = {}) {
   const usage = [];
   if (!Array.isArray(facts) || !facts.length) return { ok: false, why: "no-facts", usage, attempts: 0 };
   if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
@@ -1650,7 +1665,7 @@ export async function writeReply(deps, { facts, context = "", model, deadlineMs 
     let reply;
     try {
       reply = await Promise.race([
-        Promise.resolve().then(() => deps.send(replyRequest({ facts, context, model, missed }))),
+        Promise.resolve().then(() => deps.send(replyRequest({ facts, context, model, missed, talk }))),
         new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("reply deadline"), { deadline: true })), left); }),
       ]);
     } catch (e) {

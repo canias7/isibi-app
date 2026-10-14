@@ -275,7 +275,7 @@ test("MPH 9 — THE WIRING: the Worker's writer hands the record it claimed (wit
   };
   const writer = between("async function writeProgressLine(env, task, owner) {", "\n}\n");
   assert.match(writer, /const rec = claimed\.rec;/);
-  assert.match(writer, /context: progressContext\(rec, \{ others \}\)/, "the writer does not hand its claimed record to the context");
+  assert.match(writer, /context: progressContext\(rec, \{ others, waited \}\)/, "the writer does not hand its claimed record to the context");
   // THE ADD-ON: the success path, the thrown path and the nothing-affordable path.
   const buy = between("aPhotos = await buySitePhotos(env, {", "// ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED");
   const marks = [...buy.matchAll(/aJob\.progress\.mark\("photos", addonPhotosFacts\(\{ planned: aFold\.photos(.*?)\}\)\)/g)].map((m) => m[1]);

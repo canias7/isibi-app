@@ -234,6 +234,9 @@
       var ms = typeof p.ms === "number" && isFinite(p.ms) && p.ms >= 0 ? p.ms : 0;
       var line = { n: p.n, ms: ms, text: t };
       if (typeof p.job === "string" && p.job) line.job = p.job;
+      // ITS EXPLANATION (talk, 2026-10-13): the model's own short account of
+      // its approach, for the folded section; a string or nothing.
+      if (typeof p.explain === "string" && p.explain.trim()) line.explain = p.explain.trim();
       out.push(line);
     }
     return out;
