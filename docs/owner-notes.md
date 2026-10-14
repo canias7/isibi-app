@@ -49,8 +49,9 @@ handoff below this one is the other session's and is unchanged.*
    - **`renderNote`** is never a reply fact. Its fixed line now reads "An
      automated check that opened the finished pages in a browser flagged: …".
    - **`jobChecksFor` is gone.**
-8. The records commit on top of `d5d04a8e` (this handoff, the history, the
-   design, the backlog, your preferences).
+8. `e8426dbc`: the records on top of `d5d04a8e` (this handoff, the
+   history, the design, the backlog, your preferences). The CI readings are
+   stamped in a later records-only commit.
 
 **Evidence (offline, supplied model answers only):**
 - **Tests:** 14 new cases in `test/check-evidence-flow.test.mjs`:
@@ -62,6 +63,9 @@ handoff below this one is the other session's and is unchanged.*
 - **Mutation:** 30 of 30 killed after one missing assertion was added; the
   control survived.
 - **Full suite on `d5d04a8e`:** `10784 / 10782 / 0 / 2` locally.
+- **CI on `e8426dbc`** (the records on top of it):
+  - unit run 38561669854: `10784 / 10740 / 0 / 44`;
+  - site build run 38561669952: all eight jobs green.
 - **Image predicted, not built:** `13b722b05e3748b6` for `d5d04a8e`
   (production's `4444d9d53d906b8d` reproduced for `main`).
 

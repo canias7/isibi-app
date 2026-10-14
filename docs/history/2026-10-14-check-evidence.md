@@ -243,7 +243,12 @@ prose, and every model answer is supplied.
   template's browser cases, whose dependencies are not installed here).
   Before the batch, on `f1c6f9b0`: `10769 / 10767 / 0 / 2`.
 - **On the integration merge (§5): `10876 / 10874 / 0 / 2`.**
-- **CI on the pushed head:** stamped in `docs/owner-notes.md` once read.
+- **CI on the pushed head `e8426dbc`** (read after the runs, from each job's
+  own fields and the unit step's log):
+  - **unit tests**, run 38561669854: `10784 / 10740 / 0 / 44`. Same total as
+    the local run; CI skips 44.
+  - **site build**, run 38561669952: all eight jobs succeeded, including
+    the `all checks` gate.
 - The first full run of the uncommitted batch failed 10:
   - 8 were tests pinning old fact lists or source lines (fixed above);
   - one was the image guard: a new input not yet committed;
