@@ -1,5 +1,11 @@
 :root {
-      /* PENCIL (owner 2026-08-30: "go through the whole frontend and change the
+      /* BLACK AND WHITE (owner, 2026-10-14: "apply the black and white
+         colors", the ChatGPT-style look chosen from rendered prototypes on
+         2026-10-13). The VALUES below changed; the token names did not, so
+         every rule that reads them follows. The pencil palette's own story is
+         kept underneath for its reasons, and its values are in git.
+
+         PENCIL (owner 2026-08-30: "go through the whole frontend and change the
          design to our new style"). The landing has been drawn on paper since
          2026-08-29; this is the same palette lifted to the root so the signed-in
          app is the same sheet rather than a white page behind a paper door.
@@ -7,44 +13,37 @@
          Declared ONCE here and consumed through the app's existing token names
          below — the alternative was editing several hundred rules, and two
          palettes would have drifted the first time either was touched. */
-      --paper: #f3efe4;
-      --paper-2: #e7e1d2;
-      --graphite: #33313d;      /* the lead itself — never pure black */
-      --graphite-2: #615d6c;    /* a lighter pass, for secondary type */
-      --graphite-3: #918d9c;    /* barely there */
+      --paper: #ffffff;
+      --paper-2: #f4f4f4;
+      --graphite: #0d0d0d;      /* near-black ink */
+      --graphite-2: #5d5d5d;    /* secondary type */
+      --graphite-3: #8f8f8f;    /* barely there */
       /* graphite laid down at three pressures: hard enough to fill (a button),
          a light pass (a chip), barely a smudge (a rule) */
-      --gr-fill:
-        repeating-linear-gradient(56deg,rgba(22,20,29,.95) 0 2.3px,rgba(22,20,29,.10) 2.3px 5.4px),
-        repeating-linear-gradient(129deg,rgba(22,20,29,.66) 0 1.7px,rgba(22,20,29,0) 1.7px 6.4px),
-        repeating-linear-gradient(8deg,rgba(255,255,255,.05) 0 1px,rgba(255,255,255,0) 1px 9px),
-        linear-gradient(168deg,rgba(96,91,110,.92),rgba(58,55,70,.96));
-      --gr-wash:
-        repeating-linear-gradient(56deg,rgba(64,60,74,.30) 0 1.3px,rgba(64,60,74,0) 1.3px 4.6px),
-        repeating-linear-gradient(129deg,rgba(64,60,74,.16) 0 1.1px,rgba(64,60,74,0) 1.1px 6.2px);
-      --gr-tint:
-        repeating-linear-gradient(56deg,rgba(74,70,86,.14) 0 1.2px,rgba(74,70,86,0) 1.2px 6.5px);
+      /* flat fills now: no cross-hatch in black and white */
+      --gr-fill: linear-gradient(#0d0d0d, #0d0d0d);
+      --gr-wash: linear-gradient(#f4f4f4, #f4f4f4);
+      --gr-tint: linear-gradient(#f9f9f9, #f9f9f9);
 
       /* ── the app's own token names, now pointing at the palette above ── */
       --bg: var(--paper);
-      --panel: rgba(51, 49, 61, 0.055);      /* a smudge on the sheet */
-      --panel-2: rgba(51, 49, 61, 0.10);     /* raised / active */
-      --line: rgba(51, 49, 61, 0.22);        /* hairline rim — cream needs more
-                                                than white did to read at all */
-      --line-2: rgba(51, 49, 61, 0.34);      /* stronger rim */
+      --panel: rgba(0, 0, 0, 0.024);         /* a tint on the sheet: #f9f9f9 on white */
+      --panel-2: rgba(0, 0, 0, 0.06);        /* raised / active: #f0f0f0 on white */
+      --line: rgba(0, 0, 0, 0.10);           /* hairline rim */
+      --line-2: rgba(0, 0, 0, 0.15);         /* stronger rim */
       --text: var(--graphite);
       --muted: var(--graphite-2);
-      --neon: #2a2833;        /* the pencil CTA's own dark */
-      --neon-dim: #16141d;
-      --purple: #3d3a48;
-      --purple-dim: #2a2833;
+      --neon: #0d0d0d;
+      --neon-dim: #000000;
+      --purple: #0d0d0d;
+      --purple-dim: #000000;
       /* accent fill. NOT the cross-hatch: --split has 128 consumers and one of
          them clips it to TEXT (.hh-name), where a repeating hatch at label size
          reads as noise. Buttons that should look filled in take --gr-fill by
          name instead. */
       --split: linear-gradient(120deg, var(--purple), var(--neon));
       --split-dim: linear-gradient(120deg, var(--purple-dim), var(--neon-dim));
-      --on-accent: var(--paper);   /* paper-coloured ink on graphite */
+      --on-accent: #ffffff;        /* white ink on black */
       /* THE ONE GREEN IN THIS PALETTE, and it is a signal rather than a colour
          of the app: a start-screen wire is green exactly when the database at
          the top of the pair is wired to the thing that wire lands on.
@@ -56,7 +55,7 @@
          rendered side by side (2026-09-09: "A, but the green color more live" →
          "G4"). */
       --wire-live: #00c853;
-      --halo: linear-gradient(120deg, rgb(255,121,198), rgb(255,184,77)); /* kept brand gradient — chatbox only */
+      --halo: linear-gradient(#0d0d0d, #0d0d0d); /* the chatbox's ring, black now */
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
@@ -1629,7 +1628,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-req-prog { list-style: none; margin: .35rem 0 .15rem; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
 .st-req-prog li { position: relative; padding-left: 1rem; font-size: .8rem; line-height: 1.42; color: var(--text); }
 .st-req-prog li::before { content: '\2013'; margin-right: .35rem; color: var(--muted); }
-.st-req-prog li:not(:last-child)::after { content: ''; position: absolute; left: 4px; top: .35em; bottom: calc(-.3rem - .35em); width: 1px; background: rgba(51,49,61,.18); }
+.st-req-prog li:not(:last-child)::after { content: ''; position: absolute; left: 4px; top: .35em; bottom: calc(-.3rem - .35em); width: 1px; background: rgba(0,0,0,.14); }
 .st-req-done .st-req-prog li, .st-prog-done li { color: var(--muted); }
 /* The folded explanation under a task's lines (talk, 2026-10-13): closed by
    default, a quiet label, the model's short account inside. */
@@ -5316,3 +5315,43 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .ag-day input { width: 14px; height: 14px; margin: 0; accent-color: var(--text); }
 .ag-step-add { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+
+/* ── BLACK AND WHITE, CHATGPT-STYLE (owner, 2026-10-14) ──────────────────────
+   The component rules the prototype needed beyond the palette tokens above:
+   plain white page, one sans face, the chat bubbles, the composer and its
+   send button, the rail and cards, and the landing page's pencil effects
+   turned off. */
+html { background: #ffffff; background-image: none; }
+body { font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Inter, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+body::after { display: none; }
+.st-msg { font-size: .94rem; line-height: 1.6; }
+.st-msg.u { background: #f4f4f4; color: #0d0d0d; border: none; border-radius: 18px; padding: .6rem 1rem; }
+.st-comp { background: #ffffff; border: 1px solid rgba(0,0,0,.1); border-radius: 26px; box-shadow: 0 2px 12px rgba(0,0,0,.06); padding: .7rem .85rem .6rem; }
+.st-sendc { background: #0d0d0d; color: #fff; box-shadow: none; border: none; }
+.st-sendc:hover { box-shadow: none; background: #333; }
+.st-sendc[disabled] { background: #d7d7d7; }
+.st-plus, .st-buildsel { border-color: rgba(0,0,0,.12); }
+.st-buildsel b { font-weight: 600; }
+.st-comp-price { background: none; color: #0d0d0d; -webkit-background-clip: border-box; background-clip: border-box; }
+.st-stopc { background: #0d0d0d; animation: none; box-shadow: none; }
+.st-rail { background: var(--bg); border-color: rgba(0,0,0,.08); }
+/* landing: plain white, one sans face, clean hairlines (no pencil) */
+.mkt.mkt-crt { background: #ffffff; background-image: none; font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Inter, Helvetica, Arial, sans-serif; color: #0d0d0d; }
+.mkt-crt *, .mkt-crt *::before, .mkt-crt *::after { filter: none !important; }
+.mkt-crt .mkt-ghost::after, .mkt-crt .crt-chatbox::after, .mkt-crt .crt-crest-h .mkt-grad::after, .mkt-crt .logo-mark .gf-pass-b { display: none; }
+.mkt-crt .crt-crest-h, .mkt-crt .crt-topbar .mkt-brand, .mkt-crt .mkt-foot-h { font-family: inherit; font-weight: 600; letter-spacing: -.02em; color: #0d0d0d; }
+.mkt-crt .crt-crest-h { font-size: clamp(1.9rem, 3.6vw, 2.6rem); }
+.mkt-crt .mkt-signin, .mkt-crt .mkt-cta, .mkt-crt .mkt-ghost { font-weight: 500; letter-spacing: 0; }
+.mkt-crt .mkt-cta { background: #0d0d0d; color: #fff; }
+.mkt-crt .mkt-cta::before { display: none; }
+.mkt-crt .mkt-cta:hover { background: #333; box-shadow: none; transform: none; }
+.mkt-crt .mkt-ghost { background: #fff; color: #0d0d0d; }
+.mkt-crt .mkt-ghost::before { border: 1px solid rgba(0,0,0,.15); }
+.mkt-crt .mkt-ghost:hover { background: #f4f4f4; transform: none; }
+.mkt-crt .crt-chatbox { background: #fff; border-radius: 28px; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
+.mkt-crt .crt-chatbox::before { border: 1px solid rgba(0,0,0,.12); }
+.mkt-crt .crt-chatbox-ico { background: none; }
+.mkt-crt .crt-chatbox-ico::before { border: 1px solid rgba(0,0,0,.15); }
+.mkt-crt .crt-chatbox-send { background: #0d0d0d; }
+.mkt-crt .crt-chatbox-send::before { display: none; }
+.mkt-crt .mkt-foot::before { height: 1px; background: rgba(0,0,0,.1); opacity: 1; }

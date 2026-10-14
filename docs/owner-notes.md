@@ -1124,6 +1124,23 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-14 — Black and white applied (on branch `new`; nothing merged, deployed or spent)
+
+You asked to apply the black-and-white colours. The whole app's palette
+changed at its one root in the stylesheet:
+- a white page and near-black text, with flat greys instead of the pencil
+  cross-hatch;
+- solid black buttons, and a white chat box with a black send button;
+- the landing page plain white.
+
+Every screen reads the same palette, so they all follow. Two existing
+guards caught spots where my first pass would have broken earlier fixes:
+- the mobile panel must not be see-through;
+- the site card's phone must keep the card's own colour.
+
+Both were fixed in the palette, not by changing the tests. Full suite:
+10,798 tests, 0 failed. Not merged, nothing deployed.
+
 ## 2026-10-14 — Questions now use "pick, then Continue" (option E; on branch `new`; nothing merged, deployed or spent)
 
 You picked E from five rendered layouts for the builder's questions. It is

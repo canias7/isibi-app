@@ -1264,8 +1264,14 @@
   hands the answer to the message box, a filled Continue button, and the way
   out (Cancel, or Skip before a first build) as a quiet link beside it. A
   click or a number key only picks; Continue or Enter sends. No key hints are
-  printed. **The colours are a separate, open decision:** the black-and-white
-  look is still only a prototype, and every branch keeps the cream palette.
+  printed.
+- **Black and white, ChatGPT-style** (2026-10-14: *"apply the black and white
+  colors"*). The palette is changed at its root in `public/styles.css`:
+  - a white page, near-black ink, flat greys, a solid black primary button;
+  - no cross-hatch.
+
+  It replaces the cream pencil palette of 2026-08-30. Applied on branch `new`
+  only, unmerged.
 - **One release for work on two branches, not two** (2026-10-14): prepare an
   isolated integration check against the other session's current head and
   resolve shared files there, without merging either branch into production.
