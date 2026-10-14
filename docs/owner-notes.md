@@ -1,7 +1,7 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: run 117's causes traced and fixed on the branch at `c00e7a06` — the build doors now travel into the container job, bands fan out in the container, every build send is listed by its attempt key and the press reconciles by it; nothing deployed, built, pressed or bought)
+## Current handoff — read this first (2026-10-14: build evidence now bound to its job on the branch at `89bd3f09` — unknown runtime settings stop the paid press, a trace is bound by the job tag on its publish mark, the source by the job's own stored version, prompt and recovered acceptance kept apart; run 117's trace now reads unverified; nothing deployed, built, pressed or bought)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -80,6 +80,72 @@ is in git; the dated entries further down are the full story.*
 - **Image:** `worker.js` changed, so the next deploy would roll the
   container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
   inputs, 175 paths). Not built.
+**Evidence bound to its job (2026-10-14, your review after run 121;
+`89bd3f09` code, the acceptance fixture fixed in the commit after it, unmerged):**
+- **Runtime settings: known or unverified.**
+  - The press first reads where builds run (`runner`, `runnerEveryone`).
+    If the route does not say, the settings are unverified.
+  - When builds run in the container, all four of the job's settings must
+    be reported. Any missing one makes them unverified, and the Worker's
+    flags never stand in for them.
+  - Unverified is an unmet prerequisite, so the paid press sends nothing.
+  - A route that says builds run on the Worker keeps the Worker's view.
+- **The trace is bound by the job, not by time.**
+  - The build's publish mark now carries a job tag (a number made from the
+    job id). The press accepts a trace only when it carries this job's tag.
+  - Another job's tag is refused, even when that trace started inside this
+    job's life (overlapping attempts, a replacement trace).
+  - A trace with no tag is **unverified**. It is reported as unverified and
+    never credited, and the overlap line says what the unbound trace reads.
+  - Not tagged: a build finished by the resumed-Worker path.
+- **The source is the job's own stored version.**
+  - New: `GET /api/site/source?job=` answers the one version whose
+    manifest names the job, read from that version's stored copy, which
+    nothing edits afterwards. It returns the live pointer beside it.
+  - None (pruned) or two such versions are refused by name.
+  - The explorer's own read is unchanged.
+  - The press and the judge read by job. Any other answer is unverified and
+    no page or component count is judged on it.
+- **Acceptance kinds are recorded apart:**
+  - `prompt`: the send's own answer handed back the job (202);
+  - `recovered`: the answer was lost and the job was found afterwards by
+    this send's attempt key;
+  - `none`: neither.
+  - Run 117 was `none`.
+  - Recovered tracking is proven offline only. Prompt acceptance in
+    production is unchanged, so the request is still cut at about 285 s.
+- **Run 117 under these rules:**
+  - its trace is unverified: it was written before tags, so its overlap
+    "fail" is now "not judged";
+  - its source can be read by job only after the route is deployed. Until
+    then a judge press meets production's old route and reads it as
+    unverified;
+  - run 121's PASS on 1 page and 15 components read the editable copy.
+    That is evidence, not a proven output of the job.
+- **Tests:**
+  - `test/build-attribution.test.mjs`, 7 cases: missing or partial runtime
+    fields (paid press never posts) with valid controls; overlapping
+    same-site attempts; a replacement trace in the window; the source
+    changed after completion; the real Worker's by-job route (none, two,
+    bad id, the plain read unchanged); the publish-mark tag; acceptance
+    kinds;
+  - updated: `canary-build`, `build-parallel-route`, `site-source` (route
+    window re-measured, 7,909 → 8,118 characters) and
+    `acceptance-entry-points` (its runtime fixture now has the runner
+    fields);
+  - sweep: 13 of 13 mutants killed, and the comment control survived;
+  - full suite: running on the final tree; its totals follow in the next commit.
+- **Image:** `worker.js` changed again. The next deploy would build
+  **`13898562fa1fa8a3`** (predicted, 206 inputs). Not built.
+- **Ledger:** unchanged, balance 773, last row 469; nothing was spent this
+  round.
+- **Remaining live gaps:**
+  - nothing is deployed;
+  - no live trace carries a tag yet;
+  - the by-job source route is unproven live;
+  - parallel work in a live container job is unproven;
+  - recovered tracking is offline only.
+
 **Run 121** (your free `judge-no-images` press, 15:18 UTC, from
 `384b3012`) read run 117's stored source and judged it:
 - **The stored source has exactly 1 page** (`index.tsx`), read whole: PASS.
@@ -1245,6 +1311,19 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — The build check now proves whose evidence it judges (nothing spent)
+
+You pointed out three ways the check could credit the wrong evidence, and
+all three are closed on the branch. If the app doesn't say which settings a
+container build will use, the paid check now refuses instead of trusting
+the Worker's flags. A build's trace now carries its job's tag, so another
+attempt's trace can no longer be credited by its timing. And the check
+reads the exact version that job published, not whatever the site looks
+like now. Where old records cannot prove ownership, the check says
+"unverified" instead of passing. Run 117 is one of those: its trace was
+written before tags existed. Code `89bd3f09`, unmerged, nothing deployed or
+spent.
 
 ## 2026-10-14 — Run 121: run 117's stored source judged (free)
 

@@ -72,7 +72,9 @@ async function buildPress(name, { balance, spend, runtime, runtimeStatus = 200 }
   return { ...r, wire, posted: wire.filter((w) => w.via === "https").length, runtimeRead: wire.some((w) => w.url.includes("/api/site/runtime")), unanswered: wire.filter((w) => w.status === 599).length, rec: existsSync(recFile) ? JSON.parse(readFileSync(recFile, "utf8")) : null };
 }
 
-const FLAGS_ON = { imagePurchases: false, design: false, graph: false, bandsEveryone: true, bands: true };
+// THE RUNTIME ROUTE AS IT ANSWERS NOW (2026-10-14): builds run in the container
+// and the job's own settings are reported beside the Worker's.
+const FLAGS_ON = { imagePurchases: false, design: false, graph: false, bandsEveryone: true, bands: true, runner: true, runnerEveryone: true, jobDesign: false, jobGraph: false, jobBands: true, jobBandsEveryone: true };
 
 // ── THE SHARED PREFLIGHT ─────────────────────────────────────────────────────
 
@@ -136,7 +138,7 @@ test("BUILD, REHEARSAL, AT 971 (Codex's reproduction): the real script reads the
 });
 
 test("BUILD, REHEARSAL, AT 971, NOTHING READY: every unmet prerequisite listed — the cap, photographs still bought, no parallel mode", async () => {
-  const r = await buildPress("rehearsal-none", { balance: 971, spend: "no", runtime: { imagePurchases: true, design: false, graph: false, bandsEveryone: false, bands: false } });
+  const r = await buildPress("rehearsal-none", { balance: 971, spend: "no", runtime: { imagePurchases: true, design: false, graph: false, bandsEveryone: false, bands: false, runner: true, runnerEveryone: true, jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false } });
   assert.equal(r.posted, 0);
   assert.deepEqual(r.rec.unmet, ["the balance is within the hard cap of 100", "the live Worker buys no photograph", "an image-free parallel mode is already on for this account"]);
 });

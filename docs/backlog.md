@@ -34,6 +34,10 @@ here; take a closed one out of both.**
   attempt key; the press keeps the original error, finds its own build by
   that key (never the latest for the slug, never a resend), follows it to
   its end and counts only its own job's charges. Not yet run live.
+- **A build finished by the resumed-Worker path writes no job tag**
+  (2026-10-14). `runResumedSiteBuild` writes no `pages` mark, so its trace
+  stays unverified for the build check (`traceAttribution`). It is not
+  fixed: the job path, which first builds take, does tag.
 - **`build-check.json`'s met prerequisites keep their unmet sentence**
   (2026-10-14, run 115). `buildPrerequisites` sets `why` without checking
   `ok`. "The balance covers the estimate of 45" reads `ok: true` with "does
