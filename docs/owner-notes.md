@@ -1,6 +1,48 @@
 # Owner Notes
 
-## Branch `new` — handoff for you and Codex (2026-10-14, after Codex's reviews at `f1c6f9b0` and `8a000d1f`; nothing merged, deployed, built, switched on, pressed or spent)
+## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; waiting for the other branch's Build investigation; nothing merged, deployed, built, switched on, pressed or spent)
+
+**Where it stands (2026-10-14).**
+- **The round is closed.** Codex reviewed `new` at `3fbc8259` and
+  independently confirmed the three evidence-integrity reproductions are
+  corrected, with the genuinely clean control preserved. The correction
+  round is closed there.
+- **Branch `new` is ready, unchanged:** the progress-message work and every
+  correction, with `PROGRESS_TALK` off.
+- **The records stand as written below:**
+  - CI green: unit run 38565424953 and site build run 38565425192 on
+    `9573b5ea`;
+  - integration merge `a295c1e9` (local, never pushed): `10885 / 10883 / 0
+    / 2`.
+- **No further audit, and no completed test repeated.**
+- **Waiting.** The combined release candidate is not refreshed until the
+  main working branch's Build investigation finishes. At this writing
+  `claude/help-needed-ehlwlj` is at `5056b7a8` (the same head as the last
+  integration check), and its own handoff still has the Build audit waiting
+  on your approval of one paid run.
+- **When it finishes, in order:**
+  1. Fetch its final head.
+  2. Merge `new` into it in an isolated worktree, never pushed: the
+     Dockerfile's COPY line and `owner-notes.md` resolved as before, both
+     sides kept, and anything new resolved preserving both branches' fixes.
+  3. Run the full suite and the site build on the candidate, and predict
+     its image.
+  4. Rehearse the rollback.
+  5. Prepare the one image-free live verification against that candidate.
+     It reads:
+     - the real model's wording against each answer's `checks`;
+     - progress timing: when each line landed against its milestones, and
+       how many milestones each writer call covered;
+     - task attribution: each part's lines on its own part only;
+     - reconnect persistence: the same lines and explanation after a fresh
+       session;
+     - narration cost, from `scripts/narration-usage.mjs`.
+  6. Then wait for your word. Nothing is merged into `main`, deployed,
+     rebuilt or pressed until then.
+
+*The handoff from before the closure follows, unchanged.*
+
+### Before the closure (after Codex's reviews at `f1c6f9b0` and `8a000d1f`)
 
 *A second line of work beside `claude/help-needed-ehlwlj`, on the branch you
 named `new`, cut from `main` (`fef80b9b`, the code deploy 2203 runs). The
