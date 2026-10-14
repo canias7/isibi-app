@@ -58,25 +58,29 @@ async function press(name, { balance = 971, spend = "1", optIn = "", probes = BA
 
 // ── THE BOX, READ ────────────────────────────────────────────────────────────
 
-test("OPT-IN 1 — THE BOX IS CLOSED (2026-10-14, after run 152): it admits no press — acc-clarify-resume (run 152, closed) included; blank changes nothing; a malformed number still says so; anything else refuses as closed", () => {
-  assert.deepEqual([...BALANCE_OPT_IN], []);
+test("OPT-IN 1 — OPEN FOR ONE RUN (2026-10-14, the owner's approval of the live verification batch): it admits acc-mixed-talk alone; blank changes nothing; a malformed number still says so; every other press refuses", () => {
+  assert.deepEqual([...BALANCE_OPT_IN], ["acc-mixed-talk"]);
   assert.ok(Object.isFrozen(BALANCE_OPT_IN));
   for (const blank of [undefined, null, "", "   "]) assert.deepEqual(readBalanceOptIn(blank, { probes: BATCH }), { ok: true, value: null, press: "" });
   // NOT A WHOLE NUMBER OF CREDITS.
   for (const bad of ["0", "-1", "971.5", "9 71", "abc", "1e3", "0971", "+971", "12345678", "971 credits"]) {
-    const r = readBalanceOptIn(bad, { ui: "acc-isolation" });
+    const r = readBalanceOptIn(bad, { ui: "acc-mixed-talk" });
     assert.equal(r.ok, false, bad);
     assert.match(r.msg, /whole credits/, bad);
   }
-  // EVERY PRESS, THE LAST ONE IT ADMITTED FIRST.
-  for (const other of [{ ui: "acc-clarify-resume" }, { ui: "acc-addon-k3b" }, { ui: "acc-isolation-page" }, { ui: "acc-isolation" }, { probes: "addon-kinds-3" }, { probes: "acceptance-split-1" }, { probes: "acceptance-split-2" }, { ui: "acc-addon-edit" }, { ui: "acc-page-table" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-addon-kinds" }]) {
+  // THE ONE PRESS IT ADMITS.
+  const ok = readBalanceOptIn("773", { ui: "acc-mixed-talk" });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.value, 773);
+  // EVERY OTHER PRESS, acc-mixed (the same message without talk) first.
+  for (const other of [{ ui: "acc-mixed" }, { ui: "acc-clarify-resume" }, { ui: "acc-addon-k3b" }, { ui: "acc-isolation-page" }, { ui: "acc-isolation" }, { probes: "addon-kinds-3" }, { probes: "acceptance-split-1" }, { probes: "acceptance-split-2" }, { ui: "acc-addon-edit" }, { ui: "acc-page-table" }, { ui: "lv-parallel" }, { ui: "rq-batch" }, { probes: "router-audit-1" }, {}, { probes: BATCH, ui: "acc-mixed-talk" }]) {
     const r = readBalanceOptIn("971", other);
     assert.equal(r.ok, false, JSON.stringify(other));
-    assert.match(r.msg, /the balance box is closed/, JSON.stringify(other));
+    assert.match(r.msg, /only for acc-mixed-talk/, JSON.stringify(other));
   }
   // A NON-STRING IS NEVER COERCED INTO A NUMBER.
-  assert.equal(readBalanceOptIn(971, { ui: "acc-isolation" }).value, null);
-  assert.equal(readBalanceOptIn(["971"], { ui: "acc-isolation" }).value, null);
+  assert.equal(readBalanceOptIn(971, { ui: "acc-mixed-talk" }).value, null);
+  assert.equal(readBalanceOptIn(["971"], { ui: "acc-mixed-talk" }).value, null);
 });
 
 test("OPT-IN 2 — the check: exactly the balance named passes; any other balance, an unreadable one, or a named value that is not a whole number refuses", () => {
@@ -121,10 +125,10 @@ test("OPT-IN 4 — every scenario the box admits is an image-free acceptance pre
 
 // ── THE REAL SCRIPT, UNDER THE STUB ─────────────────────────────────────────
 
-test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2) with the box refuses with exit 2 before the sign-in (the box is closed), and without the box still refuses at the cap before any route", async () => {
+test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2) with the box refuses with exit 2 before the sign-in (the box admits acc-mixed-talk alone), and without the box still refuses at the cap before any route", async () => {
   const closed = await press("closed-batch-named", { optIn: "971" });
   assert.equal(closed.code, 2, closed.err + closed.out.slice(-800));
-  assert.match(closed.err, /the balance box is closed/);
+  assert.match(closed.err, /only for acc-mixed-talk/);
   assert.equal(closed.wire.length, 0, JSON.stringify(closed.wire));
   const blocked = await press("paid-971-blank");
   assert.equal(blocked.code, 1);
@@ -135,9 +139,9 @@ test("OPT-IN 5, END TO END — the closed batch's probe (K0, acceptance-split-2)
 test("OPT-IN 7, END TO END — the box malformed, beside acc-isolation (closed with run 141), beside another scenario, or beside the request batch refuses with exit 2 before the sign-in: not one network call", async () => {
   for (const [name, o, re] of [
     ["malformed", { optIn: "971.0" }, /whole credits/],
-    ["acc-isolation", { probes: "", ui: "acc-isolation", slug: "fold-lane-bakery", optIn: "971" }, /the balance box is closed/],
-    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /the balance box is closed/],
-    ["request-batch", { probes: "", ui: "rq-batch", slug: "fold-lane-bakery", optIn: "971" }, /acceptance balance box is closed/],
+    ["acc-isolation", { probes: "", ui: "acc-isolation", slug: "fold-lane-bakery", optIn: "971" }, /only for acc-mixed-talk/],
+    ["other-scenario", { probes: "", ui: "acc-addon-inner", slug: "fold-lane-bakery", optIn: "971" }, /only for acc-mixed-talk/],
+    ["request-batch", { probes: "", ui: "rq-batch", slug: "fold-lane-bakery", optIn: "971" }, /acceptance balance box is only for acc-mixed-talk, not the request batch/],
   ]) {
     const r = await press(name, o);
     assert.equal(r.code, 2, `${name}: ${r.err}${r.out.slice(-600)}`);
