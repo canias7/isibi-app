@@ -26,6 +26,11 @@ here; take a closed one out of both.**
 - **`progress-live-writer` PLW 4 failed once under the full suite**
   (2026-10-12): it passes alone, so it is likely load-sensitive. Not fixed.
   In full under Backlog below.
+- **`renderNote`'s "I had a look at the finished pages" reads as a visual
+  review** (2026-10-14, found by the talk batch on branch `new`): the
+  sentence is code-composed and describes an automated browser check. Not
+  changed (the file is the concurrent session's). In full under Backlog
+  below.
 - **Live K/E batch findings (2026-10-12, runs 135 and 137)**, corrected on
   the branch the same day (offline only; not merged, not deployed, not
   pressed again):
@@ -2782,6 +2787,19 @@ product.)*
   - That change touched neither the test nor the product code it covers.
   - It is an intermittent failure, likely load-sensitive. **It is not
     fixed** and was not investigated further.
+
+- **`renderNote`'s "I had a look at the finished pages" reads as a visual
+  review** (2026-10-14, found while building the talk batch on branch `new`,
+  `docs/investigations/progress-talk-more-proposal.md` limit 5).
+  - `renderNote` (`builder/site-render.mjs`, on `main`) composes "I had a
+    look at the finished pages: …" when the automated browser check found
+    something. Final replies use it.
+  - The check is an automated Chromium pass, not a look at the design, so
+    the sentence claims more than its evidence. The talk batch words its own
+    check facts to their reach ("an automated check …, not a look at the
+    design") but did not touch this sentence.
+  - It is in a file the concurrent session (`claude/help-needed-ehlwlj`) is
+    changing, so it was left for after that merge. **Not fixed.**
 
 - **Live K/E batch findings** (2026-10-12):
   - **E, run 137 (request `fc16c119`)**:
