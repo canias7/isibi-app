@@ -1,7 +1,7 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: build evidence now bound to its job on the branch at `89bd3f09` — unknown runtime settings stop the paid press, a trace is bound by the job tag on its publish mark, the source by the job's own stored version, prompt and recovered acceptance kept apart; run 117's trace now reads unverified; nothing deployed, built, pressed or bought)
+## Current handoff — read this first (2026-10-14: the combined candidate `4507747c` (this branch `55e381cc` + `new` `9ceca1d4`, local, unpushed) passes the full suite 10913/10913 and every site-build step; image predicted `e386c7a31377e66e`; rollback rehearsed; one image-free two-press live plan proposed at about 28–79 credits; nothing merged, deployed, built, pressed or spent; `PROGRESS_TALK` off)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -80,6 +80,73 @@ is in git; the dated entries further down are the full story.*
 - **Image:** `worker.js` changed, so the next deploy would roll the
   container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
   inputs, 175 paths). Not built.
+**The combined candidate (2026-10-14; full record in
+`docs/history/2026-10-14-combined-candidate.md`):**
+- **Candidate: `4507747c`**, a merge of this branch `55e381cc` (first
+  parent) and `new` `9ceca1d4`.
+  - It is on the local branch `integ/candidate` in the worktree
+    `/home/user/isibi-integ`, not pushed. Neither working branch moved.
+- **Two conflicts, both keep both sides:**
+  - the Dockerfile's COPY line (`content-evidence.mjs` and
+    `check-evidence.mjs`);
+  - this file's new sections.
+  - Nothing else conflicted, and no integration fix was needed.
+- **Full suite on the candidate: `10913 / 10913 / 0 / 0`.**
+- **Site build, run locally step by step (all green):**
+  - generator tests 400;
+  - kit-typecheck 4;
+  - kit-render, a11y, effects and paint all passed;
+  - contrast-cases 16, passing once pointed at the installed Chromium (its
+    first run lacked a headless-shell binary on this machine);
+  - theme-seam 11, theme-render 29;
+  - site-routing 14, site-runtime 47;
+  - site-build 404.
+  - CI's own site build on the pushed candidate is still owed.
+- **Image, predicted, not built: `e386c7a31377e66e`** (207 inputs).
+  - Controls: `main` gives `4444d9d53d906b8d` (production); `new` alone
+    gives `357c5a0ed583d713`.
+  - Docs are not image inputs.
+- **Rollback, rehearsed:**
+  - The revert-range rollback does not work here, because the range holds
+    the merge commit.
+  - The one that works: `git restore --source=fef80b9b --staged --worktree
+    -- .`, then `git clean -fd`, then commit and push. It gives back
+    exactly `main`'s tree (`6298ed8d…`) and its image.
+- **`PROGRESS_TALK`** defaults to `off` (`deploy.yml` fallback). Nothing
+  reads it back live; it is off as long as no secret of that name is set,
+  which you can check in Settings.
+- **Proposed live run (image-free, two presses, about 28–79 credits):**
+  - **Press A**, *build as owner* `check-no-images`: Build parallelism,
+    order, model-written progress, attribution by job tag and `?job=`
+    version, one charge per ref. About 11–45 credits.
+    - Needs two approval-time commits: a fresh slug, and the mode in
+      `BUILD_BALANCE_OPT_IN`.
+  - **Press B**, *edit canary* `acc-mixed` (never pressed): a Bulk Orders
+    page, a menu link that waits for it, and an independent price.
+    It shows overlap, exact reuse, dependency order, final replies against
+    their checks, and single publish and charge. About 17–34 credits.
+    - Needs `acc-mixed` in `BALANCE_OPT_IN`.
+  - **Optional:** a reconnect-and-progress variant of Press B. It is a small
+    canary change that would have to join the candidate before the merge.
+- **What it can and cannot show:**
+  - **Recovered tracking:** likely shown. Production still cuts the Build
+    request at about 285 s, so the press will probably recover its job by
+    attempt key.
+  - **Prompt acceptance:** not shown and not claimed. Production cannot
+    answer a long Build inside its request.
+  - **Not covered at all:** browser reconnect for Edit/Add-on (without the
+    variant), `PROGRESS_TALK`, untagged resumed-Worker builds,
+    photographs, and rates.
+- **Order, each step yours:**
+  1. publish the candidate (re-made on top of this branch, same
+     resolutions);
+  2. CI;
+  3. image purchases off;
+  4. fast-forward `main`;
+  5. your free runtime press;
+  6. Press A, then Press B;
+  7. image purchases back on.
+
 **Evidence bound to its job (2026-10-14, your review after run 121;
 `89bd3f09` code, `37e606d8` acceptance fixture and records, unmerged):**
 - **Runtime settings: known or unverified.**
@@ -1311,6 +1378,18 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — Both lines of work combined into one candidate (nothing spent)
+
+I combined this branch with the progress-message branch (`new`) into one
+release candidate, `4507747c`, kept apart from both. Two small conflicts
+came up, both places where each side had added something, and both are
+resolved by keeping everything. The whole test suite passes on the combined
+code (10,913 tests), and so does every site-build check I could run here.
+I worked out which container image it would build, and rehearsed how to put
+production back if needed. I also wrote a two-press, photo-free live check
+for when you want it: one first Build and one combined Edit/Add-on message,
+about 28–79 credits. Nothing was merged, deployed or spent.
 
 ## 2026-10-14 — The build check now proves whose evidence it judges (nothing spent)
 
