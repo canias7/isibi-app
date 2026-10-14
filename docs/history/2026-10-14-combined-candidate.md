@@ -496,3 +496,54 @@ against evidence that correctly said unpublished, with no browser check.
 - The site build was not triggered (path filter). Its inputs have not
   changed since `8af536af`, where it passed.
 - The image prediction is still `e1582f6f71a41dfb`.
+
+## 7. The live verification batch (2026-10-14, evening)
+
+The full readings are in the owner-notes handoff of this date. In brief:
+
+**Merge and deploy:**
+- `1336f052` (the opt-ins, on top of `e75ff483`) was fast-forwarded onto
+  `main` at 21:00:26 UTC.
+- Deploy run 38636840828 built image `e1582f6f71a41dfb`, as predicted.
+- The served files are byte-identical to the merged ones.
+
+**Free checks:**
+- Run 38637835131 read deploy `1336f0526194` and the cold container's image
+  `e1582f6f71a41dfb`.
+- It read `imagePurchases=false progressTalk=true jobProgressTalk=true`.
+- Run 38638468051 was the Build rehearsal: every prerequisite met.
+
+**Press A**, run 38646089624 (job `066e27c1…`, `saltmarsh-cheese-lewes`):
+
+| Item | Result |
+|---|---|
+| Parallel | 630,741 ms of calls inside a 210,592 ms wave: 8 bands at once |
+| Order, attribution, shape, no images | held |
+| Money | 24 credits, ledger rows 470–472, each taken once |
+| Acceptance | **recovered** by attempt key after about 18 minutes, not prompt |
+| Progress | **none seen, none served**: the press doesn't poll during its send, and the build route keeps lines only on 202 answers |
+
+Two earlier presses, 38639458558 and 38643822759, sent nothing: the spend
+box was left `no`.
+
+**Press B**, run 38649153034 (request `5036417b…`, `fold-lane-bakery`):
+
+| Item | Result |
+|---|---|
+| Routing | 3 credits (row 473); the add-on first, the price held back |
+| Add-on `c9f1159d…` | 16 credits (row 474); one publish `v1tbeu` → `tqe80w`; `/bulk-orders` added, every menu links; partial, from a false "missing" menu link (three menus not read back) |
+| Price | route 3 (row 475) + data 1 (row 476); 5.8 → 5.9 exactly |
+| Overlap and preparation reuse | **failed**: the parts ran in sequence |
+| Progress on part 1 | **failed**: the line call came at 22:49:32, after the job ended at 22:49:29 |
+| Reconnect, talk checks, single publish, money | **met**: 23 credits |
+| Narration | 7 calls, 6,138 in / 981 out tokens, $0.02111 = 2.638 credits |
+
+**Review by hand:**
+- The add-on's final reply contradicts itself about the menu.
+- The checker took the progressive "I'm publishing… now" as a completed
+  claim. It reported it as unverified in time, not failed.
+
+**Afterwards:**
+- `f1b81477` closed the opt-ins.
+- The switches were left as set, on the owner's word.
+- The balance is 726, and the last ledger row is 476.

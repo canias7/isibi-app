@@ -1868,3 +1868,37 @@ and names the wrong person to go and ask.
   - balance **837**, "CANARY_SPEND is not 1 — stopping before the paid
     edit. Nothing was charged".
 - Evidence artifact 11829848645.
+
+## The combined candidate's deploy: `1336f052`, run 38636840828 (2026-10-14)
+
+- **What was merged:** `main` was fast-forwarded `fef80b9b` → `1336f052`
+  (`integ/combined-candidate`: `e75ff483` plus the commit opening the two
+  opt-ins) at 21:00:26 UTC, on the owner's approval of the live verification
+  batch. One deploy run, 38636840828, `success`, 21:00:36–21:04:00.
+- **Secrets set by the owner before the push:** `IMAGE_PURCHASES` `off` and
+  `PROGRESS_TALK` `on` (both printed masked, as secrets do).
+- **Image:** `built isibi-app-sitebuildcontainer:e1582f6f71a41dfb`
+  (predicted on both ends; "registry answered 404; 207 inputs"). Container
+  `- …:4444d9d53d906b8d` / `+ …:e1582f6f71a41dfb`, `SUCCESS Modified
+  application` at 21:03:51Z; Worker version `9a22088c-d826-…`.
+- **Assets:** 3 uploaded (`/edit-poll.js`, `/styles.css`, `/chat.js`), 83
+  already there.
+- **Served files:**
+  - the before read at 20:15:09 matched `main`'s bytes;
+  - after the deploy, at 21:04:33, all three were byte-identical to the
+    merged files: `chat.js` 970,046 `0795960275b5`, `edit-poll.js` 53,124
+    `543a30826793`, `styles.css` 355,781 `044a7c2a5892`.
+- **Runtime-confirmed by the owner's free check, run 38637835131
+  (21:08):**
+  - both readers answered `1336f0526194`;
+  - a cold container answered `e1582f6f71a41dfb`;
+  - `imagePurchases=false progressTalk=true jobProgressTalk=true`;
+  - the rehearsal read "photographs: the live Worker buys none" and
+    "progress talk: on, as the live Worker and a container job read it".
+- **Build prerequisites, free check run 38638468051 (21:12):** all MET,
+  including the image-free parallel mode as the build job reads it.
+- **Rollback (rehearsed):** restore `fef80b9b`'s tree and commit; the
+  rehearsed tree was `6298ed8d…`, `main`'s exactly.
+- **Afterwards:** `f1b81477` closed the two opt-ins; it is scripts and tests
+  only and started no deploy. The switches were left as set, on the owner's
+  word ("I dont need to restore settings, i have no customers").

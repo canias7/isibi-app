@@ -1,1444 +1,146 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the combined candidate is pushed as `integ/combined-candidate`, head `e75ff483` (the talk-check correction on top of `8af536af`), for review and CI; `acc-mixed` now carries the reconnect and progress checks; `acc-mixed-talk` and the live switch reading are ready for an approved PROGRESS_TALK window; fresh Build slug `saltmarsh-cheese-lewes`; image predicted `e1582f6f71a41dfb`; nothing merged, deployed, built, switched on, pressed or spent)
+## Current handoff — read this first (2026-10-14: the live verification batch on the combined candidate is done. `main` is `f1b81477` (deployed as `1336f052`, image `e1582f6f71a41dfb`). Press A (image-free Build) published but showed no progress lines; Press B (acc-mixed-talk) passed reconnect, talk, publish and money, but ran in sequence and ended partial. 47 credits spent, balance 726. Images stay off and PROGRESS_TALK stays on, on your word; the opt-ins are closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
-is in git; the dated entries further down are the full story.*
+is in git (`git show 7f9576ac:docs/owner-notes.md`); the dated entries
+further down are the full story. The full record of this batch is
+`docs/history/2026-10-14-combined-candidate.md` §7.*
 
-**The pushed candidate (2026-10-14, for your and Codex's review):**
-- **Branch `integ/combined-candidate`, head now `e75ff483`**: the
-  narration-check correction (below) on top of `8af536af`.
-- **`8af536af`:** It is the merge
-  `1c3eef7f` (this branch `44a24b17` + `new` `9ceca1d4`, the same two
-  conflict resolutions as `4507747c`) plus one commit.
-- `main` (`fef80b9b`), `new` (`9ceca1d4`) and this branch are unchanged by
-  it.
-- **CI on `8af536af`:** green — *unit tests* run 38612760374 (job `test`, `completed`/`success`) and *site build* run 38612760404 (all eight jobs `success`: kit and generator checks, theme checks, published-site checks, `site-build.mjs` shards 1–4, and "all checks"); the per-test counts in their logs could not be read from this session (GitHub serves logs from a host its client does not contact), so only the jobs' own conclusions are claimed.
-- **Local:** the full suite is `10936 / 10936 / 0 / 0` on `8af536af` itself (measured; `10935 / 10935 / 0 / 0` on the tree before the two sweep-driven cases); the sweep killed 31 of 33, and
-  the 2 controls survived.
-- **The container image is predicted `e1582f6f71a41dfb`** (not built). It
-  was `e386c7a31377e66e` before, and `worker.js` is an input.
-- **What the commit adds:**
-  - **The narration switches are read live.** The runtime route answers
-    `progressReplies`, `progressTalk`, `jobProgressReplies` and
-    `jobProgressTalk` (the `job…` ones as a container job sees them).
-    "Off" is now a reading, not an assumption from the unset secret's
-    fallback.
-  - **`acc-mixed` carries the reconnect and progress checks.** It is sent
-    with its tab closed once a line shows live, and followed to its end in
-    a fresh browser session. These checks are no longer optional.
-  - **`acc-mixed-talk`** is the same press plus eight talk checks:
-    - the switch read on;
-    - lines on every part;
-    - first person;
-    - each job's lines on its own part;
-    - in order;
-    - kept word for word after the reconnect;
-    - explanations held to their own job's checks;
-    - the model's own final replies, held to their own job's checks.
+**Commits (for Codex):**
+- **Reviewed candidate:** `e75ff483` on `integ/combined-candidate`.
+- **`1336f052`:** opened the two paid opt-ins (`BALANCE_OPT_IN` for
+  `acc-mixed-talk`, `BUILD_BALANCE_OPT_IN` for `check-no-images`). It sits
+  on top of `e75ff483`.
+- **The merge:** `main` was fast-forwarded `fef80b9b` → `1336f052` at
+  21:00:26 UTC.
+- **`f1b81477`:** closed both opt-ins again. It is scripts and tests only:
+  65/65 affected tests passed and no deploy started. It is on `main` and on
+  `integ/combined-candidate`.
+- **`main` is now `f1b81477`.** The running Worker is `1336f052`'s; the
+  only difference is the closed opt-ins.
 
-    It sends nothing unless the Worker and a job both read talk on.
-  - **The image-free Build check's slug is now `saltmarsh-cheese-lewes`.**
-    It was read free today: no row in the site, build or project tables,
-    and its address answered 404.
-  - **The paid opt-ins stay empty.**
-- **The one planned batch, in order** (each step yours; full steps in
-  `docs/history/2026-10-14-combined-candidate.md` §6.4):
-  1. Review and CI.
-  2. The opt-in commits, on your word.
-  3. Images off.
-  4. Fast-forward `main` (one deploy, image `e1582f6f71a41dfb`, wait 15–20
-     minutes).
-  5. Free runtime press: `progressTalk=false`, read live for the first
-     time.
-  6. **The talk window:** set the secret `PROGRESS_TALK` to `on`, dispatch
-     the deploy, free press reads all four true.
-  7. **Press A:** *build as owner* `check-no-images`.
-  8. **Press B:** *edit canary* `acc-mixed-talk`. Its narration usage step
-     measures the narration cost separately.
-  9. **Close the window:** set `PROGRESS_TALK` to `off`, dispatch the
-     deploy, free press reads talk false.
-  10. Images on, opt-ins closed.
-- **Without the window:** Press B is `acc-mixed`, which still runs the
-  reconnect and progress checks.
-- **Cost:** about 28–79 credits (Press A 11–45, Press B 17–34). The
-  redeploys and runtime presses are free. Narration is the platform's,
-  measured after Press B. Nothing caps a request; the balance is the bound.
-- **Still not provable** (§6.5):
-  - prompt acceptance of a long Build (recovered tracking is expected);
-  - the talk checks on the Build itself (they run on Press B; the Build's
-    own progress checks still apply);
-  - content claims in a progress line (only machine-check claims are held
-    to evidence);
-  - rates (one sample);
-  - untagged traces;
-  - photographs.
+**Deploy:**
+- **Run 38636840828**, green: image `e1582f6f71a41dfb` **built, as
+  predicted**. The container moved `4444d9d53d906b8d` → `e1582f6f71a41dfb`
+  at 21:03:51.
+- The served `chat.js`, `edit-poll.js` and `styles.css` are byte-identical
+  to the merged files.
+- The record is in `docs/deploy-record.md`.
 
-**Earlier in the day, still true:**
+**Settings, read live:**
+- **The free check, run 38637835131:**
+  - deploy `1336f0526194`;
+  - a cold container on `e1582f6f71a41dfb`;
+  - `imagePurchases=false progressTalk=true jobProgressTalk=true`;
+  - talk on, as both the Worker and a job read it.
+- **The Build rehearsal, run 38638468051:** every prerequisite met.
+- **Left as is after the batch**, on your word ("I dont need to restore
+  settings, i have no customers"):
+  - `IMAGE_PURCHASES` **off**;
+  - `PROGRESS_TALK` **on**;
+  - the opt-ins **closed** (`f1b81477`).
 
-**Run 117's causes, fixed on the branch (2026-10-14; `c00e7a06`, unmerged):**
-- **Verified cause 1, the parallel doors were shut inside the job.** Since
-  09-14 a first build runs as a container job. Its env is a fixed list
-  (`JOB_ENV_NAMES`), and that list carried none of the design split, design
-  graph or band split names. So the job read every door shut, while the
-  Worker's runtime route (what run 115 read) said they were open.
-  Reproduced through the real route: with the old job env the build designs
-  in one call and records `bands:sync`, which is run 117's trace exactly.
-  This matches the split in the records: the last graph design was 09-13,
-  and every first build since 10-04 is single-call.
-- **Verified cause 2, bands could never split in the job.** The job's queue
-  refuses, so there is no fire and the band step always answered `sync`.
-- **Verified cause 3, a named build was never listed.** The press names its
-  slug, so run 117 left no marker, and nothing could find job `b6360027…`
-  once Cloudflare cut the request at about 285 s.
-- **Verified cause 4, the press dropped the error.** It kept only status 0,
-  skipped every poll and judged a build that was still running.
-- **Legitimately sequential (not defects):**
-  - the design before the database, the pages after the design, the
-    compile after the pages;
-  - a one-band plan;
-  - doors shut for an account;
-  - a container that will not start a fan-out (falls back to one call);
-  - a build on the Worker.
-- **Hypotheses (not verified):**
-  - that run 117's job ran in the container (there is no container log;
-    it follows from cause 1);
-  - whether 16 designers plus a band fan-out fit one live container;
-  - whether it is faster live;
-  - what the 129 s design mark measures.
-- **Fixes:**
-  - the six door names travel with the job;
-  - in a job, a band list runs on the container's own `/model/start`
-    (8 at a time), with the existing one-call fallback;
-  - the runtime route also reports the job's view (`jobDesign`,
-    `jobGraph`, `jobBands`, `jobBandsEveryone`), and the press judges by
-    it;
-  - every build send is listed with the caller's attempt key (a named send
-    claims no chat);
-  - the press keeps the original error, finds its own build by that key
-    (never the latest for the slug, never a resend), follows it to its end,
-    binds the trace to the job's row and counts only that job's charges;
-  - a free `judge-no-images` mode judges one finished build by job id.
-  - The one-page and 15-component limits are unchanged.
-- **Production acceptance** still answers within the request or loses it
-  at about 285 s. The work always survived (the queue). What was missing
-  was the way back to the job, and the listing by attempt is that way.
-- **Tests:**
-  - `test/build-parallel-route.test.mjs`, 14 cases: route selection, door
-    parity, independent vs dependent work, fallbacks, attempt listing,
-    connection loss then completion, another attempt's build or charges
-    never taken, and judge mode;
-  - guards updated in `band-build`, `canary-build`, `site-chat` and
-    `publish-integrity`;
-  - red checks against the old files (the fix's cases fail, the controls
-    pass);
-  - sweep 13 of 13 killed, and the comment control survived;
-  - full suite `10843 / 10843 / 0 / 0` locally on the final tree.
-  - **Caught after the push:** `c00e7a06`'s workflow file did not parse
-    (a bare apostrophe in the new mode description), so GitHub refused it
-    (run 38578125153, no jobs) and the press could not have run. Fixed in
-    the next commit, with a guard (`test/workflow-quotes.test.mjs`, 2
-    cases; it fails on `c00e7a06`'s file). Press from that commit or later.
-  - **CI on `0e11ed17`:** unit tests run 38579147497 succeeded (job
-    conclusion, read from its top-level field; the per-step counts were not
-    fetched). No workflow-file failure on that push. Site build run
-    38578127549 succeeded on `c00e7a06` (the same product code).
-- **Ledger, read at 14:09 UTC:** balance **773**, last row **469**.
-  Run 117 is exactly −10 on its three rows (467–469, ref
-  `build:b6360027…`). No job is queued or running.
-- **Image:** `worker.js` changed, so the next deploy would roll the
-  container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
-  inputs, 175 paths). Not built.
-**The combined candidate (2026-10-14; full record in
-`docs/history/2026-10-14-combined-candidate.md`):**
-- **Candidate: `4507747c`**, a merge of this branch `55e381cc` (first
-  parent) and `new` `9ceca1d4`.
-  - It is on the local branch `integ/candidate` in the worktree
-    `/home/user/isibi-integ`, not pushed. Neither working branch moved.
-- **Two conflicts, both keep both sides:**
-  - the Dockerfile's COPY line (`content-evidence.mjs` and
-    `check-evidence.mjs`);
-  - this file's new sections.
-  - Nothing else conflicted, and no integration fix was needed.
-- **Full suite on the candidate: `10913 / 10913 / 0 / 0`.**
-- **Site build, run locally step by step (all green):**
-  - generator tests 400;
-  - kit-typecheck 4;
-  - kit-render, a11y, effects and paint all passed;
-  - contrast-cases 16, passing once pointed at the installed Chromium (its
-    first run lacked a headless-shell binary on this machine);
-  - theme-seam 11, theme-render 29;
-  - site-routing 14, site-runtime 47;
-  - site-build 404.
-  - CI's own site build on the pushed candidate is still owed.
-- **Image, predicted, not built: `e386c7a31377e66e`** (207 inputs).
-  - Controls: `main` gives `4444d9d53d906b8d` (production); `new` alone
-    gives `357c5a0ed583d713`.
-  - Docs are not image inputs.
-- **Rollback, rehearsed:**
-  - The revert-range rollback does not work here, because the range holds
-    the merge commit.
-  - The one that works: `git restore --source=fef80b9b --staged --worktree
-    -- .`, then `git clean -fd`, then commit and push. It gives back
-    exactly `main`'s tree (`6298ed8d…`) and its image.
-- **`PROGRESS_TALK`** defaults to `off` (`deploy.yml` fallback). Nothing
-  reads it back live; it is off as long as no secret of that name is set,
-  which you can check in Settings.
-- **Proposed live run (image-free, two presses, about 28–79 credits):**
-  - **Press A**, *build as owner* `check-no-images`: Build parallelism,
-    order, model-written progress, attribution by job tag and `?job=`
-    version, one charge per ref. About 11–45 credits.
-    - Needs two approval-time commits: a fresh slug, and the mode in
-      `BUILD_BALANCE_OPT_IN`.
-  - **Press B**, *edit canary* `acc-mixed` (never pressed): a Bulk Orders
-    page, a menu link that waits for it, and an independent price.
-    It shows overlap, exact reuse, dependency order, final replies against
-    their checks, and single publish and charge. About 17–34 credits.
-    - Needs `acc-mixed` in `BALANCE_OPT_IN`.
-  - **Optional:** a reconnect-and-progress variant of Press B. It is a small
-    canary change that would have to join the candidate before the merge.
-- **What it can and cannot show:**
-  - **Recovered tracking:** likely shown. Production still cuts the Build
-    request at about 285 s, so the press will probably recover its job by
-    attempt key.
-  - **Prompt acceptance:** not shown and not claimed. Production cannot
-    answer a long Build inside its request.
-  - **Not covered at all:** browser reconnect for Edit/Add-on (without the
-    variant), `PROGRESS_TALK`, untagged resumed-Worker builds,
-    photographs, and rates.
-- **Order, each step yours:**
-  1. publish the candidate (re-made on top of this branch, same
-     resolutions);
-  2. CI;
-  3. image purchases off;
-  4. fast-forward `main`;
-  5. your free runtime press;
-  6. Press A, then Press B;
-  7. image purchases back on.
+  This is recorded as a preference in `owner-preferences.md`.
 
-**Evidence bound to its job (2026-10-14, your review after run 121;
-`89bd3f09` code, `37e606d8` acceptance fixture and records, unmerged):**
-- **Runtime settings: known or unverified.**
-  - The press first reads where builds run (`runner`, `runnerEveryone`).
-    If the route does not say, the settings are unverified.
-  - When builds run in the container, all four of the job's settings must
-    be reported. Any missing one makes them unverified, and the Worker's
-    flags never stand in for them.
-  - Unverified is an unmet prerequisite, so the paid press sends nothing.
-  - A route that says builds run on the Worker keeps the Worker's view.
-- **The trace is bound by the job, not by time.**
-  - The build's publish mark now carries a job tag (a number made from the
-    job id). The press accepts a trace only when it carries this job's tag.
-  - Another job's tag is refused, even when that trace started inside this
-    job's life (overlapping attempts, a replacement trace).
-  - A trace with no tag is **unverified**. It is reported as unverified and
-    never credited, and the overlap line says what the unbound trace reads.
-  - Not tagged: a build finished by the resumed-Worker path.
-- **The source is the job's own stored version.**
-  - New: `GET /api/site/source?job=` answers the one version whose
-    manifest names the job, read from that version's stored copy, which
-    nothing edits afterwards. It returns the live pointer beside it.
-  - None (pruned) or two such versions are refused by name.
-  - The explorer's own read is unchanged.
-  - The press and the judge read by job. Any other answer is unverified and
-    no page or component count is judged on it.
-- **Acceptance kinds are recorded apart:**
-  - `prompt`: the send's own answer handed back the job (202);
-  - `recovered`: the answer was lost and the job was found afterwards by
-    this send's attempt key;
-  - `none`: neither.
-  - Run 117 was `none`.
-  - Recovered tracking is proven offline only. Prompt acceptance in
-    production is unchanged, so the request is still cut at about 285 s.
-- **Run 117 under these rules:**
-  - its trace is unverified: it was written before tags, so its overlap
-    "fail" is now "not judged";
-  - its source can be read by job only after the route is deployed. Until
-    then a judge press meets production's old route and reads it as
-    unverified;
-  - run 121's PASS on 1 page and 15 components read the editable copy.
-    That is evidence, not a proven output of the job.
-- **Tests:**
-  - `test/build-attribution.test.mjs`, 7 cases: missing or partial runtime
-    fields (paid press never posts) with valid controls; overlapping
-    same-site attempts; a replacement trace in the window; the source
-    changed after completion; the real Worker's by-job route (none, two,
-    bad id, the plain read unchanged); the publish-mark tag; acceptance
-    kinds;
-  - updated: `canary-build`, `build-parallel-route`, `site-source` (route
-    window re-measured, 7,909 → 8,118 characters) and
-    `acceptance-entry-points` (its runtime fixture now has the runner
-    fields);
-  - sweep: 13 of 13 mutants killed, and the comment control survived;
-  - full suite on `37e606d8`: `10852 / 10852 / 0 / 0` locally (the run on `89bd3f09` had 2 failures, both the old acceptance fixture, fixed in `37e606d8`).
-- **Image:** `worker.js` changed again. The next deploy would build
-  **`13898562fa1fa8a3`** (predicted, 206 inputs). Not built.
-- **Ledger:** unchanged, balance 773, last row 469; nothing was spent this
-  round.
-- **Remaining live gaps:**
-  - nothing is deployed;
-  - no live trace carries a tag yet;
-  - the by-job source route is unproven live;
-  - parallel work in a live container job is unproven;
-  - recovered tracking is offline only.
+**Runs:**
 
-**Run 121** (your free `judge-no-images` press, 15:18 UTC, from
-`384b3012`) read run 117's stored source and judged it:
-- **The stored source has exactly 1 page** (`index.tsx`), read whole: PASS.
-- **The page draws at most 15 components**: PASS. The kit components it
-  imports are cta-band, feature-grid, hero, lead-time, location-card,
-  open-now, opening-hours, pricing-table, section-header, steps and
-  turnaround-note (11). It wrote none of its own.
-- **The trace is this build's own** (its job's row, its slug, inside the
-  job's life): PASS.
-- **Done and ok**: PASS. **Dependency order**: PASS.
-- **Its own charges**: 10 credits on 3 rows, each taken once: PASS.
-- **Overlap: FAIL**, "design in a single call (no agents)", with
-  `bands:sync` in the timeline. That is run 117 as it ran, the defect this
-  round fixed, not a new finding.
-- It charged nothing: balance 773, last row 469, no job open (read after
-  the press).
-- **Remaining live gaps:**
-  - nothing is deployed;
-  - parallel design and bands inside a live container job are unproven;
-  - reconnect by attempt is proven offline only.
-- Details: `docs/history/2026-10-14-run117-causes.md`.
+| Run | What | Result |
+|---|---|---|
+| 38637835131 | free runtime check | as above |
+| 38638468051 | Build rehearsal (free) | all prerequisites met |
+| 38639458558, 38643822759 | Press A, spend left `no` in the form | sent nothing, charged nothing |
+| 38646089624 | **Press A**, `check-no-images` on `saltmarsh-cheese-lewes` | published; parallel and money pass; progress fails |
+| 38649153034 | **Press B**, `acc-mixed-talk` on `fold-lane-bakery` | reconnect, talk, publish and money pass; overlap fails, partial |
 
-**Production, as read now (2026-10-14):**
-- `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
-  before it, also green), container image `4444d9d53d906b8d` (reused
-  throughout).
-- **Image purchases: ON, confirmed by run 153** (your free press, 01:23
-  UTC): `imagePurchases=true`, both readers on `fef80b9bc913`, the cold
-  container on `4444d9d53d906b8d`, nothing charged. They were off only for
-  run 152 (deploy 2204).
-- **Balance 773** (after run 117). The last ledger row is 469. No job
-  is open.
-- **Paid opt-ins are closed** again (`BALANCE_OPT_IN = []`; the form says
-  "CLOSED").
+**Press A** (job `066e27c16173db10016c8c5fb11eda78`, 22:13:36–22:22:16 UTC):
 
-**Closed and not to be repeated:**
-- **Run 152's preservation question:** closed by the offline comparison of
-  its saved evidence (item 2).
-- **`acc-clarify-resume`, run 152:** pressed once, not repeated. Its
-  clarify verdict passed; see item 2.
-- **K3B, run 150: PASS.** Codex checked the logs independently: the
-  component and words designers overlapped about 67 s inside one Add-on,
-  both changes landed, 20 credits, no image bought. The live coverage gap is
-  closed.
-- Run 144 stays closed.
+*Passed:*
+- **Parallel:** 8 bands written at once, with 630,741 ms of calls inside a
+  210,592 ms wave.
+- **Dependency order:** held.
+- **Attribution:** the trace is bound to the job by its tag, and the
+  source is read by job.
+- **Shape:** one page, at most 15 components, no images.
+- **Money: 24 credits**, 773 → 749. Deposit 2 (ledger row 470), settle 6
+  (471), pages 16 (472). Each charge was taken once.
 
-**For Codex's review (unmerged, offline only; kept apart from production
-evidence):**
-- **`62bbd81b`:** a component on the page is no longer told as the request
-  met. Each addition is told with its own words, and the match is left to
-  the reply model. It is not deployed, so the live replies still use the old
-  wording (run 150's "I can't see from here").
-- **`abb57130`:** K3B's in-press verdict (used by run 150).
-- **`4d60a2a3`:** the clarify-and-resume coverage. Codex reproduced a false
-  pass in its verdict (a snapshot, no timing).
-- **This round:** the timing correction for it, below.
+*Acceptance was **recovered**, not prompt:*
+- The send got no answer for about 18 minutes.
+- The press then found the job by its attempt key `bc-91ccd69f…`.
+- Nothing was resent.
+- When the job was actually accepted is uncertain within that window.
 
-**1. The image switch, both states confirmed at runtime:**
-- `true` by run 151 (deploy 2203);
-- `false` by run 152's own gate (deploy 2204), before anything was sent;
-- `true` again by run 153 (deploys 2205 and 2206).
+*Failed:*
+- No progress line was seen during the build, and none was served at all.
+- So "no line disappears" could not hold.
+- **Cause, measured in code:**
+  - the press doesn't poll while its send is outstanding
+    (`scripts/canary-build.mjs` ~775);
+  - the build poll route attaches lines only to 202 answers, so the final
+    answer has none (`worker.js` ~27912).
+- Whether the build wrote lines at all is unknown: `build-as-owner` has no
+  narration-usage step.
 
-**2. Run 152, `acc-clarify-resume`: live gaps closed** (2026-10-14, 25
-credits, 808 → 783).
-- **Proven in this sample** (Codex agreed after reading the logs and the
-  evidence):
-  - the heading ran 00:23:30–00:26:24 while the link's question waited
-    (asked 00:23:30, answered 00:26:55). The press's own timed reads say the
-    same: first read waiting between +102.2 s and +135.7 s, the heading
-    running from +135.7 s, released `observed`;
-  - the dependent line stayed blocked until the link was published;
-  - the answer resumed only the link;
-  - the heading was not rerun;
-  - every charge was single.
-- **Preservation, closed by an offline comparison anyone can rerun**
-  (`test/canary-run152-replay.test.mjs`). It reads run 152's own evidence,
-  kept as `test/fixtures/run152-evidence.json.gz` with the zip's digest
-  pinned. Take out the one new "Online shop" small-print entry on 11 pages,
-  put the Classes heading back and remove the one Order paragraph, and every
-  page is byte for byte the same. No component changed.
-- **The footer checker, corrected** (`footerLinkVerdict`):
-  - the requested destination counts in either footer list (social icons or
-    small print) unless the request named one;
-  - every existing link must be kept, in order;
-  - the rest of the page is still compared byte for byte.
+**Press B** (request `5036417b…`, 22:42–22:49 UTC):
+- **Routing** (3 credits, row 473): it chose the add-on and **held the
+  price back** as a later part.
+- **Part 0, add-on job `c9f1159d…`** (+8.8 s → +370.4 s, 16 credits,
+  row 474):
+  - one publish, `v1tbeu` → `tqe80w`;
+  - `/bulk-orders` was added and every menu links to it;
+  - **it still ended partial**: its requirement judgment marked the menu
+    link "missing", because three menus could not be read back.
+- **Part 1** (+413.8 s → +428.6 s):
+  - route job `2916426d…`, 3 credits (row 475);
+  - data job `f1393e7e…`, 1 credit (row 476);
+  - the price changed exactly, 5.8 → 5.9.
+- **Money: 23 credits**, 749 → 726, one publish.
 
-  Replayed on run 152, every content check passes. The original verdict
-  (FAIL: the social-only footer check and the byte-for-byte check) is kept
-  beside it in the same test. Controls on run 152's own evidence: a wrong
-  destination, a missing link, an extra link, a lost social icon, an
-  unrelated change, and a placement that was asked for. Red check: 5 of 11
-  fail on the old checker. Sweep: 14 of 15 mutants killed, and the
-  comment-only control survived.
-- **The cost overrun stays explicit: 25 against the first estimate of 20.**
-  The Order line validly went through the Add-on step (12). Estimates are
-  now set by every valid route each part can take, not the cheapest one,
-  and no route is walled off to fit a test: this scenario is now 9–34
-  (budget 34), and the image-free Build check 11–45 (budget 45).
-- Record: `docs/history/2026-10-13-clarify-resume.md` §8–9.
+*Passed:*
+- **Reconnect:** a line was live at 113 s; the tab was closed and a fresh
+  session followed to the end.
+- Every talk check.
+- A single publish.
+- Money.
 
-**3. Next: the image-free Build parallelism audit, prepared as one batch**
-(`docs/history/2026-10-14-build-audit-batch.md`):
-- **The press:** `check-no-images` on `saltmarsh-cheese-counter`; one page,
-  at most 15 components; the limits unchanged.
-- **The verdicts:** overlap by page bands or design agents, never
-  photographs, plus order, progress, a fresh-session follow, no image, and
-  money.
-- **New this round:** the Build press's balance opt-in, closed (it could not
-  run above 100 before).
-- **Steps** (yours):
-  1. approve one run at about 11–45;
-  2. a commit opens the box for `check-no-images`;
-  3. images off and a redeploy;
-  4. a free rehearsal, which must show an image-free parallel mode already on
-     for the account (nothing is switched on for it);
-  5. the paid press;
-  6. images on, and the free check;
-  7. the box closed again.
-- **Unknown until step 4:** whether such a mode is on for the account.
+*Failed:*
+- No overlap and no preparation reuse: the parts ran in sequence, because
+  the router held the price back.
+- Not every part ended done.
+- Part 1 got no progress line. Its line call was written at 22:49:32,
+  after the job ended at 22:49:29.
 
-**Suites:** full suite `10828 / 10827 / 1 / 0`. The one failure is a
-real-browser timing case (`REOPEN 1`) that this round did not touch; it
-passes 3 of 3 run alone. The footer-link and Build opt-in sweep killed 14 of
-15 mutants, and the comment-only control survived.
+**Narration cost (separate, absorbed by the platform):** Press B's 7 calls
+used 6,138 tokens in and 981 out: $0.02111 = 2.638 credits. Press A's
+narration was not measured (no step for it).
 
-**Next, after this Edit/Add-on coverage:** the separate Build audit, not
-started.
+**The model's own messages, reviewed by hand:**
+- **The add-on's final reply contradicts itself.** It says "menus link…"
+  and then "A visitor being able to open the page from the menu is not
+  done". The evidence shows every menu links.
+- **The wording checker misread the progressive "I'm publishing… now" as a
+  completed claim.** It reported it as unverified in time, not as a
+  failure. The checker is a heuristic, not proof.
 
----
+**Totals:** 47 credits (A 24 + B 23), balance **773 → 726**, last ledger
+row **476**, no job open. Nothing was retried and no image was generated.
 
-*Before this round (same day):* presence ≠ request met (`62bbd81b`), K3B
-prepared (`abb57130`), then **pressed as run 150: PASS** (20 credits, 828 →
-808). Runs 148 (site box left at `fretwork-1`) and 149 (rehearsal) were free.
-The balance box was opened for that one run and closed again (`68bfa7d9`).
-Image purchases were turned back on with deploy 2203. Records:
-`docs/history/2026-10-13-presence-and-k3b.md` §§1–10.
-
-*Before this round (same day):* the attribution corrections (`a65bb5da`,
-`9c4e8f9c`, `93c90b9a`, `126aa05d`, `92fcd2e0`). Every component had to be
-found itself, by its imported source and its own new instance. First-load
-absence and props were never said to be a click. Console errors were named by
-timing. Suite `10779 / 10779`. The probe list `addon-kinds-3` prepared there
-was **pressed as run 147 (9 credits, 837 → 828)**. All three messages came
-back as one `addon` answer, and K3B (Order) was the only clean one against
-the live pages. Run 146 refused before signing in. Record:
-`docs/history/2026-10-13-attribution-corrections.md`.
-
-*Before this round (same day):* the connected batch.
-
-**For Codex's review: `9a0c6bed` and `da8dd276`** (the reporting
-corrections, and the connected cases) on `claude/help-needed-ehlwlj`, plus
-the records commit after them. `main` is unchanged at `fef80b9b`, and
-production is deploy 2201. The full record is
-`docs/history/2026-10-13-connected-cases.md`.
-
-**The report, in one place:**
-- **Reporting corrections, done (`9a0c6bed`):**
-  - two components on one page each read only their own share (CE 15);
-  - the published build's text comes from a tested helper, which closes
-    the earlier sweep survivor (CE 13);
-  - the canary's console count tells apart errors from before the first
-    message (CE 14).
-- **The seven connected cases. Each is now shown offline down to what the
-  reply model is told:**
-
-  | Case | New cases | Already shown |
-  |---|---|---|
-  | Several requirements on one page | CC 1a, CC 1b (Edit + Add-on on About, both orders); CC 2a (two Add-on parts on About) | PI 1, 32, 34; CE 15 |
-  | Independent tasks overlapping | CC 3; reply facts added to PI 36 | PI 1–3, 32, 34, 36 |
-  | Dependent tasks waiting | reply facts added to PI 35 | PI 4, 5, 25, 26, 35 |
-  | One target, each keeping the other's work | CC 1, CC 2a; **CC 2b** (a stale second writer is refused, the first section kept, the facts say so) | PI 4, 6, 37 |
-  | A question pausing and resuming the right task | **CC 3** (two Add-on parts; one asks; the answer resumes only it; the done one is never rerun or retold) | PI 30, 31 |
-  | One task failing without losing another's work | **CC 4** (Add-on fails on our side), **CC 5** (Edit finds nothing), each beside a success | PI 8, P1c, SP 4 |
-  | Retries reusing valid results, no duplicates or double charges | **CC 6** (Add-on job lost after its charge: refunded, rerun from its preparation, nothing asked or charged twice, one reply) | P5, P6, PI 7, 16, 19–21 |
-  | Stored / shown / unverified, inside a request | **CC 7, 7b** (`behind` and `in-code` reach the background reply's facts) | CE 11, 12 |
-
-- **What failed and was fixed:** no product failure was found. Two
-  test-side mistakes, made while writing the new cases, were fixed before
-  the commit (history §4).
-- **Checked, and accurate:**
-  - a failed Add-on's provider error keeps its fixed sentence (the existing
-    technical rule, not reopened);
-  - a later part's "has not run yet" is true, because jobs run one at a
-    time and only preparations overlap;
-  - the summary names part 0 with held parts as "…".
-- **Sweep:** 8 product mutants. 6 were killed by the new cases, and both
-  survivors are killed elsewhere (CE 11; `routedForPrep` and P3b). Both
-  comment-only controls survived.
-- **Full suite `10766 / 10766 / 0 / 0`** locally. **CI green:** unit tests 38443134682 on `43750346` (`10766 / 10722 / 0 / 44 skipped`); on `9a0c6bed`, unit tests 38440362695 and site build 38440362737.
-- **Image:** unchanged by this batch (tests only). A release from the branch
-  would build `6b66dc466b933115` (206 inputs); production is
-  `4444d9d53d906b8d`.
-- **Still needs a real-model run** (none run, nothing spent):
-  - whether the real router splits these messages this way;
-  - a real page writer facing a page another part just changed;
-  - a real reply model writing from the waiting/done, failed/done and
-    `behind`/`in-code` facts;
-  - the render check's first-load text from a real container;
-  - a lost job in a real container.
-
-**Kept as they were:**
-- no paid, image or fal call;
-- no merge, deploy or container build;
-- current flags and limits, the isolation guards and correction reuse;
-- no completed live test reopened, no Build audit started.
-
----
-
-*Before this batch (same day):* the interactive-content fix.
-
-**For Codex's review: `a4e0da19`, `88dec2a0`, `edfabc3e`** (the fix, the Dockerfile line, the tightened tests) on
-`claude/help-needed-ehlwlj`, plus the records commit after it. `main` is
-unchanged at `fef80b9b`, and production is deploy 2201 (image
-`4444d9d53d906b8d`, image purchases on, confirmed by run 145).
-
-**The fix** (`docs/history/2026-10-13-interactive-content.md`):
-- **Cause:** a section the Add-on adds is a `component`, which nothing gave
-  an identity (`OPAQUE_KINDS`), so every requirement it carried read
-  `unknown`, then "unseen", then "I can't see from here whether…". The same
-  sentence appeared in runs 135, 137, 141 and 144, and nothing on the path
-  read any rendered page text.
-- **Now** three facts are kept apart:
-  - **stored:** text this change added to the page's code, read from the
-    syntax tree, before against after;
-  - **shown:** what the published page showed as it first loaded, read from
-    a new first-load text capture in the container's render check, before
-    anything is clicked;
-  - **behaviour:** opening, switching or sending is never exercised, and is
-    always said to be unchecked.
-- **Customer sentences**, in the note and as reply-model facts (replies stay
-  model-written):
-  - *shown on load*;
-  - *in the code, not shown on first load*, with where it sits and the
-    hidden words;
-  - *in the code, page unread*;
-  - *still to do* (genuinely missing);
-  - the old *can't see* only when nothing could be read.
-- **Tests:** `test/content-evidence.test.mjs`, 12 cases:
-  - collapsed (run 144's shape);
-  - shown;
-  - mutually exclusive views;
-  - genuinely missing;
-  - every kind of incomplete or failed read;
-  - two cases through the real Add-on route, down to the reply model's
-    facts.
-- **Red checks:** 7 of 12 cases fail with the evidence switched off; the
-  route cases fail with the Worker's hand-off cut.
-- **The image would move** to `98c56f9b20da4403` (from `4444d9d53d906b8d`,
-  206 inputs) on any future release. Nothing was built.
-- **CI green:** unit tests 38435714080 on `90120f5f` and 38434683856 on `edfabc3e`; site build 38434683978 on `edfabc3e`. (Unit tests failed on `9a6e780b`, 38433639964: that was the missing Dockerfile line, fixed in `88dec2a0`.)
-- **Full suite `10753 / 10753 / 0 / 0`** on `edfabc3e`. The first full run
-  caught the new module missing from the container's Dockerfile copy, fixed
-  in `88dec2a0`. **Sweep: 18 of 19 killed**, controls survived; the one
-  survivor (the repaired build's text) is untestable in the route harness.
-
-**Run 144's console error, identified free** (from the artifact, which the
-session can download through the connector's signed link):
-- it was the browser's own "Failed to load resource: … 422";
-- it came from the app re-reading run 137's failed Add-on job `594ebe45…`
-  on open. The job's stored answer is served with its own 422.
-- It had no effect on the run and is not a product defect.
-- The canary's console count therefore includes history (backlog).
-
-**Kept as they were:**
-- run 144 closed, with no repeat;
-- paid opt-ins closed;
-- no image or fal call, no merge, no deploy, no container build;
-- the Build flags and the page and component limits;
-- the task-isolation guards and correction reuse.
-
-**Remaining gaps:**
-- `texts` from a real container;
-- a real model writing from the new facts;
-- text reached only through computed values or a component's own default
-  copy, which is read as "added, content unread";
-- two components on one page share that page's added texts.
-
-**The next unfinished parallel-work test** (not reopening K, E, M, P1, P2
-or run 144): **two designers running at the same time inside one Add-on**
-(acceptance plan §2, item 1).
-- It is offline only (PI 24, PI 32).
-- K (run 135) was meant to show it, but the live router split K into two
-  Add-on parts.
-- **To make it reachable:** a free routing-only probe (*route_probes*) to
-  find a message the real router keeps as one Add-on with two kinds. Then,
-  only with your approval, one paid press, read free afterwards with
-  `addonDesignOverlap`.
-- After it come the missing-context clarification (`acc-needs`) and the
-  image-free first Build.
-
-**Before run 144: deploy 2199, the consolidated release** (runtime-confirmed by
-run 143; `docs/deploy-record.md`, *Deploy 2199*;
-`docs/history/2026-10-13-release-proposal.md`).
-
-**The repair batch is closed** (2026-10-12). Codex reviewed **`dc3ea241`**:
-212 focused tests passed, three browser-dependent tests skipped, both
-independent served-price controls passed, and CI was green (unit tests
-38237458207 `success` on `dc3ea241`). The product and harness fixes are kept.
-No further audit is open. What remains is live verification, which needs your
-decisions: plan §§4–6 (`docs/acceptance-current.md`).
-
-**Round 18** (`d9434979`; `docs/history/2026-10-12-acceptance-served-sections.md`).
-Codex reviewed **`2015cc0c`**: 206 focused tests passed, three
-browser-dependent tests skipped, CI green, but one control still passed. Round
-17's fixes, the trace attribution and the product code are unchanged.
-- **Fixed: a served contradiction passed.** A section stored with "£25 a
-  head, cheese included" and served with "The price is £50 a head." added
-  passed every check. The served page was checked for the facts alone, and
-  read whole.
-  - *Now*: one reader for both outputs. It reads the page's words in order
-    with their sentences kept, takes only what the press added (an ordered
-    diff against the page before), and groups that into the added sections.
-  - A component counts only where the page uses it.
-  - Exactly one added section must hold every asked fact, judged on every
-    fact, amount, day, time and denied claim.
-  - Every other added section is judged for contradictions.
-  - A fact stated in one sentence and denied in another fails.
-  - A new page's stored `<main>` is judged as well as its served page.
-- **Evidence**:
-  - 22 cases in `test/acceptance-addon-free.test.mjs`, 6 new. They cover
-    Codex's control both ways, surrounding content, multiple sections, used
-    and unused components, a served Thursday, evening and gluten-free claim,
-    a place stated and denied, sentence context, a footer outside `<main>`,
-    no earlier served reading, and a new page's served-only Saturday.
-  - Red check: 5 of the 22 fail on `2015cc0c`.
-  - Sweep `sweep23`: 13 of 14 killed and 1 equivalent, the control
-    surviving. Four untested paths were found and a case added for each.
-  - Focused files 218 / 218; full suite `10663 / 10663 / 0 / 0`; acceptance
-    sweep 41 files, **537 / 537**.
-  - CI: unit tests 38236080782 `success` on `d9434979` (10663 tests, 10622
-    passed, 0 failed, 41 skipped).
-- **Remaining limits** (history §5):
-  - Two added sections side by side read as one.
-  - A component used other than by its import path or exported name cannot
-    supply a section; it fails, never passes.
-  - Equivalent wording is a per-fact list.
-  - A new page without a `<main>` is judged when served only, and recorded
-    as unverified when stored.
-- **Nothing pressed.** No fal, merge, deploy, container build, billing,
-  Build flag or limit change.
-
-**Round 17** (`1eac62c1`; `docs/history/2026-10-12-acceptance-harness-controls.md`).
-Codex reviewed **`3869478b`**: 168 focused tests passed, three
-browser-dependent tests skipped, CI green, but two negative controls passed
-when they should have failed. The product fixes and round 16's scenarios are
-kept.
-- **Fixed: a wrong amount passed.** "£50 a head, cheese included" passed a
-  section asked to say "£25 a head, cheese included", because only "a head"
-  and "cheese" were required.
-  - *Now*: every page and section names every fact asked for: places,
-    amounts, days, times of day, and negative answers.
-  - Equivalent wording comes only from each fact's own list.
-  - No other amount, day or time may stand beside the asked-for one.
-  - A claim you said no to ("gluten-free") is refused.
-  - A question is not a claim, and an answer's leading "No," does not deny
-    the sentence after it.
-- **Fixed: an older job's trace was claimed.** Competing jobs were chosen by
-  creation time (a 30-minute lookback), so a job created at 08:00 and ending
-  at 10:04 was missed while its trace was read, and the overlap was claimed
-  for the 10:00 job.
-  - *Now*: the lookup reads every job whose run touches the window.
-  - A trace counts as a job's only when it ran inside that job's own run, the
-    job had finished, the read was complete, and no other job ran beside it.
-  - Otherwise the result is `candidate-only` or `unknown`.
-- **Evidence**:
-  - 16 cases in `test/acceptance-addon-free.test.mjs`: 7 new and 3 rewritten.
-    They cover wrong, missing and contradictory values per scenario,
-    equivalent wordings, Codex's older-job case, a missing job trace,
-    incomplete reads, and genuine and sequential overlap.
-  - Red check: 9 of the 16 fail on `3869478b`.
-  - Sweep `sweep22`: 21 of 21 killed, the control surviving. The first pass
-    found two untested paths (weekends, the served-page facts); a case was
-    added for each.
-  - Full suite `10657 / 10657 / 0 / 0`; acceptance sweep 41 files,
-    **531 / 531**.
-  - CI: unit tests 38201146344 `success` on `1eac62c1` (10657 tests, 10616
-    passed, 0 failed, 41 skipped).
-- **Remaining limits**:
-  - Equivalent wording is a per-fact list: a live phrasing outside it fails
-    and is read by a person, never passed by a looser rule.
-  - Contradiction is checked for amounts, days and times of day. An extra
-    place is not refused; a denied place is.
-  - Attribution needs the job alone on the site while its trace ran. A job
-    column on the trace table would lift this, but it is a product and schema
-    change, not made.
-- **Nothing pressed.** No fal, merge, deploy, container build, Build flag or
-  limit change.
-
-**Round 16** (`8db3cbea`; `docs/history/2026-10-12-acceptance-addon-free.md`;
-the plan is `docs/acceptance-current.md`).
-- **The repair batch is closed.** Codex reviewed **`358dff0a`**: 357 focused
-  tests and both independent requirement-retention reproductions passed.
-  Required CI on that commit: unit tests 38196615855 `success` (10638 tests,
-  10597 passed, 0 failed, 41 skipped).
-- **The plan is back on the goal**: independent work at the same time across
-  Build, Edit and Add-on, real dependencies waiting, success reused after
-  questions or restarts, nothing charged twice.
-  - *Offline versus live*: a matrix per claim and per part of the product.
-    Live so far: **only run 119** (an Edit, on production). Everything on
-    the branch is offline.
-  - *Evidence per claim*: overlap by recorded intervals (`overlapVerdict`);
-    results (`outcomeChecks`); order (`jobOrderVerdict`); exact reuse
-    (`reuseVerdict`); charges (`moneyVerdict`, `ownMoneyVerdict`,
-    `laterChargesVerdict`, the ledger by job).
-- **Image-free Add-on cases**, so additions can be tested with purchases off:
-  - `acc-addon-inner`: a page and a section in **one Add-on** (15–28);
-  - `acc-addon-edit`: an Add-on part beside an Edit part, only if its probe
-    makes parts (9–20);
-  - `acc-addon-pair`: two sections on two pages, the router's shape
-    recorded (8–26);
-  - probes S7–S9 route each message first (the probe batch is now 9, 9–27).
-- **Added only what was missing**:
-  - `sections`, so a press can judge a section added to an existing page;
-  - `addonDesignOverlap` on the free read-job box: whether one Add-on's
-    designers overlapped, claimed only when its job is alone on the site in
-    the window (the trace has no job column);
-  - offline **PI 32** (page and section in one Add-on) and **PI 33** (two
-    Add-on parts, both orders), image-free.
-- **Found**: inside one Add-on, the designers start together only when the
-  picker says what each kind uses (designed, PI 26). Whether the real picker
-  says so is a live question, now in the plan.
-- **Evidence**: red check (the new file fails on `358dff0a`; PI 32–33 pass
-  there, as coverage should); sweep `sweep21` **14 of 14** killed, the
-  control surviving; full suite `10650 / 10650 / 0 / 0`; acceptance sweep 41
-  files, **524 / 524**; doc tests 32 of 32; entry points 11 of 11. CI: unit
-  tests 38198232545 `success` on `8db3cbea` (10650 tests, 10609 passed, 0
-  failed, 41 skipped).
-- **Nothing pressed.** Paid acceptance stays blocked until your spending
-  decision (plan §5). No fal, merge, deploy, container build, Build flag or
-  limit change.
-
-**Round 15** (`754c4eb4`; `docs/history/2026-10-12-requirement-scope.md`).
-Codex passed 327 focused tests on `703faade` with CI green; round 14's fixes
-are kept.
-- **Fixed: a thirteenth requirement disappeared.**
-  - *Reproduction*: one designer asks a question with 13 requirements, all
-    in your message; after your answer the resumed design repeats none. The
-    checkpoint held 12, the judge saw 12, the stored answer told 12, and the
-    reply left the 13th out. The 12 control passed.
-  - *Cause*: one step kept at most twelve (`MAX_REQUIREMENTS`). The rest
-    were set aside at intake as `over-cap`, never judged, and told only by
-    the job that read them, which here ended on the question. Without a
-    question they were still never judged, so twelve met plus a 13th unmet
-    finished **done**.
-  - *Now*:
-    - nothing accepted is set aside, and the designer tools carry no
-      ceiling;
-    - the judgment keeps its batches of 24;
-    - the rule is the reader's, so it covers designer, correction, picker,
-      judge and page-writer questions;
-    - old records' set-aside entries are still told.
-- **Evidence** (mocked; judge inputs, checkpoints, statuses, stored outcomes
-  and reply facts checked): **RS 1–13**.
-  - The boundary: 11, 12, 13 and 40.
-  - Each kind of question with 13.
-  - Three repeated questions, a restart at every step, your explicit
-    cancellation, and duplicate delivery.
-  - Twelve met with the 13th unmet: partial, never done.
-  - Red: on `703faade` both controls pass and the other 12 fail.
-  - Sweep (`sweep20`): **7 of 7** killed, the control surviving.
-  - Full suite `10638 / 10638 / 0 / 0`. Acceptance sweep 40 files,
-    **512 / 512**. CI: unit tests 38195628173 and site build 38195628259 `success` on `754c4eb4`; unit tests 38196181952 `success` on `26cfcaf1` (the records).
-- **Remaining** (history §6):
-  - No reproduced defect is open.
-  - Limits: one answer is still bounded by its output tokens (named as
-    truncation); the judge's 80 designed things are a separate list.
-  - Live-unverified: whether real designers now list more than twelve.
-
-**Round 14** (`985607c7`, `ed6dbb7b`;
-`docs/history/2026-10-12-checkpoint-recovery-oversized.md`). Codex passed
-314 focused tests on `29fc95af`; round 13's fixes and the parallel scheduling
-are kept.
-- **Fixed: a checkpoint that cannot be read no longer uses up the request.**
-  Round 13 ran the part twice more and then failed it, so you would have had
-  to send it again.
-  - The part is now `recovering` on its request: nothing is applied or
-    charged, and its checkpoint and kept answers stay.
-  - The existing driver runs it again at once, then after a wait doubling
-    from 30 s to 30 min, for up to a day.
-  - The next try is a time on the record, so a restart loses nothing: the
-    two-minute sweep picks it up.
-  - Only a checkpoint known lost (missing with no copy, or malformed) fails
-    at once.
-  - Independent parts go on, dependents wait, and a stop cancels it.
-  - The page says "Picking this up again". A try that stopped at the guard
-    writes no reply of its own; each did before, one model call per try.
-- **Fixed: the oversized fallback.** A checkpoint the store refuses rides as
-  what changed since the last one (kept, renamed, added, dropped). The part
-  keeps it, and staging resolves the chain, so the paused job is never run
-  again just to rebuild it.
-- **Found and fixed while testing that: a finished answer over 200,000
-  characters was cut**, and the request then read it as "done, nothing
-  recorded".
-  - It is now kept whole beside the job and read back by every reader of the
-    job's row.
-  - Unreadable just now, its readers wait.
-  - Never kept, the part says its outcome was not recorded: partial, never
-    done.
-- **Evidence** (mocked; judge inputs, durable records, stored outcomes and
-  reply facts checked): **RC 1–13**.
-  - RC 1 is the requested case: an outage past the old window, a restart, and
-    the same request resuming with no message from you and no designer asked
-    again.
-  - The others: bounded backoff and the day's end, duplicate delivery, stop,
-    an empty checkpoint, an independent sibling, a dependent part, 384
-    requirements above the inline bound with every write refused, the delta
-    read back, an unreadable and an unsaved whole answer, and a part that
-    never paused.
-  - Red: on `29fc95af` all 12 then written fail.
-  - Sweep (`sweep19`): **13 of 14** killed, the control surviving. The
-    survivor was a path no case reached; RC 13 now kills it.
-  - Full suite `10623 / 10623 / 0 / 0` on `ed6dbb7b` (+13 over round 13's 10610: the 13 RC cases). Acceptance sweep 39 files, **498 / 498**. CI:
-    unit tests 38191442871 and site build 38191442850 `success` on `985607c7`; unit tests 38192045211 `success` on `ed6dbb7b`; unit tests 38192623744 `success` on `320ef877` (the records).
-- **Remaining** (history §6):
-  - No reproduced defect is open.
-  - Not yet checked: over-cap requirements written beside a question.
-  - Limits: a delta's bound sits at several thousand requirements; an unsaved
-    spill is told as unrecorded, not itemised; recovery gives up after a day.
-  - Live-unverified: R2's real failures and the sweep's real cadence.
-
-**Round 13** (`03b758ec`, `a5054e40`;
-`docs/history/2026-10-12-checkpoint-reliability-retention.md`). Codex passed
-252 focused tests on `f5c12482`; round 12's fixes and the parallel scheduling
-are kept.
-- **Correction**: round 12 said no implementation defect was open. That was
-  wrong. Codex reproduced two, both closed here.
-- **Fixed — the checkpoint was best effort.** One failed write of the paused
-  job's checkpoint, or one failed read of the resumed job's staged copy,
-  finished the FAQ request "done" with no judge call.
-  - *Now*: the checkpoint is `{complete, count, requirements, asked}`; empty
-    (count 0) is a real answer. It is written, read back and compared, up to
-    3 times, before the question is accepted. If the store refuses it, the
-    whole checkpoint is kept on the request part's job record, and the
-    question stands only once that copy holds.
-  - The resumed job's body names exactly which checkpoint it resumes
-    (`heldFrom`: job and count). Missing, unreadable, malformed or
-    wrong-count is a failure, never an empty list and never an older
-    checkpoint.
-  - A job that cannot read it does nothing (`checkpoint-unread`, before any
-    model call). The part runs again (up to 2 more jobs), replaying the
-    paused job's kept answers. If it still cannot read, the part fails
-    saying why; nothing applied, nothing charged, records kept.
-- **Fixed — the checkpoint kept only 60.** Six questions × 12 lost the first
-  12. `MAX_HELD` is gone with no replacement cap; the judge runs in batches
-  of 24 and merges the verdicts; a part's not-done list is no longer cut to
-  24.
-- **Evidence** (mocked; judge inputs, durable records, stored outcomes and
-  reply facts checked): **CK 0–13 (18 cases)**: failed save, failed
-  staging/read, recovery, malformed / missing / empty, repeated questions,
-  latest-checkpoint selection, duplicate delivery, 60 vs 72.
-  - Red: on `f5c12482` both controls pass; both storage reproductions fail
-    "the judge never ran", the size one "12 never reached the judge".
-  - Sweep (`sweep18`): 10 of 14, then **13 of 14** after CK 12 and CK 13;
-    the survivor is equivalent today and kept as a guard; the control
-    survived both times.
-  - Full suite `10610 / 10610 / 0 / 0` on `a5054e40`. Acceptance sweep 38
-    files, **485 / 485** (112 / 92 / 174 / 107). CI: unit tests 38188868051 `success` on `b2e2fbc9` (the records over `a5054e40`) and 38187732800 `success` on `03b758ec`; site build 38187732810 `success` on `03b758ec` (no site-build path changed after it).
-- **Remaining** (history §6): no reproduced defect open. Not exercised: an
-  answer too large to carry its checkpoint (~300+ requirements) retries by
-  rerunning model work. Limit: a part that still cannot read its checkpoint
-  fails and needs asking again. Live-unverified: R2's real failure modes.
-
-**Round 12** (`f153bae8`, `3a3a313d`;
-`docs/history/2026-10-11-requirements-across-resume.md`). Codex passed 217
-focused tests on `6c2d3887` with CI green; round 11's fixes are kept.
-- **Fixed — requirements lost across a clarification and its resume.**
-  - *Reproduction*: About FAQ, collapsible and searchable. The first answer
-    names `/does-not-exist` with both requirements; the correction asks
-    "Above or below the story?"; "Below"; the resumed design is valid; the
-    writer builds static cards. If the resumed design repeated only
-    collapsible, searchable vanished. If it repeated neither, the request
-    said done. RI 5 passed only because its answer repeated both.
-  - *Now, one shared rule*: every add-on pause holds the part's
-    requirements, with their ids, under the paused job's own id. That covers
-    a designer's or correction's question, the picker's, the judge's and the
-    page writer's.
-    - The part's next job is staged that list from the request part's job
-      records, never from the site's latest answer.
-    - Each requirement is reconciled with its step's designer, which is
-      shown them by id (`replaces`), or carried when that step does not run.
-    - A model leaving one out never cancels it. Only the judge, shown your
-      answers, can set one aside.
-    - Requirements written beside a question are kept too. Rejected designs
-      stay unreplayable; only the requirements are held.
-- **Evidence** (mocked; real driver, queue, routes, job runner; judge
-  inputs, durable records, final statuses, stored answer and reply-writer
-  facts checked):
-  - **RR 0–14 (17 cases)**:
-    - the control and both failures;
-    - `replaces` by held id;
-    - designer, page-writer and judge questions;
-    - repeated questions and a second pause before the held step;
-    - a dependency re-ask;
-    - restart and duplicate delivery;
-    - an explicit scope change and its control;
-    - the durable record;
-    - a picker that drops the kind;
-    - a held hand-off reaching a later step.
-  - Red: on `6c2d3887` 11 of the first 13 fail; the control and the
-    writer-after-valid-design case pass.
-  - Sweep (`sweep17`): the first run killed 9 of 15. The 6 survivors were
-    paths no case reached, and six cases were added for them (`3a3a313d`).
-    The rerun killed **15 of 15**, and the control survived both times.
-  - Full suite `10592 / 10592 / 0 / 0` on `3a3a313d`. CI: unit 38185779044
-    and site build 38184558303 `success`.
-  - **Consolidated acceptance sweep** over the existing Build/Edit/Add-on
-    parallel flows: 37 files, 467 / 467.
-    - independent work: 112;
-    - genuine dependencies: 92;
-    - clarification and resume: 156;
-    - partial failure: 107.
-- **Remaining work** (history §6):
-  - ~~**No open implementation defect** is known in the parallel flows'
-    offline behaviour.~~ **Wrong** (corrected 2026-10-12): the checkpoint
-    was best effort and capped at 60. Both closed in round 13.
-  - **Recorded limits**: labels taken at acceptance; uncertain equivalence
-    told twice; Build refusals unmarked; real waits.
-  - **Awaiting live verification**:
-    - whether real designers mark `replaces`;
-    - whether real judges set aside only on your words;
-    - whether real routers name the new targets;
-    - the real latency gain;
-    - real images.
-- **Live-unverified**: nothing deployed or pressed; fal not used. **The
-  universal feature is not declared finished.**
-
-**Round 11** (`c44dd774`, `2c7e33b1`, `90dc6a00`;
-`docs/history/2026-10-11-requirement-identity-target-discovery.md`). Codex
-passed 168 focused tests on `7f5e753b`, and those fixes are kept. Two new
-reproductions showed a requested requirement lost when a refused Add-on
-answer was corrected.
-- **Fixed — a correction no longer drops a distinct requirement.**
-  - *Failure 1*: both requirements under one quote ("collapsible and
-    searchable answers"); the correction kept only collapsible, and
-    searchable vanished. A quote grounds a requirement; it is not its
-    identity.
-  - *Failure 2*: collapsible was `component#0` in the refused answer and
-    searchable `component#0` in the correction. Each attempt numbers its own,
-    so the ids collided.
-  - *Now*: an earlier requirement counts as replaced only when that is
-    established: the designer marks it (`replaces`, after being shown the
-    earlier ids), the same hand-off is answered, or the need is identical.
-    Anything uncertain, such as a paraphrase or a shared quote, is kept and
-    judged, so the worst case is one requirement told twice, never one lost.
-    Carried entries get fresh, collision-free ids (`<step>#s<n>`); hand-offs
-    stay hand-offs.
-- **The Add-on parallel-work gap — page additions no longer wait on unrelated
-  edits.** Round 10's dependency came from what the picker and designers were
-  shown, not from what the tasks need.
-  - Pages are still identified by their content. Each page's headline is
-    recorded **when the message is read** and handed to the Add-on part, so
-    another part's heading change no longer changes the addition's request.
-  - The picker is shown no photographs.
-  - A new page is designed on the page list, the look, the menu, its own
-    tables and what the pages are built from (`kits`; words and an existing
-    frame's photograph do not change that).
-  - While an earlier part still writes page content, the addition's
-    preparation is design only: picker and designers beside it, the page
-    writer once at its job against the finished pages.
-  - Functions, APIs and jobs have their own target kinds, so they are planned
-    on their own targets, not the whole site.
-  - A declared read of a page, or of a table an earlier part changes, still
-    waits. That is a real dependency, and both have a control test.
-- **Evidence** (mocked; real driver, queue, routes, job runner; judge inputs,
-  stored records, final statuses and reply-writer facts checked):
-  - **RI 0–7**: the control, both failures, reordered and several,
-    hand-offs, clarification and resume, the needs re-ask, and duplicate
-    delivery.
-  - **CA 3, 3b, 8**.
-  - **R11 PAGE, LABELS, FUNCTION, JOB and API**, beside a held **text** edit
-    (not only a photograph), with PAGE and FUNCTION controls.
-  - Red: on `7f5e753b`, 17 fail and the controls pass.
-  - Full suite `10575 / 10575 / 0 / 0` on `90dc6a00`.
-  - Sweep (`sweep16`): 17 of 19 killed, control survived. One survivor is
-    equivalent today (other designers' ids can never share a step prefix).
-    The other showed a design-only arm for schema-only additions could never
-    run: their preparation already stops before the writer. It was dropped
-    (`90dc6a00`).
-  - CI: unit 38170978007 and site build 38170977996 `success` on `7294647d`
-    (the code of `90dc6a00`).
-- **Remaining gaps** (history §5):
-  - labels are taken at acceptance;
-  - uncertain equivalence errs toward telling twice;
-  - a new page's writer and any structural page change are real waits;
-  - an untargeted routing is whole-site until routed;
-  - round 10's Build-refusal, 3-call and unused-preparation gaps.
-- **Live-unverified**: nothing deployed or pressed. Real images are
-  unverified, and fal was not used. **The universal feature is not declared
-  finished.**
-
-**Round 10** (`79a94d3f`; `docs/history/2026-10-11-corrected-answers-readiness.md`).
-Codex passed 157 focused tests on `4074eb38` with CI green, and reproduced
-two failures while their controls passed.
-- **Fixed — a corrected Add-on answer was only half processed.**
-  - *Reproduction*: an About FAQ with collapsible answers. The first answer
-    names `/does-not-exist` with no requirements; the correction names
-    `/about` and lists the collapsible-answer requirement; the writer builds
-    static cards. First-call valid: judged, partial. Through the correction:
-    never judged, "done".
-  - *Now*: the cleaner reads each answer first. A refused one is marked
-    (never replayed), billed, kept as superseded in the record, and corrected
-    once, through the `needs` re-ask so a new dependency is honoured. Then
-    one path processes the final answer: grounding, hand-offs, needs,
-    question, suggestions, skipped entries, usage, trace and stored record.
-  - A requirement only the refused answer listed is carried as `unsupported`
-    (never claimed covered), and a reworded one is told once. A second
-    refusal is still the answer.
-- **Fixed — a step's readiness was decided once.**
-  - *Reproduction*: Visit heading and frame (step 1), Home heading held
-    (step 2), picture for Visit (step 3). The picture waited for Home after
-    Visit had finished.
-  - *Now*: each queued step carries its outstanding prerequisites
-    (`stepNeeds`), and the pool is refilled at the top of every turn, before
-    the turn waits. A newly ready step is prepared against the job's current
-    pages (the store holds the site as the message arrived until the one
-    publish), so its turn replays it.
-  - Bound, ordered writes, exact reuse and once-only application are
-    unchanged; nothing is prepared before its prerequisites apply.
-- **Broad Add-on scopes — corrected claim.**
-  - I tried planning a page addition's *design* beside page-writing parts
-    and measured a redundant picker call in the BATCH case. The designers
-    read each page's **headline**, and the picker reads the **photographs**,
-    both of which those parts write. It is a genuine dependency, so it was
-    reverted.
-  - **Kept**: photographs are shown only to the photo designer, and page
-    builds only to frontend designers.
-  - Narrowing further needs a product decision: stable page names instead of
-    live headlines for the designers to match against.
-- **Evidence** (mocked; real driver, queue, routes, job runner): CA 0–8,
-  SP 6 and its control, plus SP 0–5 again.
-  - Red: on `4074eb38`, CA 1, 3, 5, 7, 8 and SP 6 fail; CA 0, 2, 4, 6,
-    SP 0–5 and the SP 6 control pass.
-  - The first full suite showed 8 failures. Six encoded the reverted
-    design-first rule and passed once it was reverted; two landmark tests
-    were re-anchored on the property they guard.
-  - Full suite `10559 / 10559 / 0 / 0` on `79a94d3f`.
-  - Sweep (`sweep15`): 10 of 10 product mutants killed, the comment-only
-    control survived.
-  - CI: unit 38167492883 `success` on `0096c972` (the code of `79a94d3f`),
-    site build 38167153946 `success` on `79a94d3f`; the unit run on
-    `79a94d3f` was cancelled by the newer push, not failed.
-- **Remaining gaps** (history §5):
-  - page additions wait on page writes (headlines and photographs);
-  - functions, APIs and jobs with no named table are whole-site until
-    routed;
-  - Build refusals are not marked;
-  - an early-refused designer can make 3 calls in all;
-  - an unused step preparation is ours.
-- **Live-unverified**: nothing deployed or pressed. Real designers'
-  correction behaviour, real routers' step targets and the real gain of
-  turn-time refills are unmeasured. **The universal feature is not declared
-  finished.**
-
-**Round 9** (`00ee1c40`, `3e5d1a4b`; `docs/history/2026-10-11-validation-scheduling.md`).
-Codex passed 203 focused tests on `fb50298e` with CI green. **Closed as fixed
-offline**: the provider-truncation replay (round 8).
-- **Fixed — a complete answer its step refused was replayed.** In Codex's
-  repro the component designer placed the FAQ on `/does-not-exist` beside the
-  table's question. Its reply passed the provider check, its cleaner refused
-  it, and after the answer it was replayed and the request failed. Now:
-  - the step that refuses a reply marks it (`rejectReply`), and the record
-    keeps it with a `rejected:` verdict, for diagnosis only: never staged,
-    replayed or handed to a continuation;
-  - at its own turn the designer is asked **once** more, shown the cleaner's
-    reason; a second refusal is final (never a loop);
-  - a design of nothing, a question and a no-op are the model's answers:
-    never marked, never retried.
-- **Fixed — `STEP_AHEAD_MAX` capped how many steps were prepared.** It now
-  bounds how many run **at once** (3), refilled as each finishes. Writes stay
-  in order; replay stays exact; no step is asked twice.
-- **Broad scopes:**
-  - *an addition writing only tables* is planned as reading the page list,
-    the look and its own tables; schema designers are no longer shown
-    photographs or page kit lists, which had made a photo placed beside them
-    change their request;
-  - *page rewrites*: already shown only their page and the others' names
-    (now pinned; a wrong code comment corrected);
-  - *missing targets*: a part takes them from its own routing before its
-    step is scheduled (now pinned).
-- **Evidence** (mocked; real driver, queue, routes, job runner): VA 0–6,
-  SP 0–5, SCHEMA-ONLY, REVALIDATED control, DISCOVERED.
-  - Red: exactly the 7 new behaviour cases fail on `fb50298e`; 22 controls
-    pass.
-  - Sweep: 12 of 13 product mutants killed, the control survived. The
-    survivor (the pool taking a step whose turn began) is unreachable today
-    and kept as a guard.
-  - The first full suite showed 2 failures caused by this change, both fixed
-    in `3e5d1a4b`. Full suite `10548 / 10548 / 0 / 0` on `3e5d1a4b`.
-  - CI on `803ab88e`: unit 38164179258 and site build 38164179163 `success`
-    (unit on `00ee1c40` failed on the two cases `3e5d1a4b` fixes).
-- **Remaining gaps** (history §5):
-  - additions making a page, function, API or job still wait on every page;
-  - Build-path refusals are not marked (a failed build replays nothing);
-  - an early-refused designer can make 3 calls in all (early, turn, one
-    correction).
-- **Live-unverified**: nothing deployed or pressed. These are unmeasured: how
-  often real designers name missing pages, and how often one correction
-  fixes it; the real gain of the refilled pool; how often real routers name
-  only tables. **The universal feature is not declared finished.**
-
-**Round 8** (`a87060ba`; `docs/history/2026-10-11-unusable-answers-generality.md`).
-Codex passed 111 focused tests on `648964d5` with CI green. **Closed as fixed
-offline**: the independent-function wait, the ready-component wait and
-successful-answer reuse across a question.
-- **Fixed first — a cut-off answer replayed after a question.** In Codex's
-  repro a component's reply was cut off at `max_tokens` beside the table's
-  question. It was kept, then replayed after "No", and the request failed.
-  Now every recorded answer is judged at the one shared boundary (record,
-  stage, read, replay):
-  - an unfinished reply (cut off, paused, out of context), an error body or
-    malformed content is kept with its verdict for diagnosis and never
-    replayed; records stored before the rule are judged when read;
-  - a complete answer keeps its meaning: a design, a question, a refusal, or
-    prose that changes nothing;
-  - only jobs that paused (a question, or a purchase nobody could tell) have
-    their answers staged.
-- **Fixed — the generality gaps, by shared rules:**
-  - *ready designers keep going when another asks*, and their answers are
-    kept;
-  - *a table nobody on the site can read or write, with no page named*,
-    writes no page;
-  - *named Rules changes* are shown only their tables (`needs` widens);
-    *named Look and Page parts* are planned on what they read, so they
-    prepare beside parts writing other pages;
-  - *a multi-step edit* prepares a later step's model work beside the earlier
-    ones when no earlier step writes what it reads. Writes stay in order, the
-    replay must be exact, and nothing is bought ahead;
-  - *the add-on page writer* may ask; only it is asked again.
-- **Evidence** (mocked; real driver, queue, routes):
-  - UA 0–6: the boundary; Codex's repro; stored records; usable reuse;
-    checked against what a call read; duplicates and restart; the Edit
-    equivalent.
-  - SCH 5, SCH 6; GN 1 (+ control), GN 2, GN 3, GN 3b, GN 4, GN 5, GN 5b,
-    GN 6.
-  - Tests revised for rules this round changes: BATCH, readPrepared keys,
-    list-sort order, prepScope, the writer contract.
-  - Red: exactly the 14 new behaviour cases fail on `648964d5`; 21 controls pass.
-    Sweep: 20 of 21 product mutants killed, control survived; the one survivor
-    (staging from any earlier job) guards a path no current flow reaches. The
-    first full suite showed 19 failures, each traced and fixed (the access-
-    grounded pageless rule, clear-ahead steps with their own answers, three
-    tests encoding changed rules, one re-anchored guard). Full suite `10532 / 10532 / 0 / 0` on the committed code.
-    CI on `7b9d77f4`: unit 38158754597 and site build 38158754632 `success`.
-- **Remaining gaps** (history §4):
-  - a schema-making addition as its own part is still planned as reading
-    every page;
-  - a page rewrite is shown its siblings in full;
-  - unnamed look, rules and page parts are still unscoped;
-  - in-job step preparation is limited to at most 3 clear-ahead steps;
-  - an answer complete at the provider but rejected by its step is not
-    marked at the boundary (paused-only staging covers the failure case).
-- **Live-unverified**: nothing deployed or pressed. These are unmeasured:
-  real providers' cut-offs beside questions, real table access choices,
-  real routers' target naming, in-job prepare/turn match rates, and when a
-  real page writer asks. **The universal feature is not declared finished.**
-
-**Round 7** (`9070e706`; `docs/history/2026-10-11-scheduler-continuation.md`).
-Codex passed 188 focused tests on `44344896` with CI green. **Closed as fixed
-offline**: the table + FAQ overlap (PI 24) and BG11. Two mocked cases showed
-false dependencies that remained, and two existing cases encoded redone work:
-- **Fixed — no dependency by category**: a pure function (reads no table) no
-  longer waits for a table beside it; `designWaits` no longer chains every
-  schema kind to the ones before it. A function over a new table, or a job
-  running a new function, waits because it says it uses it (and `needs`
-  still catches a wrong "uses nothing").
-- **Fixed — a designer starts when what it uses is ready**, not when the
-  loop reaches it in kind order: each early answer is checked as it lands;
-  a usable result is ready for its dependents, which start at once while
-  unrelated work (a slow table) is still out. Official results still come in
-  order and an early answer is used only on an exact request match; a
-  hand-off waits for its giver's turn; nothing is started twice.
-- **Fixed — a question redoes only what it reaches**: every request job
-  keeps the answers it got; the part's next job replays every unchanged
-  call (uncharged earlier jobs only, so nothing is billed twice). The
-  question names its asker, and the answer is shown only to that call,
-  what uses its result, and the judge/page writer — so unrelated finished
-  work sends the same request and is replayed. A step ending on a question
-  first lets work in flight finish so it is kept. Saved answers are
-  validated by the exact request, which carries every input the call used.
-- **Evidence** (mocked providers, real driver/queue/routes): SCH 1 table +
-  pure function + FAQ meet, both orders; SCH 2 the component starts on the
-  page while the slow table is held (released by the component), both
-  orders; SCH 3 genuine table → function → job chains keep their order;
-  SCH 4 a page question after which the page and its component are asked
-  again and the table replayed; PI 30 the table designer called once in all
-  after the component's question; PI 31 the same with every message
-  redelivered; PI 21 the held-purchase re-run replays the picker and
-  designers; PL 2 the other look lane's finished answer replayed. Red on
-  `44344896`: exactly SCH 1 ×2, SCH 2 ×2, SCH 4, PI 21, PI 27, PI 30, PI 31,
-  PL 2; SCH 3 and every other case pass. Sweep: 13 of 14 product mutants
-  killed, control survived; three first survivors were test gaps, closed by
-  **SCH 5** (the table asks while a slow page designer is out: the page's
-  answer is kept, nothing starts after the step ends) and picker counts in
-  PI 30 and SCH 4; the one survivor (earlier *charged* jobs staged too) is
-  unreachable today — every re-run follows an uncharged job — and is kept as
-  the double-billing guard. Full suite `10513 / 10513 / 0 / 0` on
-  `9070e706`'s code. CI on `acdf4748`: unit tests 38154478033 and site
-  build 38154478000 `success`; CI on the records commit (SCH 5 and the picker counts) is read after its push.
-- **Broad scopes reviewed** (history §4): necessary — writes one job at a
-  time, real output dependencies, one publish per addition, the logo's
-  shared frame. Implementation gaps — a schema-only addition as its own
-  part (its page writer may write any page), look and rules steps as parts
-  (unscoped), the page step shown sibling pages in full, dispatched rungs'
-  model work in one edit job, ready designers not started once a question
-  ends the loop, and the add-on page writer unable to ask.
-- **Behaviour note**: the old "question from the picker after a held
-  purchase" path no longer happens — the re-run replays the picker.
-- **Live-unverified**: nothing deployed or pressed; whether a real picker
-  fills `uses` well enough, how often provisional results match the official
-  ones (a mismatch costs a fresh call), and provider concurrency limits are
-  unmeasured. **The universal feature is not declared finished.**
-
-**Round 6** (`8b142e85`; `docs/history/2026-10-11-parallel-dependencies.md`).
-Codex passed 198 focused tests on `adbb7ad7` and reproduced the gap: one
-Add-on with an empty signups table and a static About-page FAQ, both
-orders — both landed, each designer once, but the table's designer had to
-finish before the FAQ's started (schema kinds and `page` blocked every later
-designer by category, and every designer was shown every earlier result).
-- **CI run 38148556722 (job 114496960044)**: BG11 counted event-loop turns
-  before asserting each held reply reached its writer and ran out on the
-  slower runner. It now waits on the writer's arrivals; the assertion is
-  unchanged, no timeout raised.
-- **Fixed — Add-on designers wait by input** (`designWaits`, `aSiteFor`,
-  `aStartReady`): each is shown, and waits for, only what it uses — what
-  the picker says it uses (new required `uses` per scope), kinds asked for
-  in the same words, and the schema chain (table → function → job) by what
-  each is written against. Others start at once on the stored site, told
-  what is not shown, and may answer `needs` to be asked again with it
-  (both calls billed, the first never used). Early answers stay exact-replay
-  checked; no `uses` means the old order.
-- **Fixed — look-door lanes run together** (`eLaneCalls`), each with its
-  own clarification answers; any lane's failure or question still sets the
-  whole step aside.
-- **Evidence** (rendezvous, mocked providers): PI 24 table + FAQ overlap in
-  both orders, the FAQ designer not shown the table, the table made once;
-  PI 25 a form saving into the new table waits and is shown it; PI 26 no
-  `uses` keeps the old order; PI 27 the rule (chain, words, transitive,
-  reader); PI 28 a wrong "uses nothing" caught by `needs`; PI 29 a heading
-  on Visit and a FAQ on About as two parts overlap in both orders with exact
-  replay; PI 30 a question while the other designer answered applies and
-  charges nothing, and the answer resumes it with the table made once; PL 1
-  two lanes together; PL 2 one lane's question sets the step aside. Red on
-  `adbb7ad7` for PI 24 ×2, 27, 28, 30 and PL 1; controls pass. Sweep 16 of
-  16 product mutants killed (15 in the sweep, 1 by the existing lane-answers
-  case), control survived. Full suite `10505 / 10505 / 0 / 0`. CI: unit
-  tests 38151391821 on `738277e4`, site build 38151359218 on `a8924c3d`,
-  both `success`.
-- **Operation inventory** (history §5): what overlaps between parts, inside
-  an Add-on, inside an Edit and in a Build, each with its test.
-- **Still sequential, by reason**: a table/function/API/job addition as its
-  own part (its page writer must return a page and may choose any); look,
-  rules and page steps as parts (unscoped); dispatched rungs inside one edit
-  job (each reads and writes stored state); one Add-on's page writer and its
-  question pausing the whole addition; writes one job at a time.
-- **Live-unverified**: nothing deployed or pressed; whether a real picker
-  fills `uses` and a real designer says `needs` is not shown; the look
-  lanes' real concurrency and provider limits are not measured. **The
-  universal feature is not declared finished.**
-
-**Round 5** (`c4fad5d7`; `docs/history/2026-10-11-parallel-addon.md` §8).
-Codex passed 178 focused tests on `4079bb38`; two mocked reproductions (two
-shots, one answer lost, one made while the store was down, store back, three
-sweeps, no press) showed the driver stopping at the first unknown purchase
-(the made picture never saved) and, in the other order, the saved picture
-still shown as saving.
-- **Every held purchase is now recovered by itself on every look**: made
-  pictures saved, landed ones recorded, whatever the others are; the part
-  goes on only when all are known.
-- **The page is shown each purchase as it is now**: new `saved` ("Picture
-  saved, placing it next"), `again` (released, "Buying the picture again
-  next") and `ended`; placed is the part itself, done.
-- **Evidence**: RC 10–17 (both orderings over three sweeps with the browser
-  closed, then buy-again and completion; running beside made, completing by
-  itself with duplicate delivery; running landing beside unknown;
-  lost-record landing; unfetchable or unreadable ahead of a made picture);
-  red on `4079bb38` for RC 10–13; sweep 9 of 11 product mutants killed (2
-  equivalent); full suite `10494 / 10494 / 0 / 0`. CI green: site build
-  38147595527 on `c4fad5d7`; unit tests 38147679316 on `a631c9b0` and
-  38148189300 on `1afb2ed7` (the same code; `c4fad5d7`'s own unit run was
-  cancelled by the next push).
-- **Still not live**: real mixed held purchases, the live sweeps, the card
-  on a real page; the requests list route can show states one sweep late.
-
-**Round 4** (`a8bee8af`; `docs/history/2026-10-11-parallel-addon.md` §7).
-Codex passed 169 focused tests on `2454494b`. **Closed as fixed offline**:
-round 3's two purchase-lifecycle findings (a refused image asked again; an
-unknown early purchase counted as done). The image/component overlap in both
-orders is unchanged. What remained was the recovery card:
-- **The card follows each purchase's state**, which the server now reads
-  from the record's reason: "Saving a picture already made" (made, not
-  stored — the same picture is saved by itself), "Picture still being made"
-  (only within the image call's own time, 300 seconds), "Putting the
-  picture in", or "Checking a picture purchase". **The cost-aware buy-again
-  is offered only for a purchase nobody can tell.** Labels and the button
-  are fixed UI; the explanations stay model-written.
-- **A press reads every record again first**, so a stale card or a part
-  with mixed purchases never lets a made picture go or re-buys a running
-  one: a made picture is saved now; a landed one is recorded bought; a
-  running one is left; only an unknown one is released. Two presses at once
-  release it once. A made picture whose source no longer hands it over
-  turns unknown (the driver records `source-unreachable`) and can be
-  released.
-- **Evidence**: RC 1–9 (stored-but-unsaved with a stale press and the
-  browser closed, still running, unknown pressed twice, mixed, source gone,
-  landed-but-unrecorded, the card's states, clicks sent once); sweep 17 of
-  17 product mutants killed, both controls survived; full suite `10486 /
-  10486 / 0 / 0`; doc tests 32 of 32; the card screenshot shown in chat.
-  CI green: site build 38145319772 on `a8bee8af`; unit tests 38145408825
-  on `d7edc66c` and 38145932388 on `591776d3` (the same code; `a8bee8af`'s
-  own unit run was cancelled by the next push).
-- **Still not live**: real held purchases, the card on a real page, a real
-  press; the 300-second running bound is reasoned, not measured.
-
-**Round 3** (`ed113138`; `docs/history/2026-10-11-parallel-addon.md` §6).
-Codex passed 114 focused tests on `902fc7f0` and found two purchase-lifecycle
-gaps; each is now a failing case first (PI 17–21, PI 23 and PO 8 red on the
-old code). One rule closes both: a settled promise is not a known purchase,
-and a known ending is never made again by the same request.
-- **A refusal stays refused.** With the component first and the photograph's
-  preparation refused beside its page writer, the part's own job used to ask
-  the image service again. Now a refusal the service answered (or a picture
-  made and found unusable) is that purchase's definitive outcome for the
-  whole request — job, redelivery, a step run again after a question. Only
-  your buy-again begins it again. An ending the service never saw (no key,
-  purchases switched off, empty description) is marked `asked: false` and
-  may still be bought later (PI 17, PI 18 with every message twice, PO 8
-  converted from asserting the second call).
-- **An unknown purchase is held, by identity and reason.** A lost image
-  answer beside a failing page writer used to end the request failed with
-  the purchase left `buying`; a picture made whose upload failed ended failed
-  with nothing finishing it. Now each early purchase is read by its own
-  ending: unknown (`unconfirmed`), made-not-saved (`store-pending`), still
-  running, or a buyer that threw are all held. The part is held; a made
-  picture is saved later from its source (never generated again) and the
-  part reuses it; an unknown one waits for your buy-again (PI 19, PI 20 with
-  every message redelivered, PI 21 through a question and its answer).
-- **What you are told follows the state.** The request view names each
-  held picture with its reason; a failed addition's reply facts say it by
-  that reason (PI 23).
-- **The clock-gate gap is closed** (PI 22 and control): the job's own clock,
-  moved by the test platform's injected clock, with production limits
-  untouched; removing the gate fails PI 22.
-- **Evidence**: sweep 19 mutants, 15 killed, both controls survived, the
-  4 surviving mutants explained (a buyer that throws and two identity
-  fallbacks no route reaches; one error string nothing reads); full suite
-  `10477 / 10477 / 0 / 0`; doc tests 32 of 32. CI green: site build
-  38143149597 on `ed113138`; unit tests 38143184967 on `afa0f4e4` and
-  38143684213 on `aa691d00` (the same code; `ed113138`'s own unit run was
-  cancelled by the next push).
-- **Still not live**: a real refusal, lost answer or store failure. The
-  page's buy-again button still shows for a picture made and not yet saved
-  (the view now carries the reason; the page does not read it yet).
-
-**Round 2** (`ef8ea26d`; `docs/history/2026-10-11-parallel-addon.md` §5).
-Codex's four findings on `d7a00395`, each a failing case first (PI 3, PI 11,
-PI 12 ×2, PI 13, PI 15, PI 16 red on the old code; PI 14 the green control):
-- **The image generation now runs beside the component writer, in either
-  order** (PI 2 and PI 3 meet the image call with the page writer). A
-  photograph part prepared beside another part's live job buys in its
-  preparation, under its logical purchase; its job reuses it. One
-  generation, one charge, unique ledger refs.
-- **A scoped writer's real output is checked**: an answer that changes or
-  removes a page outside its scope, or returns a component it was not
-  shown, is not applied; the writer is asked again with the whole site as
-  it is now (PI 11, PI 12 both ways).
-- **The gates come before an early purchase**: balance, the job's clock and
-  room in the library. A part's own stored files are not counted twice.
-  200 files: no image call (PI 13); 199: bought (PI 14).
-- **An early task's whole life**: every way the add-on route ends joins it.
-  A failure says a stored photograph is saved and not on the site; one still
-  being made is held, and the part runs again once it is known, reusing it
-  (PI 15, PI 16: one generation).
-- **Evidence**: 17 PI cases; sweep 18 of 22 killed, both controls survived,
-  the 4 survivors explained (3 equivalent; the clock gate has no route
-  test); full suite `10469 / 10469 / 0 / 0`; doc tests 32 of 32. CI on `6356083c`
-  (the records on `ef8ea26d`): unit tests 38139938283 and site build
-  38139938215 green.
-- **Still not live**: the real router, real writers, real images; a
-  preparation buys early only beside another part's live job.
-
-**Round 1** (`82194718`, `300b56b4`, `d7a00395`)
-- **Reproduced first**, as committed failing cases through the real driver,
-  queue consumer, routes and job runner. Each independent pair meets at a
-  rendezvous: a mocked call that cannot finish until the other has started.
-  - Inside one Add-on, the designers ran one after another, and the
-    photograph was bought only after the pages were written.
-  - Across two parts, the second could not be prepared beside the first in
-    either order (image first, or component first).
-- **Fixed, inside one Add-on**:
-  - Designers that do not depend on each other start together. An early
-    answer is used only if its request is still exactly the one it would get
-    in its turn; a hand-off from an earlier designer makes it be asked again.
-  - The photograph is bought while the pages are written. Placing it still
-    waits for both.
-- **Fixed, between parts**:
-  - An Add-on whose every change lands on pages the router named is scoped to
-    those pages. Its model calls are shown only those pages' composition,
-    headings, photographs and components, and every other component is
-    protected by name.
-  - A picture or new component placed on another page no longer holds it
-    back. The conflict check is unchanged.
-  - A wrong or stale preparation is still asked again: with scoping off, the
-    second part's job asked all 3 calls fresh.
-- **Found and fixed on the way**: a refused picture was asked for a second
-  time when the image step joined the early purchase. The Build path shared
-  that code.
-- **Evidence**:
-  - 11 route cases and 1 judgment case;
-  - red checks against the old code;
-  - a sweep: 23 of 24 mutants killed, the one survivor equivalent and
-    explained at the code;
-  - full suite `10463 / 10463 / 0 / 0`;
-  - CI on `300b56b4`: unit tests 38135429070 and site build 38135429085
-    green.
-
-**Still unverified live**: everything above, with a real model and the live
-Worker; whether the real router splits such a message into two parts or
-batches it into one Add-on; whether a designer shown only its own pages still
-chooses well; real images.
-
-**The live proposal** (`docs/acceptance-current.md` §3–§5; not approved)
-- **Two paid presses are necessary**, about **10–30 credits**:
-  - **P1, routing probe `acceptance-split-1`** (6–18): whether the real
-    router splits each message into parts or batches it into one answer.
-  - **P2, `acc-page-table`** (4–12), only if P1 shows parts: a scoped
-    preparation replayed exactly while the other part runs, by recorded
-    intervals, and both changes land. If P1 shows batching for both
-    messages, P2 is skipped and that result is recorded.
-- Optional, not needed for the parallel-work claims: `acc-needs`,
-  `acc-mixed`, and the image-free Build.
-- **Deployment**: `IMAGE_PURCHASES` off (stops photographs for every
-  customer while off; P2 needs it), merge (image `47981cf0b832bfad`), wait
-  15–20 minutes, the free runtime press, the free rehearsals, then P1 and P2.
-
-**The decision you need to make first**: the only enforced bound on any
-paid press is your whole account balance (971), because the server refuses
-only what the balance cannot cover. The presses' 100-credit guard blocks
-them; it is not a budget. Choose:
-- **A.** Accept the balance as the bound for P1 and P2, with a small
-  reviewed opt-in change letting only those two run above 100 when you fill
-  a box naming the balance. Expected 10–30; run 119, the closest past
-  press, spent 12. Neither is a limit.
-- **B.** A separate test budget first (a billing change, for another round);
-  P1 and P2 stay blocked until then.
-- **C.** Nothing live; the parallel-work claims stay verified offline only.
-
-Lowering or resetting your balance is not one of the options.
-
-**Remaining**
-- Paid acceptance blocked pending your decision.
-- Unverified live: the router's batching, scoped exact reuse (for edits and
-  now for Add-ons), the model's `needs`, the image-free Build's overlap,
-  real images.
-
-No top-up, paid call, merge, deploy or container build without your word.
+**Remaining gaps (not fixed; each needs your word):**
+1. **Build progress is invisible to the press and lost from the final
+   answer.** The press should poll during its send, and the build route
+   should keep lines on its final answer.
+2. **Edit/Add-on overlap is still not shown live.** The router held the
+   price back, so the parts ran in sequence.
+3. **The add-on's requirement judgment gave a false "missing"** when menus
+   could not be read back, and the reply contradicts itself.
+4. **A short job's progress line can arrive after the job ends.**
+5. **The talk checker has no progressive mode** ("I'm … now").
+6. **The Build's narration cost is not measured.**
+7. **Waiting for a prerequisite was not exercised** (there was no separate
+   link part), and the closed-tab label mismatch is harmless but recorded.
 
 ## How you like things done
 
@@ -1449,6 +151,48 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-14 — The live verification batch: Press A built in parallel, Press B passed reconnect and talk; 47 credits
+
+You approved the batch for `e75ff483`. The steps:
+- I opened the two opt-ins (`1336f052`) and fast-forwarded `main`.
+- One deploy built image `e1582f6f71a41dfb`, as predicted.
+- Your free check read images off and talk on, as both the Worker and a job
+  see them.
+
+**Press A, the image-free Build:**
+- It ran on `saltmarsh-cheese-lewes` and published.
+- Its eight bands were written at the same time, in the right order.
+- It cost 24 credits, each charge taken once.
+- **But no progress line was seen.** The press doesn't look for lines while
+  its request is still out, and the build's final answer drops them.
+- Its acceptance was found afterwards by its attempt key, not answered
+  straight away. So the exact time it was accepted is not known.
+- The first two presses sent nothing, because the spend box was left at
+  `no`.
+
+**Press B, the mixed edit and add-on:**
+- It sent "add a bulk orders page and raise the price" and closed the tab
+  mid-work.
+- It followed the request in a fresh session to the end.
+- The page went up with every menu linked, and the price went 5.8 → 5.9.
+- There was one publish and 23 credits.
+- **But the two parts ran one after the other.** The router held the price
+  back as a later part, so nothing overlapped.
+- The add-on called itself partial over a menu check it couldn't read back.
+- Its reply said in one line that the menus link and in the next that they
+  don't.
+
+**Narration:** Press B's narration cost $0.021 (about 2.6 credits),
+absorbed by the platform.
+
+**After the batch:**
+- I closed the opt-ins (`f1b81477`).
+- Images stay off and talk stays on, as you said ("I dont need to restore
+  settings, i have no customers").
+- The balance is 726.
+
+The seven open gaps are in the handoff above.
 
 ## 2026-10-14 — The talk checks read "not yet", "couldn't" and "I'll … next" correctly now (nothing spent)
 

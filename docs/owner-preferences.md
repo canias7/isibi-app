@@ -1210,3 +1210,17 @@
     live presses, until you say otherwise;
   - image work is tested offline with mocks only;
   - real images stay explicitly **unverified** in every record.
+
+## What you've asked for since (2026-10-14)
+
+- **Test-window switches may be left as they are while there are no
+  customers** (2026-10-14, after the live verification batch on the combined
+  candidate): *"I dont need to restore settings , i have no customers"*. So:
+  - after a test window, `IMAGE_PURCHASES` and `PROGRESS_TALK` are not
+    restored by default; production currently runs with image purchases
+    **off** and `PROGRESS_TALK` **on**;
+  - paid opt-ins are still closed by commit after their approved runs (they
+    guard spending, not customers);
+  - records still say plainly what the live switches are, read live, never
+    assumed;
+  - once there are customers, ask again before leaving a switch changed.
