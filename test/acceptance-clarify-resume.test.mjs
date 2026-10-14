@@ -31,7 +31,7 @@ const W = ["Add a link to our online shop in the footer", "change the Classes pa
 
 // ── THE SCENARIO ────────────────────────────────────────────────────────────
 
-test("CRS 1 — the scenario: one image-free message of three kinds on the bakery, ending on the question; the answer sent with the tab closed and followed in a fresh session; the clarify verdict and the router's shape asked for; bound by the acceptance cap; the balance box admits it alone, for its one run", () => {
+test("CRS 1 — the scenario: one image-free message of three kinds on the bakery, ending on the question; the answer sent with the tab closed and followed in a fresh session; the clarify verdict and the router's shape asked for; bound by the acceptance cap; the balance box closed again after its one run (152)", () => {
   assert.ok(SC, "no acc-clarify-resume");
   assert.equal(SC.site, "fold-lane-bakery");
   assert.equal(SC.request, true);
@@ -58,11 +58,9 @@ test("CRS 1 — the scenario: one image-free message of three kinds on the baker
     if (k === "acc-clarify-resume") continue;
     for (const st of sc.steps || []) assert.ok(!/online shop|How a Saturday class/i.test(st.say || ""), `${k} already asked for this`);
   }
-  // THE OWNER'S ONE RUN (2026-10-13): the box admits this press and nothing
-  // else; it is closed again after the run.
-  assert.deepEqual([...BALANCE_OPT_IN], ["acc-clarify-resume"]);
-  assert.equal(readBalanceOptIn("808", { ui: "acc-clarify-resume" }).ok, true);
-  assert.equal(readBalanceOptIn("808", { ui: "acc-addon-k3b" }).ok, false);
+  // RUN ONCE (run 152, 2026-10-14) AND CLOSED AGAIN: no automatic repeat.
+  assert.ok(!BALANCE_OPT_IN.includes("acc-clarify-resume"), "the balance box is still open after run 152");
+  assert.equal(readBalanceOptIn("783", { ui: "acc-clarify-resume" }).ok, false);
 });
 
 // ── THE VERDICT ─────────────────────────────────────────────────────────────

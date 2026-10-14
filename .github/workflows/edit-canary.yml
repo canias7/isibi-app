@@ -249,11 +249,12 @@ on:
         required: false
         default: ''
       # THE OWNER'S OPT-IN ABOVE THE ACCEPTANCE CAP (2026-10-12, the
-      # acceptance plan's option A). Closed after run 150, then opened for
-      # acc-clarify-resume alone, one run (the owner, 2026-10-13); closed
-      # again after it. Beside any other press it refuses before the sign-in.
+      # acceptance plan's option A). CLOSED since 2026-10-14 (after run 152,
+      # acc-clarify-resume): it admits no press, so anything typed here
+      # refuses before the sign-in. A new press above the cap needs the owner
+      # to name it in canary-ui.mjs first.
       accept_balance:
-        description: 'ACCEPTANCE acc-clarify-resume ONLY (one run, 2026-10-13): your balance in whole credits (e.g. 808). Lets this one press run above the 100-credit cap only while the balance is exactly this number. Not a budget: the press may spend up to that whole balance. Blank otherwise; beside any other press it refuses before the sign-in.'
+        description: 'CLOSED: no press may run above the 100-credit cap. Leave blank; anything typed here refuses before the sign-in.'
         required: false
         default: ''
 

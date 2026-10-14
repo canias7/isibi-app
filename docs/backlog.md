@@ -87,6 +87,16 @@ here; take a closed one out of both.**
     **Open:** the deployed reply told both landed parts as "can't see from
     here" (pre-`62bbd81b` attribution); image purchases back on (deploy
     2203), to be confirmed by the next preflight;
+  - **clarify and resume, PRESSED as run 152 (2026-10-14, 25 credits):**
+    clarify verdict ok. The heading ran 00:23:30–00:26:24 while the link's
+    question waited (asked 00:23:30, answered 00:26:55); the line was held
+    until the link was published; nothing reran; every charge was single.
+    **Open from it:** (a) the shop link landed in the footer's small print,
+    not the social list the scenario's stored check expects, so the stored
+    footer check and the byte-for-byte check failed; preservation of the 11
+    footer-edited pages is unverified here (the sources are in the evidence
+    bundle); (b) a one-line addition routed to the Add-on step cost 12, so
+    25 against an estimate of 10–19; one sample;
   - **clarify and resume, prepared (2026-10-13; timing corrected after
     Codex's false pass on `4d60a2a3`):** `acc-clarify-resume` (a footer
     link that must ask, first; an edit; a line held on the link), judged by

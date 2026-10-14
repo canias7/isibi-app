@@ -343,3 +343,134 @@ answer adds reads only, which are free.
 
 **Suites (after the correction):** `acceptance-clarify-resume` 12 of 12;
 **full suite `10814 / 10814 / 0 / 0`** (10,808 + CRS 7–12).
+
+## 8. The run, pressed (2026-10-14): run 152
+
+**Approval and set-up:**
+- The owner: *"I authorize one acc-clarify-resume run at the estimated
+  10–19 credits, with no paid images or automatic repeats. Open the opt-in
+  for this scenario only."*
+- The balance box was opened for `acc-clarify-resume` alone (`39269cea`).
+- The owner set `IMAGE_PURCHASES` off and redeployed `main`: deploy 2204
+  (run 38488911563, 00:13 UTC, green, `fef80b9b`). Image
+  `4444d9d53d906b8d` was reused, with no container changes.
+- **The off state, confirmed by the press itself:** its image gate printed
+  "the live Worker buys none (IMAGE_PURCHASES off)" before anything was
+  sent. No photograph was bought.
+
+**Run 152** (run 38489594737, 00:20–00:39 UTC, from the branch at
+`39269cea`, on `fold-lane-bakery`). The balance was 808, exactly the value
+allowed. One run, not repeated.
+
+**The real router's shape.** One request of three parts, with the order
+`dependsOn [{change: 2, after: [0]}]` (the line waits for the link):
+- part 0, the footer link (`addon`, handed by the Add-on step to the menu
+  step, `nav`);
+- part 1, the heading (`text`);
+- part 2, the Order line (blocked; later an `addon`, words).
+
+**The timing, from the server's own job times (UTC):**
+
+| When | What |
+|---|---|
+| 00:22:21 | Message routed, 3 credits (ledger 460) |
+| 00:22:22–00:22:46 | Part 0's Add-on job `b0257dfa…` hands over to the menu step, 0 credits |
+| 00:22:47–**00:23:30** | Part 0's menu step `82c4b540…` **asks** "What is the web address of your online shop?", 0 credits. **The question waits from here.** |
+| 00:23:30–00:23:40 | Part 1's routing job `a966acb9…`, 3 credits (ledger 461) |
+| 00:23:41–00:26:24 | Part 1's edit `40f77850…`: the heading changed and **published at 00:26:15**, 2 credits (ledger 462) |
+| 00:26:55 | The answer, sent from a closed tab and followed in a fresh session, is routed (`resumes` part 0), 1 credit (ledger 463) |
+| 00:26:56–00:27:56 | Part 0's Add-on hand-over `596d31c9…`, 0 credits |
+| 00:27:57–00:31:09 | Part 0's menu step `9dd61506…`: "Online shop" added to the footer on 11 pages, published at 00:30:54, 1 credit (ledger 464) |
+| 00:31:10–00:32:17 | Part 2's routing `91a3ddc7…`, 3 credits (ledger 465). **Its first job, only now** |
+| 00:32:18–00:36:59 | Part 2's Add-on `e229a0d0…`: the Order line, published at 00:36:47, 12 credits (ledger 466) |
+
+**The five things the owner asked for:**
+1. **Independent work while the question waited: shown.** The heading's
+   whole run, from 00:23:30 to 00:26:24 (routing, edit and publish), came
+   after the question was asked at 00:23:30 and before the answer at
+   00:26:55. Its preparation's progress lines came earlier, and they count
+   for nothing.
+
+   The press's own verdict (`clarifyResumeVerdict`, with the timing
+   correction) said **ok**: work was seen in its timed reads after the link
+   was first read waiting, and the answer was held until then. The trail's
+   `waitFrom`, `during` and `release` values are in the run's evidence
+   bundle, which this session cannot download; the log prints the passing
+   check, not the values.
+2. **The dependent part stayed blocked until its prerequisite finished.**
+   - Part 2 was `blocked` with no job at the question.
+   - It was queued at +279 s, after part 0 was done.
+   - Its first job (00:31:10) came after part 0's publish (00:30:54).
+   - The press's "no part started before a part it needs had finished"
+     check: ok on both messages.
+3. **The answer resumed the right part:** the routing answer said
+   `resumes {part: 0}`; part 0 filed new jobs, and part 1 filed none.
+4. **Finished work was reused:** part 1 has exactly its two earlier jobs
+   after the answer, and nothing reran it.
+5. **No duplicate execution or charges:**
+   - seven ledger rows (460–466), each by its own ref, each once, no
+     refund, 808 → 783 = 25;
+   - the press's money check says the balance moved exactly its own
+     charges;
+   - nothing was charged later (read 60 s after);
+   - no job is open (read afterwards);
+   - the jobs that only asked or handed over charged nothing.
+
+**Outcome on the site:**
+- `/classes` reads "How a Saturday class works" (served).
+- `/order` gained "You can also order online from our shop, using the link
+  at the bottom of every page." It keeps everything it said and its
+  photographs.
+- **Every served footer links to `https://shop.harbourloaf.co.uk/bread`,
+  labelled "Online shop"** (read free afterwards, on `/`, `/classes` and
+  `/order`).
+- No page was added or removed, every component and table is unchanged,
+  every page still serves 200, and every header draws the same logo.
+- Console errors: 0. The replies were all the model's own and on screen.
+
+**Why the press says FAIL overall (three checks, none of them in the
+clarify verdict):**
+1. **"every page's footer gained the website link … kept every link it
+   had": FAIL.**
+   - The menu step put the shop link in the footer's small print, as a
+     `site-link` beside the copyright line.
+   - The scenario's stored check (`social`, network `website`) looks for
+     it in the social-icon list, where it found nothing (`gained []`).
+   - The served check, "every served footer links to
+     shop.harbourloaf.co.uk/bread", is **ok**.
+   - So this is a placement the scenario did not expect, not a missing
+     link.
+2. **"every stored page is byte for byte as it was, apart from the named
+   changes": FAIL.**
+   - It names 10 pages, plus `classes.tsx` "beyond that heading". Those are
+     exactly the 11 files the menu step reports changing ("Added 'Online
+     shop' to the footer's small print on 11 pages").
+   - The check counted that footer edit as unexplained because check 1 did
+     not recognise it.
+   - Whether anything else changed in those files is **not shown**: the
+     stored before/after sources are in the evidence bundle, not the log.
+     **Preservation outside the footer is unverified for those pages.**
+3. **"spent no more than its estimate of 20": FAIL, and a finding.**
+   - It spent **25**, against the prepared estimate of 10–19.
+   - The Order line went through the Add-on step, as words, at 12,
+     instead of an edit at 1–3.
+   - Only the balance bounded it.
+
+**What this run proves:** one live sample of a real question waiting
+while independent work ran to completion and was published. The dependent
+part was held until its prerequisite finished. The answer resumed only the
+asking part, finished work was not redone, and every charge was single and
+attributable. Coverage: `several-parts`, `step-question`, `answer-resumes`
+and `waits-for-prerequisite` are all covered.
+
+**What it does not prove:**
+- byte-for-byte preservation of the 11 footer-edited pages (not readable
+  here);
+- whether the stored footer check should accept a small-print link (a
+  scenario question, not changed after the run);
+- any rate (one sample).
+
+**Afterwards:**
+- The balance box was closed in the commit after this record.
+- Image purchases back on: the owner's step, then a free check (§9 when
+  read).

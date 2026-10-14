@@ -1,25 +1,25 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-13: the live state after run 150 and deploy 2203; the clarify-and-resume test corrected after Codex's false pass, prepared, not pressed; the runtime image flag confirmed by run 151; nothing spent, merged or deployed since run 150)
+## Current handoff — read this first (2026-10-14: run 152, the clarify-and-resume test, pressed once — its clarify verdict passed, the press FAILED on three other checks; image purchases are OFF until your Stage C; the balance box is closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**Production, as read now (2026-10-13):**
-- `main` `fef80b9b`, deploy **2203** (green, run 38476539324), container
-  image `4444d9d53d906b8d` (reused by deploys 2202 and 2203).
-- **Balance 808.** The last ledger row is 459 (run 150's Add-on, 21:59 UTC),
-  and nothing came after it. No job is open.
-- **Paid opt-ins are closed:** the balance box admits no press
-  (`BALANCE_OPT_IN = []`), and the form says "CLOSED".
-- **`imagePurchases=true` at runtime, confirmed by run 151** (your free
-  press, 23:37 UTC, from `1c14b10d`): both readers answered
-  `fef80b9bc913`, a cold container got `4444d9d53d906b8d`, async and the
-  runner on; the free job settled at cost 0; balance 808; stopped before
-  the paid edit.
+**Production, as read now (2026-10-14):**
+- `main` `fef80b9b`, deploy **2204** (the images-off redeploy, run
+  38488911563, green), container image `4444d9d53d906b8d` (reused).
+- **Image purchases: OFF** since deploy 2204 (run 152's gate read it off).
+  **Your Stage C turns them back on:** set the secret to `on`, redeploy
+  `main`, then the free check, which must print `imagePurchases=true`.
+- **Balance 783.** The last ledger row is 466 (run 152's Order line). No
+  job is open.
+- **Paid opt-ins are closed** again (`BALANCE_OPT_IN = []`; the form says
+  "CLOSED").
 
 **Closed and not to be repeated:**
+- **`acc-clarify-resume`, run 152:** pressed once, not repeated. Its
+  clarify verdict passed; see item 2.
 - **K3B, run 150: PASS.** Codex checked the logs independently: the
   component and words designers overlapped about 67 s inside one Add-on,
   both changes landed, 20 credits, no image bought. The live coverage gap is
@@ -37,89 +37,55 @@ evidence):**
   pass in its verdict (a snapshot, no timing).
 - **This round:** the timing correction for it, below.
 
-**1. Done: run 151 confirmed `imagePurchases=true`** (above). Nothing more to press for it.
+**1. Run 151** confirmed `imagePurchases=true` before this run (deploy
+2203). It was then turned off for run 152 (deploy 2204), and is to be
+turned back on (your Stage C).
 
-**2. Clarify and resume, corrected after Codex's false pass, prepared (not
-pressed).**
-- **What Codex found in `4d60a2a3`:**
-  - The heading's job ran 100–200, and the link's job started at 300 and
-    asked at 400.
-  - The verdict still passed, because the snapshot at the question read
-    done / waiting / blocked.
-  - That repeated run 119's limit and closed nothing.
-- **The correction (scripts and tests only; no builder change, no image
-  change):**
-  - **When the question began waiting.** The press keeps a timed read of
-    the request's statuses (and job counts) every time they change. The
-    wait began between the last read without the link waiting and the
-    first read with it.
-  - **Work while it waited.** It counts only when the heading is seen
-    running, or seen finishing, in reads taken while the link is still
-    waiting.
-  - **The answer is held.** It stays unsent until that work is seen, or
-    nothing else can move, or the step's window ends; the reason is
-    recorded.
-  - **What counts for nothing.** Work finished before the question counts
-    for nothing.
-  - **Missing timing evidence** is **unverified**.
-  - **The right shape at the wrong time** is **not exercised**, with no
-    automatic repeat.
-  - **The earlier checks are kept:** dependency, resume, reuse of finished
-    work and the money.
-- **The message is reordered:** the shop link comes first, so its write is
-  filed first and the heading's can only come after the question. The order
-  alone is not trusted; the verdict reads the timing.
-- **Offline: CR 1–2** (`test/request-flow.test.mjs`). One request in two
-  shapes (an edit's step asks / an addition's routing asks). Each checks:
-  - independent work finishing while the question waits;
-  - the dependent part held with no job;
-  - another device seeing the same states at no cost;
-  - the answer resuming only the asking part;
-  - the held part running once after it;
-  - the finished part never running again;
-  - one charge per working job;
-  - a resent answer and a reload doing nothing.
+**2. Run 152, `acc-clarify-resume`** (2026-10-14, 00:20–00:39 UTC, 25
+credits, 808 → 783).
+- **The real router:** one request of three parts. The line waits for the
+  link (`dependsOn`).
+- **The timing evidence (server job times, UTC):**
+  - the link's menu step asked "What is the web address of your online
+    shop?" at **00:23:30**;
+  - the heading's routing and edit then ran **00:23:30 → 00:26:24**,
+    published at 00:26:15;
+  - the answer was routed at **00:26:55**, sent from a closed tab and
+    followed in a fresh session;
+  - the link then ran and published at 00:30:54;
+  - the line's first job came only at 00:31:10, and it published at
+    00:36:47.
 
-  Two mutants on the readiness rule were both killed.
-- **Live: `acc-clarify-resume`** on `fold-lane-bakery`, one message:
-  > Add a link to our online shop in the footer, change the Classes page
-  > heading 'How a Saturday class runs' to 'How a Saturday class works', and
-  > once that shop link is in, add one line on the Order page saying you can
-  > also order online from our shop, using the link at the bottom of every
-  > page.
-
-  Then the answer, *"It's shop.harbourloaf.co.uk/bread"*, sent with the tab
-  closed and followed in a fresh session.
-- **Expected:**
-  - At the question: the heading part done, the link part waiting, and the
-    line part held on it with no job.
-  - The heading seen running or finishing after the link was first read
-    waiting, before the answer went.
-  - After the answer: all done; the heading never run again; the link
-    resumed; the line run only then.
-  - The three changes on the site, everything else byte for byte, and one
-    charge per job.
-  - Any other shape is **not exercised**, never a pass, and is not
-    repeated.
-- **What a pass would prove:** independent work went on while a real
-  question waited, the dependent part waited, the answer resumed only the
-  asking part, finished work was not redone, and one charge per job. It
-  would be one sample. The question's time is bracketed by the press's
-  reads (every 3 s), not read from the server.
-- **About 10–19 credits** (an estimate, not a cap; unchanged: the same
-  three parts and answer, only reordered, and the extra reads are free).
-- **It needs, for one run:** your balance opt-in naming
-  `acc-clarify-resume`, image purchases off with a redeploy (then on
-  again), and your press. Run step 1 first.
-- **Limits:**
-  - Whether the real router names the dependency is unknown.
-  - If the line asks a question of its own, the press fails rather than
-    passes.
-  - If the link's routing does not ask and its step is still being
-    prepared when the heading is ready, the heading may run first. The run
-    is then **not exercised (timing)**, never a pass.
-  - A second device reading the waiting question is shown offline only.
-- Record: `docs/history/2026-10-13-clarify-resume.md`.
+  The press's own timing-aware verdict said **ok**. Its trail values are
+  in the run's evidence bundle; the log shows only the passing check.
+- **Your five checks:**
+  - independent work went on while the question waited: **yes**;
+  - the dependent part stayed blocked until the link finished: **yes**;
+  - the answer resumed only the link: **yes**;
+  - the heading was not rerun after the answer: **yes**;
+  - no duplicate execution or charges: **yes** (seven ledger rows, each
+    once, no refund, no later charge, no job open).
+- **Outcome:**
+  - the Classes heading reads "How a Saturday class works";
+  - `/order` gained the online-shop line;
+  - every served footer links to the shop as "Online shop".
+- **Why the press still says FAIL** (none of it in the clarify verdict):
+  1. The link landed in the footer's small print, not the social-icon list
+     the scenario's stored check looked in. That gave a FAIL; the served
+     check passed.
+  2. The byte-for-byte check therefore counted the 11 footer edits as
+     unexplained. **Whether anything else changed in those 11 pages is
+     unverified:** the stored sources are in the evidence bundle, which I
+     cannot download. You can, from the run page, if you want it read.
+  3. It spent **25 against the estimate of 10–19.** The Order line went
+     through the Add-on step at 12, not an edit at 1–3. That is a cost
+     finding; only the balance bounded it.
+- **Remaining gaps:**
+  - preservation of those 11 pages outside the footer;
+  - whether the scenario's footer check should accept a small-print link;
+  - the cost of a one-line addition routed to the Add-on step;
+  - one sample, no rate.
+- Record: `docs/history/2026-10-13-clarify-resume.md` §8.
 
 **Suites:** full suite `10814 / 10814 / 0 / 0` (10,808 + six new timing
 cases). The timing sweep killed 20 of 21; the survivor is equivalent, and
@@ -1164,6 +1130,38 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-14 — Run 152: the clarify-and-resume test, pressed once (25 credits)
+
+You authorised one run, and it ran once (00:20–00:39 UTC). Image purchases
+were switched off for it (deploy 2204); no photograph was bought.
+
+What happened, from the server's own job times:
+- The shop link's step asked for the shop's address at 00:23:30.
+- While that question waited, the Classes heading was changed and
+  published (00:23:30–00:26:24).
+- Your answer went at 00:26:55.
+- The link was then added to every footer, and only after that did the
+  Order line start, which was the part that depended on it.
+- Nothing finished was redone, and every charge was single: 25 credits,
+  808 → 783.
+
+So the five things you asked to see all happened, and the press's
+timing-aware check agreed.
+
+The press still marks the run as failed, for three reasons outside that
+check:
+- the link went into the footer's small print instead of the social icons
+  the test expected (the live footer does link to the shop);
+- because of that, it could not confirm the 11 edited pages are otherwise
+  unchanged;
+- it cost 25 against the 10–19 estimate, because the one-line addition
+  went through the bigger Add-on step.
+
+These are recorded, not retried. The balance box is closed again. Image
+purchases come back on with your Stage C.
+
+Record: `docs/history/2026-10-13-clarify-resume.md` §8.
 
 ## 2026-10-13 — Run 151: the image switch is confirmed on (free)
 
