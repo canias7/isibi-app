@@ -472,5 +472,16 @@ and `waits-for-prerequisite` are all covered.
 
 **Afterwards:**
 - The balance box was closed in the commit after this record.
-- Image purchases back on: the owner's step, then a free check (§9 when
-  read).
+- Image purchases back on, **confirmed**:
+  - The owner set `IMAGE_PURCHASES` to `on` and redeployed `main` twice.
+    Both deploys were green, on `fef80b9b`: 2205 (run 38493646383,
+    01:03:52–01:04:42 UTC) and 2206 (run 38495327927, 01:22:08–01:22:59
+    UTC).
+  - **Run 153** (run 38495384462, free, from `113be23f`) read the runtime at
+    01:23:03:
+    - both readers answered `fef80b9bc913`;
+    - a cold container got `4444d9d53d906b8d`;
+    - async and the runner were on;
+    - **`imagePurchases=true`**;
+    - the free job settled at cost 0;
+    - the balance read 783, and the run stopped before the paid edit.

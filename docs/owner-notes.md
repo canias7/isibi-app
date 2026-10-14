@@ -1,17 +1,19 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-14: run 152, the clarify-and-resume test, pressed once — its clarify verdict passed, the press FAILED on three other checks; image purchases are OFF until your Stage C; the balance box is closed)
+## Current handoff — read this first (2026-10-14: run 152, the clarify-and-resume test, pressed once — its clarify verdict passed, the press FAILED on three other checks; image purchases back ON, confirmed by run 153; the balance box is closed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **Production, as read now (2026-10-14):**
-- `main` `fef80b9b`, deploy **2204** (the images-off redeploy, run
-  38488911563, green), container image `4444d9d53d906b8d` (reused).
-- **Image purchases: OFF** since deploy 2204 (run 152's gate read it off).
-  **Your Stage C turns them back on:** set the secret to `on`, redeploy
-  `main`, then the free check, which must print `imagePurchases=true`.
+- `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
+  before it, also green), container image `4444d9d53d906b8d` (reused
+  throughout).
+- **Image purchases: ON, confirmed by run 153** (your free press, 01:23
+  UTC): `imagePurchases=true`, both readers on `fef80b9bc913`, the cold
+  container on `4444d9d53d906b8d`, nothing charged. They were off only for
+  run 152 (deploy 2204).
 - **Balance 783.** The last ledger row is 466 (run 152's Order line). No
   job is open.
 - **Paid opt-ins are closed** again (`BALANCE_OPT_IN = []`; the form says
@@ -37,9 +39,10 @@ evidence):**
   pass in its verdict (a snapshot, no timing).
 - **This round:** the timing correction for it, below.
 
-**1. Run 151** confirmed `imagePurchases=true` before this run (deploy
-2203). It was then turned off for run 152 (deploy 2204), and is to be
-turned back on (your Stage C).
+**1. The image switch, both states confirmed at runtime:**
+- `true` by run 151 (deploy 2203);
+- `false` by run 152's own gate (deploy 2204), before anything was sent;
+- `true` again by run 153 (deploys 2205 and 2206).
 
 **2. Run 152, `acc-clarify-resume`** (2026-10-14, 00:20–00:39 UTC, 25
 credits, 808 → 783).
@@ -1159,7 +1162,8 @@ check:
   went through the bigger Add-on step.
 
 These are recorded, not retried. The balance box is closed again. Image
-purchases come back on with your Stage C.
+purchases are back on: your free check (run 153) read `imagePurchases=true`,
+with nothing charged.
 
 Record: `docs/history/2026-10-13-clarify-resume.md` §8.
 
