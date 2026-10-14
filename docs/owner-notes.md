@@ -1124,6 +1124,27 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-14 — Questions now use "pick, then Continue" (option E; on branch `new`; nothing merged, deployed or spent)
+
+You picked E from five rendered layouts for the builder's questions. It is
+built on branch `new` for both kinds of question: a live site's, whose way
+out is "Cancel this request", and a first build's, whose way out is "Skip —
+just build it".
+- **How it works:**
+  - you pick an answer, and nothing is sent until you press Continue;
+  - "Something else…" puts the cursor in the message box for a typed
+    answer;
+  - a number key picks, Enter sends the pick, and Esc still cancels or skips.
+- **Colours:** the card uses whatever palette the page has. The colours
+  themselves did **not** change: the black-and-white look is still only a
+  prototype, and that is your call.
+- **Tests:** a new test file for the card, and every test that answered a
+  question by clicking now picks and presses Continue, including one in a
+  real browser.
+  - Full suite: 10,798 tests, 0 failed.
+
+Spent nothing. Not merged. `PROGRESS_TALK` stays off.
+
 ## 2026-10-14 — An unreadable check result is never called clean (on branch `new`; nothing merged, deployed or spent)
 
 Codex found one more gap: when the automated browser check reported

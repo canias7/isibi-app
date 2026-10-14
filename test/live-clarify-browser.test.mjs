@@ -57,9 +57,10 @@ test("THE ROUTER'S QUESTION BECOMES THE LIVE CARD: its words last, its answers n
   assert.deepEqual(p.said(), [{ r: "u", t: REQ }, qMsg(Q)]);
   assert.equal(p.busy(), false, "the page stayed busy behind a question");
   const html = p.ctx.siteAskHTML(p.s.msgs[1], p.s);
-  assert.match(html, /data-ask-ans="Home"[^]*<kbd>1<\/kbd>[^]*data-ask-ans="Visit"[^]*<kbd>2<\/kbd>/);
+  // PICK, THEN CONTINUE (option E, 2026-10-14): each answer a row to pick, in order, and Continue to send it.
+  assert.match(html, /data-ask-pick="Home"[^]*data-ask-pick="Visit"[^]*data-ask-own="1"[^]*data-ask-go="1"[^]*>Continue</);
   assert.match(html, /data-ask-cancel="1"[^]*Cancel this request/);
-  assert.doesNotMatch(html, /data-skip|data-ans="/, "a first build's buttons were drawn under a live site's question");
+  assert.doesNotMatch(html, /data-skip|data-pick="|data-pick-go/, "a first build's buttons were drawn under a live site's question");
   // AN OLDER QUESTION KEEPS ITS WORDS AND LOSES ITS BUTTONS.
   assert.equal(p.ctx.siteAskHTML(qMsg({ ...Q, id: QID2 }), p.s), "", "a question that is not the live one was drawn with answers");
 });
@@ -70,7 +71,7 @@ test("A QUESTION WITH NO ANSWERS OFFERED STILL HAS ITS WAY OUT, and the composer
   p.ctx.siteSend("Change the heading");
   await settle();
   const html = p.ctx.siteAskHTML(p.s.msgs[1], p.s);
-  assert.doesNotMatch(html, /data-ask-ans/);
+  assert.doesNotMatch(html, /data-ask-pick/);
   assert.match(html, /data-ask-cancel/, "a question with no buttons offered no way to cancel it");
 });
 
@@ -112,8 +113,9 @@ test("A TYPED ANSWER RESUMES THE WAITING REQUEST: the route is told which questi
 test("A PRESSED ANSWER, BY CLICK OR BY ITS NUMBER, IS SENT AS ONE — and leaves the composer's files where they are", async () => {
   for (const how of ["click", "key"]) {
     const p = page({ site: { ...asking(), draft: { t: "", imgs: [IMG] } }, answer: (url) => (url === ROUTE ? { body: RESUME_ANSWER } : null) });
-    if (how === "click") p.click("data-ask-ans", "Visit");
-    else assert.equal(p.key("2"), true, "the number key did nothing");
+    if (how === "click") (p.click("data-ask-pick", "Visit"), p.click("data-ask-go", "1"));
+    // A NUMBER PICKS, ENTER SENDS (option E, 2026-10-14).
+    else { assert.equal(p.key("2"), true, "the number key did nothing"); assert.equal(p.key("Enter"), true, "Enter did not send the pick"); }
     await settle();
     const r = p.calls[0];
     assert.equal(r.body.message, "Visit", how);
@@ -189,7 +191,7 @@ test("AFTER A RELOAD IN THE SAME BROWSER, THE ANSWER STILL CARRIES THE REQUEST'S
   const saved = copy(first.s);
   delete saved.draft;
   const second = page({ site: saved, idb, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "logo", tab: true, instruction: LOGO_RESUMED, ask: { answered: true, round: 1, context: LOGO_TOLD }, cost: 2 } } : null) });
-  second.click("data-ask-ans", "Browser tab");
+  (second.click("data-ask-pick", "Browser tab"), second.click("data-ask-go", "1"));
   await settle();
   assert.equal(second.calls[0].body.attached, true, "the route was not told the request carried files");
   const [e] = posted(second, EDIT);
@@ -213,7 +215,7 @@ test("A QUESTION'S FILES LIVE A DAY IN THIS BROWSER'S STORE: an older entry goes
 
 test("A BROWSER WITHOUT THE FILES DOES NOT ANSWER WITHOUT THEM: nothing is sent, the answer is held, and the file is asked for — then sent with it", async () => {
   const p = page({ site: asking(LOGO_Q, true), idb: undefined, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "logo", tab: true, instruction: LOGO_RESUMED, ask: { answered: true, round: 1 }, cost: 2 } } : null) });
-  p.click("data-ask-ans", "Browser tab");
+  (p.click("data-ask-pick", "Browser tab"), p.click("data-ask-go", "1"));
   await settle();
   assert.deepEqual(p.calls, [], "an answer was sent without the file its question is about");
   assert.match(p.last().t, /^That question is about the file you sent with your request, and this browser no longer has it/);
@@ -520,7 +522,7 @@ test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A
     assert.deepEqual(p.ask(), { id: QID2, text: Q.text, options: Q.options, attached: false, note }, "the question asked again is not the live card, with its note");
     assert.deepEqual(p.last(), { r: "a", t: note + "\n" + Q.text, q: Q.text, opts: Q.options, ask: QID2 }, "the note is not drawn above the question");
     assert.equal(p.s.unsent, undefined, "the answer came back to the box as if the request had ended");
-    assert.match(p.ctx.siteAskHTML(p.last(), p.s), /data-ask-ans="Home"[^]*data-ask-cancel="1"/, "the card asked again has no answers or no way out");
+    assert.match(p.ctx.siteAskHTML(p.last(), p.s), /data-ask-pick="Home"[^]*data-ask-cancel="1"/, "the card asked again has no answers or no way out");
     // A NOTE THAT IS NOT ONE SHORT LINE MAKES IT NO QUESTION: nothing drawn as one.
     for (const bad of [3, "", "x".repeat(301)]) assert.equal(p.ctx.clarifyOf({ ...again, note: bad }), null, JSON.stringify(bad));
   }
@@ -568,6 +570,6 @@ test("A FIRST BUILD'S QUESTION IS STILL THE INTERVIEW: no live card, no claim, i
   assert.ok(p.s.clarify, "the first build's round was not kept");
   assert.deepEqual(p.last(), { r: "a", t: first.text, q: first.text, opts: first.options });
   const html = p.ctx.siteAskHTML(p.s.msgs[1], p.s);
-  assert.match(html, /data-ans="Bakery"[^]*data-skip="1"/);
+  assert.match(html, /data-pick="Bakery"[^]*data-pick-go="1"[^]*data-skip="1"/);
   assert.doesNotMatch(html, /data-ask-/);
 });

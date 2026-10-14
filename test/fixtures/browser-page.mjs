@@ -48,7 +48,7 @@ function cutStatement(first, last, holding) {
 // THE KEYS: the one listener that answers a live question by its number and cancels it on Esc.
 const KEYS = cutStatement("\ndocument.addEventListener('keydown', (e) => {", "\n});\n", "siteAskCancel()");
 // THE CLICKS: the thread's one delegated handler, assigned on every render.
-const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-ans");
+const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-pick");
 // THE LABELS OF A REQUEST'S CARD (2026-10-03, the combined request flow).
 const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approval:");
 // …AND THOSE OF A STOPPED OR FAILED PART THAT LEFT SOMETHING STANDING (2026-10-07).
@@ -69,6 +69,8 @@ const FNS = [...new Set([
   "siteRoutesRead", "siteRoutesApply", "siteWithPages", "pageFromPath", "siteDraft", "siteSend", "siteBuildStart",
   "siteEdit", "editAsk", "editAskDone", "siteAddon", "addonAnswer", "readRouteReply",
   ...ASK_FNS, "siteAskHTML", "siteLiveAskHTML", "siteAskCancel", "siteAskCheck",
+  // A QUESTION'S ANSWERS: PICK, THEN CONTINUE (option E, 2026-10-14).
+  "sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake",
   "readAddonReply", "readEditReply", "addonOutcomeMsg", "alsoTail",
   "reactSend", "reactStageLabel", "buildCostWords", "buildErrOutcome",
   ...BROWSER_FNS, ...EDIT_BROWSER_FNS,
@@ -261,7 +263,7 @@ export function page({ site, answer = () => null, idb, timers = false, frame = f
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null,
+    siteBusy: false, siteBuild: null, siteTicker: null, sitePicked: null,
     siteOpenId: s.id,
     renderSites: () => {
       if (!frame) return;

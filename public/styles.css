@@ -1585,6 +1585,27 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    answering, and one that cannot be found is the interrogation this feature
    exists to avoid. */
 .st-opt-skip { color: var(--muted); }
+/* ── A QUESTION'S ANSWERS: PICK, THEN CONTINUE (the owner's option E, 2026-10-14).
+   Radio rows, a "Something else…" row for a typed answer, and one filled
+   Continue button; the way out (Cancel, or Skip before a first build) is a
+   quiet text link beside it. Tokens only, so it follows the palette. */
+.st-pick { display: flex; flex-direction: column; margin: .45rem 0 .2rem; }
+.st-pick-opt { display: flex; align-items: center; gap: .6rem; width: 100%; font: inherit; font-size: .9rem; text-align: left;
+  color: var(--text); background: none; border: 0; border-radius: 8px; padding: .45rem .15rem; cursor: pointer; }
+.st-pick-opt:hover { background: var(--panel); }
+.st-pick-opt:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.st-pick-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--muted); box-sizing: border-box; }
+.st-pick-opt.on .st-pick-dot { border: 5px solid var(--text); }
+.st-pick-own { color: var(--muted); }
+.st-pick-go { display: flex; align-items: center; gap: .9rem; margin-top: .5rem; }
+.st-pick-continue { font: inherit; font-size: .85rem; font-weight: 500; color: var(--bg); background: var(--text); border: 0; border-radius: 999px;
+  padding: .5rem 1.1rem; cursor: pointer; }
+.st-pick-continue:disabled { opacity: .35; cursor: default; }
+.st-pick-continue:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.st-pick-cancel { font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
+.st-pick-cancel:hover { color: var(--text); }
+
 .st-opt-skip:hover { color: var(--text); }
 /* A REQUEST OF SEVERAL PARTS (2026-10-03): one card under its message, each
    part's words beside its status, in the thread's own type and colours — what

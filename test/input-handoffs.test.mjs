@@ -263,9 +263,11 @@ test("A LONG QUESTION WITH SIX ANSWERS, THE LAST ONE LONG: kept whole, drawn who
     assert.equal(shown.ask, kept.id);
     const drawn = p.ctx.siteAskHTML(shown, p.s);
     for (const o of LONG_Q.options) assert.ok(drawn.includes(">" + o + "</span>"), "an answer is not drawn whole: " + o.slice(0, 40));
-    assert.ok(drawn.includes("<kbd>6</kbd>"), "the sixth answer has no key");
+    // EACH ANSWER A ROW TO PICK, THEN CONTINUE (option E, 2026-10-14); the keys pick by number.
+    assert.equal((drawn.match(/data-ask-pick="/g) || []).length, 6, "not every answer can be picked");
+    assert.match(drawn, /data-ask-go="1"[^>]* disabled>Continue</, "Continue sends before anything is picked");
     // PRESSING THE SIXTH ANSWER SENDS ALL OF IT, AS THE ANSWER.
-    p.click("data-ask-ans", LAST_OPTION);
+    (p.click("data-ask-pick", LAST_OPTION), p.click("data-ask-go", "1"));
     await settle(200);
     const sent = p.calls.filter((c) => c.url === ROUTE);
     assert.equal(sent.length, 2, "the pressed answer was not sent");
@@ -360,7 +362,7 @@ test("THE REQUEST'S FILE REACHES THE STEP AFTER ITS QUESTION: the answer carries
       p.ctx.siteSend("Use this as our logo");
       await settle(200);
       assert.ok(p.ask(), "no question was drawn");
-      p.click("data-ask-ans", "Header");
+      (p.click("data-ask-pick", "Header"), p.click("data-ask-go", "1"));
       await settle(400);
       const edit = p.calls.find((c) => c.url === "/api/site/" + slug + "/edit");
       assert.ok(edit, "the answered request was not posted: " + JSON.stringify(p.calls.map((c) => c.url)));

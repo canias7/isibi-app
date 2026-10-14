@@ -8327,8 +8327,13 @@ function renderSiteWorkspace(view, site) {
     // per-node handler would be rebound constantly and lost on the next repaint.
     thread.onclick = (e) => {
       if (!e.target.closest) return;
-      const askAns = e.target.closest('[data-ask-ans]');
-      if (askAns && thread.contains(askAns)) { siteAskReply(askAns.getAttribute('data-ask-ans'), true); return; }
+      // PICK, THEN CONTINUE (option E): a click picks, Continue sends.
+      const askPick = e.target.closest('[data-ask-pick]');
+      if (askPick && thread.contains(askPick)) { sitePick(sitePickKeyLive(siteById(siteOpenId)), askPick.getAttribute('data-ask-pick')); return; }
+      const askOwn = e.target.closest('[data-ask-own]');
+      if (askOwn && thread.contains(askOwn)) { sitePickOwn(); return; }
+      const askGo = e.target.closest('[data-ask-go]');
+      if (askGo && thread.contains(askGo)) { const v = sitePickTake(sitePickKeyLive(siteById(siteOpenId))); if (v) siteAskReply(v, true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
       if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
       // A REQUEST'S CARD (2026-10-03): Stop the rest, or a part's rewrite.
@@ -8340,8 +8345,12 @@ function renderSiteWorkspace(view, site) {
       if (reqBuy && thread.contains(reqBuy)) { siteRequestBuyAgain(site.id, reqBuy.getAttribute('data-req-buy'), Number(reqBuy.getAttribute('data-req-part'))); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
-      const ans = e.target.closest('[data-ans]');
-      if (ans && thread.contains(ans)) { siteAnswer(ans.getAttribute('data-ans')); return; }
+      const pick = e.target.closest('[data-pick]');
+      if (pick && thread.contains(pick)) { sitePick(sitePickKeyFirst(siteById(siteOpenId)), pick.getAttribute('data-pick')); return; }
+      const pickOwn = e.target.closest('[data-pick-own]');
+      if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(); return; }
+      const pickGo = e.target.closest('[data-pick-go]');
+      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v); return; }
       const h = e.target.closest('[data-steptog]');
       if (h && thread.contains(h)) h.parentNode.classList.toggle('open');
     };
@@ -14171,19 +14180,11 @@ function siteAskHTML(m, site) {
   // function is what makes them so. A hint printed beside an option that does
   // nothing when pressed is worse than no hint: it teaches a shortcut and then
   // ignores it.
-  return '<div class="st-opts">' +
-    m.opts.slice(0, 4).map((o, i) =>
-      '<button type="button" class="st-opt" data-ans="' + esc(String(o)) + '">' +
-        '<kbd>' + (i + 1) + '</kbd><span>' + esc(String(o)) + '</span>' +
-      '</button>').join('') +
-    // ESC, NOT ENTER, and the mockup said Enter. Enter is the composer's send
-    // key: bound here it either fights that or works only when the box happens
-    // to be empty, which is a shortcut that silently does two different things.
-    // Esc means dismiss everywhere else and collides with nothing.
-    '<button type="button" class="st-opt st-opt-skip" data-skip="1">' +
-      '<kbd>esc</kbd><span>Skip &mdash; just build it</span>' +
-    '</button>' +
-  '</div>';
+  // PICK, THEN CONTINUE (the owner's option E, 2026-10-14): `sitePickHTML`.
+  // Esc still skips (the keys below); Enter sends a pick only when no text
+  // field has the focus, so it never fights the composer's own send key.
+  return sitePickHTML('first', sitePickKeyFirst(site), m.opts.slice(0, 4),
+    '<button type="button" class="st-pick-cancel" data-skip="1">Skip &mdash; just build it</button>');
 }
 
 // THE CARD OF A QUESTION ON A SITE THAT EXISTS (2026-10-02): drawn only under
@@ -14197,15 +14198,76 @@ function siteLiveAskHTML(m, site) {
   // the answer, so none is cut and none left off. The keys reach nine; a tenth
   // answer is a button without a key.
   const opts = Array.isArray(m.opts) ? m.opts.slice() : [];
-  return '<div class="st-opts">' +
-    opts.map((o, i) =>
-      '<button type="button" class="st-opt" data-ask-ans="' + esc(String(o)) + '">' +
-        (i < 9 ? '<kbd>' + (i + 1) + '</kbd>' : '') + '<span>' + esc(String(o)) + '</span>' +
-      '</button>').join('') +
-    '<button type="button" class="st-opt st-opt-skip" data-ask-cancel="1">' +
-      '<kbd>esc</kbd><span>Cancel this request</span>' +
-    '</button>' +
+  return sitePickHTML('live', sitePickKeyLive(site), opts,
+    '<button type="button" class="st-pick-cancel" data-ask-cancel="1">Cancel this request</button>');
+}
+
+// ── PICK, THEN CONTINUE (the owner's option E, 2026-10-14) ──────────────────
+//
+// Chosen from five rendered options: the answers as a list to pick from, one
+// "Something else…" row that hands the answer to the composer, and a
+// Continue button that sends the pick — so a stray click is never an answer.
+// The pick is the page's state (`sitePicked`), keyed by the question it
+// belongs to, so a repaint keeps it and a new question starts with none.
+// Both cards share it: `live` (a site that exists; its way out is Cancel) and
+// `first` (a first build's question; its way out is Skip). Each answer keeps
+// its own words whole. Drawn from the palette's own tokens, never a colour of
+// its own.
+let sitePicked = null;
+function sitePickKeyLive(site) {
+  return site && site.ask ? 'live:' + site.ask.id : '';
+}
+function sitePickKeyFirst(site) {
+  const msgs = site && Array.isArray(site.msgs) ? site.msgs : [];
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i] && msgs[i].r === 'a' && msgs[i].q) return 'first:' + i;
+  return '';
+}
+function sitePickHTML(kind, key, opts, wayOut) {
+  const sel = sitePicked && sitePicked.key === key ? sitePicked.value : null;
+  const trig = kind === 'live' ? 'data-ask-pick' : 'data-pick';
+  return '<div class="st-pick" role="radiogroup" aria-label="Your answer">' +
+    opts.map((o) => {
+      const v = String(o);
+      const on = sel === v;
+      return '<button type="button" class="st-pick-opt' + (on ? ' on' : '') + '" role="radio" aria-checked="' + (on ? 'true' : 'false') + '" ' +
+        trig + '="' + esc(v) + '" data-pick-key="' + esc(key) + '" data-pick-val="' + esc(v) + '">' +
+        '<span class="st-pick-dot" aria-hidden="true"></span><span>' + esc(v) + '</span></button>';
+    }).join('') +
+    '<button type="button" class="st-pick-opt st-pick-own" role="radio" aria-checked="false" ' + (kind === 'live' ? 'data-ask-own' : 'data-pick-own') + '="1">' +
+      '<span class="st-pick-dot" aria-hidden="true"></span><span>Something else&hellip;</span></button>' +
+    '<div class="st-pick-go">' +
+      '<button type="button" class="st-pick-continue" ' + (kind === 'live' ? 'data-ask-go' : 'data-pick-go') + '="1" data-pick-key="' + esc(key) + '"' + (sel === null ? ' disabled' : '') + '>Continue</button>' +
+      wayOut +
+    '</div>' +
   '</div>';
+}
+/** The pick shown without redrawing the thread (the composer's draft stays as typed). */
+function sitePickPaint() {
+  try {
+    for (const b of document.querySelectorAll('.st-pick-opt[data-pick-val]')) {
+      const on = !!sitePicked && sitePicked.key === b.getAttribute('data-pick-key') && sitePicked.value === b.getAttribute('data-pick-val');
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    for (const g of document.querySelectorAll('.st-pick-continue')) g.disabled = !(sitePicked && sitePicked.key === g.getAttribute('data-pick-key'));
+  } catch (e) { /* no page to paint */ }
+}
+/** Pick `value` for the question `key`; null clears it. */
+function sitePick(key, value) {
+  sitePicked = key && typeof value === 'string' && value ? { key, value } : null;
+  sitePickPaint();
+}
+/** "Something else…": no pick, and the composer takes the answer. */
+function sitePickOwn() {
+  sitePick('', null);
+  try { const ta = document.getElementById('stRevise'); if (ta) ta.focus(); } catch (e) { /* no composer */ }
+}
+/** Continue: the pick for the live question `key`, sent the way a click on the answer always was; nothing when nothing is picked. */
+function sitePickTake(key) {
+  if (!key || !sitePicked || sitePicked.key !== key) return null;
+  const v = sitePicked.value;
+  sitePicked = null;
+  return v;
 }
 
 // The keys behind the numbers.
@@ -14228,11 +14290,15 @@ document.addEventListener('keydown', (e) => {
   // on the thread, so a number and a click cannot disagree.
   if (site && site.ask && !siteBusy && (site.msgs || []).some((x) => x && x.ask === site.ask.id)) {
     if (e.key === 'Escape') { e.preventDefault(); siteAskCancel(); return; }
+    // A NUMBER PICKS, ENTER SENDS THE PICK (option E): never a number that
+    // answers at once, which the card no longer offers to a click either.
+    const lkey = sitePickKeyLive(site);
+    if (e.key === 'Enter') { const v = sitePickTake(lkey); if (v) { e.preventDefault(); siteAskReply(v, true); } return; }
     const lopts = Array.isArray(site.ask.options) ? site.ask.options.slice(0, 9) : [];
     const ln = Number(e.key);
     if (!(ln >= 1 && ln <= lopts.length)) return;
     e.preventDefault();
-    siteAskReply(lopts[ln - 1], true);
+    sitePick(lkey, String(lopts[ln - 1]));
     return;
   }
   if (!site || !site.clarify || siteBusy) return;
@@ -14241,11 +14307,13 @@ document.addEventListener('keydown', (e) => {
   // `siteAskHTML` renders buttons for, so a number and a click cannot disagree
   // about which answer is which.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
+  const fkey = sitePickKeyFirst(site);
+  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v); } return; }
   const opts = (live && Array.isArray(live.opts)) ? live.opts.slice(0, 4) : [];
   const n = Number(e.key);
   if (!(n >= 1 && n <= opts.length)) return;
   e.preventDefault();
-  siteAnswer(opts[n - 1]);
+  sitePick(fkey, String(opts[n - 1]));
 });
 
 function siteAnswer(label, skip) {

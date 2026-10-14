@@ -871,7 +871,10 @@ test("only a build sends the answers, and only the live question keeps its butto
   const askBlock = src.slice(a, src.indexOf("function siteAnswer(", a));
   assert.match(askBlock, /if \(!site \|\| !site\.clarify\) return ''/);
   assert.match(askBlock, /data-skip/, "there is no way past the questions");
-  assert.match(askBlock, /data-ans=/);
+  // PICK, THEN CONTINUE (option E, 2026-10-14): the answers are rows to pick, sent by Continue.
+  assert.match(askBlock, /sitePickHTML\('first', sitePickKeyFirst\(site\)/, "a first build's answers are not drawn to pick");
+  assert.match(askBlock, /'data-ask-pick' : 'data-pick'/);
+  assert.match(askBlock, /'data-ask-go' : 'data-pick-go'/);
   // THE LAST QUESTION ONLY, and this is the one a mutation found nothing
   // holding. A round asks one at a time, so an earlier question left clickable
   // records an answer against the wrong `q` — the pair goes into the brief
@@ -881,35 +884,29 @@ test("only a build sends the answers, and only the live question keeps its butto
     "every past question in the thread keeps its buttons");
 });
 
-test("the printed key hints are keys that really work", () => {
-  // A HINT THAT LIES IS WORSE THAN NO HINT: it teaches a shortcut and then
-  // ignores it. The numbers are the whole reason this treatment was chosen over
-  // the other three, so the rendering and the handler are checked against each
-  // other rather than each on its own.
+test("a number picks the answer the card shows, Enter sends only a pick, and Esc still skips", () => {
+  // PICK, THEN CONTINUE (the owner's option E, 2026-10-14) replaced the
+  // numbered buttons that answered at once: a click picks and Continue sends,
+  // so a key must do the same — a number that sent on its own would answer
+  // where a click no longer does. No key hint is printed, so none can lie.
   const src = chat();
   const a = src.indexOf("function siteAskHTML(");
   const render = src.slice(a, src.indexOf("document.addEventListener('keydown'", a));
-  // Rendered 1-based, in order, one per option.
-  assert.match(render, /<kbd>' \+ \(i \+ 1\) \+ '<\/kbd>/, "the options are no longer numbered from 1");
-  assert.match(render, /<kbd>esc<\/kbd>/, "the skip key hint is gone");
-
+  assert.ok(render.includes("function sitePickHTML("), "the pick card moved; this guard checks nothing");
+  assert.doesNotMatch(render, /<kbd>/, "a key hint is printed beside the picks");
   const k = src.indexOf("document.addEventListener('keydown'", a);
   const keys = src.slice(k, src.indexOf("\n});", k));
   assert.ok(keys.length > 300, "the key handler moved; this guard checks nothing");
-  // The digit maps back 1-based, off the SAME live question the buttons come
-  // from — so a number and a click cannot answer differently.
-  assert.match(keys, /siteAnswer\(opts\[n - 1\]\)/, "the numbers are off by one, or wired to nothing");
-  // BOUNDED AT BOTH ENDS. Without the upper bound, pressing 9 on a three-option
-  // question calls preventDefault and swallows the keypress to do nothing —
-  // `siteAnswer` refuses the empty string, so it is silent rather than wrong,
-  // which is exactly the kind of inert wiring that survives a whole suite.
+  // The digit picks 1-based, bounded, off the SAME live question the card draws.
+  assert.match(keys, /sitePick\(fkey, String\(opts\[n - 1\]\)\)/, "a number does not pick, or picks off by one");
   assert.match(keys, /n >= 1 && n <= opts\.length/, "a digit past the end of the list is still handled");
-  assert.match(keys, /reverse\(\)\.find\(/, "the keys read a different question from the buttons");
+  assert.doesNotMatch(keys, /siteAnswer\(opts\[/, "a number answers at once again");
+  assert.match(keys, /reverse\(\)\.find\(/, "the keys read a different question from the card");
   assert.match(keys, /e\.key === 'Escape'.*siteAnswer\('', true\)/s, "esc does not skip");
-  // ENTER IS NOT BOUND, and that is the deviation from the mockup. Enter is the
-  // composer's send key; bound here it either fights that or works only when the
-  // box happens to be empty — one shortcut doing two different things.
-  assert.ok(!/'Enter'/.test(keys), "Enter is bound here and collides with send");
+  // ENTER SENDS ONLY A PICK, and only after the text-field guard: in the
+  // composer it is still the composer's own send key.
+  assert.match(keys, /if \(e\.key === 'Enter'\) \{ const v = sitePickTake\(fkey\); if \(v\) \{ e\.preventDefault\(\); siteAnswer\(v\); \} return; \}/, "Enter sends something other than the pick");
+  assert.ok(keys.indexOf("tag === 'textarea'") > 0 && keys.indexOf("tag === 'textarea'") < keys.indexOf("'Enter'"), "Enter is handled before the text-field guard");
 });
 
 test("the keys never fire where somebody is typing", () => {
