@@ -221,3 +221,114 @@ sent, only the balance bounds the spend.
 After that, a free rehearsal must read `imagePurchases=false` before the
 paid press (spend `yes`, the balance box set to the exact balance). The
 switch is turned back on afterwards (step 6). None of this has been done.
+
+## 9. The paid press: run 117, and the steps around it (2026-10-14)
+
+The owner: *"I approve one check-no-images Build test at the estimated 11–45
+credits, understanding that this is an estimate rather than an enforced cap.
+Open the opt-in for this scenario only."*
+
+### The steps, as run
+
+| Step | Run | Reading |
+|---|---|---|
+| Opt-in opened for `check-no-images` alone | `4586c678` | the form box named it; every other mode still refused |
+| `IMAGE_PURCHASES` off, *Deploy to Cloudflare* on `main` | deploy 2207 (12:08–12:09 UTC) | green on `fef80b9b`; container `4444d9d53d906b8d`, "no changes" (not rebuilt) |
+| Free preflight | run 116 (12:09 UTC) | the live Worker buys no photograph; slug free; balance 783; design and graph on; only the cap unmet (box blank). It started 36 s after the deploy, but its reads came after the new version uploaded (12:09:15) and read `imagePurchases=false` |
+| Ledger before | (12:12) | balance 783, last row 466, no edit job open |
+| **The paid press** | **run 117** (12:21:04–12:27:15 UTC), spend `yes`, balance box 783 | every prerequisite met; sent once |
+| Opt-in closed | `5056b7a8` | `BUILD_BALANCE_OPT_IN = []`, the box says CLOSED |
+| `IMAGE_PURCHASES` on, redeploy `main` | deploy 2208 (13:08–13:09 UTC) | green on `fef80b9b`; container "no changes" |
+| Free check of the restored state | run 118 (13:10 UTC) | "the live Worker still buys photographs": purchases are on again; balance 773 |
+
+### What the build did (its own record, `site_builds` for `saltmarsh-cheese-counter`)
+
+The row reads **done, ok, page `app`**, finished at 12:29:11 UTC. Total
+459,330 ms from the request. Its steps, in order:
+
+| Step | ms | Notes |
+|---|---|---|
+| auth, body, gate | 188, 1, 877 | |
+| design-recovery | 129,004 | `attempts: 0`: the design came back usable first time; this mark carries the design call's time |
+| design | 0 | `in 17751`, `out 821`, **no `graph`, no `waves`, no `agents`**: one call |
+| owner, normalize | 897, 2 | |
+| provision, schema, seed | 180, 447, 0 | `db 0`, `tables 0`: the frontend-only first build |
+| merge, gen | 315, 580 | |
+| **bands:sync** | 2 | the page written as one band, not bands at once |
+| fonts | 203,927 | `beside 1`: the page generation ran beside it in the container |
+| img | 3 | `viaContainer 1`; no photograph (switch off) |
+| compile, container, og | 97, 105,601, 283 | |
+| pages | 16,926 | `genMs 203543`, `tscMs 17295`, `viteMs 48708`, `renderMs 31261`, `publishMs 11995`, `credits 4` |
+
+**Published:** https://saltmarsh-cheese-counter.gofarther.app answers 200,
+title "Saltmarsh". It serves one route, `/`, with headings "Cheese boards,
+made up two days ahead", "How to order a board", "Tuesday to Saturday, nine
+till four", "Order a board". It has no `<img>`.
+
+**Charges, each once, on one build ref `b6360027…`:**
+- ledger row 467: deposit −2 (12:21:33);
+- ledger row 468: settle −4 (12:23:43);
+- ledger row 469: pages −4 (12:29:11).
+
+That is **10 credits, 783 → 773**, within the 11–45 estimate. No later row
+(read at 13:11: last row 469, balance 773, no job open).
+
+### What the press concluded, and why most of it is the press's misreading
+
+The press posted the build and waited on the same request. That connection
+ended at about 285 s (12:26:08, status 0, no job), the Cloudflare reset
+recorded in the route's own comment. The build went on under `waitUntil` and
+finished three minutes later. The press then read the source and the record
+**before the build ended**, so its "pages: []", "0 components", "done false",
+"the pages never came back" and the money check ("no job to attribute
+charges to") describe a build still running. They are not the build's
+result.
+
+### The verdict, item by item, from the evidence
+
+| Item | Result |
+|---|---|
+| **Overlap (design agents or page bands)** | **Not exercised.** The design ran as one call (no `graph` or `waves` mark, which the route writes only when it takes a parallel path), and the page was one band (`bands:sync`). The account's flags read `design` and `graph` true; enabled flags are not overlap. |
+| Dependency order | Met on the build's own trace: design → (no database) → generation → compile → container → publish |
+| Published result | Met: the site is live, one route, no photograph |
+| One page, ≤15 components | One route served; **component count not verified** (the press read the source before the end; an owner read is needed to read it now) |
+| Progress lines | **Not exercised**: none served; the press had no job to read them from |
+| Fresh-session recovery | **Not exercised**: no job was handed back, so the fresh session had nothing to follow |
+| No image | Met: none bought, none placed |
+| Charges | Met by the ledger: 10 credits on one build ref, each row once, nothing after |
+
+Not retried, as instructed.
+
+### The wider finding: no first build has used the parallel design since 2026-09-13
+
+`site_builds`, the last twelve builds:
+- `repairbench-1` (09-13), `hebden-bike-repair` (09-12),
+  `saltmarsh-kayak-co(-2)` (09-11), `ben-crowe-guitar` and `sowerby-forge`
+  (09-11) ran the design **graph, 16 agents**; repairbench-1 and hebden also
+  wrote **8 bands at once**;
+- `the-hot-plate` (10-04) and `saltmarsh-cheese-counter` (10-14, run 117)
+  ran **one design call and `bands:sync`**.
+
+In the route, `useGraph` needs `splitGraph(...)` to return agents **and**
+`designGraphFor(env, { uid })`. The runtime route reports `graph: true`
+from the same function on the same uid. The design-graph census still passes
+offline (`test/design-graph.test.mjs`, 31 of 31: the frontend tool splits
+into the 16 agents). So the live build takes neither parallel door, and the
+cause is **not established**. No test drives the real build route with the
+graph flag on and asserts which designer ran. Candidates to check, free and
+offline:
+- whether `firstBuild` or `editState` reaches the split as a revise on this
+  path;
+- whether the page plan's one page (`MAX_PAGES` 1) is what turns bands into
+  `sync`. A one-page plan may never have more than one band, so page-band
+  overlap may be impossible by design under the kept limits.
+
+### What it means
+
+The image-free Build audit is **blocked by the build path itself, not by the
+account's flags**. Another paid press would show the same single call until
+the cause is found. **Next (free):** a reproduction through the real
+`/api/site/react-build` route with supplied model answers and the graph flag
+on, asserting which designer runs and how many bands a one-page plan
+produces. Separately, the press should follow a build by its slug's record
+when the request answers nothing (backlog).

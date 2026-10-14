@@ -1,40 +1,44 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the Build audit's free rehearsal read the account (run 115: design and graph on; run 114's install defect fixed on the branch); run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
+## Current handoff — read this first (2026-10-14: the Build audit's one paid press ran (run 117: 10 credits, published, overlap not exercised; parallel design unused on first builds since 09-13; opt-in closed, images back on); run 152's live gaps closed — clarify-and-resume proven, preservation reproduced offline from its saved evidence, the footer checker corrected; the 25-credit overrun kept explicit; the image-free Build audit prepared as one batch; nothing spent, merged or deployed)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**The Build audit, now (2026-10-14):**
-- **Run 115, the free rehearsal, read everything** (11:34 UTC, from the
-  branch at `0d92f16e`, after the install fix `f7267ea9`; run 114 had died
-  before signing in). Nothing was sent or charged.
-- **The account's flags:** `design` true, `graph` true, `bands` true
-  (through a canary list), `bandsEveryone` false. **An image-free parallel
-  mode is on**: design agents at once, and the design as a graph. Nothing
-  needs switching on, so no configuration change is prepared.
-- The slug `saltmarsh-cheese-counter` is free and the balance is 783.
-  `imagePurchases` is true.
-- **Unmet, as expected:** the balance is above the 100 cap (the box was
-  blank), and the Worker still buys photographs.
-- The paid press could show overlap through the design's agents, and
-  through page bands if the build writes two or more. A build that runs its
-  design as one call would show none: recorded, not retried.
-- **11–45 credits is an estimate, not an enforced limit.** Only the balance
-  bounds a sent build.
-- **Next, yours:**
-  1. approve one paid run at about 11–45 credits;
-  2. I commit the opt-in for `check-no-images`;
-  3. you turn `IMAGE_PURCHASES` off and redeploy `main` (no code change,
-     the image reused);
-  4. a free rehearsal must read `imagePurchases=false`;
-  5. the paid press runs with the exact balance;
-  6. image purchases go back on.
-- CI on `fb5f01f3` is green (10,784 passed, 44 skipped, 0 failed). The
-  earlier REOPEN 1 timing failure was local only.
-- Details: `docs/history/2026-10-14-build-audit-batch.md` §7–8.
+**The Build audit, now (2026-10-14, after run 117):**
+- **The paid press ran once: run 117**, on your approval at an estimated
+  11–45 credits (not a cap). Image purchases were off for it (deploy 2207,
+  checked by run 116).
+  - **It cost 10 credits**, 783 → 773: ledger rows 467–469, deposit 2,
+    settle 4, pages 4, all on one build ref.
+  - The build **published** https://saltmarsh-cheese-counter.gofarther.app:
+    done and ok at 12:29:11 UTC, one route, no photograph bought.
+- **Overlap was not exercised.** The design ran as one call and the page
+  as one band (`bands:sync`), although your account's design and graph
+  flags are on.
+- **Progress lines and fresh-session recovery were not exercised.** The
+  build request ended at about 285 s with no answer and no job, and the
+  press judged the build before it finished. So its "0 pages" and "not
+  done" are the press's misreading; the build's own record says done.
+- **Not retried.**
+- **Wider finding:** no first build has used the design graph or bands at
+  once since 2026-09-13 (the-hot-plate, 10-04, is the same). The cause is
+  not established. The audit is blocked by the build path, not by your
+  account's flags.
+- **Restored:**
+  - the opt-in is closed (`5056b7a8`);
+  - image purchases are on: deploy 2208, and free run 118 reads "the live
+    Worker still buys photographs";
+  - the container was not rebuilt (`4444d9d53d906b8d`, "no changes" both
+    times);
+  - balance 773, last row 469, no job open.
+- **Next (free):** reproduce through the real build route with supplied
+  answers and the graph flag on, to find why neither parallel designer is
+  chosen. Then the press should follow a build by its record when the
+  request drops.
+- Details: `docs/history/2026-10-14-build-audit-batch.md` §9.
 
 **Production, as read now (2026-10-14):**
 - `main` `fef80b9b`, deploy **2206** (green, run 38495327927; 2205
@@ -1178,6 +1182,31 @@ since. Add new ones there.
 
 ---
 
+
+
+## 2026-10-14 — Run 117: the image-free Build test, once; it published, but nothing ran in parallel
+
+With your approval I opened the opt-in for this one check. You turned
+photographs off and redeployed, and the free preflight confirmed it. The paid
+build then ran once and published a one-page cheese-counter site for 10
+credits (783 → 773, three ledger rows on one build). It bought no images.
+
+It did not show what we were testing. The design ran as one model call and
+the page as one band, even though your account's parallel design flags are
+on. Looking back through the build records, no first build has used the
+parallel design since 13 September.
+
+The press also misjudged the ending. The build request ran inside the
+press's own connection, which Cloudflare cut at about 285 seconds. The
+build finished three minutes later in the background, after the press had
+already read it as empty. So progress lines and the fresh-session follow-up
+were not exercised either. I recorded all of this honestly and did not
+retry.
+
+Afterwards I closed the opt-in, and you turned photographs back on and
+redeployed. A free check confirms purchases are on again. The container was
+never rebuilt. The next step is free: find out, through the real build route
+with supplied answers, why the parallel designer is not being chosen.
 
 ## 2026-10-14 — Run 115: the Build check read the account; parallel design is on
 
