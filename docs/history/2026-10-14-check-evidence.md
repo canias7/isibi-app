@@ -394,3 +394,85 @@ sample, read by you. It cannot show the prose is always truthful.
    3-second wait not yet measured.
 7. **Everything here is supplied-model evidence.** The live verification is
    the first real model's sample.
+
+## 10. The evidence-integrity correction (Codex at `8a000d1f`; commit `9573b5ea`)
+
+**The defect.** Codex confirmed the green CI and found one integrity defect
+left. `checksOf` filtered every finding it could not read out of the list.
+So these three reports each became `ran: true, findings: []`, and
+`checkFacts` said the check "flagged none of what it looks for":
+- `{ ok: true, pages: 1, findings: [{ route: "/", kind: "unexpected-kind" }] }`;
+- a known image finding whose route is unreadable;
+- `findings: "unreadable"`.
+
+**Reproduced on `8a000d1f` before the fix**, through each reader:
+- the final reply said all three were clean;
+- for the unreadable route, **the progress milestone and the reply
+  disagreed**: progress said "It flagged an image that did not load", while
+  the reply said it flagged none;
+- the page's own line showed the raw route text ("the menu page").
+
+**The fix.** `browserOf` reads a report into four outcomes:
+
+| Report | Evidence | Said |
+|---|---|---|
+| none, `ok: false`, or no page opened | `{ ran: false }` | "could not run, so nothing checked how the pages load" |
+| present, but `ok` or the page count cannot be read | `{ ran: null }` | "its result could not be read, so whether it ran and what it found are not known. It is not known to be clean." Never passed, never "did not run" |
+| ran, everything read, nothing flagged | `{ ran: true, findings: [] }` | the all-clear, **and only here** (`browserClean`) |
+| ran, with findings or anything unread | `findings` (a known kind on an unreadable page is kept, without one), `unread` (count of findings not understood), `unknown` (the list, or its count of more, unreadable), `cut: null` (whether it was cut short is unreadable) | each said; any unread or unknown part adds "It is not known to be clean" |
+
+No raw text of a finding is ever carried or said: not its unknown kind,
+detail or route.
+
+**One reading for every reader.** `browserSaid` is the one sentence:
+- the final reply's `k` fact uses it;
+- the progress milestone (`spineCheckFacts`) uses it, and is `checked` only
+  when the check ran, `notdone` otherwise;
+- an older answer's report (`browserOnlyFacts`) uses it.
+
+The page's own fallback line (`renderNote`) follows the same distinction:
+- it counts findings that could not be read;
+- it says a findings list it cannot read was reported;
+- it names a page whose address could not be read without its raw text;
+- it stays silent only for a clean report.
+
+**Tests: `test/check-evidence-integrity.test.mjs` (9).**
+- **Negative controls:** Codex's three reproductions, in every reader; and
+  mixed findings (valid, unknown kind, a bare string, null, a known kind on
+  an unreadable page). Valid ones are kept, the rest counted, no raw text.
+- **Positive controls:** clean, flagged, cut short, did not run (no report;
+  `ok: false` with an error that is never said), and an unreadable result.
+- **One table** of ten reports read by progress, reply and legacy alike.
+- **Legacy answers** through the Edit and Add-on fact builders.
+- **Through the real reply handoff**, narration off and on, each
+  reproduction: the stored evidence, the reply's `k` facts and (on) the
+  progress milestone all carry the same not-clean sentence. A clean control
+  keeps its all-clear.
+- **Two existing tests pinned the silent drop** (progress-talk CHECKS,
+  check-evidence-flow EVIDENCE). They now require the count.
+
+**Measured.**
+- **Red check:** the three reproductions through `8a000d1f`'s own readers
+  (above).
+- **Sweep: 20 mutants.** 19 killed on the first pass. The survivor added
+  "could not run" to the unreadable-result sentence, which Codex named as a
+  misreading. It was a missing assertion: added, and killed on rerun,
+  **20 of 20**. The comment-only control survived.
+- **Full suite on the tree of `9573b5ea`: `10793 / 10791 / 0 / 2`.**
+- **Image predicted:** `357c5a0ed583d713` (206 inputs). `main` is unchanged
+  at `4444d9d53d906b8d`.
+- **CI on `9573b5ea`** (read after the runs):
+  - unit tests, run 38565424953: `10793 / 10749 / 0 / 44`, the same total
+    as the local run;
+  - site build, run 38565425192: success.
+- **Integration, redone against the other branch's current head
+  `5056b7a8`:**
+  - the local merge `a295c1e9` was never pushed;
+  - the same two textual conflicts (the Dockerfile's COPY line and
+    `docs/owner-notes.md`) were resolved by keeping both sides;
+  - the full suite is **`10885 / 10883 / 0 / 2`**;
+  - the image is predicted at `51cb20beba3a4b5c` (207 inputs).
+
+The release proposal (§7), the live verification (§8) and the remaining
+limits (§9) are unchanged. The live verification also reads, for each
+publish, that a report it could not fully read was never said as clean.

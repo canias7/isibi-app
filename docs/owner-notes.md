@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Branch `new` — handoff for you and Codex (2026-10-14, after Codex's review at `f1c6f9b0`; nothing merged, deployed, built, switched on, pressed or spent)
+## Branch `new` — handoff for you and Codex (2026-10-14, after Codex's reviews at `f1c6f9b0` and `8a000d1f`; nothing merged, deployed, built, switched on, pressed or spent)
 
 *A second line of work beside `claude/help-needed-ehlwlj`, on the branch you
 named `new`, cut from `main` (`fef80b9b`, the code deploy 2203 runs). The
@@ -49,9 +49,33 @@ handoff below this one is the other session's and is unchanged.*
    - **`renderNote`** is never a reply fact. Its fixed line now reads "An
      automated check that opened the finished pages in a browser flagged: …".
    - **`jobChecksFor` is gone.**
-8. `e8426dbc`: the records on top of `d5d04a8e` (this handoff, the
-   history, the design, the backlog, your preferences). The CI readings are
-   stamped in a later records-only commit.
+8. `e8426dbc` and `8a000d1f`: the records on top of `d5d04a8e` and their
+   CI readings. Codex reviewed at `8a000d1f`.
+9. **`9573b5ea`: a browser check is said clean only when its report reads
+   clean.**
+   - **The defect (Codex):** findings that could not be read were filtered
+     out, so the list came back empty and the reply said "flagged none". On
+     `8a000d1f` progress and reply also disagreed on one case, and the
+     page's line showed a raw route.
+   - **The fix:** a report is now read into four outcomes:
+     - did not run;
+     - its result could not be read (never passed, never "did not run");
+     - ran, with every understood finding kept and the rest counted
+       ("It is not known to be clean");
+     - genuinely clean, which alone gets the all-clear.
+   - **One reading everywhere:** the final reply, the progress milestone,
+     older answers and the page's line say the same, and no raw finding text
+     ever shows.
+   - **Tests:** 9 new: Codex's three reproductions and mixed findings,
+     positive controls, and the real reply handoff with narration off and
+     on.
+   - **Sweep:** 20 of 20.
+   - **Full suite:** `10793 / 10791 / 0 / 2`.
+   - **CI green:** unit run 38565424953, `10793 / 10749 / 0 / 44`; site
+     build run 38565425192.
+   - **Image predicted:** `357c5a0ed583d713`.
+10. The records commit on top of `9573b5ea` (this handoff and §10 of the
+    history).
 
 **Evidence (offline, supplied model answers only):**
 - **Tests:** 14 new cases in `test/check-evidence-flow.test.mjs`:
@@ -71,16 +95,20 @@ handoff below this one is the other session's and is unchanged.*
 
 **The integration check** (your ask: no two releases).
 - **Where:** a worktree detached at `claude/help-needed-ehlwlj`'s current
-  head `4586c678`, with `new` merged in as local commit `8d2b4351`. **Never
-  pushed; neither branch moved.**
+  head, with `new` merged in as a local commit. **Never pushed; neither
+  branch moved.**
+  - first at `4586c678` + `d5d04a8e`, as `8d2b4351`;
+  - **redone at `5056b7a8` + `9573b5ea`, as `a295c1e9`.**
 - **Conflicts: two, both textual, both resolved by keeping both sides:**
   - the Dockerfile's job-runner COPY line, where each branch adds one
     module;
   - this file's newest-first entries.
 - **Merged without a conflict:** the canary scripts and the shared reply,
   render and Worker files. Every ✅/⚠ left in `scripts/` is in a comment.
-- **Full suite on `8d2b4351`: `10876 / 10874 / 0 / 2`.** Image predicted
-  `e83931028c001b76`.
+- **Full suite:**
+  - on `8d2b4351`: `10876 / 10874 / 0 / 2`;
+  - **on `a295c1e9`: `10885 / 10883 / 0 / 2`.**
+- **Image predicted for the candidate:** `51cb20beba3a4b5c`.
 
 **The release, proposed: one, each step yours.**
 1. When the other branch is ready, build the candidate as its head with `new`
@@ -1047,6 +1075,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-14 — An unreadable check result is never called clean (on branch `new`; nothing merged, deployed or spent)
+
+Codex found one more gap: when the automated browser check reported
+something the builder could not read, it quietly dropped it and then said
+the check found nothing. Fixed.
+- **Something unreadable:** the reply says what was found, how much could
+  not be read, and that the result is not known to be clean.
+- **A result that cannot be read at all:** it says just that, never "it
+  passed" and never "it did not run".
+- **Everywhere alike:** the live updates, the final reply and the page say
+  the same thing.
+- **Checked:** with the live updates on and off, and against the other
+  session's branch together with this one; all tests pass.
+
+Spent nothing. `PROGRESS_TALK` stays off. Details: §10 of
+`docs/history/2026-10-14-check-evidence.md`.
 
 ## 2026-10-14 — Codex's review of branch `new` corrected (on branch `new`; nothing merged, deployed or spent)
 
