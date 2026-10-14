@@ -601,18 +601,18 @@ test("NO PHOTOGRAPH, THE WIRING: `check-no-images` reaches this spec and its run
 // Build parallelism audit): the UI presses' box, for the Build workflow. It is
 // CLOSED; the owner names one mode by commit for one run.
 
-test("BUILD OPT-IN 1 — the box is closed: blank changes nothing; a malformed number says so; any number refuses as closed; a named mode is admitted only when the owner names it, and only that mode", async () => {
+test("BUILD OPT-IN 1 — OPEN FOR check-no-images ALONE (the owner, 2026-10-14, one run): blank changes nothing; a malformed number says so; the one mode is admitted with its exact number; every other mode refuses; a closed list still refuses as closed", async () => {
   const { BUILD_BALANCE_OPT_IN, readBuildOptIn } = await import("../scripts/canary-build.mjs");
-  assert.deepEqual([...BUILD_BALANCE_OPT_IN], []);
+  assert.deepEqual([...BUILD_BALANCE_OPT_IN], ["check-no-images"]);
   assert.ok(Object.isFrozen(BUILD_BALANCE_OPT_IN));
   for (const blank of [undefined, null, "", "  "]) assert.deepEqual(readBuildOptIn(blank, { mode: "check-no-images" }), { ok: true, value: null, mode: "" });
   for (const bad of ["0", "-1", "783.5", "7 83", "abc", "0783", "+783", "12345678"]) assert.match(readBuildOptIn(bad, { mode: "check-no-images" }).msg, /whole credits/, bad);
-  assert.match(readBuildOptIn("783", { mode: "check-no-images" }).msg, /the build balance box is closed/);
-  // AS THE OWNER WOULD OPEN IT (a list naming one mode), and only for that mode.
-  const open = ["check-no-images"];
-  assert.deepEqual(readBuildOptIn("783", { mode: "check-no-images", admitted: open }), { ok: true, value: 783, mode: "check-no-images" });
-  assert.match(readBuildOptIn("783", { mode: "check", admitted: open }).msg, /only for check-no-images; this press is check/);
-  assert.match(readBuildOptIn("783", { mode: "edit", admitted: open }).msg, /only for check-no-images/);
+  assert.deepEqual(readBuildOptIn("783", { mode: "check-no-images" }), { ok: true, value: 783, mode: "check-no-images" });
+  assert.match(readBuildOptIn("783", { mode: "check" }).msg, /only for check-no-images; this press is check/);
+  assert.match(readBuildOptIn("783", { mode: "edit" }).msg, /only for check-no-images/);
+  assert.match(readBuildOptIn("783", { mode: "" }).msg, /only for check-no-images; this press is no check/);
+  // CLOSED AGAIN (an empty list), as it will be after the run.
+  assert.match(readBuildOptIn("783", { mode: "check-no-images", admitted: [] }).msg, /the build balance box is closed/);
 });
 
 test("BUILD OPT-IN 2 — with an admitted number, the hard cap becomes 'exactly the balance allowed', never removed; without one the hard cap stands", async () => {
@@ -627,9 +627,9 @@ test("BUILD OPT-IN 2 — with an admitted number, the hard cap becomes 'exactly 
   assert.match(moved.why, /the balance \(790\) is not the 783 credits/);
 });
 
-test("BUILD OPT-IN 3 — the wiring: the workflow's box says CLOSED and reaches the script; build-check reads it before the sign-in and refuses with exit 2; the admitted number reaches the prerequisites", () => {
+test("BUILD OPT-IN 3 — the wiring: the workflow's box names check-no-images alone and reaches the script; build-check reads it before the sign-in and refuses with exit 2; the admitted number reaches the prerequisites", () => {
   const wf = fs.readFileSync(new URL("../.github/workflows/build-as-owner.yml", import.meta.url), "utf8");
-  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'CLOSED: no build check may run above its hard cap\. Leave blank; anything typed here refuses before the sign-in\.'\n {8}required: false\n {8}default: ''\n/);
+  assert.match(wf, /\n {6}accept_balance:\n {8}description: 'BUILD check-no-images ONLY \(one run, 2026-10-14\): your balance in whole credits \(e\.g\. 783\)\. Lets this one check run above its hard cap only while the balance is exactly this number\. Not a budget: the build may spend up to that whole balance\. Blank otherwise; beside any other mode it refuses before the sign-in\.'\n {8}required: false\n {8}default: ''\n/);
   assert.match(wf, /\n {10}OWNER_ACCEPT_BALANCE: \$\{\{ github\.event\.inputs\.accept_balance \}\}\n/);
   const inputs = wf.slice(wf.indexOf("workflow_dispatch:"), wf.indexOf("\njobs:")).match(/^ {6}[a-z_]+:$/gm);
   assert.ok(inputs && inputs.length <= 25);

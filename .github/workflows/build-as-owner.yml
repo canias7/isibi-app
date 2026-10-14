@@ -69,7 +69,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'build | edit | check (the first-build check on copperleaf-tea-room: one fresh build followed from a fresh sign-in and judged on its page, components, recorded overlap, order, progress lines, photographs and charges; sends nothing unless spend is yes and the balance is between 70 and 1018) | check-no-images (the same check on saltmarsh-cheese-counter with no photograph: sends nothing unless the live Worker buys none, IMAGE_PURCHASES off, which stops photographs for every customer while off; the account already has an image-free parallel mode on, design, graph or bands for everyone, none switched on for it; and the balance is between 45 and 100, or exactly the balance the owner types in the balance box once a commit opens it for this mode (closed now). Paid acceptance is blocked: no separate test budget exists. With spend not yes it is a free rehearsal that reads the image switch and the flags and lists every unmet prerequisite; an estimate of 45 by every valid route, a build that takes more fails its check)'
+        description: 'build | edit | check (the first-build check on copperleaf-tea-room: one fresh build followed from a fresh sign-in and judged on its page, components, recorded overlap, order, progress lines, photographs and charges; sends nothing unless spend is yes and the balance is between 70 and 1018) | check-no-images (the same check on saltmarsh-cheese-counter with no photograph: sends nothing unless the live Worker buys none, IMAGE_PURCHASES off, which stops photographs for every customer while off; the account already has an image-free parallel mode on, design, graph or bands for everyone, none switched on for it; and the balance is between 45 and 100, or exactly the balance the owner types in the balance box once a commit opens it for this mode (open for one run, 2026-10-14). Paid acceptance is blocked: no separate test budget exists. With spend not yes it is a free rehearsal that reads the image switch and the flags and lists every unmet prerequisite; an estimate of 45 by every valid route, a build that takes more fails its check)'
         type: choice
         options: [edit, build, check, check-no-images]
         default: edit
@@ -98,12 +98,12 @@ on:
         description: 'build only: the business, in the customer''s own words. Blank uses the stock shoe-shop brief.'
         required: false
         default: ''
-      # THE OWNER'S BALANCE OPT-IN FOR A BUILD CHECK (2026-10-14): CLOSED. It
-      # admits no mode until the owner names one in canary-build.mjs
-      # (`BUILD_BALANCE_OPT_IN`), for one run; anything typed here refuses
-      # before the sign-in.
+      # THE OWNER'S BALANCE OPT-IN FOR A BUILD CHECK (2026-10-14). Opened for
+      # check-no-images alone, one run (the owner, 2026-10-14), in
+      # canary-build.mjs (`BUILD_BALANCE_OPT_IN`); closed again after it.
+      # Beside any other mode it refuses before the sign-in.
       accept_balance:
-        description: 'CLOSED: no build check may run above its hard cap. Leave blank; anything typed here refuses before the sign-in.'
+        description: 'BUILD check-no-images ONLY (one run, 2026-10-14): your balance in whole credits (e.g. 783). Lets this one check run above its hard cap only while the balance is exactly this number. Not a budget: the build may spend up to that whole balance. Blank otherwise; beside any other mode it refuses before the sign-in.'
         required: false
         default: ''
 
