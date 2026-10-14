@@ -390,7 +390,7 @@ function correctionAsked(r) {
   return all.slice(at + head.length, to).split("\n").map((l) => l.trim());
 }
 
-const NAMED_ONLY = "✅ The requested styling was already in place.";
+const NAMED_ONLY = "The requested styling was already in place.";
 // THE MENU STEP'S OWN ACCOUNT, SAID BESIDE THE LOOK SINCE 2026-10-03 (the
 // mixed-work fixes, MW1): it repointed a link in the copy, and that was told
 // nowhere when it ran beside a styling change.
@@ -498,7 +498,7 @@ test("a synchronous edit whose corrected build cannot be stored is a named failu
   assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
   assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
   // RESTORED, SO NOTHING ABOUT A CHANGE STILL SAVED.
-  assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment. This edit cost 2 credits. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, "That didn't go through — our build service was restarting. Try again in a moment. This edit cost 2 credits. Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, [], "a failed publish started something");
   assert.equal(r.config.css, STALE, "the stylesheet was not put back to the one the site had");
   const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
@@ -631,7 +631,7 @@ test("a respaced quoted value the correction does not put right is refused: noth
   assert.equal(r.config.css, LABELLED, "the respaced stylesheet is still stored");
   assert.deepEqual(r.reserves, [2, 1], "not the css lane and the menu call reserved");
   assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
-  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, [], "a refusal started something");
   // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
   const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: pageJudge() });
@@ -788,7 +788,7 @@ test("a descendant the correction does not put right is refused: nothing publish
   assert.equal(r.config.css, STORED_RULE, "the rewritten stylesheet is still stored");
   assert.deepEqual(r.reserves, [2], "not the css lane reserved");
   assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
-  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, [], "a refusal started something");
   // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
   const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: boundaryJudge() });
@@ -849,7 +849,7 @@ test("the correction's model call failing stops the job and puts the stylesheet 
   assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
   assert.equal(r.row.billing, "refunded", "the consumer did not refund the stopped job");
   assert.equal(r.reply.cost, 0);
-  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
   await assertPutBack(r, "correction call failed");
 });
 
@@ -865,7 +865,7 @@ test("the correction's stylesheet write refused stops the job and puts the style
   assert.equal(r.builds.length, 2, "not the build and the one rebuild");
   assert.ok(!r.builds[1].includes("header .btn"), "the refused correction reached the rebuild");
   assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
-  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
   await assertPutBack(r, "correction write refused");
 });
 
@@ -876,7 +876,7 @@ test("the corrected build refused at the publish gate is a named failure that pu
   assert.equal(r.builds.length, 2, "not the build and the one rebuild");
   assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
   assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
-  assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so nothing was changed. This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so nothing was changed. This edit cost you nothing. Reading your message cost 2 credits.");
   await assertPutBack(r, "gate refused");
 });
 
@@ -942,7 +942,7 @@ for (const mode of ["sync", "job"]) {
       assert.equal(r.row.billing, "refunded", "the consumer did not refund the failed job");
       assert.equal(r.reply.cost, 0, "the poll route reported a refunded job's reserve as its cost");
     }
-    assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment." + STILL_SAVED
+    assert.equal(r.said.text, "That didn't go through — our build service was restarting. Try again in a moment." + STILL_SAVED
       + (mode === "sync" ? " This edit cost 2 credits." : " This edit cost you nothing.") + " Reading your message cost 2 credits.");
     assert.doesNotMatch(r.said.text, /untouched|nothing was changed|put back|rolled back|undone/, "the screen claims a rollback that did not happen");
     assert.deepEqual(r.said.actions, [], "a failed publish started something");
@@ -958,7 +958,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(site.puts, 2, "not the lane's write and the restore");
     assert.equal(r.status, 422, JSON.stringify(r.reply));
     assert.equal(r.config.css, "", "the restore did not put the stylesheet back");
-    assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment."
+    assert.equal(r.said.text, "That didn't go through — our build service was restarting. Try again in a moment."
       + (mode === "sync" ? " This edit cost 2 credits." : " This edit cost you nothing.") + " Reading your message cost 2 credits.");
     const next = await nextEdit(r);
     assert.ok(!next.builds[0].includes(GREEN), "the next, unrelated edit shipped a change the restore took back");
@@ -976,7 +976,7 @@ test("a change that did not compile, whose restore was refused too, says the liv
   assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
   assert.deepEqual(r.debits, [2], "not the css lane collected");
   assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
-  assert.equal(r.said.text, "⚠️ That didn't compile, so your live site wasn't changed." + STILL_SAVED + " This edit cost 2 credits. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, "That didn't compile, so your live site wasn't changed." + STILL_SAVED + " This edit cost 2 credits. Reading your message cost 2 credits.");
 });
 
 // THE SAME FACT THROUGH TWO OTHER FORMATTERS: the queue's publish gate refusing
@@ -990,7 +990,7 @@ test("a publish refused at the gate, whose restore was refused too, says the cha
   assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
   assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
   assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
-  assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so your live site wasn't changed." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so your live site wasn't changed." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
   const next = await nextEdit(r);
   assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
 });
@@ -1004,7 +1004,7 @@ test("a job cancelled at the publish gate, whose restore was refused too, says t
   assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
   assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
   assert.equal(r.row.billing, "refunded", "the consumer did not refund the cancelled job");
-  assert.equal(r.said.text, "⚠️ I stopped that edit before anything was published." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(r.said.text, "I stopped that edit before anything was published." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
   const next = await nextEdit(r);
   assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
 });
@@ -1074,7 +1074,7 @@ const MENU_ASK = "Rename the Shop menu item to Store.";
 const MENU_REFUSED = "I couldn't work out what the menu should be. Tell me what to add, take out or move.";
 const BOTH_ASK = "Make the footer navy and rename the Shop menu item to Store.";
 const NAVY = { css: "footer { background: navy; }" };
-const LOOK_SAID = "✅ Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette.";
+const LOOK_SAID = "Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette.";
 const TIMEOUT = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
 
 for (const mode of ["sync", "job"]) {
@@ -1091,12 +1091,12 @@ for (const mode of ["sync", "job"]) {
       assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
       assert.equal(r.reply.cost, 0, "the poll route reported a refunded job's reserve as its cost");
       assert.equal(r.reply.refunded, 1, "the poll route did not report the refund the row recorded");
-      assert.equal(r.said.text, "⚠️ " + MENU_REFUSED + " This edit cost you nothing. Reading your message cost 2 credits.");
+      assert.equal(r.said.text, MENU_REFUSED + " This edit cost you nothing. Reading your message cost 2 credits.");
     } else {
       // COLLECTED, and nothing on this path gives a refusal's charge back.
       assert.deepEqual(r.debits, [1], "the model call was not collected");
       assert.equal(r.reply.cost, 1, "the reply does not report what was collected");
-      assert.equal(r.said.text, "⚠️ " + MENU_REFUSED + " This edit cost 1 credit. Reading your message cost 2 credits.");
+      assert.equal(r.said.text, MENU_REFUSED + " This edit cost 1 credit. Reading your message cost 2 credits.");
     }
     assert.deepEqual(r.said.actions, [], "a refusal started something");
   });
@@ -1113,7 +1113,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2, 1], "not the css change and the menu rung's call");
     assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger took");
     // THE PART THAT DID NOT GO THROUGH, NAMED BY WHAT IT WAS ABOUT (2026-10-03).
-    assert.equal(r.said.text, LOOK_SAID + " ⚠️ The menu or the header button: " + MENU_REFUSED + " That part still cost 1 credit.");
+    assert.equal(r.said.text, LOOK_SAID + " The menu or the header button: " + MENU_REFUSED + " That part still cost 1 credit.");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
   });
 
@@ -1126,7 +1126,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.partial && r.reply.partial.length, 1, JSON.stringify(r.reply.partial));
     assert.equal(r.reply.partial[0].cost, undefined, "a step that took nothing reports a cost");
     assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2], "the timed-out step was charged");
-    assert.equal(r.said.text, LOOK_SAID + " ⚠️ The menu or the header button: That took longer than we allow ourselves to wait — this is on us.");
+    assert.equal(r.said.text, LOOK_SAID + " The menu or the header button: That took longer than we allow ourselves to wait — this is on us.");
   });
 }
 
@@ -1167,7 +1167,7 @@ test("the poll route reports a finished job's cost from its row, and claims none
   assert.equal(refunded.status, 503);
   assert.equal(refunded.reply.cost, 0, "a refunded job's reserve was reported as its cost");
   assert.equal(refunded.reply.refunded, 2, "the refund the row recorded was not reported");
-  assert.equal(refunded.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.equal(refunded.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
   // NOTHING TAKEN, whatever the stored reply held.
   for (const billing of ["none", "exempt"]) {
     const r = await poll({ state: "failed", billing, cost: 0, result: stoppedResult(2) });
@@ -1178,7 +1178,7 @@ test("the poll route reports a finished job's cost from its row, and claims none
   // row cannot say, so the edit's cost is not claimed either way.
   const held = await poll({ state: "failed", billing: "reserved", cost: 2, needs_review: true, result: stoppedResult(2) });
   assert.equal("cost" in held.reply, false, "an unsettled job's cost was claimed: " + held.text);
-  assert.equal(held.said.text, "⚠️ " + STOPPED + " Reading your message cost 2 credits.");
+  assert.equal(held.said.text, STOPPED + " Reading your message cost 2 credits.");
   // A PUBLISHED JOB'S REPLY IS HANDED BACK BYTE FOR BYTE, whatever the row
   // holds — the row's cost differs from the reply's here so that a rewrite is
   // visible, where re-serialising an equal value would not be.
@@ -1213,7 +1213,7 @@ for (const landed of [true, false]) {
     assert.deepEqual(r.debits, [2, 0], "not the css change collected and the menu rung's call refused");
     assert.deepEqual(r.credited, landed ? [2] : [], "the refund of the earlier collect is not what the ledger answered");
     assert.equal(r.reply.cost, landed ? 0 : 2, "the reply's cost is not what the ledger still holds");
-    assert.equal(r.said.text, "⚠️ That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again."
+    assert.equal(r.said.text, "That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again."
       + (landed ? " This edit cost you nothing." : " This edit cost 2 credits.") + " Reading your message cost 2 credits.");
   });
 }
@@ -1223,9 +1223,9 @@ for (const landed of [true, false]) {
 // the composer alone: every refusal the route writes today carries a sentence.
 test("a refusal with no sentence of its own says what the edit and the routing call recorded", () => {
   const charged = editBrowserReply({ ok: false, error: "compile", cost: 1 }, false, ROUTED);
-  assert.equal(charged.text, "⚠️ That edit didn't finish, so nothing was published. This edit cost 1 credit. Reading your message cost 2 credits.");
+  assert.equal(charged.text, "That edit didn't finish, so nothing was published. This edit cost 1 credit. Reading your message cost 2 credits.");
   const unknown = editBrowserReply({ ok: false, error: "compile" }, false, ROUTED);
-  assert.equal(unknown.text, "⚠️ That edit didn't finish, so nothing was published. Reading your message cost 2 credits.");
+  assert.equal(unknown.text, "That edit didn't finish, so nothing was published. Reading your message cost 2 credits.");
   assert.deepEqual(charged.actions, [], "a refusal started something");
 });
 
@@ -1240,7 +1240,7 @@ test("an edit whose outcome is unknown is told the risk of asking again, never t
     for (const [reply, ok] of [[null, true], [{ ok: true, job: "j1", status: "queued" }, true], [{ ok: false, escalate: true, layer: "text" }, false]]) {
       const r = editBrowserReply(reply, ok, { ok: true, intent: "edit", layer, cost: 2 });
       const label = layer + " " + JSON.stringify(reply);
-      assert.equal(r.text, "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.", label);
+      assert.equal(r.text, "I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.", label);
       assert.doesNotMatch(r.text, /preview/i, label + ": sent to the preview");
       assert.deepEqual(r.actions, [], label + ": started something");
     }
@@ -1268,7 +1268,7 @@ for (const mode of ["sync", "job"]) {
     // THE ADDRESS REALLY MOVED, and nothing puts it back.
     assert.deepEqual(r.aliases.map((a) => [a.alias, a.current]), [[r.site.slug, false], ["harbour-bread", true]], "the address was not written");
     assert.equal(r.committed, false, "the failed publish was committed");
-    assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: your site is now at "
+    assert.equal(r.said.text, "That didn't compile, so the rest of it wasn't published. Part of it did go through, though: your site is now at "
       + HOST + ", and the old address sends people there."
       + (mode === "job" ? " This edit cost you nothing." : " This edit cost 3 credits.") + " Reading your message cost 2 credits.");
     assert.doesNotMatch(r.said.text, /untouched|nothing was changed/, "a change that went through is called untouched");
@@ -1282,7 +1282,7 @@ for (const mode of ["sync", "job"]) {
 test("a failure of ours beside an address that went through says the rest was not published, never that nothing changed (job)", async () => {
   const r = await drive({ mode: "job", routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, granted: false });
   assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
-  assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so the rest of it wasn't published. "
+  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so the rest of it wasn't published. "
     + "Part of it did go through, though: your site is now at " + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
   assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], JSON.stringify(r.reply));
   assert.equal(leftOf(r.reply), "partial");
@@ -1293,7 +1293,7 @@ test("a stopped job names the address it had already moved (job)", async () => {
   assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
   assert.equal(r.builds.length, 0, "the cancelled edit built");
   assert.deepEqual(r.aliases.map((a) => a.alias), [r.site.slug, "harbour-bread"], "the address was not written before the cancel");
-  assert.equal(r.said.text, "⚠️ I stopped that edit before anything was published. Part of it did go through, though: your site is now at "
+  assert.equal(r.said.text, "I stopped that edit before anything was published. Part of it did go through, though: your site is now at "
     + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
   // THE STOP CARRIES IT TOO (`editStopped`'s `landed`), so a request's part
   // stopped here is never told as stopped before anything changed.
@@ -1306,7 +1306,7 @@ test("control: a failed publish with nothing gone through beside it still says t
     const r = await drive({ mode, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], compileOk: false });
     assert.equal(r.reply.error, "compile", mode + ": " + JSON.stringify(r.reply));
     assert.deepEqual(r.aliases, [], mode + ": an address was written");
-    assert.match(r.said.text, /^⚠️ That didn't compile, so your site is untouched\. /, mode + ": " + r.said.text);
+    assert.match(r.said.text, /^That didn't compile, so your site is untouched\. /, mode + ": " + r.said.text);
     assert.doesNotMatch(r.said.text, /Part of it did go through/, mode + ": a change is said to have gone through");
     assert.equal(Object.hasOwn(r.reply, "landed"), false, mode + ": a list of what went through, with nothing gone through");
     assert.equal(leftOf(r.reply), "", mode + ": nothing standing was read as standing");

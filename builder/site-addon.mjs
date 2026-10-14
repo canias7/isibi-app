@@ -737,7 +737,7 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
   // knows about links, and it is measured rather than guessed. The browser's
   // `addonReplyText` says the same, by the same rule.
   if (changed.length) bits.push("updated " + changed.map(routeOf).filter(Boolean).join(", "));
-  let head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
+  let head = bits.length ? "Done — " + bits.join(", ") + "." : "Done.";
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
   // keeping it is the silent partial this lane already had once: the owner asks
   // for it gone, is told the change worked, and it is still there.

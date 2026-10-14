@@ -85,7 +85,11 @@ test("the designer's question opens the first build's question round — its own
     assert.match(said, /When they collect/);
     assert.doesNotMatch(said, /didn.t finish|couldn.t|failed/i, "the question was told as a failure");
     await shot(page, "design-question.png");
-    await page.click('.st-opt[data-ans="When they collect"]');
+    // PICK, THEN CONTINUE (option E, 2026-10-14): the pick enables Continue, which sends it.
+    assert.equal(await page.isDisabled('.st-pick-continue[data-pick-go]'), true, "Continue was enabled before a pick");
+    await page.click('.st-pick-opt[data-pick="When they collect"]');
+    assert.equal(await page.getAttribute('.st-pick-opt[data-pick="When they collect"]', "aria-checked"), "true", "the pick was not drawn as checked");
+    await page.click('.st-pick-continue[data-pick-go]');
     await page.waitForFunction(() => window.__dqDone || true);
     await page.waitForTimeout(800);
     const b = builds(posts);

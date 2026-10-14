@@ -93,7 +93,7 @@ export function rqApp(opt = {}) {
       for (const p of v.parts) {
         for (const job of p.jobs || []) {
           if (rec.shown.includes(job)) continue;
-          const reply = (opt.replies || {})[job] || { ok: true, msg: "✅ Done.", reply: `Done: ${job}.`, replySource: "model" };
+          const reply = (opt.replies || {})[job] || { ok: true, msg: "Done.", reply: `Done: ${job}.`, replySource: "model" };
           await emit("GET", `/api/site/edit/${job}`, 200, null, reply, { "x-gf-edit": "final" });
           rec.shown.push(job);
           if (reply.clarify) {
@@ -230,7 +230,7 @@ export function rqApp(opt = {}) {
         // THE OLD PATH: no request, so the page posts its own edit — through the wall.
         await emit("POST", "/api/site/route", 200, { message: said, attached: false }, { ok: true, intent: "edit", layer: plan.layer, cost: 2 });
         const out = await throughWall("POST", `/api/site/${SLUG}/edit`, { layer: plan.layer, instruction: said });
-        keep.msgs.push({ who: "a", text: out ? "✅ Done the old way." : "⚠️ I couldn't reach the site just now — nothing changed." });
+        keep.msgs.push({ who: "a", text: out ? "Done the old way." : "I couldn't reach the site just now — nothing changed." });
       },
       fill: async (sel, v) => { t.value = v; },
       waitForEvent: async () => ({ setFiles: async () => { t.attached = 1; t.strip = 1; } }),

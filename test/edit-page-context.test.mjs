@@ -24,6 +24,7 @@
 // tool's own shape; the container is the opt-in compiler, which echoes the
 // files it was handed.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import { renderPart } from "./fixtures/render-part.mjs";
 import assert from "node:assert/strict";
@@ -326,7 +327,7 @@ test("an unreadable components store publishes NOTHING over the inventory, and s
       //     success — what changed is that the record beside it now names what
       //     did not, in the customer's words rather than ours.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("\u2705 Updated /."),
+      assert.ok(said.text.startsWith("Updated /."),
         "the customer's sentence does not name the page: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("could not read this site\u2019s sections"),
         "the unreadable store never reached the screen: " + JSON.stringify(said.text));
@@ -387,7 +388,7 @@ test("a page step and then a picture step in one message: BOTH components reach 
       // message came in through the lane picker's door.
       // THE PAGE AND THE PICTURE STEP'S OWN ACCOUNT SINCE 2026-10-03 (the
       // mixed-work fixes, MW1 and MW8), where it read "✅ Updated the look."
-      assert.equal(said.text, "✅ Updated /. Moved “the weir” to show the top.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      assert.equal(said.text, "Updated /. Moved “the weir” to show the top.", "the customer's sentence changed: " + JSON.stringify(said.text));
       assert.deepEqual(body.layers, ["page", "picture"], "the two rungs that shipped are not the page and the picture: " + JSON.stringify(body.layers));
 
       // THE ORDER THE LANES SET: the page step, then the picture step.
@@ -632,7 +633,7 @@ test("a wording edit REFUSES an unreadable components store, and spends nothing"
       // behind a warning sign; a refusal the screen draws as a success is the
       // failure this whole file is about.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("sections"), "the refusal's own sentence did not reach the screen: " + JSON.stringify(said.text));
       // ⚠ AND IT IS **NOT** COMPLETED BY THE WHOLE-REQUEST CLAUSE (2026-09-21).
       // `wholeRequestNote` exists for the `withheld` refusals, whose sentences
@@ -691,7 +692,7 @@ test("CONTROL: with the store readable, one changed component leaves the other e
       const { body, said } = await edit(slug, "change the opening hours to six", { store });
       assert.equal(body && body.ok, true, "the control edit did not go through: " + JSON.stringify(body));
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.equal(said.text, "\u2705 Updated /.", "the control's sentence changed: " + JSON.stringify(said.text));
+      assert.equal(said.text, "Updated /.", "the control's sentence changed: " + JSON.stringify(said.text));
       const got = sentParts(payload(c));
       assert.ok(got, "the compiler was handed no components at all");
       assert.equal(got["card-a"], A_NEW, "the change did not reach the publication");

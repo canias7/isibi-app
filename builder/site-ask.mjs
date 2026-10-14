@@ -765,7 +765,8 @@ export const ASK_TOOL = {
           "thank-you gets a short you're-welcome and nothing else; a question about what you can do gets that answered. These " +
           "are three different replies and using one for another is worse than saying nothing — do not reach for a stock " +
           "opening line. If it is a question about their own site, answer from the pages and tables described below. If you " +
-          "do not know, say so plainly and say what would tell them — never invent a fact about their site.",
+          "do not know, say so plainly and say what would tell them — never invent a fact about their site. No emoji and no checkmark " +
+          "or warning symbols, unless they asked for them.",
       },
       question: {
         type: "object",

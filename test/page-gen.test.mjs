@@ -2768,7 +2768,7 @@ test("the client renders it, and stops claiming a site it did not build", () => 
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /d\.notes/, "the client never reads the summary");
   assert.match(chat, /d\.page !== 'placeholder'/, "the client cannot tell a built site from a fallback");
-  assert.match(chat, /built \? '✅ ' : '⚠️ '/, "a fallback is still marked as a success");
+  assert.match(chat, /const canned = !built \? 'Your site didn’t finish building/, "a fallback is still marked as a success");
   // The canned line is the fallback for when the model wrote nothing, not the
   // default — otherwise the summary is dead again in a different way.
   assert.match(chat, /said \|\| canned/);

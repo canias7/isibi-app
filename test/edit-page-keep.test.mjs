@@ -386,7 +386,7 @@ function refused(r, { calls, status = 409 }) {
 const PAGE = [T.tweak, T.pages];
 const PAGE_JUDGED = [T.tweak, T.pages, T.keep];
 const LOOK_JUDGED = [T.pick, T.tweak, T.pages, T.keep];
-const UPDATED = "✅ Updated /.";
+const UPDATED = "Updated /.";
 const WHOLE = " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
 
 // ── WHAT THE EXISTING READERS SEE ───────────────────────────────────────────
@@ -715,7 +715,7 @@ test("PROTECTED: a narrow edit whose answer also drops the “Find us” section
   const r = await drive({ route: { layer: "page" }, ask: HOURS_ASK, answer: DROPS_VISIT, judge: judged(no(1)) });
   refused(r, { calls: PAGE_JUDGED });
   assert.deepEqual(r.reply.contentBlocked, [{ kind: "link-lost", label: "Directions", href: "/visit", section: "Find us", why: "not-asked" }]);
-  assert.equal(r.said.text, "⚠️ " + refusalFor(DROPS_VISIT) + WHOLE);
+  assert.equal(r.said.text, refusalFor(DROPS_VISIT) + WHOLE);
   assert.deepEqual(r.said.actions, [], "nothing further is bought — no rewrite starts");
 });
 
@@ -881,7 +881,7 @@ for (const judge of ["fail", "garbled"]) {
     assert.equal(r.reply.ours, true);
     assert.equal(r.reply.msg, KEEP_UNCHECKED_MSG);
     assert.deepEqual(r.reply.contentUnchecked.map((b) => b.label), ["Directions"]);
-    assert.equal(r.said.text, "⚠️ " + KEEP_UNCHECKED_MSG + WHOLE);
+    assert.equal(r.said.text, KEEP_UNCHECKED_MSG + WHOLE);
     assert.deepEqual(r.said.actions, []);
   });
 }
@@ -948,7 +948,7 @@ for (const mode of ["sync", "job"]) {
     assert.ok(blocked, "the refused page step is on the reply: " + JSON.stringify(r.reply.partial));
     assert.equal(blocked.msg, refusalFor(DROPS_ORDER));
     // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
-    assert.ok(r.said.text.includes("⚠️ A page’s building blocks on /: " + refusalFor(DROPS_ORDER)), r.said.text);
+    assert.ok(r.said.text.includes("A page’s building blocks on /: " + refusalFor(DROPS_ORDER)), r.said.text);
     assert.ok(!r.said.text.includes("Nothing on your site changed"), "something DID change, so the whole-request note must not say otherwise");
   });
 }
@@ -982,7 +982,7 @@ test("GROUP, UNDECLARED: the owner's supplied answer — a group quote with no g
   const r = await drive({ route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED, judge: judged(asks(1, Q_ALL), asks(2, Q_ALL)) });
   refused(r, { calls: PAGE_JUDGED });
   assert.deepEqual(r.reply.contentBlocked.map((b) => [b.label, b.why]), [["See the menu", "quote-not-about-item"], ["Directions", "quote-not-about-item"]]);
-  assert.equal(r.said.text, "⚠️ I couldn't make that change without also taking the “See the menu” link under “Harbour Loaf” and the “Directions” link under “Find us” off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want those changes, say so in your message and send it again." + WHOLE);
+  assert.equal(r.said.text, "I couldn't make that change without also taking the “See the menu” link under “Harbour Loaf” and the “Directions” link under “Find us” off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want those changes, say so in your message and send it again." + WHOLE);
   assert.deepEqual(r.said.actions, [], "no rewrite is bought");
 });
 
@@ -1028,7 +1028,7 @@ test("GROUP + COLLATERAL: every link off as asked, and the order form lost besid
   });
   refused(r, { calls: PAGE_JUDGED });
   assert.deepEqual(r.reply.contentBlocked.map((b) => [b.kind, b.name, b.section, b.why]), [["part-gone", "order-form", "Order ahead", "not-asked"]]);
-  assert.equal(r.said.text, "⚠️ I couldn't make that change without also taking the “Order ahead” section off the page, which your message didn't ask for — so I didn't make it. If you do want that change, say so in your message and send it again." + WHOLE);
+  assert.equal(r.said.text, "I couldn't make that change without also taking the “Order ahead” section off the page, which your message didn't ask for — so I didn't make it. If you do want that change, say so in your message and send it again." + WHOLE);
 });
 
 test("GROUP + COLLATERAL: a judge that stretches the links group over the order form is refused by kind — a links group holds no section", async () => {
@@ -1092,7 +1092,7 @@ test("GROUP, THE TWEAK: the owner's undeclared answer on the cheap writer refuse
 
 // ═════ THE SHARED HEADING — a declared group constrains its answer ═════════
 
-const UNDER_REFUSAL = "⚠️ I couldn't make that change without also taking the “Order ahead” section off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want that change, say so in your message and send it again.";
+const UNDER_REFUSAL = "I couldn't make that change without also taking the “Order ahead” section off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want that change, say so in your message and send it again.";
 
 test("SHARED HEADING (the owner's bypass): the link and the form under “Order ahead” both gone — a links group cannot answer for the form, whatever words name it", async () => {
   // THE OWNER'S REPRODUCTION THROUGH THE ROUTE. The writer took the link's
@@ -1219,7 +1219,7 @@ for (const mode of ["sync", "job"]) {
       // NOT "NOTHING CHANGED" — recovery may already have written — BUT THE
       // MONEY, FROM WHAT WAS RECORDED (2026-09-25): no debit and no reserve is
       // what the edit cost, and the routing call is its own charge.
-      assert.equal(r.said.text, "⚠️ " + PROSE_WITHHELD + " This edit cost you nothing. Reading your message cost 2 credits.");
+      assert.equal(r.said.text, PROSE_WITHHELD + " This edit cost you nothing. Reading your message cost 2 credits.");
       assert.ok(!r.said.text.includes("Nothing on your site changed"));
       assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
     });
@@ -1528,7 +1528,7 @@ for (const mode of ["sync", "job"]) {
   // the page the edit changes and not the words.
   test(`QUOTED PAGE ${mode}: the same sentence, edited on the page it names, publishes`, async () => {
     const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS) });
-    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "✅ Updated /menu.");
+    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "Updated /menu.");
   });
   test(`QUOTED PAGE ${mode}: a quoted page that matches never widens the grant: unrelated text lost is refused`, async () => {
     const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS_REWORDED) });
@@ -1710,7 +1710,7 @@ for (const mode of ["sync", "job"]) {
   });
   test(`PAGE NAMES ${mode}: the same sentence, edited on the menu page, publishes`, async () => {
     const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS) });
-    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "✅ Updated /menu.");
+    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "Updated /menu.");
   });
   test(`PAGE NAMES ${mode}: a matching page name never widens the grant: unrelated text lost is refused`, async () => {
     const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS_REWORDED) });

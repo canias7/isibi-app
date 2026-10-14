@@ -86,7 +86,9 @@ function cutClick() {
   assert.ok(shut > open, "the thread's click delegation has no end");
   const src = CHAT.slice(open, shut + 7);
   assert.match(src, /siteAnswer\('', true\)/, "the skip button no longer reaches siteAnswer");
-  assert.match(src, /siteAnswer\(ans\.getAttribute\('data-ans'\)\)/, "an option no longer reaches siteAnswer");
+  // PICK, THEN CONTINUE (option E, 2026-10-14): a click picks, Continue sends the pick.
+  assert.match(src, /sitePick\(sitePickKeyFirst\(siteById\(siteOpenId\)\), pick\.getAttribute\('data-pick'\)\)/, "an option no longer picks");
+  assert.match(src, /const v = sitePickTake\(sitePickKeyFirst\(siteById\(siteOpenId\)\)\); if \(v\) siteAnswer\(v\);/, "a pick no longer reaches siteAnswer");
   return src;
 }
 
@@ -115,6 +117,8 @@ const SRC = [
   // now reach — its readers, the card's state and the files kept beside it.
   ...ASK_FNS.map((n) => cut("function " + n + "(")),
   ...ASK_LINES.map(cutLine),
+  // A QUESTION'S ANSWERS: PICK, THEN CONTINUE (option E, 2026-10-14).
+  ...["sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"].map((n) => cut("function " + n + "(")),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function reactSend("),
@@ -277,7 +281,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     sitesLoad: () => records,
     sitesCache: records,
     buildPicker: "grok",
-    siteBusy: false,
+    siteBusy: false, sitePicked: null,
     siteBuild: null,
     siteTicker: null,
     siteOpenId: open,
@@ -319,7 +323,11 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     owner: () => vm.runInContext("siteAttachFor", ctx),
     create: (brief) => ctx.siteCreate(brief),
     stored: () => JSON.parse(store.get(vm.runInContext("SITES_KEY", ctx)) || "null"),
-    click: (label) => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-ans]" ? { getAttribute: () => label } : null) } }),
+    // PICK, THEN CONTINUE (option E, 2026-10-14).
+    click: (label) => {
+      ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-pick]" ? { getAttribute: () => label } : null) } });
+      ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-pick-go]" ? { getAttribute: () => "1" } : null) } });
+    },
     clickSkip: () => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-skip]" ? {} : null) } }),
     key: (key) => listeners.keydown({ key, target: { tagName: "BODY" }, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false }),
     release: (x) => { assert.ok(held.length, "nothing is waiting to be answered"); held.shift()(x); },
@@ -357,8 +365,8 @@ const LIST = ok200({ ok: true, slug: "fretwork-1", routes: PAGES });
 const EDIT = ok200({ ok: true, intent: "edit", layer: "look", cost: 2 });
 const LOGO = ok200({ ok: true, intent: "edit", layer: "logo", cost: 2 });
 const BUILD = ok200({ ok: true, intent: "build", cost: 2 });
-const NO_PAGES = "⚠️ I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
+const NO_PAGES = "I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
 const SKIP_SAID = "Skip the questions — just build it";
 
 // THE LIVE SITE'S ROUTING CALL, as it must go out once the list is in hand.
@@ -580,7 +588,7 @@ for (const [door, act, said] of [
   ["skip (the owner's reproduction)", (h) => h.clickSkip(), SKIP_SAID],
   ["an option, clicked", (h) => h.click("A guitar school"), "A guitar school"],
   ["a typed reply", (h) => h.send("It's my guitar school"), "It's my guitar school"],
-  ["the key for option 1", (h) => h.key("1"), "A guitar school"],
+  ["the key for option 1, then Enter", (h) => (h.key("1"), h.key("Enter")), "A guitar school"],
   ["Escape", (h) => h.key("Escape"), SKIP_SAID],
 ]) {
   test("an existing site's round, " + door + ": the ORIGINAL request goes to the live site once its list is in", async () => {
@@ -1243,7 +1251,7 @@ test("a new project's round is still an interview: an answer is routed as one, w
   for (const [door, act, said] of [
     ["an option", (h) => h.click("A guitar school"), "A guitar school"],
     ["a typed reply", (h) => h.send("Guitar and bass"), "Guitar and bass"],
-    ["the key for option 1", (h) => h.key("1"), "A guitar school"],
+    ["the key for option 1, then Enter", (h) => (h.key("1"), h.key("Enter")), "A guitar school"],
   ]) {
     const h = workspace({ sites: [NEW_ROUND], route: [BUILD] });
     act(h);
@@ -1288,7 +1296,7 @@ test("a new project's round, skipped, still goes straight to the build with no r
 // is held on the site it was sent from BEFORE `finish` redraws, so that redraw
 // hands it back to that site's composer and to no other. Nothing sends it again:
 // the routing call is billed, so sending is the customer's press.
-const LOST = "⚠️ I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
+const LOST = "I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
 // The round a first-build question stored on this site, holding a picture made
 // by the attach code: the words and the file the customer sent with it.
 const ATT_ROUND = { ...LOADED, msgs: [{ r: "u", t: OWNER_ASK }, Q], clarify: { brief: OWNER_ASK, qa: [], imgs: [LOGO_ATT] } };

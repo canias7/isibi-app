@@ -268,9 +268,9 @@ const M2_VIEWS = [
 ];
 const LP_REPLIES = {
   y1: { ok: false, clarify: { id: ASK.id, text: ASK.text } },
-  p1: { ok: true, msg: "✅ Updated.", reply: "The Sea Salt Focaccia is now £4.60 on your Order page.", replySource: "model" },
-  h1: { ok: true, msg: "✅ Changed.", reply: "Your Order page heading now reads “Choose a loaf and a time to collect it”.", replySource: "model" },
-  y2: { ok: true, msg: "✅ Added.", reply: "Every page's footer now links to your LinkedIn page.", replySource: "model" },
+  p1: { ok: true, msg: "Updated.", reply: "The Sea Salt Focaccia is now £4.60 on your Order page.", replySource: "model" },
+  h1: { ok: true, msg: "Changed.", reply: "Your Order page heading now reads “Choose a loaf and a time to collect it”.", replySource: "model" },
+  y2: { ok: true, msg: "Added.", reply: "Every page's footer now links to your LinkedIn page.", replySource: "model" },
 };
 // THE BAKERY'S TABLE, as both readers serve it: the focaccia at 4.5 until the
 // price's job has run (here: once the message is sent), 4.6 after.

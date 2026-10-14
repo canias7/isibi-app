@@ -33,7 +33,7 @@ const JOB = "a1" + "0".repeat(30);
 const WORDS = "Add a gallery page where people can book a table";
 const ANSWER = {
   ok: true, kinds: ["page", "table"], added: ["src/routes/gallery.tsx"], tables: ["bookings"], cost: 9,
-  reply: "✅ Your Gallery page is up, and people can book a table from it.", replySource: "model",
+  reply: "Your Gallery page is up, and people can book a table from it.", replySource: "model",
 };
 
 /** One page load of the app, the site open; `failFirstRead` fails the page's first read of the request. */

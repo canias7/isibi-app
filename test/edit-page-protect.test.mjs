@@ -50,6 +50,7 @@
 // and the CUSTOMER'S SCREEN — composed by `public/chat.js`'s own `editAnswer`
 // selection, including whether another paid action would start.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -439,7 +440,7 @@ test("a change whose ONLY effect is taking a photograph off is withheld", async 
       assert.equal(storedHome(store, slug), homeWith(slug), "a refusal wrote to the page store");
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("take a photograph off your page"),
         "the customer is not told what the change would have done: " + JSON.stringify(said.text));
       assert.deepEqual(said.actions, [], "the refusal still started something: " + JSON.stringify(said.actions));
@@ -613,8 +614,8 @@ test("a rung that WITHHELD beside a rung that shipped still reaches the screen",
       // (c) AND THE CUSTOMER IS TOLD. The refusal's own sentence, verbatim,
       //     under a warning inside a reply that opens with a green tick.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("✅"), "the successful half is no longer reported: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("⚠️"), "the withheld half is not flagged: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the successful half is no longer reported: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the withheld half is not flagged: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("couldn't put it back safely"),
         "the refusal's own sentence never reached the screen: " + JSON.stringify(said.text));
       assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
@@ -636,7 +637,7 @@ test("a rung that failed WITHOUT a sentence is named rather than dropped", async
   // wrote BEFORE that: a stored reply read back after the deploy is exactly
   // such a reply, and *nothing at all* is still the outcome to close.
   const legacy = editBrowserReply({
-    ok: true, layer: "picture", msg: "✅ Took the picture off “the window”.",
+    ok: true, layer: "picture", msg: "Took the picture off “the window”.",
     partial: [{ layer: "page", lanes: ["tsx"], error: undefined }],
   }, true);
   assert.equal(legacy.ok, true, "the browser could not compose a reply: " + legacy.why);
@@ -669,10 +670,10 @@ test("a rung that failed WITHOUT a sentence is named rather than dropped", async
         "the refused step reached the merge with no sentence: " + JSON.stringify(body.partial[0]));
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("✅"), "the half that landed is not reported: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "the half that landed is not reported: " + JSON.stringify(said.text));
       // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
       // (The builder's sentence names the page, so the lead does not.)
-      assert.ok(said.text.includes("⚠️ A part built for the site: The page writer didn't send the / page back"),
+      assert.ok(said.text.includes("A part built for the site: The page writer didn't send the / page back"),
         "the refused step's own sentence never reached the screen: " + JSON.stringify(said.text));
       // A PARTIAL SUCCESS MAY NOT CLAIM THE WHOLE REQUEST CHANGED NOTHING.
       assert.ok(!said.text.includes("Nothing on your site changed"),
@@ -728,7 +729,7 @@ test("a loss the restoration cannot reach is withheld, not published", async () 
 
       // (c) THE SCREEN, AND WHAT IT DOES NOT START.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
       //   the words *"left your site exactly as it was"*, which the rung no
       //   longer says — it cannot, because the same sentence is printed beside
@@ -979,7 +980,7 @@ test("a withheld component is named on the reply AND on the screen when two rung
       // THE LOOK BRANCH, which names the page since 2026-10-03 (the mixed-work
       // fixes, MW8) and the picture step's own account beside it (MW1).
       assert.equal(body.layer, "look", "this case no longer lands on the branch it is about");
-      assert.ok(said.text.startsWith("✅ Updated /. Moved “the window” to show the top."),
+      assert.ok(said.text.startsWith("Updated /. Moved “the window” to show the top."),
         "the screen does not name the page and the picture step's own account: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("card-b"),
         "the withheld component never reached the screen: " + JSON.stringify(said.text));
@@ -1089,7 +1090,7 @@ test("a component-only refusal answers for itself instead of buying a full rewri
       //     costing ~25 credits: `actions` records every paid request the
       //     browser would fire, and the refusal branch fires none.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("card-b"), "the screen does not name the component: " + JSON.stringify(said.text));
       // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
       //   the words *"left your site exactly as it was"*, which the rung no
@@ -1155,7 +1156,7 @@ test("a GENUINE no-change is said at no cost, and is told apart from a withheld 
       // AND THE BROWSER SAYS IT AND STARTS NOTHING — reading the reply alone
       // would not show what the screen does with it.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("⚠️ I read the / page and couldn't find a change to make for that."),
+      assert.ok(said.text.startsWith("I read the / page and couldn't find a change to make for that."),
         "the no-change sentence never reached the screen: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("Nothing on your site changed, and this edit cost you nothing."),
         "the whole-request note is missing: " + JSON.stringify(said.text));
@@ -1431,8 +1432,8 @@ test("a refusal beside a change that SHIPPED does not claim the site is untouche
       // no empty slot to offer and the way back is the previous build.
       assert.equal(
         said.text,
-        "✅ Took “the window” off the page. One photograph is no longer on the site. If that was not what "
-        + "you wanted, roll back to the previous build in Cloud → Versions. ⚠️ A part built for the site on /: "
+        "Took “the window” off the page. One photograph is no longer on the site. If that was not what "
+        + "you wanted, roll back to the previous build in Cloud → Versions. A part built for the site on /: "
         // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
         + "I couldn't make that change "
         + "without taking a photograph off your site, and I couldn't put it back safely — so I didn't make "
@@ -1477,7 +1478,7 @@ test("a COMPLETE refusal does say nothing changed and nothing was charged", asyn
       // first is said; `test/edit-failure.test.mjs` drives the second.
       assert.equal(
         said.text,
-        "⚠️ I couldn't make that change without taking a photograph off your site, and I couldn't put it back "
+        "I couldn't make that change without taking a photograph off your site, and I couldn't put it back "
         + "safely — so I didn't make it. Say “take that photo off” if you did want it gone. "
         + "Nothing on your site changed, and this edit cost you nothing.",
         "the complete-refusal sentence is wrong: " + JSON.stringify(said.text),

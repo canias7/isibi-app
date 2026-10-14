@@ -88,8 +88,8 @@ const CSS = "h1, h2 { color: #14532d; }";
 const ROLL_BACK = " If that was not what you wanted, roll back to the previous build in Cloud → Versions.";
 const MENU_SAID = "Updated the menu on 2 pages: Today's bake · The starter · Visit.";
 const BOULE_SAID = "Took “" + BOULE + "” off the page.";
-const MW1_THREE = "✅ Updated /. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
-const MW1_FOUR = "✅ Updated the look — the description. Updated /visit. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
+const MW1_THREE = "Updated /. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
+const MW1_FOUR = "Updated the look — the description. Updated /visit. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 /** Every part put off this turn, in order: the router's (`deferred`) and the steps' (`putOff`). */
 const MW3_HELD = (b) => [b.deferred, b.putOff].flatMap((v) => (Array.isArray(v) ? v : typeof v === "string" && v ? [v] : []));
 // THE ADD-ON'S PLACEMENT, DECLINE AND SCHEDULE SENTENCES, as the page composes them.
@@ -104,7 +104,7 @@ const MW5_QR_FACT = /QR code[^]*“Wholesale”[^]*no page shows it/;
 const MW5_SCENE_FACT = /scene[^]*no page (shows|draws) it/i;
 const MW6_FACT = /Nothing was made for a connection to an outside service: the builder could not design it/;
 const MW7_FACT = /asked to run every minute[^]*runs every 15 minutes/;
-const MW2_FIVE = "✅ Updated the look — the description, the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Updated /visit. "
+const MW2_FIVE = "Updated the look — the description, the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Updated /visit. "
   + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 const PHOTO_OFF = { pictures: [{ page: "index.tsx", alt: BOULE, remove: true }] };
 
@@ -142,7 +142,10 @@ async function editRun({ message, routed = { layer: "look" }, answers, mode = "s
         question: question(store, slug),
         charges: mode === "job" ? seen.rpc.filter((x) => x.fn === "edit_reserve").map((x) => x.args.p_cost) : seen.debits.slice(),
         reply: said.ok ? said.text : assert.fail("the page could not read the answer: " + said.why),
-        facts: Array.isArray(facts.facts) ? facts.facts.map((f) => f.text) : assert.fail("no reply facts: " + JSON.stringify(facts)),
+        // THE STEPS' OWN FACTS, and apart from them the publish's checks (`k`,
+        // 2026-10-14), which every published change now carries.
+        facts: Array.isArray(facts.facts) ? facts.facts.filter((f) => f.kind !== "check").map((f) => f.text) : assert.fail("no reply facts: " + JSON.stringify(facts)),
+        checks: Array.isArray(facts.facts) ? facts.facts.filter((f) => f.kind === "check").map((f) => f.text) : [],
       };
     }, { slug });
   } finally { compiler.uninstall(); }
@@ -202,9 +205,10 @@ test("WORKS, AND FIXED MW8 — THE SAME KIND OF CHANGE ON TWO PAGES (two layout 
   assert.equal(r.builds, 1, "the two moves were not published together");
   assert.deepEqual(r.charges, [1, 1], "each page operation is not billed once");
   assert.deepEqual(r.facts, ["Updated /.", "Updated /visit."], "a model reply would not be told both pages");
+  assert.equal(r.checks.length, 3, "the one publish's checks were not each a fact: " + JSON.stringify(r.checks));
   // FIXED MW8: the page's own reply (no model replies) names both pages, where
   // it read "✅ Updated the look."
-  assert.equal(r.reply, "✅ Updated / and /visit.");
+  assert.equal(r.reply, "Updated / and /visit.");
 });
 
 test("WORKS — WORDING ON TWO PAGES IS ONE TEXT STEP: one model call changes both, one publish, one charge, and the reply quotes both", async () => {
@@ -225,7 +229,7 @@ test("WORKS — WORDING ON TWO PAGES IS ONE TEXT STEP: one model call changes bo
   assert.deepEqual(r.changed, ["index.tsx", "visit.tsx"]);
   assert.equal(r.builds, 1);
   assert.deepEqual(r.charges, [1]);
-  assert.equal(r.reply, "✅ Updated the wording in 2 places — now “Find the bakery”, “Fed every single morning since we opened”.");
+  assert.equal(r.reply, "Updated the wording in 2 places — now “Find the bakery”, “Fed every single morning since we opened”.");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -897,7 +901,7 @@ test("FIXED MW6 — ONE ADDITION'S DESIGNER DECLINES BESIDE ONE THAT DESIGNS: th
   assert.deepEqual(r.body.functions, ["count_orders"]);
   assert.deepEqual(r.body.declined, ["api"], "the declined kind is not kept beside the one added");
   const said = addSaid(r);
-  assert.match(said.reply, /^✅ Done — added the function count_orders\./);
+  assert.match(said.reply, /^Done — added the function count_orders\./);
   assert.match(said.reply, MW6_DECLINED, "the declined connection is not said: " + said.reply);
   assert.ok(said.facts.some((f) => MW6_FACT.test(f)), JSON.stringify(said.facts));
 });

@@ -57,6 +57,7 @@
 import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
+import { checkFacts, browserOnlyFacts } from "./check-evidence.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 /** Why a waiting photograph was not placed, from the placement's own reason (round 6). */
@@ -235,7 +236,8 @@ export const REPLY_SYSTEM =
   "facts, each with an id. Your job is only to tell the customer, naturally and in your own words, what those facts say.\n\n" +
   "WHAT A FACT'S ID SAYS IT IS\n" +
   "c: done. f: not done (with the reason when there is one). p: still waiting — not done yet. q: needs their answer " +
-  "(the question is shown under your message). x: nothing changed. m: money. u: how to undo. n: worth knowing.\n\n" +
+  "(the question is shown under your message). x: nothing changed. m: money. u: how to undo. n: worth knowing. " +
+  "k: a check, made or not made, exactly as far as its text says.\n\n" +
   "RULES\n" +
   "- Make clear what was done, what was not done and why, what is still waiting, and what you need from them — in that " +
   "order where they apply.\n" +
@@ -252,10 +254,13 @@ export const REPLY_SYSTEM =
   "- A part that is queued, waiting or still to come has only not run yet. That is never evidence that their site lacks what it asks for: never call it missing, not done or not tried. Say what was done, and that the part comes next.\n" +
   "- Describe their site the way they would: pages by their names or addresses, things by the words people see. Never " +
   "mention steps, tools, layers, files, code, models or error codes.\n" +
+  "- Name only the checks a k fact states, each no further than its words: code that compiled was not looked at; an " +
+  "automated browser check is not anybody looking at the design; published is not anybody opening the live site. Never " +
+  "say or suggest you looked at, reviewed, tested or confirmed anything else.\n" +
   "- Use their own words for things on their site where the facts quote them.\n" +
   "- Write in the language they wrote their message in. Warm and direct; no apologies beyond one short one when something " +
   "did not work; no marketing.\n" +
-  "- You may start with ✅ when everything they asked for was done, or ⚠️ when part or all of it was not. Otherwise no emoji.\n" +
+  "- No emoji and no checkmark or warning symbols, unless they asked for them.\n" +
   "- Never put a fact's id in the reply itself.";
 
 // ── FACTS ────────────────────────────────────────────────────────────────
@@ -331,12 +336,12 @@ const strings = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "s
 const partsOf = (v) => [...new Set((typeof v === "string" ? [v] : Array.isArray(v) ? v : []).filter((p) => typeof p === "string" && p.trim()).map(flat))];
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** A list of facts with ids by kind: c changed, f not done, p pending, q question, n note, m money, u undo. */
+/** A list of facts with ids by kind: c changed, f not done, p pending, q question, n note, m money, u undo, k a check. */
 function factList() {
   const out = [];
   const seen = new Set();
   const n = {};
-  const PREFIX = { changed: "c", "not-done": "f", pending: "p", question: "q", note: "n", money: "m", undo: "u", nothing: "x" };
+  const PREFIX = { changed: "c", "not-done": "f", pending: "p", question: "q", note: "n", money: "m", undo: "u", nothing: "x", check: "k" };
   // `item` KEEPS TWO THINGS TWO (2026-10-03): the same words said twice from
   // two sources are one fact, but two entries that read the same — two
   // identical rows taken off a list — are two, and folding them would report
@@ -889,8 +894,18 @@ function outcomeFacts(F, e) {
   const listPix = Number(e.listPhotos) || 0;
   if (listPix > 0 || e.listPhotosMore === true) F.add("note", "The page draws its pictures from a list, so the photographs there come from that list; they can ask for photographs there.");
   for (const p of strings(e.problems)) F.add("note", "Worth knowing: " + p);
-  const render = said(e.renderNote);
-  if (render) F.add("note", render);
+  evidenceFacts(F, e);
+}
+
+/**
+ * WHAT THE PUBLISH CHECKED (2026-10-14, `check-evidence.mjs`): the answer's own
+ * `checks`, one `k` fact each, or — on an answer stored before they existed —
+ * only what its browser check flagged. Never `renderNote`, whose sentence
+ * ("I had a look at the finished pages") reads as somebody looking.
+ */
+function evidenceFacts(F, a, scope = "") {
+  const own = checkFacts(a.checks, { scope });
+  for (const f of own.length ? own : a.checks === undefined ? browserOnlyFacts(a.render) : []) F.add(f.kind, f.text);
 }
 
 /**
@@ -1266,8 +1281,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     const unlinked = strings(a.unlinked);
     if (unlinked.length) F.add("note", "Nothing links to " + listOf(unlinked) + " yet; saying where the link should go adds it.");
     for (const p of strings(a.problems)) F.add("note", "Worth knowing: " + p);
-    const render = said(a.renderNote);
-    if (render) F.add("note", render);
+    evidenceFacts(F, a);
     if (!F.out.length) F.add("changed", "The addition was made.");
   } else if (a.error === "clarify") {
     F.add("nothing", "Nothing was added yet; one detail is needed first.");
@@ -1487,6 +1501,8 @@ export function buildReplyFacts(bf) {
           : "Nothing was charged for this build.");
     }
   }
+  // WHAT THE PUBLISH CHECKED (2026-10-14), from the build's own evidence.
+  for (const f of checkFacts(bf.checks)) F.add(f.kind, f.text);
   const st = bf.settlement;
   if (st && typeof st === "object") {
     if (st.outcome === "published") F.add("note", "The build lost touch with us near the end, but its site did go live; nothing was refunded.");
@@ -1598,6 +1614,11 @@ export function requestReplyFacts(v) {
     } else {
       F.add("pending", "Queued, not started yet: " + w + ".", item);
     }
+    // WHAT EACH OF ITS JOBS' PUBLISHES CHECKED (2026-10-14), read off their
+    // stored answers by the queue (`checks`), said under the part's own
+    // words so a reply of several parts never gives one part another's check.
+    const pubs = Array.isArray(p.checks) ? p.checks : [];
+    pubs.forEach((c, i) => { for (const f of checkFacts(c, { scope: w, nth: pubs.length > 1 ? i + 1 : 0 })) F.add(f.kind, f.text, item + ":" + f.text); });
     // AN EARLIER TRY'S STANDING WORK, ON A PART THAT GOES ON OR WAITS
     // (2026-10-07, the view's `left`): said beside its status — the stopped,
     // failed and partial facts above already say it in their own words.
@@ -1645,8 +1666,23 @@ export function replyContext({ request = "", answers = [], site = null } = {}) {
   return lines.join("\n\n");
 }
 
-/** The request one reply call sends: every fact, whole. `missed` names the facts a first answer left out. */
-export function replyRequest({ facts, context = "", model, missed = [] }) {
+/**
+ * THE FINAL MESSAGE AFTER A CONVERSATION (talk, 2026-10-13), added to the
+ * instructions when `PROGRESS_TALK` is on. The owner: *"The final message
+ * should explain completed work, actual checks, unresolved requirements and
+ * useful next steps without repeating the whole progress history; mention
+ * undo only where it is supported for that operation."* The `k` facts — the
+ * checks a publish made and could not make — are every reply's now
+ * (`REPLY_SYSTEM`, 2026-10-14), read from the answer itself rather than from
+ * the progress record, so these rules only say how to use them here.
+ */
+export const REPLY_TALK_RULES =
+  "\n\nTHEY HAVE BEEN FOLLOWING YOUR UPDATES WHILE YOU WORKED\n" +
+  "- Do not retell the updates: say plainly what was done, which checks ran and which could not (only k facts, each as narrowly as it says), and what is not done or still open.\n" +
+  "- End with a useful next step only when a fact makes one useful: something not done, a question, or a way to undo that a u fact gives. Never offer an undo no fact gives.";
+
+/** The request one reply call sends: every fact, whole. `missed` names the facts a first answer left out. `talk` adds the rules above. */
+export function replyRequest({ facts, context = "", model, missed = [], talk = false }) {
   const body = (context ? context + "\n\n" : "") +
     "WHAT REALLY HAPPENED (explain every fact; list each id you explained in covers):\n" +
     facts.map((f) => "[" + f.id + "] " + f.text).join("\n") +
@@ -1656,7 +1692,7 @@ export function replyRequest({ facts, context = "", model, missed = [] }) {
     max_tokens: REPLY_MAX_TOKENS,
     tools: [REPLY_TOOL],
     tool_choice: { type: "tool", name: REPLY_TOOL.name },
-    system: [{ type: "text", text: REPLY_SYSTEM }],
+    system: [{ type: "text", text: talk ? REPLY_SYSTEM + REPLY_TALK_RULES : REPLY_SYSTEM }],
     messages: [{ role: "user", content: body }],
   };
 }
@@ -1698,7 +1734,7 @@ export function replyUsage(reply, model) {
  * `deadline`, `unreadable`, `uncovered`. At most two calls: a first answer
  * that left a fact out is asked once more, naming what it missed.
  */
-export async function writeReply(deps, { facts, context = "", model, deadlineMs = REPLY_DEADLINE_MS, maxChars = REPLY_MAX_CHARS, now = () => Date.now() } = {}) {
+export async function writeReply(deps, { facts, context = "", model, deadlineMs = REPLY_DEADLINE_MS, maxChars = REPLY_MAX_CHARS, now = () => Date.now(), talk = false } = {}) {
   const usage = [];
   if (!Array.isArray(facts) || !facts.length) return { ok: false, why: "no-facts", usage, attempts: 0 };
   if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
@@ -1714,7 +1750,7 @@ export async function writeReply(deps, { facts, context = "", model, deadlineMs 
     let reply;
     try {
       reply = await Promise.race([
-        Promise.resolve().then(() => deps.send(replyRequest({ facts, context, model, missed }))),
+        Promise.resolve().then(() => deps.send(replyRequest({ facts, context, model, missed, talk }))),
         new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("reply deadline"), { deadline: true })), left); }),
       ]);
     } catch (e) {

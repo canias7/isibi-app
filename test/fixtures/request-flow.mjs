@@ -62,7 +62,7 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -381,7 +381,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   async function model(args, signal = null) {
     const tool = (args.tool_choice && args.tool_choice.name) || "";
     const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
-    modelLog.push({ tool, text: userText(args), props: Object.keys(props) });
+    // THE CALL'S OWN INSTRUCTIONS TOO (2026-10-13), so a case can tell which writer was asked.
+    const system = Array.isArray(args.system) ? args.system.map((b) => (b && typeof b.text === "string" ? b.text : "")).join("") : typeof args.system === "string" ? args.system : "";
+    modelLog.push({ tool, text: userText(args), props: Object.keys(props), system });
     // THE REPLY WRITER, SUPPLIED: it answers with the facts it was given, each
     // as given, so a test can read what the customer is told — the facts are
     // the code's; the wording would be a model's.
@@ -404,12 +406,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // the facts are the code's; the wording would be a model's. `progressWith`
     // may hold it (a slow model), refuse it (`{ status }`) or answer for it
     // (`{ answer }`: a misstated or contradictory update, say).
-    if (tool === "write_progress" && !Object.hasOwn(answers, "write_progress")) {
+    // THE CONVERSATIONAL WRITER (`write_update`, 2026-10-13) is answered the
+    // same way: each fact in its own words and state, a recorded reason read
+    // off its line (`why`), and no explanation unless the case gives one.
+    if ((tool === "write_progress" && !Object.hasOwn(answers, "write_progress")) || (tool === "write_update" && !Object.hasOwn(answers, "write_update"))) {
       const text = userText(args);
-      const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => ({ id: m[1], state: m[2], text: m[3] }));
+      const facts = [...text.matchAll(/^\[(f\d+)\] \(([a-z]+)\) (.*)$/gm)].map((m) => {
+        const [said, why] = m[3].split(" — recorded reason: ");
+        return { id: m[1], state: m[2], text: said, ...(why ? { why } : {}) };
+      });
       let usage = null;
       if (typeof progressWith === "function") {
-        const how = await progressWith({ n: nextN("write_progress"), facts, text, signal });
+        const how = await progressWith({ n: nextN(tool), facts, text, signal, tool, system: (args && args.system) || null });
         if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
         if (how && how.usage) usage = how.usage;
         if (how && how.answer) { progressLog.push(facts); return say(tool, how.answer, usage); }
@@ -628,7 +636,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   };
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
-    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}),
+    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}),
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }

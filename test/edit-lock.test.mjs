@@ -263,14 +263,14 @@ const DROPPED = { reject: new TypeError("Failed to fetch") };
 const HTML = { status: 200, body: "<!doctype html><title>oops</title>", type: "text/html" };
 
 // WHAT IS SAID, as the page's own composers and sentences say it.
-const WORDING = "✅ Updated the wording.";
-const LOOK = "✅ Updated the look.";
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
-const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
-const REFUSED = "⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
-const UNDER_REVIEW = "⚠️ " + P.outcomeMessage("needs_review");
-const LOST_JOB = "⚠️ I lost track of that edit. Your site is unchanged unless it had already published.";
-const ADDON_DONE = "✅ Done — updated /.";
+const WORDING = "Updated the wording.";
+const LOOK = "Updated the look.";
+const UNREAD = "I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
+const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
+const REFUSED = EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
+const UNDER_REVIEW = P.outcomeMessage("needs_review");
+const LOST_JOB = "I lost track of that edit. Your site is unchanged unless it had already published.";
+const ADDON_DONE = "Done — updated /.";
 
 /** Nothing left over: the latch free, the page idle, nothing waiting. */
 function assertIdle(p, when) {
@@ -508,9 +508,9 @@ test("a hop that climbs releases the site at the handoff to the rewrite, and the
   await p.send(M3);
   assert.deepEqual(p.lines(), lines, "a message sent while the rewrite ran reached the server");
   await p.answer("rewrite", ok({ need: "credits", msg: "Not enough credits." }, 402));
-  assert.deepEqual(p.said(), ["⚡ Not enough credits."]);
+  assert.deepEqual(p.said(), ["Not enough credits."]);
   assertIdle(p, "after the rewrite answered");
-  await thenMessage2(p, { lines, said: ["⚡ Not enough credits."] });
+  await thenMessage2(p, { lines, said: ["Not enough credits."] });
 });
 
 test("a QUEUED hop that climbs releases the site at the handoff to the rewrite, and the page stays busy until the rewrite ends", async () => {
@@ -530,9 +530,9 @@ test("a QUEUED hop that climbs releases the site at the handoff to the rewrite, 
   await p.send(M3);
   assert.deepEqual(p.lines(), lines, "a message sent while the rewrite ran reached the server");
   await p.answer("rewrite", ok({ need: "credits", msg: "Not enough credits." }, 402));
-  assert.deepEqual(p.said(), ["⚡ Not enough credits."]);
+  assert.deepEqual(p.said(), ["Not enough credits."]);
   assertIdle(p, "after the rewrite answered");
-  await thenMessage2(p, { lines, said: ["⚡ Not enough credits."] });
+  await thenMessage2(p, { lines, said: ["Not enough credits."] });
 });
 
 // ── A DUPLICATE IS STILL REFUSED WHILE THE WORK RUNS ───────────────────────
@@ -692,5 +692,5 @@ test('a resumed queued hop keeps its hop limit instead of starting a third edit'
   assert.deepEqual(p.lines(), lines);
   await p.answer('rewrite', ok({ need: 'credits', msg: 'Not enough credits.' }, 402));
   assertIdle(p, 'after resumed hop');
-  await thenMessage2(p, { lines, said: ['⚡ Not enough credits.'] });
+  await thenMessage2(p, { lines, said: ['Not enough credits.'] });
 });

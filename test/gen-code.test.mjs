@@ -805,7 +805,7 @@ test("DRIVEN: the code row draws real code, and draws no pane at all without it"
   ctx.stBuildRunning = new Function("ctx", "with (ctx) {" + cut("function stBuildRunning(") + "\n return stBuildRunning; }")(ctx);
   // AND THE BUILD'S LIVE LINES' RENDERER (2026-10-09, round 5): the rail ends
   // with them now; taken out of the file the same way.
-  ctx.progressListHTML = new Function("ctx", "with (ctx) {" + cut("function progressAt(") + "\n" + cut("function progressListHTML(") + "\n return progressListHTML; }")(ctx);
+  ctx.progressListHTML = new Function("ctx", "with (ctx) {" + cut("function progressListHTML(") + "\n return progressListHTML; }")(ctx);
   const render = new Function("ctx", "with (ctx) {" + cut("function reactLiveStepsHTML(") + "\n return reactLiveStepsHTML; }")(ctx);
   const draw = (b) => { ctx.siteBuild = b; return render(); };
 

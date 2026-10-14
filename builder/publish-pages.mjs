@@ -1724,7 +1724,11 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // beside it. Read from the first compile it would render a page whose source
   // was just refused.
   try {
-    await deps.publish(built.files, pages, built.worker);
+    // WHICH VERSION WENT LIVE (2026-10-14), when the publisher says: the
+    // build's check evidence names it. A publisher that answers anything else
+    // leaves it unsaid.
+    const got = await deps.publish(built.files, pages, built.worker);
+    if (got && typeof got === "object" && !Array.isArray(got) && typeof got.version === "string" && got.version) out.version = got.version;
   } catch (e) {
     // A REFUSED OR FAILED PUBLISH puts nothing live: the pictures it carried
     // are reported where they got to, on the error the caller receives.

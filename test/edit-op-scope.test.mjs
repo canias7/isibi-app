@@ -44,6 +44,7 @@
 // handed another operation's words, shows up as an unchanged page rather than
 // being papered over by a stub that edits whatever it sees.
 
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -372,9 +373,9 @@ for (const mode of ["sync", "job"]) {
     // omission (review #9), which the owner keeps separate.
     assert.equal(r.body.partial, undefined, "a step refused" + why(r));
     assert.equal(r.body.deferred, undefined, why(r));
-    assert.ok(!/⚠️/.test(r.said.text), "the screen carries a warning" + why(r));
+    assert.ok(!PICTOGRAPH.test(r.said.text), "the screen carries a warning" + why(r));
     assert.ok(!/I only did one thing/.test(r.said.text), "the screen says work was put off" + why(r));
-    assert.match(r.said.text, /^✅ Updated the look — the description\./, why(r));
+    assert.match(r.said.text, /^Updated the look — the description\./, why(r));
   });
 }
 
@@ -411,7 +412,7 @@ test("changes to two different pages: each page's writer is shown its own page a
   // THE SCREEN, EXACTLY. It claims nothing that did not happen — no warning, no
   // work held back — and SINCE 2026-10-03 it names the two pages it changed
   // (the mixed-work fixes, MW8), where it read "✅ Updated the look."
-  assert.equal(r.said.text, "✅ Updated /visit and /gallery.", why(r));
+  assert.equal(r.said.text, "Updated /visit and /gallery.", why(r));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -445,7 +446,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.body.ok, true, why(r));
     assert.equal(r.body.deferred, VISIT_WORDS, "the route did not say what it held back" + why(r));
     assert.equal(r.body.partial, undefined, "a step refused" + why(r));
-    assert.ok(!/⚠️/.test(r.said.text), "the screen carries a warning about work that never ran" + why(r));
+    assert.ok(!PICTOGRAPH.test(r.said.text), "the screen carries a warning about work that never ran" + why(r));
     assert.ok(r.said.text.endsWith(tail(VISIT_WORDS)), "the screen does not say what was put off" + why(r));
   });
 }
@@ -503,7 +504,7 @@ test("a put-off part the route cannot find in the message is not guessed at: not
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(r.compiles, 0, why(r));
   assert.deepEqual(r.said.actions, [], "the browser followed up on a refusal" + why(r));
-  assert.match(r.said.text, /^⚠️ /, why(r));
+  assert.doesNotMatch(r.said.text, PICTOGRAPH, why(r));
 });
 
 // ── THE ADD-ON ROUTE, THROUGH TO ITS DESIGNERS AND ITS REPLY ─────────────────
@@ -560,7 +561,7 @@ test("an add-on whose held-back part cannot be found runs nothing, costs nothing
   assert.deepEqual(r.sql, [], "the database was touched");
   const screen = browserReply(r.body, true);
   assert.ok(screen.ok, screen.why);
-  assert.match(screen.text, /^⚠️ /);
+  assert.doesNotMatch(screen.text, PICTOGRAPH);
   assert.deepEqual(screen.actions, [], "the browser followed up on a refusal");
 });
 
@@ -580,7 +581,7 @@ test("control: a single change on a named page, with no scopes from the picker, 
   assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), bandsSwapped(GALLERY), why(r));
   assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
   assert.equal(storedPage(r.store, r.slug, "visit.tsx"), VISIT, why(r));
-  assert.equal(r.said.text, "✅ Updated /gallery.", why(r));
+  assert.equal(r.said.text, "Updated /gallery.", why(r));
 });
 
 test("control: a single site-wide change reads the whole sentence and touches no page", async () => {
@@ -596,7 +597,7 @@ test("control: a single site-wide change reads the whole sentence and touches no
   for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) {
     assert.equal(storedPage(r.store, r.slug, path), src, why(r));
   }
-  assert.equal(r.said.text.startsWith("✅ Updated the look — the description."), true, why(r));
+  assert.equal(r.said.text.startsWith("Updated the look — the description."), true, why(r));
 });
 
 test("a scope naming a page the site does not have withholds that change alone, names the site's pages, and the description beside it ships", async () => {
@@ -624,7 +625,7 @@ test("a scope naming a page the site does not have withholds that change alone, 
   assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
   for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) assert.equal(storedPage(r.store, r.slug, path), src, why(r));
   // Led by its own words; the page is in the builder's sentence already.
-  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ “" + VISIT_WORDS + "”: " + said, why(r));
+  assert.equal(r.said.text, "Updated the look — the description. “" + VISIT_WORDS + "”: " + said, why(r));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,7 +664,7 @@ function assertShapeWithheld(r, msg, label, target = { lead: "A page’s layout:
     assert.equal(storedPage(r.store, r.slug, path), src, label + ": " + path + " changed" + why(r));
   }
   assert.equal(r.compiles, 1, label + ": not exactly one publish" + why(r));
-  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + target.lead + msg, label + ": the screen" + why(r));
+  assert.equal(r.said.text, "Updated the look — the description. " + target.lead + msg, label + ": the screen" + why(r));
 }
 
 for (const mode of ["sync", "job"]) {
@@ -724,7 +725,7 @@ test("a description scope whose words are not in the request is withheld: its la
   assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
   assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), GALLERY, why(r));
   // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
-  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ The description: " + msg, "the screen" + why(r));
+  assert.equal(r.said.text, "Updated /visit. The description: " + msg, "the screen" + why(r));
 });
 
 test("an own lane a scoped answer left without a scope is withheld too: the description lane is never handed the whole request", async () => {
@@ -741,7 +742,7 @@ test("an own lane a scoped answer left without a scope is withheld too: the desc
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), why(r));
   // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
-  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ The description: " + msg, why(r));
+  assert.equal(r.said.text, "Updated /visit. The description: " + msg, why(r));
 });
 
 test("a message whose only change is withheld changes nothing, costs nothing for the edit, and says why", async () => {
@@ -760,7 +761,7 @@ test("a message whose only change is withheld changes nothing, costs nothing for
   for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) assert.equal(storedPage(r.store, r.slug, path), src, why(r));
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(r.compiles, 0, why(r));
-  assert.ok(r.said.text.startsWith("⚠️ " + msg), "the screen" + why(r));
+  assert.ok(r.said.text.startsWith(msg), "the screen" + why(r));
   assert.match(r.said.text, /Nothing on your site changed/, why(r));
   assert.deepEqual(r.said.actions, [], "the browser followed up on a refusal" + why(r));
 });
@@ -1064,7 +1065,7 @@ test("W15 — a QR code beside other work, on an answer with no words for each c
   assertPagesKept(r, "W15 unscoped");
   assert.equal(r.compiles, 0, why(r));
   assert.deepEqual(r.said.actions, [], "the browser followed up on a refusal" + why(r));
-  assert.match(r.said.text, /^⚠️ Adding a QR code is a step of its own/, why(r));
+  assert.match(r.said.text, /^Adding a QR code is a step of its own/, why(r));
 });
 
 test("W15 — the router's part and the look step's both put off: the reply names both, and the screen asks for each in turn", async () => {

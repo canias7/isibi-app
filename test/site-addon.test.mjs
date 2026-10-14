@@ -4,6 +4,7 @@
 // drops pages publishes a site consisting of the new page alone; a merge that
 // reports pages as "changed" when they came back byte-identical sends the owner
 // looking for damage that is not there.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -161,7 +162,7 @@ test("the reply names the pages, including the one they did not ask about", () =
   // stronger than the two-branch rule it replaces: there is no inference left
   // that could be wrong. Driven with a page added and without one.
   const section = addonReply({ added: [], changed: ["src/routes/index.tsx"] });
-  assert.match(section, /^✅ Done — updated \/\./, section);
+  assert.match(section, /^Done — updated \/\./, section);
   for (const [what, out] of [["beside an addition", r], ["on its own", section]]) {
     assert.doesNotMatch(out, /linked/, "the reply claims a link " + what + ": " + out);
   }
@@ -174,8 +175,8 @@ test("an unreachable page is said plainly, with the fix", () => {
 });
 
 test("an empty reply is still a sentence", () => {
-  assert.match(addonReply(), /^✅/);
-  assert.match(addonReply({}), /^✅/);
+  assert.doesNotMatch(addonReply(), PICTOGRAPH);
+  assert.doesNotMatch(addonReply({}), PICTOGRAPH);
 });
 
 // ── the prompt half ──────────────────────────────────────────────────────────
@@ -1088,7 +1089,7 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.match(backend, /Your site has its own database now\./, backend);
   assert.match(backend, /The function broken_one couldn’t be created — column d does not exist\./, backend);
   assert.match(backend, /add RATES_KEY under Cloud → Secrets/, backend);
-  assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
+  assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
   // ⚠ A ONE-TIME JOB IS SAID BY ITS DATE, AND THE INTERVAL IS A LIE HERE —
   // reproduced 2026-09-19 on the reply the addon route really composes for a
   // job stored with `on: "2026-10-03"`: **"scheduled remind_once (every 31 days
@@ -1114,7 +1115,7 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.ok(!/nightly runs once/.test(mixed), "a recurring job was described as one-time: " + mixed);
   // THE RECURRING CONTROL, byte for byte what it was.
   const daily = reply({ added: [], changed: [], jobs: [{ name: "nightly", everyMinutes: 1440, at: "23:00", tz: "Etc/GMT-14" }] });
-  assert.equal(daily, "✅ Done — scheduled nightly (every day at 23:00 (Etc/GMT-14)).", daily);
+  assert.equal(daily, "Done — scheduled nightly (every day at 23:00 (Etc/GMT-14)).", daily);
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
   // ⚠ A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, and this asserted the
@@ -1123,7 +1124,7 @@ test("the addon reply is DRIVEN, not grepped", () => {
   // changed page does not establish that a link was added."* The browser's
   // `addonReplyText` and the server's `addonReply` say the same, driven on both.
   const section = reply({ added: [], changed: ["src/routes/index.tsx"] });
-  assert.match(section, /^✅ Done — updated \/\./, section);
+  assert.match(section, /^Done — updated \/\./, section);
   const pair = reply({ added: ["src/routes/g.tsx"], changed: ["src/routes/index.tsx"] });
   assert.match(pair, /added \/g, updated \//, pair);
   for (const [what, out] of [["on its own", section], ["beside an addition", pair]]) {

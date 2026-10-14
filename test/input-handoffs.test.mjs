@@ -22,6 +22,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer is supplied: whether a real
 // model acts on the last line of a long message, or asks a good question, is
 // the real-model audit's to measure, not this file's.
+import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -262,9 +263,11 @@ test("A LONG QUESTION WITH SIX ANSWERS, THE LAST ONE LONG: kept whole, drawn who
     assert.equal(shown.ask, kept.id);
     const drawn = p.ctx.siteAskHTML(shown, p.s);
     for (const o of LONG_Q.options) assert.ok(drawn.includes(">" + o + "</span>"), "an answer is not drawn whole: " + o.slice(0, 40));
-    assert.ok(drawn.includes("<kbd>6</kbd>"), "the sixth answer has no key");
+    // EACH ANSWER A ROW TO PICK, THEN CONTINUE (option E, 2026-10-14); the keys pick by number.
+    assert.equal((drawn.match(/data-ask-pick="/g) || []).length, 6, "not every answer can be picked");
+    assert.match(drawn, /data-ask-go="1"[^>]* disabled>Continue</, "Continue sends before anything is picked");
     // PRESSING THE SIXTH ANSWER SENDS ALL OF IT, AS THE ANSWER.
-    p.click("data-ask-ans", LAST_OPTION);
+    (p.click("data-ask-pick", LAST_OPTION), p.click("data-ask-go", "1"));
     await settle(200);
     const sent = p.calls.filter((c) => c.url === ROUTE);
     assert.equal(sent.length, 2, "the pressed answer was not sent");
@@ -359,7 +362,7 @@ test("THE REQUEST'S FILE REACHES THE STEP AFTER ITS QUESTION: the answer carries
       p.ctx.siteSend("Use this as our logo");
       await settle(200);
       assert.ok(p.ask(), "no question was drawn");
-      p.click("data-ask-ans", "Header");
+      (p.click("data-ask-pick", "Header"), p.click("data-ask-go", "1"));
       await settle(400);
       const edit = p.calls.find((c) => c.url === "/api/site/" + slug + "/edit");
       assert.ok(edit, "the answered request was not posted: " + JSON.stringify(p.calls.map((c) => c.url)));
@@ -742,7 +745,7 @@ test("THE PAGE AT THE BOUND: a message past it is not sent and stays in the box 
     assert.deepEqual(p.calls, [], "an answer past the bound was sent");
     assert.equal(p.ask().id, qid, "the question came off");
     assert.equal(p.s.draft.t, PAST_BOUND);
-    assert.match(p.last().t, /^⚠️ That answer is 16,001 characters/);
+    assert.match(p.last().t, /^That answer is 16,001 characters/);
   }
   {
     // AT THE BOUND IT GOES, WHOLE.
@@ -806,6 +809,6 @@ test("A STEP'S UNUSABLE QUESTION ON A LONG REQUEST, ON THE PAGE: the request com
     assert.equal(edit.body.error, "ask-unusable", JSON.stringify(edit.body).slice(0, 300));
     assert.deepEqual(copy(p.s.unsent), [{ t: LONG_MOVE, imgs: [PNG_A] }], "the request did not come back to the box whole, with its file");
     assert.equal(p.ask(), null, "an unusable question became a card");
-    assert.match(p.last().t, /^⚠️ /, p.last().t);
+    assert.doesNotMatch(p.last().t, PICTOGRAPH, p.last().t);
   }, { slug });
 });

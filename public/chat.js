@@ -4700,7 +4700,7 @@ function siteRestore(id, idx) {
   s.pages = (snap.pages || []).map((p) => ({ path: p.path, name: p.name, html: p.html }));
   s.design = snap.design || s.design;
   s.active = snap.active || '/';
-  s.msgs.push({ r: 'a', t: '↩ Restored to: ' + (snap.label || 'a previous version') + '.' });
+  s.msgs.push({ r: 'a', t: 'Restored to: ' + (snap.label || 'a previous version') + '.' });
   s.updatedAt = Date.now();
   siteRail = 'chat'; siteView = 'preview';
   sitesSave(); renderSites();
@@ -4962,7 +4962,7 @@ function siteRoutesFetch(site) {
 // not a fallback for a site that exists. EMPTY STOPS AS WELL, because the route
 // answers `routes: []` both for a site that never published and for a store read
 // that failed, and cannot tell them apart.
-const SITE_NO_PAGES_MSG = '⚠️ I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.';
+const SITE_NO_PAGES_MSG = 'I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.';
 function siteWithPages(origin, slug, go, stop) {
   const held = siteById(origin);
   if (held && held.slug === slug && sitePages(held).length) { go(held); return; }
@@ -4971,7 +4971,7 @@ function siteWithPages(origin, slug, go, stop) {
     if (!s || s.slug !== slug) { stop(SITE_NO_PAGES_MSG); return; }
     siteRoutesApply(origin, got.paths);
     if (sitePages(s).length) { go(s); return; }
-    stop(got.status === 401 ? '⚠️ You’re signed out. Sign in and send that again.' : SITE_NO_PAGES_MSG);
+    stop(got.status === 401 ? 'You’re signed out. Sign in and send that again.' : SITE_NO_PAGES_MSG);
   });
 }
 // A MESSAGE THAT STOPPED BEFORE IT WAS ROUTED IS KEPT ON ITS OWN SITE, WORDS AND
@@ -7879,7 +7879,7 @@ function siteSetLive(site, live) {
   if (!slug || siteBusy) return;
   const origin = site.id;
   siteBusy = true;
-  site.msgs.push({ r: 'a', t: live ? '\u21bb Putting your site back online\u2026' : '\u23f9 Taking your site off the web\u2026' });
+  site.msgs.push({ r: 'a', t: live ? 'Putting your site back online\u2026' : 'Taking your site off the web\u2026' });
   sitesSave(); renderSites();
   // `on: true` means OFFLINE, matching the route's name.
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/offline', {
@@ -7901,20 +7901,20 @@ function siteSetLive(site, live) {
       // just changed. Nothing is invented: the POST came back ok, so this is the
       // server's answer, recorded rather than guessed.
       sitesRemote = SiteList.markOffline(sitesRemote, slug, !live);
-      s.msgs.push({ r: 'a', t: d.msg || (live ? '\u2705 Back online.' : '\u23f9 Taken offline.') });
+      s.msgs.push({ r: 'a', t: d.msg || (live ? 'Back online.' : 'Taken offline.') });
       if (typeof sbToast === 'function') sbToast(live ? 'Back online.' : 'Site taken offline.');
     } else {
       // THE SERVER'S OWN WORDS. A 409 means there was no saved copy to put back
       // and it refused rather than wiping — a generic "try again" there sends the
       // owner round a loop that cannot succeed.
-      s.msgs.push({ r: 'a', t: d.msg || '\u26a0\ufe0f Couldn\u2019t do that just now \u2014 your site is unchanged.' });
+      s.msgs.push({ r: 'a', t: d.msg || 'Couldn\u2019t do that just now \u2014 your site is unchanged.' });
     }
     sitesSave();
     if (siteOpenId === origin) renderSites();
   }).catch(() => {
     siteBusy = false;
     const s = siteById(origin);
-    if (s) { s.msgs.push({ r: 'a', t: '\u26a0\ufe0f Couldn\u2019t reach the server \u2014 your site is unchanged.' }); sitesSave(); renderSites(); }
+    if (s) { s.msgs.push({ r: 'a', t: 'Couldn\u2019t reach the server \u2014 your site is unchanged.' }); sitesSave(); renderSites(); }
   });
 }
 
@@ -8327,8 +8327,13 @@ function renderSiteWorkspace(view, site) {
     // per-node handler would be rebound constantly and lost on the next repaint.
     thread.onclick = (e) => {
       if (!e.target.closest) return;
-      const askAns = e.target.closest('[data-ask-ans]');
-      if (askAns && thread.contains(askAns)) { siteAskReply(askAns.getAttribute('data-ask-ans'), true); return; }
+      // PICK, THEN CONTINUE (option E): a click picks, Continue sends.
+      const askPick = e.target.closest('[data-ask-pick]');
+      if (askPick && thread.contains(askPick)) { sitePick(sitePickKeyLive(siteById(siteOpenId)), askPick.getAttribute('data-ask-pick')); return; }
+      const askOwn = e.target.closest('[data-ask-own]');
+      if (askOwn && thread.contains(askOwn)) { sitePickOwn(); return; }
+      const askGo = e.target.closest('[data-ask-go]');
+      if (askGo && thread.contains(askGo)) { const v = sitePickTake(sitePickKeyLive(siteById(siteOpenId))); if (v) siteAskReply(v, true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
       if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
       // A REQUEST'S CARD (2026-10-03): Stop the rest, or a part's rewrite.
@@ -8340,8 +8345,12 @@ function renderSiteWorkspace(view, site) {
       if (reqBuy && thread.contains(reqBuy)) { siteRequestBuyAgain(site.id, reqBuy.getAttribute('data-req-buy'), Number(reqBuy.getAttribute('data-req-part'))); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
-      const ans = e.target.closest('[data-ans]');
-      if (ans && thread.contains(ans)) { siteAnswer(ans.getAttribute('data-ans')); return; }
+      const pick = e.target.closest('[data-pick]');
+      if (pick && thread.contains(pick)) { sitePick(sitePickKeyFirst(siteById(siteOpenId)), pick.getAttribute('data-pick')); return; }
+      const pickOwn = e.target.closest('[data-pick-own]');
+      if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(); return; }
+      const pickGo = e.target.closest('[data-pick-go]');
+      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v); return; }
       const h = e.target.closest('[data-steptog]');
       if (h && thread.contains(h)) h.parentNode.classList.toggle('open');
     };
@@ -8975,11 +8984,14 @@ function reactLiveStepsHTML() {
   // markup and total at runtime.
   // WAITING IS NOT THINKING (stage 3b): a queued job refused by its site's
   // lock or a deploy's gate says so, in the sentence the poll module chose.
-  // AND A RUNNING JOB'S LATEST PROGRESS LINE (2026-10-06) in its place, in
-  // the model's own words — never ahead of a waiting sentence. One gate, so
-  // the rail still asks the shared predicate once.
+  // AND A RUNNING JOB'S PROGRESS LINES (2026-10-06) in its place, in the
+  // model's own words — never ahead of a waiting sentence. One gate, so the
+  // rail still asks the shared predicate once.
+  // EVERY LINE, NOT ONLY THE NEWEST (the owner, 2026-10-13: "i dont want it
+  // to be replaced, i want everything to show"): they stack in the same list
+  // a request's card and a finished reply draw.
   if (!stBuildRunning()) {
-    if (!sb.waitNote && sb.progressLine) return '<div class="st-steps st-steps-live"><div class="st-think st-think-prog"><i></i><span>' + esc(sb.progressLine) + '</span></div></div>';
+    if (!sb.waitNote && Array.isArray(sb.progressLines) && sb.progressLines.length) return '<div class="st-steps st-steps-live">' + progressListHTML(sb.progressLines, true) + '</div>';
     return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   }
   // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
@@ -9352,7 +9364,7 @@ function buildFailureView(d) {
   const model = (typeof EditPoll !== 'undefined' && EditPoll.modelReply) ? EditPoll.modelReply(d) : '';
   const told = buildToldLines(d) || [];
   const rest = model ? [...told.filter((l) => l !== model), failureCostLine(f)] : told;
-  return { lead: '⚠️ ' + (model || 'The build didn’t finish.'), note: rest.filter(Boolean).join('\n') };
+  return { lead: (model || 'The build didn’t finish.'), note: rest.filter(Boolean).join('\n') };
 }
 
 function siteFinishBuild(origin, reply, build, note, why) {
@@ -9682,7 +9694,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
   // call is billed, so sending is the customer's press.
   const lost = (r) => {
     siteHoldUnsent(origin, t, imgs, key);
-    finish('⚠️ ' + (r && r.status === 401
+    finish((r && r.status === 401
       ? 'You’re signed out. Sign in and send that again.'
       : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
   };
@@ -9776,7 +9788,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full' || d.error === 'message-too-long' || d.error === 'answer-files-full') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       if (d.error === 'stale-question') siteAskClear(origin);
       else siteHoldUnsent(origin, t, imgs, key);
-      finish(routeSaid || '⚠️ ' + d.msg);
+      finish(routeSaid || d.msg);
       return;
     }
     // ── A REPLACEMENT THAT LOST A RACE (2026-10-02) ───────────────────────
@@ -9787,7 +9799,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     if (!isBuild && d && d.ok === false && d.error === 'question-busy' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       siteAskClear(origin);
       siteHoldUnsent(origin, t, imgs, key);
-      finish(routeSaid || '⚠️ ' + d.msg);
+      finish(routeSaid || d.msg);
       return;
     }
     // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
@@ -10109,7 +10121,7 @@ function siteRequestFollow(origin, key) {
       misses++;
       if (misses > SITE_REQ_MISSES) {
         stop();
-        siteReqSay(origin, '⚠️ I lost sight of how that request is going. It carries on without this page — reload to see where it is.', { key });
+        siteReqSay(origin, 'I lost sight of how that request is going. It carries on without this page — reload to see where it is.', { key });
         return;
       }
       setTimeout(step, EditPoll.pollDelayMs(++attempt));
@@ -10337,7 +10349,7 @@ function siteReqRefresh(origin, httpOk, body, addon) {
 function siteRequestStop(origin, key) {
   const s = siteById(origin);
   if (!s || !s.slug) return;
-  const failed = () => siteReqSay(origin, '⚠️ I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.', { key });
+  const failed = () => siteReqSay(origin, 'I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.', { key });
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
@@ -10364,7 +10376,7 @@ function siteRequestApprove(origin, key, n) {
   const settle = () => { st.approving = (st.approving || []).filter((x) => x !== n); sitesSave(); };
   const failed = () => {
     settle();
-    siteReqSay(origin, '⚠️ I couldn’t confirm the go-ahead just now. If the part still shows its button, press it again — pressing twice never starts it twice.', { key });
+    siteReqSay(origin, 'I couldn’t confirm the go-ahead just now. If the part still shows its button, press it again — pressing twice never starts it twice.', { key });
     siteRequestFollow(origin, key);
   };
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/approve', {
@@ -10401,7 +10413,7 @@ function siteRequestBuyAgain(origin, key, n) {
   const settle = () => { st.rebuying = (st.rebuying || []).filter((x) => x !== n); sitesSave(); };
   const failed = () => {
     settle();
-    siteReqSay(origin, '⚠️ I couldn’t confirm that just now. If the part still shows its button, press it again — pressing twice never buys twice.', { key });
+    siteReqSay(origin, 'I couldn’t confirm that just now. If the part still shows its button, press it again — pressing twice never buys twice.', { key });
     siteRequestFollow(origin, key);
   };
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/buy-again', {
@@ -10632,25 +10644,28 @@ function siteSaidFor(said, which) {
 // ── A JOB'S PROGRESS LINES (2026-10-06) ─────────────────────────────────────
 //
 // What the server's progress writer wrote while an edit or an add-on ran: the
-// model's words for what each step really did, each with how far into the job
-// it came, the newest marked live while the work goes on. NEVER A THREAD
-// MESSAGE OF ITS OWN: a request's lines come with its view, a job this page
-// watched keeps them on its reply (`m.prog`), and a job found from another
-// device keeps them on its card — so the forty kept messages are untouched,
-// and every reading of the server draws them again.
-function progressAt(ms) {
-  const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
-  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
-}
+// model's words for what each step really did, the newest marked live while
+// the work goes on. NEVER A THREAD MESSAGE OF ITS OWN: a request's lines come
+// with its view, a job this page watched keeps them on its reply (`m.prog`),
+// and a job found from another device keeps them on its card — so the forty
+// kept messages are untouched, and every reading of the server draws them
+// again.
+// EACH LINE STARTS WITH A DASH, NOT A TIME OR A DOT (the owner, 2026-10-13,
+// choosing from rendered options: the dash in place of the time, the thin
+// thread between lines kept). The dash is drawn by the stylesheet.
+// AND THE EXPLANATION, FOLDED (talk, 2026-10-13): the owner asked for *"an
+// optional expandable explanation section for concise, model-written
+// summaries of the approach, relevant decisions and reasons supported by
+// available evidence"*. Each line's own `explain`, in order, under one fixed
+// label, closed until opened — never a stream of thoughts, and absent when no
+// line carries one.
 function progressListHTML(lines, live, done) {
   const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
   if (!list.length) return '';
-  return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) => {
-    const at = '<span class="at">' + esc(progressAt(l.ms)) + '</span>';
-    return live && i === list.length - 1
-      ? '<li class="live"><i></i><span>' + at + esc(l.text) + '</span></li>'
-      : '<li>' + at + esc(l.text) + '</li>';
-  }).join('') + '</ul>';
+  const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
+  return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) =>
+    '<li' + (live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
+    (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '');
 }
 /**
  * A JOB THIS PAGE WATCHED HAS ENDED: its lines kept on the reply its finish put
@@ -10667,7 +10682,7 @@ function siteKeepJobProgress(origin, job, before, lines) {
   const jobs = Array.isArray(m.jobs) ? m.jobs : [];
   if (!jobs.includes(job)) m.jobs = jobs.concat([job]);
   const kept = Array.isArray(m.prog) ? m.prog : [];
-  const add = (Array.isArray(lines) ? lines : []).filter((l) => !kept.some((x) => x.job === job && x.n === l.n)).map((l) => ({ job, n: l.n, ms: l.ms, text: l.text }));
+  const add = (Array.isArray(lines) ? lines : []).filter((l) => !kept.some((x) => x.job === job && x.n === l.n)).map((l) => ({ job, n: l.n, ms: l.ms, text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }));
   if (add.length) m.prog = kept.concat(add);
   s.updatedAt = Date.now();
   sitesSave();
@@ -10813,7 +10828,7 @@ function siteJobFollow(origin, job) {
       draw();
       // AND WHAT STANDS, IN THE SERVER'S OWN NOTE (2026-10-07): a job that
       // died after an addition's database change went in says so.
-      siteJobSay(origin, job, '⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : ''));
+      siteJobSay(origin, job, ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : ''));
       // …AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).
       siteTablesAfter(origin, e);
       stop();
@@ -10928,7 +10943,7 @@ function editAskDone(slug, ask) {
 function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
-  if (editBlocked.has(slug)) { finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
+  if (editBlocked.has(slug)) { finish(EditPoll.outcomeMessage('needs_review')); return; }
   // A SIDEWAYS HOP IS THE SAME ASK. `handedOff` means one lane escalated to
   // another within one message, so it must not be refused as a double
   // submission — it IS the first submission, redirected. It takes no latch of
@@ -11072,7 +11087,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // sign-in gate up. The routing stop's and the add-on's own sentence. A 401
     // carries no `ok`, so read as a reply it would be not knowing — and it is
     // the one failure whose next step is known.
-    if (r.status === 401) { finish('⚠️ You’re signed out. Sign in and send that again.'); return; }
+    if (r.status === 401) { finish('You’re signed out. Sign in and send that again.'); return; }
     // ── A QUEUED EDIT ANSWERS WITH A JOB, NOT AN OUTCOME ─────────────────
     //
     // Flag off, this is never taken and every line below runs as it did. Flag
@@ -11107,7 +11122,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // for one ask (2026-09-23). It fell to `fallback` — the full rewrite.
     // AND WHAT WAS PUT OFF IS STILL SAID (2026-10-02, W7), from what this post
     // carried: the route takes those parts out before anything runs, or refuses.
-  }).catch(() => { finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: d.alsoAsked }, false)); });
+  }).catch(() => { finish(unreadEditMsg() + alsoTail({ deferred: d.alsoAsked }, false)); });
 }
 
 /**
@@ -11147,7 +11162,7 @@ function unreadEditMsg() {
 // never described as a failed or uncertain one, and only the details unsaid. A
 // function for the same reason as `unreadEditMsg`.
 function editShownMsg() {
-  return '✅ That change went through, but I couldn’t show the details of what it changed here.';
+  return 'That change went through, but I couldn’t show the details of what it changed here.';
 }
 
 /**
@@ -11254,7 +11269,7 @@ function editAnswer(httpOk, e, o) {
   // it itself (`deferred`, on every ending the route writes); one it cannot
   // read is said from what the post carried — the route takes those parts out
   // before anything runs, or refuses.
-  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(unreadEditMsg() + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
   // AN ESCALATE, AND ONLY A WELL-FORMED ONE, handed on with the fields the
   // reader checked — never the raw body — so nothing it did not look at can
   // reach a paid request. Where it goes is still `escalatedEdit`'s to decide.
@@ -11291,7 +11306,7 @@ function editAnswer(httpOk, e, o) {
     // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
-    if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review') + alsoTail(e, false)); return; }
+    if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish(EditPoll.outcomeMessage('needs_review') + alsoTail(e, false)); return; }
     // THE RUNG'S OWN SENTENCE — or, when several steps were all refused, EACH
     // STEP'S — THEN WHAT THIS BRANCH ALONE CAN SAY: whether the site changed,
     // and what the edit and the routing call cost. No refusal sentence the
@@ -11300,17 +11315,17 @@ function editAnswer(httpOk, e, o) {
     // AND A STEP THAT ASKED BESIDE THEM (2026-10-02): the others' sentences,
     // then its question with its card.
     if (said.ask) {
-      o.finish(askReplyMsg((told ? '⚠️ ' + told + wholeRequestNote(e, o.d) : '') + alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
+      o.finish(askReplyMsg((told ? told + wholeRequestNote(e, o.d) : '') + alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
       return;
     }
-    if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d) + alsoTail(e, false)); return; }
+    if (told) { o.finish(told + wholeRequestNote(e, o.d) + alsoTail(e, false)); return; }
     // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
     // `fallback` whenever the reply carried no sentence, and a message whose
     // every step was refused carried none at the top — so the customer got a
     // ~25-credit rewrite of every page in answer to changes that had each been
     // refused for a reason. The rewrite is started by an ESCALATE the server
     // chose to send (`escalatedEdit`), and by nothing else.
-    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d) + alsoTail(e, false));
+    o.finish(EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d) + alsoTail(e, false));
     return;
   }
   return applyEditResult(e, o);
@@ -11451,13 +11466,13 @@ function escalatedEdit(e, o) {
     hasAsk: !!o.instruction && typeof o.fallback === 'function',
   });
   if (act === 'lost') {
-    o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(e, false));
+    o.finish('I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(e, false));
     return;
   }
   // THE ADD-ON ALREADY HAD THIS ASK AND HANDED IT HERE (2026-10-02), so this
   // edit naming the add-on again ends the chain rather than going round.
   if (act === 'stop') {
-    o.finish('⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.' + alsoTail(e, false));
+    o.finish('I couldn’t add that, so nothing on your site changed. Try describing it a little differently.' + alsoTail(e, false));
     return;
   }
   // THE MIDDLE RUNG, when the edit names it: the ask adds something the site
@@ -11638,7 +11653,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       // silently the day the curve changed. `shouldGiveUp` is the JOB's own
       // horizon (edit-poll.js, derived from the one duration setting), so the
       // page stops looking only once the job could not still be running.
-      if (EditPoll.shouldGiveUp(w)) { w.stopped = 'gave-up'; finish('⚠️ I lost track of that edit. Reload to pick it back up.'); return; }
+      if (EditPoll.shouldGiveUp(w)) { w.stopped = 'gave-up'; finish('I lost track of that edit. Reload to pick it back up.'); return; }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }
@@ -11649,7 +11664,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       EditPoll.forgetJob(slug);
       release();
       w.stopped = 'gone';
-      finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.' + alsoTail({ deferred: d && d.alsoAsked }, false));
+      finish('I lost track of that edit. Your site is unchanged unless it had already published.' + alsoTail({ deferred: d && d.alsoAsked }, false));
       return;
     }
     // THE OUTCOME, ITS REPLY STILL BEING WRITTEN (2026-10-04): applied now,
@@ -11662,10 +11677,11 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       // long as the poll says `waiting`, and the ordinary poll paints nothing.
       const waitNote = EditPoll.waitingMessage(e);
       if (siteBuild && siteOpenId === origin && (siteBuild.waitNote || '') !== waitNote) { siteBuild.waitNote = waitNote; paintReactLive(); }
-      // AND THE LATEST PROGRESS LINE (2026-10-06) where "Thinking" was — never
-      // ahead of the waiting sentence (`reactLiveStepsHTML`).
-      const line = lines.length ? lines[lines.length - 1].text : '';
-      if (siteBuild && siteOpenId === origin && (siteBuild.progressLine || '') !== line) { siteBuild.progressLine = line; paintReactLive(); }
+      // AND EVERY PROGRESS LINE SO FAR (2026-10-06; all of them since
+      // 2026-10-13) where "Thinking" was — never ahead of the waiting sentence
+      // (`reactLiveStepsHTML`).
+      const said = lines.map((l) => l.text).join('\n');
+      if (siteBuild && siteOpenId === origin && (siteBuild.progressLines || []).map((l) => l.text).join('\n') !== said) { siteBuild.progressLines = lines.slice(); paintReactLive(); }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }
@@ -11692,7 +11708,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // verbatim, as a failure's `coverNote` is, never composed here.
     // AND THE SITE'S TABLE LIST, WHEN THAT RECORD SAYS TABLES STAND (2026-10-07).
     siteTablesAfter(origin, e);
-    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : '') + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
+    finish(((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + (e && typeof e.note === 'string' && e.note.trim() ? ' ' + e.note.trim() : '') + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
 }
@@ -12033,7 +12049,7 @@ function addonAnswer(httpOk, a, o) {
   // the reply's own `deferred`, or what the post carried when it cannot be read.
   if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown') + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
   if (said.act === 'hop' || said.act === 'climb') {
-    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(said, false)); return; }
+    if (!canFall) { o.finish('I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(said, false)); return; }
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this:
     // a new menu link, button or footer item is the menu editor's, which
     // writes every page at once (2026-10-02; until then it was a photograph,
@@ -12086,12 +12102,12 @@ function addonAnswer(httpOk, a, o) {
     // outcome has its note left unsaid.
     const cover = failureOutcomeOf(a) && typeof a.coverNote === 'string' && a.coverNote.trim() ? ' ' + a.coverNote.trim() : '';
     if (said.ask) {
-      const told = typeof a.msg === 'string' && a.msg.trim() ? '⚠️ ' + a.msg : '';
+      const told = typeof a.msg === 'string' && a.msg.trim() ? a.msg : '';
       o.finish(askReplyMsg(told + cover + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
       return;
     }
     // The route's own sentence, when it wrote one.
-    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + cover + alsoTail(a, false)); return; }
+    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish(a.msg + cover + alsoTail(a, false)); return; }
     // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
     // `ok: false` without a reason is still the route saying the addition did
     // not finish — never that nothing changed or nothing was charged, which an
@@ -12300,10 +12316,10 @@ function failureOutcomeOf(a) {
 // and runs these sentences instead of keeping a second copy. An unknown kind
 // gets the not-knowing sentence, which is the direction to be wrong in.
 function addonOutcomeMsg(kind) {
-  if (kind === 'signed-out') return '⚠️ You’re signed out. Sign in and send that again.';
-  if (kind === 'unsaid') return '⚠️ That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.';
-  if (kind === 'shown') return '✅ That addition went through, but I couldn’t show the details of what it changed here.';
-  return '⚠️ I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time.';
+  if (kind === 'signed-out') return 'You’re signed out. Sign in and send that again.';
+  if (kind === 'unsaid') return 'That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.';
+  if (kind === 'shown') return 'That addition went through, but I couldn’t show the details of what it changed here.';
+  return 'I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time.';
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
 // with `routeOf` in builder/site-addon.mjs; the client cannot import it.
@@ -12611,7 +12627,7 @@ function addonReplyText(a) {
   }
   const scene = a.scene && typeof a.scene === 'object' ? a.scene : null;
   if (scene && shownOn(scene).length) bits.push('added a 3D scene on ' + shownOn(scene).join(', '));
-  let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  let out = bits.length ? 'Done — ' + bits.join(', ') + '.' : 'Done.';
   // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
   // and before anything about the database or the pictures.
   out += jobOnceNote(a.jobs);
@@ -12836,7 +12852,7 @@ function problemNote(list) {
   if (!p.length) return '';
   // The lint's own sentences, which are written to the person who has to act on
   // them. Rewording them here would be a second place they can be wrong.
-  return ' ⚠️ ' + p.join(' ');
+  return ' ' + p.join(' ');
 }
 // What an edit actually did, in one line.
 //
@@ -12978,7 +12994,7 @@ function editOutcomes(e) {
   // like the rest of the success line is the silent partial one sentence
   // longer.
   const stopped = partialSaid(partialShown(e));
-  if (stopped) out += ' ⚠️ ' + stopped;
+  if (stopped) out += ' ' + stopped;
   // ⚠ AND WHAT THE PART THAT DID NOT GO THROUGH STILL COST (2026-09-25). A rung
   // that refuses after its model call answered bills that call, and beside a
   // change that shipped nothing refunds it — measured through the route, a
@@ -13200,7 +13216,7 @@ function editReply(e) {
     });
     if (out.length) stepsSaid = ' ' + out.join(' ');
   }
-  return editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+  return (editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems)).trim();
 }
 
 // ── A FIRST BUILD FOUND AGAIN ON OPEN (2026-10-10, the Build reconnection gap) ──
@@ -13372,7 +13388,7 @@ function editReplyBody(e) {
     const said = (Array.isArray(e.changed) ? e.changed : [])
       .filter((x) => typeof x === 'string' && x.trim()).slice(0, 3)
       .map((x) => '“' + x.slice(0, 60) + '”');
-    let out = '✅ Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
+    let out = 'Updated the wording' + (n > 1 ? ' in ' + n + ' places' : '') +
       (said.length ? ' — now ' + said.join(', ') : '') + '.';
     // THE CALL LINK STILL HAS THE OLD NUMBER. A phone number is one fact in two
     // encodings and this lane only reaches the words, so without saying it the
@@ -13407,7 +13423,7 @@ function editReplyBody(e) {
     // nothing would leave somebody waiting for a rebuild they were not told
     // about.
     const sorted = typeof e.sortMsg === 'string' && e.sortMsg.trim() ? e.sortMsg.trim() : '';
-    let out = bits.length ? '✅ ' + bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : (sorted || '✅ Done.');
+    let out = bits.length ? bits.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.' : (sorted || 'Done.');
     if (sorted && bits.length) out += ' ' + sorted;
     // WHAT WENT, IN WORDS. A deleted row has no version history to restore from,
     // so the contents sitting in the thread ARE the undo — "put that back" is
@@ -13434,7 +13450,7 @@ function editReplyBody(e) {
     // so the reply quotes the description the slot already carries — and the
     // module is the only thing that knows which ones could not be made, which is
     // the half a second copy here would eventually drop.
-    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
+    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : 'Done.');
   }
   if (e.layer === 'rename') {
     // THE SERVER NAMES THE ADDRESS, for the reason the nav branch below gives:
@@ -13446,7 +13462,7 @@ function editReplyBody(e) {
     // THE OLD ADDRESS STILL WORKING IS THE HALF THAT NEEDS SAYING. An owner who
     // has printed cards, put the address on a van, or is carrying a QR code that
     // points at it will assume a rename broke all three, and will not ask.
-    return e.msg || ('✅ Your site is now at ' + (e.renamed || 'its new address') + '. The old address still works.');
+    return e.msg || ('Your site is now at ' + (e.renamed || 'its new address') + '. The old address still works.');
   }
   if (e.layer === 'nav') {
     // THE SERVER NAMES THE MENU, because it is the only thing that knows what
@@ -13463,7 +13479,7 @@ function editReplyBody(e) {
     // site-wide. `navReply` is the only place that knows which of those were
     // REFUSED — a typed link cannot point at an anchor — and a second copy of
     // that sentence here would eventually report a link that never moved.
-    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.');
+    return (typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : 'Done.');
   }
   if (e.layer === 'rules') {
     // THE SERVER WROTE THIS ONE. `rulesReply` is the single place a rule change
@@ -13474,7 +13490,7 @@ function editReplyBody(e) {
     // NOTHING WAS REPUBLISHED, and the owner is told so: a rule that changes no
     // page still changes what the site does the moment it applies, and somebody
     // waiting for their site to redeploy would refresh and see nothing move.
-    const said = typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.';
+    const said = typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : 'Done.';
     return said + ' It’s live now — nothing needed rebuilding.';
   }
   if (e.layer === 'page' && pageOpVerb(e)) {
@@ -13483,7 +13499,7 @@ function editReplyBody(e) {
     // the branch below and say "✅ Updated /gallery." — the old address.
     // (The removal's own `problemNote` went with it: the wrapper already
     // appends that note once, and a removal's reply carries no problems.)
-    return '✅ ' + pageOpsSaid([e]);
+    return pageOpsSaid([e]);
   }
   if (e.layer === 'page') {
     // NAMES THE PAGE, AND NAMES WHAT IT REFUSED. This layer changes exactly one
@@ -13491,7 +13507,7 @@ function editReplyBody(e) {
     // instruction cannot rewrite a page nobody named. Reporting only "Done"
     // makes that a SILENT PARTIAL: ask for a link "on every page", get it on
     // one, and be told it worked.
-    let out = '✅ Updated ' + (e.page || 'the page') + '.';
+    let out = 'Updated ' + (e.page || 'the page') + '.';
     // A LIST THIS REORDERED THAT OTHER PAGES ALSO SHOW. The server is the only
     // side that can know — it holds both the page before and every other page —
     // and without saying it, "order the menu by price" leaves the site
@@ -13513,7 +13529,7 @@ function editReplyBody(e) {
     // THE SERVER'S OWN SENTENCE. It is the only side that knows whether the
     // logo went on or came off, and a generic "done" over a removal reads as
     // the builder not having understood.
-    return String(e.msg || '✅ Done.');
+    return String(e.msg || 'Done.');
   }
   if (e.layer === 'look') {
     // OUR FIELD NAMES ARE NOT THE CUSTOMER'S WORDS. `moved` carries the stored
@@ -13549,7 +13565,7 @@ function editReplyBody(e) {
     const opsSaid = ops.length ? pageOpsSaid(ops) : '';
     if (typeof e.lookNote === 'string' && e.lookNote.trim()) {
       const shipped = pageOpsSaid(ops);
-      return '✅ ' + e.lookNote.trim() + (shipped ? ' ' + shipped : '');
+      return e.lookNote.trim() + (shipped ? ' ' + shipped : '');
     }
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
@@ -13574,9 +13590,9 @@ function editReplyBody(e) {
     // Their own sentences follow (`stepsSaid`, in `editReply`).
     const others = !bits.length && !opsSaid && Array.isArray(e.steps) &&
       e.steps.some((st) => st && st.status === 'done' && ['picture', 'nav', 'rules', 'rename', 'logo', 'text', 'data'].indexOf(st.layer) >= 0);
-    let out = others ? '✅'
-      : !bits.length && opsSaid ? '✅ ' + opsSaid
-      : '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
+    let out = others ? ''
+      : !bits.length && opsSaid ? opsSaid
+      : 'Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
     // A REMOVAL THAT ALSO NAMED SOMETHING THE SITE DOES NOT HAVE (2026-10-02,
     // W2): what was there came off, and the server's sentence says which names
     // took nothing off — composed there, because only it held the list.
@@ -13617,7 +13633,7 @@ function editReplyBody(e) {
     // frame were all on the wire and none of them on the screen.
     return out;
   }
-  return '✅ Done.';
+  return 'Done.';
 }
 // A PICTURE SLOT NOBODY CAN FILL, said out loud.
 //
@@ -13689,10 +13705,10 @@ function buildDownMsg(d) {
   const transient = !(d && d.billing);
   if (!msg) {
     return transient
-      ? '⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)'
-      : '⚠️ The builder can’t run right now. (You weren’t charged.)';
+      ? 'The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)'
+      : 'The builder can’t run right now. (You weren’t charged.)';
   }
-  return (transient ? '⏳ ' : '⚠️ ') + msg +
+  return msg +
     (transient ? ' Give it a few seconds, then send again.' : '') + ' (You weren’t charged.)';
 }
 // ── FOLLOWING A BUILD THAT FIRED ITS GENERATION AND WENT AWAY ────────────────
@@ -13798,7 +13814,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   if (mode !== 'build' && String(t || '').length > EditPoll.REWRITE_MAX) {
     const n = String(t).length;
     siteHoldUnsent(origin, t, imgs);
-    finish('⚠️ That needs the full rewrite, which reads at most ' + EditPoll.REWRITE_MAX.toLocaleString('en-GB') +
+    finish('That needs the full rewrite, which reads at most ' + EditPoll.REWRITE_MAX.toLocaleString('en-GB') +
       ' characters of a request — this one is ' + n.toLocaleString('en-GB') + ' — so I haven’t started it and nothing changed.' +
       ' Your words are back in the box: shorten them, or ask for the change in smaller parts.');
     return;
@@ -14075,7 +14091,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // claiming a site that does not exist. `notes` on that path is our own
       // sentence explaining what went wrong, which is the thing to show.
       const built = !d || d.page !== 'placeholder';
-      const canned = mode === 'revise' ? 'Updated — the preview’s refreshed.'
+      // WITHOUT A WARNING SIGN (the owner's no-emoji rule, 2026-10-13) the
+      // placeholder's own line has to say it in words: it used to borrow the
+      // success sentence under a ⚠️.
+      const canned = !built ? 'Your site didn’t finish building, so your address shows a placeholder for now. Send it again to try once more.'
+        : mode === 'revise' ? 'Updated — the preview’s refreshed.'
         : 'Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.';
       // THREE OUTCOMES, NOT TWO. A build that fired its generation and had not
       // answered by the time we stopped following is neither built nor failed —
@@ -14085,8 +14105,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // server composed the honest sentence; this renders it rather than
       // writing a second version that can disagree with it.
       const reply = firedJob
-        ? '⏳ ' + ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
-        : (built ? '✅ ' : '⚠️ ') + (said || canned);
+        ? ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
+        : (said || canned);
       const fv = !firedJob && !built ? buildFailureView(d) : null;
       if (fv) siteFinishBuild(origin, fv.lead + alsoTail(heldSaid, false), build, fv.note || noteShown, buildWhy(d));
       else siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
@@ -14103,18 +14123,18 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // "is not the only way out and is the less useful one". That message was
       // composed and discarded here, so somebody on Opus with 30 credits was
       // sent to buy more instead of flipping a control back.
-      endTold('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
+      endTold(((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
     } else if (d && d.need === 'rebuild') {
       end('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
-    } else if (r.status === 429) { end('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
-    else if (r.status === 501) { end('⚠️ The build engine isn’t switched on yet — check back soon.'); }
+    } else if (r.status === 429) { end('You’ve hit today’s build limit — it resets within 24 hours.'); }
+    else if (r.status === 501) { end('The build engine isn’t switched on yet — check back soon.'); }
     else if ((d && d.code === 429) || r.status === 503) { siteErr = null; endTold(buildDownMsg(d)); }
     else {
       siteErr = buildErrOutcome(origin, d);
       // THE SERVER'S SENTENCE STILL WINS where it wrote one; the fallback no
       // longer asserts a charge it has not read. `buildCostWords` is appended
       // rather than baked in, so the one reading serves this and the card.
-      const failSaid = '⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.'));
+      const failSaid = ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.'));
       // AND WHAT A FAILED ANSWER CARRIES IS SHOWN TOO (2026-10-08, the seventh
       // batch): a failed resume's or recovery's narration, or its recorded
       // facts and refund, in the same note a finished build's go in. The
@@ -14127,7 +14147,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     // and otherwise from what this post carried.
     const rest = alsoTail({ deferred: firedHeld !== undefined ? firedHeld : h.alsoAsked, putOff: h.putOff }, false);
     if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)' + rest); return; }
-    siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.' + rest);
+    siteErr = { chatId: origin }; finish('Lost the connection while building — check your internet and try again in a moment.' + rest);
   }).finally(() => { siteAbort = null; });
 }
 // Answering the builder's own question, or refusing to.
@@ -14160,19 +14180,11 @@ function siteAskHTML(m, site) {
   // function is what makes them so. A hint printed beside an option that does
   // nothing when pressed is worse than no hint: it teaches a shortcut and then
   // ignores it.
-  return '<div class="st-opts">' +
-    m.opts.slice(0, 4).map((o, i) =>
-      '<button type="button" class="st-opt" data-ans="' + esc(String(o)) + '">' +
-        '<kbd>' + (i + 1) + '</kbd><span>' + esc(String(o)) + '</span>' +
-      '</button>').join('') +
-    // ESC, NOT ENTER, and the mockup said Enter. Enter is the composer's send
-    // key: bound here it either fights that or works only when the box happens
-    // to be empty, which is a shortcut that silently does two different things.
-    // Esc means dismiss everywhere else and collides with nothing.
-    '<button type="button" class="st-opt st-opt-skip" data-skip="1">' +
-      '<kbd>esc</kbd><span>Skip &mdash; just build it</span>' +
-    '</button>' +
-  '</div>';
+  // PICK, THEN CONTINUE (the owner's option E, 2026-10-14): `sitePickHTML`.
+  // Esc still skips (the keys below); Enter sends a pick only when no text
+  // field has the focus, so it never fights the composer's own send key.
+  return sitePickHTML('first', sitePickKeyFirst(site), m.opts.slice(0, 4),
+    '<button type="button" class="st-pick-cancel" data-skip="1">Skip &mdash; just build it</button>');
 }
 
 // THE CARD OF A QUESTION ON A SITE THAT EXISTS (2026-10-02): drawn only under
@@ -14186,15 +14198,76 @@ function siteLiveAskHTML(m, site) {
   // the answer, so none is cut and none left off. The keys reach nine; a tenth
   // answer is a button without a key.
   const opts = Array.isArray(m.opts) ? m.opts.slice() : [];
-  return '<div class="st-opts">' +
-    opts.map((o, i) =>
-      '<button type="button" class="st-opt" data-ask-ans="' + esc(String(o)) + '">' +
-        (i < 9 ? '<kbd>' + (i + 1) + '</kbd>' : '') + '<span>' + esc(String(o)) + '</span>' +
-      '</button>').join('') +
-    '<button type="button" class="st-opt st-opt-skip" data-ask-cancel="1">' +
-      '<kbd>esc</kbd><span>Cancel this request</span>' +
-    '</button>' +
+  return sitePickHTML('live', sitePickKeyLive(site), opts,
+    '<button type="button" class="st-pick-cancel" data-ask-cancel="1">Cancel this request</button>');
+}
+
+// ── PICK, THEN CONTINUE (the owner's option E, 2026-10-14) ──────────────────
+//
+// Chosen from five rendered options: the answers as a list to pick from, one
+// "Something else…" row that hands the answer to the composer, and a
+// Continue button that sends the pick — so a stray click is never an answer.
+// The pick is the page's state (`sitePicked`), keyed by the question it
+// belongs to, so a repaint keeps it and a new question starts with none.
+// Both cards share it: `live` (a site that exists; its way out is Cancel) and
+// `first` (a first build's question; its way out is Skip). Each answer keeps
+// its own words whole. Drawn from the palette's own tokens, never a colour of
+// its own.
+let sitePicked = null;
+function sitePickKeyLive(site) {
+  return site && site.ask ? 'live:' + site.ask.id : '';
+}
+function sitePickKeyFirst(site) {
+  const msgs = site && Array.isArray(site.msgs) ? site.msgs : [];
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i] && msgs[i].r === 'a' && msgs[i].q) return 'first:' + i;
+  return '';
+}
+function sitePickHTML(kind, key, opts, wayOut) {
+  const sel = sitePicked && sitePicked.key === key ? sitePicked.value : null;
+  const trig = kind === 'live' ? 'data-ask-pick' : 'data-pick';
+  return '<div class="st-pick" role="radiogroup" aria-label="Your answer">' +
+    opts.map((o) => {
+      const v = String(o);
+      const on = sel === v;
+      return '<button type="button" class="st-pick-opt' + (on ? ' on' : '') + '" role="radio" aria-checked="' + (on ? 'true' : 'false') + '" ' +
+        trig + '="' + esc(v) + '" data-pick-key="' + esc(key) + '" data-pick-val="' + esc(v) + '">' +
+        '<span class="st-pick-dot" aria-hidden="true"></span><span>' + esc(v) + '</span></button>';
+    }).join('') +
+    '<button type="button" class="st-pick-opt st-pick-own" role="radio" aria-checked="false" ' + (kind === 'live' ? 'data-ask-own' : 'data-pick-own') + '="1">' +
+      '<span class="st-pick-dot" aria-hidden="true"></span><span>Something else&hellip;</span></button>' +
+    '<div class="st-pick-go">' +
+      '<button type="button" class="st-pick-continue" ' + (kind === 'live' ? 'data-ask-go' : 'data-pick-go') + '="1" data-pick-key="' + esc(key) + '"' + (sel === null ? ' disabled' : '') + '>Continue</button>' +
+      wayOut +
+    '</div>' +
   '</div>';
+}
+/** The pick shown without redrawing the thread (the composer's draft stays as typed). */
+function sitePickPaint() {
+  try {
+    for (const b of document.querySelectorAll('.st-pick-opt[data-pick-val]')) {
+      const on = !!sitePicked && sitePicked.key === b.getAttribute('data-pick-key') && sitePicked.value === b.getAttribute('data-pick-val');
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    for (const g of document.querySelectorAll('.st-pick-continue')) g.disabled = !(sitePicked && sitePicked.key === g.getAttribute('data-pick-key'));
+  } catch (e) { /* no page to paint */ }
+}
+/** Pick `value` for the question `key`; null clears it. */
+function sitePick(key, value) {
+  sitePicked = key && typeof value === 'string' && value ? { key, value } : null;
+  sitePickPaint();
+}
+/** "Something else…": no pick, and the composer takes the answer. */
+function sitePickOwn() {
+  sitePick('', null);
+  try { const ta = document.getElementById('stRevise'); if (ta) ta.focus(); } catch (e) { /* no composer */ }
+}
+/** Continue: the pick for the live question `key`, sent the way a click on the answer always was; nothing when nothing is picked. */
+function sitePickTake(key) {
+  if (!key || !sitePicked || sitePicked.key !== key) return null;
+  const v = sitePicked.value;
+  sitePicked = null;
+  return v;
 }
 
 // The keys behind the numbers.
@@ -14217,11 +14290,15 @@ document.addEventListener('keydown', (e) => {
   // on the thread, so a number and a click cannot disagree.
   if (site && site.ask && !siteBusy && (site.msgs || []).some((x) => x && x.ask === site.ask.id)) {
     if (e.key === 'Escape') { e.preventDefault(); siteAskCancel(); return; }
+    // A NUMBER PICKS, ENTER SENDS THE PICK (option E): never a number that
+    // answers at once, which the card no longer offers to a click either.
+    const lkey = sitePickKeyLive(site);
+    if (e.key === 'Enter') { const v = sitePickTake(lkey); if (v) { e.preventDefault(); siteAskReply(v, true); } return; }
     const lopts = Array.isArray(site.ask.options) ? site.ask.options.slice(0, 9) : [];
     const ln = Number(e.key);
     if (!(ln >= 1 && ln <= lopts.length)) return;
     e.preventDefault();
-    siteAskReply(lopts[ln - 1], true);
+    sitePick(lkey, String(lopts[ln - 1]));
     return;
   }
   if (!site || !site.clarify || siteBusy) return;
@@ -14230,11 +14307,13 @@ document.addEventListener('keydown', (e) => {
   // `siteAskHTML` renders buttons for, so a number and a click cannot disagree
   // about which answer is which.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
+  const fkey = sitePickKeyFirst(site);
+  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v); } return; }
   const opts = (live && Array.isArray(live.opts)) ? live.opts.slice(0, 4) : [];
   const n = Number(e.key);
   if (!(n >= 1 && n <= opts.length)) return;
   e.preventDefault();
-  siteAnswer(opts[n - 1]);
+  sitePick(fkey, String(opts[n - 1]));
 });
 
 function siteAnswer(label, skip) {
@@ -14514,7 +14593,7 @@ function siteAskReply(label, chosen, leaveDraft) {
     // already, so this browser holding none of them is no reason to stop.
     if (asked.attached && !asked.request && !kept.length && !own.length) {
       siteHoldUnsent(origin, said, own, key);
-      finish('⚠️ That question is about the file you sent with your request, and this browser no longer has it. Attach it again and send your answer.');
+      finish('That question is about the file you sent with your request, and this browser no longer has it. Attach it again and send your answer.');
       return;
     }
     // THE REQUEST'S FILES AND THIS ANSWER'S GO TOGETHER, AND TOGETHER THEY ARE
@@ -14529,7 +14608,7 @@ function siteAskReply(label, chosen, leaveDraft) {
     if (kept.length + own.length > SITE_MAX_FILES) {
       siteHoldUnsent(origin, said, own, key);
       const room = Math.max(0, SITE_MAX_FILES - kept.length);
-      finish('⚠️ Your request already carries ' + (kept.length === 1 ? 'one file' : kept.length + ' files') + ', and one request can carry ' +
+      finish('Your request already carries ' + (kept.length === 1 ? 'one file' : kept.length + ' files') + ', and one request can carry ' +
         SITE_MAX_FILES + ', so this answer can add ' + (room === 0 ? 'none' : room === 1 ? 'one more' : room + ' more') +
         '. I haven’t sent it — your answer and its files are back in the box, and the question is still open.');
       return;
@@ -14571,7 +14650,7 @@ function siteAskCancel() {
   }).then(async (r) => {
     const c = await r.json().catch(() => null);
     if (!r.ok || !c || c.ok !== true || typeof c.cancelled !== 'boolean') {
-      say('⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.');
+      say('I couldn’t cancel that just now, so the question is still open. Try again in a moment.');
       return;
     }
     // CLOSED, by this press or before it: either way nothing can act on it.
@@ -14581,7 +14660,7 @@ function siteAskCancel() {
     // replaced or expired — and what it had put off. The page's own sentence
     // only when there is none.
     say(EditPoll.modelReply(c) || ('Cancelled — nothing more will be done for that request.' + (c.cancelled ? alsoTail({ deferred: c.putOff }, false) : '')));
-  }).catch(() => say('⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.'));
+  }).catch(() => say('I couldn’t cancel that just now, so the question is still open. Try again in a moment.'));
 }
 // THE RELOAD CHECK, once per site per page load: the server's live question
 // puts a missing card back (asked in another tab, or before this browser lost
@@ -14636,7 +14715,7 @@ function siteTooLong(origin, t, leaveDraft, what) {
     const d = siteDraft(origin);
     if (!d.t.trim()) d.t = t;
   }
-  s.msgs.push({ r: 'a', t: '⚠️ That ' + (what || 'message') + ' is ' + t.length.toLocaleString('en-GB') +
+  s.msgs.push({ r: 'a', t: 'That ' + (what || 'message') + ' is ' + t.length.toLocaleString('en-GB') +
     ' characters, more than one message can hold (' + EditPoll.ASK_MAX.toLocaleString('en-GB') +
     ' — what I can carry beside your site in one request), so I haven’t sent it and nothing changed.' +
     (leaveDraft ? '' : ' Your words are back in the box: shorten them, or send the request as separate messages.') });

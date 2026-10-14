@@ -1517,7 +1517,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     if (layout.divider === true) said.push("a rule under the header and above the footer");
     if (layout.divider === false) said.push("took the rules off the header and footer");
     if (!said.length) return "I couldn\u2019t work out what to change about the header.";
-    return "\u2705 " + said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " \u2014 on " + where + ".";
+    return said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " \u2014 on " + where + ".";
   }
 
   // THE FOOTER ON ITS OWN, before every other branch. Falling through would
@@ -1538,7 +1538,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
       said.push(n ? n + " " + what + (n === 1 ? "" : "s") + (names.length ? " (" + names.join(" · ") + ")" : "") : "took the " + what + "s off");
     }
     // (AN ADDITION SAYS WHAT IT ADDED in its own sentence, `additionReply`.)
-    return "✅ The footer now has " + said.join(", and ") + " — on " + where + "." + droppedNote(dropped);
+    return "The footer now has " + said.join(", and ") + " — on " + where + "." + droppedNote(dropped);
   }
 
   if (contact && !links.length && !action && !removedAction && !second && !moved) {
@@ -1547,14 +1547,14 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     const said = [];
     if (set.length) said.push("Updated the footer's " + humanList(set));
     if (cleared.length) said.push("took the " + humanList(cleared) + " off it");
-    return "✅ " + said.join(", and ") + " — on " + where + ".";
+    return said.join(", and ") + " — on " + where + ".";
   }
   // THE BUTTON ON ITS OWN, when the menu was not part of the ask. Falling
   // through to the menu sentence would report a menu that did not change.
   // LINKS IN THE COPY, ON THEIR OWN. Falling through to the menu sentence
   // would report a menu that did not change.
   if (!links.length && !action && !removedAction && !second && moved) {
-    return "✅ Repointed " + moved + (moved === 1 ? " link" : " links") + " across " + where + "." +
+    return "Repointed " + moved + (moved === 1 ? " link" : " links") + " across " + where + "." +
       (refused.length ? " " + linkRefusal(refused) : "");
   }
   // THE SECOND BUTTON, with or without the first. Its own sentence, because
@@ -1566,12 +1566,12 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     if (removedSecondAction) said.push("took the second button off");
     else said.push("added a second button, “" + secondAction.label + "”, going to " + secondAction.href +
       (action || removedAction ? "" : " — the button you had stays as it is"));
-    return "✅ " + said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " — on " + where + "." + droppedNote(dropped);
+    return said.join(", and ").replace(/^./, (c) => c.toUpperCase()) + " — on " + where + "." + droppedNote(dropped);
   }
   if (!links.length && (action || removedAction)) {
     const said = removedAction
-      ? "✅ Took the button off the top of the site — " + where + " updated."
-      : "✅ The button now says “" + action.label + "” and goes to " + action.href + ", on " + where + ".";
+      ? "Took the button off the top of the site — " + where + " updated."
+      : "The button now says “" + action.label + "” and goes to " + action.href + ", on " + where + ".";
     return said + droppedNote(dropped);
   }
   if (!links.length) {
@@ -1596,9 +1596,9 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   const menuPages = menuLists ? menus.pages : changed.length;
   const named = (items) => items.map((l) => l.label).join(" · ");
   let msg = menuLists && menuLists.length > 1
-      ? "✅ Updated the menu on " + menuPages + " pages, each keeping its own items — " +
+      ? "Updated the menu on " + menuPages + " pages, each keeping its own items — " +
         menuLists.map((m) => named(m.items) + " (" + m.pages + (m.pages === 1 ? " page" : " pages") + ")").join("; ") + "."
-      : "✅ Updated the menu on " + menuPages + (menuPages === 1 ? " page" : " pages") + ": " + (menuLists ? named(menuLists[0].items) : menu) + ".";
+      : "Updated the menu on " + menuPages + (menuPages === 1 ? " page" : " pages") + ": " + (menuLists ? named(menuLists[0].items) : menu) + ".";
   // EVERY ITEM LEFT OUT, BY NAME AND REASON (`itemsLeftOut`, below).
   msg += itemsLeftOut(dropped);
   // AND THE BUTTON, when this change carried both.
@@ -2094,7 +2094,7 @@ export function additionReply({ report = [], dropped = [], action = null, second
     if (why) return "I couldn't add that." + why + (was.length ? " " + cap(was.join("; ")) + "." : "");
     return "I couldn't work out what to add. Tell me what to put in the menu or the footer.";
   }
-  return "✅ " + cap(did.join(", and ")) + "." + (was.length ? " " + cap(was.join("; ")) + "." : "") + why;
+  return cap(did.join(", and ")) + "." + (was.length ? " " + cap(was.join("; ")) + "." : "") + why;
 }
 
 /** The tool call's input, or null. */

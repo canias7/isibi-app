@@ -766,7 +766,7 @@ export async function runTweak({ instruction, path, source, send, rules, heading
  */
 export function tweakReply(page) {
   const where = String(page || "").trim();
-  return "✅ Done" + (where ? " on " + where : "") + " — I changed only that, and left your wording exactly as it was.";
+  return "Done" + (where ? " on " + where : "") + " — I changed only that, and left your wording exactly as it was.";
 }
 
 /**

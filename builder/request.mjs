@@ -2048,7 +2048,8 @@ function partProgress(p, progress) {
   if (!progress || typeof progress !== "object") return out;
   for (const j of p.jobs) {
     if (!j || j.kind !== "run" || !j.id || !Object.hasOwn(progress, j.id) || !Array.isArray(progress[j.id])) continue;
-    for (const l of progress[j.id]) if (l && typeof l === "object") out.push({ job: j.id, n: l.n, ms: l.ms, text: l.text });
+    // A LINE'S EXPLANATION RIDES WITH IT (talk, 2026-10-13), when it has one.
+    for (const l of progress[j.id]) if (l && typeof l === "object") out.push({ job: j.id, n: l.n, ms: l.ms, text: l.text, ...(typeof l.explain === "string" && l.explain ? { explain: l.explain } : {}) });
   }
   return out;
 }

@@ -103,7 +103,7 @@ function stepRecord(step, o = {}) {
   // THE ROUTE'S OWN ANSWER, as it reports it: the model's choice, its raw intent, no failure.
   const decision = { source: "model", reasons: [], raw: { intent: o.intent || "addon", layer: "none" } };
   const net = [{ method: "POST", path: "/api/site/route", req: { message: o.routedWords || step.say }, res: o.routeRes || { ok: true, intent: o.intent || "addon", cost: 2, decision } }];
-  if (o.intent && o.intent !== "addon") return { n: 1, say: step.say, sent: true, network: net, replies: ["⚠️ x"], reply: "⚠️ x" };
+  if (o.intent && o.intent !== "addon") return { n: 1, say: step.say, sent: true, network: net, replies: ["x"], reply: "x" };
   net.push({ method: "POST", path: `/api/site/${SLUG}/addon`, req: { instruction: step.say }, res: { ok: true, job: job(1) } });
   if (step.hop) {
     net.push({ method: "GET", path: `/api/site/edit/${job(1)}`, final: true, res: { ok: false, escalate: true, layer: "nav", kind: "frame", cost: 0 } });
@@ -113,7 +113,7 @@ function stepRecord(step, o = {}) {
     if (o.extraEdit) net.push({ method: "POST", path: `/api/site/${SLUG}/edit`, req: { instruction: step.say, layer: "text" }, res: { ok: true, job: job(3) } });
     net.push({ method: "GET", path: `/api/site/edit/${job(1)}`, final: true, res: o.addReply || { ok: true, kinds: ["words"], changed: ["/visit"], cost: 4 } });
   }
-  const shown = o.shown || "✅ Done.";
+  const shown = o.shown || "Done.";
   return { n: 1, say: step.say, sent: true, network: net, replies: [shown], reply: shown };
 }
 
@@ -175,7 +175,7 @@ test("what each job stored: the hand-over and the menu editor's success, or the 
   assert.match(additionReplyVerdict(stepRecord(frame, { navReply: { ok: false, error: "no-change", layer: "nav" } }), frame).why, /did not succeed/);
   assert.match(additionReplyVerdict(stepRecord(frame, { noEdit: true }), frame).why, /1 stored reply/);
   assert.match(additionReplyVerdict(stepRecord(words, { addReply: { ok: false, error: "not-landed", msg: "x" } }), words).why, /not-landed/);
-  assert.match(additionReplyVerdict(stepRecord(words, { shown: "⚠️ I couldn't add that." }), words).why, /not a success/);
+  assert.match(additionReplyVerdict(stepRecord(words, { shown: " " }), words).why, /nothing was said/);
 });
 
 // ── THE STORED SOURCE ───────────────────────────────────────────────────────

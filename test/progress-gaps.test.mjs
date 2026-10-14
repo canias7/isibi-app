@@ -90,6 +90,8 @@ function device(P, { polls = true } = {}) {
 }
 const pageSettle = async (p, until, rounds = 200) => { for (let i = 0; i < rounds && !until(); i++) await settleMs(5); };
 const unesc = (t) => String(t == null ? "" : t).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+/** The progress lines in a piece of the page's markup, in order. */
+const linesIn = (html) => [...((String(html).match(/<ul class="st-req-prog[^"]*">(.*?)<\/ul>/) || [])[1] || "").matchAll(/<li(?: class="live")?>([^<]*)<\/li>/g)].map((m) => unesc(m[1]));
 /** A found job's card as the page draws it: its line (or words), its fixed label, its lines. */
 function cardOf(p, job) {
   const html = p.ctx.siteJobCardHTML({ jobCard: job }, p.s);
@@ -97,7 +99,7 @@ function cardOf(p, job) {
     html,
     words: unesc((html.match(/<span class="st-req-words">(.*?)<\/span>/) || [])[1]),
     label: unesc((html.match(/<span class="st-req-status">(.*?)<\/span>/) || [])[1]),
-    lines: [...html.matchAll(/<span class="at">[^<]*<\/span>([^<]*)/g)].map((m) => unesc(m[1])),
+    lines: linesIn(html),
   };
 }
 /** A request's card, part by part: each one's line (or words) and its fixed label. */
@@ -500,6 +502,8 @@ test("RACE 2 — THE SAME BOUNDARY ON A PAGE-FILED JOB: the poll and the list a 
     const p = device(P);
     p.ctx.siteRequestsCheck(p.s);
     await pageSettle(p, () => !!(p.s.jobCards && p.s.jobCards[id] && p.s.jobCards[id].closed));
+    // The reader is alive: it reads lines the page itself draws.
+    assert.deepEqual(linesIn(p.ctx.progressListHTML([{ text: "a <b>" }, { text: "c" }], true)), ["a <b>", "c"], "the card's line reader reads nothing");
     assert.deepEqual(cardOf(p, id).lines, [], "another device drew the line committed after the job's end");
   });
 });

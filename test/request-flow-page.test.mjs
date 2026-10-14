@@ -157,7 +157,7 @@ test("PAGE 3 — a part's question comes up on the page's question card and is a
     assert.deepEqual(asked.request, { key: KEY, part: 1 });
     assert.match(p.ctx.siteRequestHTML(card(p, KEY), p.s), /Waiting for your answer/);
     // ANSWERED BY ITS BUTTON.
-    p.click("data-ask-ans", "Loaves");
+    (p.click("data-ask-pick", "Loaves"), p.click("data-ask-go", "1"));
     await idle();
     const answer = seen.filter((c) => c.url === "/api/site/route")[1];
     assert.deepEqual(answer.body.ask, { id: asked.id, chosen: true });

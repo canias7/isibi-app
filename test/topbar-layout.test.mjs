@@ -377,12 +377,15 @@ test("the thinking state renders NO step rows, and can still be repainted", () =
   assert.ok(gate >= 0 && maths > 0, "reactLiveStepsHTML no longer holds the gate or the phase maths");
   assert.ok(gate < maths, "the thinking check runs after the phase index and will be bypassed");
   const block = fn.slice(gate, fn.indexOf("\n  }\n", gate));
-  const returns = [...block.matchAll(/return '[^']*'/g)].map((r) => r[0]);
+  // RE-ANCHORED 2026-10-13: a running job's lines are every line so far, in
+  // the progress list (`progressListHTML`), which is that return's indicator;
+  // so each return is read whole, to its semicolon.
+  const returns = [...block.matchAll(/return '[^;]*;/g)].map((r) => r[0]);
   assert.ok(returns.length > 0, "the thinking branch is gone — the step rows paint immediately again");
-  assert.ok(returns.some((r) => /<div class="st-think"><i><\/i>'$/.test(r)), "the plain thinking return is gone from the gate");
+  assert.ok(returns.some((r) => /<div class="st-think"><i><\/i>' \+/.test(r)), "the plain thinking return is gone from the gate");
   for (const r of returns) {
     assert.match(r, /st-steps-live/, "the thinking panel cannot be repainted into the steps");
-    assert.match(r, /st-think/, "it renders no thinking indicator");
+    assert.match(r, /st-think|progressListHTML\(/, "it renders no thinking indicator");
     assert.ok(!/st-step-lbl|Writing the code/.test(r), "the thinking state names a build step");
   }
 });

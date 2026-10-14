@@ -404,7 +404,7 @@ for (const mode of ["sync", "job"]) {
     // THE MONEY: the picker's one charge; the publication is not charged.
     billedOnce(r, mode, 1);
     // THE SCREEN.
-    assert.equal(r.said.text, "✅ loaves now comes out in order of price, lowest first — on 1 page.");
+    assert.equal(r.said.text, "loaves now comes out in order of price, lowest first — on 1 page.");
   });
 }
 
@@ -429,7 +429,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(writes(r), []);
     assert.deepEqual(r.seen.calls, [T.route, T.data], "a page writer ran for a site-wide sort");
     billedOnce(r, mode, 1);
-    assert.equal(r.said.text, "✅ loaves now comes out in order of price, lowest first — on 2 pages.");
+    assert.equal(r.said.text, "loaves now comes out in order of price, lowest first — on 2 pages.");
   });
 }
 
@@ -463,7 +463,7 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(writes(r), []);
     billedOnce(r, mode, r.body.cost);
     assert.ok(r.body.cost >= 1, "the quick writer's call was not charged");
-    assert.equal(r.said.text, "✅ Updated /menu.");
+    assert.equal(r.said.text, "Updated /menu.");
   });
 }
 
@@ -487,7 +487,7 @@ test("supplied answers: a list on two pages, a request limited to /menu: only /m
   // THE OTHER PAGE IS NAMED, NEVER REWRITTEN.
   assert.deepEqual(r.body.reordered, ["loaves"]);
   billedOnce(r, "sync", r.body.cost);
-  assert.equal(r.said.text, "✅ Updated /menu. Heads up: loaves is listed on other pages too, and I only changed this one — say “do the same everywhere” if you want them to match.");
+  assert.equal(r.said.text, "Updated /menu. Heads up: loaves is listed on other pages too, and I only changed this one — say “do the same everywhere” if you want them to match.");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -619,7 +619,7 @@ for (const mode of ["sync", "job"]) {
     // page (the parked "a multi-step look reply names only the look", review
     // #9, kept separate), and says nothing about the excluded one.
     // THE PAGES IT CHANGED SINCE 2026-10-03 (the mixed-work fixes, MW8).
-    assert.equal(r.said.text, "✅ Updated / and /menu.");
+    assert.equal(r.said.text, "Updated / and /menu.");
   });
 }
 
@@ -633,7 +633,7 @@ test("supplied answers, a forbidden answer: `data` for the same request would re
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(r.body.sortChanged, ["index.tsx", "menu.tsx", "order.tsx"], "the sorter did not re-sort every page that shows the list");
   assert.equal(page(r, "order.tsx"), cheapestFirst(before("order.tsx")), "the excluded page kept its order");
-  assert.equal(r.said.text, "✅ loaves now comes out in order of price, lowest first — on 3 pages.");
+  assert.equal(r.said.text, "loaves now comes out in order of price, lowest first — on 3 pages.");
   // WHAT STOPS IT BEFORE ANY EDIT ON A PRESS: a route box stating `look`.
   const press = readExpectRoute("layer=look alsoAsked=none");
   assert.ok(press.ok);

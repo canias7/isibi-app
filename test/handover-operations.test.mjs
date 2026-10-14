@@ -271,7 +271,7 @@ for (const queued of [false, true]) {
     assert.equal(edits[1].page, "/gear");
     assert.equal(edits[1].instruction, M);
     assertNoVerbs(edits[1], how);
-    assert.deepEqual(p.said(), ["✅ Updated /gear."], how + ": the customer's sentence");
+    assert.deepEqual(p.said(), ["Updated /gear."], how + ": the customer's sentence");
     assert.equal(p.busy(), false, how + ": the page was left busy");
   });
 
@@ -377,7 +377,7 @@ test("W8/W24 — a climb hands the rewrite the parts put off and why; a refusal 
   assert.equal(rw[0].instruction, M);
   assert.equal(rw[0].alsoAsked, LATER, "the rewrite was not told what to take out — it would rewrite every page with it in");
   assert.deepEqual(rw[0].handOver, { from: "look", reason: "build", field: "kind" }, "the rewrite was not told why it was handed this");
-  assert.deepEqual(p.said(), ["⚡ You don’t have enough credits for that." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["You don’t have enough credits for that." + LEFT(LATER)]);
 });
 
 test("W8 — the add-on step's own climb hands the rewrite the same contract", async () => {
@@ -395,7 +395,7 @@ test("W8 — the add-on step's own climb hands the rewrite the same contract", a
   assert.equal(rw.length, 1, JSON.stringify(p.kinds()));
   assert.equal(rw[0].alsoAsked, LATER);
   assert.deepEqual(rw[0].handOver, { from: "addon", reason: "no-source" });
-  assert.deepEqual(p.said(), ["⚠️ That didn’t come together." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["That didn’t come together." + LEFT(LATER)]);
 });
 
 test("W7 — a dropped connection to the rewrite still names the part put off, from what was posted", async () => {
@@ -407,14 +407,14 @@ test("W7 — a dropped connection to the rewrite still names the part put off, f
   });
   await p.send(M);
   assert.equal(posts(p, "rewrite").length, 1);
-  assert.deepEqual(p.said(), ["⚠️ Lost the connection while building — check your internet and try again in a moment." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["Lost the connection while building — check your internet and try again in a moment." + LEFT(LATER)]);
 });
 
 test("W7 — an edit refusal names the part put off, beside what it cost", async () => {
   const M = "Change Rock School to Rock Club, and " + LATER + ".";
   const p = page({ route: [route({ intent: "edit", layer: "text", alsoAsked: LATER })], edit: [ok({ ...TEXT_REFUSED, deferred: LATER }, 422)] });
   await p.send(M);
-  assert.deepEqual(p.said(), ["⚠️ I couldn't find those words on your site. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["I couldn't find those words on your site. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits." + LEFT(LATER)]);
   assert.deepEqual(p.kinds(), ["route", "edit"], "a refusal started more work");
 });
 
@@ -422,7 +422,7 @@ test("W7 — an edit answer that cannot be read names the part put off from what
   const M = "Change Rock School to Rock Club, and " + LATER + ".";
   const p = page({ route: [route({ intent: "edit", layer: "text", alsoAsked: LATER })], edit: [{ status: 200, body: "<html>oops</html>" }] });
   await p.send(M);
-  assert.deepEqual(p.said(), ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
   assert.deepEqual(p.kinds(), ["route", "edit"]);
 });
 
@@ -445,7 +445,7 @@ test("W7 — a reply whose parts put off cannot be read is not trusted: no hand-
   const p = page({ route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })], edit: [ok({ ...TO_ADDON, deferred: 7 })] });
   await p.send(M);
   assert.deepEqual(p.kinds(), ["route", "edit"], "a reply that could not be read handed the request on: " + JSON.stringify(p.kinds()));
-  assert.deepEqual(p.said(), ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
+  assert.deepEqual(p.said(), ["I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
 });
 
 test("W5/W24 — the router's own conversion reaches the add-on step with its reason and page, and the part it put off", async () => {
@@ -505,6 +505,6 @@ test("W24 — an escalate whose reason or field is not text is not trusted: noth
     await p.send("Add a QR code for our menu.");
     assert.deepEqual(p.kinds(), ["route", "edit"], JSON.stringify(bad) + ": a malformed escalate was handed on");
     assert.equal(p.said().length, 1);
-    assert.match(p.said()[0], /^⚠️ I couldn’t read the answer to that change/, JSON.stringify(bad));
+    assert.match(p.said()[0], /^I couldn’t read the answer to that change/, JSON.stringify(bad));
   }
 });

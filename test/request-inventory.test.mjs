@@ -32,7 +32,7 @@ import { ASK_TOOL } from "../builder/site-ask.mjs";
 const OWNER = { id: "33333333-3333-3333-3333-333333333333", email: "owner@example.com" };
 const META = ["_meta", "k", "text"];
 const EMPTY = { catalog: [META], spec: null };
-const DATA_EDIT = { ok: true, layer: "data", applied: [{ table: "classes", id: 2, column: "title" }], cost: 1, reply: "✅ The Tuesday class is renamed.", replySource: "model" };
+const DATA_EDIT = { ok: true, layer: "data", applied: [{ table: "classes", id: 2, column: "title" }], cost: 1, reply: "The Tuesday class is renamed.", replySource: "model" };
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
 /** A database holding these tables, each with a column, declared in its stored schema. */
 function db(...names) {
@@ -239,7 +239,7 @@ test("INV 6 — out of order against an addition: a routing answer read before a
     await until(() => S.routed().length === 1 && S.routed()[0].route);
     assert.equal(inventoryTold(S.routed()[0].route), "none");
     // THE ADDITION FINISHES WHILE THE ANSWER IS OUT: its table joins the page's list.
-    const added = { ok: true, kinds: ["table"], tables: ["rentals"], cost: 3, reply: "✅ Rentals now have a table.", replySource: "model" };
+    const added = { ok: true, kinds: ["table"], tables: ["rentals"], cost: 3, reply: "Rentals now have a table.", replySource: "model" };
     if (who === "own") p.ctx.addonAnswer(true, added, { site: p.s, d: { intent: "addon", layer: "" }, instruction: "Track rentals", origin: p.s.id, finish: () => {}, fallback: null, imgs: [], handedOff: false, slug });
     else p.ctx.siteReqRefresh(p.s.id, true, added, true);
     assert.deepEqual(tablesOf(p), ["rentals"], who + ": the addition's table did not join the list");
@@ -351,7 +351,7 @@ test("INV 10 — an addition finishing during a routing call, this page's own an
     await until(() => S.routed().length === 1 && S.routed()[0].route);
     assert.deepEqual(inventoryTold(S.routed()[0].route), ["courts"], who + ": the read is the site's, without old_rates");
     // THE ADDITION FINISHES WHILE THE ANSWER IS OUT.
-    const added = { ok: true, kinds: ["table"], tables: ["coaches"], cost: 3, reply: "✅ Coaches now have a table.", replySource: "model" };
+    const added = { ok: true, kinds: ["table"], tables: ["coaches"], cost: 3, reply: "Coaches now have a table.", replySource: "model" };
     if (who === "own") p.ctx.addonAnswer(true, added, { site: p.s, d: { intent: "addon", layer: "" }, instruction: "Track coaches", origin: p.s.id, finish: () => {}, fallback: null, imgs: [], handedOff: false, slug });
     else p.ctx.siteReqRefresh(p.s.id, true, added, true);
     assert.deepEqual(sorted(tablesOf(p)), ["coaches", "courts", "old_rates"], who + ": the addition's table did not join the list");
@@ -374,7 +374,7 @@ test("INV 11 — out of order with an addition finishing while both calls are ou
     const releaseNewer = S.holdNext();
     routeFrom(S, p, "And lane five", db("lanes", "swimmers"), "invbothsecond" + who + "00000");
     await until(() => S.routed().length === 2 && S.routed()[1].route);
-    const added = { ok: true, kinds: ["table"], tables: ["lessons"], cost: 3, reply: "✅ Lessons now have a table.", replySource: "model" };
+    const added = { ok: true, kinds: ["table"], tables: ["lessons"], cost: 3, reply: "Lessons now have a table.", replySource: "model" };
     if (who === "own") p.ctx.addonAnswer(true, added, { site: p.s, d: { intent: "addon", layer: "" }, instruction: "Track lessons", origin: p.s.id, finish: () => {}, fallback: null, imgs: [], handedOff: false, slug });
     else p.ctx.siteReqRefresh(p.s.id, true, added, true);
     releaseNewer();

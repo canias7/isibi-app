@@ -3,6 +3,192 @@
 
 ## Current handoff — read this first (2026-10-14: the combined candidate `4507747c` (this branch `55e381cc` + `new` `9ceca1d4`, local, unpushed) passes the full suite 10913/10913 and every site-build step; image predicted `e386c7a31377e66e`; rollback rehearsed; one image-free two-press live plan proposed at about 28–79 credits; nothing merged, deployed, built, pressed or spent; `PROGRESS_TALK` off)
 
+## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
+
+**Where it stands (2026-10-14).**
+- **The round is closed.** Codex reviewed `new` at `3fbc8259` and
+  independently confirmed the three evidence-integrity reproductions are
+  corrected, with the genuinely clean control preserved. The correction
+  round is closed there.
+- **Branch `new` is ready and paused:** the progress-message work and every
+  correction, unchanged, with `PROGRESS_TALK` off.
+- **The records stand as written below:**
+  - CI green: unit run 38565424953 and site build run 38565425192 on
+    `9573b5ea`;
+  - integration merge `a295c1e9` (local, never pushed): `10885 / 10883 / 0
+    / 2`.
+- **No further audit, and no completed test repeated.**
+- **The main working branch's latest findings** (`claude/help-needed-ehlwlj`,
+  as you reported them, 2026-10-14):
+  - **Build run 117 already happened.** It was the paid run, so nothing is
+    waiting for approval any more.
+  - **It eventually published, for 10 credits.**
+  - **It did not demonstrate parallelism.**
+  - **The main branch is now investigating route selection and
+    connection-loss tracking.**
+- **Paused until those fixes finish.** The isolated combined candidate and
+  its verification plan are not prepared before then: the main branch's
+  head will change, and the candidate must carry its fixes.
+- **When they finish, in order:**
+  1. Fetch its final head.
+  2. Merge `new` into it in an isolated worktree, never pushed: the
+     Dockerfile's COPY line and `owner-notes.md` resolved as before, both
+     sides kept, and anything new resolved preserving both branches' fixes.
+  3. Run the full suite and the site build on the candidate, and predict
+     its image.
+  4. Rehearse the rollback.
+  5. Prepare the one image-free live verification against that candidate.
+     It reads:
+     - the real model's wording against each answer's `checks`;
+     - progress timing: when each line landed against its milestones, and
+       how many milestones each writer call covered;
+     - task attribution: each part's lines on its own part only;
+     - reconnect persistence: the same lines and explanation after a fresh
+       session;
+     - narration cost, from `scripts/narration-usage.mjs`.
+  6. Then wait for your word. Nothing is merged into `main`, deployed,
+     rebuilt or pressed until then.
+
+*The handoff from before the closure follows, unchanged.*
+
+### Before the closure (after Codex's reviews at `f1c6f9b0` and `8a000d1f`)
+
+*A second line of work beside `claude/help-needed-ehlwlj`, on the branch you
+named `new`, cut from `main` (`fef80b9b`, the code deploy 2203 runs). The
+handoff below this one is the other session's and is unchanged.*
+
+**Commits, oldest first** (review together):
+1. `9e9819be`: no emoji or checkmarks in replies unless asked; dashes on
+   the request card (E) and before each progress line, with the thin thread
+   (4c). Record: `docs/history/2026-10-13-no-emoji-dashes.md`.
+2. `adacb5b8`: one task's updates stack while it runs, never replaced.
+3. `af5cf61a`: the five "talk more" options, written for review.
+4. `d5925da5`: **the builder talks while it works**, behind
+   `PROGRESS_TALK` (off). Record: `docs/history/2026-10-13-progress-talk.md`.
+   - an opening plan;
+   - the checks a publish ran, and the publish itself, as facts;
+   - recorded reasons;
+   - a 3-second ask, so close events become one update;
+   - a folded "More detail" explanation, never hidden reasoning.
+5. `9de0ab8e`, `13964940`, `3c9fd535` and `f1c6f9b0`: the sweep survivor,
+   the records, and the backlog note on which Codex reviewed.
+6. **`1e834200`: the red CI fixed.** Unit run 38503645857 failed because
+   CI's Node 22.23 ships Unicode 17, which took ★ and 688 other characters
+   out of `\p{Extended_Pictographic}`. This machine's Node 22.22 (Unicode
+   16) kept them.
+   - The emoji set is now pinned for every Node
+     (`test/fixtures/pictograph.mjs`), and all 25 tests that read the bare
+     property use it.
+   - The ✓ and ✕ it now finds are allowed by name.
+   - The build card's step marks are left for **your** choice (backlog).
+   - **CI green: run 38555418162, `10770 / 10726 / 0 / 44`.**
+7. **`d5d04a8e`: every final reply is handed what the publish really
+   checked**, from the answer itself, not from the narration.
+   Record: `docs/history/2026-10-14-check-evidence.md`.
+   - **The evidence** (`builder/check-evidence.mjs`): compiled; the
+     automated browser check (clean, flagged by page, cut short, or could
+     not run); style rules; published; version.
+   - **Where it goes:** it rides on every Edit, Add-on and Build answer, and
+     reaches every final reply. A combined request's reply says each part's
+     checks under that part's own words.
+   - **What it says and never says:**
+     - compiling is "not a look at any page";
+     - the browser check is "automated: nobody looked at the design";
+     - published is "Nobody opened the live address afterwards to confirm
+       it";
+     - the version id is never said to the customer.
+   - **`renderNote`** is never a reply fact. Its fixed line now reads "An
+     automated check that opened the finished pages in a browser flagged: …".
+   - **`jobChecksFor` is gone.**
+8. `e8426dbc` and `8a000d1f`: the records on top of `d5d04a8e` and their
+   CI readings. Codex reviewed at `8a000d1f`.
+9. **`9573b5ea`: a browser check is said clean only when its report reads
+   clean.**
+   - **The defect (Codex):** findings that could not be read were filtered
+     out, so the list came back empty and the reply said "flagged none". On
+     `8a000d1f` progress and reply also disagreed on one case, and the
+     page's line showed a raw route.
+   - **The fix:** a report is now read into four outcomes:
+     - did not run;
+     - its result could not be read (never passed, never "did not run");
+     - ran, with every understood finding kept and the rest counted
+       ("It is not known to be clean");
+     - genuinely clean, which alone gets the all-clear.
+   - **One reading everywhere:** the final reply, the progress milestone,
+     older answers and the page's line say the same, and no raw finding text
+     ever shows.
+   - **Tests:** 9 new: Codex's three reproductions and mixed findings,
+     positive controls, and the real reply handoff with narration off and
+     on.
+   - **Sweep:** 20 of 20.
+   - **Full suite:** `10793 / 10791 / 0 / 2`.
+   - **CI green:** unit run 38565424953, `10793 / 10749 / 0 / 44`; site
+     build run 38565425192.
+   - **Image predicted:** `357c5a0ed583d713`.
+10. The records commit on top of `9573b5ea` (this handoff and §10 of the
+    history).
+
+**Evidence (offline, supplied model answers only):**
+- **Tests:** 14 new cases in `test/check-evidence-flow.test.mjs`:
+  - the module, and each final-reply path;
+  - through the real Worker: an edit with narration off; a browser check
+    that could not run; one cut short; narration refused with its record
+    deleted; parallel parts; a combined request with one part failed; a
+    question and its resumed job; a queued Build and an inline Build.
+- **Mutation:** 30 of 30 killed after one missing assertion was added; the
+  control survived.
+- **Full suite on `d5d04a8e`:** `10784 / 10782 / 0 / 2` locally.
+- **CI on `e8426dbc`** (the records on top of it):
+  - unit run 38561669854: `10784 / 10740 / 0 / 44`;
+  - site build run 38561669952: all eight jobs green.
+- **Image predicted, not built:** `13b722b05e3748b6` for `d5d04a8e`
+  (production's `4444d9d53d906b8d` reproduced for `main`).
+
+**The integration check** (your ask: no two releases).
+- **Where:** a worktree detached at `claude/help-needed-ehlwlj`'s current
+  head, with `new` merged in as a local commit. **Never pushed; neither
+  branch moved.**
+  - first at `4586c678` + `d5d04a8e`, as `8d2b4351`;
+  - **redone at `5056b7a8` + `9573b5ea`, as `a295c1e9`.**
+- **Conflicts: two, both textual, both resolved by keeping both sides:**
+  - the Dockerfile's job-runner COPY line, where each branch adds one
+    module;
+  - this file's newest-first entries.
+- **Merged without a conflict:** the canary scripts and the shared reply,
+  render and Worker files. Every ✅/⚠ left in `scripts/` is in a comment.
+- **Full suite:**
+  - on `8d2b4351`: `10876 / 10874 / 0 / 2`;
+  - **on `a295c1e9`: `10885 / 10883 / 0 / 2`.**
+- **Image predicted for the candidate:** `51cb20beba3a4b5c`.
+
+**The release, proposed: one, each step yours.**
+1. When the other branch is ready, build the candidate as its head with `new`
+   merged in, resolved as above.
+2. Run the suite and the site build on it, and predict the image.
+3. Rehearse the rollback.
+4. Fast-forward `main`: one deploy, then your free runtime press.
+5. `PROGRESS_TALK` stays off through it. The checks, the reply rules, the new
+   `renderNote` line and the emoji rule are live regardless of the switch.
+
+**Then, on your word: the one live verification.**
+- **What:** one new site, image purchases off.
+  - a photo-free Build;
+  - one message with an Edit, an Add-on FAQ page and a menu link that waits
+    for it;
+  - a reconnect while it runs.
+- **What it reads:** each answer's `checks` against its final reply.
+- **Cost: about 17–65 credits.** Narration is platform-paid and measured
+  separately.
+- The full plan is §8 of `docs/history/2026-10-14-check-evidence.md`.
+
+**Open for your decision:**
+- the build card's ✓/✕ marks (backlog, with options to render);
+- the black-and-white design (a prototype in screenshots only);
+- the release;
+- the live verification and its spend.
+
+## Current handoff — read this first (2026-10-13: correction reuse's validation gap closed offline — a natural change of the cleaner's input declines the old refusal; one consolidated release proposed for your decision; run 141's cause still unconfirmed; nothing spent, merged or deployed)
+
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
@@ -1871,6 +2057,118 @@ The release is live. Real-model isolation, live correction reuse and run
   workflows (403, tried once). The exact inputs are in the handoff.
 - **Not run:** `acc-isolation-page` and every other paid test. Real-model
   isolation, live correction reuse and run 141's cause stay unverified.
+
+## 2026-10-14 — Black and white applied (on branch `new`; nothing merged, deployed or spent)
+
+You asked to apply the black-and-white colours. The whole app's palette
+changed at its one root in the stylesheet:
+- a white page and near-black text, with flat greys instead of the pencil
+  cross-hatch;
+- solid black buttons, and a white chat box with a black send button;
+- the landing page plain white.
+
+Every screen reads the same palette, so they all follow. Two existing
+guards caught spots where my first pass would have broken earlier fixes:
+- the mobile panel must not be see-through;
+- the site card's phone must keep the card's own colour.
+
+Both were fixed in the palette, not by changing the tests. Full suite:
+10,798 tests, 0 failed. Not merged, nothing deployed.
+
+## 2026-10-14 — Questions now use "pick, then Continue" (option E; on branch `new`; nothing merged, deployed or spent)
+
+You picked E from five rendered layouts for the builder's questions. It is
+built on branch `new` for both kinds of question: a live site's, whose way
+out is "Cancel this request", and a first build's, whose way out is "Skip —
+just build it".
+- **How it works:**
+  - you pick an answer, and nothing is sent until you press Continue;
+  - "Something else…" puts the cursor in the message box for a typed
+    answer;
+  - a number key picks, Enter sends the pick, and Esc still cancels or skips.
+- **Colours:** the card uses whatever palette the page has. The colours
+  themselves did **not** change: the black-and-white look is still only a
+  prototype, and that is your call.
+- **Tests:** a new test file for the card, and every test that answered a
+  question by clicking now picks and presses Continue, including one in a
+  real browser.
+  - Full suite: 10,798 tests, 0 failed.
+
+Spent nothing. Not merged. `PROGRESS_TALK` stays off.
+
+## 2026-10-14 — An unreadable check result is never called clean (on branch `new`; nothing merged, deployed or spent)
+
+Codex found one more gap: when the automated browser check reported
+something the builder could not read, it quietly dropped it and then said
+the check found nothing. Fixed.
+- **Something unreadable:** the reply says what was found, how much could
+  not be read, and that the result is not known to be clean.
+- **A result that cannot be read at all:** it says just that, never "it
+  passed" and never "it did not run".
+- **Everywhere alike:** the live updates, the final reply and the page say
+  the same thing.
+- **Checked:** with the live updates on and off, and against the other
+  session's branch together with this one; all tests pass.
+
+Spent nothing. `PROGRESS_TALK` stays off. Details: §10 of
+`docs/history/2026-10-14-check-evidence.md`.
+
+## 2026-10-14 — Codex's review of branch `new` corrected (on branch `new`; nothing merged, deployed or spent)
+
+Codex reviewed `new` at `f1c6f9b0` and asked for one correction batch before
+any release. Done, on `new` only.
+
+- **The red CI.** One test failed on CI and not here, because CI's Node
+  shipped a newer Unicode in which ★ is no longer an "emoji" character.
+  - The tests now use one fixed list of emoji and check marks, the same on
+    every computer.
+  - It found a few ✓ and ✕ marks nobody had noticed. Most are buttons and
+    menu ticks.
+  - The build card's step ticks are your earlier design choice, so they wait
+    for you.
+- **What was checked, told truthfully.** Every final reply (an edit, an
+  addition, a first build, and each part of a message with several parts)
+  is now handed exactly what the publish checked, from the job's own result.
+  - That happens even if the live updates failed, were off or arrived late.
+  - Compiling, the automated browser check and publishing are each said only
+    as far as they go.
+  - Nobody "had a look": that sentence is gone.
+- **Your two branches together.** On a scratch copy that was never pushed,
+  the other session's branch and `new` combine with two small text
+  conflicts, and every test passes. So one release can carry both.
+
+Spent nothing. `PROGRESS_TALK` stays off. Details:
+`docs/history/2026-10-14-check-evidence.md`.
+
+## 2026-10-13 — No emoji or checkmarks, and dashes on the request card (on branch `new`; nothing merged, deployed or spent)
+
+- **What you asked**: no checkmarks or emojis in progress updates or regular
+  chat replies unless the customer asks; a dash instead of 1, 2, 3 before a
+  request's parts (option E); a dash instead of the time before each
+  progress line, with the thin thread kept and no dot (option 4c); all on a
+  new branch called `new`.
+- **What a customer sees now**: replies read as plain sentences ("Updated
+  the menu on 2 pages: …", "I couldn't load your site's pages just now …")
+  with no ✅, ⚠️, ⏳, ↩, ↻, ⏹ or ⚡ in front. The request card shows dashes
+  and a thin thread; no numbers, times or dots.
+- **One sentence changed in words**: a build that ended on the placeholder,
+  with no model summary, used to show "⚠️ Built “X” …"; without the warning
+  sign that would have read as a success, so it now says the site didn't
+  finish building and the address shows a placeholder.
+- **The models are told**: no emoji or symbols unless the customer asked
+  (the final reply, progress lines, task lines, the router's chat answers).
+  Not yet seen live.
+- **Kept**: the 🔔 email toggle, the ★ pricing badge and the ▶ chevrons are
+  interface labels, not replies.
+- **The canary instruments** no longer look for ✅/⚠️ on screen.
+- **And one task's updates now stack while it runs** (your follow-up: *"i
+  want everything to show"*): none is replaced; the newest goes under the
+  last, in the same dash-and-thread list.
+- **Evidence**: 4 new guard cases; 558 test lines updated, each checked for
+  a check that had gone vacuous; 10 of 10 mutants killed, control survived;
+  full suite `10741 / 10738 / 0 / 3` locally against `main`'s
+  `10737 / 10734 / 0 / 3`. Record:
+  `docs/history/2026-10-13-no-emoji-dashes.md`.
 
 ## 2026-10-13 — Correction reuse's validation gap closed; one release proposed (nothing spent, merged or deployed)
 

@@ -1028,6 +1028,11 @@ export const JOB_ENV_NAMES = [
   // THE PROGRESS SWITCH (2026-10-06): a job records its milestones only with
   // it on — so without it here a job in the container would record nothing.
   "PROGRESS_REPLIES",
+  // THE CONVERSATIONAL PROGRESS SWITCH (2026-10-13): a job in the container
+  // opens its record conversational, and records its plan, checks and
+  // publish, only with it on — so without it here the switch would stop at
+  // the Worker for every job the container runs.
+  "PROGRESS_TALK",
   // THE IMAGE-PURCHASE SWITCH (2026-10-11): a job in the container buys its
   // photographs there, so without it here the switch would stop at the Worker.
   "IMAGE_PURCHASES",
