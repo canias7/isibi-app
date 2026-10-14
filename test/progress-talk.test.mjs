@@ -75,6 +75,7 @@ test("CHECKS — each check says only what it reached: a build is not a look at 
   const flagged = spineCheckFacts({ render: { ok: true, pages: 1, partial: true, findings: [{ route: "/", kind: "contrast" }, { route: "/a", kind: "contrast" }, { route: "/", kind: "made-up" }] } });
   assert.match(flagged[1].text, /opened the page in a browser, but was cut short/);
   assert.match(flagged[1].text, /flagged text that is nearly invisible\./, "a finding was said twice or an unknown kind was named");
+  assert.match(flagged[1].text, /It is an automated check, not a look at the design\.$/, "a flagged browser check reads as a visual review");
   for (const render of [null, { ok: false, pages: 2 }, { ok: true, pages: 0 }]) {
     const f = spineCheckFacts({ render });
     assert.equal(f[1].state, "notdone", "a browser check that did not run was said as " + f[1].state);
