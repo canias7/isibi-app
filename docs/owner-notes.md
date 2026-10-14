@@ -81,7 +81,7 @@ is in git; the dated entries further down are the full story.*
   container `4444d9d53d906b8d` → **`14fa3b54feae474b`** (predicted, 206
   inputs, 175 paths). Not built.
 **Evidence bound to its job (2026-10-14, your review after run 121;
-`89bd3f09` code, the acceptance fixture fixed in the commit after it, unmerged):**
+`89bd3f09` code, `37e606d8` acceptance fixture and records, unmerged):**
 - **Runtime settings: known or unverified.**
   - The press first reads where builds run (`runner`, `runnerEveryone`).
     If the route does not say, the settings are unverified.
@@ -134,7 +134,7 @@ is in git; the dated entries further down are the full story.*
     `acceptance-entry-points` (its runtime fixture now has the runner
     fields);
   - sweep: 13 of 13 mutants killed, and the comment control survived;
-  - full suite: running on the final tree; its totals follow in the next commit.
+  - full suite on `37e606d8`: `10852 / 10852 / 0 / 0` locally (the run on `89bd3f09` had 2 failures, both the old acceptance fixture, fixed in `37e606d8`).
 - **Image:** `worker.js` changed again. The next deploy would build
   **`13898562fa1fa8a3`** (predicted, 206 inputs). Not built.
 - **Ledger:** unchanged, balance 773, last row 469; nothing was spent this
