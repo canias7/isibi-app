@@ -534,6 +534,8 @@ test("DFB10 A TASK FINISHING WHILE THE OWNER PUBLISHES IS NOT IN THE PUBLICATION
 // and the rows — never a reply alone.
 const JOURNAL = (P) => PUBLISHING_KEY(P.slug);
 const journalOf = (P) => { const t = P.readObj(JOURNAL(P)); return t ? JSON.parse(bare(t)) : null; };
+/** The journal unless it is closed: a finished or retired journal stays as a tombstone (journals are never deleted). */
+const openJournal = (P) => { const j = journalOf(P); return j && !["finished", "retired"].includes(j.phase) ? j : null; };
 const sidecarOrigin = (P) => JSON.parse(bare(P.readObj("sitemeta/" + P.slug + ".json"))).origin;
 const currentAlias = (aliases) => (aliases.find((r) => r.current === true) || {}).alias || null;
 const RENAME = (to) => "Rename the site's address to " + to + ".";
@@ -572,11 +574,11 @@ test("DFP1 A CHAT RENAME STAYS IN THE DRAFT — the address store, the alias cac
     assert.deepEqual(aliases.filter((r) => r.current === false).map((r) => r.alias), [P.slug], "the old address does not redirect, or a draft-only name became a redirect: " + JSON.stringify(aliases));
     assert.match(sidecarOrigin(P), /harbour-street-loaf/, "the live sidecar's origin was not moved with the address");
     assert.deepEqual([pub.body.state.state, pub.body.state.address.live], ["published", "harbour-street-loaf"]);
-    assert.equal(journalOf(P), null, "a finished publication left its journal");
+    assert.equal(openJournal(P), null, "a finished publication left its journal open");
   } finally { await finish(P, compiler); }
 });
 
-test("DFP2 A SUCCESSFUL PUBLISH IS THE SELECTED REVISION, IN ORDER — revision 1 a price, revision 2 a page line, revision 3 a new loaf; the click names revision 2: when the pointer moves the journal is in its switch phase and the live price is still the old one (the row change follows the switch, nothing visible precedes it); after it, revisions 1–2 are live, revision 3's loaf is not, the journal is gone and the record says 2; revision 3's own click adds the loaf once and moves no pointer", async () => {
+test("DFP2 A SUCCESSFUL PUBLISH IS THE SELECTED REVISION, IN ORDER — revision 1 a price, revision 2 a page line, revision 3 a new loaf; the click names revision 2: when the pointer moves the journal is in its switch phase and the live price is still the old one (the row change follows the switch, nothing visible precedes it); after it, revisions 1–2 are live, revision 3's loaf is not, the journal is closed and the record says 2; revision 3's own click adds the loaf once and moves no pointer", async () => {
   const { P, db, compiler } = bakery("dfp2");
   try {
     await runOne(P, TIKTOK);
@@ -594,12 +596,12 @@ test("DFP2 A SUCCESSFUL PUBLISH IS THE SELECTED REVISION, IN ORDER — revision 
     const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 2, version: d.revs[1].version });
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
     assert.equal(switches.length, 1, "the pointer moved " + switches.length + " times");
-    assert.equal(switches[0].journal && switches[0].journal.phase, "prepared", "the pointer moved outside the switch phase: " + JSON.stringify(switches[0]));
+    assert.equal(switches[0].journal && switches[0].journal.phase, "switching", "the pointer moved before its intent was stored: " + JSON.stringify(switches[0]));
     assert.deepEqual([switches[0].rye, switches[0].spelt], [5.2, 0], "a visible change landed before the switch");
     assert.notEqual(d.revs[1].version, v0);
     assert.deepEqual([liveVersion(P), P.liveScript()], [d.revs[1].version, d.revs[1].version]);
     assert.deepEqual([price(db, 2), spelt(db).length], [5.6, 0], "revision 3's loaf went live with revision 2");
-    assert.deepEqual([draftOf(P).applied, journalOf(P)], [2, null]);
+    assert.deepEqual([draftOf(P).applied, openJournal(P)], [2, null]);
     let st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.deepEqual([st.body.state, st.body.revision, st.body.applied], ["saved", 3, 2]);
     // REVISION 3: rows only on the same pages.
@@ -613,7 +615,7 @@ test("DFP2 A SUCCESSFUL PUBLISH IS THE SELECTED REVISION, IN ORDER — revision 
   } finally { await finish(P, compiler); }
 });
 
-test("DFP3 A FAILURE BEFORE THE SWITCH CHANGES NOTHING LIVE — the script is refused: the pointer, the live script, the rows, the address store and the record are all as they were, no journal is left, and the draft still offers the revision; pressed again, it publishes once", async () => {
+test("DFP3 A FAILURE BEFORE THE SWITCH CHANGES NOTHING LIVE — the script is refused: the pointer, the live script, the rows, the address store and the record are all as they were, the journal is closed (retired), and the draft still offers the revision; pressed again, it publishes once", async () => {
   const aliases = [];
   const { P, db, compiler } = bakery("dfp3", { aliases });
   try {
@@ -632,7 +634,7 @@ test("DFP3 A FAILURE BEFORE THE SWITCH CHANGES NOTHING LIVE — the script is re
     assert.deepEqual([liveVersion(P), P.liveScript(), sidecarOrigin(P)], [v0, live0, origin0], "the live site moved on a refused script");
     assert.equal(spelt(db).length, 0, "a row became live before the switch");
     assert.deepEqual(aliases, [], "the address moved before the switch");
-    assert.deepEqual([draftOf(P).applied, journalOf(P)], [0, null]);
+    assert.deepEqual([draftOf(P).applied, openJournal(P)], [0, null]);
     const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.deepEqual([st.body.state, st.body.revision], ["saved", d.rev]);
     refuse = false;
@@ -674,7 +676,7 @@ test("DFP4 A FAILURE AFTER THE SWITCH ROLLS FORWARD, NEVER BACK — the address 
     assert.deepEqual([journalOf(P).phase, journalOf(P).attempts, draftOf(P).applied, liveVersion(P)], ["switched", 2, 0, d.version]);
     aliases.failWrites = false;
     await P.run(() => draftFirstApi.runPublishRecovery(P.env));
-    assert.equal(journalOf(P), null, "the sweep did not finish the publication");
+    assert.equal(openJournal(P), null, "the sweep did not finish the publication");
     assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length], [d.rev, "fold-street-bakery", 1]);
     assert.equal(price(db, 5), 6, "the recovery published the newer, unapproved change");
     const after = await call(P, "GET", "/api/site/" + P.slug + "/draft");
@@ -712,7 +714,7 @@ test("DFP5 AN INTERRUPTED PUBLICATION, AND DUPLICATE CLICKS — the runner dies 
     P.advance(4 * 60 * 1000);
     const resumed = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
     assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
-    assert.deepEqual([draftOf(P).applied, journalOf(P), currentAlias(aliases), spelt(db).length, price(db, 5)], [d.rev, null, "fold-street-bakery", 1, 6]);
+    assert.deepEqual([draftOf(P).applied, openJournal(P), currentAlias(aliases), spelt(db).length, price(db, 5)], [d.rev, null, "fold-street-bakery", 1, 6]);
     assert.equal(aliases.filter((r) => r.alias === "fold-street-bakery").length, 1, "the address was written twice");
     // THE NEWER REVISION, its own click.
     const newer = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev + 1 });
@@ -740,7 +742,7 @@ test("DFP6 ANOTHER REVISION'S STOPPED SWITCH IS FINISHED FIRST, NEVER SKIPPED �
     const b = draftOf(P).rev;
     const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: b });
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
-    assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length, price(db, 5), journalOf(P)], [b, "fold-street-bakery", 1, 6.4, null]);
+    assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length, price(db, 5), openJournal(P)], [b, "fold-street-bakery", 1, 6.4, null]);
     void a;
   } finally { await finish(P, compiler); }
 });
@@ -763,12 +765,317 @@ test("DFP7 TWO CLICKS AT ONCE PUBLISH ONCE — the same revision pressed twice i
     assert.ok(codes.includes(200), JSON.stringify(both.map((r) => r.body)));
     assert.ok(codes.every((c) => c === 200 || c === 202), "a duplicate click failed: " + JSON.stringify(codes));
     assert.equal(both.filter((r) => r.status === 200 && r.body.already === false).length, 1, "both clicks published: " + JSON.stringify(both.map((r) => r.body)));
-    assert.deepEqual([moves, spelt(db).length, aliases.filter((r) => r.alias === "fold-street-bakery").length, draftOf(P).applied, journalOf(P)], [1, 1, 1, d.rev, null]);
+    assert.deepEqual([moves, spelt(db).length, aliases.filter((r) => r.alias === "fold-street-bakery").length, draftOf(P).applied, openJournal(P)], [1, 1, 1, d.rev, null]);
     // AN EDIT AFTER PUBLICATION: saved, not live.
     await runOne(P, WALNUT);
     const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.deepEqual([st.body.state, st.body.revision, st.body.applied, st.body.address.live, st.body.address.draft], ["saved", d.rev + 1, d.rev, "fold-street-bakery", "fold-street-bakery"]);
     assert.equal(price(db, 5), 6, "an edit after publication went live");
+  } finally { await finish(P, compiler); }
+});
+
+// ── RECOVERY, AT EVERY BOUNDARY (2026-10-15, Codex's two reproductions) ──────
+//
+// A runner can stop between any side effect and the checkpoint that records
+// it, and a checkpoint can land with its answer lost. Each case stops the
+// real Worker functions at one such boundary and reads what is stored after:
+// the pointer, the live script, the rows, the draft record and the journal.
+/** The runner stops for good just before the write to `key` whose body `when(body)` accepts: the store never gets it and the runner never goes on. Resolves once it is reached. */
+function stopBefore(P, key, when = () => true) {
+  let reached; const at = new Promise((r) => { reached = r; });
+  const hook = async (k, v) => { if (!when(String(v || ""))) { P.beforePut((x) => x === key, hook); return; } reached(); await new Promise(() => {}); };
+  P.beforePut((x) => x === key, hook);
+  return at;
+}
+const phaseIs = (ph) => (v) => v.includes('"phase":"' + ph + '"');
+/** A publication of `body` started and left running: its promise is never awaited. */
+function clickAway(P, body) { const c = call(P, "POST", "/api/site/" + P.slug + "/publish", body); c.catch(() => {}); return c; }
+const STALE = 5 * 60 * 1000;
+/** The approved revision: the Dark Rye's new price (a held row update) and new Visit-page words (new pages). */
+async function approved(P) {
+  await runOne(P, TIKTOK);
+  const v0 = liveVersion(P);
+  P.env.DRAFT_FIRST = "on";
+  await runOne(P, RYE);
+  await runOne(P, TIKTOK_LATER);
+  return { v0, d: draftOf(P) };
+}
+
+test("DFR1 CODEX'S FIRST REPRODUCTION: THE SWITCH LANDED, ITS CHECKPOINT DID NOT — the runner stops after the activation and before `switched` is stored: the journal holds the durable intent (`switching`), never a `prepared` that recovery would read as nothing live; five minutes on, the sweep reconciles with the pointer and finishes the approved revision: the row's new price, the record marked, the journal retired", async () => {
+  const { P, db, compiler } = bakery("dfr1");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    const { v0, d } = await approved(P);
+    const stopped = stopBefore(P, JOURNAL(P), phaseIs("switched"));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    // THE NEW PAGES ARE LIVE; THE BACKEND IS NOT YET.
+    assert.notEqual(d.version, v0);
+    assert.deepEqual([liveVersion(P), P.liveScript(), price(db, 2), draftOf(P).applied], [d.version, d.version, 5.2, 0]);
+    const j = journalOf(P);
+    assert.deepEqual([j.phase, j.running, j.n, j.from], ["switching", true, d.rev, v0], "the intent to switch was not stored before the switch: " + JSON.stringify(j));
+    // FRESH: nothing takes it over.
+    const early = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([early.finished, early.cleared, journalOf(P).phase], [0, 0, "switching"]);
+    P.advance(STALE);
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([r.finished, r.cleared], [1, 0], JSON.stringify(r));
+    assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [d.version, 5.6, d.rev]);
+    assert.deepEqual([journalOf(P).phase, journalOf(P).running], ["finished", false], "the finished publication's record is not retired as finished");
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.publication], ["published", null]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFR2 INTENT STORED, SWITCH NOT MADE — the runner stops right before its pointer write: nothing new is live; once stale, the sweep makes the approved switch itself (the live version is still the one it replaces) and finishes; had the live site moved to some other version meanwhile, the sweep sets the publication aside and changes nothing", async () => {
+  const { P, db, compiler } = bakery("dfr2");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    const { v0, d } = await approved(P);
+    const stopped = stopBefore(P, POINTER(P));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    assert.deepEqual([liveVersion(P), P.liveScript(), price(db, 2), journalOf(P).phase], [v0, v0, 5.2, "switching"]);
+    P.advance(STALE);
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([r.finished, r.cleared], [1, 0], JSON.stringify(r));
+    assert.deepEqual([liveVersion(P), P.liveScript(), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, d.version, 5.6, d.rev, "finished"]);
+  } finally { await finish(P, compiler); }
+  // THE LIVE SITE MOVED ELSEWHERE while the runner was stopped (the owner restored another version).
+  const two = bakery("dfr2b");
+  try {
+    const P2 = two.P;
+    const { v0, d } = await approved(P2);
+    const stopped = stopBefore(P2, POINTER(P2));
+    clickAway(P2, { revision: d.rev, version: d.version });
+    await stopped;
+    const ptr = JSON.parse(bare(P2.readObj(POINTER(P2))));
+    const other = "01790000000000-zzzzzz";
+    await P2.env.SITES_BUCKET.put(POINTER(P2), JSON.stringify({ ...ptr, version: other }));
+    P2.advance(STALE);
+    const r = await P2.run(() => draftFirstApi.runPublishRecovery(P2.env));
+    assert.deepEqual([r.finished, r.cleared], [0, 1], JSON.stringify(r));
+    assert.deepEqual([liveVersion(P2), price(two.db, 2), draftOf(P2).applied, journalOf(P2).phase], [other, 5.2, 0, "retired"], "a publication was forced over a live site that had moved on");
+    void v0;
+  } finally { await finish(two.P, two.compiler); }
+});
+
+test("DFR3 LOST CHECKPOINT ANSWERS — (a) the `switching` intent lands but its answer is lost: the click is told it is uncertain (never \"nothing changed\"), and the sweep completes it; (b) the `switched` checkpoint lands, answer lost: the stop says the new version is live and a click after the runner's window finishes it; (c) the runner dies after adding the new loaf but before recording it: the finish runs again and the loaf is there once", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  for (const [name, lose] of [["dfr3a", phaseIs("switching")], ["dfr3b", phaseIs("switched")]]) {
+    const { P, db, compiler } = bakery(name);
+    try {
+      const { d } = await approved(P);
+      P.losePut((k, b) => k === JOURNAL(P) && lose(String(b)));
+      const r1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.equal(r1.status, 502, JSON.stringify(r1.body));
+      assert.notEqual(r1.body.live, "unchanged", "an uncertain or switched publication said nothing changed: " + JSON.stringify(r1.body));
+      assert.equal(journalOf(P).running, true, "the journal of a stop it cannot account for was taken away");
+      // A CLICK WHILE THE RUNNER'S WINDOW IS OPEN: under way, nothing more.
+      const dup = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.equal(dup.status, 202, JSON.stringify(dup.body));
+      P.advance(STALE);
+      if (name === "dfr3a") {
+        const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+        assert.equal(r.finished, 1, JSON.stringify(r));
+      } else {
+        const again = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+        assert.equal(again.status, 200, JSON.stringify(again.body));
+      }
+      assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"], name);
+    } finally { await finish(P, compiler); }
+  }
+  const { P, db, compiler } = bakery("dfr3c");
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    const stopped = stopBefore(P, JOURNAL(P), (v) => v.includes('"inserts"'));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    assert.equal(spelt(db).length, 1, "the loaf was not added before the stop");
+    assert.equal(journalOf(P).done.includes("inserts"), false);
+    P.advance(STALE);
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.equal(r.finished, 1, JSON.stringify(r));
+    assert.deepEqual([spelt(db).length, draftOf(P).applied, journalOf(P).phase], [1, d.rev, "finished"], "the finish added the loaf twice or did not finish");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFR4 CODEX'S SECOND REPRODUCTION: CLEANUP NEVER REMOVES ANOTHER RUNNER'S JOURNAL — a publication stopped before its switch goes stale; between the sweep's read and its retirement a fresh publication's journal lands: the fresh journal is still there afterwards, whole; the same for a runner retiring its own journal after a refused switch", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  /** The fresh journal lands at the first of: after the next read of the key, or before the next write to it. */
+  const freshBetween = (P, j) => {
+    let done = false;
+    const land = async () => { if (done) return; done = true; await P.env.SITES_BUCKET.put(JOURNAL(P), JSON.stringify({ ...j, at: Date.now() })); };
+    P.afterGet((k) => k === JOURNAL(P), land);
+    P.beforePut((k) => k === JOURNAL(P), land);
+    return () => done;
+  };
+  {
+    const { P, db, compiler } = bakery("dfr4a");
+    try {
+      const { v0, d } = await approved(P);
+      const stopped = stopBefore(P, JOURNAL(P), phaseIs("prepared"));
+      clickAway(P, { revision: d.rev, version: d.version });
+      await stopped;
+      assert.equal(journalOf(P).phase, "start");
+      P.advance(STALE);
+      const fresh = { ...journalOf(P), id: "fresh-" + d.rev, phase: "start", running: true, done: [] };
+      const landed = freshBetween(P, fresh);
+      const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.equal(landed(), true, "the fresh journal never landed: the observer is dead");
+      assert.deepEqual([journalOf(P) && journalOf(P).id, journalOf(P) && journalOf(P).phase, journalOf(P) && journalOf(P).running], [fresh.id, "start", true], "the sweep removed or changed a fresh publication's journal: " + JSON.stringify(journalOf(P)) + " " + JSON.stringify(r));
+      assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [v0, 5.2, 0]);
+    } finally { await finish(P, compiler); }
+  }
+  {
+    const { P, db, compiler } = bakery("dfr4b");
+    try {
+      const { v0, d } = await approved(P);
+      let fresh = null, landed = () => false;
+      P.beforeUpload(async (u) => {
+        if (String((u && u.name) || "").startsWith("draft-")) return;
+        fresh = { ...journalOf(P), id: "fresh-b", phase: "start", running: true, done: [] };
+        landed = freshBetween(P, fresh);
+        throw new Error("upload refused");
+      });
+      const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.notEqual(stop.status, 200, JSON.stringify(stop.body));
+      assert.equal(landed(), true, "the fresh journal never landed: the observer is dead");
+      assert.deepEqual([journalOf(P) && journalOf(P).id, journalOf(P) && journalOf(P).running], [fresh.id, true], "a runner retiring its own journal removed another's: " + JSON.stringify(journalOf(P)));
+      assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [v0, 5.2, 0]);
+    } finally { await finish(P, compiler); }
+  }
+});
+
+test("DFR5 THE SWEEP AND A CLICK AT ONCE ON A STOPPED PUBLICATION — one of them takes it over, the approved revision is finished once (the row, the loaf, the record), the other is told it is under way or done; and a later revision publishes over the retired journal", async () => {
+  const { P, db, compiler } = bakery("dfr5");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, RYE);
+    await runOne(P, SPELT);
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    const stopped = stopBefore(P, JOURNAL(P), phaseIs("switched"));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    P.advance(STALE);
+    const [sweep, click] = await Promise.all([
+      P.run(() => draftFirstApi.runPublishRecovery(P.env)),
+      call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version }),
+    ]);
+    assert.ok([200, 202, 409].includes(click.status), JSON.stringify(click.body));
+    if (click.status !== 200) assert.equal(sweep.finished, 1, JSON.stringify(sweep));
+    assert.deepEqual([liveVersion(P), price(db, 2), spelt(db).length, draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, 1, d.rev, "finished"]);
+    await runOne(P, WALNUT);
+    const next = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev + 1 });
+    assert.equal(next.status, 200, JSON.stringify(next.body));
+    assert.deepEqual([price(db, 5), draftOf(P).applied, journalOf(P).phase, journalOf(P).n], [6.4, d.rev + 1, "finished", d.rev + 1]);
+    // AND A SWEEP OVER FINISHED JOURNALS TOUCHES NOTHING.
+    const quiet = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([quiet.finished, quiet.cleared, journalOf(P).n], [0, 0, d.rev + 1]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFR6 LOST ANSWERS AT THE ENDS — (a) the new journal lands but its answer is lost: the click says nothing changed (true: it is at `start`), the live site is untouched, and once stale the sweep sets it aside and a fresh click publishes; (b) the closing tombstone lands, answer lost: the publication is complete and says so, and nothing is done again", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  {
+    const { P, db, compiler } = bakery("dfr6a");
+    try {
+      const { v0, d } = await approved(P);
+      P.losePut((k, b) => k === JOURNAL(P) && phaseIs("start")(String(b)));
+      const r1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.deepEqual([r1.status, r1.body.live], [503, "unchanged"], JSON.stringify(r1.body));
+      assert.deepEqual([journalOf(P).phase, journalOf(P).running, liveVersion(P), price(db, 2)], ["start", true, v0, 5.2]);
+      P.advance(STALE);
+      const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([r.finished, r.cleared, journalOf(P).phase, liveVersion(P), draftOf(P).applied], [0, 1, "retired", v0, 0]);
+      const ok = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.equal(ok.status, 200, JSON.stringify(ok.body));
+      assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+    } finally { await finish(P, compiler); }
+  }
+  {
+    const { P, db, compiler } = bakery("dfr6b");
+    try {
+      await runOne(P, TIKTOK);
+      P.env.DRAFT_FIRST = "on";
+      await runOne(P, SPELT);
+      await runOne(P, TIKTOK_LATER);
+      const d = draftOf(P);
+      P.losePut((k, b) => k === JOURNAL(P) && phaseIs("finished")(String(b)));
+      const r1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.equal(r1.status, 200, JSON.stringify(r1.body));
+      assert.deepEqual([journalOf(P).phase, spelt(db).length, draftOf(P).applied], ["finished", 1, d.rev]);
+      P.advance(STALE);
+      const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([r.finished, r.cleared, spelt(db).length], [0, 0, 1]);
+      const again = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+      assert.deepEqual([again.status, again.body.already, spelt(db).length], [200, true, 1], JSON.stringify(again.body));
+    } finally { await finish(P, compiler); }
+  }
+});
+
+test("DFR7 THE ACTIVATION'S OWN ANSWER IS LOST — the pointer write lands and the activation hears a failure: the pointer is read again before anything is retired, so the publication carries on with its new version live (never set aside with new pages over the old backend), and finishes: the row's new price, the record marked", async () => {
+  const { P, db, compiler } = bakery("dfr7");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    const { d } = await approved(P);
+    P.losePut((k, b) => k === POINTER(P) && String(b).includes(d.version));
+    const r1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(liveVersion(P), d.version, "the lost pointer write did not land: the case is not the one described");
+    assert.notEqual(r1.body && r1.body.live, "unchanged", "new pages are live and the stop said nothing changed: " + JSON.stringify(r1.body));
+    if (r1.status !== 200) {
+      assert.ok(journalOf(P) && ["switching", "switched"].includes(journalOf(P).phase), "the journal of a live version was set aside: " + JSON.stringify(journalOf(P)));
+      P.advance(STALE);
+      await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    }
+    assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+  } finally { await finish(P, compiler); }
+  // THE ACTIVATION ANSWERS A FAILURE WHILE ITS POINTER STANDS: the script is
+  // refused and the activation's own undo of the pointer fails too. The
+  // pointer — what the platform serves from, and what the script is made to
+  // follow — names the new version, so the publication is carried on, never
+  // set aside.
+  const two = bakery("dfr7b");
+  try {
+    const P2 = two.P;
+    const { d } = await approved(P2);
+    let refused = 0;
+    P2.beforeUpload(async (u) => { if (!String((u && u.name) || "").startsWith("draft-") && refused++ === 0) throw new Error("upload refused"); });
+    P2.failPut((k, b) => k === POINTER(P2) && !String(b).includes(d.version));
+    const r1 = await call(P2, "POST", "/api/site/" + P2.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(refused, 1, "the script upload was never refused: the observer is dead");
+    assert.equal(liveVersion(P2), d.version, "the pointer's undo was not the one that failed: the case is not the one described");
+    assert.notEqual(r1.body && r1.body.live, "unchanged", "the pointer names the new version and the stop said nothing changed: " + JSON.stringify(r1.body));
+    assert.ok(journalOf(P2) && journalOf(P2).phase !== "retired", "the publication of a version the pointer names was set aside: " + JSON.stringify(journalOf(P2)));
+    if (r1.status !== 200) { P2.advance(STALE); await P2.run(() => draftFirstApi.runPublishRecovery(P2.env)); }
+    assert.deepEqual([liveVersion(P2), price(two.db, 2), draftOf(P2).applied, journalOf(P2).phase], [d.version, 5.6, d.rev, "finished"]);
+  } finally { await finish(two.P, two.compiler); }
+});
+
+test("DFR8 THE POINTER CANNOT BE READ WHERE A SWITCH MAY HAVE HAPPENED — the sweep finds a stopped switch and its read of the pointer fails: the journal is kept (one more attempt recorded), never set aside on an unknown; the next sweep reads it and finishes the approved revision", async () => {
+  const { P, db, compiler } = bakery("dfr8");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    const { d } = await approved(P);
+    const stopped = stopBefore(P, JOURNAL(P), phaseIs("switched"));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    P.advance(STALE);
+    P.failGet((k) => k === POINTER(P));
+    const r1 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([r1.finished, r1.cleared], [0, 0], JSON.stringify(r1));
+    const j = journalOf(P);
+    assert.deepEqual([j.phase, j.running, j.attempts, draftOf(P).applied, price(db, 2)], ["switching", false, 1, 0, 5.2], "an unknown was read as nothing live: " + JSON.stringify(j));
+    const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.equal(r2.finished, 1, JSON.stringify(r2));
+    assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
   } finally { await finish(P, compiler); }
 });
 

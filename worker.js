@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -12293,19 +12293,20 @@ function heldDraft(revision) {
 // The owner: *"Make the approved revision publish coherently, with safe
 // recovery from interruption or failure. Do not blindly roll back database
 // contents or overwrite visitor activity."* The phases are `site-draft.mjs`'s
-// (`PUBLICATION_PHASES`): start → prepared → switched → finished. Nothing a
-// visitor of the live version can see changes before the switch; after it the
-// publication only rolls forward, step by recorded step.
+// (`PUBLICATION_PHASES`): start → prepared → switching → switched → finished
+// (or retired). Every side effect follows a stored checkpoint that names it,
+// and every resumption reads the pointer, not its own memory (Codex's first
+// reproduction: a switch that landed under a journal still saying `prepared`
+// was set aside by the sweep, leaving new pages over an unfinished backend).
+// Journals are retired by a conditional write, never deleted (his second).
 //
 // WHAT THIS CANNOT DO, said plainly: the site's database and its script are two
 // systems, and no step changes both at once. Between the switch and the last
-// finishing step — normally the rest of one request, longer only when that
-// request dies or a step's store refuses — visitors are served the new pages
-// against the database as it was apart from the new tables: a rule, a new
-// column on an existing table, a changed row, an address or a library file the
-// revision holds is not there yet. The journal makes that window end with the
-// approved revision complete, by the next click or the recovery sweep; it does
-// not make it zero.
+// finishing step, visitors are served the new pages against the database and
+// address as they were, apart from the new tables. Normally that is the rest
+// of one request. When a runner stops, or a step's store keeps refusing, it
+// lasts until a click or a sweep gets the step through — there is no bound on
+// that when the store keeps refusing. Nothing is rolled back to close it.
 const PUBLISH_STALE_MS = 3 * 60 * 1000;
 
 async function readPublication(env, slug) {
@@ -12326,10 +12327,12 @@ async function writePublication(env, slug, j, etag) {
 async function publishingNow(env, slug) {
   try {
     const { j } = await readPublication(env, slug);
-    if (!j || j.phase === "finished") return null;
+    if (journalClosed(j)) return null;
     const live = journalLive(j, { staleMs: PUBLISH_STALE_MS });
-    if (!live && j.phase !== "switched") return null;
-    return { revision: j.n, phase: j.phase, running: live, finishing: j.phase === "switched", error: j.error || null };
+    if (!live && !journalMayBeLive(j)) return null;
+    // `checking`: it stopped at its switch, and whether the new version went
+    // live is read from the pointer by whoever carries it on.
+    return { revision: j.n, phase: j.phase, running: live, finishing: j.phase === "switched", checking: j.phase === "switching", error: j.error || null };
   } catch { return null; }
 }
 
@@ -12370,26 +12373,45 @@ async function runPublication(env, slug, j, etag) {
     if (!e) throw Object.assign(new Error("the publication was taken over"), { code: "TAKEN_OVER" });
     etag = e;
   };
-  const drop = async () => { try { const cur = await readPublication(env, slug); if (cur.etag === etag) await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug)); } catch { /* the sweep clears a stale one */ } };
-  const before = async (why, status = 409) => { await drop(); return { ok: false, status, live: "unchanged", error: why + " — nothing changed on your live site" }; };
-  const after = async (stage, why) => {
-    try { await save({ running: false, error: stage + ": " + why, attempts: j.attempts + 1 }); } catch { /* another runner has it */ }
-    return { ok: false, status: 502, live: "switched", stage, error: "your new version is live, but finishing its " + stage + " changes stopped — it is finished when you press Publish again, or automatically within a few minutes" };
+  // RETIRING IS A CONDITIONAL WRITE ON THE ETAG THIS RUNNER HOLDS — never a
+  // delete. A journal another runner wrote meanwhile has another etag, so it
+  // is left exactly as it is (R2 has no conditional delete; a read-then-delete
+  // removed a fresh journal in Codex's reproduction).
+  const retire = async (phase) => {
+    try { const e = await writePublication(env, slug, { ...j, phase, running: false, at: Date.now() }, etag); if (e) etag = e; return !!e; }
+    catch { return false; }
+  };
+  // BEFORE THE INTENT TO SWITCH: nothing of this revision is live.
+  const before = async (why, status = 409) => { await retire("retired"); return { ok: false, status, live: "unchanged", error: why + " — nothing changed on your live site" }; };
+  // A STOP THAT LEAVES THE JOURNAL for the next click or the sweep: after the
+  // switch (`switched`), or where it cannot be told whether it happened
+  // (`unknown`). Never "nothing changed".
+  const keep = async (stage, why, live) => {
+    try { await save({ running: false, error: stage + ": " + why, attempts: j.attempts + 1 }); } catch { /* another runner has it, or the store is down: the stored journal still names this revision */ }
+    return live === "switched"
+      ? { ok: false, status: 502, live, stage, error: "your new version is live, but finishing its " + stage + " changes stopped — press Publish again to finish; it is also retried automatically" }
+      : { ok: false, status: 502, live, stage, error: "publishing stopped while switching your site to the new version, and it is not yet certain whether the new version is live — press Publish again to finish; it is also retried automatically" };
   };
   try {
     // ── WHAT THE CLICK NAMED, read again from the record: never anything newer.
     let draft = null;
-    try { draft = (await readDraft(deps, slug)).draft; } catch { return before("the draft could not be read", 503); }
+    try { draft = (await readDraft(deps, slug)).draft; } catch { return j.phase === "start" || j.phase === "prepared" ? before("the draft could not be read", 503) : keep("draft", "the draft could not be read", j.phase === "switched" ? "switched" : "unknown"); }
     const rev = draft ? draft.revs.find((r) => r.n === j.n) : null;
-    if (!rev || rev.version !== j.version) return before("that revision is no longer in the draft");
+    if (!rev || rev.version !== j.version) {
+      if (j.phase === "start" || j.phase === "prepared") return before("that revision is no longer in the draft");
+      return keep("draft", "the revision is no longer in the draft record", j.phase === "switched" ? "switched" : "unknown");
+    }
     let b = null;
     try { b = await readBuild(deps, slug, j.version); } catch { b = null; }
-    if (!b || b.manifest.worker !== true || !b.worker) return before("that draft's build is not complete");
+    if (!b || b.manifest.worker !== true || !b.worker) {
+      if (j.phase === "start" || j.phase === "prepared") return before("that draft's build is not complete");
+      if (j.phase === "switching") return keep("switch", "the build could not be read", "unknown");
+    }
     let range;
     try { range = await heldRange(deps, slug, draft, { from: draft.applied, to: j.n }); }
-    catch { return before("the draft's held changes could not be read", 503); }
+    catch { return j.phase === "start" || j.phase === "prepared" ? before("the draft's held changes could not be read", 503) : keep("plan", "the held changes could not be read", j.phase === "switched" ? "switched" : "unknown"); }
     const pl = publishPlan(range.flatMap((r) => r.ops), { refs: draft.refs });
-    if (!pl.ok) return before(pl.error);
+    if (!pl.ok) return j.phase === "start" || j.phase === "prepared" ? before(pl.error) : keep("plan", pl.error, j.phase === "switched" ? "switched" : "unknown");
     const plan = pl.plan;
     const live = (await backendWriter({ ...env, DRAFT_FIRST: "" }, slug)).calls;
     const wantsDb = !!(plan.spec || plan.seeds.length || plan.changes.length || plan.inserts.length);
@@ -12406,7 +12428,9 @@ async function runPublication(env, slug, j, etag) {
       for (const m of plan.media) {
         if (m.kind === "media-replace" && !(await env.SITES_BUCKET.head(uploadKey(slug, m.with))) && !(await env.SITES_BUCKET.head(uploadKey(slug, m.name)))) return before("a replacement file is missing");
       }
-      // NEW TABLES AND THEIR STARTER ROWS: the live version reads none of them.
+      // NEW TABLES AND THEIR STARTER ROWS: the live version reads none of
+      // them. A stop after this and before `prepared` leaves unused tables,
+      // which the next run finds (and the finish seeds them).
       if (plan.spec && db) {
         try {
           const fresh = await newTablesOf(db, plan.spec);
@@ -12423,63 +12447,86 @@ async function runPublication(env, slug, j, etag) {
       await save({ phase: "prepared" });
     }
 
-    // ── THE SWITCH: the approved version, through the conditional activation ──
+    // ── THE INTENT, STORED BEFORE THE SWITCH ──────────────────────────────────
     if (j.phase === "prepared") {
-      let ptr = null; let ptrTag = null;
-      try { const t = await readPointerTag(deps, slug); ptr = t.pointer; ptrTag = t.etag; }
+      let ptr = null;
+      try { ptr = (await readPointerTag(deps, slug)).pointer; }
       catch { return before("the site's pointer could not be read", 503); }
+      await save({ phase: "switching", from: ptr ? String(ptr.version || "") : "" });
+    }
+
+    // ── THE SWITCH, RECONCILED WITH THE POINTER ───────────────────────────────
+    // Run on the first pass and on every resumption alike: what the pointer
+    // says decides, never what this runner remembers.
+    if (j.phase === "switching") {
+      const readPtr = async () => { try { return await readPointerTag(deps, slug); } catch { return null; } };
+      // ONE READ, TWO USES: the pointer this activation's undo goes back to,
+      // and the etag its write is conditional on.
+      let ptr = null; let ptrTag = null; let readOk = true;
+      try { const t = await readPointerTag(deps, slug); ptr = t.pointer; ptrTag = t.etag; } catch { readOk = false; }
+      if (!readOk) return keep("switch", "the site's pointer could not be read", "unknown");
+      let liveV = ptr ? String(ptr.version || "") : "";
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
       let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
       if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
-      if (!ptr || ptr.version !== j.version) {
-        let wput = null;
+      if (liveV !== j.version) {
+        // THE LIVE SITE MOVED ON (another version was put live meanwhile):
+        // nothing of this revision is live, and it is not forced over that.
+        if (liveV !== j.from) return before("the site changed while publishing");
         const act = await activateBuild(deps, {
-          slug, version: j.version, build: b.manifest.build || "", parent: ptr ? ptr.version : "", job: null,
+          slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
           expectEtag: ptrTag, previous: ptr || null,
           sidecar, sidecarKey: siteMetaKey(slug),
           liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
-          putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }); return wput; },
+          putWorker: async () => putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }),
         });
         _pointerCache.delete(slug);
         if (!act.ok) {
-          console.error("publish: the switch stopped", slug, j.n, act.error);
-          return before(act.error === "superseded" ? "the site changed while publishing" : "the new version didn't go live (" + String(act.error) + ")");
+          // AN ANSWER IS NOT THE OUTCOME: a write can land with its answer
+          // lost, so the pointer is read again before anything is retired.
+          console.error("publish: the switch answered", slug, j.n, act.error);
+          const at = await readPtr();
+          if (!at) return keep("switch", String(act.error), "unknown");
+          liveV = at.pointer ? String(at.pointer.version || "") : "";
+          if (liveV !== j.version) return before(act.error === "superseded" ? "the site changed while publishing" : "the new version didn't go live (" + String(act.error) + ")");
         }
-      } else if (rename) {
-        // THE SAME VERSION ALREADY LIVE (a revision of held changes only): its
-        // address is written to the live sidecar here.
+      } else if (rename && j.from === j.version) {
+        // A REVISION OF HELD CHANGES ONLY, on the version already live: its
+        // address goes into the live sidecar (the same bytes if repeated).
         try {
           const cur = await env.SITES_BUCKET.get(siteMetaKey(slug));
           const side = sidecarOf(cur ? await cur.text() : null);
           side.origin = addressOf(rename.to);
           await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
-        } catch (e) { return before("the site's address could not be set (" + errorClassForLog(e) + ")", 502); }
+        } catch (e) { return keep("switch", "the site's address could not be set (" + errorClassForLog(e) + ")", "unknown"); }
       }
       await save({ phase: "switched", done: [] });
     }
 
     // ── FINISH: roll forward, step by recorded step ──────────────────────────
+    // Each step is repeatable or exactly-once; a stop between a step and its
+    // mark runs the step again.
     if (j.phase === "switched") {
       const did = (s) => j.done.includes(s);
       const mark = async (s, extra = {}) => save({ done: [...j.done, s], error: null, ...extra });
       if (!did("address")) {
         for (const a of plan.alias) {
           const r = await applyHeldAlias(env, slug, a, { uid: j.uid });
-          if (!r.ok) return after("address", r.error);
+          if (!r.ok) return keep("address", r.error, "switched");
         }
         await mark("address");
       }
-      if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return after("database", "the site's database could not be reached"); }
+      if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return keep("database", "the site's database could not be reached", "switched"); }
       if (!did("schema")) {
-        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return after("schema", errorClassForLog(e)); } }
+        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return keep("schema", errorClassForLog(e), "switched"); } }
         await mark("schema");
       }
       if (!did("jobs")) {
-        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return after("jobs", errorClassForLog(e)); } }
+        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return keep("jobs", errorClassForLog(e), "switched"); } }
         await mark("jobs");
       }
       if (!did("seeds")) {
-        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return after("seeds", errorClassForLog(e)); } }
+        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return keep("seeds", errorClassForLog(e), "switched"); } }
         await mark("seeds");
       }
       if (!did("changes")) {
@@ -12491,7 +12538,7 @@ async function runPublication(env, slug, j, etag) {
               const cols = Object.keys(c.values || {});
               if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
             }
-          } catch (e) { return after("changes", errorClassForLog(e)); }
+          } catch (e) { return keep("changes", errorClassForLog(e), "switched"); }
         }
         await mark("changes");
       }
@@ -12506,12 +12553,12 @@ async function runPublication(env, slug, j, etag) {
             const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
             rowsOf(await sqlQuery(db, st.sql, st.params));
           } catch (e) {
-            if (!(e && e.code === "23505")) return after("inserts", errorClassForLog(e));
+            if (!(e && e.code === "23505")) return keep("inserts", errorClassForLog(e), "switched");
             try {
               const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
               const v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
               rowsOf(v && Array.isArray(v.rows) ? v.rows.map((r) => ({ n: r.n, row: r.row })) : []);
-            } catch (e2) { return after("inserts", errorClassForLog(e2)); }
+            } catch (e2) { return keep("inserts", errorClassForLog(e2), "switched"); }
           }
         }
         await mark("inserts", { refs: { ...j.refs, ...refs } });
@@ -12519,20 +12566,24 @@ async function runPublication(env, slug, j, etag) {
       if (!did("library")) {
         for (const m of plan.media) {
           const r = await applyHeldMedia(env, slug, m, { uid: j.uid });
-          if (!r.ok) return after("library", r.error);
+          if (!r.ok) return keep("library", r.error, "switched");
         }
         await mark("library");
       }
+      // THE RECORD (a repeat finds it already marked), then the tombstone. A
+      // tombstone that does not land leaves a journal with every step done,
+      // which the next run closes without doing anything again.
       const m = await markApplied(deps, slug, { revision: j.n, refs: j.refs });
-      if (!m.ok) return after("record", m.error || "the draft could not be marked published");
-      await save({ phase: "finished", running: false });
-      await drop();
+      if (!m.ok) return keep("record", m.error || "the draft could not be marked published", "switched");
+      if (!(await retire("finished"))) console.error("publish: finished, the journal not closed", slug, j.n);
     }
     return { ok: true, version: j.version, revision: j.n };
   } catch (e) {
     if (e && e.code === "TAKEN_OVER") return { ok: false, status: 409, error: "another publication took over — look again in a moment" };
     console.error("publish: stopped", slug, j.n, j.phase, errorClassForLog(e));
-    if (j.phase === "switched") return after("finish", errorClassForLog(e));
+    // A THROW IS NOT AN OUTCOME EITHER: from the intent on, the journal stays.
+    if (j.phase === "switched") return keep("finish", errorClassForLog(e), "switched");
+    if (j.phase === "switching") return keep("switch", errorClassForLog(e), "unknown");
     return before("publishing stopped (" + errorClassForLog(e) + ")", 502);
   }
 }
@@ -12615,19 +12666,32 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
     }
     if (what === "resume" || what === "finishFirst") {
       const j = { ...cur.j, running: true, at: Date.now(), id: crypto.randomUUID(), uid: cur.j.uid || uid };
-      const etag = await writePublication(env, slug, j, cur.etag);
+      let etag = null;
+      // A TAKEOVER WHOSE ANSWER IS LOST may have landed: the journal then names
+      // this revision with a fresh runner, and the next click or the sweep
+      // carries it on once that runner's window has passed.
+      try { etag = await writePublication(env, slug, j, cur.etag); }
+      catch { return { ok: false, status: 503, live: journalMayBeLive(cur.j) ? "unknown" : "unchanged", error: "the publication record could not be written — press Publish again in a moment" }; }
       if (!etag) continue;
       const r = await runPublication(env, slug, j, etag);
       if (what === "resume") return r;
-      if (!r.ok) return { ...r, error: "the revision published before this one had to be finished first, and " + r.error };
+      // THE OTHER REVISION, FINISHED — or set aside because nothing of it was
+      // live — and then this click's own. Any other stop is said as such.
+      if (!r.ok && r.live !== "unchanged") return { ...r, error: "the revision published before this one had to be finished first, and " + r.error };
       continue;
     }
     // ALREADY PUBLISHED: read again, since a publication finished just above may have reached it.
     let now = draft;
     try { now = (await readDraft(deps, slug)).draft || draft; } catch { now = draft; }
     if (now && rev.n <= now.applied) return { ok: true, version: rev.version, revision: rev.n, already: true };
+    // WRITTEN OVER WHAT WAS READ — a closed journal, one set aside, or none —
+    // and only if it is still that: never over a journal that landed since.
     const j = newJournal({ slug, n: rev.n, version: rev.version, uid, id: crypto.randomUUID() });
-    const etag = await writePublication(env, slug, j, what === "replace" ? cur.etag : null);
+    let etag = null;
+    // LOST ANSWER: a journal that landed is at `start` — nothing of it written
+    // live — and is set aside by the sweep once its window has passed.
+    try { etag = await writePublication(env, slug, j, cur.etag); }
+    catch { return { ok: false, status: 503, live: "unchanged", error: "the publication record could not be written — nothing changed on your live site; press Publish again in a moment" }; }
     if (!etag) continue;
     return runPublication(env, slug, j, etag);
   }
@@ -12642,24 +12706,37 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
  */
 async function runPublishRecovery(env, { now = Date.now(), max = 10 } = {}) {
   if (!env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { finished: 0, cleared: 0 };
-  let finished = 0, cleared = 0;
-  const page = await env.SITES_BUCKET.list({ prefix: PUBLISHING_PREFIX, limit: 200 });
-  for (const o of (page.objects || []).slice(0, max)) {
-    const slug = String(o.key).slice(PUBLISHING_PREFIX.length).replace(/\.json$/, "");
-    let cur;
-    try { cur = await readPublication(env, slug); } catch { continue; }
-    if (!cur.j || journalLive(cur.j, { now, staleMs: PUBLISH_STALE_MS })) continue;
-    if (cur.j.phase !== "switched") {
-      if (cur.j.at < now - PUBLISH_STALE_MS) { try { await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug)); cleared++; } catch { /* next tick */ } }
-      continue;
+  let finished = 0, cleared = 0, looked = 0, cursor;
+  // EVERY PAGE OF THE PREFIX: closed journals stay as tombstones, so the open
+  // ones can be anywhere in the listing.
+  do {
+    const page = await env.SITES_BUCKET.list({ prefix: PUBLISHING_PREFIX, limit: 200, ...(cursor ? { cursor } : {}) });
+    for (const o of page.objects || []) {
+      if (looked >= max) return { finished, cleared };
+      const slug = String(o.key).slice(PUBLISHING_PREFIX.length).replace(/\.json$/, "");
+      let cur;
+      try { cur = await readPublication(env, slug); } catch { continue; }
+      if (journalClosed(cur.j) || journalLive(cur.j, { now, staleMs: PUBLISH_STALE_MS })) continue;
+      looked++;
+      // STOPPED BEFORE ITS INTENT TO SWITCH: nothing of it is live. Set aside
+      // by a conditional write on the etag just read — a journal that landed
+      // since is someone else's, and stays.
+      if (!journalMayBeLive(cur.j)) {
+        try { if (await writePublication(env, slug, { ...cur.j, phase: "retired", running: false, at: now }, cur.etag)) cleared++; } catch { /* next tick */ }
+        continue;
+      }
+      // AT OR AFTER ITS INTENT: carried on, the same revision, from the journal.
+      const j = { ...cur.j, running: true, at: now, id: crypto.randomUUID() };
+      let etag = null;
+      try { etag = await writePublication(env, slug, j, cur.etag); } catch { etag = null; }
+      if (!etag) continue;
+      const r = await runPublication(env, slug, j, etag);
+      if (r.ok) finished++;
+      else if (r.live === "unchanged") cleared++;
+      else console.error("publish recovery: not finished yet", slug, j.n, r.stage || "", r.error || "");
     }
-    const j = { ...cur.j, running: true, at: now, id: crypto.randomUUID() };
-    const etag = await writePublication(env, slug, j, cur.etag);
-    if (!etag) continue;
-    const r = await runPublication(env, slug, j, etag);
-    if (r.ok) finished++;
-    else console.error("publish recovery: not finished yet", slug, j.n, r.stage || "", r.error || "");
-  }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
   return { finished, cleared };
 }
 

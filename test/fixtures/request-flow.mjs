@@ -116,7 +116,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // SOMETHING ELSE LANDS FIRST (`beforePut`): another tab's call between
       // this writer's read and its write, which then meets what that left.
       const bp = beforePuts.findIndex((x) => x.match(k));
-      if (bp >= 0) { const x = beforePuts.splice(bp, 1)[0]; await x.then(k); }
+      // The hook sees what is about to be written (2026-10-15): a test can stop
+      // a runner just before one checkpoint, chosen by its content, lands.
+      if (bp >= 0) { const x = beforePuts.splice(bp, 1)[0]; await x.then(k, typeof v === "string" ? v : ""); }
       const cur = objects.get(k);
       const c = opts.onlyIf || {};
       if (c.etagMatches != null && (!cur || cur.etag !== String(c.etagMatches))) return null;

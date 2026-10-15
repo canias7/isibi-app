@@ -494,56 +494,74 @@ export function forgottenInDraft(ops) {
   return out;
 }
 
-// ── THE PUBLICATION, AS PHASES (2026-10-15, the owner's coherence correction) ──
+// ── THE PUBLICATION, AS PHASES (2026-10-15, the owner's coherence correction;
+// recovery corrected after Codex's two reproductions) ────────────────────────
 //
 // A database and a site script cannot change in one atomic step, so a
-// publication is a journal of phases, each recorded before the next:
+// publication is a journal of phases. EVERY SIDE EFFECT IS PRECEDED BY A
+// CHECKPOINT THAT NAMES IT, so a runner that stops anywhere leaves a journal
+// that says what MAY have happened, and recovery asks the world what did:
 //   start     — preflight: nothing written. A refusal here changes nothing.
 //   prepared  — what no visitor of the live version can see is in place:
 //               tables the live site does not have yet, and their starter rows.
-//   switched  — the approved version is live (pointer and script, through the
-//               conditional activation and its own undo). From here the
-//               publication only rolls FORWARD.
-//   finished  — every remaining change applied; the draft record says so.
-// Before `switched` a stop leaves the live site as it was (the prepared new
-// tables are unused by it). After `switched` the remaining steps are each
-// repeatable or exactly-once, recorded in `done`, and a stop is finished —
-// by the owner's next click or by the recovery sweep — never undone, and never
-// with any revision but the one the click named.
-export const PUBLICATION_PHASES = Object.freeze(["start", "prepared", "switched", "finished"]);
+//   switching — THE INTENT, stored before the pointer and script move, with
+//               the live version it replaces (`from`). A journal in this phase
+//               may or may not be live: recovery reads the pointer — on the
+//               approved version, the switch happened; still on `from`, the
+//               switch is made (it was approved); anything else, the live site
+//               moved on and the publication is set aside.
+//   switched  — the approved version is live. From here the publication only
+//               rolls FORWARD, step by recorded step.
+//   finished  — every change applied and the draft record marked; the journal
+//               stays as a tombstone (below).
+//   retired   — set aside before anything of it went live.
+// A journal is NEVER DELETED: R2 has no conditional delete, so a read-then-
+// delete can remove a journal another runner wrote in between. Retiring is a
+// conditional write (on the etag the retiring runner holds) of `finished` or
+// `retired`, and a new publication is written conditionally over it.
+export const PUBLICATION_PHASES = Object.freeze(["start", "prepared", "switching", "switched", "finished", "retired"]);
+/** Phases after which nothing remains to be done. */
+export const CLOSED_PHASES = Object.freeze(["finished", "retired"]);
 /** The steps after the switch, in order. */
 export const FINISH_STEPS = Object.freeze(["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
 /** A journal entry for the owner's click on revision `n` of `version`. */
 export function newJournal({ slug, n, version, uid = "", now = Date.now(), id }) {
-  return { v: 1, slug, n, version, uid: String(uid || ""), id, running: true, at: now, phase: "start", done: [], refs: {}, error: null, attempts: 0 };
+  return { v: 1, slug, n, version, uid: String(uid || ""), id, running: true, at: now, phase: "start", from: null, done: [], refs: {}, error: null, attempts: 0 };
 }
 /** A journal as stored, read strictly: null when it is not one. */
 export function readJournal(t) {
   let j;
   try { j = typeof t === "string" ? JSON.parse(t) : t; } catch { return null; }
   if (!j || typeof j !== "object" || !Number.isSafeInteger(j.n) || !isDraftVersion(j.version) || !PUBLICATION_PHASES.includes(j.phase)) return null;
+  // THE VERSION IT REPLACES must be known to a switch: "" (no live version) or a version.
+  if (j.phase === "switching" && !(j.from === "" || isDraftVersion(j.from))) return null;
   return {
     ...j,
+    from: j.from === "" || isDraftVersion(j.from) ? j.from : null,
     done: Array.isArray(j.done) ? j.done.filter((d) => typeof d === "string") : [],
     refs: j.refs && typeof j.refs === "object" && !Array.isArray(j.refs) ? j.refs : {},
     running: j.running === true, at: Number(j.at) || 0, attempts: Number(j.attempts) || 0,
   };
 }
+/** Is nothing left to do for this journal? */
+export const journalClosed = (j) => !j || CLOSED_PHASES.includes(j.phase);
 /** Is this journal's publication being run right now (a runner that has written within `staleMs`)? */
-export const journalLive = (j, { now = Date.now(), staleMs } = {}) => !!(j && j.running && j.at > now - staleMs);
+export const journalLive = (j, { now = Date.now(), staleMs } = {}) => !!(j && !journalClosed(j) && j.running && j.at > now - staleMs);
+/** May any of this journal's revision be live? (`switching` may; `switched` is.) */
+export const journalMayBeLive = (j) => !!(j && (j.phase === "switching" || j.phase === "switched"));
 /**
  * WHAT A CLICK ON REVISION `n` DOES, given the journal that stands:
- *   start      — no publication stands: begin one;
+ *   start      — none stands, or it is closed: begin one (written over it);
  *   busy       — one is running now (202 for the same revision, 409 another);
  *   resume     — the same revision stopped, or its runner died: carry it on;
- *   finishFirst— another revision already switched and did not finish: finish
- *                that one (it was approved) before beginning this one;
- *   replace    — another revision stopped before its switch: nothing of it is
- *                live, so it is set aside.
+ *   finishFirst— another revision that may be live did not finish: finish (or
+ *                reconcile) that one — it was approved — before this one;
+ *   replace    — another revision stopped before its intent to switch: nothing
+ *                of it is live, so it is set aside.
  */
 export function clickPlan(j, n, { now = Date.now(), staleMs } = {}) {
-  if (!j || j.phase === "finished") return "start";
+  if (journalClosed(j)) return "start";
   if (journalLive(j, { now, staleMs })) return "busy";
   if (j.n === n) return "resume";
-  return j.phase === "switched" ? "finishFirst" : "replace";
+  return journalMayBeLive(j) ? "finishFirst" : "replace";
 }
