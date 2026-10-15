@@ -11852,8 +11852,9 @@ function buildDeps(env) {
       // on that object's etag, so whatever replaced it since still refuses.
       let cond = onlyIf;
       if (onlyIf && onlyIf.etagDoesNotMatch === "*") {
-        const cur = await env.SITES_BUCKET.head(key);
-        if (cur && isHeldObject(cur)) { if (!cur.etag) return null; cond = { etagMatches: cur.etag }; }
+        // A STORE WITHOUT `head` (a narrower binding) is read in full.
+        const cur = typeof env.SITES_BUCKET.head === "function" ? await env.SITES_BUCKET.head(key) : await env.SITES_BUCKET.get(key);
+        if (cur && isHeldObject(cur, cur.text && !env.SITES_BUCKET.head ? await cur.text() : undefined)) { if (!cur.etag) return null; cond = { etagMatches: cur.etag }; }
       }
       return env.SITES_BUCKET.put(key, body, {
         httpMetadata: { contentType: contentType || "application/octet-stream" },

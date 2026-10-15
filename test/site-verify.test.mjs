@@ -246,7 +246,9 @@ test("a save takes effect without a republish, and says which happened", () => {
   // route manifest out of the head.
   assert.match(win, /const cur = await env\.SITES_BUCKET\.get\(siteMetaKey\(vslug\)\);/,
     "the sidecar is written without reading it — every other head field is wiped");
-  assert.match(win, /const side = cur \? JSON\.parse\(await cur\.text\(\)\) : \{\};/,
+  // RE-ANCHORED 2026-10-15: read through `sidecarOf`, which patches what is
+  // stored and reads a sidecar held absent as none.
+  assert.match(win, /const side = sidecarOf\(cur \? await cur\.text\(\) : null\);/,
     "the existing sidecar is replaced rather than patched");
   assert.match(win, /siteMetaKey\(vslug\)[\s\S]{0,400}\.put\(/, "nothing is written back");
   // BEST-EFFORT AND THE STORED VALUE IS ALREADY SAFE: the write happens first,
