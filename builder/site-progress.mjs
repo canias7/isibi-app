@@ -419,7 +419,12 @@ export function buildStepFacts(step) {
   const n = (k) => (Number.isFinite(s[k]) && s[k] > 0 ? Math.floor(s[k]) : 0);
   const pl = (k, one, many) => (k === 1 ? one : k + " " + many);
   switch (name) {
-    case "design": return [fact("designed", "Designed the site: its pages, its look and the photographs it will use. Nothing is built yet.")];
+    // ONLY WHAT THE DESIGN DID (2026-10-15, after run 38742390550, whose
+    // image-free build was told it had designed "the photographs it will
+    // use"): the design decides the pages and the look; photographs are
+    // chosen by the page writers and bought later, and their own steps
+    // (`photos-*`) say so when — and only when — that happens.
+    case "design": return [fact("designed", "Designed the site: its pages and its look. Nothing is built yet.")];
     case "provision": return s.db === 0 ? [] : [fact("prepared", "Set up the site's database. The site is not published yet.")];
     case "schema": return n("tables") ? [fact("prepared", "Made " + pl(n("tables"), "the table", "tables") + " the site stores its information in. Not published yet.")] : [];
     case "seed": return [fact("prepared", "Filled in the starting entries. Not published yet.")];

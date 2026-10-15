@@ -1685,12 +1685,30 @@ export const COVERAGE = Object.freeze({
     const s = (steps || []).find((x) => x && x.mode === "fresh");
     const f = s && s.fresh;
     if (!f) return { covered: false, why: "the message was not read in a fresh browser session" };
-    const most = new Map();
+    // LIVE PROGRESS APART FROM A FINISHED PART'S SUMMARY (2026-10-15, after
+    // run 38744698638, whose 3-second data part showed no line): the reason
+    // says, for each part, whether a line was seen live while it ran, only
+    // after it ended, or not at all — told only by its completed-work
+    // summary, a fast job rather than missing progress — never one as another.
+    const seen = new Map();
     for (const snap of [...arrOf(f.before), ...arrOf(f.after)]) {
-      for (const p of arrOf(snap && snap.parts)) most.set(p.n, Math.max(most.get(p.n) || 0, listOf(p.lines).length));
+      for (const p of arrOf(snap && snap.parts)) {
+        const o = seen.get(p.n) || { live: 0, lines: 0, summary: false };
+        o.lines = Math.max(o.lines, listOf(p.lines).length);
+        if (snap && snap.ended !== true && liveOnItsPart(p)) o.live++;
+        if (p.status === "done" && p.said && typeof p.said.done === "string" && p.said.done && p.words === p.said.done) o.summary = true;
+        seen.set(p.n, o);
+      }
     }
-    const each = [...most.entries()].sort((a, b) => a[0] - b[0]);
-    return { covered: each.length > 0 && each.every(([, c]) => c > 0), why: each.length ? each.map(([n, c]) => `part ${n}: ${c} line(s) at most`).join("; ") : "no part was read" };
+    const each = [...seen.entries()].sort((a, b) => a[0] - b[0]);
+    const say = ([n, o]) => o.live ? `part ${n}: a line live while it ran (${o.lines} line(s) at most)`
+      : o.lines ? `part ${n}: ${o.lines} line(s), none shown live while it ran`
+      : o.summary ? `part ${n}: no progress line; told by its completed-work summary`
+      : `part ${n}: no progress line`;
+    // COVERED BY A LINE SHOWN, as before: readings are taken at intervals, so
+    // a line seen only after its part ended may have been live between two of
+    // them. What the reason says keeps the three apart.
+    return { covered: each.length > 0 && each.every(([, o]) => o.lines > 0), why: each.length ? each.map(say).join("; ") : "no part was read" };
   },
 });
 

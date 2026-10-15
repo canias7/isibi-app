@@ -184,7 +184,7 @@ test("END TO END: the first line is read in the tab that sent the message while 
   for (const x of [...one[0].fresh.before, ...one[0].fresh.after]) for (const p of x.parts) if (p.n === 1) p.lines = [];
   const half = coverageOf({ spec: LP, steps: one }).find((c) => c.name === "progress-each-part");
   assert.equal(half.covered, false);
-  assert.match(half.why, /part 1: 0 line\(s\)/);
+  assert.match(half.why, /part 1: no progress line; told by its completed-work summary/);
   // THE ACCOUNT WRITES THE WORDS OUT WHOLE.
   const told = describeUi(rec);
   assert.match(told, /first line on screen \d+ s after the send, part 0 \(started\): "I've worked out the FAQ page/);
@@ -828,4 +828,17 @@ test("closed-tab coverage and the closed-tab checks agree on one fresh-session r
   }
   // AN `away` STEP is read as before; no step of either kind is "not closed".
   assert.equal(coverageOf({ spec: { covers: ["closed-tab"] }, steps: [{ n: 1, sent: true, mode: "", network: [] }] })[0].why, "the tab was not closed");
+});
+
+test("progress-each-part says, per part, a line live while it ran, lines seen only after it ended, or none and told only by its completed-work summary", () => {
+  const f = goodFresh();
+  // A SECOND PART, FAST: never seen running, done with its summary and no line.
+  for (const x of f.after) x.parts.push(P(1, "done", SAID1.done, [], SAID1));
+  // A THIRD, ITS LINE SEEN ONLY ONCE DONE.
+  for (const x of f.after) x.parts.push(P(2, "done", SAID1.done, ["A line kept after the part finished."], SAID1));
+  const c = coverageOf({ spec: { covers: ["progress-each-part"] }, steps: stepOf(f) })[0];
+  assert.match(c.why, /part 0: a line live while it ran/);
+  assert.match(c.why, /part 1: no progress line; told by its completed-work summary/);
+  assert.match(c.why, /part 2: 1 line\(s\), none shown live while it ran/);
+  assert.equal(c.covered, false, "a part with no line counted as covered");
 });
