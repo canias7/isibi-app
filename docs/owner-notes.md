@@ -1,5 +1,139 @@
 # Owner Notes
 
+## Branch `new` — the verification proposal revised, and its checks prepared as a script and a workflow (2026-10-15, after Codex's review of `9a2ea70b`; nothing run, merged, deployed or built; no storage written, no model called, nothing bought)
+
+**What Codex's review confirmed.** The code fix round stays complete, and CI is
+green:
+- `9a2ea70b`: unit green, run 38672810336.
+- The code head is still `cbd396d8`: unit `10892 / 10845 / 0 / 47` (run
+  38670111433), site build green (run 38670111439).
+
+This round changes no product file: nothing under `public/`, nor `worker.js`,
+`site-media.mjs` or the `Dockerfile`.
+
+**What was added:**
+- **`scripts/media-verify.mjs`.** One script with five modes, each with its own
+  gate:
+
+  | Mode | What it touches |
+  |---|---|
+  | `rehearsal` | read-only |
+  | `storage` | storage-mutating, free |
+  | `browser` | storage-mutating, free |
+  | `converse` | paid |
+  | `build` | paid |
+
+  - **It refuses before any write or send** (exit 2) when:
+    - the site is one of help-needed's (`fold-lane-bakery`, `fretwork-1`,
+      `lido-axes-b`, `copperleaf-tea-room`, `saltmarsh-cheese-counter`);
+    - a mutating mode lacks "yes" in the box that allows writing test files;
+    - a paid mode lacks "yes" in the box that allows spending, or lacks a
+      ceiling.
+  - **Photographs are checked off on the live Worker** (`imagePurchases ===
+    false`, from `/api/site/runtime`). A paid mode reads this at the start and
+    again immediately before every message and before the build. "No
+    photographs" in a prompt no longer counts, and the build's brief no longer
+    says it.
+  - **The balance is read** from the ledger immediately before and after every
+    send. The charge must equal the cost the reply reports. No recorded figure
+    is used: the 13-credit and top-up text is gone.
+  - **Estimates are labelled as estimates:** a message is 2–6 credits, the
+    build 13–47. The one enforced limit is the harness's own: the ceiling you
+    type per press. The platform caps nothing.
+  - **Clean-up.** Storage and browser delete everything they made, and the
+    library must end as found.
+- **`.github/workflows/media-verify.yml`.**
+  - Dispatch only, with the same secrets and sign-in as the canary.
+  - It installs Playwright's Chromium, Firefox and WebKit; Google Chrome is
+    the runner's own.
+  - It keeps `media-verify.json` as the run's evidence.
+  - It can be pressed only once it is on `main`.
+- **`scripts/owner-session.mjs`** also returns the session's refresh token and
+  expiry (additive). The browser mode uses them to sign the real app in, for
+  the app's origin only. They are never printed.
+
+**Every point of your review, and where it stands:**
+- **Automated, not devtools.**
+  - Every API check is in the storage mode: upload, list, GET/HEAD, ranges,
+    416 and 304 on both origins; the refusals; replace; three parts with a
+    lost part and a lost finish; abort, then finish; the races; delete.
+  - Play and seek run in each real browser engine.
+  - The composer and Files panel run on the real app: attach; reload and
+    reattach, reused; delete and reattach, sent again.
+  - The composer's page may write only this site's media. Every other write
+    is aborted and recorded, and no message is ever sent.
+- **Genuinely unavailable:** Safari on macOS, Safari on iOS, Chrome on Android
+  and Microsoft Edge. They are reported as unverified, never as passed.
+  - WebKit on Linux is recorded only.
+  - An engine the runner installs but that fails to launch is a failed check,
+    not a skip.
+- **F7 is corrected.** Delete against a replacement's close is judged on where
+  it ends, not on one pair of statuses.
+  - Close 200 then delete 200 is valid when the file ends deleted.
+  - So are "close 200, delete 409 replacing, delete again 200", "delete 200,
+    close 410", and a 503 `unconfirmed` delete followed by a successful one.
+  - Each must end with the address 404, both receipts agreeing, and no room
+    held.
+  - The generation is internal: it is judged offline, not live.
+- **The R2 abort/complete probe: not supported by the existing tooling, so not
+  built.**
+  - The tooling reaches R2 only through the Worker's binding, and no route asks
+    R2 to close or abort an upload whose session is gone.
+  - Two options are written up, both storage-mutating, each its own change for
+    your approval: a small owner-gated Worker probe route under `probe/` (needs
+    a deploy), or an S3-API client (needs R2 keys and a signer this repository
+    doesn't have).
+- **The cut-history case is deterministic.**
+  - The earlier reply is fixed, and the cut is made by the page's own
+    `historyWire`.
+  - It is proven cut before anything is sent: Version three is past the cut,
+    and `full` is longer than the text.
+  - So it costs one message and cannot come back "not exercised".
+- **Demo sites against a new Build.**
+  - Rehearsal, storage, browser and the six conversation cases reuse one
+    existing non-guarded demo site you name. Candidates from the live list
+    are `markbook-1`, `shoeroom-1`, `repairbench-1`, `ashgrove-1` and
+    `washhouse-1`; a free rehearsal confirms it first.
+  - Only P9 (drafts moved into a first build) needs a new Build, on a new slug
+    you type.
+- **Deployment.**
+  - Sharing a future deploy with help-needed is a possibility, not a schedule.
+    Its earlier batch is deployed, and its parallel-execution work is still
+    pending.
+  - `new` can merge alone or combined. Either way: predict the image, verify
+    the rollback, and have CI green first.
+  - Dispatching the deploy from `new` is never used.
+
+**Offline verification.** None of these were full suites.
+- **`test/media-verify.test.mjs`: 11 cases.**
+  - The judge, including close 200 then delete 200.
+  - The cut proof, and the three-part WAV.
+  - The labels, the gates, and rehearsal being read-only.
+  - The storage mode end to end against the real Worker and the R2 double.
+  - The converse ceiling, and the build mode's 202 poll.
+  - The browser mode in real Chromium, including B2 and B3 on the
+    repository's own app.
+  - The composer page's write rule.
+  - The workflow guard: dispatch only, the same modes, every variable passed.
+- **Mutants:**
+  - workflow: 3 of 3 killed (a push trigger, a dropped variable, a dropped
+    mode);
+  - harness: 2 of 2 killed (composer checks skipped, every page write
+    allowed).
+- **Focused files** (the media, conversation and workflow guards, and
+  `canary-build`): 191 / 191 pass.
+- **Every test file touching `owner-session`'s callers:** 348 / 348 pass.
+
+**The order, when you approve:**
+1. The merge (alone or combined), then the free runtime canary.
+2. `rehearsal`, then `storage` and `browser` with the box that allows writing
+   test files set to yes.
+3. You set `IMAGE_PURCHASES` off, and a rehearsal shows it.
+4. `converse`, then `build`, each with the box that allows spending set to yes
+   and a ceiling you choose.
+
+The full proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
 ## Branch `new` — one verification proposal for the assistant and media work (2026-10-15, after Codex's review of `bdebc5e3`; a proposal only: nothing run, merged, deployed, built or pressed, no paid call)
 
 Codex confirmed the failed-abort fix independently: a delete answers `unconfirmed` while the old upload can still land, keeps the claim and the session, and goes through safely once the upload has finished. Broad offline testing is now stopped.

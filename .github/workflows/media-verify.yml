@@ -1,0 +1,97 @@
+# THE ASSISTANT AND MEDIA VERIFICATION (2026-10-15), PREPARED AND NOT PRESSED.
+#
+# Dispatch only: nothing starts this but the owner's press. It runs
+# scripts/media-verify.mjs against the deployed Worker, signed in as the
+# building account. The mode decides what it may do, and the script refuses
+# anything the boxes below do not allow, before any write or send:
+#
+#   rehearsal  read-only, free
+#   storage    STORAGE-MUTATING (R2 through the Worker), no model call, free;
+#              needs "mutate" yes, and cleans up what it made
+#   browser    STORAGE-MUTATING, no model call, free; real Chromium, Chrome,
+#              Firefox and WebKit on this runner; needs "mutate" yes
+#   converse   PAID, on an existing site; needs "spend" yes, "max credits", and
+#              photographs verified OFF on the live Worker before every send
+#   build      PAID, one new Build; the same gates
+#
+# A dispatch-only workflow can be pressed only once it is on the default
+# branch, so this becomes usable when the branch carrying it is merged.
+name: media verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Mode: rehearsal (read-only) · storage / browser (write test files, then delete them) · converse / build (PAID)"
+        required: true
+        default: rehearsal
+        type: choice
+        options: [rehearsal, storage, browser, converse, build]
+      site:
+        description: "Site slug to run against (an existing demo site, never a help-needed fixture; for build, the new site's slug)"
+        required: true
+        default: ""
+      mutate:
+        description: "Write and delete test files on that site? Type yes for storage or browser"
+        required: false
+        default: ""
+      spend:
+        description: "Spend credits? Type yes for converse or build"
+        required: false
+        default: ""
+      max_credits:
+        description: "Harness ceiling for this press, in credits (an estimate is not a limit; the platform caps nothing)"
+        required: false
+        default: ""
+      repeat:
+        description: "Repetitions of each concurrency check (storage mode)"
+        required: false
+        default: "3"
+      picker:
+        description: "Model for converse and build"
+        required: false
+        default: grok
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: install what the script imports
+        run: npm ci
+      # The browser mode alone needs browsers, installed before the step that
+      # launches them (test/ci-browser-order.test.mjs). Google Chrome is
+      # already on GitHub's Ubuntu runner.
+      - name: browsers for the browser mode
+        if: github.event.inputs.mode == 'browser'
+        run: npm i --no-save --no-audit --no-fund playwright@1.49.1 && npx playwright install --with-deps chromium firefox webkit
+      - name: media verify
+        env:
+          SUPABASE_URL: https://ujrqdmmtcptvimazlhom.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          APP_ORIGIN: https://gofarther.dev
+          MODE: ${{ github.event.inputs.mode }}
+          SITE: ${{ github.event.inputs.site }}
+          MUTATE: ${{ github.event.inputs.mutate }}
+          SPEND: ${{ github.event.inputs.spend }}
+          MAX_CREDITS: ${{ github.event.inputs.max_credits }}
+          REPEAT: ${{ github.event.inputs.repeat }}
+          PICKER: ${{ github.event.inputs.picker }}
+          RESULT_FILE: media-verify.json
+        run: node scripts/media-verify.mjs
+      - name: keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-verify
+          path: media-verify.json
+          if-no-files-found: warn

@@ -1,326 +1,428 @@
-# 2026-10-15 — One verification proposal for the assistant and media work (branch `new`)
+# 2026-10-15 — One verification proposal for the assistant and media work (branch `new`), revised
 
-A proposal only. Nothing in it has been run. Nothing is merged, deployed, built
-or pressed, and no model call or purchase was made to write it.
+**Revised after Codex's review of `9a2ea70b`.** The checks are now prepared as a
+script and a workflow, and nothing in this proposal has been run. Nothing is
+merged, deployed or built. No storage was written, no model was called, and
+nothing was bought to prepare it.
+
+What changed from the first version:
+- **Automated checks.** Every check a browser or API can do is now automated
+  in one script, `scripts/media-verify.mjs`. It is pressed through a
+  dispatch-only workflow, `.github/workflows/media-verify.yml`. No devtools
+  steps or console snippets remain.
+- **Photographs off.** `IMAGE_PURCHASES=false` must be verified on the live
+  Worker before every model-backed send. Writing "no photographs" in the
+  prompt does not count.
+- **No assumed balance.** The 13-credit figure and the top-up remark are gone.
+  The balance is read immediately before each send.
+- **F7 is judged on where it ends**, not on one fixed pair of statuses.
+- **The cut-history case is deterministic.**
+- **A raw R2 probe** is explained as not supported by the existing tooling. It
+  is proposed, not built.
 
 ## Where things stand
 
-- **Code head: `cbd396d8`. Documentation head: this file's commit, on top of
-  `bdebc5e3`.**
-- **Final CI on the code head (`cbd396d8`):**
-  - unit tests green, `10892 / 10845 / 0 / 47` (run 38670111433);
-  - site build green (run 38670111439).
-- **Final CI on the documentation head (`bdebc5e3`):** unit tests green,
-  `10892 / 10845 / 0 / 47` (run 38670979502). A documentation-only push starts
-  no site build.
-- **Final local full suite on `cbd396d8`:** `10892 / 10890 / 0 / 2`.
-- **`main` has moved to `8e24ca5b`** (help-needed's verification batch).
-  - It already holds everything `new` had up to `9ceca1d4`.
-  - It holds none of `new`'s 15 later commits (`5f425ceb` … `bdebc5e3`): the
-    assistant, video/audio upload to playback, recovery, receipts, quota, the
-    per-file mutation record, and the proven-stop fix.
-- **Image prediction for `cbd396d8` alone:** `484f4945d711b3c8` (208 inputs).
-  A combined candidate's image differs and must be predicted on that tree.
+- **Code head: `cbd396d8`.**
 
-## Can verification share help-needed's eventual deployment and container build?
+  | Run | Result |
+  |---|---|
+  | unit, run 38670111433 | green, `10892 / 10845 / 0 / 47` |
+  | site build, run 38670111439 | green |
+  | local full suite | `10892 / 10890 / 0 / 2` |
 
-**Yes, but only as one combined release candidate on `main`.** Nothing about
-`new` can be verified live without that.
+- **`9a2ea70b`** (the first proposal, documents only): unit green, run
+  38672810336.
+- **This revision** adds the script, its test and the workflow. It changes no
+  product file: nothing under `public/`, nor `worker.js`, `site-media.mjs` or
+  the `Dockerfile`. Its CI and offline readings are in this round's
+  owner-notes entry.
+- **`main`:**
+  - It is `8e24ca5b`. help-needed's earlier batch is merged and deployed
+    there.
+  - It holds none of `new`'s commits from `5f425ceb` onwards.
+  - help-needed still has parallel-execution work pending.
 
-- **`deploy.yml` deploys on a push to `main`.** It also accepts
-  `workflow_dispatch` with no branch guard, so dispatching it from `new` would
-  deploy `new` to production in place of `main`. That must not be used for
-  verification.
-- **There is no preview environment.** `wrangler.jsonc` has one Worker
-  (`isibi-app`), and the container image is built from the deployed tree's
-  inputs.
-- **So one deploy and one image build serve both branches** once help-needed's
-  next merge and `new`'s 15 commits land together.
+## Deployment: shared is possible, not scheduled
 
-**A trial merge, done locally and discarded.** I merged `new` into
-`origin/main` (`8e24ca5b`) in a throwaway worktree. Nothing was pushed or kept.
-Three conflicts, all mechanical:
-- **`Dockerfile`:** both sides added modules to the same `COPY` lines. `main`
-  adds `builder/content-evidence.mjs`; `new` adds `site-media.mjs` and
-  `builder/site-converse.mjs`. Keep both.
-- **`public/chat.js`:** the build request body. `main` adds `accept: 'early'`;
-  `new` adds `media: site.pendingMedia`. Keep both.
-- **`docs/owner-notes.md`:** documents only.
+Live verification needs this code on the production Worker. There is no
+preview environment, and dispatching `deploy.yml` from `new` would deploy `new`
+in place of `main`. That must never be done.
 
-`worker.js` merged without a conflict, but two interactions need checking in
-the combined candidate:
-- `main`'s early-accepted build (`accept: 'early'`) together with `new`'s draft
-  move;
-- the build's reply fields (`media`, `contextNote`) reaching the page through
-  the follow that `main`'s early accept uses.
+So the checks run only after `new` reaches `main` through a merge the owner
+orders. That merge can happen in either of two ways:
+- **Alone,** in its own deploy and image build.
+- **Combined** with help-needed's next merge, sharing one deploy and one image
+  build.
 
-The combined candidate stays paused until the owner says to prepare it.
+The combined route is **a possibility, not an established schedule**:
+- help-needed's parallel-execution work is still pending;
+- its timing and contents are not set here;
+- nothing in this proposal waits on it or assumes it.
 
-## Implementation gaps vs. behaviour only awaiting live verification
+Either way, before the merge:
+1. The candidate's image is predicted on its own tree. For `cbd396d8` alone it
+   is `484f4945d711b3c8`, from 208 inputs; a combined tree differs.
+2. Rollback is verified.
+3. Required CI is green.
 
-**Implementation gaps.** Known, documented, not fixed.
-1. **Interrupted delete cleanup.** If a delete crashes after the file's record
-   says `deleted` but before the object is removed, the object is still served
-   at `/u/` and listed in the library. That lasts until the delete is sent
-   again. Receipts and replacements already treat it as deleted.
-2. **Draft transfer.**
-   - Drafts sit outside the per-file mutation record.
-   - A draft deleted while a build is moving it is not coordinated.
-   - After a move, the draft's receipt says `removed` (it is no longer a
-     draft), and the page uploads the file again rather than linking to the
-     site's copy.
-   - Expired drafts are removed only when the account's drafts are next listed
-     or used, not on a schedule.
-3. **Finished-session records** (`media-sessions/`) are not cleaned up on a
-   schedule. There is no R2 lifecycle rule.
-4. **The upload record lives in one browser.** Another device sends the file
-   again.
-5. **A storage outage holds deletes.** While R2 cannot confirm an old upload
-   stopped, a delete of that file answers 503 `unconfirmed` until it can. This
-   is safe, but the owner has to send it again.
-6. **The claim lease of 15 minutes is a judgement call.**
-7. **One unresolved receipt case.** If an upload finished at R2 but its record
-   was never written, and the file was then deleted, the session reads as open.
-   The page ends "not confirmed yet" until the session expires (24 h).
-8. **A test double, not the product.** The build-route test double still gives
-   counter etags. This was suggested as its own task.
+The earlier trial merge into `8e24ca5b`, done locally and discarded, still
+stands: three mechanical conflicts, in `Dockerfile`, `public/chat.js` and
+`owner-notes`. If help-needed's next merge comes first, it is redone on that
+tree.
 
-**Awaiting live verification only.** Built, and tested offline against stand-ins.
-1. R2's conditional writes: `etagMatches`, `etagDoesNotMatch: "*"`, and the
-   content-MD5 etag.
-2. R2's error for an aborted or unknown multipart upload (expected
-   `NoSuchUpload` / 10024).
-3. R2 refusing to close an aborted upload.
-4. Multipart throughput, and a real browser's upload of a file of several
-   parts.
-5. The edge's handling of `Range`, `206`, `416`, `304` and the 5-minute
-   revalidated cache, at both `gofarther.dev/u/` and `<slug>.gofarther.app/u/`.
-6. Playback of MP4, MOV, M4A and AAC (not played here; this Chromium lacks
-   H.264/AAC). Also Safari, Firefox, iOS and Android.
-7. What a real model writes:
-   - conversational answers and their length;
-   - asking rather than guessing on a cut history;
-   - the router's `resolved`;
-   - the page writer's media narration in `notes`.
-8. The real cost of a conversational message (routing plus reply).
+**The workflow becomes pressable only on `main`.** GitHub offers a
+dispatch-only workflow from the default branch only. `media verify` therefore
+appears in the Actions tab once the merge carrying it lands, and it cannot be
+pressed before.
 
-## The fixtures
+## How a press works: `scripts/media-verify.mjs`
 
-All are in `test/fixtures/media/`, generated locally with ffmpeg (a test tone
-and a test pattern). None is model-generated.
+**Signing in.** The script signs in as the building account through the same
+handshake every canary uses (`scripts/owner-session.mjs`). No credential is
+printed or kept.
 
-| File | Bytes | Contents |
+**Its readings.** Each press writes `media-verify.json` (the run's artifact):
+- every check, with its observed value;
+- every spend, with the balance before and after;
+- the deploy and the image id it ran against.
+
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| 0 | every check passed |
+| 1 | a check failed |
+| 2 | refused before doing anything |
+
+**The workflow's boxes, by their descriptions:**
+
+| Box description | What it takes |
+|---|---|
+| Mode | `rehearsal`, `storage`, `browser`, `converse` or `build` |
+| Site slug to run against | the site |
+| Write and delete test files on that site? | `yes` for storage or browser |
+| Spend credits? | `yes` for converse or build |
+| Harness ceiling for this press, in credits | the press's ceiling |
+| Repetitions of each concurrency check | how many times each race repeats |
+| Model for converse and build | the model |
+
+| Mode | What it does | What it touches | Gate |
+|---|---|---|---|
+| `rehearsal` | Signs in and reads the runtime switches (deploy, `imagePurchases`), the image id, the balance and the site's library. Lists what each other mode would refuse on. | **Read-only** | a site |
+| `storage` | S1–S7 below | **Storage-mutating** (R2 through the Worker). No model, no credits. | `mutate=yes` |
+| `browser` | B1–B3 below | **Storage-mutating.** No model, no credits. | `mutate=yes` |
+| `converse` | C1–C5 and C8 below | **Paid** | `spend=yes`, a ceiling, photographs verified off |
+| `build` | P9 below | **Paid**, one new Build | the same |
+
+**The guarded sites.** Every mode refuses to write to or spend on these:
+`fold-lane-bakery`, `fretwork-1`, `lido-axes-b`, `copperleaf-tea-room` and
+`saltmarsh-cheese-counter`. These are help-needed's fixtures and the sites its
+pending batches name. A rehearsal may read them.
+
+**What every gate shares.** It is decided before any write or send. A refusal
+exits 2, with nothing changed.
+
+**Clean-up.** The storage and browser modes delete everything they made in a
+`finally`. Files are deleted with `force=1`, and open sessions are aborted.
+The library is then read back and must equal what was found at the start.
+
+## Which sites: an existing demo site, or a new Build
+
+- **Reuse an existing demo site** for `rehearsal`, `storage`, `browser` and
+  `converse`.
+  - None of these needs a fresh site. Storage and browser put their own
+    fixtures up and take them down again. The conversation cases ask about the
+    stored pages and the attachment the request carries.
+  - The owner names a non-guarded demo site the building account owns. From
+    the live list, `markbook-1`, `shoeroom-1`, `repairbench-1`, `ashgrove-1`
+    and `washhouse-1` are candidates.
+  - A free `rehearsal` on it confirms first that it is owned and reachable,
+    and shows its library. Its pages are never changed. C3 reads them, and
+    its expected answer is judged against what they say.
+- **Only P9 needs a new Build.**
+  - What it verifies is a first build: drafts attached before any site
+    exists, moved into the new site's library, and the page writer narrating
+    them.
+  - An existing site cannot show the move from drafts.
+  - The slug is the owner's, typed in the site box, and must be new.
+  - The site stays afterwards.
+
+## Part 1 — free, no model call
+
+**R0. Rehearsal (read-only).** Run on the chosen demo site.
+- It confirms the deploy is the merged sha, records the image id, and reads
+  `imagePurchases`.
+- It reads the balance and lists the library.
+- It names any mode that would refuse, and why.
+
+**S1–S7. Storage mode**, on the demo site, with `mutate=yes`, repeat 3:
+
+- **S1 — every fixture up, listed, and served on both origins.** This covers
+  all nine fixtures, on `gofarther.dev/u/` and `<slug>.gofarther.app/u/`. Each
+  upload must read back as:
+  - GET 200, the exact content type, `accept-ranges: bytes`, `max-age=300`, and
+    the exact length;
+  - HEAD with no body and the right length;
+  - a byte range answering 206 with the exact bytes, a range past the end 416,
+    and its ETag 304.
+- **S2 — refusals.**
+  - An MP3 named `.mp4`: `415 format_mismatch`, read from the bytes.
+  - A PDF named `.mp3`: `415 bad_type`.
+  - A video over the limit: `413 too_big` at the start, before any byte is
+    sent.
+- **S3 — replace.** The address is kept, the new bytes are served with a new
+  ETag, and a replacement in another format is refused.
+- **S4 — three parts, with lost answers.** The script makes a three-part WAV
+  (8 MiB parts) in memory.
+  - One part's answer is "lost" and the part is sent again.
+  - Status names the parts the server holds.
+  - The finish is completed from the server's own part record.
+  - A lost finish is answered again, the same.
+  - An abort after the finish keeps the file.
+  - The end of the joined file equals the end of the file sent.
+- **S5 — abort, then finish.** After an abort, a finish and a part find
+  nothing, and nothing is stored.
+- **S6 — races,** each repeated:
+  - **S6a, competing replacements:** exactly one is admitted and the other
+    gets `409 replacing`.
+  - **S6b, delete against a replacement's close** (below).
+  - **S6c, draft admission:** eight starts at once against the draft room.
+    - Never more than the room is admitted.
+    - A `503 busy` start is sent again, one at a time, until exactly the room
+      is admitted and no more.
+    - All are then given up, and the room is free again.
+- **S7 — delete.** The file is gone, its address 404s, and the library count
+  drops. A file a page plays is held as `409 in_use` until confirmed.
+
+**S6b is judged on where it ends** (`judgeDeleteVsClose`, corrected after
+Codex's review). The close and the delete are sent together. A valid outcome is
+any order that ends with the file deleted, its receipts agreeing, and no room
+held:
+
+| Close | Delete | Then |
 |---|---|---|
-| `clip.webm` | 15,452 | VP8, 64×48, 4.0 s |
-| `clip.mp4` | 7,127 | H.264, 64×48, 4.0 s |
-| `clip.mov` | 3,618 | H.264, 64×48, 2.0 s |
-| `tone.mp3` | 8,482 | MP3, 22.05 kHz, 2.06 s |
-| `tone.m4a` | 7,187 | AAC in MP4, 22.05 kHz, 2.0 s |
-| `tone.aac` | 6,515 | AAC (ADTS), 22.05 kHz, 2.09 s |
-| `tone.wav` | 32,078 | PCM 16-bit, 8 kHz, 2.0 s |
-| `tone.ogg` | 4,556 | Opus, 48 kHz, 2.0 s |
-| `tone.flac` | 15,956 | FLAC, 8 kHz, 2.0 s |
+| 200 | 409 `replacing` | the delete sent again: 200 |
+| 200 | 200 | the close landed first, then the delete removed it |
+| 410 `removed` | 200 | the delete first |
+| (any) | 503 `unconfirmed` | sent again until 200; valid only while the old upload could still land |
 
-**One larger local file for the part-by-part and reconnect checks.** It is made
-locally and is never uploaded except to the test site: a 20 MB WAV of a test
-tone, three parts of 8 MiB. Made with:
+After each run, all of these must hold:
+- the address answers 404;
+- the original's receipt says `removed`;
+- the replacement's receipt says `removed` or given up, never `done`;
+- the reservation is free.
 
-```
-ffmpeg -f lavfi -i sine=frequency=440:sample_rate=44100 -t 118 -ac 2 test-20mb.wav
-```
+Invalid in every case:
+- a delete that answered 200 while the file is still served;
+- a close that answered 200 over a file the record had already deleted;
+- room still held.
 
-**For the refusal checks:** `renamed.mp4`, which is `tone.mp3` renamed (expect
-`415 format_mismatch`), and any PDF given a `.mp3` name (expect `415 bad_type`).
+The record's generation is internal and not visible over the API. The offline
+tests judge it (`test/media-mutation.test.mjs`); live, the order, the final
+object, the receipts and the reservation are judged.
 
-## Part 1 — checks with no model call (free apart from storage)
+**B1–B3. Browser mode**, on the demo site, with `mutate=yes`. Browsers are
+installed on the runner by Playwright: Chromium, Firefox and WebKit. Google
+Chrome is GitHub's own preinstalled one.
+- **B1 — play and seek every fixture** from its `/u/` address in each engine.
+  The media element must load, report its duration, and play past a seek near
+  the end.
 
-These run on the deployed combined candidate, on a test site that is not one of
-help-needed's fixtures. The site comes from Part 2's build, or an existing
-throwaway site the owner chooses. The owner runs each one in their own browser.
-Readings come from the browser's network panel and the site's Files panel. No
-credential is read or minted.
+  | Engine | Must pass | Recorded only (Linux codec builds vary) |
+  |---|---|---|
+  | Chromium | WebM, MP3, WAV, Ogg, FLAC | MP4, MOV, M4A, AAC |
+  | Chrome | WebM, MP4, MP3, M4A, AAC, WAV, Ogg, FLAC | MOV |
+  | Firefox | WebM, MP3, WAV, Ogg, FLAC | MP4, MOV, M4A, AAC |
+  | WebKit (Linux) | none | all nine |
 
-**F1. Upload, list, play and seek: every fixture, in Chrome, then Safari,
-Firefox, iOS Safari and Android Chrome.** For each fixture:
-1. Add it through Files → Add a file. The progress shows, then the file is
-   listed with its kind, size and length.
-2. Read its `/u/` address with a GET: expect 200, the right `content-type`,
-   `accept-ranges: bytes`, `cache-control: public, max-age=300,
-   must-revalidate`, and an ETag.
-3. Read the headers with a HEAD.
-4. Play it in the panel's player and seek to the end. The network panel should
-   show `206` with a `content-range`.
-5. Request a range past the end: expect `416`.
-6. Request it again with its ETag: expect `304`.
+  An engine the runner installs but that fails to launch is a failed check,
+  not a skip, so a silent Firefox cannot read as a passing one.
+- **B2 — the composer, in Chromium, on the real app,** signed in by a planted
+  session, as the UI canary does.
+  - **The session.** It comes from the same handshake. `owner-session.mjs` now
+    also hands back that session's refresh token and expiry; the change is
+    additive, and they are never printed. The session is planted for the app's
+    origin only.
+  - **Writes are confined.** Every write the page makes, other than this site's
+    own media and uploads, is aborted and recorded, and that list must be
+    empty. No message is ever sent.
+  - **The steps:**
+    1. Attach `clip.webm`: it goes up, the chip ends ready, and exactly one new
+       file is in the library.
+    2. Reload, then attach the same file: it is reused, with no part sent and
+       no new file.
+    3. Delete it from the page, then attach it again: it is sent again as a
+       new file.
+  - **Clean-up.** Every file made is deleted, and the library must end as
+    found.
+- **B3 — the Files panel** lists the file as media with a player.
 
-Expected outcome: WebM, WAV, MP3, Ogg and FLAC play everywhere they are
-supported. MP4, M4A and AAC play in Chrome, Edge and Safari. MOV plays in Safari
-and Chrome, and may not in Firefox. Record the actual result for each browser
-and format.
+**Genuinely unavailable, so manual or unverified:**
+- Safari on macOS;
+- Safari on iOS;
+- Chrome on Android;
+- Microsoft Edge.
 
-**F2. Refusals.**
-- `renamed.mp4`: `415 format_mismatch`.
-- The PDF named `.mp3`: `415 bad_type`.
-- A video over the 250 MB default limit: `413 too_big` before any byte is sent.
-  Only the start request is made; no big file is needed.
+No GitHub Ubuntu runner has these. They are reported as **unverified**, never
+as passed. WebKit on Linux is not Safari, and its results are recorded as
+WebKit's. If the owner wants Safari or a phone covered, those are manual
+checks on the owner's own devices. The script cannot reach them.
 
-**F3. Replace.**
-- Replace `tone.mp3` with another MP3 (for example the 20 MB WAV converted to
-  MP3 locally). Expect the same address, a new ETag, and the player playing the
-  new file after at most 5 minutes of cache.
-- Replace it with a WAV: `409 format_mismatch`.
+**Not covered by the existing tooling: R2's own abort and finish answers.**
+- **What is missing.** R2's own answers for an aborted or unknown multipart
+  upload are not seen live: `NoSuchUpload` / 10024, and R2 refusing to close
+  an aborted upload.
+- **Why it can't be built from what exists.** The existing tooling reaches R2
+  only through the Worker's bucket binding. The media routes never ask R2 to
+  close or abort an upload whose session is gone, so no existing route can
+  produce those answers.
+- **Two ways to build one, neither built.** Either is storage-mutating, and
+  either would be its own change with its own approval:
+  - **A Worker probe route.**
+    - It is gated to the owner and confined to a `probe/` prefix.
+    - It starts a multipart upload of one small part, aborts it, then asks R2
+      to complete it and to upload a part, and records R2's error codes.
+    - It deletes anything it made.
+    - This is a product change, and it needs a deploy.
+  - **An S3-API client** with R2 access keys.
+    - It needs a new secret, and a SigV4 signer this repository does not have.
+- **Until one is approved,** this stays shown offline only, against the double
+  that follows R2's documented behaviour.
 
-**F4. Delete.**
-- Delete a file no page plays: it is gone, its address answers 404, and the
-  library count drops.
-- Delete a file a page plays: `409 in_use`, naming the page. Confirm: it is
-  deleted, and the page's player goes silent, as designed and said.
+## Part 2 — paid (each press needs the owner's approval)
 
-**F5. Reconnect and reload with the 20 MB WAV.**
-1. Start an upload in the composer, set the network to offline in devtools part
-   way, then back online. Only the failed part is sent again, and the chip ends
-   ready.
-2. Start another upload and reload mid-way, then attach the same file. Only
-   the missing parts are sent; check the count of PUTs.
-3. Attach a file that already finished. It is reused, with no PUT.
-4. Delete it in Files, then attach it again. It is sent again as a new file.
+**Photographs off is a verified prerequisite, not a hope.**
+- Before every model-backed send, the script reads `/api/site/runtime` for the
+  site and requires `imagePurchases === false`. It reads this at the start, and
+  again immediately before each message and before the build.
+- If it is not false, nothing is sent (exit 2).
+- Turning `IMAGE_PURCHASES` off on the live Worker is the owner's setting.
+- The P9 brief no longer says "no photographs", so passing does not depend on
+  the wording.
+- Any image spend is a failure. P9 also checks the build's answer for
+  photographs made.
 
-**F6. Before a site exists.** On a new project's start screen, attach
-`clip.webm` and `tone.mp3`. Both chips show ready, and `GET
-/api/media/drafts` lists both. This is free; Part 2's P9 then builds with them.
+**The balance is read, never assumed.**
+- Immediately before each send, the balance is read from the ledger
+  (`/api/credits`).
+- Immediately after each send, it is read again. The charge must equal the
+  cost the reply reports.
+- No earlier figure in any record is used.
 
-**F7. Real-storage concurrency.** Run from the browser console on the test site
-as the signed-in owner. These are small `apiFetch` snippets, handed over with
-the batch when it is approved. Each is repeated 10 times, and the outcomes must
-always match:
-- **Admission under the draft allowance (6).** Fire 8 draft starts of 100
-  bytes at once. Exactly the room left is admitted; the rest get `409 full`.
-  Then abort them all, and the ledger is empty again (a follow-up start is
-  admitted).
-- **Competing replacements.** Two replace starts of the same file at once: one
-  `201` and one `409 replacing`.
-- **Delete versus replacement.** Send a replacement's single part, then fire
-  its complete and the file's delete together. Exactly one of these must hold:
-  - complete `200` and delete `409 replacing` (then a second delete `200`);
-  - delete `200` and complete `410 removed`.
+**Estimates against the one enforced limit:**
 
-  Afterwards the file's address and the Files panel must agree. Never both
-  `200` with the file present.
-- **Repeated and lost answers.** Complete the same session twice: the second
-  answers `200` with `again: true` and no second file. Delete twice: the second
-  answers `200` with `already: true`.
+| | What it is |
+|---|---|
+| A conversational message | **estimate** 2–6 credits: routing (measured 1–2) plus the reply's own call on grok-4.6 (about 2 typical, 5 at the full window and the 2,400-token ceiling), under one charge |
+| P9 | **estimate** 13–47 credits: a first build (measured 11–45) plus its routing; no photograph can be bought |
+| The ceiling box | **the harness's limit, set by the owner per press.** The next send is refused when what this press has spent plus that send's upper estimate would pass it. The press stops if a send overshoots it. |
+| The platform | **caps nothing**; the balance is the only bound it knows |
 
-**F8. What these free checks cannot reach.** R2's `NoSuchUpload` error and its
-refusal to close an aborted upload are reached only by the stale-claim
-recovery, which waits 15 minutes and needs an upload interrupted at R2's close.
-Exercising that live needs either:
-- a small read-only probe added to the free canary, which is a code change and
-  would be proposed separately; or
-- a long manual sequence: start a replacement, kill the tab exactly during the
-  close, and wait out the lease.
+**The conversation cases**, on the demo site, run in one `converse` press. All
+six are fixed messages:
 
-I propose leaving this to the offline tests, and recording it as not shown
-live.
+| Case | Message | Expected |
+|---|---|---|
+| C1 | "hi" | a short greeting and an invitation; no work |
+| C2 | a comparison of a booking page and an enquiry form | a structured comparison; no work |
+| C3 | "What does my home page say? Summarise it in two sentences." | an answer from the stored page words; never a claim of visiting the live site |
+| C4 | "What time do we open on Sundays?" | says what it wasn't shown and how to add it; no invented time |
+| C5 | "ok, use the third version", on a fixed cut thread | asks for the third version again; `resolved` absent; no work |
+| C8 | "What could I use this clip for on my site?", with `clip.webm` attached | stays conversation; the file named as unseen |
 
-## Part 2 — paid model calls (each needs the owner's approval)
+**C5 is deterministic.**
+- **The earlier history is fixed** (`cutThread()`): a long earlier reply whose
+  "Version three" lies past the page's 4,000-character cut. No model writes
+  it.
+- **The cut is the page's own.** The history is built by the page's own
+  `ChatTalk.historyWire`, so it is cut exactly as the page cuts it.
+- **The cut is proven before anything is sent.** The assistant turn carries
+  `full`, longer than its text, and its text holds Version two but not Version
+  three. If that proof fails, the case refuses without calling.
+- **So it costs one message**, and it cannot come back "not exercised".
 
-Costs use the measured history in CLAUDE.md and the price table in
-`builder/publish-pages.mjs`. One credit is $0.008. The default model is grok-4.6
-($2 in and $6 out per million tokens).
-
-**The ledger is read before and after every step. Before any of it, the balance
-must be read, not assumed:** the last figure recorded for the building account
-was 13 credits, which is below the smallest useful set.
-
-**A conversational message costs routing plus the reply's own call, under one
-charge.**
-- Routing has measured 1–2 credits.
-- The reply's call:
-  - typical: about 5,000 input tokens and 600 output tokens, about $0.014, so
-    about 2 credits;
-  - worst case at the full context window and the 2,400-token ceiling: about
-    11,000 input and 2,400 output tokens, about $0.037, so 5 credits.
-- Expect **2–4 credits per message, 6 at most** on grok. With the `sonnet`
-  picker, up to about 9.
-
-**P9. A first build with media drafts, the model-written narration (run first;
-the other cases run on its site).**
-- **The message**, on F6's project with both drafts attached:
+**P9. A new Build with two drafts.** It runs in one `build` press, on a new slug
+the owner types.
+- **The brief:**
 
   > A small bakery in Leeds called Harbour Loaf. Put the attached video on the
-  > home page and the jingle on an About page. No photographs please.
+  > home page and the jingle on an About page.
+- **The drafts:** `clip.webm` and `tone.mp3`, uploaded as drafts first.
+- **The early-accepted build is followed.** Its `202` is followed through its
+  poll until the build answers.
+- **It is judged on:**
+  - both drafts placed and none missing;
+  - no fixed narration of the move;
+  - a non-empty, model-written `notes`, recorded for reading;
+  - no photograph made;
+  - each file served from the new site;
+  - the drafts gone from the drafts list;
+  - each draft's receipt saying `removed`.
 
-- **Expected outcome:**
-  - The drafts move into the new site's library and `/api/media/drafts` is
-    empty.
-  - The pages play both files from `/u/<slug>/…`.
-  - The reply (`notes`) says in the model's own words where each file plays.
-  - No fixed sentence such as "is in your site's file library now" appears.
-  - The context note is empty unless a file could not be moved.
-  - The draft receipts answer `removed`.
-- **Cost:** 11–45 credits (measured first builds), plus routing of 1–2. "No
-  photographs" is meant to keep picture purchases out, at $0.15 (about 19
-  credits) each. If the design buys any anyway, the reading says so.
+**Optional, only on the owner's word** (not in the script):
+- P7, discussion becoming action (routing plus an add-on, measured 2–13).
+- P10, an edit adding the jingle as a player (routing plus the page step,
+  measured 6–22).
 
-**Conversational cases on P9's site.** One message each, 2–4 credits each:
-- **P1, a greeting.** "hi". Expected: a short greeting and an invitation, no
-  stock opener, no work started, routing plus reply charged once.
-- **P2, a detailed comparison.** "Should I use a booking page or an enquiry
-  form for bread-making classes? Compare them for me." Expected: a structured
-  answer with headings or lists, drawn correctly in the chat, and no work
-  started.
-- **P3, a grounded question.** "What does my home page say about the video?"
-  Expected: an answer from the stored page words and the file library (name,
-  kind, size), and no claim of having watched the video.
-- **P4, missing context.** "What time do we open on Sundays?" with no hours on
-  the site. Expected: it says it doesn't know from what it was shown, and how
-  to add the hours. No invented time.
-- **P5, a cut history and clarification.**
-  1. Ask for "three versions of a headline, each with a long explanation", so
-     the reply runs past 4,000 characters (this is one P-message on its own,
-     2–4 credits).
-  2. Then send "use the third version".
-
-  Expected: if the third version is past the cut, the assistant says it can't
-  see it and asks for it again. No edit runs and `resolved` is absent. If the
-  model happened to put the third version before the cut, the case is
-  recorded as not exercised, and is not repeated at cost.
-- **P8, discussing an attachment.** Attach `clip.webm` in the composer and ask
-  "What could I use this clip for on my site?" Expected: it stays conversation,
-  the file is named as unseen, there's no claim of having watched it, and no
-  work starts.
-
-**Optional, only on the owner's word:**
-- **P7, discussion becoming action.** After P2, "ok, add the enquiry form on
-  the About page". Expected: `resolved` is written out, the add-on runs once,
-  and the reply says what was done. Cost: routing 1–2 plus an add-on, 2–13
-  measured.
-- **P10, Edit with media.** "Add the jingle as an audio player at the bottom of
-  the Visit page" (if there is one; otherwise the About page). Expected: the
-  page writer is given the file's address, and the player plays it. Cost:
-  routing 1–2 plus the page step, 6–22 measured.
-
-**Totals (estimates, not caps):**
+**Totals, estimates only:**
 
 | Set | Credits |
 |---|---|
-| Minimal: P9, then P1–P5 and P8 (7 messages, P5 being two) | about 26–75 |
-| With P7 and P10 | about 35–112 |
+| The six conversation cases | about 12–36 |
+| P9 | about 13–47 |
+| Both | about 25–83 |
 
-Nothing caps a request, so the balance is the only bound. A top-up is likely
-needed, and how the account is topped up is the owner's matter.
+The owner sets the ceiling box per press, and the balance read before each send
+decides whether the press can proceed at all.
+
+## Offline proof of the harness (`test/media-verify.test.mjs`)
+
+- **The judge.** It accepts every valid order, including close 200 then delete
+  200. It refuses a delete that answered 200 with the file still served, wrong
+  receipts, and held room.
+- **The cut case** is proven cut through the real `historyWire`.
+- **The generated three-part WAV** is a WAV the server takes from its bytes.
+- **Labels.** Estimates are labelled estimates, the unavailable browsers are
+  named, and every required format is a fixture.
+- **The gates refuse before any write or send:**
+  - a guarded site;
+  - a mutating mode without `mutate=yes`;
+  - a paid mode with photographs on.
+- **Rehearsal** makes no write.
+- **Storage mode end to end** runs against the real Worker in-process, over the
+  R2 double with lag. Every check passes, every race ends consistent, and the
+  library ends as found.
+- **Converse mode:**
+  - the ceiling stops it before sending;
+  - with room, a case is sent once, with images verified off;
+  - its charge is read from the ledger.
+- **Build mode** follows a 202 poll and judges the answer.
+- **Browser mode** runs in real Chromium against a local server bridged to the
+  Worker. B2 and B3 run on the repository's own `public/` app, with media
+  answered by the real Worker, and all of their checks must be present and
+  passing.
+- **The composer page's write rule** allows only this site's media and
+  uploads. Routing, builds, edits and other sites are refused.
+- **Two harness mutants were each killed:** skipping the composer checks, and
+  allowing every write from the page.
+- **The workflow** is dispatch only. Its mode options equal the script's modes,
+  and it passes every variable the command line reads. Three mutants of the
+  workflow were each killed.
 
 ## Order, when the owner approves
 
-1. The owner says to prepare the combined candidate (help-needed's next merge
-   and `new`'s 15 commits).
-2. Resolve the three conflicts as above, predict the image, verify rollback,
-   and confirm required CI is green. Then the owner says merge.
-3. Deploy and confirm the runtime with the free canary (sha and image).
-4. Run Part 1 (free).
-5. Read the ledger, then run P9, then the conversational cases, each with its
-   reading recorded.
-6. Run the optional P7 and P10 only on the owner's word.
+1. The owner orders the merge, alone or combined. Before it, the candidate's
+   image is predicted, rollback is verified, and CI is green.
+2. Deploy, then confirm the runtime with the free canary (sha and image).
+3. Owner presses:
+   1. `rehearsal` on the chosen demo site (free, read-only).
+   2. `storage` with `mutate=yes` (free, storage-mutating).
+   3. `browser` with `mutate=yes` (free, storage-mutating).
+4. The owner sets `IMAGE_PURCHASES` off. A `rehearsal` shows it as off.
+5. Approved, paid: `converse` with `spend=yes` and a ceiling, then `build` on a
+   new slug with `spend=yes` and a ceiling. The balance is read by the script
+   before every send.
+6. P7 and P10 only on the owner's word.
 
 ## Correction to an earlier record
 

@@ -56,5 +56,7 @@ export async function ownerSession({ supabaseUrl, serviceKey, anonKey, email, lo
   if (session.user && session.user.email && session.user.email !== email) {
     throw new Error(`signed in as ${session.user.email}, expected ${email} — refusing to act as anybody else`);
   }
-  return { jwt, user: session.user || null, auth: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" } };
+  // `refresh` and `expiresAt` are for a browser the caller signs in with this
+  // same session (scripts/media-verify.mjs's composer check); never printed.
+  return { jwt, user: session.user || null, refresh: session.refresh_token || "", expiresAt: session.expires_at ? session.expires_at * 1000 : Date.now() + (session.expires_in || 3600) * 1000, auth: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" } };
 }
