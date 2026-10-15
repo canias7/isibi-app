@@ -4,7 +4,8 @@
 ## Current handoff — read this first (2026-10-15: the live batch's findings fixed together offline, from the saved evidence; nothing spent, deployed, built or switched)
 
 **Where it stands:**
-- The fixes are on `claude/help-needed-ehlwlj` as **`ce97f0fb`**, on top of
+- The fixes are on `claude/help-needed-ehlwlj` as **`ce97f0fb`** and
+  **`be922325`** (ten suite failures `ce97f0fb` left, fixed), on top of
   `e4e0f944` (the deployed combined code: `main` `f1b81477` merged in).
 - `main` is unchanged at `f1b81477`, and production still runs `1336f052`
   on image `e1582f6f71a41dfb`.
@@ -80,9 +81,17 @@
     was added);
   - 1 equivalent, a guard the per-milestone filter already makes;
   - 2 comment controls survived.
-- **Full suite:** running when this was pushed; stamped in the next commit.
+- **Full suite:**
+  - on `ce97f0fb`: `10973 / 10963 / 10 / 0`. I pushed it before the suite
+    had finished, and ten tests failed: old expectations of the build body
+    and the press's accepted record, a guard's landmark my route wrapper
+    removed, a comment that pushed the revise half out of a guard's window,
+    the workflow's parked path list, and one real race (a send that had
+    already failed counted as "discovered");
+  - **on `be922325`: `10973 / 10973 / 0 / 0`.**
 - **Unit CI:** read after the push; stamped in the next commit.
-- **Image:** predicted `e1582f6f71a41dfb` → `4d60a79d338e32b4` (207 inputs; would be built, not built).
+- **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for `be922325`
+  (207 inputs; it would be built; nothing was built).
 - **Screenshot:** the finished Build reply with its lines, sent in the
   chat.
 - The full record is §8 of `docs/history/2026-10-14-combined-candidate.md`.
@@ -465,7 +474,9 @@ buying another run.
 - **I corrected my record:** not every talk check passed (part 1 had no
   line), and waiting on a separate prerequisite wasn't tried.
 
-Nothing was pressed, deployed, built or switched on. Commit `ce97f0fb`.
+Nothing was pressed, deployed, built or switched on. Commits `ce97f0fb` and
+`be922325` (the second fixes ten tests the first left failing; the full suite
+is now `10973 / 10973 / 0 / 0`).
 
 ## 2026-10-14 — The live verification batch: Press A built in parallel, Press B passed reconnect and talk; 47 credits
 

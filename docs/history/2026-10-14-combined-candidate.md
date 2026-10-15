@@ -707,3 +707,29 @@ The handoff of 2026-10-14 listed "every talk check" as passed for Press B.
 price change), so not every talk check passed. And **waiting for a separate
 prerequisite was not exercised**: the request had no part that depended on
 another.
+
+### 8.7 Verification
+
+- **Commits:** `ce97f0fb` (the fixes and their tests), `fd0a5f42` (these
+  records), `be922325` (ten suite failures `ce97f0fb` left).
+- **Full suite:** `10973 / 10963 / 10 / 0` on `ce97f0fb`, pushed before the
+  suite ended; **`10973 / 10973 / 0 / 0` on `be922325`.** The ten were:
+  - nine stale expectations: the build body now carries `accept: "early"`;
+    the press's accepted record carries the send's answer time; two press
+    stand-ins served no lines on final reads, as the old server did; a
+    guard lost its landmark when the route wrapper hid `await
+    routeMessage(`; a comment pushed the revise half out of a guard's
+    window; the workflow's parked path list missed
+    `scripts/narration-usage.mjs`;
+  - **one real defect:** a send that had already failed was counted as
+    "discovered", because the first list read raced its failure. A match
+    now counts as discovered only while the send is still out.
+  - PR 9 now expects exactly one failed check for a lost connection: the
+    send's own answer, judged apart from the recovery.
+- **Sweep:** 31 of 34 real mutants killed (28 on the first run; anchor 2
+  re-anchored and killed; 15 and 19 killed once LATE 4 was added); 1
+  equivalent (14: `closeRecord` stamps each skipped milestone with the
+  close's own reason, so `lateBatch`'s per-milestone filter already
+  excludes failed closes); the 2 comment-only controls survived.
+- **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for
+  `be922325` (207 inputs). Not built.
