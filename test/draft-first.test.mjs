@@ -782,11 +782,14 @@ test("DFP7 TWO CLICKS AT ONCE PUBLISH ONCE — the same revision pressed twice i
 // the pointer, the live script, the rows, the draft record and the journal.
 /** The runner stops for good just before the write to `key` whose body `when(body)` accepts: the store never gets it and the runner never goes on. Resolves once it is reached. */
 function stopBefore(P, key, when = () => true) {
+  const match = typeof key === "function" ? key : (x) => x === key;
   let reached; const at = new Promise((r) => { reached = r; });
-  const hook = async (k, v) => { if (!when(String(v || ""))) { P.beforePut((x) => x === key, hook); return; } reached(); await new Promise(() => {}); };
-  P.beforePut((x) => x === key, hook);
+  const hook = async (k, v) => { if (!when(String(v || ""))) { P.beforePut(match, hook); return; } reached(); await new Promise(() => {}); };
+  P.beforePut(match, hook);
   return at;
 }
+/** What the RUNNING script serves, asked as the platform asks it: the dispatch stub answers with the serving upload's own version. */
+const serving = async (P) => (await P.env.SITE_WORKERS.get("site-" + P.slug).fetch(new Request("https://" + P.slug + ".gofarther.app/"))).headers.get("x-site-version");
 const phaseIs = (ph) => (v) => v.includes('"phase":"' + ph + '"');
 /** A publication of `body` started and left running: its promise is never awaited. */
 function clickAway(P, body) { const c = call(P, "POST", "/api/site/" + P.slug + "/publish", body); c.catch(() => {}); return c; }
@@ -820,7 +823,7 @@ test("DFR1 CODEX'S FIRST REPRODUCTION: THE SWITCH LANDED, ITS CHECKPOINT DID NOT
     P.advance(STALE);
     const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     assert.deepEqual([r.finished, r.cleared], [1, 0], JSON.stringify(r));
-    assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [d.version, 5.6, d.rev]);
+    assert.deepEqual([liveVersion(P), await serving(P), price(db, 2), draftOf(P).applied], [d.version, d.version, 5.6, d.rev]);
     assert.deepEqual([journalOf(P).phase, journalOf(P).running], ["finished", false], "the finished publication's record is not retired as finished");
     const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.deepEqual([st.body.state, st.body.publication], ["published", null]);
@@ -1021,21 +1024,24 @@ test("DFR6 LOST ANSWERS AT THE ENDS — (a) the new journal lands but its answer
   }
 });
 
-test("DFR7 THE ACTIVATION'S OWN ANSWER IS LOST — the pointer write lands and the activation hears a failure: the pointer is read again before anything is retired, so the publication carries on with its new version live (never set aside with new pages over the old backend), and finishes: the row's new price, the record marked", async () => {
+test("DFR7 THE ACTIVATION'S OWN ANSWER IS LOST — the pointer write lands and the activation hears a failure: the pointer is read again before anything is retired, the publication carries on, and before it records the switch it makes the activation's effects true — the RUNNING script serves the new version (asked through the dispatch stub), not merely the pointer naming it — then finishes: the row's new price, the record marked", async () => {
   const { P, db, compiler } = bakery("dfr7");
   const { draftFirstApi } = await loadWorkerModule();
   try {
     const { d } = await approved(P);
+    const v0 = liveVersion(P);
     P.losePut((k, b) => k === POINTER(P) && String(b).includes(d.version));
     const r1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
     assert.equal(liveVersion(P), d.version, "the lost pointer write did not land: the case is not the one described");
+    // THE POINTER IS NOT THE SITE: the running script is still the old one.
+    assert.equal(await serving(P), v0, "the script moved with the lost pointer write: the case is not the one described");
     assert.notEqual(r1.body && r1.body.live, "unchanged", "new pages are live and the stop said nothing changed: " + JSON.stringify(r1.body));
     if (r1.status !== 200) {
       assert.ok(journalOf(P) && ["switching", "switched"].includes(journalOf(P).phase), "the journal of a live version was set aside: " + JSON.stringify(journalOf(P)));
       P.advance(STALE);
       await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     }
-    assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+    assert.deepEqual([liveVersion(P), await serving(P), P.liveScript(), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, d.version, d.version, 5.6, d.rev, "finished"], "finished with the old script running");
   } finally { await finish(P, compiler); }
   // THE ACTIVATION ANSWERS A FAILURE WHILE ITS POINTER STANDS: the script is
   // refused and the activation's own undo of the pointer fails too. The
@@ -1055,7 +1061,7 @@ test("DFR7 THE ACTIVATION'S OWN ANSWER IS LOST — the pointer write lands and t
     assert.notEqual(r1.body && r1.body.live, "unchanged", "the pointer names the new version and the stop said nothing changed: " + JSON.stringify(r1.body));
     assert.ok(journalOf(P2) && journalOf(P2).phase !== "retired", "the publication of a version the pointer names was set aside: " + JSON.stringify(journalOf(P2)));
     if (r1.status !== 200) { P2.advance(STALE); await P2.run(() => draftFirstApi.runPublishRecovery(P2.env)); }
-    assert.deepEqual([liveVersion(P2), price(two.db, 2), draftOf(P2).applied, journalOf(P2).phase], [d.version, 5.6, d.rev, "finished"]);
+    assert.deepEqual([liveVersion(P2), await serving(P2), price(two.db, 2), draftOf(P2).applied, journalOf(P2).phase], [d.version, d.version, 5.6, d.rev, "finished"], "finished with the old script running");
   } finally { await finish(two.P, two.compiler); }
 });
 
@@ -1076,6 +1082,143 @@ test("DFR8 THE POINTER CANNOT BE READ WHERE A SWITCH MAY HAVE HAPPENED — the s
     const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     assert.equal(r2.finished, 1, JSON.stringify(r2));
     assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+  } finally { await finish(P, compiler); }
+});
+
+/** The approved revision with a held address too: the Dark Rye's price, a rename, and new Visit-page words. */
+async function approvedRenamed(P) {
+  await runOne(P, TIKTOK);
+  const v0 = liveVersion(P);
+  P.env.DRAFT_FIRST = "on";
+  await runOne(P, RYE);
+  await runOne(P, RENAME("fold-street-bakery"));
+  await runOne(P, TIKTOK_LATER);
+  return { v0, d: draftOf(P), origin0: sidecarOrigin(P) };
+}
+const SIDECAR = (P) => "sitemeta/" + P.slug + ".json";
+const NOTE = (P) => (k) => String(k).startsWith("scriptpending/" + P.slug + "/");
+
+test("DFR9 CODEX'S THIRD REPRODUCTION: THE POINTER WRITE LANDED, THE ACTIVATION STOPPED BEFORE ITS SCRIPT — (a) stopped before the sidecar, (b) stopped after the sidecar and before the script's upload note: the pointer names the new version while the RUNNING script is the old one; the sweep does not take the pointer for the activation — it puts the sidecar (with the held address) and the script up to the pointer's version, sees the script serving it, and only then finishes the backend: the address, the row, the record; a second sweep does nothing (no upload, no write)", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  for (const [name, stopAt] of [["dfr9a", (P) => SIDECAR(P)], ["dfr9b", (P) => NOTE(P)]]) {
+    const aliases = [];
+    const { P, db, compiler } = bakery(name, { aliases });
+    try {
+      const { v0, d, origin0 } = await approvedRenamed(P);
+      const stopped = stopBefore(P, stopAt(P));
+      clickAway(P, { revision: d.rev, version: d.version });
+      await stopped;
+      // THE INTERRUPTION, AS IT STANDS IN THE STORE AND ON THE PLATFORM.
+      assert.deepEqual([liveVersion(P), await serving(P), P.liveScript(), journalOf(P).phase, price(db, 2), aliases.length, draftOf(P).applied],
+        [d.version, v0, v0, "switching", 5.2, 0, 0], name + ": not the interruption described");
+      if (name === "dfr9a") assert.equal(sidecarOrigin(P), origin0, "the sidecar was written before the stop");
+      else assert.match(sidecarOrigin(P), /fold-street-bakery/, "the sidecar was not written before the stop");
+      P.advance(STALE);
+      const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([r.finished, r.cleared], [1, 0], name + " " + JSON.stringify(r));
+      assert.deepEqual([liveVersion(P), await serving(P), P.liveScript()], [d.version, d.version, d.version], name + ": finished with the old script running");
+      assert.match(sidecarOrigin(P), /fold-street-bakery/, name + ": the sidecar does not carry the published address");
+      assert.deepEqual([currentAlias(aliases), price(db, 2), draftOf(P).applied, journalOf(P).phase], ["fold-street-bakery", 5.6, d.rev, "finished"], name);
+      // REPEATED RECOVERY IS SAFE: nothing uploaded, nothing changed.
+      const ups = P.uploads().length, side = P.readObj(SIDECAR(P));
+      const again = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([again.finished, again.cleared, P.uploads().length, P.readObj(SIDECAR(P)) === side, await serving(P), price(db, 2), aliases.filter((x) => x.alias === "fold-street-bakery").length],
+        [0, 0, ups, true, d.version, 5.6, 1], name + ": a second sweep acted again");
+    } finally { await finish(P, compiler); }
+  }
+});
+
+test("DFR10 THE OUTCOME UNKNOWN STAYS RECOVERABLE — the activation stopped before its script; the sweep uploads the script but the platform has not started serving it: nothing is recorded as switched, no backend change is made, the journal is kept with the attempt; once the script serves, the next sweep finishes; and if newer work moved the pointer meanwhile, the publication is set aside, never forced over it", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  {
+    const { P, db, compiler } = bakery("dfr10a");
+    try {
+      const { v0, d } = await approved(P);
+      const stopped = stopBefore(P, NOTE(P));
+      clickAway(P, { revision: d.rev, version: d.version });
+      await stopped;
+      P.advance(STALE);
+      const landing = P.deferLanding();
+      const r1 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([r1.finished, r1.cleared], [0, 0], JSON.stringify(r1));
+      const j = journalOf(P);
+      assert.deepEqual([liveVersion(P), await serving(P), j.phase, j.running, j.attempts, price(db, 2), draftOf(P).applied],
+        [d.version, v0, "switching", false, 1, 5.2, 0], "recorded or applied before the script served: " + JSON.stringify(j));
+      landing.release();
+      const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.equal(r2.finished, 1, JSON.stringify(r2));
+      assert.deepEqual([await serving(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+    } finally { await finish(P, compiler); }
+  }
+  {
+    const { P, db, compiler } = bakery("dfr10b");
+    try {
+      const { v0, d } = await approved(P);
+      const stopped = stopBefore(P, NOTE(P));
+      clickAway(P, { revision: d.rev, version: d.version });
+      await stopped;
+      // NEWER WORK MOVED THE POINTER after this activation's pointer write.
+      const other = "01790000000000-zzzzzz";
+      const ptr = JSON.parse(bare(P.readObj(POINTER(P))));
+      await P.env.SITES_BUCKET.put(POINTER(P), JSON.stringify({ ...ptr, version: other }));
+      P.advance(STALE);
+      const ups = P.uploads().length;
+      const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([r.finished, r.cleared], [0, 1], JSON.stringify(r));
+      assert.deepEqual([liveVersion(P), P.uploads().filter((u) => u.version === d.version).length, price(db, 2), draftOf(P).applied, journalOf(P).phase],
+        [other, P.uploads().slice(0, ups).filter((u) => u.version === d.version).length, 5.2, 0, "retired"], "the approved version was forced over newer work");
+      void v0;
+    } finally { await finish(P, compiler); }
+  }
+  {
+    // NEWER WORK MOVES THE POINTER WHILE THE SWEEP RECONCILES: after the sweep
+    // read the pointer on the approved version, and before it writes the
+    // version's sidecar. The newer activation's sidecar is never overwritten.
+    const { P, db, compiler } = bakery("dfr10c");
+    try {
+      const { d } = await approved(P);
+      const stopped = stopBefore(P, SIDECAR(P));
+      clickAway(P, { revision: d.rev, version: d.version });
+      await stopped;
+      P.advance(STALE);
+      const other = "01790000000000-zzzzzz", newer = JSON.stringify({ origin: "https://newer.gofarther.app", newer: true });
+      let moved = false;
+      P.afterGet((k) => k === POINTER(P), async () => {
+        moved = true;
+        const ptr = JSON.parse(bare(P.readObj(POINTER(P))));
+        await P.env.SITES_BUCKET.put(POINTER(P), JSON.stringify({ ...ptr, version: other }));
+        await P.env.SITES_BUCKET.put(SIDECAR(P), newer);
+      });
+      const r1 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.equal(moved, true, "the newer work never moved the pointer: the observer is dead");
+      assert.equal(bare(P.readObj(SIDECAR(P))), newer, "the newer activation's sidecar was overwritten by an older version's");
+      assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [other, 5.2, 0], JSON.stringify(r1));
+      const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+      assert.deepEqual([journalOf(P).phase, bare(P.readObj(SIDECAR(P))), price(db, 2)], ["retired", newer, 5.2], JSON.stringify(r2));
+    } finally { await finish(P, compiler); }
+  }
+});
+
+test("DFR11 A FIRST PUBLICATION STOPPED BEFORE ITS SCRIPT — nothing was live before (no pointer, no live marker); the activation's pointer lands and it stops before the script: the sweep puts the script up, sees it serving, creates the live marker every site script asks for, and only then finishes; a second sweep changes nothing", async () => {
+  const { P, db, compiler } = bakery("dfr11");
+  const { draftFirstApi } = await loadWorkerModule();
+  const MARK = (P) => "sites/" + P.slug + "/site.live";
+  try {
+    const { d } = await approved(P);
+    // NOTHING LIVE YET: the pointer and the marker taken away, as on a site never published.
+    await P.env.SITES_BUCKET.delete([POINTER(P), MARK(P)]);
+    const stopped = stopBefore(P, NOTE(P));
+    clickAway(P, { revision: d.rev, version: d.version });
+    await stopped;
+    assert.deepEqual([liveVersion(P), journalOf(P).phase, journalOf(P).from, P.readObj(MARK(P))], [d.version, "switching", "", null], "not the interruption described");
+    P.advance(STALE);
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.equal(r.finished, 1, JSON.stringify(r));
+    assert.ok(P.readObj(MARK(P)), "finished with no live marker: the site answers 404");
+    assert.deepEqual([await serving(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
+    const ups = P.uploads().length;
+    const again = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([again.finished, P.uploads().length, price(db, 2)], [0, ups, 5.6]);
   } finally { await finish(P, compiler); }
 });
 
