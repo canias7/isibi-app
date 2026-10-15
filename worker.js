@@ -13055,10 +13055,9 @@ function hasLookField(look, field) {
  * turn is given back when the publish has ended, whatever it answered. Every
  * other caller publishes exactly as before.
  */
-async function recompileAndPublish(env, opts) {
+async function publishBeside(env, opts) {
   const job = opts && opts.job;
   const bs = job && job.beside;
-  if (!bs || !writesBeside(env) || !env.SITES_BUCKET) return recompileAndPublishOne(env, opts);
   const slug = opts.slug;
   const tm = (phase, status, detail) => { try { if (opts.trace) opts.trace.mark(phase, status, detail); } catch { /* never */ } };
   const mine = !bs.turn;
@@ -13083,13 +13082,21 @@ async function recompileAndPublish(env, opts) {
     }
     tm("publish:rebase", "ok", { took: r.took.length, kept: r.kept.length });
     bs.rebased = { took: r.took, kept: r.kept };
-    return await recompileAndPublishOne(env, { ...opts, pages: r.files, parts });
+    bs.inTurn = true;
+    try { return await recompileAndPublish(env, { ...opts, pages: r.files, parts }); }
+    finally { bs.inTurn = false; }
   } finally {
     if (mine) { await giveTurn(env, slug, t); bs.turn = null; }
   }
 }
 
-async function recompileAndPublishOne(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
+  // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
+  // turn and the rebase (`publishBeside`), which calls back in here with the
+  // rebased pages; every other caller goes straight on, as before.
+  if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
+    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, models, charge, charges });
+  }
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
