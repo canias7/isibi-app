@@ -237,6 +237,10 @@
       // ITS EXPLANATION (talk, 2026-10-13): the model's own short account of
       // its approach, for the folded section; a string or nothing.
       if (typeof p.explain === "string" && p.explain.trim()) line.explain = p.explain.trim();
+      // A LATE LINE (2026-10-15): written after its job ended, from what the
+      // job settled. It is a summary of completed work, never progress shown
+      // while the work ran, and is kept apart so nothing draws it as live.
+      if (p.late === true) line.late = true;
       out.push(line);
     }
     return out;

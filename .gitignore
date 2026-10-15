@@ -19,3 +19,4 @@ build-as-owner-log.md
 # workspace and uploads it as an artifact; it never commits.
 backend-repair.log
 repairbench-count-fix.log
+*.sweepbak

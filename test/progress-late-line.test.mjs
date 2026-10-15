@@ -142,3 +142,22 @@ test("LATE 4 — the job's own close asks for the late line when no ask is outst
   assert.equal(lateNeeded(gone.rec), false, "a late line given up for good was still owed — a writer would be asked again and again");
   assert.equal(claimWriter(gone.rec, "w2", 3200), null);
 });
+
+test("LATE 5 — a late summary is never shown as live progress: the browser's reader keeps it marked late, and the list never draws it as the live line, even on a card still running (the canary's live check reads `li.live`)", async () => {
+  const { createRequire } = await import("node:module");
+  const { readFileSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const EP = createRequire(import.meta.url)("../public/edit-poll.js");
+  const lines = EP.progressLines({ progress: [{ n: 0, ms: 10, text: "I'm reading the request." }, { n: 1, ms: 900, text: "I changed the price.", late: true }] });
+  assert.deepEqual(lines.map((l) => [l.text, l.late === true]), [["I'm reading the request.", false], ["I changed the price.", true]]);
+  const js = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const cut = (h) => { const o = js.indexOf("\n" + h); assert.ok(o > 0, h); return js.slice(o, js.indexOf("\n}\n", o) + 3); };
+  const ctx = vm.createContext({});
+  vm.runInContext(cut("function esc(") + cut("function progressListHTML("), ctx);
+  const html = vm.runInContext("progressListHTML", ctx)(lines, true);
+  assert.ok(!/<li class="live">I changed the price/.test(html), "a late summary was drawn as the live line: " + html);
+  assert.match(html, /<li class="late">I changed the price\./);
+  // control: an ordinary last line on a running card is still live
+  const live = vm.runInContext("progressListHTML", ctx)(lines.slice(0, 1), true);
+  assert.match(live, /<li class="live">I&#39;m reading the request\.|<li class="live">I'm reading the request\./);
+});

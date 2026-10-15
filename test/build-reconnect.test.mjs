@@ -1786,3 +1786,31 @@ test("RC 29 control — a build that wrote no lines finishes with no list on its
     assert.equal(m.prog, undefined, open + ": a list appeared that this build did not write here");
   }
 });
+
+test("RC 30 — BEHAVIOUR, NOT SPELLING: the real send puts the picked model on the wire for a build AND a revise, and only a build asks to be answered early", async () => {
+  // build-models.test.mjs reads the body's text; this is the request itself,
+  // so a body that drops `picker` fails here whatever the source looks like.
+  const bodies = [];
+  const p = await browserPage({
+    renders: 0,
+    stubs: { siteOpenId: CHAT, siteBuild: {}, siteTicker: null, buildPicker: "opus" },
+    sites: [{ id: CHAT, name: "Fold Lane", slug: "fold-lane-bakery", msgs: [{ r: "u", t: BRIEF }] }],
+    answer: () => ({ status: 500, body: { ok: false, error: "scripted" } }),
+  });
+  vm.runInContext([cut("function setBuildProgress("), cut("function siteBuildStop(")].join("\n"), p.ctx);
+  const realFetch = p.ctx.fetch;
+  p.ctx.fetch = (url, init) => { if (init && init.method === "POST") bodies.push([String(url), JSON.parse(init.body)]); return realFetch(url, init); };
+  vm.runInContext("siteBusy = true; reactSend(siteById('" + CHAT + "'), " + JSON.stringify(BRIEF) + ", '" + CHAT + "', 'build', [], siteBuildFinish('" + CHAT + "'), []);", p.ctx);
+  await p.settle();
+  vm.runInContext("siteBusy = true; reactSend(siteById('" + CHAT + "'), 'make the heading bigger', '" + CHAT + "', 'revise', [], siteBuildFinish('" + CHAT + "'), []);", p.ctx);
+  await p.settle();
+  assert.equal(bodies.length, 2, JSON.stringify(bodies.map((b) => b[0])));
+  const [[buildUrl, build], [reviseUrl, revise]] = bodies;
+  assert.match(buildUrl, /react-build/);
+  assert.match(reviseUrl, /react-revise/);
+  assert.equal(build.picker, "opus", "a build sent no picker");
+  assert.equal(revise.picker, "opus", "a revise sent no picker");
+  assert.equal(build.accept, "early");
+  assert.equal(revise.accept, undefined, "a revise asked for the build's early answer");
+  assert.equal(revise.slug, "fold-lane-bakery");
+});

@@ -421,3 +421,18 @@ test("the route names the table names it filled in, through the decision", async
   assert.equal(r.body.tablesFilled, undefined);
   assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen was reported");
 });
+
+test("BEHAVIOUR, NOT SPELLING (2026-10-15): `answering` and `attached` sent to the real route reach the router's reader — an ask answer is refused for a button press or an attachment, and kept for a plain question", async () => {
+  // The source guards in site-ask.test.mjs read worker.js for `answering:
+  // rb.answering === true`; this is the same contract through the real route,
+  // so a wrapper that drops either flag fails here whatever the text says.
+  const ask = { intent: "ask", answer: "Sure, the footer can hold it." };
+  const plain = await route({ input: ask, body: { slug: "ans-plain", answering: false, attached: false } });
+  assert.equal(plain.body.intent, "ask", "a plain question's ask answer was not kept — the control is dead");
+  const answering = await route({ input: ask, body: { slug: "ans-yes", answering: true } });
+  assert.notEqual(answering.body.intent, "ask", "`answering` did not reach the router's reader");
+  assert.equal(answering.body.decision.source, "fallback");
+  const attached = await route({ input: ask, body: { slug: "ans-att", attached: true } });
+  assert.notEqual(attached.body.intent, "ask", "`attached` did not reach the router's reader");
+  assert.equal(attached.body.decision.source, "fallback");
+});

@@ -10669,8 +10669,10 @@ function progressListHTML(lines, live, done) {
   const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
   if (!list.length) return '';
   const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
+  // A LATE LINE IS NEVER THE LIVE ONE (2026-10-15): it was written after its
+  // job ended, so it is drawn as finished work even on a card still running.
   return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) =>
-    '<li' + (live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
+    '<li' + (l.late === true ? ' class="late"' : live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
     (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '');
 }
 /**
