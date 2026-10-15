@@ -1,5 +1,63 @@
 # Owner Notes
 
+## Merged: `new` and `candidate/new-on-main` (2026-10-15)
+
+The owner's clarified merge request is complete. Main was fast-forwarded to
+`4a097e6e699c7969b89f8f801c9e5785bfd5e933`, containing both
+`new` at `c090e50a9b0c93f1dcdac089bbbf7245f4cad370` and
+`candidate/new-on-main` at `a30453179c64fd4dee41b6bceeb1d9229bf75689`.
+The help-needed-only changes remain excluded; neither source branch was deleted.
+This entry supersedes the older parked/unmerged status below.
+
+The only integration conflict was in this handoff. Both branches' records
+were preserved. Against the reviewed candidate, the integration changed only
+this file (+96 lines); all product, test, workflow and configuration files
+are byte-identical. The original main and both requested branch tips are
+ancestors of the integration commit.
+
+**Checks on the exact integration commit:**
+- Unit run [38774654525](https://github.com/canias7/isibi-app/actions/runs/38774654525):
+  11,112 total, 11,064 passed, 0 failed, 48 skipped.
+- Site-build run [38774654511](https://github.com/canias7/isibi-app/actions/runs/38774654511):
+  all jobs and the final gate passed; 404 checks, 27 sections, four shards.
+  Input fingerprint `a988c9c6fce399da` (3,986 files).
+- Before main moved, no Actions runs were in progress, there were no open
+  edit jobs, and no unfinished build updated in the preceding 24 hours.
+  Historical unfinished rows were not treated as live work.
+- Rollback was rehearsed in a throwaway worktree: restoring the original
+  main `c37cbc41bd0c94a0826fe65d78b6598f2fcc212b` reproduced its exact
+  tree `7624842c7d904dfc3f9e39dd04e0dfc87bfd0117`. If rollback is needed,
+  use a new commit restoring that tree, not a blind range-revert of merges.
+
+**Deployment succeeded.** Automatic run
+[38775976875](https://github.com/canias7/isibi-app/actions/runs/38775976875)
+finished successfully at 17:21 UTC on the integration commit. The log confirms
+the image was built (209 inputs), consistent with the predicted change from
+`e420b3c2d3224dd3` to `712a579f8e81a3bb`; five changed assets uploaded,
+the container application updated, and Worker triggers deployed. The deploy
+gate was set, the drain found no live leases, and the gate was left to expire
+on success. Both read-only domain reports were healthy. This records a
+successful deploy, not proof that every container has finished rolling or
+that the features passed live tests.
+
+The Wrangler action's initial local-install probe failed, then it installed
+the configured version and deployed successfully. The log also reports
+dependency-audit and deprecated-action-runtime warnings; those were not
+investigated or changed as part of this merge.
+
+This completion record changes documentation only and does not require
+another production deployment.
+
+**Remaining verification is explicit.** Direct public reads of the live app
+returned HTTP 403 from this session, so served-file comparison and runtime
+confirmation are unverified. The conversation/hosting live-verification
+batch remains unrun; E1/E2's `talk` test-runner support remains unimplemented
+and is later offline work. No paid test workflow, model request, image
+purchase, schema migration, or parallel-write activation was performed for
+this merge. Ordinary replies remain model-written; video/audio is upload
+hosting only. Future work should start from current main and must not replay
+these source branches as if they were still unmerged.
+
 ## Integration approved: only `new` and `candidate/new-on-main` (2026-10-15)
 
 The owner requested the merge into `main` and explicitly clarified these two
