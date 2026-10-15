@@ -1,5 +1,78 @@
 # Owner Notes
 
+## Branch `new` — one verification proposal for the assistant and media work (2026-10-15, after Codex's review of `bdebc5e3`; a proposal only: nothing run, merged, deployed, built or pressed, no paid call)
+
+Codex confirmed the failed-abort fix independently: a delete answers `unconfirmed` while the old upload can still land, keeps the claim and the session, and goes through safely once the upload has finished. Broad offline testing is now stopped.
+
+**Final state.**
+- **Code head:** `cbd396d8`.
+  - Unit CI green, `10892 / 10845 / 0 / 47` (run 38670111433).
+  - Site build green (run 38670111439).
+  - Local full suite `10892 / 10890 / 0 / 2`.
+- **Documentation head before this entry:** `bdebc5e3`.
+  - Unit CI green, `10892 / 10845 / 0 / 47` (run 38670979502).
+  - A documentation-only push starts no site build.
+- **This entry's commit:** documents only, on top of `bdebc5e3`.
+- **Image prediction for `cbd396d8` alone:** `484f4945d711b3c8`.
+
+**The full proposal** is `docs/history/2026-10-15-verification-proposal.md`. In short:
+
+1. **Sharing help-needed's deployment: yes, but only as one combined release candidate on `main`.**
+   - `main` has moved to `8e24ca5b`, help-needed's verification batch. It holds `new` up to `9ceca1d4` but none of `new`'s 15 later commits.
+   - A merge to `main` is the only safe deploy path. `deploy.yml` also accepts a manual run with no branch guard, which would put `new` into production in place of `main`, so it must not be used.
+   - There is no preview environment.
+   - A local trial merge into `origin/main`, discarded afterwards, found 3 conflicts. All are mechanical: the `Dockerfile` copy lists and one `public/chat.js` build-body line (keep both sides), plus owner-notes.
+   - Two interactions need a check on the combined candidate:
+     - `main`'s early-accepted build (`accept: 'early'`) with `new`'s draft move;
+     - the build's reply fields (`media`, `contextNote`) reaching the page through `main`'s follow.
+   - One deploy and one container build then serve both branches.
+   - The combined candidate stays paused until you say.
+2. **Free checks (no model call), F1–F7.** All run in your browser on a test site that is not one of help-needed's fixtures:
+   - **The fixtures:** the 9 small files in `test/fixtures/media/`, plus a 20 MB WAV made locally for the part-by-part checks.
+   - **The flows:**
+     - upload, list, play and seek, with `206`/`416`/`304` and the 5-minute cache, in Chrome, Safari, Firefox, iOS and Android;
+     - refusals;
+     - replace;
+     - delete, both ordinary and of a file a page plays;
+     - reconnecting and reloading mid-upload;
+     - drafts before a site exists.
+   - **Real-storage concurrency, from console snippets, each repeated 10 times:** admission under the draft limit, competing replacements, delete versus replacement, and repeated or lost answers.
+   - **Not shown live:** R2's `NoSuchUpload` error and its refusal to close an aborted upload. Recorded as offline-only unless you want a canary probe, which would be a separate code change.
+3. **Paid calls, each needing your approval.**
+   - **Cost per message:** a conversational message is routing plus the reply's own call under one charge, 2–4 credits each and 6 at most on grok, up to about 9 on sonnet.
+   - **P9, a first build with the two drafts and "no photographs":** checks the model-written media narration. 11–45 credits plus routing.
+   - **On its site, one message each:**
+     - P1, a greeting;
+     - P2, a detailed comparison;
+     - P3, a grounded question about the page and the video;
+     - P4, missing context (opening hours);
+     - P5, a long history, then "use the third version": expects it to ask, with no work started;
+     - P8, discussing an attachment.
+   - **Optional:** P7, discussion turning into an add-on (2–13 plus routing); P10, an edit with media (6–22 plus routing).
+   - **Totals (estimates, not caps):** minimal set about 26–75 credits; with P7 and P10 about 35–112.
+   - **The balance last recorded for the building account was 13**, so it must be read first, and a top-up is likely.
+4. **Implementation gaps, kept visible.** These are known and documented, not fixed:
+   - a crashed delete leaves its object served and listed until the delete is sent again;
+   - drafts sit outside the mutation record, and a draft deleted mid-move is not coordinated;
+   - a moved draft's receipt reads `removed`, so attaching it again uploads it again;
+   - expired drafts and finished-session records are not cleaned up on a schedule;
+   - the upload record lives in one browser;
+   - a storage outage holds deletes (`503 unconfirmed`);
+   - the 15-minute lease is a judgement call;
+   - one unresolved receipt case: finished at R2, never recorded, then deleted;
+   - the build-route test double's counter etags.
+5. **Awaiting live verification only.** These are built and tested offline:
+   - R2's conditional writes and etags;
+   - NoSuchUpload, and R2 refusing to close an aborted upload;
+   - multipart throughput;
+   - edge ranges and caching;
+   - MP4, MOV, M4A, AAC and the other browsers;
+   - real-model answers, clarification, `resolved` and media narration;
+   - the real cost per message.
+6. **A correction.** The `aef027fd` round's record called the mutant "recovery without its first abort" equivalent. That was wrong. Codex's later reproduction showed that a stop must be proven: a failed abort let the old close land after the delete. The mutant is killed by 3 tests on `cbd396d8`. The record has been corrected in `docs/history/2026-10-15-media-mutation.md` and in the entry below.
+
+**Still paused.** `new` stays unmerged and undeployed. No container build, no paid call, and no change to help-needed until you say.
+
 ## Branch `new` — Codex's reviews of `aef027fd` and `69462730`: delete and replacement as one sequence per file; a stale claim settled only on proof; the progress-ordering failure explained (2026-10-15; unmerged, undeployed, no container build, no paid call, the help-needed branch untouched)
 
 The receipt, quota, history and narration fixes are unchanged, and their tests passed in every run below.
@@ -52,7 +125,7 @@ The receipt, quota, history and narration fixes are unchanged, and their tests p
   - Codex's first sequence on `aef027fd`: delete 200, close 200, the file back.
   - On `69462730`: exactly the two new abort-failure cases fail (the delete answered 200).
 - **Sweeps:**
-  - the record: 11 of 13 killed, the 2 survivors equivalent (recorded);
+  - the record: 11 of 13 killed, with 2 survivors recorded as equivalent. **Corrected 2026-10-15:** "recovery without its first abort" was not equivalent. Codex's reproduction on `69462730` showed a failed abort lets the old close land, and the mutant is killed by 3 tests on `cbd396d8`. The other survivor, "the record without its revision and write id", stays equivalent;
   - the abort fix: 6 of 6 killed.
   - The comment-only control survived both.
 - **Affected tests (final):** 288 files, 7272 pass, 0 fail.

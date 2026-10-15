@@ -188,10 +188,16 @@ comment-only control survived. The mutants covered:
 - the library's delete bypassing the record;
 - a delete removing the object before marking the record.
 
-Two survived, and both are equivalent today:
-- **Recovery without its first abort.** Only a delete recovers a claim, and
-  the delete removes the object after its record write, so the outcome is
-  identical.
+Two survived. They were recorded as equivalent then:
+- **Recovery without its first abort.** It was called equivalent on the
+  grounds that only a delete recovers a claim, and the delete removes the
+  object after its record write.
+
+  **Corrected 2026-10-15: that was wrong.** Codex's reproduction on `69462730`
+  showed that an abort which did not happen, or failed, leaves the old close
+  able to land after the delete has answered 200, bringing the file back. A
+  proven stop is what makes recovery safe. On `cbd396d8` this mutant is killed
+  by 3 tests. See `docs/history/2026-10-15-verification-proposal.md`.
 - **The record without its revision and write id.** Every record write
   changes its generation, state or timestamp, so its bytes never repeat. The
   revision and write id guarantee this instead of relying on it.
