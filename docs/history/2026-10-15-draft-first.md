@@ -266,6 +266,10 @@ earlier, the change goes to the id it was given (`refs`).
 
 ### 6.3 Publish, in order
 
+> **Superseded by §7** (the third round): the order below applied every
+> held row change before the switch, so a script refusal left visitors with
+> new data and old pages. §7.2 is the order now.
+
 1. The revision is one the record holds; its build is complete.
 2. **One publication at a time** (`site-drafts/<slug>.publishing.json`):
    - a second click on the same revision answers 202 "already being
@@ -392,8 +396,8 @@ shown in the conversation.
   members, secrets, domains, the SEO, share and verification panels,
   backups and restores. They are the owner's direct settings, not builder
   tasks.
-- **The rename edit layer** (changing the site's address from chat) still
-  takes effect at once.
+- ~~**The rename edit layer** (changing the site's address from chat) still
+  takes effect at once.~~ Held since §7.1.
 - **The preview shows rows, not rules.** A held rule or access change is
   applied at Publish; the preview reads anonymously. A held new table's
   functions (RPC) are refused in the preview, not simulated.
@@ -404,10 +408,188 @@ shown in the conversation.
   the draft is saved; Publish does not rewrite them.
 - **Billing** is unchanged from round one: a task is charged when its draft
   is saved (`published_at` means "delivered").
-- **A publication that stops after the rows** leaves the rows live with the
-  previous pages until Publish is pressed again (said in the stop).
+- ~~**A publication that stops after the rows** leaves the rows live with the
+  previous pages until Publish is pressed again (said in the stop).~~
+  Replaced by the phased publication, §7.2.
 - **Concurrent edits from two tasks to the same row** in one draft: the later
   revision's change wins at Publish, as it would have live.
 - **Live verification: none.** Nothing here has run against real
   Cloudflare, R2, Neon or a deployed Worker. The preview host also needs a
   deployed container image carrying the template change from round one.
+
+## 7. The third round: publishing, coherent (2026-10-15, `claude/draft-first-publish`)
+
+The owner, verbatim in part: *"Keep this branch focused only on publishing.
+… leave owner-panel changes out of this work."* Three gaps: a chat rename
+went live at once; Publish applied backend changes **before** the script
+switch, so a refused script left visitors with old pages and new backend
+behaviour; and the exact revision a click names must survive duplicates,
+retries and recovery. help-needed's ownership and recovery corrections are
+merged at `45c163d3` (merge `997ed529`), not rebuilt.
+
+### 7.1 A chat rename is held
+
+On a published site under `DRAFT_FIRST`, the `rename` layer still asks its
+model and runs every check it ran before (the same name, a reserved name, a
+name taken by another site or alias, a lookup that could not be made), then
+**holds** `{kind:"alias", action:"rename", from, to}` in the draft and
+answers `renamedInDraft`. A forget of an old address is held the same way
+(`forgotInDraft`); it must be one of this site's own names. Nothing is
+written to `site_aliases`, the alias cache or the live sidecar.
+
+- The address the draft has is `addressOverlay(live, held ops)`: the next
+  rename message is about that name, and the draft route answers
+  `address: {live, draft}`.
+- At Publish, consecutive renames are **one move** from the live name to the
+  last name (`publishPlan`): a name only the draft ever had never becomes a
+  redirect, and a move back to the live name is no move.
+- The availability check runs again at Publish (preflight); a name taken in
+  the meantime stops the publication before anything changes.
+- The published version's sidecar carries the new origin (canonical link and
+  `og:url`); a revision of held changes only, on the version already live,
+  has the live sidecar's origin set at the switch.
+
+### 7.2 The publication, as phases
+
+`site-publishing/<slug>.json` is a journal written conditionally (etags) and
+read strictly. Its phases:
+
+1. **start** — preflight, nothing written: the revision is in the record with
+   the same version; its build is complete; the held changes up to it form a
+   plan; the database answers (when needed); a new address is free; every
+   replacement file exists. A refusal drops the journal: `live: "unchanged"`.
+2. **prepared** — only what the live version cannot see: tables it does not
+   have (`newTablesOf`) and their starter rows. Nothing a visitor reads moves.
+3. **switched** — the pointer and the script, through the same conditional
+   activation and its own undo (help-needed's correction: the live marker
+   only after the script answers). A refusal here is still
+   `live: "unchanged"`.
+4. **finished** — rolled **forward** step by recorded step:
+   `address`, `schema`, `jobs`, `seeds`, `changes`, `inserts`, `library`,
+   each marked in `done` when it lands, then `applied` moves to the revision
+   and the journal is dropped.
+
+A failure after the switch keeps the journal (`running: false`, the error,
+`attempts + 1`) and answers 502 `live: "switched"`; the panel then says the
+new pages are live and offers **Finish publishing**. Nothing is rolled back:
+no database content is reverted, and no step deletes or overwrites a visitor's
+row apart from the approved changes themselves (below).
+
+**Exactly the revision clicked** (`clickPlan`):
+- a fresh runner (written within 3 minutes) answers 202 to the same revision
+  and 409 to another;
+- the same revision stopped or with a dead runner is **resumed** from its
+  journal, never re-planned from a newer draft;
+- another revision that already **switched** is finished first (it was
+  approved and its pages are live), then the click's own revision runs;
+- another that stopped before its switch is set aside (nothing of it is
+  live);
+- a revision at or below `applied` answers `already` and changes nothing.
+
+**Recovery without a click:** the 2-minute tick (`scheduled`, only with
+`DRAFT_FIRST` on) runs `runPublishRecovery`: a stale `switched` journal is
+finished from its own revision; a stale pre-switch one is deleted. It never
+begins a publication. DFB8's guard still holds: only the owner's route and
+this sweep call `runPublication`, and only the owner's route calls
+`publishDraft` (DF6).
+
+**Repeats change nothing twice:** alias writes are upserts and a forget of a
+name already gone is done; `UPDATE`/`DELETE` by id give the same result
+twice; new rows go in one statement beside the `_meta` key
+`draft-publish:<preview>:<n>`, so a second run collides, rolls back and reads
+the first run's ids.
+
+### 7.3 The concrete limitation (not removed)
+
+**A database and a site script cannot switch in one atomic step on this
+platform** (Neon and the Workers dispatch namespace share no transaction).
+The phases make the order safe and the outcome certain, not instant:
+
+- **Between the switch and the last finishing step**, visitors see the new
+  pages against the old address rows, the old existing-table schema and
+  rules, and the old rows — apart from tables that are new in this revision,
+  which are already in place. In the tests this window is a single request;
+  live it is the time of the alias writes and the SQL statements (expected
+  seconds), and **if a step fails, until it is finished** by a click or the
+  next tick. The pages a revision ships therefore must not depend on a held
+  row change being present the instant they are served. The panel and the
+  stop say plainly that the new pages are live and the rest is finishing.
+- **Held row changes set values, they are not diffs.** An approved `UPDATE`
+  writes the held column values over whatever the row holds at Publish; a
+  visitor's change to **the same column of the same row** between the draft
+  and Publish is overwritten (other columns and other rows are untouched).
+  Held removals delete by id. No published row is ever reverted.
+- **A schema change to an existing table** (a new column, a changed rule) is
+  applied after the switch, not before: applying it before would change what
+  the live version's visitors get. A page that reads the new column sees it
+  absent for that window.
+
+### 7.4 Tests (offline; supplied model answers; real Worker handlers)
+
+`test/draft-first.test.mjs`, each reading the stored draft record, journal,
+pointer, live script, sidecar, `site_aliases` rows and database rows:
+
+| Case | What it shows |
+|---|---|
+| DFP1 | a chat rename and a second rename stay in the draft (aliases empty, sidecar origin unchanged, draft address shown); Publish moves the live name once to the last name, the old name redirects, the in-between name never becomes one; the sidecar origin moves |
+| DFP2 | the click names revision 2 of 3: the pointer moves in the switch phase with the old price still live; after it revisions 1–2 are live and revision 3's loaf is not; revision 3's own click adds it once; a third click is `already` |
+| DFP3 | the script refused before the switch: pointer, script, sidecar, rows, aliases and record unchanged, no journal, the draft still offered; pressed again it publishes once |
+| DFP4 | the alias store refuses after the switch: 502 `live:"switched"`, journal kept with the error, record not marked, rows not yet changed; a newer draft meanwhile; the sweep while the store still refuses changes nothing; once it answers, the sweep finishes the same revision (address, rows once) and the newer change stays unpublished |
+| DFP5 | the runner dies right after the switch: a duplicate click is 202, another revision 409; after 4 minutes the click resumes the same revision (one alias row, the loaf once), then the newer revision publishes on its own click |
+| DFP6 | revision A switched and stopped; a click on newer B finishes A first, then B; nothing of A repeated |
+| DFP7 | two clicks at once: one publication, one pointer move, one loaf, one alias row; an edit after publication is a new, unpublished revision |
+| DFB10 | (kept) a task finishing during a publication becomes the next revision |
+| DFB11 | (rewritten) every backend write a task makes goes through its writer; Publish applies through the writer switched off; the rename layer holds before its first alias write |
+
+`test/site-draft.test.mjs`: `clickPlan`, strict journal reads, the draft's
+address and the rename collapse. `test/turn-fence.test.mjs` DF6: only
+`publishDraft` and `runPublishRecovery` call `runPublication`.
+
+The panel (`public/chat.js`): "Address after publishing" when the draft has
+a new address; a publication that switched and stopped reads "Some of this
+draft is already live" with **Finish publishing**; a stop after the switch
+never says "nothing changed on your live site".
+
+### 7.5 Checks
+
+- Commits: `27abcaea` (code and tests), then `b6a6a30f`, a merge of
+  help-needed's `6c492b16` (a store without `head` read with `get`; its own
+  fix for 54 failures that `45c163d3` brought, red on help-needed's CI run
+  38810045259 and green on 38811169965). Without it this branch had the
+  same 54 failures; none were from this round.
+- Mutation sweep over `site-draft.mjs` and `worker.js`, with the draft-first,
+  site-draft and turn-fence tests: 13 of 14 killed. One survived, and it
+  cannot be caught: repeating the address step changes nothing, because
+  alias writes are upserts. Both controls (an identity edit and a comment)
+  survived.
+- Full suite on `b6a6a30f`, local: 11,242 tests, 11,239 passed, 1 failed,
+  2 skipped. The failure is the worktree's `node_modules` symlink case
+  (environmental, present on every baseline here).
+- CI on `b6a6a30f`: unit run 38814376697 green, 11,242 tests, 11,194 passed, 0 failed, 48 skipped (the same total as local); site build run 38814376586 green.
+- The Publish panel was rendered headless (the draft's new address; a
+  switched-and-stopped publication).
+- No production SQL, container build, deploy, paid run or live mutation.
+  `DRAFT_FIRST` stays off.
+
+### 7.6 Remaining publishing gaps
+
+- **The window after the switch** (§7.3): not atomic. Between the switch and
+  the last step, visitors get new pages against the old existing-table rows,
+  schema and address. On a failure that lasts until a click or the next
+  tick, which is at most about 2 minutes after the runner goes stale (3
+  minutes).
+- **Held row changes overwrite the same column** if a visitor changed it
+  after the draft was saved (§7.3).
+- **Recovery needs the tick.** `runPublishRecovery` runs only from
+  `scheduled()` with `DRAFT_FIRST` on, and handles at most 10 journals per
+  tick.
+- **A held forget re-checks nothing at Publish.** A name already gone is
+  done; one taken by another site meanwhile is not this site's row and is
+  untouched.
+- **The preview's address**: the preview host is the draft token host, not
+  the new name. The new name answers only after Publish.
+- **No live verification.** None of this has run against real Cloudflare,
+  R2, Neon or Supabase.
+- Unchanged from §6.7: the switch is off by default; owner panels are out of
+  scope; the preview shows rows, not rules; filtered preview reads are
+  approximate; migration records are not rewritten; billing is at save.

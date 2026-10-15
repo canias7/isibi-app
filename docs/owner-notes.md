@@ -1,5 +1,73 @@
 # Owner Notes
 
+## Publishing, coherent (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
+
+**What you asked for:** Build, Edit and Add-on changes, including a change
+of address asked in chat, are saved to the draft and preview, and go live
+only when you press Publish. Publishing must be coherent and recover safely,
+and it must release exactly the revision you clicked. Owner panels are left
+out.
+
+| | Commit |
+|---|---|
+| merge of help-needed `45c163d3` (ownership and recovery corrections) | `997ed529` |
+| this round: code and tests | `27abcaea` |
+| merge of help-needed `6c492b16` (its own fix for the test stores without `head`) | `b6a6a30f` (pushed) |
+
+**What changed:**
+1. **A chat rename is held.** On a published site the live address, the
+   aliases, the redirects and the sidecar's origin stay as they are until
+   Publish. The draft shows "Address after publishing". Two renames publish
+   as one move, so a name only the draft had never becomes a redirect. The
+   name is checked again at Publish.
+2. **Publish is phased, with a journal.**
+   - **Preflight:** checks only, nothing written.
+   - **New tables:** created, unseen by the live site.
+   - **The switch:** pages and script.
+   - **The rest:** the address, schema, jobs, rows and library, each step
+     recorded.
+   A failure before the switch changes nothing live. A failure after it
+   keeps the journal. The panel then says the new pages are live and offers
+   **Finish publishing**, and the 2-minute tick also finishes it. Nothing
+   is rolled back, and no database content is reverted.
+3. **Exactly the revision clicked.** A duplicate click while one runs gets
+   "already being published", and a different revision is refused. A
+   stopped or dead publication resumes the same revision, never newer
+   work. An older revision whose pages are already live is finished first.
+   Two clicks at once publish once.
+
+**The limitation, stated plainly:** the database and the site's script
+cannot switch in one atomic step on this platform. Between the switch and
+the last step, visitors see the new pages with the old rows, the old
+existing-table schema and the old address. This normally lasts seconds; if a
+step fails, it lasts until a click or the next tick. Also, an approved row
+change writes its values over the same column if a visitor changed that
+column after the draft was saved.
+
+**Checks (offline, supplied model answers):**
+- **Tests:** DFP1–DFP7, DFB10 and DFB11 in `test/draft-first.test.mjs`.
+  They read the stored record, journal, pointer, live script, sidecar,
+  address rows and database rows. They cover a chat rename, a successful
+  Publish of a chosen revision, a failure before and after the switch, an
+  interruption with recovery, duplicate and simultaneous clicks, a task
+  finishing during publication, and an edit after it.
+- **Mutation sweep:** 13 of 14 killed. The survivor is a repeated address
+  step, which is harmless (upserts); both controls survived.
+- **Full suite on `b6a6a30f`:** 11,242 tests, 11,239 passed, 2 skipped,
+  1 failed. The failure is the environmental worktree `node_modules`
+  symlink case.
+- **CI on `b6a6a30f`:** unit run 38814376697 green, 11,242 tests, 11,194 passed, 0 failed, 48 skipped (the same total as local); site build run 38814376586 green.
+
+**Remaining gaps** (in full in `docs/history/2026-10-15-draft-first.md`
+§7.6):
+- the post-switch window;
+- same-column overwrite;
+- recovery depends on the tick;
+- the preview is not served at the new name;
+- no live verification;
+- and §6.7's: the switch is off, owner panels are out, preview rules, and
+  billing at save.
+
 ## Draft-first and the Publish button, for every builder change (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed; no production SQL, container build or paid test)
 
 **What you asked for:** every builder-made change saves to a persistent
