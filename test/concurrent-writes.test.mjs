@@ -451,3 +451,134 @@ test("CW9 A STALE CONFIG HOLDER CANNOT PUBLISH OR PUT THE CONFIG BACK — a desc
     assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
   } finally { P.close(); compiler.uninstall(); }
 });
+
+// ── A CONFIG WRITER BESIDE AN INDEPENDENT TEXT JOB (2026-10-15, after review) ─
+// Beyond two page edits: a look step (the site description) rewrites the
+// config and holds the site's turn from its start; a text change on the Visit
+// page writes no config and runs beside it, publishing when the turn is free.
+const DESC_ASK = "Change the site description to say we bake overnight sourdough";
+const DESC_TO = "Overnight sourdough from a harbour side street.";
+const ROUTE_LOOK_AND_TEXT = [
+  // THE ROUTER NAMES WHAT EACH CHANGE WRITES: the description the look (a
+  // config write, so the step holds the turn), the TikTok line its page.
+  { intent: "edit", layer: "look", alsoAsked: [TIKTOK], targets: [{ change: 0, writes: ["theme"] }, { change: 1, writes: ["page:/visit"] }] },
+  { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] },
+];
+const DESCRIBE_ANSWERS = { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC_ASK }] }, "lane:description": DESC_TO };
+
+/** Deliver every queued message as it arrives, without waiting on any, until `cond()` or `ms` pass. */
+async function pumpUntil(P, cond, runs, ms = 8000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end && !cond()) {
+    const m = P.queue.shift();
+    if (m) runs.push(deliver(P, m)); else await new Promise((ok) => setTimeout(ok, 15));
+  }
+  return cond();
+}
+async function lookBesideText({ failFirstLookCompile = false, laterRoutes = [] }) {
+  const seen = { lookCompiling: false, visitCallWhileLookHeld: false, lookCompiles: 0, failed: 0 };
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const compiler = installCompiler({
+    before: async (body) => {
+      // THE LOOK JOB'S COMPILE carries the new description; held until the
+      // Visit job has made its model call, and refused once when asked.
+      if (!JSON.stringify(body).includes(DESC_TO)) return;
+      seen.lookCompiles++;
+      if (seen.lookCompiles === 1) { seen.lookCompiling = true; await freed; }
+      if (failFirstLookCompile && seen.lookCompiles === 1) { seen.failed++; throw new Error("the build service restarted"); }
+    },
+  });
+  const P = platform({
+    slug: slugOf(failFirstLookCompile ? "cw11" : "cw10"), pages: PAGES2, beside: true,
+    answers: {
+      route: [...ROUTE_LOOK_AND_TEXT, ...laterRoutes], ...DESCRIBE_ANSWERS,
+      // OVERLAP, READ OFF THE STORE: the Visit job's model call is made while
+      // the description job holds the site's turn (it took it at its start
+      // and holds it until it ends).
+      [T.text]: async (args) => {
+        const t = P_.at && P_.at.readObj("publish-turn/" + P_.at.slug + ".json");
+        if (t && JSON.parse(t).until > Date.now()) seen.visitCallWhileLookHeld = true;
+        return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] };
+      },
+    },
+  });
+  return { P, seen, release, compiler };
+}
+
+test("CW10 A CONFIG WRITER BESIDE A TEXT JOB — a description change (config, the turn held from its start) and a Visit-page text change from one message: the text job is filed and makes its model call while the description job holds the site's turn; the text job publishes only once the turn is given back; both changes kept, each job charged once, the turn given back", async () => {
+  const { P, seen, release, compiler } = await lookBesideText({});
+  try {
+    P_.at = P;
+    const r = await sendMessage(P, { message: DESC_ASK + ", and " + TIKTOK + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const runs = [];
+    try {
+      await pumpUntil(P, () => seen.visitCallWhileLookHeld && seen.lookCompiling, runs);
+      assert.ok(seen.lookCompiling, "the description job never reached its compile");
+      assert.ok(seen.visitCallWhileLookHeld, "the Visit job's model call was not made while the description job held the turn: " + JSON.stringify(P.jobsOf(r.key).map((j) => [j.op, j.state, j.idem_key])));
+      // THE TURN IS THE DESCRIPTION JOB'S: the Visit change is not published yet.
+      await new Promise((ok) => setTimeout(ok, 150));
+      assert.equal(P.page("visit.tsx").includes(TT_TO), false, "the Visit job published while the description job held the turn");
+    } finally { release(); }
+    await Promise.all(runs);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, DESC_TO, "the description change was lost");
+    assert.ok(P.page("visit.tsx").includes(TT_TO), "the Visit change was lost");
+    assert.ok(P.page("index.tsx").includes(HOME_FROM), "an unrelated page changed");
+    const edits = editJobs(P, r.key);
+    assert.equal(edits.length, 2, JSON.stringify(P.jobsOf(r.key).map((j) => j.op + ":" + j.state)));
+    for (const j of edits) { assert.equal(j.state, "done"); assert.equal(reserveOf(P, j.id).length, 1, "a job was not charged exactly once"); }
+    const turn = P.readObj(turnKeyOf(P));
+    assert.ok(!turn || JSON.parse(turn).until === 0, "the site's turn was left held: " + turn);
+    await P.settle();
+    assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
+  } finally { P.close(); compiler.uninstall(); }
+});
+
+test("CW11 A CONFIG WRITER FAILS BESIDE A TEXT JOB, AND RECOVERS — the description job's compile fails once: its config write is put back (never published), its reserve refunded, and the Visit change publishes and is kept; the request does not run it again unasked; asked again, the description lands beside the kept Visit change, and only the new job is charged", async () => {
+  // THE SECOND ASK'S ROUTING: the description alone.
+  const { P, seen, release, compiler } = await lookBesideText({ failFirstLookCompile: true, laterRoutes: [{ intent: "edit", layer: "look", targets: [{ change: 0, writes: ["theme"] }] }] });
+  try {
+    P_.at = P;
+    const r = await sendMessage(P, { message: DESC_ASK + ", and " + TIKTOK + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const runs = [];
+    try { assert.ok(await pumpUntil(P, () => seen.visitCallWhileLookHeld && seen.lookCompiling, runs), "the Visit job's model call was not made while the description job was held"); }
+    finally { release(); }
+    await Promise.all(runs);
+    // THE FAILED JOB: put back, refunded; the Visit job: done and kept.
+    const failed = editOfPart(P, r.key, 0)[0];
+    assert.ok(failed, "no description job");
+    assert.equal(seen.failed, 1, "the description job's first compile was not refused");
+    assert.equal(failed.state, "failed", JSON.stringify([failed.state, JSON.stringify(failed.result || null).slice(0, 400)]));
+    assert.ok(refundedOnce(P, failed.id), "the failed description job was not refunded exactly once: " + JSON.stringify(P.ledger.filter((e) => String(e.ref).startsWith(failed.id))));
+    const visitJob = editOfPart(P, r.key, 1)[0];
+    assert.equal(visitJob && visitJob.state, "done");
+    assert.ok(P.page("visit.tsx").includes(TT_TO), "the Visit change was lost when the description job failed");
+    // THE PUT-BACK: the failed job's config write is not left in place, and
+    // the request does not retry an ours-side failure on its own.
+    const { rec } = await settle(P, r.key, { rounds: 20 });
+    assert.deepEqual(statuses(rec), ["failed", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.notEqual(P.look().description, DESC_TO, "the failed description job's config write was left in place");
+    assert.equal(editOfPart(P, r.key, 0).length, 1, "the failed part was run again without being asked");
+    const turn = P.readObj(turnKeyOf(P));
+    assert.ok(!turn || JSON.parse(turn).until === 0, "the site's turn was left held: " + turn);
+    // RECOVERY: the customer asks for the description again; it lands, the
+    // Visit change stays, and only the new job is charged.
+    const again = await sendMessage(P, { message: DESC_ASK + "." });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    const { rec: rec2 } = await settle(P, again.key, { rounds: 20 });
+    assert.deepEqual(statuses(rec2), ["done"], JSON.stringify(rec2.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, DESC_TO, "the description did not land on the second ask");
+    assert.ok(P.page("visit.tsx").includes(TT_TO), "the Visit change did not survive the recovery");
+    const retry = editJobs(P, again.key);
+    assert.equal(retry.length, 1);
+    assert.equal(retry[0].state, "done");
+    assert.equal(reserveOf(P, retry[0].id).length, 1, "the second ask was not charged exactly once");
+    assert.ok(refundedOnce(P, failed.id), "the failed job's refund changed");
+    assert.equal(reserveOf(P, visitJob.id).length, 1, "the Visit job was charged again");
+    await P.settle();
+    assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
+  } finally { P.close(); compiler.uninstall(); }
+});
