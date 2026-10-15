@@ -36,7 +36,7 @@ import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
-import { run, CONVERSE_CASES, judgeCase, judgePlayback, hoursAbsent, specificsIn, pageEvidence } from "../scripts/media-verify.mjs";
+import { run, FOLLOW_UP_THREADS, CONVERSE_CASES, judgeCase, judgePlayback, hoursAbsent, specificsIn, pageEvidence } from "../scripts/media-verify.mjs";
 import { extractText } from "../builder/site-text.mjs";
 
 const FIX = new URL("./fixtures/media/", import.meta.url).pathname;
@@ -434,4 +434,18 @@ test("THE FOLLOW-UP CASES' OBJECTIVE CHECKS (2026-10-15): a go-ahead with nothin
   const ok = judgeCase(c("C15-keep-style"), { intent: "edit", resolved: "Give the Visit page a cream background with dark green serif headings" }, ev);
   assert.deepEqual(ok.checks.filter((x) => x.verdict === "fail"), []);
   assert.equal(ok.checks.filter((x) => x.verdict === "unverified").length, 1);
+});
+
+test("THE EVIDENCE BESIDE EACH ANSWER (2026-10-15): the advice case keeps every stored page, the ambiguous case keeps its whole thread, and a cut thread says where it was cut", () => {
+  const c = (id) => CONVERSE_CASES.find((x) => x.id === id);
+  const pages = pageEvidence(PAGES, extractText);
+  const advice = judgeCase(c("C9-advice"), { intent: "ask", replyFrom: "conversation", answer: "1. A clearer headline." }, { pages, homePath: "/", history: [], thread: [] });
+  assert.deepEqual(advice.review.evidence.pages.map((p) => p.path), pages.map((p) => p.path));
+  assert.match(advice.review.evidence.pages[0].text, /Harbour Loaf/);
+  assert.equal(advice.review.evidence.message, c("C9-advice").message);
+  const thread = FOLLOW_UP_THREADS["two-lists"];
+  const amb = judgeCase(c("C12-ambiguous"), { intent: "ask", replyFrom: "conversation", answer: "Which list?" }, { pages, history: [], thread });
+  for (const t of thread) assert.ok(amb.review.evidence.thread.includes(t.t), "a turn of the thread was not kept");
+  const cut = judgeCase(c("C5-cut-history"), { intent: "ask", replyFrom: "conversation", answer: "Could you paste it?", decision: { reasons: ["history-cut"] } }, { pages, history: [{ role: "assistant", text: "Version one", full: 9000 }], hidden: "Version three: x" });
+  assert.match(cut.review.evidence.thread, /cut by the page: 9000 characters/);
 });

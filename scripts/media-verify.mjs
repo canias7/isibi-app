@@ -377,7 +377,15 @@ export function judgeCase(c, body, evidence) {
     signals.push(NOT_SHOWN.test(answer) ? "a sign it says it was not shown the clip" : "no plain sign it says it was not shown the clip");
   }
   put("does what the case is for: " + c.expect + " (read it)", "unverified", signals.join("; "));
-  return { checks, review: { case: c.id, expect: c.expect, answer, evidence: source, signals } };
+  // EVERYTHING A READER NEEDS BESIDE THE ANSWER (2026-10-15): the thread it
+  // was sent, whole, and — for the advice case — every stored page it should
+  // be read against, so meaning can be judged without a second look anywhere.
+  const thread = Array.isArray(ev.thread) && ev.thread.length
+    ? ev.thread.map((t) => (t.r === "u" ? "Owner: " : "Assistant: ") + t.t).join("\n")
+    : (ev.history || []).map((h) => (h.role === "user" ? "Owner: " : "Assistant: ") + (h.text || "") + (h.full ? " [cut by the page: " + h.full + " characters before the cut]" : "")).join("\n");
+  const kept = { ...(source || {}), ...(thread ? { thread } : {}), message: c.message };
+  if (c.id === "C9-advice" && pages) kept.pages = pages.map((p) => ({ path: p.path, text: p.text.slice(0, 2000) }));
+  return { checks, review: { case: c.id, expect: c.expect, answer, evidence: kept, signals } };
 }
 
 /** Before C4 may spend: the stored pages must really lack Sunday opening times. */
