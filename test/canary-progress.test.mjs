@@ -800,3 +800,32 @@ test("THE CANARY: one sign-in, used for the run and handed to the driver for the
   // THE PRESS READS NO LOG ITSELF: the usage is the next step's.
   assert.doesNotMatch(CANARY, /telemetry\/query|CLOUDFLARE_API_TOKEN/);
 });
+
+// ── THE COVERAGE SUMMARY READS WHAT THE CHECKS READ (2026-10-15) ─────────────
+// Run 38744698638 sent its message with the tab closed and read it in a fresh
+// session; its checks recorded the tab closed, and its summary still said
+// "closed-tab NOT COVERED", because the summary read only an `away` step.
+test("closed-tab coverage and the closed-tab checks agree on one fresh-session record: covered exactly when the three closed-tab checks pass", () => {
+  const closedChecks = (f) => progressChecks({ steps: stepOf(f) }).filter((c) => /^the tab that sent it was then closed|^with no page open|^the fresh session followed/.test(c.name));
+  const cover = (f) => coverageOf({ spec: { covers: ["closed-tab"] }, steps: stepOf(f) })[0];
+  const good = goodFresh();
+  assert.equal(closedChecks(good).length, 3, "the three closed-tab checks were not found — the observer is not alive");
+  assert.ok(closedChecks(good).every((c) => c.ok));
+  assert.equal(cover(good).covered, true, cover(good).why);
+  assert.match(cover(good).why, /closed 6 s after the send with the request running, read 2 time\(s\) through the list alone, followed to its end/);
+  for (const [mutate, re] of [
+    [(f) => { f.closedRunning = false; }, /not closed while the request ran/],
+    [(f) => { f.closed = false; }, /not closed while the request ran/],
+    [(f) => { f.away.calls = [{ ms: 1, method: "GET", path: "/api/site/request/x/y" }]; }, /own route was read 1 time/],
+    [(f) => { f.away.list = [{ ms: 1, status: 200, found: false }]; }, /list never named the request/],
+    [(f) => { f.reopened.closed = false; }, /did not follow the request to its end/],
+  ]) {
+    const f = goodFresh(); mutate(f);
+    const c = cover(f);
+    assert.equal(c.covered, false, "covered beside a failing closed-tab check: " + c.why);
+    assert.match(c.why, re);
+    assert.ok(closedChecks(f).some((x) => !x.ok), "a closed-tab check passed where the summary says not covered");
+  }
+  // AN `away` STEP is read as before; no step of either kind is "not closed".
+  assert.equal(coverageOf({ spec: { covers: ["closed-tab"] }, steps: [{ n: 1, sent: true, mode: "", network: [] }] })[0].why, "the tab was not closed");
+});
