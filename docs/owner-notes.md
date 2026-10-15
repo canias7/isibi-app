@@ -1,5 +1,152 @@
 # Owner Notes
 
+## 2026-10-15 (early morning) — Codex's fourth review: recovery notes owned per invocation (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
+`DRAFT_FIRST` stay off, `supabase/proposed/request_beside.sql` stays
+unapplied, nothing is merged. Draft-first stays with its own chat; the
+correction is written for it in `docs/history/2026-10-15-draft-first.md` §5.
+
+Codex verified the missing-key and content-verification fixes on
+`2eee0569`. Its focused run passed 169 of 169. Integration CI on
+`0b8a363e` was green: 11,174 passed, 0 failed, 48 skipped.
+
+### 1. What Codex reproduced
+
+Codex used the Worker's own functions and the network-blocked fixture:
+1. Versions B and C were staged, with C live.
+2. An old note eligible for the sweep was written, and the pointer moved
+   to B.
+3. Sweep A paused immediately before its upload of B.
+4. The pointer moved back to C, and sweep B ran while A was paused. C was
+   already serving, so B settled and deleted the note.
+5. A's upload of B landed, and A died.
+6. Ten minutes later a sweep reported `{sites:0,settled:0}`: pointer C,
+   live script B, no notes.
+
+**Cause.** The sweep uploaded under the stale notes it had read
+(`followPointer({covered:true})`). Another recovery could retire those
+notes while the upload was still in flight.
+
+### 2. The fix (`9da48fe2`, then `d583030d`)
+
+- **Own notes.** Every invocation that uploads writes its own note:
+  publication (`putSiteWorker`), follow, alignment, takeover repair and the
+  sweep. It renews the note immediately before each upload
+  (`holdScriptNote`).
+- **Renewal.** A renewal is conditional on the note as the invocation last
+  wrote it, so it never writes over a note another sweep retired; a fresh
+  note under a fresh key takes its place.
+- **Retiring.** An invocation takes away only its own notes, and only when
+  its follow settled with every upload answered (`retireOwnNotes`). The
+  `covered` mode is gone.
+- **Another invocation's note** is retired only by a sweep, and only when
+  all of these hold:
+  - its own follow settled;
+  - the note's window has passed: `SCRIPT_NOTE_WINDOW_MS`, the upload's own
+    hard abort (`DISPATCH_CALL_MS`, 10 minutes) plus 2 minutes, since its
+    last renewal;
+  - its conditional tombstone on the listed etag lands. A note renewed in
+    the meantime is left, and a tombstone left by an interrupted retirement
+    is cleared on a later tick.
+- **What no longer counts as proof.** Neither a note's age alone nor a live
+  script seen on the pointer is treated as proof that another upload has
+  finished.
+- **`d583030d`.** A fresh note is written without a condition: its key is a
+  new UUID that no other invocation can hold. Only a renewal is
+  conditional, and only an explicit `null` from the store counts as
+  refused. The full suite on `9da48fe2` failed 587 tests, because test
+  stores whose `put` answers nothing were read as an unwritten note and
+  every publication was refused.
+
+### 3. Tests
+
+**New** in `test/turn-fence.test.mjs` (10 cases, all with the real Worker
+functions and the network-blocked fixture):
+- TR1: Codex's sequence.
+  - A's own note survives sweep B.
+  - Ten minutes later it is still inside its window and kept.
+  - After the window a sweep puts C back with no customer request.
+  - The notes are empty at the end.
+- TR2, three cases: an alignment, a publication and the takeover repair,
+  each in flight beside a settling sweep and dying after landing. Each keeps
+  its note and is repaired later.
+- TR3: two overlapping alignments.
+- TR4: a lost answer under overlap.
+- TR5: a note renewed while a sweep retires it.
+- TR6: an interrupted retirement.
+- TR7: normal controls — a publication retires its own note at once, a dead
+  uploader's expired note is settled by one sweep, and a site already on
+  its pointer uploads nothing.
+- TR8: an owner whose note expired between two of its own uploads; the
+  second upload goes up under a fresh note.
+
+**Changed.** The existing sweep tests TS7, TS8 and TJ2–TJ6 now advance past
+the new window. TJ5 and TJ6 now also show that a sweep's own lost upload
+keeps its own note until its window passes. The fixture counts an
+`advance` twice inside a run; the tests say so where it matters.
+
+**Results:**
+- **Red check on `2eee0569`:** TR1, TR4, TR5, TR6 and TR8 fail. TR2 (three
+  cases), TR3 and TR7 pass there too: they are entry-point and normal
+  controls.
+- **Mutation sweep:** 7 of 7 mutants killed after TR8 was added; the
+  comment-only control survived, and the md5 of every file matched after
+  restore. The mutants:
+  - the sweep uploading under no note of its own;
+  - the window back to 5 minutes;
+  - unconditional retirement;
+  - tombstones never cleared;
+  - retirement without settling;
+  - no renewal before later uploads;
+  - own notes kept after settling.
+- **Focused:** 53 of 53 fence tests, then 54 with TR8. The 40 files that
+  failed on `9da48fe2` plus the fence file: 1,458 of 1,458.
+- **Full suite locally:**
+  - `9da48fe2`: 11,096 tests, 10,509 pass, 587 fail, all fixed in
+    `d583030d`;
+  - `d583030d`: 11,096 of 11,096 pass.
+- **CI:**
+  - `9da48fe2`: unit tests run 38816828674 failed (the same cause); site
+    build run 38816828676 succeeded;
+  - `d583030d`: unit tests run 38818063004 and site build run 38818062911,
+    both success.
+- **Integration candidate** `claude/help-needed-ehlwlj-integration` at
+  `c9ef979d`: `d583030d` merged onto `0b8a363e`. Main is unchanged at
+  `772bb885`, so the assistant and audio/video work is kept, and there were
+  no conflicts.
+  - Locally: 11,232 tests, 11,229 pass, 1 fail, 2 skipped. The failure
+    was `no-generated-deps` seeing the `node_modules` link the run needs.
+    With the link removed, that file passes 2 of 2.
+  - CI on `c9ef979d`: unit tests run 38819883606 succeeded, with 11,232
+    tests, 11,184 pass, 0 fail and 48 skipped. Site build run 38819883654
+    also succeeded.
+- **Image predictions (not built):** help-needed `d583030d` `e2ba4d8d1b6c22b2` (209 inputs, 178 paths);
+  integration `c9ef979d` `f674751c7c66449a` (211 inputs, 180 paths).
+
+| Item | Implemented | Locally verified | CI verified | Live verified |
+|---|---|---|---|---|
+| Own note per invocation, renewed before each upload | yes | yes (red check, sweep) | yes | no |
+| Foreign notes retired only after their window, by conditional tombstone, by a settled sweep | yes | yes | yes | no |
+| Recovery completes with no customer request | yes (2-minute cron) | yes (TR1, TR2, TR8) | yes | no |
+| Integration with main | merged on a separate branch (`c9ef979d`) | yes | yes (38819883606, 38819883654) | no |
+
+### 4. Remaining limitations
+
+- **The window is the bound, and it rests on the upload's abort.** The bound
+  assumes an upload aborted by `DISPATCH_CALL_MS` (10 minutes) does not take
+  effect more than 2 minutes after that. A request Cloudflare accepted
+  after the client gave up, or a script that serves later than that, could
+  still land after a sweep retired its note. That is not provable from
+  here.
+- **Recovery after a death or lost answer is slower:** up to about 12 to 14
+  minutes, the window plus a cron tick, where it was about 5 minutes. A
+  sweep's own lost upload keeps its note for a full window too.
+- **Eventual, not atomic.** Visitors can be served the previous version
+  until a follow settles or a sweep repairs it.
+- **Not live verified.** Nothing here has run against real Cloudflare, R2 or
+  a deployed Worker.
+
 ## 2026-10-15 (after midnight) — Codex's third review: absent keys held in the store, recovery uploads noted, content read along reachable paths (branch only)
 
 **Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
