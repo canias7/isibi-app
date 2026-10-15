@@ -204,3 +204,32 @@ it, and `takeTurn` trusted a turn cached on the job.
 - **Still not shown:** two real isolates racing the turn; a live overlap.
   A stale config write left by a job that lost its turn between its write
   and its put-back stays until the next publish's editable-state check.
+
+## Follow-up the same evening: ownership enforced at the write
+
+The owner reproduced a race the earlier checks could not close: a holder
+passed `mayWriteConfig`, paused inside its config read, lost its turn, and
+then wrote over the newer holder's description and CSS while answering ok.
+
+- **The fence** (`b49d8765`): each turn's record carries `gen`
+  (`nextGen`: above the stored turn's, never below the clock), kept through
+  `renewTurn` and `giveTurn`. A job running beside others writes the
+  guarded keys (config, pointer, head, source, parts, kit) only through
+  `fencedPut` / `patchConfigFenced`: the key's `customMetadata.fence` and
+  etag are read, a larger fence refuses (`TURN_FENCED`), and the write is
+  conditional on that etag and stamped with the job's own fence. The
+  spine's activation uses `fencedBuildDeps`; a refusal there is
+  `turn-lost`.
+- **The new holder first** (`stampFences`, `ensureEditableState` with
+  `fence`): the pointer, head and config are re-written as they stand,
+  stamped, then the editable state is repaired under the fence. A step that
+  holds the turn from its start does this before it reads anything, with
+  the config put back to the live version — abandoned settings never reach
+  its publish.
+- **Unchanged:** with `PARALLEL_WRITES` off nothing is fenced
+  (`jobFence` answers null). Unfenced config writes keep a stamped fence.
+- **Cases:** `test/turn-fence.test.mjs` TF1–TF10 (see owner-notes,
+  2026-10-15 evening). Sweep 17 mutants, 15 killed, control survived.
+- **Not fenced:** the site script's upload (not R2); keys that do not exist
+  yet (no pointer, no R2 config).
+

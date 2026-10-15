@@ -39,9 +39,11 @@ here; take a closed one out of both.**
   caught at publish fails the part (refunded) rather than re-running it
   against the new site. (a), a config writer beside a text step through the
   Worker, is covered by CW10/CW11; the turn's ownership review by CW8, CW9,
-  CW12. A stale config write left by a job that lost its turn between its
-  write and its put-back stays until the next publish's editable-state
-  check.
+  CW12; ownership at the write itself by the turn's fence (`b49d8765`,
+  TF1–TF10). Open with it: the site script's upload is not an R2 write and
+  is not fenced; a site with no pointer, or a legacy site with no R2 config
+  object, has nothing to stamp; a refusal after the publish gate is held
+  for review before its refund.
 - **A Build send went unanswered for 18 minutes after its build had
   finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
   The send went at 22:13:35, the build ended at 22:22:16, and the press gave

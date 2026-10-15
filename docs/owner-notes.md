@@ -1,5 +1,135 @@
 # Owner Notes
 
+## 2026-10-15 (evening) — Linked words checked link by link; the publish turn enforced at the write (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
+`supabase/proposed/request_beside.sql` stays unapplied, nothing is merged.
+Branch `claude/help-needed-ehlwlj`, from `9498e73c`.
+
+### 1. Linked words (`318b44d2`, with `0bb6d062`)
+
+**What was wrong.** The add-on's landed check (`wordsLanded`) read the
+visible words and counted links to an address anywhere on the page, apart.
+So "Book a [workshop place](/classes) by Friday" passed when "workshop
+place" linked to `/wrong` and an unrelated footer linked to `/classes`; when
+the right link sat only inside a JSX comment; and when two requested links
+shared one destination but only one was drawn.
+
+**Now.** Each requested linked phrase must arrive as its own rendered
+element (`renderedLinks`: `Link` or `a`, comments dropped) showing exactly
+those words and going exactly there, and the page must gain as many such
+elements as the line asks for, so two links to one place need two. Every
+valid form passes: `Link` and anchor, `"…"`, `{'…'}`, `{"…"}`, a template
+with no interpolation, nested markup in the words, braced strings. A
+destination it cannot read (`{dest}`, a template with `${…}`) is not vouched
+for. A second, structural reader of visible words (`visibleText`) reads the
+short words between inline elements that the text rung's reader skips.
+
+- Red check: on the old checker the reproduced cases (footer arriving with
+  the change, comment-only link, one of two links) pass wrongly.
+- Sweep (`builder/site-add.mjs`, 7 mutants and a comment-only control): 5
+  killed at first. Mutant P2 (count links the page already had as new)
+  survived: my already-linked case failed on its words, not its links.
+  `0bb6d062` adds a case that isolates the link count; re-run, P2 is
+  killed. P5 (allow `${…}` in a template destination) survives and is
+  equivalent: such a destination can never textually equal the route asked
+  for. The control survived.
+
+### 2. The publish turn enforced at the write (`b49d8765`, with `1eab61c1`)
+
+**What was wrong (your reproduction).** A job checked its turn
+(`mayWriteConfig`), then wrote. Between the two it could pause inside its
+config read; its turn lapsed; another job took the turn and wrote newer
+settings; the first job resumed and answered ok while writing over the
+newer description and CSS. Another look at the turn before the write would
+not have closed this.
+
+**Now.** Every turn carries a fence larger than the one before
+(`nextGen`: above the stored turn's, never below the clock; kept through
+renewals and give-backs). Every write a job running beside others makes to
+the site's guarded keys (config, pointer, head marker, editable source,
+parts, kit) reads the key's stamped fence and etag, is refused when a
+larger fence is stamped there, and is written only on that etag, stamped
+with its own fence. A job that takes the turn stamps the pointer, the head
+and the config first, then puts the config level with the live site before
+it reads anything. So:
+
+- a stale config write, rollback or editable-state repair is refused at the
+  store, however long it paused after its last check;
+- a stale activation is refused at the pointer (the new holder's stamp
+  changed its etag; a stale holder also meets the larger fence);
+- a later config job never publishes a failed holder's abandoned settings:
+  its start puts the config back to the live version first.
+
+Jobs not running beside others (`PARALLEL_WRITES` off, which is today)
+write exactly as before. An owner's own settings write keeps the stamp.
+
+**Tests (`test/turn-fence.test.mjs`, 10 cases):**
+
+- TF1 your reproduction with the Worker's own `tryTurn`, `mayWriteConfig`
+  and `patchSiteConfig` and controlled storage: A refused, `ok: false`, B's
+  description and CSS stand.
+- Through the real Worker (queue, runner, routes, spine, ledger), with
+  supplied model answers and each pause placed exactly:
+  - TF2: a description job paused inside its config read;
+  - TF3: paused after its final check, before the write lands;
+  - TF4: its put-back after a failed compile, paused after its check;
+  - TF5: the editable-state repair, paused at its first write;
+  - TF6: the activation, paused at the pointer write;
+  - TF7: abandoned settings: a description job writes, fails, its put-back
+    does not land; a later brand change publishes the brand with the live
+    description, never the abandoned one.
+  In each, the newer holder's work stands, nothing stale is published, and
+  every reserve is refunded exactly once (TF6 is refused after the publish
+  gate, so the ledger holds it for review first, as it does any failure
+  past the gate; settled as never live, it is refunded once).
+- TF8: every job config write in `worker.js` carries its fence (7 found);
+  TF9 and TF10: the fence's rule, renewal, give-back, owner write.
+- CW1–CW12 (side-by-side overlap, both outcomes kept, each job charged
+  once) all still pass.
+- Red check: with the fence switched off (`jobFence` answering null, M12,
+  which is the old behaviour) TF1–TF4 and TF10 fail; TF1 then reproduces
+  your case exactly (A answers ok and B's description and CSS are gone).
+- Sweep (17 mutants, `worker.js` and `builder/publish-turn.mjs`, one
+  comment-only control): 15 killed, the control survived. Survivors: M14
+  (a job with a lost turn may attempt a write: refused anyway, since its
+  fence is 0 and any stamped key carries a larger one) and M15 (the spine's
+  pointer write unfenced: still refused, as superseded, because the new
+  holder's stamp changed the pointer's etag). The sweep was stopped twice
+  by its time limit; each time the files were checked against their
+  pre-sweep checksums before any commit, and the one live mutant left
+  (M16) was put back first.
+- `1eab61c1`: a logo source guard pinned the write's old ending; re-anchored
+  to the fenced call. The full suite found it (11027 tests, that one
+  failing); unit CI on `b49d8765` (run 38770004494) and `0bb6d062` (run
+  38771691905) failed on it too.
+
+### Verification (measured)
+
+- Full suite locally on `0bb6d062`: 11027 tests, 11026 pass, 1 fail (the
+  logo guard, fixed in `1eab61c1`; its file then 41/41).
+- Site build on `b49d8765`: green (run 38770004500).
+- Unit CI on `1eab61c1`: green (run 38772890211). The job log is not
+  readable from here, so its counts are not stamped.
+- Image prediction: `1eab61c1` → `30f4309d126be6dc` (208 inputs); `main`
+  (`c37cbc41`) is `e420b3c2d3224dd3`. A deploy of this branch would roll
+  the image.
+
+### Remaining gaps, live and otherwise
+
+- **The site script's upload is not fenced.** It is not an R2 write. A
+  holder that pauses after its pointer write and before its upload, while
+  another job takes the turn and publishes, could still upload its older
+  script. Not reproduced; recorded.
+- **Nothing to stamp:** a site that has never published under the version
+  layout has no pointer, and a legacy site with no R2 config object has no
+  config object; a stale write to either is not fenced.
+- **A refusal after the publish gate is held for review** before its
+  refund (the ledger's rule for any failure past the gate), not refunded at
+  once.
+- **Still not shown:** two real Workers racing the turn; any live overlap of
+  two writing jobs. The fixture honours R2's etag conditions as R2 does.
+
 ## 2026-10-15 (later) — The batch findings fixed together, offline; the publish turn's ownership review answered (branch only)
 
 **Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
