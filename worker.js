@@ -233,7 +233,7 @@ import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "
 // and the id is minted by `mintVersion` before the compile so the container
 // can bake it.
 import {
-  mintVersion, stageBuild, activateBuild, readPointer, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
+  mintVersion, stageBuild, activateBuild, readPointer, readPointerTag, POINTER_NONE, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
   assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY, HEAD_KEY,
   // THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05):
   // the marker every state copy ends with, and the repair a job makes before
@@ -9006,6 +9006,7 @@ async function patchConfigFenced(env, slug, db, patch, fence) {
     let o;
     try { o = await env.SITES_BUCKET.get(key); } catch (e) { return { ok: false, error: "store: " + String((e && e.message) || e) }; }
     if (o && storedFence(o) > fence.gen) return { ok: false, error: TURN_FENCED, fenced: true };
+    if (o && !sinceRead(o)) return { ok: false, error: "the config was read without its upload time — nothing written" };
     let config;
     if (o) {
       config = readConfig(await o.text());
@@ -9020,7 +9021,7 @@ async function patchConfigFenced(env, slug, db, patch, fence) {
     try {
       put = await env.SITES_BUCKET.put(key, writeConfig(withConfig(config, patch)), {
         httpMetadata: { contentType: "application/json; charset=utf-8" }, customMetadata: { fence: String(fence.gen) },
-        onlyIf: o ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" },
+        onlyIf: o ? sinceRead(o) : { etagDoesNotMatch: "*" },
       });
     } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
     if (put) return { ok: true };
@@ -11895,13 +11896,14 @@ async function restoreVersion(env, slug, id) {
       return { ok: false, status: 409, error: "that version's script was never saved, so it cannot be put back — pick another build, or make any change to publish a fresh one" };
     }
     if (!b.worker) return { ok: false, status: 409, error: "that version's script is missing, so it cannot be put back" };
-    let before = null;
-    try { before = await readPointer(deps, slug); }
+    let before = null; let beforeTag = null;
+    try { const t = await readPointerTag(deps, slug); before = t.pointer; beforeTag = t.etag; }
     catch { return { ok: false, status: 503, error: "the site's pointer could not be read — try again in a moment" }; }
     let wput = null;
     const act = await activateBuild(deps, {
       slug, version: id, build: b.manifest.build || "", parent: b.manifest.parent || "", job: null,
-      expectEtag: before ? before.etag : null,
+      // THE ETAG OF WHATEVER STANDS — a held empty pointer included.
+      expectEtag: beforeTag,
       previous: before || null,
       sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
@@ -11997,6 +11999,19 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
   try { pointer = await readPointer(deps, slug); }
   catch (e) { console.error("editable state: pointer unreadable for", slug, e && e.message); return { ok: false, why: "pointer" }; }
   if (!pointer) return { ok: true, why: "no-pointer" };
+  // THE LIVE SCRIPT, ASKED BY THE NEW HOLDER (2026-10-15): a holder that lost
+  // its turn may have uploaded its script after another publish moved the
+  // pointer and died before putting it right. A script that answers another
+  // version than the pointer's is replaced by the pointer's own. Asked only
+  // where the dispatch binding can be asked; a script that cannot be asked is
+  // left as it is.
+  if (fence && env.SITE_WORKERS) {
+    const live = await probeSiteWorker({ stubFor: (n) => env.SITE_WORKERS.get(n), name: scriptNameFor(slug) });
+    if (live && live.version && live.version !== pointer.version) {
+      const al = await alignLiveScript(env, slug);
+      console.log("editable state:", slug, "live script", live.version, "→", pointer.version, al.aligned ? "aligned" : "(" + al.why + ")");
+    }
+  }
   const head = await readHead(deps, slug);
   const need = repairNeeded({ pointer, head });
   // THE CONFIG'S MERGE: the version's baked look over what stands, through
@@ -12155,10 +12170,32 @@ function jobFence(env, job) {
   return { gen: Number(job.beside.turn.gen) || 0 };
 }
 const storedFence = (o) => { const n = Number(o && o.customMetadata && o.customMetadata.fence); return Number.isFinite(n) ? n : 0; };
+/**
+ * THE OBJECT AS READ, AND NO LATER WRITE OF IT (2026-10-15, after review):
+ * the etag AND the upload time. R2's etag is the body's MD5, so a rewrite of
+ * the same bytes — a new holder's stamp, or a repair that writes what was
+ * already there — keeps the etag, and a stale holder's write conditional on
+ * it alone lands. Every put moves the upload time, so `uploadedBefore` just
+ * past the time read refuses a write over ANY put since the read. Null when
+ * the read carries no upload time: nothing then proves the object unchanged,
+ * and the caller refuses rather than guess.
+ */
+function sinceRead(o) {
+  const t = o && o.uploaded instanceof Date ? o.uploaded.getTime() : Number.NaN;
+  if (!o || !o.etag || !Number.isFinite(t)) return null;
+  return { etagMatches: o.etag, uploadedBefore: new Date(t + 1) };
+}
 function fenceRefused(key) { const e = new Error(TURN_FENCED); e.code = "TURN_FENCED"; e.key = key; return e; }
 const isFenceRefusal = (e) => !!e && e.code === "TURN_FENCED";
 /** The guarded keys of a site: what a stale holder must never write. */
-const fencedKeys = (slug) => new Set([POINTER_KEY(slug), HEAD_KEY(slug), SOURCE_KEY(slug), PARTS_KEY(slug), KIT_KEY(slug), CONFIG_KEY(slug)]);
+const LIVE_KEY = (slug) => "sites/" + slug + "/" + SITE_LIVE_FILE;
+/**
+ * The guarded keys of a site: what a stale holder must never write. The
+ * sidecar and the live marker are among them (2026-10-15, after review): an
+ * activation that fails puts both back, and a stale holder's put-back would
+ * give the newer holder's live version the old head.
+ */
+const fencedKeys = (slug) => new Set([POINTER_KEY(slug), HEAD_KEY(slug), SOURCE_KEY(slug), PARTS_KEY(slug), KIT_KEY(slug), CONFIG_KEY(slug), siteMetaKey(slug), LIVE_KEY(slug)]);
 /**
  * ONE FENCED WRITE of a guarded key. Refused (throws `TURN_FENCED`) when the
  * fence is lost or the key carries a larger one. With the caller's own
@@ -12175,8 +12212,9 @@ async function fencedPut(env, key, body, { contentType = "application/json", onl
     if (onlyIf) {
       if (onlyIf.etagMatches != null && (!cur || cur.etag !== String(onlyIf.etagMatches))) return null;
       if (onlyIf.etagDoesNotMatch === "*" && cur) return null;
-      cond = onlyIf;
-    } else cond = cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" };
+    }
+    if (cur) { cond = sinceRead(cur); if (!cond) throw new Error("fenced write: " + key + " read without its upload time"); }
+    else cond = { etagDoesNotMatch: "*" };
     const put = await env.SITES_BUCKET.put(key, body, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
     if (put) return put;
     if (onlyIf) return null;
@@ -12192,32 +12230,97 @@ function fencedBuildDeps(env, slug, fence) {
 }
 /**
  * THE NEW HOLDER'S FIRST ACT: the pointer, the head marker and the config
- * stamped with its fence, each re-written as it stands on the etag read, so a
- * stale holder's write to any of them — and an activation keyed on the
- * pointer's earlier etag — is refused from here on. A key that carries this
- * fence already is left; one that carries a larger is a turn lost (throws).
+ * stamped with its fence, each re-written as it stands on the object read
+ * (`sinceRead`), so a stale holder's write to any of them — and an activation
+ * keyed on the pointer's earlier etag — is refused from here on. A key that
+ * carries this fence already is left; one that carries a larger is a turn
+ * lost (throws).
+ *
+ * A KEY THAT IS NOT THERE IS CREATED, held (2026-10-15, after review): a site
+ * with no pointer gets `POINTER_NONE`, read as no pointer, so a stale first
+ * activation (create-if-absent) meets an object; a site with no config object
+ * gets the config as it reads now — its legacy fields from the database, or
+ * empty — so a stale create meets one too. A legacy read that cannot be made
+ * refuses the stamp: cannot-tell is never written as empty. The head marker
+ * is left absent: the repair that follows writes it whenever a pointer
+ * stands, and nothing reads it without one.
  */
 async function stampFences(env, slug, fence) {
-  for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"]]) {
+  const absent = {
+    [POINTER_KEY(slug)]: async () => JSON.stringify(POINTER_NONE),
+    [HEAD_KEY(slug)]: null,
+    [CONFIG_KEY(slug)]: async () => {
+      let db = null;
+      try { db = await siteBackendBySlug(env, slug); }
+      catch (e) { throw new Error("fence stamp: the site's database could not be looked up for its config — " + errorClassForLog(e)); }
+      const cur = await loadConfig(configDeps(env, slug, db), slug);
+      if (!cur || !cur.ok) throw new Error("fence stamp: the config could not be read — " + String((cur && cur.why) || "store"));
+      return writeConfig(cur.config);
+    },
+  };
+  absent[siteMetaKey(slug)] = null;
+  absent[LIVE_KEY(slug)] = null;
+  for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"], [siteMetaKey(slug), "application/json"], [LIVE_KEY(slug), "text/plain"]]) {
     let done = false;
     for (let i = 0; i < 4 && !done; i++) {
       const o = await env.SITES_BUCKET.get(key);
-      if (!o) { done = true; break; }
+      if (!o) {
+        if (!absent[key]) { done = true; break; }
+        const body = await absent[key]();
+        // THE LEGACY READ MAY HAVE WRITTEN IT BACK ITSELF (`loadConfig`'s
+        // backfill): created only if still absent, read again otherwise.
+        const put = await env.SITES_BUCKET.put(key, body, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagDoesNotMatch: "*" } });
+        if (put) done = true;
+        continue;
+      }
       const had = storedFence(o);
       if (had > fence.gen) throw fenceRefused(key);
       if (had === fence.gen) { done = true; break; }
       const text = await o.text();
-      const put = await env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagMatches: o.etag } });
+      const cond = sinceRead(o);
+      if (!cond) throw new Error("fence stamp: " + key + " read without its upload time");
+      const put = await env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
       if (put) done = true;
     }
     if (!done) throw new Error("fence stamp: " + key + " kept changing");
   }
 }
 /**
+ * THE SITE'S SCRIPT FOLLOWS ITS POINTER (2026-10-15, after review). The
+ * script upload is not an R2 write and cannot be conditional, so it is
+ * guarded on both sides: before it, the uploader confirms the pointer still
+ * names its version under no later turn (`scriptStillOurs`); after it, the
+ * uploader reads the pointer again and, when another publish has moved it,
+ * uploads that version's own stored script (`alignLiveScript`); and a job
+ * that takes the turn asks the live script which version it serves and, when
+ * that is not the pointer's, uploads the pointer's (`ensureEditableState`).
+ */
+async function scriptStillOurs(env, slug, version, fence) {
+  try {
+    const o = await env.SITES_BUCKET.get(POINTER_KEY(slug));
+    if (!o || storedFence(o) > fence.gen) return false;
+    const p = JSON.parse(await o.text());
+    return !!p && p.version === version;
+  } catch { return false; }
+}
+/** Upload the stored script of the version the pointer names. `{ aligned, version, why }`. */
+async function alignLiveScript(env, slug) {
+  let pointer = null;
+  try { pointer = await readPointer(buildDeps(env), slug); } catch { return { aligned: false, why: "pointer" }; }
+  if (!pointer) return { aligned: false, why: "no-pointer" };
+  let staged = null;
+  try { staged = await readBuild(buildDeps(env), slug, pointer.version); } catch { staged = null; }
+  if (!staged || !staged.worker) return { aligned: false, version: pointer.version, why: "no-script-staged" };
+  const put = await putSiteWorker(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || pointer.build || "") });
+  const aligned = !!(put && put.ok === true);
+  console.log("site script: aligned to the pointer", slug, pointer.version, aligned ? "" : "(refused)");
+  return { aligned, version: pointer.version, why: aligned ? "" : "upload" };
+}
+/**
  * The turn's own functions, for the tests that drive a second holder against
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
-export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence };
+export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, alignLiveScript };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -14195,8 +14298,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // `published_at` IS WHAT THE TWO BILLING INTERLOCKS READ: finalize requires it
   // set, refund requires it null. The commit rides inside the activation, after
   // the upload, exactly where it always was.
-  let pointerBefore = null;
-  try { pointerBefore = await readPointer(buildDeps(env), slug); }
+  let pointerBefore = null; let pointerTag = null;
+  try { const t = await readPointerTag(buildDeps(env), slug); pointerBefore = t.pointer; pointerTag = t.etag; }
   catch (e) {
     tm("activate", "fail", { why: "pointer-unreadable" });
     return { ok: false, error: "pointer", ours: true, detail: ("the site's pointer could not be read: " + String((e && e.message) || e)).slice(0, 200) };
@@ -14218,7 +14321,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   try {
   act = await activateBuild(adeps, {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
-    expectEtag: pointerBefore ? pointerBefore.etag : null,
+    expectEtag: pointerTag,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
     // put it back instead of leaving the site pointing at a version nothing
     // serves. Null on a first activation, where the undo is a delete.
@@ -14248,7 +14351,22 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // told the typo is corrected. Same `uploaded`/`status`/`error` shape as
       // the build response, so one client branch reads both.
       tm("worker:put", "start");
+      // UNDER A TURN'S FENCE, THE SCRIPT FOLLOWS THE POINTER (2026-10-15):
+      // not uploaded when the pointer no longer names this version under no
+      // later turn — the activation then answers not served, as a refused
+      // upload does — and, once uploaded, put right when another publish
+      // has moved the pointer meanwhile.
+      if (fence && !(await scriptStillOurs(env, slug, version, fence))) {
+        loseTurn(job, slug, "the pointer was another turn's before this version's script went up");
+        wput = { ok: false, stage: "turn", status: 0, error: "turn-lost: another change holds the turn — this version's script was not uploaded" };
+        tm("worker:put", "fail", { why: "turn-lost" });
+        return wput;
+      }
       wput = await putSiteWorker(env, slug, built.worker);
+      if (fence && wput && wput.ok === true && !(await scriptStillOurs(env, slug, version, { gen: Number.MAX_SAFE_INTEGER }))) {
+        const al = await alignLiveScript(env, slug);
+        tm("worker:align", al.aligned ? "ok" : "fail", { version: al.version || "", why: al.why || "" });
+      }
       tm("worker:put", wput && (wput.ok === false || wput.uploaded === false) ? "fail" : "ok", { status: (wput && wput.status) || 0 });
       return wput;
     },
@@ -15419,8 +15537,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // the same job finds its own claim and goes on; the pointer's own etag
       // still decides between two of them.
       const fenced = await buildPublishGate(env, jobId);
-      let before = null;
-      try { before = await readPointer(buildDeps(env), slug); }
+      let before = null; let beforeTag = null;
+      try { const t = await readPointerTag(buildDeps(env), slug); before = t.pointer; beforeTag = t.etag; }
       catch (e) { console.error("pointer unreadable, activating over it:", slug, e && e.message); before = null; }
       const act = await activateBuild(buildDeps(env), {
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
@@ -15431,7 +15549,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // `b4300a07`), so what published can be attributed to it by evidence —
         // a lost build's recovery reads this, never a timestamp.
         slug, version: bVersion, build: (worker && worker.build) || "", parent: bParent, job: jobId && isResumeId(jobId) ? jobId : null,
-        expectEtag: before ? before.etag : null,
+        expectEtag: beforeTag,
         // THE POINTER AS IT WAS, so an activation whose script never landed can
         // put it back rather than leaving the site pointing at a version
         // nothing serves. Null on a first build, where the undo is a delete.

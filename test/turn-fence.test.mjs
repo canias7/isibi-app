@@ -171,7 +171,9 @@ test("TF2 A REAL CONFIG JOB PAUSED INSIDE ITS CONFIG READ — the description jo
     const job = editJobs(P, r.key)[0];
     assert.equal(job.state, "failed", JSON.stringify([job.state, JSON.stringify(job.result || null).slice(0, 400)]));
     assert.ok(!job.published_at, "the stale job published");
-    assert.equal(P.readObj(POINTER(P)), null, "the stale job moved the site's pointer");
+    // NO VERSION LIVE: at most the held empty pointer a takeover writes.
+    const ptr = P.readObj(POINTER(P));
+    assert.ok(!ptr || JSON.parse(ptr).none === true, "the stale job moved the site's pointer: " + ptr);
     { const c = chargedNothing(P, job.id); assert.ok(c.ok, "the stale job kept a charge or was refunded twice: " + JSON.stringify(c.rows)); }
     const turn = JSON.parse(P.readObj(TURN(P)));
     assert.equal(turn.owner, "job:newer:o2", "the stale job took the turn back or gave B's away");
@@ -245,11 +247,11 @@ async function publishedOnce(P) {
   assert.ok(P.readObj(POINTER(P)), "no pointer after the first publish");
   return job;
 }
-function visitSite(slug, extraRoutes = [], answers = {}) {
+function visitSite(slug, extraRoutes = [], answers = {}, opts = {}) {
   const compiler = installCompiler();
   let n = 0;
   const P = platform({
-    slug, pages: PAGES2, beside: true,
+    slug, pages: PAGES2, beside: true, ...opts,
     answers: {
       route: [ROUTE_VISIT, ...extraRoutes],
       [T.text]: async (args) => ({ edits: [{ id: lineId(args, "visit.tsx", n++ === 0 ? TT_FROM : TT_TO), to: n === 1 ? TT_TO : TT_LATER }] }),
@@ -443,4 +445,171 @@ test("TF10 THE FENCE OUTLIVES A RENEWAL AND A GIVE-BACK, AND A WRITE OUTSIDE ANY
     assert.ok(C.gen > B.gen, "a later turn's fence is not above the one given back");
     await siteTurn.giveTurn(P.env, P.slug, C);
   } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+// ── IDENTICAL BYTES, CONTENT ETAGS (2026-10-15, Codex's reproduction) ───────
+// R2 derives a single put's etag from the body's MD5, so the new holder's
+// stamp — the same bytes, a new fence in the metadata — keeps the etag. A
+// stale holder's write conditional on the etag alone then lands.
+test("TF11 A STALE HOLDER PAUSED BEFORE ITS CONDITIONAL PUT, OVER AN IDENTICAL-BYTES STAMP — A reads the config and pauses immediately before its put; its turn lapses; B takes the turn and its takeover stamps the unchanged config; A resumes: refused, the CSS unchanged, and B's higher fence kept", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("tf11"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    const before = P.readObj(CFG(P));
+    const A = await siteTurn.tryTurn(P.env, P.slug, "job:a:o1", "a");
+    const jobA = { id: "a", beside: { turn: A } };
+    let paused = false;
+    P.beforePut((k) => k === CFG(P) && (inside("patchSiteConfig") || inside("patchConfigFenced")), async () => {
+      paused = true;
+      const held = JSON.parse(P.readObj(TURN(P)));
+      P.writeObj(TURN(P), JSON.stringify({ ...held, until: 0 }));
+      B = await siteTurn.tryTurn(P.env, P.slug, "job:newer:o2", "newer");
+      const etagBefore = (await P.env.SITES_BUCKET.head(CFG(P))).etag;
+      const st = await siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } });
+      assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+      assert.equal(P.readObj(CFG(P)), before, "B's takeover changed the config's bytes — this case is about a stamp of identical bytes");
+      assert.equal((await P.env.SITES_BUCKET.head(CFG(P))).etag, etagBefore, "the store gave identical bytes a new etag: not R2's content etag");
+      assert.equal(P.metaOf(CFG(P)).fence, String(B.gen));
+    });
+    const w = await siteTurn.patchSiteConfig(P.env, P.slug, null, { css: ".stale { color: red; }" }, siteTurn.jobFence(P.env, jobA));
+    assert.ok(paused, "A's put was never paused");
+    assert.equal(w.ok, false, "A wrote over B's stamp: " + JSON.stringify(w));
+    assert.equal(P.readObj(CFG(P)), before, "A's stale CSS landed");
+    assert.equal(P.metaOf(CFG(P)).fence, String(B.gen), "A replaced B's higher fence with its own lower one");
+  } finally { if (B) await siteTurn.giveTurn(P.env, P.slug, B); await P.settle(); P.close(); compiler.uninstall(); }
+});
+
+// ── KEYS THAT ARE NOT THERE YET, AND THE SITE'S SCRIPT (2026-10-15) ─────────
+const LIVE = (P) => "sites/" + P.slug + "/site.live";
+
+test("TA1 A SITE WITH NO CONFIG OBJECT — A reads no config and pauses before its create; its turn lapses; B takes the turn, and its takeover creates the config as it reads now, stamped: A's create is refused, B's config and fence stand", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("ta1"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    P.objects.delete(CFG(P));
+    const A = await siteTurn.tryTurn(P.env, P.slug, "job:a:o1", "a");
+    const jobA = { id: "a", beside: { turn: A } };
+    let paused = false;
+    P.beforePut((k) => k === CFG(P) && inside("patchConfigFenced"), async () => {
+      paused = true;
+      assert.equal(P.readObj(CFG(P)), null, "the config was there before A's create — not this case");
+      const took = await lapseAndTake(P, siteTurn); B = took.B;
+      const st = await siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } });
+      assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+      assert.ok(P.readObj(CFG(P)), "B's takeover left the site with no config object to stamp");
+    });
+    // THROUGH THE PLATFORM'S STAND-INS, as a job runs: B's takeover looks the
+    // site's database up for its legacy config.
+    const w = await P.run(() => siteTurn.patchSiteConfig(P.env, P.slug, null, { css: ".stale { color: red; }" }, siteTurn.jobFence(P.env, jobA)));
+    assert.ok(paused, "A's create was never paused");
+    assert.equal(w.ok, false, "A created the config over B's: " + JSON.stringify(w));
+    assert.doesNotMatch(P.readObj(CFG(P)), /stale/, "A's stale CSS landed: " + P.readObj(CFG(P)) + " " + JSON.stringify(w));
+    assert.equal(P.metaOf(CFG(P)).fence, String(B.gen));
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+test("TA2 A SITE WITH NO POINTER — a page change on a site that has never published takes the turn and pauses at its first activation; its turn lapses and B takes it: B's takeover holds the empty pointer under its fence, the stale first activation is refused, and no version goes live", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { P, compiler } = visitSite(slugOf("ta2"));
+  let B = null; let paused = false;
+  try {
+    P.beforePut((k) => k === POINTER(P) && inside("activateBuild"), async () => {
+      paused = true;
+      const took = await lapseAndTake(P, siteTurn); B = took.B;
+      const st = await siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } });
+      assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+    });
+    const r = await runOne(P, TIKTOK + ".");
+    assert.ok(paused, "the first activation was never paused");
+    const ptr = P.readObj(POINTER(P));
+    assert.ok(ptr, "B's takeover held no pointer");
+    assert.equal(JSON.parse(ptr).none, true, "a version went live after the turn passed to B: " + ptr);
+    assert.equal(P.metaOf(POINTER(P)).fence, String(B.gen));
+    assert.equal(P.page("visit.tsx").includes(TT_TO), false, "the stale job's change reached the editable copy");
+    const job = editJobs(P, r.key)[0];
+    assert.equal(job.state, "failed", JSON.stringify([job.state, JSON.stringify(job.result || null).slice(0, 300)]));
+    assert.ok(!job.published_at, "the stale job was marked published");
+    if (P.jobs.get(job.id).needs_review) P.reconcile(job.id, false);
+    { const c = chargedNothing(P, job.id); assert.ok(c.ok, "the stale job kept a charge or was refunded twice: " + JSON.stringify(c.rows)); }
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+/** B, as a new holder that publishes an earlier version: takes the turn, stamps, moves the pointer there under its fence, and puts that version's script up. */
+async function bPublishes(P, siteTurn, version) {
+  const took = await lapseAndTake(P, siteTurn);
+  const st = await siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: took.B.owner, fence: { gen: took.B.gen } });
+  assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+  const cur = await P.env.SITES_BUCKET.head(POINTER(P));
+  const put = await siteTurn.fencedPut(P.env, POINTER(P), JSON.stringify({ version, build: "", parent: "", job: "newer", activatedAt: new Date().toISOString() }), { contentType: "application/json", onlyIf: { etagMatches: cur.etag }, fence: { gen: took.B.gen } });
+  assert.ok(put, "B could not move the pointer");
+  const al = await siteTurn.alignLiveScript(P.env, P.slug);
+  assert.equal(al.aligned, true, "B's script did not go up: " + JSON.stringify(al));
+  return took.B;
+}
+
+test("TS1 THE SCRIPT GUARD — a page change's activation moves the pointer and pauses before its script goes up; B takes the turn and publishes the earlier version with its own script: the stale job uploads nothing, the live script is B's, and it matches the pointer", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { P, compiler } = visitSite(slugOf("ts1"), [ROUTE_VISIT], {}, { liveScripts: true });
+  let B = null; let paused = false; let mark = 0;
+  try {
+    await publishedOnce(P);
+    const v0 = JSON.parse(P.readObj(POINTER(P))).version;
+    P.beforePut((k) => k === LIVE(P) && inside("activateBuild"), async () => {
+      paused = true;
+      B = await bPublishes(P, siteTurn, v0);
+      mark = P.uploads().length;
+    });
+    const r = await runOne(P, TIKTOK_LATER + ".");
+    assert.ok(paused, "the activation was never paused between its pointer and its script");
+    const after = P.uploads().slice(mark);
+    assert.deepEqual(after.map((u) => u.version), [], "the stale job uploaded a script after the turn passed to B: " + JSON.stringify(after));
+    assert.equal(P.liveScript(), v0, "the live script is not B's");
+    assert.equal(JSON.parse(P.readObj(POINTER(P))).version, v0, "the pointer is not B's");
+    const job = editJobs(P, r.key)[0];
+    assert.notEqual(job.state, "done", "the stale job was reported done");
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+test("TS2 THE SCRIPT FOLLOWS THE POINTER AFTER THE UPLOAD — a page change's script upload is held in flight; B takes the turn and publishes the earlier version; the stale upload lands: the stale job puts the pointer's own script back, and the live script matches the pointer", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { P, compiler } = visitSite(slugOf("ts2"), [ROUTE_VISIT], {}, { liveScripts: true });
+  let B = null; let paused = false;
+  try {
+    await publishedOnce(P);
+    const v0 = JSON.parse(P.readObj(POINTER(P))).version;
+    P.beforeUpload(async (text) => {
+      paused = true;
+      assert.doesNotMatch(text, new RegExp("site-version: " + v0 + "\\b"), "the held upload is not the new version's");
+      B = await bPublishes(P, siteTurn, v0);
+    });
+    await runOne(P, TIKTOK_LATER + ".");
+    assert.ok(paused, "the stale upload was never held");
+    assert.equal(JSON.parse(P.readObj(POINTER(P))).version, v0, "the pointer is not B's");
+    assert.equal(P.liveScript(), v0, "the stale upload left the live script on another version than the pointer's: " + JSON.stringify(P.uploads()));
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+test("TS3 THE NEW HOLDER PUTS THE SCRIPT RIGHT — the pointer names one version and the live script serves another (a stale upload whose holder died before putting it right): the next job to take the turn uploads the pointer's own script", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { P, compiler } = visitSite(slugOf("ts3"), [ROUTE_VISIT], {}, { liveScripts: true });
+  let C = null;
+  try {
+    await publishedOnce(P);
+    const v0 = JSON.parse(P.readObj(POINTER(P))).version;
+    await runOne(P, TIKTOK_LATER + ".");
+    const v1 = JSON.parse(P.readObj(POINTER(P))).version;
+    assert.notEqual(v1, v0, "the second publish did not land");
+    assert.equal(P.liveScript(), v1);
+    // THE STATE A DEAD STALE UPLOADER LEAVES: the pointer back on v0, the live script v1.
+    const p = JSON.parse(P.readObj(POINTER(P)));
+    P.writeObj(POINTER(P), JSON.stringify({ ...p, version: v0, parent: "" }));
+    C = await siteTurn.tryTurn(P.env, P.slug, "job:c:o3", "c");
+    const st = await P.run(() => siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: C.owner, fence: { gen: C.gen } }));
+    assert.equal(st.ok, true, JSON.stringify(st));
+    assert.equal(P.liveScript(), v0, "the new holder left the live script on another version than the pointer's");
+  } finally { await finish(P, compiler, siteTurn, C); }
 });

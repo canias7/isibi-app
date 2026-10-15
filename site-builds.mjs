@@ -174,16 +174,51 @@ export async function stageBuild(deps, { slug, version, files, worker, state, ma
  * serve path catches and falls back; a caller about to activate must not
  * guess at what it is replacing.
  */
+/**
+ * THE POINTER OF A SITE THAT HAS NOT PUBLISHED YET, HELD (2026-10-15, after
+ * review). A job that takes the site's publish turn while there is no pointer
+ * writes this, stamped with its fence, so a stale holder's first activation —
+ * create-if-absent — meets an object and is refused by the store. Read as no
+ * pointer by every reader; only an activation's condition reads its etag
+ * (`readPointerTag`).
+ */
+export const POINTER_NONE = Object.freeze({ v: 1, none: true });
+export const isPointerNone = (p) => !!p && p.none === true && !p.version;
+
 export async function readPointer(deps, slug) {
   const o = await deps.get(POINTER_KEY(slug));
   if (!o) return null;
   const p = JSON.parse(await o.text());
+  if (isPointerNone(p)) return null;
   if (!p || !isVersionId(p.version)) throw new Error("pointer unreadable");
   return {
     version: p.version, build: typeof p.build === "string" ? p.build : "",
     parent: isVersionId(p.parent) ? p.parent : "", job: typeof p.job === "string" ? p.job : null,
     activatedAt: typeof p.activatedAt === "string" ? p.activatedAt : "",
     etag: String(o.etag || ""),
+  };
+}
+
+/**
+ * The pointer AND the etag an activation is conditional on: the etag of
+ * whatever object stands there — a held empty pointer (`POINTER_NONE`)
+ * included — and null only when nothing does. A pointer that cannot be
+ * parsed throws, as `readPointer` does.
+ */
+export async function readPointerTag(deps, slug) {
+  const o = await deps.get(POINTER_KEY(slug));
+  if (!o) return { pointer: null, etag: null };
+  const p = JSON.parse(await o.text());
+  if (isPointerNone(p)) return { pointer: null, etag: String(o.etag || "") || null };
+  if (!p || !isVersionId(p.version)) throw new Error("pointer unreadable");
+  return {
+    pointer: {
+      version: p.version, build: typeof p.build === "string" ? p.build : "",
+      parent: isVersionId(p.parent) ? p.parent : "", job: typeof p.job === "string" ? p.job : null,
+      activatedAt: typeof p.activatedAt === "string" ? p.activatedAt : "",
+      etag: String(o.etag || ""),
+    },
+    etag: String(o.etag || "") || null,
   };
 }
 
@@ -339,6 +374,11 @@ export async function activateBuild(deps, {
       if (back) {
         // The ordinary case, and it is properly conditional.
         const r = await deps.put(POINTER_KEY(slug), JSON.stringify(back), "application/json", { etagMatches: moved.etag });
+        reverted = r !== null;
+      } else if (typeof expectEtag === "string" && expectEtag) {
+        // A HELD EMPTY POINTER WAS WHAT STOOD (`POINTER_NONE`): put back as it
+        // was, conditionally, so the hold it gave is kept.
+        const r = await deps.put(POINTER_KEY(slug), JSON.stringify(POINTER_NONE), "application/json", { etagMatches: moved.etag });
         reverted = r !== null;
       } else {
         // NO PREVIOUS POINTER — a first activation, so the undo is a delete,

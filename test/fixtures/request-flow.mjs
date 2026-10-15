@@ -24,7 +24,7 @@
 // code does with an answer, never what a real model answers.
 import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
@@ -62,13 +62,24 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false, liveScripts = false } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
   const objects = new Map();
-  let etagN = 0;
-  const setObj = (k, v, meta) => { objects.set(k, { body: typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v), etag: "e" + (++etagN), at: now(), ...(meta ? { customMetadata: meta } : {}) }); };
+  // THE ETAG IS THE BODY'S MD5 (2026-10-15, after review), as R2 answers a
+  // single put and as Miniflare derives it: rewriting the same bytes with
+  // only new metadata gives the SAME etag. A counter here once made every
+  // rewrite look like a change and hid a race that real R2 lets through.
+  // THE UPLOAD TIME IS THE STORE'S OWN CLOCK, strictly increasing per write,
+  // so a condition on it (`uploadedBefore`) is deterministic in a case.
+  let lastAt = 0;
+  const md5 = (body) => createHash("md5").update(body instanceof Uint8Array ? body : String(body)).digest("hex");
+  const setObj = (k, v, meta) => {
+    const body = typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v);
+    lastAt = Math.max(now(), lastAt + 1);
+    objects.set(k, { body, etag: md5(body), at: lastAt, ...(meta ? { customMetadata: meta } : {}) });
+  };
   setObj(SOURCE_KEY(slug), JSON.stringify(pages));
   setObj(PARTS_KEY(slug), JSON.stringify([]));
   setObj(CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Harbour Loaf", theme: "broadsheet", description: OLD_DESC }, css: "" }));
@@ -98,7 +109,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (ag >= 0) { const x = afterGets.splice(ag, 1)[0]; await x.then(k); }
       return read;
     },
-    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag, ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}) } : null; },
+    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag, uploaded: new Date(o.at), ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}) } : null; },
     async put(k, v, opts = {}) {
       // SOMETHING ELSE LANDS FIRST (`beforePut`): another tab's call between
       // this writer's read and its write, which then meets what that left.
@@ -108,6 +119,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const c = opts.onlyIf || {};
       if (c.etagMatches != null && (!cur || cur.etag !== String(c.etagMatches))) return null;
       if (c.etagDoesNotMatch != null && cur && (String(c.etagDoesNotMatch) === "*" || cur.etag === String(c.etagDoesNotMatch))) return null;
+      // THE UPLOAD-TIME CONDITIONS, as R2 states them: before / after the date
+      // given, compared to the millisecond; a missing object fails either.
+      if (c.uploadedBefore != null && (!cur || !(cur.at < new Date(c.uploadedBefore).getTime()))) return null;
+      if (c.uploadedAfter != null && (!cur || !(cur.at > new Date(c.uploadedAfter).getTime()))) return null;
       const body = v instanceof ArrayBuffer ? new Uint8Array(v) : v instanceof Uint8Array ? v : String(v);
       // A WRITE THAT FAILS OUTRIGHT (`failPut`), or one that LANDS AND NEVER
       // ANSWERS (`hangPut`): the store down, or the writer evicted after it.
@@ -137,7 +152,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // EVERY JOB'S STORED REQUEST, KEPT FOR THE CASE: the consumer deletes the
       // object once it has read it, as it should.
       if (k.startsWith("jobs/edit/")) { try { filed.set(k.slice("jobs/edit/".length), JSON.parse(String(body))); } catch { /* not a job */ } }
-      return { key: k, etag: objects.get(k).etag };
+      return { key: k, etag: objects.get(k).etag, uploaded: new Date(objects.get(k).at) };
     },
     async delete(k) {
       for (const x of Array.isArray(k) ? k : [k]) {
@@ -178,6 +193,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const readFaults = [];
   const beforePuts = [];
   const afterGets = [];
+  const uploads = [];
+  const beforeUploads = [];
+  const scriptText = async (body) => {
+    try {
+      if (body && typeof body.entries === "function") {
+        let out = "";
+        for (const [, v] of body.entries()) out += typeof v === "string" ? v : (v && typeof v.text === "function" ? await v.text() : "");
+        return out;
+      }
+      return typeof body === "string" ? body : "";
+    } catch { return ""; }
+  };
   const beforeDeletes = [];
   const rpcFaults = [];
   let sendHangs = 0;
@@ -643,7 +670,17 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     }
     if (url.includes("/rest/v1/credits")) return resp([{ balance: credits.balance }]);
     if (url.includes("/v1/messages")) return model(args, (init && init.signal) || (input && input.signal) || null);
-    if (isDispatchUpload(url)) return dispatchOk();
+    if (isDispatchUpload(url)) {
+      // EVERY SITE-SCRIPT UPLOAD, KEPT (2026-10-15): the version and build the
+      // script names, in order — the last one is the live script. A case may
+      // hold one (`beforeUpload`) between the request and its landing.
+      const text = await scriptText(init && init.body);
+      const bu = beforeUploads.shift();
+      if (bu) await bu(text);
+      const v = /\/\/ site-version: (\S*)/.exec(text), b = /\/\/ site-build: (\S*)/.exec(text);
+      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now() });
+      return dispatchOk();
+    }
     // NOT SET UP FOR (2026-10-09, round 4): answered 503 as before, and
     // recorded, so a case can assert that nothing unexpected was asked for.
     unexpected.push({ method, url });
@@ -653,6 +690,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
     EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}), ...(beside ? { PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" } : {}),
+    // THE LIVE SCRIPT, ASKED (`liveScripts`, 2026-10-15): the dispatch stub
+    // answers the probe with the last uploaded script's own stamps, as a
+    // deployed site script does on every response.
+    ...(liveScripts ? { SITE_WORKERS: { get: () => ({ fetch: async () => {
+      const last = uploads[uploads.length - 1];
+      const h = new Headers();
+      if (last) { h.set("x-site-build", last.build); if (last.version) h.set("x-site-version", last.version); }
+      return new Response("ok", { status: 200, headers: h });
+    } }) } } : {}),
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }
@@ -761,6 +807,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     beforePut(match, then) { beforePuts.push({ match, then }); },
     /** After the next read of a key `match(key)` accepts has taken its snapshot, run `then(key)`; the reader then goes on with what it read. */
     afterGet(match, then) { afterGets.push({ match, then }); },
+    /** Before the next site-script upload lands, run `then(scriptText)`; the upload then goes ahead. */
+    beforeUpload(then) { beforeUploads.push(then); },
+    /** Every site-script upload so far: `{ version, build, at }`, in order. */
+    uploads() { return uploads.slice(); },
+    /** The live script's version: the last upload's, or null before any. */
+    liveScript() { return uploads.length ? uploads[uploads.length - 1].version : null; },
     /** A stored object's custom metadata, or null. */
     metaOf(key) { const o = objects.get(key); return o && o.customMetadata ? { ...o.customMetadata } : null; },
     /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */

@@ -383,7 +383,10 @@ test("both publish paths mint the version before the compile, send it in the pay
   const activate = spine.indexOf("await activateBuild(adeps, {");
   assert.ok(stage > 0 && gate > stage && activate > gate, "the spine does not stage BEFORE the gate and activate AFTER it");
   assert.doesNotMatch(spine, /writeSiteDistToR2\(|archiveVersion\(|sweepAfterPublish\(/, "the spine still writes the live prefix, archives by copy, or sweeps it");
-  assert.match(spine, /expectEtag: pointerBefore \? pointerBefore\.etag : null,/, "the spine's activation is not conditional on the pointer it read after the gate");
+  // KEYED ON THE ETAG OF WHATEVER STANDS (2026-10-15): a held empty pointer
+  // included (`readPointerTag`), read after the gate.
+  assert.match(spine, /expectEtag: pointerTag,/, "the spine's activation is not conditional on the pointer it read after the gate");
+  assert.ok(spine.indexOf("readPointerTag(buildDeps(env), slug)") > gate, "the pointer the activation is keyed on is not read after the gate");
   assert.match(spine, /keep: \[version, parentVersion\]/, "pruning does not keep the pointer's version and its parent");
   // A STAGE OR AN ACTIVATION THAT FAILED IS A REFUSAL, named, ours — never a
   // publish reported over a prefix that is not there or a pointer that did

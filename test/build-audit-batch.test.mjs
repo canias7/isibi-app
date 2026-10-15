@@ -630,7 +630,8 @@ test("N2: the build's publish passes the gate right before the pointer, records 
   const blank = (s) => s.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
   const code = blank(W);
   const gate = code.indexOf("const fenced = await buildPublishGate(env, jobId);");
-  const ptr = code.indexOf("before = await readPointer(buildDeps(env), slug);", gate);
+  // THE POINTER AND ITS ETAG FROM ONE READ (2026-10-15: `readPointerTag`, so a held empty pointer's etag keys the activation too).
+  const ptr = code.indexOf("const t = await readPointerTag(buildDeps(env), slug); before = t.pointer; beforeTag = t.etag;", gate);
   const act = code.indexOf("const act = await activateBuild(buildDeps(env), {", gate);
   assert.ok(gate > 0 && ptr > gate && act > ptr && act - gate < 400, "the gate is not the last step before activation");
   assert.match(code.slice(act, act + 4000), /if \(!act \|\| act\.ok !== true\) \{\s*if \(fenced\) await markPublishFailed\(env, jobId\);[\s\S]*?\}\s*if \(fenced\) await markPublished\(env, jobId, bVersion\);/);
