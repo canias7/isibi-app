@@ -12056,14 +12056,14 @@ async function turnStillMine(env, slug, job) {
   return held === true;
 }
 /**
- * A JOB'S CONFIG WRITE — its look or logo, an addition's look, the put-back of
- * either — made only while the job may write the site (`turnStillMine`). A
- * job that lost its turn writes nothing: its put-back would overwrite the
- * config of the job that took the turn. Answers `patchSiteConfig`'s shape.
+ * BEFORE A JOB'S CONFIG WRITE — its look or logo, an addition's look, the
+ * put-back of either: a job that lost its turn writes nothing, since its
+ * put-back would overwrite the config of the job that took the turn. Throws,
+ * for the write's own catch to refuse as it refuses a failed write.
  */
-async function jobConfigWrite(env, slug, job, db, patch) {
-  if (!(await turnStillMine(env, slug, job))) return { ok: false, error: "turn-lost: this change no longer holds the turn to write the site" };
-  return patchSiteConfig(env, slug, db, patch);
+const TURN_LOST_WRITE = "turn-lost: this change no longer holds the turn to write the site";
+async function mayWriteConfig(env, slug, job) {
+  if (!(await turnStillMine(env, slug, job))) throw new Error(TURN_LOST_WRITE);
 }
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -29493,7 +29493,8 @@ async function handleRequest(request, env, ctx) {
               if (!eConfigWritten) return true;
               try {
                 if (!preEditConfig) throw new Error("no snapshot to restore from");
-                const back = await jobConfigWrite(env, ownerSlug, eJob, await siteBackendBySlug(env, ownerSlug), preEditConfig);
+                await mayWriteConfig(env, ownerSlug, eJob);
+                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
                 if (!back.ok) throw new Error(back.error);
                 return true;
               } catch (e) {
@@ -31943,7 +31944,8 @@ async function handleRequest(request, env, ctx) {
                   if (!c.ok) throw new Error(c.why + ": " + c.error);
                   const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
                   const next = url ? { form: "image", url } : markRemove(c.config, field);
-                  const w = await jobConfigWrite(env, ownerSlug, eJob, ldb, { look: { ...look, [field]: next } });
+                  await mayWriteConfig(env, ownerSlug, eJob);
+                  const w = await patchSiteConfig(env, ownerSlug, ldb, { look: { ...look, [field]: next } });
                   // A DISCARDED FAILURE HERE IS A CUSTOMER TOLD THEIR LOGO
                   // LANDED while the next publish serves the site without it.
                   // The lane's own catch turns this into its refusal.
@@ -32694,7 +32696,8 @@ async function handleRequest(request, env, ctx) {
                 // sheet is named at all: `nextCss` equals `priorCss` unless a
                 // usable one came back, and `withConfig`'s absent-means-unchanged
                 // rule is what keeps a look-only edit off the stylesheet.
-                const w = await jobConfigWrite(env, ownerSlug, eJob, edb,
+                await mayWriteConfig(env, ownerSlug, eJob);
+                const w = await patchSiteConfig(env, ownerSlug, edb,
                   cssMoved ? { look: merged, css: nextCss } : { look: merged });
                 if (!w.ok) throw new Error(w.error);
                 eConfigWritten = true;
@@ -32789,7 +32792,8 @@ async function handleRequest(request, env, ctx) {
                   // longer a way to put the sheet back through `JSON.stringify`
                   // and store a quoted, escaped copy the container would hand to
                   // the browser as one string literal.
-                  const w = await jobConfigWrite(env, ownerSlug, eJob, edb,
+                  await mayWriteConfig(env, ownerSlug, eJob);
+                  const w = await patchSiteConfig(env, ownerSlug, edb,
                     cssMoved ? { look: priorLook, css: priorCss } : { look: priorLook });
                   if (!w.ok) throw new Error(w.error);
                 } catch (e) {
@@ -34281,7 +34285,7 @@ async function handleRequest(request, env, ctx) {
                 editTrace.mark("lane:correct", fix.failed ? "fail" : "ok",
                   { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
-                  const put = await jobConfigWrite(env, ownerSlug, eJob, cssCtx.edb, { css: fix.value });
+                  const put = (await turnStillMine(env, ownerSlug, eJob)) ? await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value }) : { ok: false, error: TURN_LOST_WRITE };
                   // EVERY WRITE SETS THE FLAG AT ITS OWN LINE, this one included,
                   // though today it is already set: the hand-over this round
                   // needs is made only after the look step's own write
@@ -39031,8 +39035,13 @@ async function handleRequest(request, env, ctx) {
             // strictly SMALLER, so it cannot have introduced an unreverted
             // refusal of its own.
             let aStored = false;
+            // A JOB THAT LOST THE SITE'S TURN STORES NO LOOK (2026-10-15): it
+            // would be written over the config of the job that took it.
+            if (aLookPatch && !(await turnStillMine(env, ownerSlug, aJob))) {
+              return aFail({ ok: false, error: "turn-lost", ours: true, cost: 0, msg: "That addition wasn't published — another change in the same request took its turn to publish. Send it again." }, 503);
+            }
             if (aLookPatch) {
-              const w = await jobConfigWrite(env, ownerSlug, aJob, adb, aLookPatch);
+              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
               if (!w.ok) {
                 console.error("addon look store failed:", ownerSlug, w.error);
                 // "UNTOUCHED" ONLY WHEN IT IS (2026-10-06): a database made for
@@ -39426,8 +39435,11 @@ async function handleRequest(request, env, ctx) {
               // the next publish of any kind ships it. This route's own comment
               // above the store names the risk ("a restore … can itself fail").
               let aKept = false;
-              if (aStored) {
-                const back = await jobConfigWrite(env, ownerSlug, aJob, adb, { look: aLook, css: aCss });
+              // NOT PUT BACK BY A JOB THAT LOST THE SITE'S TURN (2026-10-15): the
+              // job that took it may have written the config since; kept, said.
+              if (aStored && !(await turnStillMine(env, ownerSlug, aJob))) { aKept = true; console.error("addon look revert skipped: the turn is no longer this job's", ownerSlug); }
+              else if (aStored) {
+                const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
                 if (!back.ok) { aKept = true; console.error("addon look revert failed:", ownerSlug, back.error); }
               }
               // ── WHAT STANDS IN THE DATABASE IS SAID (stage 8) ──────────────
