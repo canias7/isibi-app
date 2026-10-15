@@ -63,6 +63,8 @@ applied, and the switch is off. There is no live proof. The full record is
   - the switch-off control.
 
   Each check was red-checked against a mutant of the code it guards.
+  Full offline suite on `6f343e7a`: 10,993 of 10,993. Mutation sweep:
+  22 of 24 caught, the other two unable to change any outcome.
 - **Not shown:**
   - a look or logo step beside a text step through the Worker (only the
     rule is tested);

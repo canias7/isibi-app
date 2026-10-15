@@ -159,7 +159,7 @@ list, and none was a behaviour regression. The second run on `f19da1e6`
 gave 10,991 of 10,992. The last failure was the editable-reader census:
 the publish path read the source directly. It now checks the editable state
 as the turn's holder and reads through `loadSiteSourceForEdit`. The suite
-on the next commit is recorded below once it has run.
+on the next commit is `6f343e7a`: **10,993 / 10,993 / 0 / 0** locally (full offline suite).
 
 ## Not done, not shown
 
