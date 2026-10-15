@@ -462,7 +462,7 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   // WRITTEN BACK ONLY WHEN IT MOVED, so an ordinary publish costs no database
   // write either.
   assert.match(body, /if \(langsChanged\)/);
-  assert.match(body, /patchSiteConfig\(env, slug, db, \{ langStrings: nextStrings \}\)/,
+  assert.match(body, /patchSiteConfig\(env, slug, db, \{ langStrings: nextStrings \}, jobFence\(env, job\)\)/,
     "the spine never writes the translation cache back");
 });
 

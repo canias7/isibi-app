@@ -237,7 +237,7 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
   // FROM `kitList`, which the store and a version's state both read
   // (2026-10-08, H5), so the two can never disagree on what is kept.
   const save = WORKER.slice(WORKER.indexOf("function kitList(kit) {"), WORKER.indexOf("async function loadSiteKit("));
-  assert.match(save, /async function saveSiteKit\(env, slug, kit\) \{[\s\S]*?const list = kitList\(kit\);/, "the store does not keep what kitList keeps");
+  assert.match(save, /async function saveSiteKit\(env, slug, kit, fence = null\) \{[\s\S]*?const list = kitList\(kit\);/, "the store does not keep what kitList keeps");
   assert.ok(save.length > 300, "re-derive the save function's window");
   assert.match(save, /foundationPaths\(\)/, "the store does not subtract the bundled files, so the tree shows them twice");
   assert.match(save, /!have\.has\(f\.path\)/, "the subtraction is not applied");
@@ -327,7 +327,7 @@ test("DRIVEN: the store subtracts what the browser already gets, DERIVED from th
     konst("KIT_KEY"),
     fnOut("function foundationPaths() {", "\n}"),
     fnOut("function kitList(kit) {", "\n}"),
-    fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
+    fnOut("async function saveSiteKit(env, slug, kit, fence = null) {", "\n}"),
     "return { saveSiteKit, foundationPaths };",
   ].join("\n"));
 
@@ -379,7 +379,7 @@ test("DRIVEN: a bucket that will not take the write is said, never thrown", () =
     WORKER.slice(at, WORKER.indexOf("\n", at)),
     fnOut("function foundationPaths() {", "\n}"),
     fnOut("function kitList(kit) {", "\n}"),
-    fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
+    fnOut("async function saveSiteKit(env, slug, kit, fence = null) {", "\n}"),
     "return { saveSiteKit };",
   ].join("\n"))([], { error: () => {} });
   // A PUBLISH IS LIVE BY THE TIME THIS RUNS. A store that throws here would take

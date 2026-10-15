@@ -335,7 +335,7 @@ test("the publish gate precedes every R2 write in the spine", () => {
                            at(CODE, "async function siteRedirectFor", "spine end"));
   const gate = spine.indexOf("edit_may_publish");
   const stage = spine.indexOf("stageBuild(buildDeps(env), {");
-  const activate = spine.indexOf("activateBuild(buildDeps(env), {");
+  const activate = spine.indexOf("activateBuild(adeps, {");
   const source = spine.indexOf("saveSiteSource");
   const put = spine.indexOf("putSiteWorker");
   assert.ok(gate > 0, "the publish gate is gone from the spine");

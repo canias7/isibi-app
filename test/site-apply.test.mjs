@@ -2274,7 +2274,7 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   const at = b.indexOf('error: "compile"', from);
   assert.ok(at > from, "the look lane has no compile-failure branch");
   const before = b.slice(from, at);
-  assert.match(before, /patchSiteConfig\(env, ownerSlug, edb,\s*\n\s*cssMoved \? \{ look: priorLook, css: priorCss \} : \{ look: priorLook \}\)/,
+  assert.match(before, /patchSiteConfig\(env, ownerSlug, edb,\s*\n\s*cssMoved \? \{ look: priorLook, css: priorCss \} : \{ look: priorLook \}, jobFence\(env, eJob\)\)/,
     "a failed look compile no longer restores the stored look");
   // AND EVERY FIELD IT MOVED WITH IT. They are separate config fields precisely
   // so a colour change cannot lose a logo, which means a rollback that puts only

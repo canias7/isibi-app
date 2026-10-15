@@ -79,7 +79,7 @@ test("the spine offers a seam between the compile's verdict and the first write,
   // staging, because what it answers is what gets staged; this read
   // `writeSiteDistToR2` after the gate and went red for the change.
   const write = spine.indexOf("await stageBuild(buildDeps(env), {");
-  const live = spine.indexOf("await activateBuild(buildDeps(env), {");
+  const live = spine.indexOf("await activateBuild(adeps, {");
   assert.ok(verdict > 0 && deadCss > verdict && seamAt > deadCss, "the seam runs before the compile is judged or before a dead stylesheet is refused");
   assert.ok(write > seamAt && gate > write && live > gate, "the seam runs after the first write, or the staging is not before the gate, or the activation not after it");
   // What the hook is handed: the build, the pages, the site's languages, the

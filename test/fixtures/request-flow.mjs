@@ -74,6 +74,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   setObj(CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Harbour Loaf", theme: "broadsheet", description: OLD_DESC }, css: "" }));
   const asObj = (k, o) => ({
     key: k, etag: o.etag, uploaded: new Date(o.at),
+    // ITS CUSTOM METADATA, as R2 answers it on a read (2026-10-15): the turn's
+    // fence a guarded key is stamped with.
+    ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}),
     text: async () => (o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     json: async () => JSON.parse(o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     arrayBuffer: async () => (o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(o.body)).slice().buffer,
@@ -86,9 +89,16 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // READS LET THROUGH, THEN FAILED (`failGetFrom`, round 14): the first
       // `skip` matching reads answer, the next `count` fail.
       for (const c of countedGets) { if (c.match(k) && c.seen++ >= c.skip && c.failed < c.count) { c.failed++; throw new Error("r2 unavailable"); } }
-      const o = objects.get(k); return o ? asObj(k, o) : null;
+      const o = objects.get(k);
+      const read = o ? asObj(k, o) : null;
+      // A READ HELD AFTER IT WAS TAKEN (`afterGet`, 2026-10-15): the reader has
+      // its snapshot and its etag, and pauses before it goes on — another job
+      // acts meanwhile, and the reader resumes with what it read.
+      const ag = afterGets.findIndex((x) => x.match(k));
+      if (ag >= 0) { const x = afterGets.splice(ag, 1)[0]; await x.then(k); }
+      return read;
     },
-    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag } : null; },
+    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag, ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}) } : null; },
     async put(k, v, opts = {}) {
       // SOMETHING ELSE LANDS FIRST (`beforePut`): another tab's call between
       // this writer's read and its write, which then meets what that left.
@@ -167,6 +177,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // A READ OF THE JOB TABLE THAT FAILS (`failRead`, 2026-10-06): the service down for that one call.
   const readFaults = [];
   const beforePuts = [];
+  const afterGets = [];
   const beforeDeletes = [];
   const rpcFaults = [];
   let sendHangs = 0;
@@ -748,6 +759,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     failRead(match) { readFaults.push({ match }); },
     /** Before the next write to a key `match(key)` accepts, run `then(key)`; the write then meets what it left. */
     beforePut(match, then) { beforePuts.push({ match, then }); },
+    /** After the next read of a key `match(key)` accepts has taken its snapshot, run `then(key)`; the reader then goes on with what it read. */
+    afterGet(match, then) { afterGets.push({ match, then }); },
+    /** A stored object's custom metadata, or null. */
+    metaOf(key) { const o = objects.get(key); return o && o.customMetadata ? { ...o.customMetadata } : null; },
     /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */
     beforeDelete(match, then) { beforeDeletes.push({ match, then }); },
     /** The next call to `fn` (or the first whose `when(args)` holds) is refused before it lands. */

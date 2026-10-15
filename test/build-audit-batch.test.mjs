@@ -762,7 +762,7 @@ test("H5: both publish paths mark the editable copy current only when every save
   const build = blank(W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("await writeHead(buildDeps(env), slug, bVersion);") + 60));
   assert.ok(build.length > 100 && build.length < 3000, "the build's afterActivate window moved: " + build.length);
   assert.match(build, /editableStored = sourceStored === true && partsStored === true && kitStored === true;\s*if \(!editableStored\) \{[\s\S]*?return;\s*\}\s*await writeHead/);
-  const spine = blank(W.slice(W.indexOf("const saved = { source: await saveSiteSource(env, slug, pages) };"), W.indexOf("await writeHead(buildDeps(env), slug, version);") + 60));
+  const spine = blank(W.slice(W.indexOf("const saved = { source: await saveSiteSource(env, slug, pages, fence) };"), W.indexOf("await writeHead(adeps, slug, version);") + 60));
   assert.ok(spine.length > 100 && spine.length < 3000, "the spine's afterActivate window moved: " + spine.length);
   assert.match(spine, /if \(unsaved\.length\) \{ tm\("r2:head", "fail"[^\n]*return; \}\s*await writeHead/);
 });

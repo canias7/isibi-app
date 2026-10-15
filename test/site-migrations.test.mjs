@@ -366,7 +366,7 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
   assert.match(fail, /migration: migrationSummary\(aMigration\),/, "the failure reply does not carry the record");
   assert.match(fail, /\}, aSchemaFail \? 502 : 422, \{ database: aDb, saved: aKept, photos: \(aPhotos && aPhotos\.made\) \|\| 0 \}\);/, "a refused apply is not a 502, or the failure door is not told what the publish left behind");
   // The revert of the look still comes first.
-  assert.ok(at(fail, "patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss })", "the look revert") < at(fail, "const aSchemaFail", "the schema test"), "the look is not put back before the record is read");
+  assert.ok(at(fail, "patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss }, jobFence(env, aJob))", "the look revert") < at(fail, "const aSchemaFail", "the schema test"), "the look is not put back before the record is read");
   // The applied mark sits AFTER the failure branch (a failed publish never
   // reaches it) and BEFORE the success reply (which carries it).
   assert.ok(!fail.includes('"applied",'), "the applied mark sits inside the failure branch");

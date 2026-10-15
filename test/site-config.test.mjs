@@ -321,7 +321,7 @@ test("the Worker reads and writes through this module and nowhere else", () => {
     "worker.js does not import the config store — a name it never imported is a ReferenceError on the build path");
   // BOTH ENDS, because either alone passes while the other is cut.
   assert.match(w, /async function readSiteConfig\(env, slug, db, options\)/, "the Worker has no config reader");
-  assert.match(w, /async function patchSiteConfig\(env, slug, db, patch\)/, "the Worker has no config writer");
+  assert.match(w, /async function patchSiteConfig\(env, slug, db, patch, fence = null\)/, "the Worker has no config writer");
   assert.ok((w.match(/readSiteConfig\(env,/g) || []).length >= 4, "fewer readers than lanes — the scan stopped matching");
   assert.ok((w.match(/patchSiteConfig\(env,/g) || []).length >= 5, "fewer writers than lanes — the scan stopped matching");
 
@@ -391,7 +391,7 @@ test("a write refuses when the current config could not be read", () => {
   // keep one. `patchSiteConfig` answers rather than throwing, so a config write
   // can never lose a build that has already succeeded.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("async function patchSiteConfig(env, slug, db, patch)");
+  const at = w.indexOf("async function patchSiteConfig(env, slug, db, patch, fence = null)");
   const fn = w.slice(at, w.indexOf("\n}\n", at));
   assert.match(fn, /if \(!cur\.ok\) return \{ ok: false/,
     "a patch writes over a config it could not read");

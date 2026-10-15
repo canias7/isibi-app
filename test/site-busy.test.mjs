@@ -718,7 +718,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   // THE MARKER, LAST, ON EVERY COPY: the spine's, the build's, the restore's.
   const spine = fnW("recompileAndPublish");
   const marks = spine.indexOf("await saveLandmarks(env, slug, built.render && built.render.landmarks);");
-  const head = spine.indexOf("await writeHead(buildDeps(env), slug, version);");
+  const head = spine.indexOf("await writeHead(adeps, slug, version);");
   assert.ok(marks > 0 && head > marks, "the spine's copy does not end with the marker");
   const buildPath = W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("keep: (answer) => saveGenAnswer(env, slug, answer),"));
   // RE-ANCHORED 2026-09-12, not appeased. This required `saveSiteParts` and
@@ -749,7 +749,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.match(fix, /await repairEditable\(deps, \{ slug, version: pointer\.version, keys: \{ source: SOURCE_KEY\(slug\), parts: PARTS_KEY\(slug\), kit: KIT_KEY\(slug\) \}, mergeConfig \}\);/,
     "the repair does not copy into the editable keys from the pointer's version");
   assert.match(fix, /if \(sameJson\(repairConfigOf\(cur\.config\), want\)\) return false;/, "the config is written without drift");
-  assert.match(fix, /const w = await patchSiteConfig\(env, slug, null, want\);/, "the config is not put back through the site's own patch");
+  assert.match(fix, /const w = await patchSiteConfig\(env, slug, null, want, fence\);/, "the config is not put back through the site's own patch");
   assert.doesNotMatch(fix, /langStrings/, "the repair names the translation cache");
   assert.match(fix, /buildPrefix\(slug, pointer\.version\) \+ STATE_DIR \+ "config\.json"/, "the config belt does not read the pointer's version");
 });

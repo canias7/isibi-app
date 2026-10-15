@@ -30,9 +30,24 @@ export const TURN_TTL_MS = 10 * 60 * 1000;
 /** How often a job waiting for the turn looks again. */
 export const TURN_POLL_MS = 3000;
 
-/** A turn record for its holder. */
-export function turnRecord(owner, now = Date.now(), job = "") {
-  return { v: 1, owner: String(owner), job: String(job || ""), at: now, until: now + TURN_TTL_MS };
+/**
+ * A turn record for its holder. `gen` is the turn's FENCE (2026-10-15, after
+ * review): every turn taken carries a larger one than the turn before it
+ * (`nextGen`), and every write a holder makes to the site's guarded keys is
+ * stamped with it — so a holder whose turn has passed to another is refused
+ * by the store itself, at the write, not by an earlier look at the turn.
+ */
+export function turnRecord(owner, now = Date.now(), job = "", gen = 0) {
+  return { v: 1, owner: String(owner), job: String(job || ""), at: now, until: now + TURN_TTL_MS, gen: Number.isFinite(gen) ? gen : 0 };
+}
+/**
+ * The fence for the next turn: larger than the stored turn's, and never
+ * below the clock, so a turn object lost or unreadable still yields a fence
+ * above every one already written.
+ */
+export function nextGen(stored, now = Date.now()) {
+  const prev = stored && stored.turn && Number.isFinite(stored.turn.gen) ? stored.turn.gen : 0;
+  return Math.max(prev + 1, now);
 }
 
 /**
@@ -44,7 +59,7 @@ export function readTurn(text) {
   let v;
   try { v = JSON.parse(String(text)); } catch { return null; }
   if (!v || typeof v !== "object" || v.v !== 1 || typeof v.owner !== "string" || !v.owner || !Number.isFinite(v.until)) return null;
-  return { owner: v.owner, job: typeof v.job === "string" ? v.job : "", at: Number.isFinite(v.at) ? v.at : 0, until: v.until };
+  return { owner: v.owner, job: typeof v.job === "string" ? v.job : "", at: Number.isFinite(v.at) ? v.at : 0, until: v.until, gen: Number.isFinite(v.gen) ? v.gen : 0 };
 }
 
 /**

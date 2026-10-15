@@ -380,7 +380,7 @@ test("both publish paths mint the version before the compile, send it in the pay
   assert.match(spine, /version, parent: parentVersion \|\| undefined,/, "the spine's payload does not carry the version and its parent");
   const stage = spine.indexOf("await stageBuild(buildDeps(env), {");
   const gate = spine.indexOf('await editRpc(env, "edit_may_publish"');
-  const activate = spine.indexOf("await activateBuild(buildDeps(env), {");
+  const activate = spine.indexOf("await activateBuild(adeps, {");
   assert.ok(stage > 0 && gate > stage && activate > gate, "the spine does not stage BEFORE the gate and activate AFTER it");
   assert.doesNotMatch(spine, /writeSiteDistToR2\(|archiveVersion\(|sweepAfterPublish\(/, "the spine still writes the live prefix, archives by copy, or sweeps it");
   assert.match(spine, /expectEtag: pointerBefore \? pointerBefore\.etag : null,/, "the spine's activation is not conditional on the pointer it read after the gate");

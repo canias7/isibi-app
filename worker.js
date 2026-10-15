@@ -234,14 +234,14 @@ import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "
 // can bake it.
 import {
   mintVersion, stageBuild, activateBuild, readPointer, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
-  assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY,
+  assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY, HEAD_KEY,
   // THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05):
   // the marker every state copy ends with, and the repair a job makes before
   // it reads a site whose copy is behind the pointer — see `ensureEditableState`.
   readHead, writeHead, repairNeeded, repairEditable, repairConfigOf, sameJson, buildPrefix, STATE_DIR,
 } from "./site-builds.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
-import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
+import { loadConfig, saveConfig, withConfig, readConfig, writeConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, contextFacts, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
 import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, wordsIn, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
@@ -300,7 +300,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig } from "./builder/request-plan.mjs";
-import { turnKey, turnRecord, readTurn, turnFree, rebaseFiles, TURN_POLL_MS } from "./builder/publish-turn.mjs";
+import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
@@ -8947,7 +8947,14 @@ function configDeps(env, slug, db) {
   };
   const deps = {
     get: async (k) => { const o = await bucket().get(k); return o ? await o.text() : null; },
-    put: async (k, v) => { await bucket().put(k, v, { httpMetadata: { contentType: "application/json; charset=utf-8" } }); },
+    put: async (k, v) => {
+      // A WRITE OUTSIDE ANY TURN KEEPS THE TURN'S STAMP (2026-10-15): the
+      // owner's own settings write, say, never clears the fence a stale job
+      // would otherwise meet.
+      let meta = null;
+      if (writesBeside(env)) { try { const h = await bucket().head(k); if (h && h.customMetadata && h.customMetadata.fence) meta = { fence: h.customMetadata.fence }; } catch { /* the write decides */ } }
+      await bucket().put(k, v, { httpMetadata: { contentType: "application/json; charset=utf-8" }, ...(meta ? { customMetadata: meta } : {}) });
+    },
   };
   // DERIVED FROM THE MODULE'S OWN NAMES, never a second hand-written list: a key
   // spelled differently here reads as a site that never had a look, silently.
@@ -8974,12 +8981,51 @@ async function readSiteConfig(env, slug, db, options) {
  * could read. Answers rather than throwing, so a config write can never lose a
  * build that has already succeeded.
  */
-async function patchSiteConfig(env, slug, db, patch) {
+async function patchSiteConfig(env, slug, db, patch, fence = null) {
+  if (fence) return patchConfigFenced(env, slug, db, patch, fence);
   const deps = configDeps(env, slug, db);
   let cur;
   try { cur = await loadConfig(deps, slug); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   if (!cur.ok) return { ok: false, error: cur.why + ": " + cur.error };
   return saveConfig(deps, slug, withConfig(cur.config, patch));
+}
+
+/**
+ * THE SAME CHANGE BY A JOB RUNNING BESIDE OTHERS OF ITS REQUEST (2026-10-15,
+ * after review): the read and the write are one conditional step on the
+ * config's etag, refused when the config carries a later turn's fence. A
+ * holder that read the config, paused, lost its turn and came back meets the
+ * newer holder's stamp — on the etag (its write is refused and it reads
+ * again) or on the read — and writes nothing (`fenced: true`).
+ */
+async function patchConfigFenced(env, slug, db, patch, fence) {
+  if (!env.SITES_BUCKET) return { ok: false, error: "no site bucket bound — the stored look is unreadable" };
+  if (fence.lost) return { ok: false, error: TURN_FENCED, fenced: true };
+  const key = CONFIG_KEY(slug);
+  for (let i = 0; i < 4; i++) {
+    let o;
+    try { o = await env.SITES_BUCKET.get(key); } catch (e) { return { ok: false, error: "store: " + String((e && e.message) || e) }; }
+    if (o && storedFence(o) > fence.gen) return { ok: false, error: TURN_FENCED, fenced: true };
+    let config;
+    if (o) {
+      config = readConfig(await o.text());
+      if (!config) return { ok: false, error: "unreadable: the stored config could not be parsed" };
+    } else {
+      // NONE IN R2: the legacy reader's answer, as the unfenced path reads it.
+      const cur = await loadConfig(configDeps(env, slug, db), slug);
+      if (!cur.ok) return { ok: false, error: cur.why + ": " + cur.error };
+      config = cur.config;
+    }
+    let put;
+    try {
+      put = await env.SITES_BUCKET.put(key, writeConfig(withConfig(config, patch)), {
+        httpMetadata: { contentType: "application/json; charset=utf-8" }, customMetadata: { fence: String(fence.gen) },
+        onlyIf: o ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" },
+      });
+    } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+    if (put) return { ok: true };
+  }
+  return { ok: false, error: "the config kept changing under this write" };
 }
 
 /**
@@ -11132,14 +11178,15 @@ async function deleteSitePrefix(env, slug) {
  */
 const SOURCE_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/pages.json";
 
-async function saveSiteSource(env, slug, pages) {
+async function saveSiteSource(env, slug, pages, fence = null) {
   if (!env.SITES_BUCKET) return false;
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string")
     .map((p) => ({ path: p.path, source: p.source }));
   if (!list.length) return false;
   try {
-    await env.SITES_BUCKET.put(SOURCE_KEY(slug), JSON.stringify(list), {
+    if (fence) await fencedPut(env, SOURCE_KEY(slug), JSON.stringify(list), { fence });
+    else await env.SITES_BUCKET.put(SOURCE_KEY(slug), JSON.stringify(list), {
       httpMetadata: { contentType: "application/json" },
     });
     return true;
@@ -11578,7 +11625,7 @@ function qrPayload(qr) {
 
 const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
 
-async function saveSiteParts(env, slug, parts) {
+async function saveSiteParts(env, slug, parts, fence = null) {
   if (!env.SITES_BUCKET) return false;
   const list = (Array.isArray(parts) ? parts : [])
     .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source)
@@ -11591,7 +11638,8 @@ async function saveSiteParts(env, slug, parts) {
   // so; skipping the write would leave the old parts stored and re-sent forever,
   // and the customer's deleted component would keep coming back.
   try {
-    await env.SITES_BUCKET.put(PARTS_KEY(slug), JSON.stringify(list), {
+    if (fence) await fencedPut(env, PARTS_KEY(slug), JSON.stringify(list), { fence });
+    else await env.SITES_BUCKET.put(PARTS_KEY(slug), JSON.stringify(list), {
       httpMetadata: { contentType: "application/json" },
     });
     return true;
@@ -11694,7 +11742,7 @@ function kitList(kit) {
     .map((f) => ({ path: f.path, source: f.source }));
 }
 
-async function saveSiteKit(env, slug, kit) {
+async function saveSiteKit(env, slug, kit, fence = null) {
   if (!env.SITES_BUCKET) return false;
   const list = kitList(kit);
   // AN EMPTY LIST IS WRITTEN, `saveSiteParts`' rule for its own reason: a revise
@@ -11702,7 +11750,8 @@ async function saveSiteKit(env, slug, kit) {
   // shrink the project, and skipping the write would keep re-sending files the
   // site no longer imports.
   try {
-    await env.SITES_BUCKET.put(KIT_KEY(slug), JSON.stringify(list), {
+    if (fence) await fencedPut(env, KIT_KEY(slug), JSON.stringify(list), { fence });
+    else await env.SITES_BUCKET.put(KIT_KEY(slug), JSON.stringify(list), {
       httpMetadata: { contentType: "application/json" },
     });
     return true;
@@ -11913,7 +11962,7 @@ async function restoreVersion(env, slug, id) {
  * wrong. Answers rather than throws; a check that cannot be made costs
  * nothing but a line in the log.
  */
-async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = false } = {}) {
+async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = false, fence = null } = {}) {
   if (!env || !env.SITES_BUCKET || !slug) return { ok: true, why: "no-bucket" };
   // WITH JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15, `PARALLEL_WRITES`), a
   // repair writes only under the site's publish turn: another job may be
@@ -11927,7 +11976,7 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
     try { t = await tryTurn(env, slug, "repair:" + crypto.randomUUID()); }
     catch (e) { console.error("editable state: turn unreadable for", slug, errorClassForLog(e)); return { ok: false, why: "turn" }; }
     if (!t) return { ok: true, why: "turn-held", wrote: [] };
-    try { return await ensureEditableState(env, slug, { turnOwner: t.owner }); }
+    try { return await ensureEditableState(env, slug, { turnOwner: t.owner, fence: { gen: Number(t.gen) || 0 } }); }
     finally { await giveTurn(env, slug, t); }
   }
   // A HOLDER NAMED IS A HOLDER NOW: one whose turn lapsed to another job
@@ -11936,7 +11985,14 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
   if (writesBeside(env) && turnOwner && (await turnHeld(env, slug, { owner: turnOwner })) !== true) {
     return { ok: false, why: "turn-lost", wrote: [] };
   }
-  const deps = buildDeps(env);
+  // UNDER THE TURN'S FENCE (2026-10-15, after review): stamped first, so no
+  // earlier holder writes a guarded key from here on, then every repair write
+  // fenced — a holder that has itself been overtaken writes nothing.
+  if (fence) {
+    try { await stampFences(env, slug, fence); }
+    catch (e) { if (isFenceRefusal(e)) return { ok: false, why: "turn-lost", wrote: [] }; console.error("editable state: fence stamp failed for", slug, e && e.message); return { ok: false, why: "fence" }; }
+  }
+  const deps = fence ? fencedBuildDeps(env, slug, fence) : buildDeps(env);
   let pointer = null;
   try { pointer = await readPointer(deps, slug); }
   catch (e) { console.error("editable state: pointer unreadable for", slug, e && e.message); return { ok: false, why: "pointer" }; }
@@ -11952,7 +12008,8 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
     const cur = await readSiteConfig(env, slug, null);
     if (!cur || !cur.ok) return false;
     if (sameJson(repairConfigOf(cur.config), want)) return false;
-    const w = await patchSiteConfig(env, slug, null, want);
+    const w = await patchSiteConfig(env, slug, null, want, fence);
+    if (w && w.fenced) throw fenceRefused(CONFIG_KEY(slug));
     return !!(w && w.ok);
   };
   try {
@@ -11972,6 +12029,7 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
     }
     return { ok: true, why: "same", wrote: [], version: pointer.version };
   } catch (e) {
+    if (isFenceRefusal(e)) return { ok: false, why: "turn-lost", wrote: [] };
     console.error("editable state: repair failed for", slug, e && e.message);
     return { ok: false, why: "repair" };
   }
@@ -12000,7 +12058,11 @@ async function readTurnObj(env, slug) {
 async function tryTurn(env, slug, owner, job = "") {
   const { obj, etag } = await readTurnObj(env, slug);
   if (!turnFree(obj, owner)) return null;
-  const rec = turnRecord(owner, Date.now(), job);
+  // EACH TURN TAKEN CARRIES A LARGER FENCE THAN THE ONE BEFORE IT (`nextGen`),
+  // read and written on the same etag: what its holder writes is stamped with
+  // it, and a holder with a smaller one is refused at its own write.
+  const now = Date.now();
+  const rec = turnRecord(owner, now, job, nextGen(obj, now));
   const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify(rec), {
     httpMetadata: { contentType: "application/json" },
     onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
@@ -12013,7 +12075,7 @@ async function giveTurn(env, slug, t) {
   try {
     const { obj, etag } = await readTurnObj(env, slug);
     if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return;
-    await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify({ ...turnRecord(t.owner, Date.now(), t.job), until: 0 }), {
+    await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify({ ...turnRecord(t.owner, Date.now(), t.job, obj.turn.gen), until: 0 }), {
       httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag },
     });
   } catch (e) { console.error("publish turn: could not give back", slug, errorClassForLog(e)); }
@@ -12065,12 +12127,103 @@ const TURN_LOST_WRITE = "turn-lost: this change no longer holds the turn to writ
 async function mayWriteConfig(env, slug, job) {
   if (!(await turnStillMine(env, slug, job))) throw new Error(TURN_LOST_WRITE);
 }
+
+// ── THE TURN'S FENCE, ENFORCED AT THE WRITE (2026-10-15, after review) ──────
+//
+// A look at the turn before a write cannot stop the write: the holder can
+// pause between the look and the write — inside its config read, say — while
+// its turn lapses and another job takes it and writes. So the store itself
+// refuses it. Every turn carries a fence larger than the last (`nextGen`);
+// every write a job running beside others makes to the site's guarded keys —
+// the config, the pointer, the head marker and the editable source, parts and
+// kit — reads the key's stamped fence and its etag, is refused when the stamp
+// is larger than its own, and is written only on that etag, stamped with its
+// own. A job that takes the turn stamps the pointer, the head and the config
+// first (`stampFences`), so a stale holder's next write to any of them is
+// refused — and its activation, keyed on the pointer's old etag, superseded —
+// even before the new holder writes anything of its own. Jobs not running
+// beside others write exactly as before (`jobFence` answers null).
+const TURN_FENCED = "turn-lost: a later turn has written this site";
+/**
+ * A job's fence: null when it does not run beside others (nothing fenced);
+ * `{ gen }` from the turn it holds; `{ lost: true }` when it holds none —
+ * every guarded write it attempts is then refused.
+ */
+function jobFence(env, job) {
+  if (!job || !job.beside || !writesBeside(env) || !env || !env.SITES_BUCKET) return null;
+  if (job.beside.lost || !job.beside.turn) return { gen: 0, lost: true };
+  return { gen: Number(job.beside.turn.gen) || 0 };
+}
+const storedFence = (o) => { const n = Number(o && o.customMetadata && o.customMetadata.fence); return Number.isFinite(n) ? n : 0; };
+function fenceRefused(key) { const e = new Error(TURN_FENCED); e.code = "TURN_FENCED"; e.key = key; return e; }
+const isFenceRefusal = (e) => !!e && e.code === "TURN_FENCED";
+/** The guarded keys of a site: what a stale holder must never write. */
+const fencedKeys = (slug) => new Set([POINTER_KEY(slug), HEAD_KEY(slug), SOURCE_KEY(slug), PARTS_KEY(slug), KIT_KEY(slug), CONFIG_KEY(slug)]);
+/**
+ * ONE FENCED WRITE of a guarded key. Refused (throws `TURN_FENCED`) when the
+ * fence is lost or the key carries a larger one. With the caller's own
+ * condition (`onlyIf`, the pointer's), answers null when that condition fails,
+ * as R2 does; without one, a write that met a change since its read reads
+ * again and decides again.
+ */
+async function fencedPut(env, key, body, { contentType = "application/json", onlyIf = null, fence } = {}) {
+  if (!fence || fence.lost) throw fenceRefused(key);
+  for (let i = 0; i < 4; i++) {
+    const cur = await env.SITES_BUCKET.head(key);
+    if (cur && storedFence(cur) > fence.gen) throw fenceRefused(key);
+    let cond;
+    if (onlyIf) {
+      if (onlyIf.etagMatches != null && (!cur || cur.etag !== String(onlyIf.etagMatches))) return null;
+      if (onlyIf.etagDoesNotMatch === "*" && cur) return null;
+      cond = onlyIf;
+    } else cond = cur ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" };
+    const put = await env.SITES_BUCKET.put(key, body, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
+    if (put) return put;
+    if (onlyIf) return null;
+  }
+  throw new Error("fenced write: " + key + " kept changing under this write");
+}
+/** `buildDeps` whose guarded writes are fenced; any other key as before. */
+function fencedBuildDeps(env, slug, fence) {
+  const base = buildDeps(env);
+  if (!fence) return base;
+  const guarded = fencedKeys(slug);
+  return { ...base, put: (key, body, contentType, onlyIf) => (guarded.has(key) ? fencedPut(env, key, body, { contentType: contentType || "application/octet-stream", onlyIf, fence }) : base.put(key, body, contentType, onlyIf)) };
+}
+/**
+ * THE NEW HOLDER'S FIRST ACT: the pointer, the head marker and the config
+ * stamped with its fence, each re-written as it stands on the etag read, so a
+ * stale holder's write to any of them — and an activation keyed on the
+ * pointer's earlier etag — is refused from here on. A key that carries this
+ * fence already is left; one that carries a larger is a turn lost (throws).
+ */
+async function stampFences(env, slug, fence) {
+  for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"]]) {
+    let done = false;
+    for (let i = 0; i < 4 && !done; i++) {
+      const o = await env.SITES_BUCKET.get(key);
+      if (!o) { done = true; break; }
+      const had = storedFence(o);
+      if (had > fence.gen) throw fenceRefused(key);
+      if (had === fence.gen) { done = true; break; }
+      const text = await o.text();
+      const put = await env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagMatches: o.etag } });
+      if (put) done = true;
+    }
+    if (!done) throw new Error("fence stamp: " + key + " kept changing");
+  }
+}
+/**
+ * The turn's own functions, for the tests that drive a second holder against
+ * the same store a job runs on (2026-10-15): nothing in the product calls this.
+ */
+export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
     const { obj, etag } = await readTurnObj(env, slug);
     if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return false;
-    const rec = turnRecord(t.owner, Date.now(), t.job);
+    const rec = turnRecord(t.owner, Date.now(), t.job, obj.turn.gen);
     const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } });
     if (put) { t.until = rec.until; t.etag = put.etag || null; return true; }
     return false;
@@ -13147,7 +13300,7 @@ async function publishBeside(env, opts) {
     // THE EDITABLE STATE CHECKED AND REPAIRED AS THE TURN'S HOLDER, then the
     // site as it is now through the repairing reader — whose own check finds
     // the turn held and leaves the repair just made as it is.
-    const st = await ensureEditableState(env, slug, { turnOwner: t.owner, keepConfig: bs.holds === true });
+    const st = await ensureEditableState(env, slug, { turnOwner: t.owner, keepConfig: bs.holds === true, fence: jobFence(env, job) });
     if (st && st.why === "turn-lost") loseTurn(job, slug, "found at the editable-state check");
     if (bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
     if (!st || st.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't check the site's editable state before publishing — nothing was changed" };
@@ -13505,7 +13658,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // `db` IS ALREADY IN HAND from the config read above, so this no longer
     // re-resolves the backend — and on a site with none it is null, which is the
     // legacy reader being omitted rather than an error.
-    const w = await patchSiteConfig(env, slug, db, { langStrings: nextStrings });
+    const w = await patchSiteConfig(env, slug, db, { langStrings: nextStrings }, jobFence(env, job));
     if (!w.ok) console.error("lang cache write failed", slug, w.error);
   }
 
@@ -14056,8 +14209,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // inside the module is the pointer's own — the first — so a throw here
   // means nothing moved; a typed refusal's `code` and `key` ride out.
   let act = null;
+  // A JOB RUNNING BESIDE OTHERS WRITES THE GUARDED KEYS UNDER ITS TURN'S
+  // FENCE (2026-10-15, after review): the pointer included, so a holder that
+  // paused after the check above while its turn passed to another job is
+  // refused at the pointer itself — never by a second look at the turn.
+  const fence = jobFence(env, job);
+  const adeps = fencedBuildDeps(env, slug, fence);
   try {
-  act = await activateBuild(buildDeps(env), {
+  act = await activateBuild(adeps, {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
     expectEtag: pointerBefore ? pointerBefore.etag : null,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
@@ -14125,15 +14284,15 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // as the live version's, and the next edit read the OLD pages as current
       // and published them over the change. Now a failed save leaves the
       // marker behind, and the next job repairs from this version's own state.
-      const saved = { source: await saveSiteSource(env, slug, pages) };
+      const saved = { source: await saveSiteSource(env, slug, pages, fence) };
       // AND THE PARTS BESIDE THEM, on the same terms.
-      if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts);
+      if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts, fence);
       // AND THE KIT CLOSURE THE CONTAINER JUST RESOLVED. Every cheap edit
       // republishes through here, so a site whose edit added a component that
       // pulls in a new kit file gets that file stored with the same publish —
       // the spine's own "anything a build bakes must be sent by the spine too",
       // pointed at what the project DEPENDS on rather than what it renders.
-      if (Array.isArray(built.kit)) saved.kit = await saveSiteKit(env, slug, built.kit);
+      if (Array.isArray(built.kit)) saved.kit = await saveSiteKit(env, slug, built.kit, fence);
       const unsaved = Object.keys(saved).filter((k) => saved[k] !== true);
       tm("r2:source", unsaved.length ? "fail" : "ok", unsaved.length ? { why: unsaved.join(",") } : undefined);
       // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to
@@ -14147,17 +14306,21 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // came from, so the next job can tell a finished copy from one that
       // died between the pointer and here, and repair it before it reads.
       if (unsaved.length) { tm("r2:head", "fail", { why: "unsaved:" + unsaved.join(",") }); return; }
-      await writeHead(buildDeps(env), slug, version);
+      await writeHead(adeps, slug, version);
       tm("r2:head", "ok");
     },
   });
-  } catch (e) { act = { ok: false, error: String((e && e.message) || e), code: (e && e.code) || undefined, key: (e && e.key) || undefined }; }
+  } catch (e) {
+    // REFUSED BY THE FENCE: another job holds the turn now, and nothing moved.
+    if (isFenceRefusal(e)) { loseTurn(job, slug, "refused at its activation by a later turn's fence"); act = { ok: false, error: "turn-lost", key: e.key }; }
+    else act = { ok: false, error: String((e && e.message) || e), code: (e && e.code) || undefined, key: (e && e.key) || undefined };
+  }
   _pointerCache.delete(slug);
   if (!act || act.ok !== true) {
     tm("activate", "fail", { why: String((act && act.error) || "activate"), code: (act && act.code) || undefined, key: (act && act.key) || undefined });
     // OURS, and the live site is untouched: a superseded pointer is another
     // job's publish having landed first, never the customer's change.
-    return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
+    return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost" || act.error === "turn-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded });
   // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
@@ -20524,8 +20687,18 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // A STEP THAT HOLDS THE SITE'S TURN THROUGHOUT (2026-10-15) waits for it
       // here, before its first read of the site; one that cannot get it ends
       // unchanged, our side, at no cost.
-      if (jctx.beside && jctx.beside.holds && !(await takeTurn(env, job.slug, jctx))) {
-        res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
+      // ONCE IT HOLDS IT, the turn's fence is stamped and the editable state
+      // — the config with it — put level with the live site before the step
+      // reads anything: a config an earlier holder wrote and never published
+      // (it failed, and its put-back did not land) is abandoned, and a step
+      // that began from it would publish it as its own.
+      let heldSt = null;
+      if (jctx.beside && jctx.beside.holds && (await takeTurn(env, job.slug, jctx))) {
+        heldSt = await ensureEditableState(env, job.slug, { turnOwner: jctx.beside.turn.owner, fence: jobFence(env, jctx) });
+        if (heldSt && heldSt.why === "turn-lost") loseTurn(jctx, job.slug, "found at the editable-state check");
+      }
+      if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
+        res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
         res = await handleRequest(req, env, ctx);
       }
@@ -29494,7 +29667,7 @@ async function handleRequest(request, env, ctx) {
               try {
                 if (!preEditConfig) throw new Error("no snapshot to restore from");
                 await mayWriteConfig(env, ownerSlug, eJob);
-                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
+                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig, jobFence(env, eJob));
                 if (!back.ok) throw new Error(back.error);
                 return true;
               } catch (e) {
@@ -31945,7 +32118,7 @@ async function handleRequest(request, env, ctx) {
                   const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
                   const next = url ? { form: "image", url } : markRemove(c.config, field);
                   await mayWriteConfig(env, ownerSlug, eJob);
-                  const w = await patchSiteConfig(env, ownerSlug, ldb, { look: { ...look, [field]: next } });
+                  const w = await patchSiteConfig(env, ownerSlug, ldb, { look: { ...look, [field]: next } }, jobFence(env, eJob));
                   // A DISCARDED FAILURE HERE IS A CUSTOMER TOLD THEIR LOGO
                   // LANDED while the next publish serves the site without it.
                   // The lane's own catch turns this into its refusal.
@@ -32698,7 +32871,7 @@ async function handleRequest(request, env, ctx) {
                 // rule is what keeps a look-only edit off the stylesheet.
                 await mayWriteConfig(env, ownerSlug, eJob);
                 const w = await patchSiteConfig(env, ownerSlug, edb,
-                  cssMoved ? { look: merged, css: nextCss } : { look: merged });
+                  cssMoved ? { look: merged, css: nextCss } : { look: merged }, jobFence(env, eJob));
                 if (!w.ok) throw new Error(w.error);
                 eConfigWritten = true;
                 // THE HAND-OVER THAT LETS THE PUBLISH BELOW VERIFY AND CORRECT A
@@ -32794,7 +32967,7 @@ async function handleRequest(request, env, ctx) {
                   // the browser as one string literal.
                   await mayWriteConfig(env, ownerSlug, eJob);
                   const w = await patchSiteConfig(env, ownerSlug, edb,
-                    cssMoved ? { look: priorLook, css: priorCss } : { look: priorLook });
+                    cssMoved ? { look: priorLook, css: priorCss } : { look: priorLook }, jobFence(env, eJob));
                   if (!w.ok) throw new Error(w.error);
                 } catch (e) {
                   // SAID OUT LOUD RATHER THAN CLAIMED. A restore that failed
@@ -34285,7 +34458,7 @@ async function handleRequest(request, env, ctx) {
                 editTrace.mark("lane:correct", fix.failed ? "fail" : "ok",
                   { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
-                  const put = (await turnStillMine(env, ownerSlug, eJob)) ? await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value }) : { ok: false, error: TURN_LOST_WRITE };
+                  const put = (await turnStillMine(env, ownerSlug, eJob)) ? await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value }, jobFence(env, eJob)) : { ok: false, error: TURN_LOST_WRITE };
                   // EVERY WRITE SETS THE FLAG AT ITS OWN LINE, this one included,
                   // though today it is already set: the hand-over this round
                   // needs is made only after the look step's own write
@@ -39041,7 +39214,7 @@ async function handleRequest(request, env, ctx) {
               return aFail({ ok: false, error: "turn-lost", ours: true, cost: 0, msg: "That addition wasn't published — another change in the same request took its turn to publish. Send it again." }, 503);
             }
             if (aLookPatch) {
-              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
+              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch, jobFence(env, aJob));
               if (!w.ok) {
                 console.error("addon look store failed:", ownerSlug, w.error);
                 // "UNTOUCHED" ONLY WHEN IT IS (2026-10-06): a database made for
@@ -39439,7 +39612,7 @@ async function handleRequest(request, env, ctx) {
               // job that took it may have written the config since; kept, said.
               if (aStored && !(await turnStillMine(env, ownerSlug, aJob))) { aKept = true; console.error("addon look revert skipped: the turn is no longer this job's", ownerSlug); }
               else if (aStored) {
-                const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
+                const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss }, jobFence(env, aJob));
                 if (!back.ok) { aKept = true; console.error("addon look revert failed:", ownerSlug, back.error); }
               }
               // ── WHAT STANDS IN THE DATABASE IS SAID (stage 8) ──────────────
