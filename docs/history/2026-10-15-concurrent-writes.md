@@ -124,6 +124,9 @@ to container jobs in `builder/edit-job.mjs`).
   The home change stands, and its reserve came back in full.
 - **CW6, the switch-off control.** No second job of any kind is filed while
   one runs.
+- **CW7, one publish at a time.** With the site's turn held by another job,
+  a request job with its change ready publishes nothing until the turn is
+  given back. It then takes the turn, publishes once, and gives it back.
 - **Pure cases:** NS1–NS5 (`nextStep` files), BC1 (config/schema), CTW1
   (order vs running), RB1–RB2 (rebase, malformed input), TN1 (turn).
 
@@ -138,6 +141,25 @@ to container jobs in `builder/edit-job.mjs`).
 | R5, the old whole-copy publish beside another job | CW1, CW4, CW5 |
 | R6, the dependency ignored | CW3 |
 | R7, filing beside with the switch off | CW6, after it was tightened: it first survived, because the lock hid the extra filing |
+
+**Mutation sweep** (25 mutants from a green baseline of the two focused
+files, restored by file copy): **21 of 24 killed** on the first pass, and
+the comment-only control survived. The three survivors:
+- **"logo not a config writer": equivalent.** A logo route already implies
+  an `identity` write, which is a config write.
+- **"many at writeMax 1": equivalent.** With a cap of 1, the side-by-side
+  branch files at most one job, the same pick as before.
+- **"no turn taken": a real gap.** No case showed a publish waiting for the
+  turn. CW7 was added for it and kills it, so the sweep now stands at 22 of
+  24, with two equivalents.
+
+**Full suite.** The first run on `65377c0b` gave 10,971 passed and 21
+failed out of 10,992; all 21 were source-text guards and the image's file
+list, and none was a behaviour regression. The second run on `f19da1e6`
+gave 10,991 of 10,992. The last failure was the editable-reader census:
+the publish path read the source directly. It now checks the editable state
+as the turn's holder and reads through `loadSiteSourceForEdit`. The suite
+on the next commit is recorded below once it has run.
 
 ## Not done, not shown
 

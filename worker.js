@@ -13065,11 +13065,14 @@ async function publishBeside(env, opts) {
   if (!t) return { ok: false, error: "turn", ours: true, detail: "another change in this request is still being published, and this one ran out of time waiting — nothing was changed" };
   tm("publish:turn", "ok", { waits: bs.waits || 0, held: !mine });
   try {
+    if (!Array.isArray(bs.base)) return { ok: false, error: "read", ours: true, detail: "couldn't tell what this change began from — nothing was changed" };
+    // THE EDITABLE STATE CHECKED AND REPAIRED AS THE TURN'S HOLDER, then the
+    // site as it is now through the repairing reader — whose own check finds
+    // the turn held and leaves the repair just made as it is.
     const st = await ensureEditableState(env, slug, { turnOwner: t.owner });
     if (!st || st.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't check the site's editable state before publishing — nothing was changed" };
-    if (!Array.isArray(bs.base)) return { ok: false, error: "read", ours: true, detail: "couldn't tell what this change began from — nothing was changed" };
-    const cur = await readSiteSource(env, slug, { strict: true });
-    if (!cur || cur.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't read the site as it is now — nothing was changed" };
+    const cur = await loadSiteSourceForEdit(env, slug, { checked: true });
+    if (!cur || cur.ok !== true) return { ok: false, error: "read", ours: true, detail: cur && cur.why === "editable-state" ? "couldn't check the site's editable state before publishing — nothing was changed" : "couldn't read the site as it is now — nothing was changed" };
     const r = rebaseFiles(bs.base, opts.pages, cur.pages);
     if (!r.ok) { tm("publish:rebase", "fail", { conflicts: r.conflicts, bad: !!r.bad }); return { ok: false, error: "conflict", ours: true, conflicts: r.conflicts, detail: "another change in this request changed " + (r.conflicts.join(", ") || "the same files") + " at the same time — nothing was changed" }; }
     let parts = opts.parts;

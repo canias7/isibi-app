@@ -315,3 +315,44 @@ test("CW6 CONTROL, SWITCH OFF — the same two-page message with jobs side by si
     assert.equal(P.readObj("publish-turn/" + P.slug + ".json"), null, "the publish turn was used with the switch off");
   });
 });
+
+test("CW7 ONE PUBLISH AT A TIME — the site's publish turn is held by another job: a request job with its change ready does not publish, and nothing of it reaches the site, until the turn is given back; then it publishes once", async () => {
+  await withPlatform({
+    slug: slugOf("cw7"), pages: PAGES2, beside: true,
+    answers: {
+      // The router names the page it writes, so the step is not a whole-site
+      // one (which would hold the turn from its start) and takes the turn at
+      // its publish.
+      route: [{ intent: "edit", layer: "text", page: "/", targets: [{ change: 0, writes: ["page:/"] }] }],
+      [T.text]: async (args) => ({ edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] }),
+    },
+  }, async (P) => {
+    P_.at = P;
+    const key = "publish-turn/" + P.slug + ".json";
+    const held = { v: 1, owner: "job:another:o9", job: "another", at: Date.now(), until: Date.now() + 10 * 60 * 1000 };
+    P.writeObj(key, JSON.stringify(held));
+    const r = await sendMessage(P, { message: OPEN + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const m = P.queue.find((x) => x.body.kind !== "request-prep" && partOfMsg(P, x) === 0);
+    P.queue.splice(P.queue.indexOf(m), 1);
+    const run = deliver(P, m);
+    const giveBack = () => P.writeObj(key, JSON.stringify({ ...held, until: 0 }));
+    try {
+    // HELD: its change is made (its model call answered) but never published.
+    assert.ok(await until(() => calls(P, T.text).length >= 1), "the job never reached its model call: " + JSON.stringify({ jobs: P.jobsOf(r.key).map((j) => [j.op, j.state, j.idem_key]), parts: P.record(r.key).parts.map((p) => [p.status, p.phase]), queue: P.queue.map((x) => x.body.kind), tools: P.modelLog.map((x) => x.tool) }));
+    await new Promise((ok) => setTimeout(ok, 300));
+    assert.equal(P.page("index.tsx").includes(HOME_TO), false, "the job published while another held the site's turn");
+    assert.equal(JSON.parse(P.readObj(key)).owner, "job:another:o9", "the held turn was taken over");
+    const job = editJobs(P, r.key)[0];
+    assert.ok(job && job.state !== "done", "the job ended while the turn was held");
+    } finally { giveBack(); }
+    // GIVEN BACK: the job takes the turn, publishes, and gives it back.
+    await run;
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("index.tsx").includes(HOME_TO));
+    assert.equal(JSON.parse(P.readObj(key)).until, 0, "the turn was not given back");
+    assert.notEqual(JSON.parse(P.readObj(key)).owner, "job:another:o9", "the job never took the turn");
+    assert.equal(reserveOf(P, editJobs(P, r.key)[0].id).length, 1);
+  });
+});
