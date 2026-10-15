@@ -1,12 +1,21 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-15: the live batch's findings fixed together offline, from the saved evidence; nothing spent, deployed, built or switched)
+## Current handoff — read this first (2026-10-15: the live batch's findings fixed together offline, and Codex's review of `fd0a5f42` answered; nothing spent, deployed, built or switched; the branch is unmerged)
 
 **Where it stands:**
-- The fixes are on `claude/help-needed-ehlwlj` as **`ce97f0fb`** and
-  **`be922325`** (ten suite failures `ce97f0fb` left, fixed), on top of
-  `e4e0f944` (the deployed combined code: `main` `f1b81477` merged in).
+- **Branch `claude/help-needed-ehlwlj`, unmerged.** Its code head is
+  **`470223cb`**; the records commit on top of it is the pushed head (its
+  id and CI are in the chat report). It sits on `e4e0f944`, the deployed
+  combined code (`main` `f1b81477` merged in).
+- **The commits, oldest first:**
+  1. `ce97f0fb`: the fixes and their tests.
+  2. `fd0a5f42`: the first records. **Codex reviewed here.**
+  3. `be922325`: the ten suite failures `ce97f0fb` left, fixed.
+  4. `45c12a36`: records.
+  5. `470223cb`: the review's protections proven by behaviour, late
+     summaries kept apart from live progress, and the committed sweep
+     backups removed.
 - `main` is unchanged at `f1b81477`, and production still runs `1336f052`
   on image `e1582f6f71a41dfb`.
 - The paid opt-ins stay closed. `IMAGE_PURCHASES` stays off and
@@ -17,95 +26,112 @@
 
 **What was wrong, from the saved evidence, and what changed:**
 1. **Press B's price change waited 370 s for nothing.**
-   - *Router:* it held the price back and named its one write as the
-     loaves table, with no dependency.
+   - *Router:* it held the price back, naming its one write as the loaves
+     table, with no dependency.
    - *Plan:* correct, with no edge between the parts.
    - *Scheduler, the cause:* a part still to be routed counted as reading
-     the page list, and the add-on was making a page, so its routing
-     preparation waited for the add-on's write.
+     the page list. The add-on was making a page, so the price part's
+     routing preparation waited for the add-on's write.
    - *Fix:* a held part whose every named write is a table, and which names
-     no reads, now reads only the table list. Its routing is prepared beside
-     the add-on and replayed, and it is asked again of the whole site only
-     if its answer leaves the table and the pages really changed. Unnamed
-     parts and real dependencies still wait.
+     no reads, now reads only the table list. Its routing is prepared
+     beside the add-on and replayed. It is asked again of the whole site
+     only if its answer leaves the table and the pages really changed.
+     Unnamed parts and real dependencies still wait.
 2. **Build progress, end to end.**
-   - The Worker can answer a send as soon as it is accepted (`accept:
-     "early"`).
-   - Every final read keeps the build's lines: the poll, the kept answer
-     and the account's list.
-   - The press discovers and follows its own attempt while its send is
-     still out, and reads the list afresh at the end.
+   - **Early acceptance is the implemented correction for the long
+     unanswered send:** a send that asks (`accept: "early"`) is answered
+     202 with its job as soon as the build is accepted, and the browser and
+     the press follow by poll from then on.
+   - **The root cause of the old 18-minute unanswered POST (run
+     38646089624) is still not established.** No Worker log for that
+     request was kept. Early acceptance takes the long hold off the path;
+     it does not explain it.
+   - Every final read keeps the build's lines: the poll, the kept answer,
+     and the account's list in every state.
+   - The press finds and follows its own attempt while its send is still
+     out, reads the list afresh at the end, and judges the send's own
+     answer apart from any recovery.
    - The browser follows from the first second and keeps the lines on the
      finished reply.
    - A narration-usage step now runs on every Build press.
-   - **Whether Press A generated narration is unknown:** nothing read
-     during the build, and nothing measured it.
-3. **The 18-minute wait for the first answer is recorded apart from the
-   recovery**, which worked. Its cause is not established; early acceptance
-   takes it off the path but does not explain it (backlog).
-4. **A short job's progress no longer disappears.**
-   - A job that ends before its line is written gets one late line, from
-     what is still true afterwards only: applied, not done, checked,
+   - **Whether Press A generated narration is unknown:** nothing read its
+     lines during the build, and nothing measured it.
+3. **A short job's progress no longer disappears.**
+   - A job that ends before its line is written gets one late line, built
+     only from what is still true afterwards: applied, not done, checked,
      published. Never "working", "next" or "not published yet".
-   - The line is written only if the job ended done and its final reply is
-     not out yet. The job never waits for it.
+   - It is written only if the job ended done and its final reply is not
+     out yet. The job never waits for it.
    - Data edits now record what they applied.
-5. **Unreadable menus stay unverified.** The add-on's judgment can name the
-   menu link. A link carried by any menu read back is set up; one where only
-   unreadable menus are left is "not verified" (a new fact kind). The reply
-   is told never to call it done or not done, and to say what was done
-   beside what could not be checked.
-6. **"I'm publishing now"** is read as an action under way, not a
+   - **A late line is a summary of completed work, not live narration.**
+     It is marked late from the record to the screen. It is never drawn as
+     the live line, so it cannot satisfy the canary's "a progress line was
+     live on its running part" check. **A late line arriving proves only
+     that the summary was written, never that live progress worked.**
+4. **Unreadable menus stay unverified.** The add-on's judgment can name the
+   menu link. A link carried by any menu read back is set up; a link only
+   unreadable menus could show is "not verified", a new fact kind. The
+   reply is told never to call that done or not done, and to say what was
+   done beside what could not be checked.
+5. **"I'm publishing now"** is read as an action under way, not a
    completion claim. Unsupported completion claims are still rejected.
-7. **Correction:** not every talk check passed on Press B (part 1 had no
+6. **Correction:** not every talk check passed on Press B (part 1 had no
    progress line), and waiting for a separate prerequisite was not
    exercised. Both are corrected in the 2026-10-14 handoff below.
+
+**Codex's review of `fd0a5f42`:** unit CI 38659106532 read `10919 pass /
+10 fail / 44 skipped`; site build passed. What each failure meant:
+
+| Test | Meaning | What changed |
+|---|---|---|
+| `build-attribution` AT 7 | **A real regression.** A send that had already failed was counted as "discovered": the first list read raced the failure. | Discovered only while the send is still out. The original `ECONNRESET` and its status are still asserted exactly. |
+| `build-parallel-route` PR 9 | Stale. The new timing field on the send's record, and a stand-in still serving no lines on final reads (the old server). | The stand-in serves lines as the server now does. PR 9 now expects exactly one failed check, the lost send's own answer; the recovery is still by this attempt's key past another attempt's newer build. |
+| `build-parallel-route` PR 10 | Failed on the same shared stand-in. | Unchanged. Another attempt's charges are `other`, its trace judges nothing, and an ambiguous or missing match is no job. |
+| `build-models` picker guard | Stale text. A comment I put inside the body's ternary pushed the revise half out of the guard's window. | The comment moved. **RC 30** sends a real build and a real revise and reads each body: picker on both. |
+| `ci-browser-order` | **A real gap.** `build-as-owner` runs `scripts/narration-usage.mjs`, but its parked path list did not name it. | Named, as `edit-canary` does. |
+| `site-ask` (`answering`, `attached`) | Stale text. My scoped-route wrapper hid the `await routeMessage(` landmark. | The wrapper awaits it again. A new real-route case posts each flag to `POST /api/site/route` and requires the router's ask answer refused for each, kept for a plain question. |
+| `site-entry-inventory` (2), `site-route-failure` (1) | Stale. The build body now carries `accept: "early"`. | Expected bodies updated; everything else in them unchanged. |
+
+All three behaviour proofs (RC 30, the real-route case, LATE 5) were red
+checked: dropping the picker from either half, or either flag from the
+Worker's routing call, fails them.
 
 **Evidence (offline, supplied model answers only):**
 - **New tests:**
   - `held-route-scope` (8);
   - `menu-link-evidence` (5);
-  - `progress-late-line` (4);
+  - `progress-late-line` (5);
   - `canary-talk` (+4);
-  - `canary-build` (discovery, send wait, recovered/ambiguous, dropped and
-    relisted lines);
-  - `build-reconnect` RC 27–29 (the Worker and the real browser follow).
-- **Red checks:**
-  - on `e4e0f944`: Press B's shape and the widening case fail, and their
-    controls pass; RC 27 hangs and RC 28–29 fail, and RC 29's control
-    passes;
-  - on the old checker: the three progressive cases and one shape case
-    fail.
-- **Sweep:**
-  - 31 of 34 real mutants killed (32 first run, plus 3 re-run after LATE 4
-    was added);
-  - 1 equivalent, a guard the per-milestone filter already makes;
-  - 2 comment controls survived.
-- **Full suite:**
-  - on `ce97f0fb`: `10973 / 10963 / 10 / 0`. I pushed it before the suite
-    had finished, and ten tests failed: old expectations of the build body
-    and the press's accepted record, a guard's landmark my route wrapper
-    removed, a comment that pushed the revise half out of a guard's window,
-    the workflow's parked path list, and one real race (a send that had
-    already failed counted as "discovered");
-  - **on `be922325`: `10973 / 10973 / 0 / 0`.**
-- **Unit CI:** read after the push; stamped in the next commit.
-- **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for `be922325`
-  (207 inputs; it would be built; nothing was built).
-- **Screenshot:** the finished Build reply with its lines, sent in the
-  chat.
+  - `canary-build` (discovery, send wait, recovered and ambiguous,
+    dropped and relisted lines);
+  - `build-reconnect` RC 27–30;
+  - `route-decision` (+1).
+- **Red checks:** on `e4e0f944`, Press B's shape and the widening case
+  fail, RC 27 hangs and RC 28–29 fail, and their controls pass; on the old
+  checker, the three progressive cases and one shape case fail.
+- **Sweep:** 31 of 34 real mutants killed, 1 equivalent, 2 comment
+  controls survived.
+- **Full suite:** `10973 / 10963 / 10 / 0` on `ce97f0fb`; `10973 / 10973 /
+  0 / 0` on `be922325`; **`10976 / 10976 / 0 / 0` on `470223cb`.**
+- **Unit CI on `45c12a36`** (run 38660652738): `10973 / 10929 / 0 / 44`;
+  site build run 38660652716 green. CI for the pushed head is in the chat
+  report.
+- **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for
+  `470223cb` (207 inputs). Not built.
+- **Hygiene:** the three `.sweepbak` files committed with `ce97f0fb` are
+  removed, and `*.sweepbak` is ignored.
 - The full record is §8 of `docs/history/2026-10-14-combined-candidate.md`.
 
-**Remaining live gaps** (none can be closed without a press, and none is
-pressed):
+**Remaining live-only gaps** (none can be closed without a press, and none
+is pressed):
 - a held data part's routing prepared beside an add-on, and Edit/Add-on
   overlap at all;
-- early Build acceptance and the press discovering its attempt mid-send;
+- early Build acceptance, and the press discovering its attempt mid-send;
 - Build lines on final and relisted reads, and whether a Build narrates at
   all;
-- a short job's late line;
+- live progress during a short job (a late summary does not count);
 - an unverified menu link in a real reply;
-- the 18-minute hold's cause;
+- the old 18-minute POST's root cause (not established);
 - a held part with no named writes still waits for a page-writing part (by
   design).
 

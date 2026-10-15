@@ -733,3 +733,23 @@ another.
   excludes failed closes); the 2 comment-only controls survived.
 - **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for
   `be922325` (207 inputs). Not built.
+
+### 8.8 Codex's review of `fd0a5f42`, answered (`470223cb`)
+
+Unit CI 38659106532 read `10919 / 10 / 44`. The ten are explained one by
+one in the owner-notes handoff. Two were real: the discovery race and the
+workflow path. Eight were stale expectations. Beyond fixing them:
+- **Behaviour, not spelling.** RC 30 sends a real build and a real revise
+  through `reactSend` and reads each body. A new `route-decision` case
+  posts `answering` and `attached` to the real route and requires the
+  router's ask answer refused for each and kept for a plain question. Both
+  were red-checked by dropping each field.
+- **Late is not live.** `EditPoll.progressLines` keeps `late`, and
+  `progressListHTML` never gives a late line the `live` class. The canary's
+  live check reads `li.live`, so a late summary cannot pass it (LATE 5).
+- **Hygiene.** The three committed `.sweepbak` files are removed, and
+  `*.sweepbak` is ignored.
+- **Full suite** `10976 / 10976 / 0 / 0`. The image is still predicted
+  `e420b3c2d3224dd3`.
+- **The old 18-minute POST:** early acceptance is the implemented
+  correction. Its root cause is still not established.
