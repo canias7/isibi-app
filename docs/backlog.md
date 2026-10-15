@@ -20,6 +20,24 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **A Build send went unanswered for 18 minutes after its build had
+  finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
+  The send went at 22:13:35, the build ended at 22:22:16, and the press gave
+  up at 22:31:35, past the route's own 16-minute hold. The recovery by
+  attempt key worked. The cause is **not established** (no Worker log for
+  the request was kept). Early acceptance (`accept: "early"`, offline only,
+  not deployed) takes the hold off the path the browser and the press use,
+  but does not explain it. `docs/history/2026-10-14-combined-candidate.md`
+  §8.2.
+- **The batch's fixes are offline only** (2026-10-15). Still to be shown
+  live: a held data part's routing prepared beside an add-on (route scope);
+  Edit/Add-on overlap at all; early Build acceptance and the press's
+  discovery during its send; Build lines on the final and relisted reads
+  (and whether a Build writes narration at all: unknown from Press A); the
+  late line for a short job; unverified menu links in a real reply. **A
+  held part with no named writes still waits** for any part writing pages,
+  by design: unnamed, it is taken to read the whole site. §8 of the same
+  file.
 - **First builds no longer took the parallel design (since 2026-09-13)**
   (run 117, 2026-10-14). **Cause verified and fixed on the branch, not
   deployed**: a first build runs as a container job whose env

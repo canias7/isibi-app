@@ -1,7 +1,106 @@
 # Owner Notes
 
 
-## Current handoff — read this first (2026-10-14: the live verification batch on the combined candidate is done. `main` is `f1b81477` (deployed as `1336f052`, image `e1582f6f71a41dfb`). Press A (image-free Build) published but showed no progress lines; Press B (acc-mixed-talk) passed reconnect, talk, publish and money, but ran in sequence and ended partial. 47 credits spent, balance 726. Images stay off and PROGRESS_TALK stays on, on your word; the opt-ins are closed)
+## Current handoff — read this first (2026-10-15: the live batch's findings fixed together offline, from the saved evidence; nothing spent, deployed, built or switched)
+
+**Where it stands:**
+- The fixes are on `claude/help-needed-ehlwlj` as **`ce97f0fb`**, on top of
+  `e4e0f944` (the deployed combined code: `main` `f1b81477` merged in).
+- `main` is unchanged at `f1b81477`, and production still runs `1336f052`
+  on image `e1582f6f71a41dfb`.
+- The paid opt-ins stay closed. `IMAGE_PURCHASES` stays off and
+  `PROGRESS_TALK` on, as you said.
+- `new`'s assistant and media work is untouched.
+- Build parallelism, which Press A showed, is unchanged: no Build scheduler
+  code moved.
+
+**What was wrong, from the saved evidence, and what changed:**
+1. **Press B's price change waited 370 s for nothing.**
+   - *Router:* it held the price back and named its one write as the
+     loaves table, with no dependency.
+   - *Plan:* correct, with no edge between the parts.
+   - *Scheduler, the cause:* a part still to be routed counted as reading
+     the page list, and the add-on was making a page, so its routing
+     preparation waited for the add-on's write.
+   - *Fix:* a held part whose every named write is a table, and which names
+     no reads, now reads only the table list. Its routing is prepared beside
+     the add-on and replayed, and it is asked again of the whole site only
+     if its answer leaves the table and the pages really changed. Unnamed
+     parts and real dependencies still wait.
+2. **Build progress, end to end.**
+   - The Worker can answer a send as soon as it is accepted (`accept:
+     "early"`).
+   - Every final read keeps the build's lines: the poll, the kept answer
+     and the account's list.
+   - The press discovers and follows its own attempt while its send is
+     still out, and reads the list afresh at the end.
+   - The browser follows from the first second and keeps the lines on the
+     finished reply.
+   - A narration-usage step now runs on every Build press.
+   - **Whether Press A generated narration is unknown:** nothing read
+     during the build, and nothing measured it.
+3. **The 18-minute wait for the first answer is recorded apart from the
+   recovery**, which worked. Its cause is not established; early acceptance
+   takes it off the path but does not explain it (backlog).
+4. **A short job's progress no longer disappears.**
+   - A job that ends before its line is written gets one late line, from
+     what is still true afterwards only: applied, not done, checked,
+     published. Never "working", "next" or "not published yet".
+   - The line is written only if the job ended done and its final reply is
+     not out yet. The job never waits for it.
+   - Data edits now record what they applied.
+5. **Unreadable menus stay unverified.** The add-on's judgment can name the
+   menu link. A link carried by any menu read back is set up; one where only
+   unreadable menus are left is "not verified" (a new fact kind). The reply
+   is told never to call it done or not done, and to say what was done
+   beside what could not be checked.
+6. **"I'm publishing now"** is read as an action under way, not a
+   completion claim. Unsupported completion claims are still rejected.
+7. **Correction:** not every talk check passed on Press B (part 1 had no
+   progress line), and waiting for a separate prerequisite was not
+   exercised. Both are corrected in the 2026-10-14 handoff below.
+
+**Evidence (offline, supplied model answers only):**
+- **New tests:**
+  - `held-route-scope` (8);
+  - `menu-link-evidence` (5);
+  - `progress-late-line` (4);
+  - `canary-talk` (+4);
+  - `canary-build` (discovery, send wait, recovered/ambiguous, dropped and
+    relisted lines);
+  - `build-reconnect` RC 27–29 (the Worker and the real browser follow).
+- **Red checks:**
+  - on `e4e0f944`: Press B's shape and the widening case fail, and their
+    controls pass; RC 27 hangs and RC 28–29 fail, and RC 29's control
+    passes;
+  - on the old checker: the three progressive cases and one shape case
+    fail.
+- **Sweep:**
+  - 31 of 34 real mutants killed (32 first run, plus 3 re-run after LATE 4
+    was added);
+  - 1 equivalent, a guard the per-milestone filter already makes;
+  - 2 comment controls survived.
+- **Full suite:** running when this was pushed; stamped in the next commit.
+- **Unit CI:** read after the push; stamped in the next commit.
+- **Image:** predicted `e1582f6f71a41dfb` → `4d60a79d338e32b4` (207 inputs; would be built, not built).
+- **Screenshot:** the finished Build reply with its lines, sent in the
+  chat.
+- The full record is §8 of `docs/history/2026-10-14-combined-candidate.md`.
+
+**Remaining live gaps** (none can be closed without a press, and none is
+pressed):
+- a held data part's routing prepared beside an add-on, and Edit/Add-on
+  overlap at all;
+- early Build acceptance and the press discovering its attempt mid-send;
+- Build lines on final and relisted reads, and whether a Build narrates at
+  all;
+- a short job's late line;
+- an unverified menu link in a real reply;
+- the 18-minute hold's cause;
+- a held part with no named writes still waits for a page-writing part (by
+  design).
+
+## Previous handoff (2026-10-14: the live verification batch on the combined candidate is done. `main` is `f1b81477` (deployed as `1336f052`, image `e1582f6f71a41dfb`). Press A (image-free Build) published but showed no progress lines; Press B (acc-mixed-talk) passed reconnect, talk, publish and money, but ran in sequence and ended partial. 47 credits spent, balance 726. Images stay off and PROGRESS_TALK stays on, on your word; the opt-ins are closed)
 
 ## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
 
@@ -288,7 +387,9 @@ further down are the full story. The full record of this batch is
 *Passed:*
 - **Reconnect:** a line was live at 113 s; the tab was closed and a fresh
   session followed to the end.
-- Every talk check.
+- ~~Every talk check.~~ **Corrected 2026-10-15: not every talk check
+  passed.** The live log failed progress on part 1 (the price change showed
+  no line). The wording checks that ran on the lines it had did pass.
 - A single publish.
 - Money.
 
@@ -325,8 +426,13 @@ row **476**, no job open. Nothing was retried and no image was generated.
 4. **A short job's progress line can arrive after the job ends.**
 5. **The talk checker has no progressive mode** ("I'm … now").
 6. **The Build's narration cost is not measured.**
-7. **Waiting for a prerequisite was not exercised** (there was no separate
-   link part), and the closed-tab label mismatch is harmless but recorded.
+7. **Waiting for a separate prerequisite was not exercised** (there was no
+   separate link part, so no part depended on another), and the closed-tab
+   label mismatch is harmless but recorded.
+
+*Gaps 1 and 3–6 are fixed offline on 2026-10-15, and gap 2's cause is found
+and fixed offline. See the handoff above and §8 of
+`docs/history/2026-10-14-combined-candidate.md`.*
 
 ## How you like things done
 
@@ -337,6 +443,29 @@ since. Add new ones there.
 ---
 
 
+
+## 2026-10-15 — The live batch's findings fixed together, offline (nothing spent)
+
+You asked me to fix the batch's findings from the saved evidence, without
+buying another run.
+- **Why the price change sat still:** the router named only a database
+  table for it, but the scheduler still made its routing wait for the
+  add-on's new page. A part like that now reads just the table list, so it
+  can start beside the add-on. Real dependencies still wait.
+- **Build progress:** the build's lines now reach every final read and stay
+  on the finished reply. The press now finds its own build while its
+  request is still out. Whether Press A wrote any lines can't be told from
+  what was saved; the next Build press measures it.
+- **The 18-minute wait** is recorded separately. Its cause isn't known.
+- **A quick job's progress** no longer vanishes. It gets one line afterwards,
+  from what really happened, never stale "working" words.
+- **Menus that couldn't be read** are now "not verified", not "missing", and
+  the reply is told not to contradict itself.
+- **The wording checker** reads "I'm publishing now" as under way.
+- **I corrected my record:** not every talk check passed (part 1 had no
+  line), and waiting on a separate prerequisite wasn't tried.
+
+Nothing was pressed, deployed, built or switched on. Commit `ce97f0fb`.
 
 ## 2026-10-14 — The live verification batch: Press A built in parallel, Press B passed reconnect and talk; 47 credits
 

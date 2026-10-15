@@ -547,3 +547,163 @@ box was left `no`.
 - `f1b81477` closed the opt-ins.
 - The switches were left as set, on the owner's word.
 - The balance is 726, and the last ledger row is 476.
+
+## 8. The batch's findings fixed together, from the saved evidence (2026-10-15; nothing spent, deployed, built or switched)
+
+Your word: fix this live batch's findings together, from the saved
+evidence, before buying another run, and keep the Build parallelism that
+Press A demonstrated. Everything below is offline, on
+`claude/help-needed-ehlwlj` (based on the deployed combined code, `e4e0f944`
+= `main` `f1b81477` merged in). The paid opt-ins stay closed, `new`'s
+assistant/media work is untouched, and nothing was pressed.
+
+### 8.1 Why Press B's price change had no preparation and no overlap
+
+Read from the saved run (38649153034), part by part:
+- **The model's routing output:** the router answered the add-on and held
+  the price back as a later part. It named the held part's write
+  (`targets [{change:0, writes:["data:loaves"]}]`) and no dependency: the
+  price did not depend on the add-on.
+- **Dependency interpretation:** correct. The plan had no edge between the
+  two parts, and part 1 was shown "ready" 64 s in.
+- **The scheduler: here is the delay.** A held part is still to be routed,
+  and a routing reads the page list (`stepInputs` → `["pagelist"]`). The
+  add-on was creating a page, so `clearToPrepare` held part 1's routing
+  preparation until the add-on's write ended. It was queued only at 440 s
+  and ran +413.8 s → +428.6 s. So the 370 s wait was a read the price
+  change never needed: the router had already named its only write as a
+  stored table.
+
+**The fix is general, not this message:**
+- `routeScope(part)` (`builder/request-plan.mjs`): a part still to be routed
+  whose every named write is a stored table (`data:*`), and which names no
+  reads, reads the table list, not the page list. An unnamed part still
+  reads the whole site and waits as before.
+- The prepared routing is shown the page list as it was when the request
+  was accepted (`jobBody` carries the scope; the Worker's route handler
+  skips the live page read), so its exact request is the one prepared and
+  its answer replays.
+- `routeInScope(scope, answer)`: an answer that leaves the scope (any route
+  but a data or rules change of those tables, or an addition writing only
+  those tables' rows; anything held back; a question) is asked again of the
+  whole site **only if the pages really changed** (`samePages`), and both
+  calls' usage is summed. The scope saves a call; it never decides a route.
+- Real dependencies are untouched: a part that names a read, an unnamed
+  part, or a `dependsOn` edge still waits.
+
+Tests: `test/held-route-scope.test.mjs` (8): the scope's four rules, Press
+B's shape through the real driver (the held part's routing now prepares
+beside the add-on's write and its answer replays), a no-targets control
+that still waits, a real-dependency control that still waits, and an
+out-of-scope answer widened after the pages changed. Red on `e4e0f944`:
+Press B's shape and the widening case fail; both controls pass on both.
+
+### 8.2 Build progress, end to end
+
+**Whether Press A generated narration cannot be told from the saved
+evidence.** The run printed "THE MODEL'S LINES:" with nothing under it, but
+the press read nothing during the build (it waited on its send), the final
+answer carried no lines, and `build-as-owner` had no narration-usage step.
+So "no line was written" and "lines were written and never read" both fit.
+It is recorded as unknown, not as either.
+
+The fixes:
+- **The Worker** answers a send that asks (`accept: "early"`) with 202
+  `stage: "accepted"` and its job as soon as the attempt is accepted, so a
+  caller follows by poll from the first second. A caller that does not ask
+  is answered as before.
+- **Every final read keeps the lines** (`withBuildLines`): the first read
+  that collects the slot, the kept answer a later session reads, the row's
+  verdict, and the account's build list in every state (it attached them
+  only while running).
+- **The press** (`scripts/canary-build.mjs`) sends with `accept: "early"`,
+  signs in fresh at once, and **while the original send is still
+  outstanding** finds its own attempt by its key in the account's list and
+  follows it. Acceptance is now `prompt`, `discovered`, `recovered` or
+  `none`. After the end it reads the list once more as a fresh session
+  would, and a final or relisted read missing a line counts as a lost line.
+- **The browser** (`public/chat.js`) asks for early acceptance, follows an
+  `accepted` 202 like a resumed one, takes the final answer's lines, and
+  keeps the build's lines on its finished reply (drawn as the finished
+  list an edit's reply uses, and stored for a reload).
+- **Narration usage is collected on every Build press now:** the step
+  "narration usage (free, read-only)" in `build-as-owner.yml`, with
+  `build-check.mjs` writing `canary-evidence/narration-ids.json` for it.
+
+**The 18-minute wait is a separate finding from the recovery.** The send
+went at 22:13:35, the build finished at 22:22:16, and the send was still
+unanswered when the press gave up at 22:31:35. The recovery by attempt key
+worked. Why the route did not answer within its own 16-minute hold after
+the build had finished is **not established** from the saved evidence (no
+Worker log for that request was kept). Early acceptance removes the long
+hold from the path a customer and the press take, but it does not explain
+it: it stays a backlog item.
+
+Tests: `test/build-reconnect.test.mjs` RC 27 (early acceptance; the
+ordinary send still waits), RC 28 (lines on the first read, the kept
+answer, and the finished list; none from another account), RC 29 and its
+control (the real browser follow keeps the lines to the end; none appear
+for a build that wrote none, or on another open project).
+`test/canary-build.test.mjs` adds discovery while the send is out, the
+bounded send wait, recovered and ambiguous acceptance, and the dropped and
+relisted line cases. Red on `e4e0f944`: RC 27 hangs (the send is held), RC
+28 and RC 29 fail, and RC 29's control passes.
+
+### 8.3 A short job's narration
+
+Press B's price change ran 22:49:12–22:49:29; its line's call answered at
+22:49:32, after the job had ended, and the line was dropped, so the part
+showed nothing. Data edits also never recorded what they applied (no
+publish milestone).
+- An edit that needs no publish now marks what it applied
+  (`editAppliedFacts`).
+- **A job that ends before its line is written gets one late line**,
+  written after its end only from what is still true afterwards (applied,
+  not done, checked, published), never what it was doing, what came next,
+  or an in-between state. It is committed only when the job's row reads
+  done (a row still finalizing is read again) and its final reply is not
+  written yet. A failed job, or one whose reply is out, gets none, and the
+  job never waits for a line (`lateBatch`, `lateNeeded`, `commitLate`,
+  `failLate`, `writeLateLine`).
+
+Tests: `test/progress-late-line.test.mjs` LATE 1–4: the reproduction, the
+reply-first control (no model call after the reply), the pure rules, and
+the job's own close asking for the line when no other ask is outstanding.
+
+### 8.4 The menu evidence and the self-contradicting reply
+
+Reproduced from Press B's reading: eight menus carry the `/bulk-orders`
+link and three could not be read. The requirement judgment had no item it
+could name for "a visitor can open the page from the menu", answered "no",
+and the reply said the menus link and, a sentence later, that this was not
+done.
+- The judgment is shown the link it can name (`link:/path`, `judgeItems`).
+- What the link rests on is read from the published menus after the menu
+  step (`linkEvidence`): carried by any menu read back, set up; only
+  unreadable menus, **unverified**; menus read and not carrying it, still
+  to do.
+- **Unverified is its own fact kind** (`v`). The reply writer is told a `v`
+  fact is unknown either way, never done and never not done, and to say
+  what was done beside what could not be checked without contradicting
+  either. An unverified requirement makes the reply "partly", never "done".
+
+Tests: `test/menu-link-evidence.test.mjs` LINK 1–5, with Press B's
+reading.
+
+### 8.5 The wording checker and "I'm publishing now"
+
+A sentence about an action under way ("I'm publishing now", "the price is
+being updated") is its own mode (`ongoing`): never a completion claim, and
+judged only against the final checks (unverified when they do not show the
+action begun). Unsupported completion claims are still rejected. Tests: 4
+new cases in `test/canary-talk.test.mjs`. On the old checker, the three
+progressive cases and one shape case fail; the case that ongoing wording
+does not shelter a later false claim passes on both.
+
+### 8.6 Correction to the batch's record
+
+The handoff of 2026-10-14 listed "every talk check" as passed for Press B.
+**That was wrong:** the live log failed progress on part 1 (no line for the
+price change), so not every talk check passed. And **waiting for a separate
+prerequisite was not exercised**: the request had no part that depended on
+another.
