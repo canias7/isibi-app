@@ -103,8 +103,8 @@ md5 checked after restore.
     - the image-inputs case passes once the merge is committed;
     - `no-generated-deps` passes (2 of 2) without my local `node_modules`
       link.
-  - CI on `800669a9`: unit tests 38801833801 and site build 38801833849
-    (results recorded below when read).
+  - CI on `800669a9`: unit tests 38801833801 and site build 38801833849,
+    both success.
 
 ### 3. Implemented / locally verified / CI verified / live verified
 
@@ -114,7 +114,7 @@ md5 checked after restore.
 | Fence in bytes, etag-only conditional puts, undo by etag | yes | yes (red check, sweep) | yes | no |
 | Script follows pointer, durable note, cron sweep | yes | yes (TS5–TS11) | yes | no |
 | wordsLanded: mounted root, attribute and spread overrides | yes | yes | yes | no |
-| Integration with main | merged on a separate branch | yes (2 artifacts) | pending at writing | no |
+| Integration with main | merged on a separate branch | yes (2 artifacts) | yes (`800669a9`) | no |
 
 ### 4. Remaining gaps
 
