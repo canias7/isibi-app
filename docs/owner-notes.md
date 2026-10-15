@@ -1,5 +1,118 @@
 # Owner Notes
 
+## 2026-10-15 (later) — The batch findings fixed together, offline; the publish turn's ownership review answered (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
+`supabase/proposed/request_beside.sql` stays unapplied, both paid opt-ins stay
+closed. Branch `claude/help-needed-ehlwlj` only, from `1ce886d6`.
+
+**`main` moved to `c37cbc41`** (the opt-ins closed after the batch, and the
+stray `node_modules` link). **For the separate assistant/media candidate
+(`new`):** it must be brought up to `c37cbc41` before it is integrated; this
+branch already has `c37cbc41` as an ancestor (merge `60bdc0cd`), so the two
+meet on the same base.
+
+### What changed, commit by commit
+
+1. **`50d0aeca` — the Visit line that was never added (Press 2, part 1, job
+   `16a9432c`, `not-landed`).** Traced from the designer's answer to the
+   landed check: the designer wrote the line with its link inline,
+   `[words](/route)`, and the check read the address as words a visitor
+   should see. So a correctly drawn link could never be found, and the same
+   markup left as visible text would have passed. Now the check reads a
+   link's words and its address apart, and requires the words **and** one
+   more link to that exact address on the page. The designer's schema says
+   how a link is written; the page writer is told to draw it as a link.
+   Refusing incomplete output is unchanged (words missing, link missing or
+   pointing elsewhere, markup left as text: refused before the bill).
+   - **Recovery: none needed.** The refusal wrote nothing and charged
+     nothing for the job (routing 3 was charged and stays: it ran). The
+     writer's answer is kept in R2 (`jobKeptKey`), not readable from here.
+     Sending the line again is the recovery, at the routing and job cost of
+     one new part; nothing would be charged twice.
+   - Red check: the old checker fails 3 of the 5 new route cases (Link,
+     anchor, markup left as text), reproducing the run.
+2. **`1e3c01e8` — the publish turn's ownership (your review).** A refused
+   renewal is now a lost turn; a held turn is read again before it is
+   trusted; the commit point re-reads it before the publish grant; the
+   editable-state repair runs only while its named holder still holds it;
+   every job config write and put-back (look, logo, stylesheet correction,
+   edit rollback, an addition's look and revert) writes only while the turn
+   is the job's. Loss reaches the existing machinery: the job's next gate
+   stops it (`turn-lost`), it fails, `edit_refund` refunds it, and the
+   customer is told another change of the request took the turn.
+   - CW8: a whole-site holder loses its turn inside its model call →
+     publishes nothing, gives back nothing, failed, refunded once.
+   - CW9: a description holder held at its compile loses its turn to a job
+     that writes the config → commit refused, its put-back leaves the newer
+     config, the turn stays the newer job's, refunded once.
+   - Both fail on the previous worker.js.
+   - **`b9ac6ae7` corrected it:** the first version renamed config-write call
+     sites that five source guards pin, and the full suite (and unit CI run
+     38753128591 on `60bdc0cd`, 38754423543 on `889f9b70`) failed them. The
+     writes are `patchSiteConfig` again, each preceded by the ownership
+     check in its own failure path.
+   - **`70d2425b`, CW12:** a page change that took the turn at its publish
+     loses it while held at its compile: commit refused, the newer job's turn
+     untouched, page unchanged, refunded once.
+3. **`0bd624f9` — a config writer beside a text job, through the Worker.**
+   CW10: description (config, holds the turn) and a Visit text change from
+   one message — the text job runs its model call while the description job
+   holds the turn and publishes after; both changes stand, each charged
+   once. CW11: the description's compile fails once — its config write put
+   back, refunded, the Visit change kept; asked again, the description lands
+   and only the new job is charged. Without the config holder's own
+   `keepConfig`, CW11's recovery fails.
+4. **`60bdc0cd` — `main` merged in without its `node_modules` link.**
+   `.gitignore` said `node_modules/`, which matches a directory but not a
+   link; now `node_modules`, and `test/no-generated-deps.test.mjs` fails on
+   any tracked path under one. **The link is still on `main`; the next
+   approved fast-forward removes it inside a deploy that happens anyway.**
+   Nothing was pushed to `main`.
+5. **`e49ac856` — the canary's closed-tab coverage.** It read only an
+   "away" step, so Press 2's fresh-session run said "closed-tab NOT COVERED"
+   beside checks recording the tab closed. Both now read one set of facts.
+6. **`889f9b70` — narration from what ran.** The build's design fact no
+   longer claims photographs (an image-free build was told it had designed
+   them); the canary's per-part progress reason now says live while running,
+   seen only after it ended, or told only by its completed-work summary.
+   Narration stays off the work's path (delivered on its own chain; the
+   job's end waits at most `PROGRESS_CLOSE_MS`; the writer's 45 s call runs
+   in the background). The "now live" task summary was true but broke the
+   instructions; checking person or tense in code would need language
+   keyword rules, which you ruled out, so it stays the model's instruction.
+
+### Verification (offline, measured)
+- **Full suite: 11,009 / 11,009 / 0 / 0** locally on `b9ac6ae7` (CW12 adds
+  one case after it; the concurrency files are 22 of 22 on `70d2425b`).
+- **Required CI on `b9ac6ae7`: green** — unit tests run 38756020542, site
+  build run 38756020671.
+- **Mutation sweep, 13 mutants, comment-only control survived: 10 killed.**
+  Survivors: the heartbeat's refused renewal (no case drives a 30 s beat;
+  every write re-reads the turn instead), and the cached-turn and lost-turn
+  checks in `takeTurn`, which the editable-state and commit-point checks
+  repeat in every current call order. (A first sweep run truncated each file
+  before mutating it; it is void and not counted.)
+- **Red checks:** the linked-words cases on the old checker (3 of 5 fail),
+  CW8/CW9 on the old Worker, CW11 without `keepConfig`, the closed-tab
+  agreement test on the old canary, the design-fact test on the old file,
+  the node_modules guard on `main`'s `.gitignore`.
+- **Image prediction:** `main` `e420b3c2d3224dd3` (207 inputs) → branch
+  `63e1eed72f3dd7c0` (208 inputs, `builder/publish-turn.mjs` added). An
+  integration rebuilds the image; nothing was built.
+
+### Still not shown live
+- Two writing jobs of one request overlapping live (needs the SQL, a merge
+  and deploy, `PARALLEL_WRITES=on`).
+- The turn's exclusion under two real isolates (rests on R2's etag write).
+- The heartbeat's refused-renewal path is covered by every write re-reading
+  the turn, not by a case driving a 30 s beat.
+- A stale config write left by a job that lost its turn after writing and
+  before its put-back stays until the next publish's editable-state check
+  (a text job's puts it back; a config holder's own does not).
+- The Visit line fix and the design fact are offline only; no real model has
+  written a linked line since.
+
 ## 2026-10-15 — Where things stand: deployed, verified, and the parallel work (branch only)
 
 **Three separate things. Read them apart.**

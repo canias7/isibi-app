@@ -21,31 +21,27 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - **Verification batch findings** (2026-10-15, runs 38742390550 and
-  38744698638; `docs/owner-notes.md` §2 of the 2026-10-15 entry).
-  - (a) **Build narration overclaims:** a build with no photographs said it
-    designed "the photographs it will use". The live-line checks test
-    authorship, not truth.
-  - (b) **A Visit-page line was not added:** add-on job `16a9432c`,
-    `not-landed`; the page writer returned `/visit` without the asked words.
-    Refused at no charge.
-  - (c) **Part 2 (data, 3 s) had no progress lines,** and one task-summary
-    line was not first person.
-  - (d) **Part 1's one narration call was not written:** it timed out at
-    45 s.
-  - (e) **The coverage summary contradicts the checks:** it says
-    "closed-tab NOT COVERED" while a check records the tab closed.
-  - (f) **A stray `node_modules` symlink is on `main`** (`c37cbc41`), and it
-    started an unintended identical deploy. Removing it redeploys once more
-    and waits for the owner.
-- **Jobs of one request side by side: not live, and three gaps** (2026-10-15,
+  38744698638): (a), (b), (e) fixed on the branch (`889f9b70`, `50d0aeca`,
+  `e49ac856`), offline only; (f)'s cleanup is prepared (`60bdc0cd`) and
+  waits for the next approved integration. Open:
+  - (c) one task-summary line said "now live" in the third person — true,
+    against the instructions; no code check (it would need language
+    keyword rules). Part 2's missing live line was a 3-second job, now
+    reported as such by the canary.
+  - (d) part 1's one narration call timed out at 45 s and was given up
+    (by design: retried once, the label kept). Not changed.
+- **Jobs of one request side by side: not live, two gaps** (2026-10-15,
   branch only; `docs/history/2026-10-15-concurrent-writes.md`). To switch
   on: apply `supabase/proposed/request_beside.sql`, merge and deploy, set
   `PARALLEL_WRITES=on`; no live press has shown two writing jobs of one
-  request overlapping. Gaps: (a) no Worker-level case drives a config writer
-  (look, logo, addition) beside a text step — only the rule and the runner
-  wiring; (b) the publish turn's exclusion under two real isolates rests on
-  R2's etag write, never raced live; (c) a conflict caught at publish fails
-  the part (refunded) rather than re-running it against the new site.
+  request overlapping. Gaps: (b) the publish turn's exclusion under two
+  real isolates rests on R2's etag write, never raced live; (c) a conflict
+  caught at publish fails the part (refunded) rather than re-running it
+  against the new site. (a), a config writer beside a text step through the
+  Worker, is covered by CW10/CW11; the turn's ownership review by CW8, CW9,
+  CW12. A stale config write left by a job that lost its turn between its
+  write and its put-back stays until the next publish's editable-state
+  check.
 - **A Build send went unanswered for 18 minutes after its build had
   finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
   The send went at 22:13:35, the build ended at 22:22:16, and the press gave

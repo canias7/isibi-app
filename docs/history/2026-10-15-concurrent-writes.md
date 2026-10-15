@@ -173,3 +173,34 @@ on the next commit is `6f343e7a`: **10,993 / 10,993 / 0 / 0** locally (full offl
   is merged or deployed. **No live press has shown two writing jobs of one
   request overlapping.** The approved verification batch (`8e24ca5b`,
   deployed) cannot show it: it was prepared before this work.
+
+## Follow-up the same day: the turn's ownership, a config writer beside a text job
+
+The owner's review: `renewTurn` could answer no and the heartbeat dropped
+it, and `takeTurn` trusted a turn cached on the job.
+
+- **Ownership** (`1e3c01e8`, corrected in `b9ac6ae7`): `turnHeld` reads the
+  stored turn; `turnStillMine` answers whether a job running beside others
+  may write the site, and a turn found to be another's or lapsed is lost
+  (`loseTurn`). The heartbeat acts on a refused renewal; `takeTurn` re-reads
+  a held turn and never takes back a lost one; the commit point re-reads it
+  before the publish grant; `ensureEditableState` repairs only while its
+  named holder holds it and leaves a config holder's own write in place
+  (`keepConfig`); every job config write and put-back is preceded by the
+  ownership check (`mayWriteConfig`). Loss stops the job at its next gate
+  (`turn-lost`), and `edit_refund` refunds it.
+- **Cases:** CW8 (whole-site holder loses its turn in its model call), CW9
+  (description holder loses it at its compile, after its config write),
+  CW12 (a page change loses the turn it took for its publish): none
+  publishes, repairs, writes or puts back the config, or touches the newer
+  holder's turn; each is refunded once. CW10/CW11: a description change
+  beside a Visit text change — side by side, both kept, each charged once;
+  the description's compile failing once is put back and refunded with the
+  Visit change kept, and asked again it lands, charged once.
+- **Sweep:** 13 mutants, 10 killed, the comment-only control survived.
+  Survivors: the heartbeat's refused renewal (no 30 s beat is driven) and
+  `takeTurn`'s cached-turn and lost-turn checks, repeated by the
+  editable-state and commit-point checks in every current call order.
+- **Still not shown:** two real isolates racing the turn; a live overlap.
+  A stale config write left by a job that lost its turn between its write
+  and its put-back stays until the next publish's editable-state check.
