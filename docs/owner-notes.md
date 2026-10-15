@@ -1,6 +1,91 @@
 # Owner Notes
 
 
+## The combined candidate: `new` into `main`, ready for review (2026-10-15; branch `candidate/new-on-main`, code candidate `4fac9f8d`; unmerged, undeployed; no container build, live storage write, paid call or image purchase)
+
+**The correction round on `new` is closed.** Codex confirmed `22779ea5`.
+
+**The candidate, prepared in an isolated worktree.** `main` is untouched at
+`8e24ca5b`.
+- **`2e5820de`:** the merge of `new` (`22779ea5`) into `main`, with the
+  conflicts resolved.
+- **`4fac9f8d`:** the code candidate. A fired Build's answer now says where the
+  owner's video and audio went.
+- **The records commit** on top changes documents only.
+
+**What it brings:**
+- **The assistant conversation.**
+- **Video and audio files the owner uploads:** hosting, storage, playback,
+  replacement and deletion, and drafts kept before a site exists.
+- **Nothing generates video or audio.** The diff adds no generation service,
+  and the assistant lists editing video or audio as not offered.
+
+**The conflicts:**
+- **Three textual, each a union:**
+  - `Dockerfile`: `main`'s lists plus `site-media.mjs` and
+    `builder/site-converse.mjs`;
+  - `public/chat.js`: `main`'s `accept: 'early'` plus `new`'s `media`;
+  - `owner-notes`: both sides' entries.
+- **One semantic:** `main`'s `470223cb` router case asserted the rule `new`
+  deliberately narrowed (only an answer picked from our options refuses
+  "ask"). It is restated under the candidate's rule and keeps its purpose,
+  each flag proven through the real route. Cutting either wire fails it.
+
+**What the integration check found:** a gap in `new`, now fixed in `4fac9f8d`.
+A Build that fires its generation (the normal container path) moved the
+drafts, but the answer the page follows came from the resume and said nothing
+of them. The resume record now carries the media outcome, as it carries
+`deferred`.
+- **RC 27b** follows `main`'s early answer with two drafts, through the queued
+  job, the real consumer and the poll. It was red before the fix.
+- **RC 27c:** a fired Build with no drafts has no media fields.
+- **Mutants:** 4 of 4 killed, control survived.
+
+**Results:**
+- **The focused integration set on the merged tree:** 806 of 806.
+- **`container-images` on the committed candidate:** 17 of 17.
+- **CI on `4fac9f8d`:** unit green (run 38742153754), and site build green
+  (run 38742154022). I did not read the per-test totals.
+
+**Deployment prerequisites** (all yours; none met by preparing):
+1. **You say merge.** `main` fast-forwards to the candidate. The deploy is
+   never dispatched from a branch.
+2. **Nothing in flight:** no Actions run, no open edit or build job.
+3. **If `main` moves first,** for example with help-needed's
+   parallel-execution work, the candidate is redone on the new `main`.
+4. **CI green on the candidate head.**
+5. **The image rolls** `e420b3c2d3224dd3` → **`01b76fb595ee2600`** (207 → 209
+   inputs). The predictor reproduces `main`'s recorded id. Allow the 15–20
+   minute window before container work.
+6. **Rollback, verified in a throwaway worktree:** revert `4fac9f8d`, then
+   revert `2e5820de` with `-m 1`. That gives back `main`'s exact tree.
+7. **After the deploy:**
+   - the free runtime canary must show the new sha and image;
+   - the served `public/` files are byte-compared with the merged ones.
+8. **No new secret, binding or variable.**
+
+**The next verification batch, after the merge.** It runs through the
+`media verify` workflow. No console steps are asked of you, and each press
+keeps its evidence.
+- **V1, free:** rehearsal, storage, browser, on a demo site you name (not one
+  of help-needed's).
+- **V2, paid, kept apart, each press on your approval:**
+  - converse: about 12–36 credits;
+  - build: about 13–47 credits.
+
+  The ceiling you type is the only limit; the platform caps nothing.
+  - `IMAGE_PURCHASES` must be off on the live Worker, shown by a rehearsal and
+    re-read before every send.
+  - The balance is read before and after every send.
+  - An unknown charge stops the press.
+  - The Build needs a steady ledger first.
+- **For review:** every answer is kept whole, with its source evidence, for
+  Codex to read its meaning.
+- **Not covered by any press:** Safari, Android Chrome and Edge, and R2's own
+  abort and finish answers.
+
+The full record is `docs/history/2026-10-15-combined-candidate.md`.
+
 ## Proposal for your decision — one live verification batch (2026-10-15; nothing pressed, merged, deployed, built or switched)
 
 Codex reviewed through `894c3648` and confirmed the ten failures resolved
