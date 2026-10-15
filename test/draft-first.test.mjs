@@ -62,6 +62,7 @@ const PAGES2 = [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source
 const LOAVES = { name: "loaves", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }], read: "public", write: "none" };
 const ROUTE_TEXT = { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] };
 const ROUTE_DATA = { intent: "edit", layer: "data", targets: [{ change: 0, writes: ["data:loaves"] }] };
+const ROUTE_RENAME = { intent: "edit", layer: "rename", targets: [{ change: 0, writes: ["address"] }] };
 const TIKTOK = "Change our TikTok link on the Visit page to @harbourloaf.";
 const TIKTOK_LATER = "Change our TikTok link on the Visit page to @harbourloafbakery.";
 const RYE = "Make the Dark Rye £5.60.";
@@ -71,15 +72,16 @@ const WALNUT = "Make the Walnut Levain £6.40.";
 
 /** What the data step's model was shown, per call: the rows of `loaves`, as JSON lines. */
 const shownRows = [];
-function bakery(name, { draftFirst = false } = {}) {
+function bakery(name, { draftFirst = false, aliases = null } = {}) {
   const compiler = installCompiler();
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   let tt = 0;
   const said = (args) => String(args.messages[0].content);
   const P = platform({
-    slug: slugOf(name), pages: PAGES2, db, liveScripts: true,
+    slug: slugOf(name), pages: PAGES2, db, liveScripts: true, aliases,
     answers: {
-      route: (args) => (/TikTok/.test(said(args)) ? ROUTE_TEXT : ROUTE_DATA),
+      route: (args) => (/TikTok/.test(said(args)) ? ROUTE_TEXT : /address|Rename/i.test(said(args)) ? ROUTE_RENAME : ROUTE_DATA),
+      new_address: (args) => { const asked = (said(args).split("What they asked for:\n")[1] || "").split("\n")[0]; const m = /(?:to|at) ([a-z0-9-]+)\.?\s*$/i.exec(asked); return m ? { name: m[1] } : {}; },
       [T.text]: (args) => { const pairs = [[TT_FROM, TT_TO], [TT_TO, TT_LATER], [TT_LATER, TT_TO]]; const [from, to] = pairs[Math.min(tt++, pairs.length - 1)]; return { edits: [{ id: lineId(args, "visit.tsx", from), to }] }; },
       write_row_changes: (args) => {
         const text = said(args);
@@ -211,56 +213,6 @@ test("DFB3 PUBLISH RELEASES THE REVISION NAMED — revision 2 (two row changes) 
     assert.equal((await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 5, version: v0 + "x" })).status, 409);
     assert.equal((await call(P, "POST", "/api/site/" + P.slug + "/publish", {})).status, 400);
     assert.equal(price(db, 5), 6);
-  } finally { await finish(P, compiler); }
-});
-
-test("DFB4 DUPLICATE CLICKS AND A FAILED PUBLICATION — two clicks at once publish once (the other is told it is under way, or already done); a publication whose script is refused stops after the rows, says so, and Publish pressed again finishes without adding the rows twice; a dead publication's lock is taken over; another revision's live lock is refused", async () => {
-  const { P, db, compiler } = bakery("dfb4");
-  try {
-    await runOne(P, TIKTOK);
-    const v0 = liveVersion(P);
-    P.env.DRAFT_FIRST = "on";
-    await runOne(P, SPELT);
-    await runOne(P, TIKTOK_LATER);
-    const d = draftOf(P);
-
-    // A PUBLICATION THAT STOPS PART-WAY: the script upload refused.
-    let refuse = true;
-    P.beforeUpload(async (u) => { if (refuse && !String((u && u.name) || "").startsWith("draft-")) throw new Error("upload refused"); });
-    const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 2 });
-    assert.notEqual(stop.status, 200, "a publication whose script was refused answered success");
-    assert.match(String(stop.body.error), /Publish again|press Publish/i, "the stop does not say what to do: " + JSON.stringify(stop.body));
-    assert.equal(liveVersion(P), v0, "the pointer moved on a refused script");
-    assert.equal(spelt(db).length, 1, "the rows step did not run before the stop (the case needs it to)");
-    assert.equal(draftOf(P).applied, 0, "a stopped publication was marked published");
-    assert.equal(P.readObj(PUBLISHING_KEY(P.slug)), null, "the stopped publication kept its lock");
-    refuse = false;
-    const done = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 2 });
-    assert.equal(done.status, 200, JSON.stringify(done.body));
-    assert.equal(spelt(db).length, 1, "Publish pressed again added the rows twice");
-    assert.equal(liveVersion(P), d.revs[1].version);
-
-    // TWO CLICKS AT ONCE on the next revision.
-    await runOne(P, WALNUT);
-    const [x, y] = await Promise.all([
-      call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 3 }),
-      call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 3 }),
-    ]);
-    const statuses = [x.status, y.status].sort();
-    assert.ok(statuses[0] === 200 && (statuses[1] === 202 || (statuses[1] === 200 && (x.body.already || y.body.already))), "two clicks did not publish once: " + JSON.stringify([x.status, x.body, y.status, y.body]));
-    assert.equal(price(db, 5), 6.4);
-
-    // A DEAD PUBLICATION'S LOCK IS TAKEN OVER; ANOTHER REVISION'S LIVE LOCK IS NOT.
-    await runOne(P, RYE);
-    P.writeObj(PUBLISHING_KEY(P.slug), JSON.stringify({ n: 9, id: "dead", at: Date.now() - 60 * 60 * 1000 }));
-    const over = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 4 });
-    assert.equal(over.status, 200, "a dead publication's lock stopped the owner for good: " + JSON.stringify(over.body));
-    await runOne(P, SPELT_MORE);
-    P.writeObj(PUBLISHING_KEY(P.slug), JSON.stringify({ n: 9, id: "other", at: Date.now() }));
-    const busy = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 5 });
-    assert.equal(busy.status, 409, "a revision was published over another's publication in progress: " + JSON.stringify(busy.body));
-    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
-    assert.equal(st.body.state, "publishing", "a publication in progress is not shown as such");
   } finally { await finish(P, compiler); }
 });
 
@@ -569,17 +521,267 @@ test("DFB10 A TASK FINISHING WHILE THE OWNER PUBLISHES IS NOT IN THE PUBLICATION
   } finally { await finish(P, compiler); }
 });
 
-test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in worker.js the schema apply, the starter rows and the job registration are called only by the writer (Publish applies through it, switched off), or under a binding of those very names from a task's writer (`= aWriter.calls` and its build and rules twins); the data step and the add-on's entries hold before they write; the build carries its hold to its resume", () => {
+
+// ── THE PUBLICATION, COHERENT (2026-10-15, the owner's correction) ───────────
+//
+// The owner: *"Fix partial publication … Make the approved revision publish
+// coherently, with safe recovery from interruption or failure. Do not blindly
+// roll back database contents or overwrite visitor activity."* A publication
+// is a journal of phases: preflight → new tables (unused by the live version)
+// → the switch (pointer and script) → the rest, rolled forward step by
+// recorded step. Every case reads what is actually stored: the draft record,
+// the journal, the pointer, the live script, the sidecar, the address store
+// and the rows — never a reply alone.
+const JOURNAL = (P) => PUBLISHING_KEY(P.slug);
+const journalOf = (P) => { const t = P.readObj(JOURNAL(P)); return t ? JSON.parse(bare(t)) : null; };
+const sidecarOrigin = (P) => JSON.parse(bare(P.readObj("sitemeta/" + P.slug + ".json"))).origin;
+const currentAlias = (aliases) => (aliases.find((r) => r.current === true) || {}).alias || null;
+const RENAME = (to) => "Rename the site's address to " + to + ".";
+/** Make every write to the journal fail while `when()` is true: a runner that died, as the store sees it. */
+function dieAtJournal(P, when) {
+  const hook = (k) => k === JOURNAL(P);
+  const die = async () => { if (!when()) return; P.beforePut(hook, die); throw new Error("the runner died"); };
+  P.beforePut(hook, die);
+}
+
+test("DFP1 A CHAT RENAME STAYS IN THE DRAFT — the address store, the alias cache and the live sidecar keep the live name; the draft and its state say where it will move; a second rename moves the draft's address on; Publish then moves the live address once, from the live name to the last one (the name in between never becomes a redirect), with the sidecar's origin", async () => {
+  const aliases = [];
+  const { P, compiler } = bakery("dfp1", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    const origin0 = sidecarOrigin(P);
+    P.env.DRAFT_FIRST = "on";
+    const r1 = await runOne(P, RENAME("fold-street-bakery"));
+    assert.equal(r1.jobs[0].state, "done", JSON.stringify(r1.jobs[0].result).slice(0, 300));
+    assert.equal(r1.body.renamed, undefined, "a held rename answered as if the site had moved");
+    assert.deepEqual([r1.body.renamedInDraft, r1.body.draft && r1.body.draft.published], ["fold-street-bakery", false]);
+    assert.deepEqual(aliases, [], "the address store was written before Publish: " + JSON.stringify(aliases));
+    assert.equal(sidecarOrigin(P), origin0, "the live sidecar's origin moved before Publish");
+    let st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.address.live, st.body.address.draft], ["saved", P.slug, "fold-street-bakery"]);
+    // A SECOND RENAME: the address the draft has is the one it is about.
+    const r2 = await runOne(P, RENAME("harbour-street-loaf"));
+    assert.equal(r2.body.renamedInDraft, "harbour-street-loaf");
+    st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.equal(st.body.address.draft, "harbour-street-loaf");
+    assert.deepEqual(aliases, []);
+    // PUBLISH THE REVISION THE PANEL SHOWS.
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: st.body.revision, version: st.body.draft });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.equal(currentAlias(aliases), "harbour-street-loaf", "Publish did not move the live address: " + JSON.stringify(aliases));
+    assert.deepEqual(aliases.filter((r) => r.current === false).map((r) => r.alias), [P.slug], "the old address does not redirect, or a draft-only name became a redirect: " + JSON.stringify(aliases));
+    assert.match(sidecarOrigin(P), /harbour-street-loaf/, "the live sidecar's origin was not moved with the address");
+    assert.deepEqual([pub.body.state.state, pub.body.state.address.live], ["published", "harbour-street-loaf"]);
+    assert.equal(journalOf(P), null, "a finished publication left its journal");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP2 A SUCCESSFUL PUBLISH IS THE SELECTED REVISION, IN ORDER — revision 1 a price, revision 2 a page line, revision 3 a new loaf; the click names revision 2: when the pointer moves the journal is in its switch phase and the live price is still the old one (the row change follows the switch, nothing visible precedes it); after it, revisions 1–2 are live, revision 3's loaf is not, the journal is gone and the record says 2; revision 3's own click adds the loaf once and moves no pointer", async () => {
+  const { P, db, compiler } = bakery("dfp2");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, RYE);
+    await runOne(P, TIKTOK_LATER);
+    await runOne(P, SPELT);
+    const d = draftOf(P);
+    assert.equal(d.rev, 3);
+    // ONE OBSERVER, kept for both clicks.
+    const switches = [];
+    const watch = () => P.beforePut((k) => k === POINTER(P), async () => { switches.push({ rye: price(db, 2), spelt: spelt(db).length, journal: journalOf(P) }); });
+    watch();
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 2, version: d.revs[1].version });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.equal(switches.length, 1, "the pointer moved " + switches.length + " times");
+    assert.equal(switches[0].journal && switches[0].journal.phase, "prepared", "the pointer moved outside the switch phase: " + JSON.stringify(switches[0]));
+    assert.deepEqual([switches[0].rye, switches[0].spelt], [5.2, 0], "a visible change landed before the switch");
+    assert.notEqual(d.revs[1].version, v0);
+    assert.deepEqual([liveVersion(P), P.liveScript()], [d.revs[1].version, d.revs[1].version]);
+    assert.deepEqual([price(db, 2), spelt(db).length], [5.6, 0], "revision 3's loaf went live with revision 2");
+    assert.deepEqual([draftOf(P).applied, journalOf(P)], [2, null]);
+    let st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.revision, st.body.applied], ["saved", 3, 2]);
+    // REVISION 3: rows only on the same pages.
+    watch();
+    const p3 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 3 });
+    assert.equal(p3.status, 200, JSON.stringify(p3.body));
+    assert.deepEqual([price(db, 2), spelt(db).length, draftOf(P).applied], [5.6, 1, 3]);
+    // AGAIN: nothing repeated.
+    const p4 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 3 });
+    assert.deepEqual([p4.status, p4.body.already, spelt(db).length], [200, true, 1], JSON.stringify(p4.body));
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP3 A FAILURE BEFORE THE SWITCH CHANGES NOTHING LIVE — the script is refused: the pointer, the live script, the rows, the address store and the record are all as they were, no journal is left, and the draft still offers the revision; pressed again, it publishes once", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp3", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P), live0 = P.liveScript(), origin0 = sidecarOrigin(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, RENAME("fold-street-bakery"));
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    let refuse = true;
+    P.beforeUpload(async (u) => { if (refuse && !String((u && u.name) || "").startsWith("draft-")) throw new Error("upload refused"); });
+    const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.notEqual(stop.status, 200, "a refused script answered success");
+    assert.equal(stop.body.live, "unchanged", JSON.stringify(stop.body));
+    assert.deepEqual([liveVersion(P), P.liveScript(), sidecarOrigin(P)], [v0, live0, origin0], "the live site moved on a refused script");
+    assert.equal(spelt(db).length, 0, "a row became live before the switch");
+    assert.deepEqual(aliases, [], "the address moved before the switch");
+    assert.deepEqual([draftOf(P).applied, journalOf(P)], [0, null]);
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.revision], ["saved", d.rev]);
+    refuse = false;
+    const ok = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.deepEqual([liveVersion(P), spelt(db).length, currentAlias(aliases)], [d.version, 1, "fold-street-bakery"]);
+    // THE NEW VERSION CARRIES THE NEW ADDRESS in its sidecar (canonical link, og:url).
+    assert.match(sidecarOrigin(P), /fold-street-bakery/, "the published version's sidecar kept the old origin");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP4 A FAILURE AFTER THE SWITCH ROLLS FORWARD, NEVER BACK — the address store refuses: the new version is live, the stop says so, the journal keeps the revision (finishing, with the error) and the record is not marked; the sweep tries again while the store still refuses and finishes nothing; once the store answers, the sweep finishes the same revision — the address moved, the rows once — and a click meanwhile is not a new publication", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp4", { aliases });
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, RENAME("fold-street-bakery"));
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    aliases.failWrites = true;
+    const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(stop.status, 502, JSON.stringify(stop.body));
+    assert.deepEqual([stop.body.live, stop.body.stage], ["switched", "address"]);
+    assert.equal(liveVersion(P), d.version, "the switch did not happen");
+    const j = journalOf(P);
+    assert.deepEqual([j.n, j.phase, j.running, j.done], [d.rev, "switched", false, []], JSON.stringify(j));
+    assert.match(String(j.error), /^address:/);
+    assert.equal(draftOf(P).applied, 0, "a publication that did not finish was marked published");
+    assert.equal(spelt(db).length, 0, "a step after the stopped one ran");
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.publication.finishing, st.body.publication.revision], ["publishing", true, d.rev]);
+    // A NEWER DRAFT MEANWHILE is not what any recovery publishes.
+    await runOne(P, WALNUT);
+    // THE SWEEP, WHILE THE STORE STILL REFUSES: nothing more, nothing undone.
+    await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([journalOf(P).phase, journalOf(P).attempts, draftOf(P).applied, liveVersion(P)], ["switched", 2, 0, d.version]);
+    aliases.failWrites = false;
+    await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.equal(journalOf(P), null, "the sweep did not finish the publication");
+    assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length], [d.rev, "fold-street-bakery", 1]);
+    assert.equal(price(db, 5), 6, "the recovery published the newer, unapproved change");
+    const after = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([after.body.state, after.body.revision, after.body.applied], ["saved", d.rev + 1, d.rev]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP5 AN INTERRUPTED PUBLICATION, AND DUPLICATE CLICKS — the runner dies right after its switch: a second click on the same revision is told it is under way and publishes nothing; a click on another revision is refused; once the runner is stale, the owner's click resumes the SAME revision and finishes it — the rows once, the address once — and then a click on the newer revision publishes it", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp5", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, RENAME("fold-street-bakery"));
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    let dying = false;
+    // DIES AT THE FIRST JOURNAL WRITE AFTER THE SWITCH.
+    P.beforePut((k) => k === POINTER(P), async () => { P.beforePut((k) => k === JOURNAL(P), async () => { dying = true; dieAtJournal(P, () => dying); }); });
+    const died = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    dying = false;
+    assert.notEqual(died.status, 200, "a publication whose runner died answered success");
+    const j = journalOf(P);
+    assert.deepEqual([j.phase, j.running, j.n], ["switched", true, d.rev], "the death did not leave a running journal after the switch: " + JSON.stringify(j));
+    assert.equal(liveVersion(P), d.version);
+    // A DUPLICATE CLICK WHILE THE (DEAD) RUNNER IS STILL FRESH.
+    const dup = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.deepEqual([dup.status, dup.body.publishing], [202, true], JSON.stringify(dup.body));
+    await runOne(P, WALNUT);
+    const other = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev + 1 });
+    assert.equal(other.status, 409, "another revision was published over a publication in progress: " + JSON.stringify(other.body));
+    assert.equal(price(db, 5), 6);
+    // STALE: the owner's click resumes the same revision.
+    P.advance(4 * 60 * 1000);
+    const resumed = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+    assert.deepEqual([draftOf(P).applied, journalOf(P), currentAlias(aliases), spelt(db).length, price(db, 5)], [d.rev, null, "fold-street-bakery", 1, 6]);
+    assert.equal(aliases.filter((r) => r.alias === "fold-street-bakery").length, 1, "the address was written twice");
+    // THE NEWER REVISION, its own click.
+    const newer = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev + 1 });
+    assert.equal(newer.status, 200, JSON.stringify(newer.body));
+    assert.deepEqual([price(db, 5), spelt(db).length, draftOf(P).applied], [6.4, 1, d.rev + 1]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP6 ANOTHER REVISION'S STOPPED SWITCH IS FINISHED FIRST, NEVER SKIPPED — revision A switched and stopped; the owner clicks a newer revision B: A's remaining changes are finished (it was approved and its pages are live), then B is published; nothing of A is repeated", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp6", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, TIKTOK_LATER);
+    const a = draftOf(P);
+    aliases.failWrites = true;
+    await runOne(P, RENAME("fold-street-bakery"));
+    const aRev = draftOf(P).rev;
+    const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: aRev });
+    assert.equal(stop.body.live, "switched", JSON.stringify(stop.body));
+    aliases.failWrites = false;
+    await runOne(P, WALNUT);
+    const b = draftOf(P).rev;
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: b });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length, price(db, 5), journalOf(P)], [b, "fold-street-bakery", 1, 6.4, null]);
+    void a;
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP7 TWO CLICKS AT ONCE PUBLISH ONCE — the same revision pressed twice in the same moment: one publication runs, the other is told it is under way or already done; the new loaf is added once, the address moves once, the pointer moves once; the preview still serves the draft afterwards and a later edit is a new revision, unpublished", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp7", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, RENAME("fold-street-bakery"));
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    let moves = 0;
+    const count = () => P.beforePut((k) => k === POINTER(P), async () => { moves++; count(); });
+    count();
+    const both = await Promise.all([0, 1].map(() => call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version })));
+    const codes = both.map((r) => r.status).sort();
+    assert.ok(codes.includes(200), JSON.stringify(both.map((r) => r.body)));
+    assert.ok(codes.every((c) => c === 200 || c === 202), "a duplicate click failed: " + JSON.stringify(codes));
+    assert.equal(both.filter((r) => r.status === 200 && r.body.already === false).length, 1, "both clicks published: " + JSON.stringify(both.map((r) => r.body)));
+    assert.deepEqual([moves, spelt(db).length, aliases.filter((r) => r.alias === "fold-street-bakery").length, draftOf(P).applied, journalOf(P)], [1, 1, 1, d.rev, null]);
+    // AN EDIT AFTER PUBLICATION: saved, not live.
+    await runOne(P, WALNUT);
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.revision, st.body.applied, st.body.address.live, st.body.address.draft], ["saved", d.rev + 1, d.rev, "fold-street-bakery", "fold-street-bakery"]);
+    assert.equal(price(db, 5), 6, "an edit after publication went live");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in worker.js the schema apply, the starter rows and the job registration are called only by the writer (Publish applies through it, switched off), or under a binding of those very names from a task's writer (`= aWriter.calls` and its build and rules twins); the data step, the add-on's entries and the address hold before they write; the build carries its hold to its resume", () => {
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const body = (name) => { const i = src.indexOf("async function " + name + "("); assert.ok(i >= 0, name + " is missing"); return [i, src.indexOf("\n}\n", i)]; };
   const [w0, w1] = body("backendWriter");
   // PUBLISH APPLIES THROUGH THE SAME WRITER, SWITCHED OFF.
-  const [p0, p1] = body("applyHeldPlan");
+  const [p0, p1] = body("runPublication");
   assert.match(src.slice(p0, p1), /const live = \(await backendWriter\(\{ \.\.\.env, DRAFT_FIRST: "" \}, slug\)\)\.calls;/);
   const binds = [...src.matchAll(/const \{ applySiteSchema(?:, seedSiteRows, persistSiteJobs)? \} = ([abr])Writer\.calls;/g)].map((m) => ({ at: m.index, who: m[1] }));
   assert.deepEqual(binds.map((b) => b.who).sort(), ["a", "b", "r"], "a task's binding from its writer is gone: " + JSON.stringify(binds));
   for (const fn of ["applySiteSchema", "seedSiteRows", "persistSiteJobs"]) {
-    // A BARE CALL (a member call like `live.applySiteSchema(` is the writer's own).
     const sites = [...src.matchAll(new RegExp("(?<![.\\w])" + fn + "\\(", "g"))].map((m) => m.index)
       .filter((i) => !/async function $/.test(src.slice(Math.max(0, i - 15), i)) && !/^\s*(\/\/|\*)/.test(src.slice(src.lastIndexOf("\n", i) + 1, i)));
     assert.ok(sites.length >= 2, fn + ": the observer found no call sites");
@@ -587,15 +789,15 @@ test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in work
       if (i > w0 && i < w1) continue;
       const bound = binds.filter((b) => b.at < i).pop();
       const between = bound ? src.slice(bound.at, i) : "";
-      assert.ok(bound && !/\n(async )?function /.test(between), fn + " is called outside the writer, Publish, or a task's binding: " + src.slice(src.lastIndexOf("\n", i) + 1, i + 60));
+      assert.ok(bound && !/\n(async )?function /.test(between), fn + " is called outside the writer or a task's binding: " + src.slice(src.lastIndexOf("\n", i) + 1, i + 60));
     }
   }
-  // THE DATA STEP HOLDS BEFORE ITS FIRST WRITE.
   const apply0 = src.indexOf("apply: async (c) => {");
   assert.ok(apply0 > 0 && src.indexOf("if (dWriter.holding) {", apply0) < src.indexOf("DELETE FROM", apply0), "the data step writes before it asks whether to hold");
-  // THE ADD-ON'S ENTRIES HOLD BEFORE THE STATEMENT IS BUILT.
   assert.ok(src.indexOf("if (aWriter.holding) {") < src.indexOf("const rowWrite = rowsInsert("), "the add-on's entries are written before the hold is asked");
-  // THE BUILD'S HOLD RIDES ITS ARGUMENTS, WHICH ITS RESUME RECORD KEEPS.
+  // THE ADDRESS: the rename layer holds before its first alias write.
+  const rn = src.indexOf('if (eLayer === "rename") {');
+  assert.ok(rn > 0 && src.indexOf("if (nWriter.holding) {", rn) < src.indexOf("const badOld = await putAlias(rows.demote);", rn), "the address is written before the hold is asked");
   assert.match(src, /held: bWriter\.hold && !bWriter\.hold\.empty \? bWriter\.hold : null,/);
   assert.match(src, /attachmentIds = null, media = null, held = null \}\) \{/);
 });

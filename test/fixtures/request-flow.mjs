@@ -62,7 +62,30 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null } = {}) {
+/**
+ * R2's conditional check, as Miniflare implements it (`_testR2Conditional`):
+ * strong comparison for etagMatches, weak for etagDoesNotMatch, a wildcard
+ * matching any object, and the upload-time conditions overridden by the etag
+ * conditions as stated there. `secondsGranularity` truncates both times.
+ */
+export function r2Conditional(cond, cur) {
+  const c = cond || {};
+  const list = (v) => (v == null ? null : (Array.isArray(v) ? v : [v]).map((e) => String(e)));
+  const strip = (e) => String(e).replace(/^W\//, "").replace(/^"|"$/g, "");
+  const includes = (tags, etag, weak) => tags.some((t) => t === "*" || (weak ? strip(t) === strip(etag) : t.replace(/^"|"$/g, "") === etag && !/^W\//.test(t)));
+  const matches = list(c.etagMatches), notMatches = list(c.etagDoesNotMatch);
+  if (!cur) return matches === null && c.uploadedAfter == null;
+  const sec = c.secondsGranularity === true;
+  const t = (d) => { const ms = new Date(d).getTime(); return sec ? Math.floor(ms / 1000) * 1000 : ms; };
+  const uploaded = sec ? Math.floor(cur.at / 1000) * 1000 : cur.at;
+  const ifMatch = matches === null || includes(matches, cur.etag, false);
+  const ifNoneMatch = notMatches === null || !includes(notMatches, cur.etag, true);
+  const ifModifiedSince = c.uploadedAfter == null || t(c.uploadedAfter) < uploaded || (notMatches !== null && ifNoneMatch);
+  const ifUnmodifiedSince = c.uploadedBefore == null || t(c.uploadedBefore) > uploaded || (matches !== null && ifMatch);
+  return ifMatch && ifNoneMatch && ifModifiedSince && ifUnmodifiedSince;
+}
+
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false, liveScripts = false, aliases = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -622,9 +645,43 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (method === "PATCH") { if (typeof args.neon_db === "string") neon.db = args.neon_db; return resp([]); }
       return resp([{ uid: owner, brief: "", neon_db: neon.db }]);
     }
+    // WITH AN ADDRESS STORE, ANOTHER SLUG IS NOBODY'S SITE — so a rename to a
+    // fresh name is free, as on the platform. Without one, every slug answers
+    // as before.
+    if (url.includes("/rest/v1/site_backends") && Array.isArray(aliases) && !url.includes("slug=eq." + encodeURIComponent(slug))) return resp([]);
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
-    if (url.includes("/rest/v1/site_aliases")) return resp([]);
+    // THE SITE'S ADDRESSES (2026-10-15, draft-first's held renames): with
+    // `aliases` (an array of rows) the store remembers — PostgREST's `eq.` and
+    // `is.` filters on alias, slug, uid and current; a POST upserts by alias; a
+    // DELETE takes off what matches. Without it every answer is empty, as before.
+    if (url.includes("/rest/v1/site_aliases")) {
+      if (!Array.isArray(aliases)) return resp([]);
+      const q = new URL(url).searchParams;
+      const keep = (r) => ["alias", "slug", "uid", "current"].every((k) => {
+        const f = q.get(k);
+        if (f === null) return true;
+        const [op, v] = [f.slice(0, f.indexOf(".")), f.slice(f.indexOf(".") + 1)];
+        if (op === "is") return String(r[k]) === v;
+        return op === "eq" ? String(r[k]) === v : true;
+      });
+      // `aliases.failWrites` (a property on the array): the store refuses every write.
+      if ((method === "POST" || method === "DELETE") && aliases.failWrites) return new Response("unavailable", { status: 503 });
+      if (method === "POST") {
+        for (const row of [].concat(args || [])) {
+          const at = aliases.findIndex((r) => r.alias === row.alias);
+          const next = { created_at: new Date(now()).toISOString(), ...(at >= 0 ? aliases[at] : {}), ...row };
+          if (at >= 0) aliases[at] = next; else aliases.push(next);
+        }
+        return resp([], 201);
+      }
+      if (method === "DELETE") {
+        const gone = aliases.filter(keep);
+        for (const g of gone) aliases.splice(aliases.indexOf(g), 1);
+        return resp(gone);
+      }
+      return resp(aliases.filter(keep));
+    }
     // A SCHEDULED JOB'S REGISTRATION (2026-10-11): kept, one row per job, so a
     // case can read what was registered.
     if (url.includes("/rest/v1/site_functions")) {

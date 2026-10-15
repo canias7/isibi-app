@@ -20,8 +20,13 @@
 export const DRAFT_KEY = (slug) => "site-drafts/" + slug + ".json";
 /** One task's held backend and library changes, immutable once written. */
 export const HELD_KEY = (slug, id) => "site-drafts/" + slug + "/held/" + id + ".json";
-/** The owner's publication in progress: one at a time per site. */
-export const PUBLISHING_KEY = (slug) => "site-drafts/" + slug + ".publishing.json";
+/**
+ * THE OWNER'S PUBLICATION IN PROGRESS, AND ITS JOURNAL: one at a time per
+ * site, under its own prefix so the recovery sweep lists publications and
+ * nothing else.
+ */
+export const PUBLISHING_KEY = (slug) => "site-publishing/" + slug + ".json";
+export const PUBLISHING_PREFIX = "site-publishing/";
 const VERSION_ID = /^\d{14}-[a-z0-9]{6}$/;
 export const isDraftVersion = (v) => typeof v === "string" && VERSION_ID.test(v);
 
@@ -317,9 +322,11 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
 //   { kind: "media-replace", name, with }   a file's new bytes, uploaded under another name
 //   { kind: "media-delete", name }          a video or recording taken off
 //   { kind: "upload-delete", file }         a picture or document taken off
+//   { kind: "alias", action: "rename", from, to }   the site's address, moved
+//   { kind: "alias", action: "forget", name }       an old address, let go
 const HELD_ID = /^[a-f0-9]{24}$/;
 const REF = /^[a-f0-9]{24}:\d{1,4}$/;
-export const HELD_KINDS = Object.freeze(["schema", "jobs", "seed", "row", "media-replace", "media-delete", "upload-delete"]);
+export const HELD_KINDS = Object.freeze(["schema", "jobs", "seed", "row", "media-replace", "media-delete", "upload-delete", "alias"]);
 
 /**
  * One task's holding place: ops collected in memory, written once (`flush`)
@@ -425,13 +432,14 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
  * found.
  */
 export function publishPlan(ops, { refs = {} } = {}) {
-  const plan = { spec: null, jobs: null, seeds: [], changes: [], inserts: [], media: [] };
+  const plan = { spec: null, jobs: null, seeds: [], changes: [], inserts: [], media: [], alias: [] };
   const inserts = new Map();
   for (const o of ops || []) {
     if (o.kind === "schema") plan.spec = o.spec;
     else if (o.kind === "jobs") plan.jobs = Array.isArray(o.jobs) ? o.jobs : [];
     else if (o.kind === "seed") plan.seeds.push({ spec: o.spec, seed: o.seed });
     else if (o.kind === "media-replace" || o.kind === "media-delete" || o.kind === "upload-delete") plan.media.push(o);
+    else if (o.kind === "alias") plan.alias.push(o);
     else if (o.kind === "row") {
       if (o.op === "insert") { inserts.set(o.ref, { table: o.table, values: { ...(o.values || {}) }, ref: o.ref }); continue; }
       if (o.ref) {
@@ -449,6 +457,14 @@ export function publishPlan(ops, { refs = {} } = {}) {
     }
   }
   plan.inserts = [...inserts.values()];
+  // SEVERAL MOVES OF THE ADDRESS ARE ONE: from where it was to where the last
+  // one put it — so a name only the draft ever had never becomes a redirect.
+  // A move back to where it started is no move. Forgets stay as they are.
+  const moves = plan.alias.filter((a) => a.action === "rename");
+  if (moves.length) {
+    const from = moves[0].from, to = moves[moves.length - 1].to;
+    plan.alias = [...(from !== to ? [{ kind: "alias", action: "rename", from, to }] : []), ...plan.alias.filter((a) => a.action !== "rename")];
+  }
   return { ok: true, plan };
 }
 
@@ -456,4 +472,78 @@ function randomHex(n) {
   const b = new Uint8Array(n);
   crypto.getRandomValues(b);
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * THE SITE'S ADDRESS AS THE DRAFT HAS IT: the last held rename's new name, or
+ * `live` (the name it answers to now). A forget does not move the address.
+ */
+export function addressOverlay(live, ops) {
+  let name = live;
+  for (const o of ops || []) if (o.kind === "alias" && o.action === "rename" && typeof o.to === "string") name = o.to;
+  return name;
+}
+/** The names the draft lets go of (held forgets), and any later rename back to one of them cancels it. */
+export function forgottenInDraft(ops) {
+  const out = new Set();
+  for (const o of ops || []) {
+    if (o.kind !== "alias") continue;
+    if (o.action === "forget" && typeof o.name === "string") out.add(o.name);
+    if (o.action === "rename" && typeof o.to === "string") out.delete(o.to);
+  }
+  return out;
+}
+
+// ── THE PUBLICATION, AS PHASES (2026-10-15, the owner's coherence correction) ──
+//
+// A database and a site script cannot change in one atomic step, so a
+// publication is a journal of phases, each recorded before the next:
+//   start     — preflight: nothing written. A refusal here changes nothing.
+//   prepared  — what no visitor of the live version can see is in place:
+//               tables the live site does not have yet, and their starter rows.
+//   switched  — the approved version is live (pointer and script, through the
+//               conditional activation and its own undo). From here the
+//               publication only rolls FORWARD.
+//   finished  — every remaining change applied; the draft record says so.
+// Before `switched` a stop leaves the live site as it was (the prepared new
+// tables are unused by it). After `switched` the remaining steps are each
+// repeatable or exactly-once, recorded in `done`, and a stop is finished —
+// by the owner's next click or by the recovery sweep — never undone, and never
+// with any revision but the one the click named.
+export const PUBLICATION_PHASES = Object.freeze(["start", "prepared", "switched", "finished"]);
+/** The steps after the switch, in order. */
+export const FINISH_STEPS = Object.freeze(["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
+/** A journal entry for the owner's click on revision `n` of `version`. */
+export function newJournal({ slug, n, version, uid = "", now = Date.now(), id }) {
+  return { v: 1, slug, n, version, uid: String(uid || ""), id, running: true, at: now, phase: "start", done: [], refs: {}, error: null, attempts: 0 };
+}
+/** A journal as stored, read strictly: null when it is not one. */
+export function readJournal(t) {
+  let j;
+  try { j = typeof t === "string" ? JSON.parse(t) : t; } catch { return null; }
+  if (!j || typeof j !== "object" || !Number.isSafeInteger(j.n) || !isDraftVersion(j.version) || !PUBLICATION_PHASES.includes(j.phase)) return null;
+  return {
+    ...j,
+    done: Array.isArray(j.done) ? j.done.filter((d) => typeof d === "string") : [],
+    refs: j.refs && typeof j.refs === "object" && !Array.isArray(j.refs) ? j.refs : {},
+    running: j.running === true, at: Number(j.at) || 0, attempts: Number(j.attempts) || 0,
+  };
+}
+/** Is this journal's publication being run right now (a runner that has written within `staleMs`)? */
+export const journalLive = (j, { now = Date.now(), staleMs } = {}) => !!(j && j.running && j.at > now - staleMs);
+/**
+ * WHAT A CLICK ON REVISION `n` DOES, given the journal that stands:
+ *   start      — no publication stands: begin one;
+ *   busy       — one is running now (202 for the same revision, 409 another);
+ *   resume     — the same revision stopped, or its runner died: carry it on;
+ *   finishFirst— another revision already switched and did not finish: finish
+ *                that one (it was approved) before beginning this one;
+ *   replace    — another revision stopped before its switch: nothing of it is
+ *                live, so it is set aside.
+ */
+export function clickPlan(j, n, { now = Date.now(), staleMs } = {}) {
+  if (!j || j.phase === "finished") return "start";
+  if (journalLive(j, { now, staleMs })) return "busy";
+  if (j.n === n) return "resume";
+  return j.phase === "switched" ? "finishFirst" : "replace";
 }
