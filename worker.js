@@ -6073,6 +6073,11 @@ const jobImage = (job, generate) => {
 
 function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progress = null }) {
   let cancelled = false;
+  // THE SITE'S PUBLISH TURN, LOST (2026-10-15, after review): a job running
+  // beside others of its request that finds its turn gone — not renewed in
+  // time and taken by another job — stops at its next gate, as a stop, never
+  // publishing, repairing or writing the config on a turn it no longer holds.
+  let turnLost = false;
   let beats = 0;
   let reserves = 0;
   // ── WHAT THE LEDGER REFUSED (2026-09-05) ──────────────────────────────
@@ -6096,6 +6101,9 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
     progress,
     /** Has the customer asked to stop? Answered by the last heartbeat. */
     cancelled: () => cancelled,
+    /** Has this job lost the site's publish turn (`loseTurn`)? */
+    turnLost: () => turnLost,
+    loseTurn() { turnLost = true; },
     beats: () => beats,
     /**
      * How many times this job's rungs reserved credits — zero for a rung that
@@ -6153,6 +6161,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
       // The Worker's own consumer has no such binding and never reads this.
       if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) return { go: false, why: "stopped" };
       if (cancelled) return { go: false, why: "cancelled" };
+      if (turnLost) return { go: false, why: "turn-lost" };
       if (budget && budget.expired()) return { go: false, why: "budget" };
       // A PUBLISH NEEDS ROOM, NOT JUST TIME (run 33, 2026-09-03). With 235s
       // left the old gate said go, and the compile — capped at what is left
@@ -11904,7 +11913,7 @@ async function restoreVersion(env, slug, id) {
  * wrong. Answers rather than throws; a check that cannot be made costs
  * nothing but a line in the log.
  */
-async function ensureEditableState(env, slug, { turnOwner = null } = {}) {
+async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = false } = {}) {
   if (!env || !env.SITES_BUCKET || !slug) return { ok: true, why: "no-bucket" };
   // WITH JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15, `PARALLEL_WRITES`), a
   // repair writes only under the site's publish turn: another job may be
@@ -11920,6 +11929,12 @@ async function ensureEditableState(env, slug, { turnOwner = null } = {}) {
     if (!t) return { ok: true, why: "turn-held", wrote: [] };
     try { return await ensureEditableState(env, slug, { turnOwner: t.owner }); }
     finally { await giveTurn(env, slug, t); }
+  }
+  // A HOLDER NAMED IS A HOLDER NOW: one whose turn lapsed to another job
+  // repairs nothing — the other job's unfinished work would be what it put
+  // back.
+  if (writesBeside(env) && turnOwner && (await turnHeld(env, slug, { owner: turnOwner })) !== true) {
+    return { ok: false, why: "turn-lost", wrote: [] };
   }
   const deps = buildDeps(env);
   let pointer = null;
@@ -11946,6 +11961,10 @@ async function ensureEditableState(env, slug, { turnOwner = null } = {}) {
       console.log("editable state:", slug, need.why, "→ repaired from", pointer.version, JSON.stringify(r.wrote || []), r.ok ? "" : "(" + r.why + ")");
       return { ok: r.ok, why: need.why, wrote: r.wrote || [], version: pointer.version };
     }
+    // A STEP THAT WROTE THE CONFIG UNDER ITS TURN (`keepConfig`) is the reason
+    // the config is ahead of the live site, and its publish is what brings
+    // the site level: put back, its own change would be undone.
+    if (keepConfig) return { ok: true, why: "same", wrote: [], version: pointer.version };
     const o = await deps.get(buildPrefix(slug, pointer.version) + STATE_DIR + "config.json");
     if (o && (await mergeConfig(await o.text())) === true) {
       console.log("editable state:", slug, "config put back to", pointer.version);
@@ -11999,6 +12018,53 @@ async function giveTurn(env, slug, t) {
     });
   } catch (e) { console.error("publish turn: could not give back", slug, errorClassForLog(e)); }
 }
+/**
+ * Is `t` still the site's turn, unlapsed? true, false, or null when the store
+ * cannot be read — which a writer treats as no, never as a yes.
+ */
+async function turnHeld(env, slug, t) {
+  if (!t || !t.owner) return false;
+  try {
+    const { obj } = await readTurnObj(env, slug);
+    return !!(obj && obj.turn && obj.turn.owner === t.owner && obj.turn.until > Date.now());
+  } catch { return null; }
+}
+/**
+ * THE JOB HAS LOST THE SITE'S TURN: kept on the job (`beside.lost`, the turn
+ * dropped so nothing gives back what is now another's) and on its context,
+ * whose next gate stops it through the ordinary stop — failed, refunded by
+ * `edit_refund`, nothing published.
+ */
+function loseTurn(job, slug, why) {
+  if (!job || !job.beside) return;
+  if (!job.beside.lost) console.error("publish turn: lost by", job.id, "on", slug, "—", why);
+  job.beside.lost = true;
+  job.beside.turn = null;
+  if (typeof job.loseTurn === "function") job.loseTurn();
+}
+/**
+ * MAY THIS JOB WRITE THE SITE NOW? A job not running beside others of its
+ * request: yes, as before. One that is: only while it holds the site's turn,
+ * read now — a turn it once held but no longer does is lost (`loseTurn`), and
+ * a turn that cannot be read is a no for this write.
+ */
+async function turnStillMine(env, slug, job) {
+  if (!job || !job.beside || !writesBeside(env) || !env.SITES_BUCKET) return true;
+  if (job.beside.lost || !job.beside.turn) return false;
+  const held = await turnHeld(env, slug, job.beside.turn);
+  if (held === false) loseTurn(job, slug, "the turn is another's or has lapsed");
+  return held === true;
+}
+/**
+ * A JOB'S CONFIG WRITE — its look or logo, an addition's look, the put-back of
+ * either — made only while the job may write the site (`turnStillMine`). A
+ * job that lost its turn writes nothing: its put-back would overwrite the
+ * config of the job that took the turn. Answers `patchSiteConfig`'s shape.
+ */
+async function jobConfigWrite(env, slug, job, db, patch) {
+  if (!(await turnStillMine(env, slug, job))) return { ok: false, error: "turn-lost: this change no longer holds the turn to write the site" };
+  return patchSiteConfig(env, slug, db, patch);
+}
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -12017,7 +12083,12 @@ async function renewTurn(env, slug, t) {
  */
 async function takeTurn(env, slug, job) {
   const bs = job.beside;
-  if (bs.turn) return bs.turn;
+  // A TURN THIS JOB LOST IS NEVER TAKEN BACK by this job: what it began from
+  // may have been published over since, and its config written over.
+  if (bs.lost) return null;
+  // A TURN IT ALREADY HOLDS IS READ AGAIN, never trusted from memory: the
+  // heartbeat that renews it can fail, and the turn lapse to another job.
+  if (bs.turn) return (await turnStillMine(env, slug, job)) ? bs.turn : null;
   const owner = "job:" + job.id + ":" + job.owner;
   for (;;) {
     let t = null;
@@ -12813,6 +12884,12 @@ function compileMsg(pub, theirs, landed = false, kept = false) {
   if (pub.error === "lease-lost") {
     return said("That didn't go through — something else was changing your site at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
   }
+  // ITS TURN TO PUBLISH, LOST OR NEVER GOT (2026-10-15): another change of
+  // the same request held the site's turn — the same kind of refusal as a
+  // lost lease, and the same advice; never the restarting sentence.
+  if (pub.error === "turn-lost" || pub.error === "turn") {
+    return said("That didn't go through — another change in the same request was being published at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
+  }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
   // `ours` is set by a COMPILE that never judged the code (the container killed
@@ -13062,6 +13139,7 @@ async function publishBeside(env, opts) {
   const tm = (phase, status, detail) => { try { if (opts.trace) opts.trace.mark(phase, status, detail); } catch { /* never */ } };
   const mine = !bs.turn;
   const t = await takeTurn(env, slug, job);
+  if (!t && bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
   if (!t) return { ok: false, error: "turn", ours: true, detail: "another change in this request is still being published, and this one ran out of time waiting — nothing was changed" };
   tm("publish:turn", "ok", { waits: bs.waits || 0, held: !mine });
   try {
@@ -13069,7 +13147,9 @@ async function publishBeside(env, opts) {
     // THE EDITABLE STATE CHECKED AND REPAIRED AS THE TURN'S HOLDER, then the
     // site as it is now through the repairing reader — whose own check finds
     // the turn held and leaves the repair just made as it is.
-    const st = await ensureEditableState(env, slug, { turnOwner: t.owner });
+    const st = await ensureEditableState(env, slug, { turnOwner: t.owner, keepConfig: bs.holds === true });
+    if (st && st.why === "turn-lost") loseTurn(job, slug, "found at the editable-state check");
+    if (bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
     if (!st || st.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't check the site's editable state before publishing — nothing was changed" };
     const cur = await loadSiteSourceForEdit(env, slug, { checked: true });
     if (!cur || cur.ok !== true) return { ok: false, error: "read", ours: true, detail: cur && cur.why === "editable-state" ? "couldn't check the site's editable state before publishing — nothing was changed" : "couldn't read the site as it is now — nothing was changed" };
@@ -13926,6 +14006,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   //
   // KEPT SHORT INSIDE THE BLOCK, because test/edit-queue.test.mjs reads the
   // 400 characters before the gate for its `if (job` guard.
+  // THE TURN, READ AGAIN AT THE COMMIT POINT (2026-10-15): a job running
+  // beside others of its request publishes only while it still holds it.
+  if (job && job.beside && !(await turnStillMine(env, slug, job))) {
+    tm("publish:turn", "fail", { why: job.beside.lost ? "lost" : "unreadable" });
+    return { ok: false, error: job.beside.lost ? "turn-lost" : "turn", ours: true, detail: "this change no longer holds the turn to publish — nothing was published" };
+  }
   if (job) {
     if (typeof job.reserves === "function" && job.reserves() === 0) {
       const ex = await editRpc(env, "edit_exempt", { p_id: job.id, p_owner: job.owner });
@@ -16828,6 +16914,11 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
       // job answered at its next gate. Nothing published, the reserve back.
       : why === "stopped"
         ? "That change was stopped before it could publish — the service running it was shut down or ran past its time limit. Send it again in a few minutes."
+      // ITS TURN TO PUBLISH WAS LOST (2026-10-15): another change of the same
+      // request took the site's turn after this one stopped renewing it, so
+      // this one stopped rather than publish over it.
+      : why === "turn-lost"
+        ? "That change was stopped before it could publish — another change in the same request took its turn to publish, so nothing of this one was published. Send it again."
       // THE PUBLISH FLOOR (run 33, 2026-09-03): refused before the container,
       // so nothing ran and nothing was published. What anything cost is the
       // reader's to say, from the job's own row (`servedEditReply`).
@@ -20365,7 +20456,11 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug, progress });
     beat = setInterval(() => {
       jctx.beat(null).catch(() => {});
-      if (jctx.beside && jctx.beside.turn) renewTurn(env, job.slug, jctx.beside.turn).catch(() => {});
+      // A RENEWAL THAT ANSWERS NO IS A LOST TURN (2026-10-15), never ignored.
+      if (jctx.beside && jctx.beside.turn) {
+        const held = jctx.beside.turn;
+        renewTurn(env, job.slug, held).then((ok) => { if (ok === false && jctx.beside.turn === held) loseTurn(jctx, job.slug, "its renewal was refused"); }).catch(() => {});
+      }
     }, HEARTBEAT_S * 1000);
     // A REQUEST'S JOB MAY RUN BESIDE OTHERS OF ITS REQUEST (2026-10-15,
     // `PARALLEL_WRITES`): it publishes under the site's turn, rebased onto the
@@ -29398,7 +29493,7 @@ async function handleRequest(request, env, ctx) {
               if (!eConfigWritten) return true;
               try {
                 if (!preEditConfig) throw new Error("no snapshot to restore from");
-                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
+                const back = await jobConfigWrite(env, ownerSlug, eJob, await siteBackendBySlug(env, ownerSlug), preEditConfig);
                 if (!back.ok) throw new Error(back.error);
                 return true;
               } catch (e) {
@@ -31848,7 +31943,7 @@ async function handleRequest(request, env, ctx) {
                   if (!c.ok) throw new Error(c.why + ": " + c.error);
                   const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
                   const next = url ? { form: "image", url } : markRemove(c.config, field);
-                  const w = await patchSiteConfig(env, ownerSlug, ldb, { look: { ...look, [field]: next } });
+                  const w = await jobConfigWrite(env, ownerSlug, eJob, ldb, { look: { ...look, [field]: next } });
                   // A DISCARDED FAILURE HERE IS A CUSTOMER TOLD THEIR LOGO
                   // LANDED while the next publish serves the site without it.
                   // The lane's own catch turns this into its refusal.
@@ -32599,7 +32694,7 @@ async function handleRequest(request, env, ctx) {
                 // sheet is named at all: `nextCss` equals `priorCss` unless a
                 // usable one came back, and `withConfig`'s absent-means-unchanged
                 // rule is what keeps a look-only edit off the stylesheet.
-                const w = await patchSiteConfig(env, ownerSlug, edb,
+                const w = await jobConfigWrite(env, ownerSlug, eJob, edb,
                   cssMoved ? { look: merged, css: nextCss } : { look: merged });
                 if (!w.ok) throw new Error(w.error);
                 eConfigWritten = true;
@@ -32694,7 +32789,7 @@ async function handleRequest(request, env, ctx) {
                   // longer a way to put the sheet back through `JSON.stringify`
                   // and store a quoted, escaped copy the container would hand to
                   // the browser as one string literal.
-                  const w = await patchSiteConfig(env, ownerSlug, edb,
+                  const w = await jobConfigWrite(env, ownerSlug, eJob, edb,
                     cssMoved ? { look: priorLook, css: priorCss } : { look: priorLook });
                   if (!w.ok) throw new Error(w.error);
                 } catch (e) {
@@ -34186,7 +34281,7 @@ async function handleRequest(request, env, ctx) {
                 editTrace.mark("lane:correct", fix.failed ? "fail" : "ok",
                   { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
-                  const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
+                  const put = await jobConfigWrite(env, ownerSlug, eJob, cssCtx.edb, { css: fix.value });
                   // EVERY WRITE SETS THE FLAG AT ITS OWN LINE, this one included,
                   // though today it is already set: the hand-over this round
                   // needs is made only after the look step's own write
@@ -38937,7 +39032,7 @@ async function handleRequest(request, env, ctx) {
             // refusal of its own.
             let aStored = false;
             if (aLookPatch) {
-              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
+              const w = await jobConfigWrite(env, ownerSlug, aJob, adb, aLookPatch);
               if (!w.ok) {
                 console.error("addon look store failed:", ownerSlug, w.error);
                 // "UNTOUCHED" ONLY WHEN IT IS (2026-10-06): a database made for
@@ -39332,7 +39427,7 @@ async function handleRequest(request, env, ctx) {
               // above the store names the risk ("a restore … can itself fail").
               let aKept = false;
               if (aStored) {
-                const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
+                const back = await jobConfigWrite(env, ownerSlug, aJob, adb, { look: aLook, css: aCss });
                 if (!back.ok) { aKept = true; console.error("addon look revert failed:", ownerSlug, back.error); }
               }
               // ── WHAT STANDS IN THE DATABASE IS SAID (stage 8) ──────────────

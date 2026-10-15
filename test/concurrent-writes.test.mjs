@@ -356,3 +356,98 @@ test("CW7 ONE PUBLISH AT A TIME — the site's publish turn is held by another j
     assert.equal(reserveOf(P, editJobs(P, r.key)[0].id).length, 1);
   });
 });
+
+// ── A TURN LOST TO ANOTHER JOB (2026-10-15, after review) ────────────────────
+// `renewTurn` can answer no and a turn can lapse to another job; the job that
+// held it must then never publish, repair, write or put back the config, or
+// give back the turn that is now another's — and it ends through the ordinary
+// stop: failed, its reserve refunded.
+const TAKEN = (P) => ({ v: 1, owner: "job:newer:o2", job: "newer", at: Date.now(), until: Date.now() + 10 * 60 * 1000 });
+const turnKeyOf = (P) => "publish-turn/" + P.slug + ".json";
+const refundedOnce = (P, jobId) => P.ledger.filter((e) => e.ref === jobId && e.reason === "refund").length === 1;
+
+test("CW8 A STALE HOLDER CANNOT PUBLISH — a whole-site step holds the site's turn from its start; inside its model call the turn lapses and another job takes it; the stale job publishes nothing, gives back nothing, and ends failed with its reserve refunded", async () => {
+  const seen = { held: false }; let release = null; const freed = new Promise((ok) => { release = ok; });
+  await withPlatform({
+    slug: slugOf("cw8"), pages: PAGES2, beside: true,
+    answers: {
+      // NO PAGE NAMED: a whole-site step, which holds the turn throughout.
+      route: [{ intent: "edit", layer: "text" }],
+      [T.text]: async (args) => { seen.held = true; await freed; return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] }; },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: OPEN + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const m = P.queue.find((x) => x.body.kind !== "request-prep" && partOfMsg(P, x) === 0);
+    P.queue.splice(P.queue.indexOf(m), 1);
+    const run = deliver(P, m);
+    try {
+      assert.ok(await until(() => seen.held), "the job never reached its model call");
+      const mine = JSON.parse(P.readObj(turnKeyOf(P)));
+      assert.match(mine.owner, /^job:/, "the whole-site step did not take the turn at its start");
+      // THE TURN LAPSES AND ANOTHER JOB TAKES IT.
+      P.writeObj(turnKeyOf(P), JSON.stringify(TAKEN(P)));
+    } finally { release(); }
+    await run;
+    const turn = JSON.parse(P.readObj(turnKeyOf(P)));
+    assert.equal(turn.owner, "job:newer:o2", "the stale job took the turn back or wrote over it");
+    assert.ok(turn.until > Date.now(), "the stale job gave back the newer job's turn");
+    assert.equal(P.page("index.tsx").includes(HOME_TO), false, "the stale job published");
+    const job = editJobs(P, r.key)[0];
+    assert.equal(job.state, "failed", JSON.stringify([job.state, job.error, JSON.stringify(job.result || null).slice(0, 400)]));
+    assert.equal(reserveOf(P, job.id).length, 1, "the stale job's reserve");
+    assert.ok(refundedOnce(P, job.id), "the stale job's reserve was not refunded exactly once: " + JSON.stringify(P.ledger.filter((e) => String(e.ref).startsWith(job.id))));
+    // SAID AS WHAT HAPPENED: another change of the request had the turn —
+    // never the build service restarting.
+    const said = JSON.parse(job.result.body);
+    assert.match(said.msg, /another change in the same request/, said.msg);
+    assert.doesNotMatch(said.msg, /restarting/);
+    // GIVE THE NEWER JOB'S TURN BACK, so the request can settle.
+    P.writeObj(turnKeyOf(P), JSON.stringify({ ...TAKEN(P), until: 0 }));
+  });
+});
+
+test("CW9 A STALE CONFIG HOLDER CANNOT PUBLISH OR PUT THE CONFIG BACK — a description change writes the config under its turn; held at its compile, the turn lapses and another job takes it and writes the config; the stale job's commit is refused, its put-back writes nothing over the newer config, the turn stays the newer job's, and the stale job is refunded", async () => {
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const seen = { compiling: false };
+  const compiler = installCompiler({ before: async () => { seen.compiling = true; await freed; } });
+  const P = platform({
+    slug: slugOf("cw9"), pages: PAGES2, beside: true,
+    answers: {
+      route: [{ intent: "edit", layer: "look" }],
+      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: "Change the site description to say we bake overnight sourdough" }] },
+      "lane:description": "Overnight sourdough from a harbour side street.",
+    },
+  });
+  try {
+    P_.at = P;
+    const r = await sendMessage(P, { message: "Change the site description to say we bake overnight sourdough." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const m = P.queue.find((x) => x.body.kind !== "request-prep" && partOfMsg(P, x) === 0);
+    P.queue.splice(P.queue.indexOf(m), 1);
+    const run = deliver(P, m);
+    const NEWER = "The newer job's description.";
+    try {
+      assert.ok(await until(() => seen.compiling, 6000), "the description job never reached its compile: " + JSON.stringify(P.jobsOf(r.key).map((j) => [j.op, j.state, j.error])));
+      assert.equal(P.look().description, "Overnight sourdough from a harbour side street.", "the description was not written under the turn before the compile");
+      // THE TURN LAPSES; ANOTHER JOB TAKES IT AND WRITES THE CONFIG.
+      P.writeObj(turnKeyOf(P), JSON.stringify(TAKEN(P)));
+      const cfgKey = [...P.objects.keys()].find((k) => /config/.test(k) && k.includes(P.slug) && P.readObj(k).includes("description"));
+      const cfg = JSON.parse(P.readObj(cfgKey));
+      P.writeObj(cfgKey, JSON.stringify({ ...cfg, look: { ...cfg.look, description: NEWER } }));
+    } finally { release(); }
+    await run;
+    assert.equal(P.look().description, NEWER, "the stale job wrote the config over the newer job's (its put-back ran on a turn it no longer held)");
+    const turn = JSON.parse(P.readObj(turnKeyOf(P)));
+    assert.equal(turn.owner, "job:newer:o2");
+    assert.ok(turn.until > Date.now(), "the stale job gave back the newer job's turn");
+    const job = editJobs(P, r.key)[0];
+    assert.equal(job.state, "failed", JSON.stringify([job.state, JSON.stringify(job.result || null).slice(0, 400)]));
+    assert.ok(!job.published_at, "the stale job published");
+    assert.ok(refundedOnce(P, job.id), "the stale job's reserve was not refunded exactly once: " + JSON.stringify(P.ledger.filter((e) => String(e.ref).startsWith(job.id))));
+    P.writeObj(turnKeyOf(P), JSON.stringify({ ...TAKEN(P), until: 0 }));
+    await P.settle();
+    assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
+  } finally { P.close(); compiler.uninstall(); }
+});
