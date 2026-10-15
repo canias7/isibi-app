@@ -339,6 +339,10 @@ async function fetchCredits(attempt) {
       updatePlanTag();
     }
     if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
+    // DRAFT-FIRST (2026-10-15): when on, a task's work is saved to the site's
+    // draft and its preview, and only Publish makes it live — so no label may
+    // call a task's own saving "published" or "live". Read as `globalThis.draftFirstOn`.
+    if (typeof d.draftFirst === 'boolean') globalThis.draftFirstOn = d.draftFirst;
   } catch {
     // Keep trying a few times so the paid flag (and balance) resolve — a
     // transient failure must not leave a paid user in the "unknown" state.
@@ -7956,7 +7960,7 @@ function siteHistoryRail(site) {
 // the site stands and publishes exactly the version the owner looked at.
 const siteDraftState = {};
 const siteDraftAt = {};
-const DRAFT_SAY = { processing: 'Still processing\u2026', saved: 'Saved \u00b7 not published', published: 'Published' };
+const DRAFT_SAY = { processing: 'Still processing\u2026', saved: 'Saved \u00b7 not published', published: 'Published', unpublished: 'Not published yet', publishing: 'Publishing\u2026' };
 function paintDraftChip(d) {
   const el = document.getElementById('stDraftState');
   if (!el) return;
@@ -7982,22 +7986,24 @@ function siteDraftPanel(site, d) {
   const slug = String(site.slug || '');
   let box = document.getElementById('sitePubModal'); if (box) box.remove();
   box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
-  // THE VERSION THIS PANEL SHOWS IS THE ONE THE BUTTON PUBLISHES — read once,
-  // here, so a change saved while the panel is open is a later draft and
-  // never slips into this publication.
-  const version = d.unpublished ? String(d.draft || '') : '';
-  const head = d.state === 'processing' ? 'Still processing' : d.unpublished ? 'Saved, not published' : 'Published';
+  // THE REVISION THIS PANEL SHOWS IS THE ONE THE BUTTON PUBLISHES — read once,
+  // here, so a change saved while the panel is open is a later revision and
+  // never slips into this publication. The version rides as a cross-check.
+  const revision = d.unpublished && Number.isInteger(d.revision) && d.revision > 0 ? d.revision : 0;
+  const version = revision ? String(d.draft || '') : '';
+  const head = d.state === 'publishing' ? 'Publishing' : d.state === 'processing' ? 'Still processing' : d.unpublished ? (d.neverPublished ? 'Not published yet' : 'Saved, not published') : 'Published';
   const intro = d.unpublished
-    ? 'Your latest changes are saved as a draft. Your live site is unchanged until you publish.'
+    ? (d.neverPublished ? 'Your site is saved as a draft. Nobody can visit it until you publish.' : 'Your latest changes are saved as a draft. Your live site is unchanged until you publish.')
     : 'Your live site shows your latest saved changes.';
   const busy = d.state === 'processing'
-    ? '<p class="sp-intro sp-note">A change is still being made. It will be saved as a later draft \u2014 publishing now releases only the draft below.</p>' : '';
+    ? '<p class="sp-intro sp-note">A change is still being made. It will be saved as a later draft \u2014 publishing now releases only the draft below.</p>'
+    : d.state === 'publishing' ? '<p class="sp-intro sp-note">A publication is already under way.</p>' : '';
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + esc(head) + '</b><button type="button" class="si-x" aria-label="Close">\u00d7</button></div><div class="si-body">' +
     '<p class="sp-intro">' + esc(intro) + '</p>' + busy +
     (d.preview && d.unpublished ? '<div class="sp-row"><span class="sp-k">Draft preview</span><a class="sp-url" href="' + esc(d.preview) + '" target="_blank" rel="noopener">Open the draft</a></div>' : '') +
-    (slug ? '<div class="sp-row"><span class="sp-k">Live site</span><span class="sp-v">' + esc(siteChipUrl({ slug })) + '</span></div>' : '') +
+    (slug ? '<div class="sp-row"><span class="sp-k">Live site</span><span class="sp-v">' + esc(d.neverPublished ? 'not published yet' : siteChipUrl({ slug })) + '</span></div>' : '') +
     '<div class="sp-actions">' +
-      '<button type="button" class="st-publish" id="spPublishDraft"' + (version ? '' : ' disabled') + '>' + (version ? 'Publish this draft' : 'Nothing new to publish') + '</button>' +
+      '<button type="button" class="st-publish" id="spPublishDraft"' + (revision && d.state !== 'publishing' ? '' : ' disabled') + '>' + (revision ? 'Publish this draft' : 'Nothing new to publish') + '</button>' +
     '</div>' +
   '</div></div>';
   document.body.appendChild(box);
@@ -8005,24 +8011,33 @@ function siteDraftPanel(site, d) {
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const go = box.querySelector('#spPublishDraft');
-  if (go && version) go.onclick = async () => {
+  // ONE CLICK, ONE REQUEST: the button stays down until the answer is in, and
+  // the server refuses a second publication while one runs.
+  let sent = false;
+  if (go && revision) go.onclick = async () => {
+    if (sent) return;
+    sent = true;
     go.disabled = true; go.textContent = 'Publishing\u2026';
+    const again = () => { sent = false; go.disabled = false; go.textContent = 'Publish this draft'; };
     try {
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/publish', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, version }),
       });
       const out = await r.json().catch(() => ({}));
+      if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
       if (r.ok && out.ok) {
         close();
-        if (out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
         if (typeof sbToast === 'function') sbToast(out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
+      } else if (r.status === 202 && out.publishing) {
+        go.textContent = 'Publishing\u2026';
+        if (typeof sbToast === 'function') sbToast('That draft is already being published.');
       } else {
-        go.disabled = false; go.textContent = 'Publish this draft';
+        again();
         if (typeof sbToast === 'function') sbToast((out && out.error) || 'Could not publish just now \u2014 nothing changed on your live site');
       }
     } catch (e) {
-      go.disabled = false; go.textContent = 'Publish this draft';
-      if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 nothing changed on your live site');
+      again();
+      if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 press Publish again to finish');
     }
   };
 }
@@ -9060,7 +9075,10 @@ function reactStepsHTML(b) {
   rows.push(stStepRow({ label: ok ? 'Compiled React' : 'Could not compile', meta: (b.buildMs ? (b.buildMs / 1000).toFixed(1) + 's' : ''), state: ok ? 'done' : 'fail' }));
   // Something IS published either way — a placeholder is a real page at a real
   // address — so this stays a tick and says which of the two it is instead.
-  rows.push(stStepRow({ label: ok ? (b.revised ? 'Rebuilt & published' : 'Published') : 'Published the data model', meta: b.slug || '', state: 'done' }));
+  // SAVED TO THE DRAFT, NOT PUBLISHED (draft-first): a build's answer carries
+  // `draft` when its version went to the draft and its preview.
+  const toDraft = !!(b.draft && b.draft.published === false);
+  rows.push(stStepRow({ label: toDraft ? (ok ? (b.revised ? 'Rebuilt \u00b7 saved to your draft' : 'Saved to your draft') : 'Saved the data model to your draft') : ok ? (b.revised ? 'Rebuilt & published' : 'Published') : 'Published the data model', meta: b.slug || '', state: 'done' }));
   if (b.backend) rows.push(stStepRow({ label: 'Set up the database', meta: 'live', state: 'done' }));
   return '<div class="st-steps">' + rows.join('') + '</div>';
 }
@@ -9262,7 +9280,7 @@ function reactLiveStepsHTML() {
   if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
   else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', meta: clk('compiling'), state: st('compiling') }));
-  if (reached('publishing')) rows.push(stStepRow({ label: past('publishing') ? 'Published' : 'Publishing', meta: clk('publishing'), state: st('publishing') }));
+  if (reached('publishing')) rows.push(stStepRow({ label: globalThis.draftFirstOn === true ? (past('publishing') ? 'Saved to your draft' : 'Saving to your draft') : past('publishing') ? 'Published' : 'Publishing', meta: clk('publishing'), state: st('publishing') }));
   if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
   // THE BUILD'S OWN LIVE LINES (2026-10-09, round 5): written by the model from
   // the steps the build really reached — waiting on a dependency, recovering a
@@ -9288,6 +9306,7 @@ const ST_STAGE_STEPS = [
   { p: 'compiling',  leg: 'Compile',  chip: 'Compiled' },
   { p: 'publishing', leg: 'Publish',  chip: 'Published' },
 ];
+
 // HOW FULL THE RUNNING SEGMENT IS, AND WHY IT CAN NEVER BE FULL.
 //
 // Within a stage we do not know how far along we are — the generation's text
@@ -9303,20 +9322,23 @@ function stStageFill(ms) {
   return Math.min(0.92, t / ST_STAGE_TYPICAL_MS);
 }
 function buildStageHTML() {
+  // THE SAME STAGES WHEN WORK IS SAVED TO A DRAFT (draft-first): the last one
+  // saves, it does not publish.
+  const stSteps = globalThis.draftFirstOn === true ? ST_STAGE_STEPS.map((x) => (x.p === 'publishing' ? { p: x.p, leg: 'Save', chip: 'Saved to your draft' } : x)) : ST_STAGE_STEPS;
   const sb = siteBuild || {};
   const idx = Math.max(0, ST_PHASE_ORDER.indexOf(sb.rphase || ST_PHASE_ORDER[0]));
   const at = (p) => ST_PHASE_ORDER.indexOf(p);
   const el = sb.startedAt ? Date.now() - sb.startedAt : 0;
   // THE CHIPS ARE DERIVED FROM WHAT IS ACTUALLY PAST, never a fixed pair: a build
   // that has only just started shows none, and each one appears as its stage ends.
-  const chips = ST_STAGE_STEPS.filter((x) => at(x.p) < idx)
+  const chips = stSteps.filter((x) => at(x.p) < idx)
     .map((x) => '<span class="st-bchip">✓ ' + esc(x.chip) + '</span>').join('');
-  const segs = ST_STAGE_STEPS.map((x) => {
+  const segs = stSteps.map((x) => {
     const i = at(x.p);
     const w = i < idx ? 1 : i === idx ? stStageFill(el) : 0;
     return '<i style="--w:' + Math.round(w * 100) + '%"></i>';
   }).join('');
-  const legs = ST_STAGE_STEPS.map((x) => '<span>' + esc(x.leg) + '</span>').join('');
+  const legs = stSteps.map((x) => '<span>' + esc(x.leg) + '</span>').join('');
   return '<div class="st-b1">' +
     (chips ? '<div class="st-bchips">' + chips + '</div>' : '') +
     '<div class="st-building-t">' + esc(reactStageLabel()) + '</div>' +
@@ -9415,7 +9437,7 @@ function reactStageLabel() {
   const p = (siteBuild && siteBuild.rphase) || 'generating';
   // No `images` entry — see reactLiveStepsHTML. Nothing sets that phase, so the
   // label was unreachable and said something untrue if it ever were reached.
-  return { thinking: 'Thinking…', planning: 'Planning your site…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
+  return { thinking: 'Thinking…', planning: 'Planning your site…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: globalThis.draftFirstOn === true ? 'Saving to your draft…' : 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
@@ -12523,7 +12545,9 @@ function applyAddonResult(a, o) {
     holdResume(o, a);
     const asked = clarifyOf(a.clarify);
     // THE MODEL'S REPLY WHEN THERE IS ONE (2026-10-03), whole.
-    const doneText = EditPoll.modelReply(a) || (addonReplyText(a) + renderTail(a) + alsoTail(a));
+    // SAVED TO THE DRAFT, NOT LIVE (draft-first): the answer's own `draft` or `checks.draft`.
+    const aDraft = !!(a && ((a.draft && a.draft.published === false) || (a.checks && a.checks.draft === true && a.checks.published === false)));
+    const doneText = EditPoll.modelReply(a) || (addonReplyText(a) + renderTail(a) + (aDraft ? ' Saved to your draft \u2014 your live site changes when you publish.' : '') + alsoTail(a));
     finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
   } catch (err) {
     if (told) return;
@@ -13456,13 +13480,18 @@ function editReply(e) {
         const words = (Array.isArray(st.words) ? st.words : []).filter((w) => typeof w === 'string' && w.trim()).map((w) => '“' + w.trim() + '”');
         m = 'Done' + (words.length ? ': ' + words.join(', ') : '') + '.';
       }
-      if (st.layer === 'rules') m += ' It’s live now — nothing needed rebuilding.';
+      if (st.layer === 'rules' && !!!(e && ((e.draft && e.draft.published === false) || (e.checks && e.checks.draft === true && e.checks.published === false)))) m += ' It’s live now — nothing needed rebuilding.';
       if (out.indexOf(m) < 0) out.push(m);
     });
     if (out.length) stepsSaid = ' ' + out.join(' ');
   }
-  return (editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems)).trim();
+  // SAVED TO THE DRAFT, NOT LIVE (draft-first, 2026-10-15): a status the
+  // answer itself carries — a code change's `checks.draft`, or a held change's
+  // `draft` (rows, rules, entries, library files). Never said of anything published.
+  const toDraft = !!(e && ((e.draft && e.draft.published === false) || (e.checks && e.checks.draft === true && e.checks.published === false)));
+  return (editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems) + (toDraft ? ' Saved to your draft \u2014 your live site changes when you publish.' : '')).trim();
 }
+
 
 // ── A FIRST BUILD FOUND AGAIN ON OPEN (2026-10-10, the Build reconnection gap) ──
 //
@@ -13736,6 +13765,9 @@ function editReplyBody(e) {
     // page still changes what the site does the moment it applies, and somebody
     // waiting for their site to redeploy would refresh and see nothing move.
     const said = typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : 'Done.';
+    // HELD IN THE DRAFT (draft-first): the rule applies when the owner
+    // publishes — `editReply` adds that, once.
+    if (!!(e && ((e.draft && e.draft.published === false) || (e.checks && e.checks.draft === true && e.checks.published === false)))) return said;
     return said + ' It’s live now — nothing needed rebuilding.';
   }
   if (e.layer === 'page' && pageOpVerb(e)) {
