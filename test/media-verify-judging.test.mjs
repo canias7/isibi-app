@@ -17,8 +17,19 @@
 //      again, with no media error (`judgePlayback`).
 //   4. A browser run with no browsers passed on its upload check alone.
 //
-// Each case below fails on `1b52561f`'s script (the red check in the round's
-// records) and passes on this one. Nothing here calls a model or the network.
+// THEN (2026-10-15, after Codex's review of `60c26eff`) two more:
+//   5. The judge failed valid natural language: a paraphrase sharing no
+//      keyword with the stored page ("Our skilled technicians fix vehicles" for
+//      "Car repairs performed by certified mechanics"), and a hypothetical
+//      "$20 per class". Keyword overlap and unmatched numbers cannot establish
+//      meaning or invention, so they are hints now; only objective facts pass
+//      or fail, and each case's purpose is unverified with its answer, its
+//      source evidence and the hints kept.
+//   6. Build sent one paid react-build when the starting ledger read failed.
+//      A steady starting reading is now a prerequisite, before any draft.
+//
+// The cases fail on the script they correct (the red checks in the rounds'
+// records) and pass on this one. Nothing here calls a model or the network.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -93,26 +104,24 @@ const byCase = (r, id) => r.results.checks.filter((c) => c.name.startsWith(id + 
 
 // ── 1. THE CASES ARE JUDGED ON WHAT THEY ARE FOR ────────────────────────────
 
-test("CODEX'S IRRELEVANT ANSWER, SENT TO ALL SIX CASES, FAILS EVERY ONE: the 3:17am it invents is in no page, and each case's own purpose is unmet", async () => {
+test("CODEX'S IRRELEVANT ANSWER CANNOT PASS: every case's purpose is left for a person, with the answer, the evidence and the hints — never passed", async () => {
   const app = fakeApp({ answer: () => ({ answer: CODEX, decision: { reasons: ["history-cut"] } }) });
   const r = await converse(app);
   assert.equal(app.sent.length, CONVERSE_CASES.length, "every case was sent: the evidence admits them all");
-  assert.equal(r.ok, false);
   for (const c of CONVERSE_CASES) {
-    const fails = byCase(r, c.id).filter((x) => x.verdict === "fail");
-    assert.ok(fails.length >= 1, c.id + " passed an answer that does not do its job: " + JSON.stringify(byCase(r, c.id)));
-    assert.ok(fails.some((x) => /evidence lacks/.test(x.name) && /time 3:17/.test(x.detail)), c.id + ": the invented time was not caught");
+    const purpose = byCase(r, c.id).filter((x) => /does what the case is for/.test(x.name));
+    assert.equal(purpose.length, 1, c.id);
+    assert.equal(purpose[0].verdict, "unverified", c.id + ": a purpose the automation cannot establish was decided");
+    const review = r.results.unverified.find((u) => u.case === c.id);
+    assert.equal(review.answer, CODEX, c.id + ": the answer was not kept whole");
+    // THE HINT IS THERE FOR THE READER: a time in no page and no message.
+    assert.ok(review.signals.some((x) => /time 3:17/.test(x)), c.id + ": " + JSON.stringify(review.signals));
   }
-  // AND EACH CASE'S OWN PURPOSE, apart from the invented time.
-  const failed = (id, re) => byCase(r, id).some((x) => x.verdict === "fail" && re.test(x.name));
-  assert.ok(failed("C2-compare", /both the booking page and the enquiry form/));
-  assert.ok(failed("C3-grounded", /home page's own words/));
-  assert.ok(failed("C8-attachment", /talks about the attached clip/));
-  // THE ANSWER IS KEPT WHOLE for whoever reads the run.
-  assert.ok(r.results.recorded.filter((x) => x.case).every((x) => x.answer === CODEX));
+  assert.notEqual(r.results.outcome, "passed", "an irrelevant answer passed");
+  assert.equal(r.results.outcome, "needs review");
 });
 
-test("NATURAL ANSWERS THAT DO EACH JOB PASS WITHOUT ANY REQUIRED WORDING, and what cannot be established is unverified with the whole answer kept", async () => {
+test("NATURAL ANSWERS: the objective checks pass, no case fails on wording, and each purpose waits for a person with its answer kept", async () => {
   const say = {
     "hi": "Hello! What would you like to work on for your site today?",
     "Should I": "Both can work.\n\n- A booking page lets people choose a class date and pay up front, so places are held.\n- An enquiry form is lighter: people ask first and you confirm by email.\n\nIf classes fill quickly, the booking page saves you the back-and-forth.",
@@ -124,28 +133,44 @@ test("NATURAL ANSWERS THAT DO EACH JOB PASS WITHOUT ANY REQUIRED WORDING, and wh
   const app = fakeApp({ answer: (b) => ({ answer: Object.entries(say).find(([k]) => b.message.startsWith(k))[1], decision: { reasons: b.message.startsWith("ok, use") ? ["history-cut"] : [] } }) });
   const r = await converse(app);
   assert.deepEqual(r.results.checks.filter((c) => c.verdict === "fail"), []);
-  for (const c of CONVERSE_CASES) assert.ok(byCase(r, c.id).some((x) => x.verdict === "pass"), c.id);
-  // THE COMPARISON'S QUALITY IS A PERSON'S CALL: unverified, answer kept whole.
-  const open = r.results.unverified.find((u) => u.case === "C2-compare");
-  assert.ok(open && open.answer === say["Should I"], JSON.stringify(r.results.unverified));
+  for (const c of CONVERSE_CASES) {
+    assert.ok(byCase(r, c.id).some((x) => x.verdict === "pass"), c.id);
+    assert.equal(r.results.unverified.find((u) => u.case === c.id).answer, Object.entries(say).find(([k]) => c.message.startsWith(k))[1]);
+  }
   assert.equal(r.ok, true);
   assert.equal(r.results.outcome, "needs review");
 });
 
-test("EACH CASE FAILS ON ITS OWN PURPOSE: an ungrounded summary, the hidden version guessed, the clip described as watched, an invented Sunday time", () => {
+test("CODEX'S COUNTER-EXAMPLES ARE NOT FAILED: a paraphrase that shares no keyword with the stored page, and a hypothetical price, are unverified with the source kept", () => {
+  // "Car repairs performed by certified mechanics" ← "Our skilled technicians fix vehicles".
+  const garage = [{ path: "/", source: "export default function Home() { return (<main><h1>Northgate Garage</h1><p>Car repairs performed by certified mechanics.</p></main>); }" }];
+  const ev = { pages: pageEvidence(garage, extractText), homePath: "/", history: [] };
+  const c3 = judgeCase(CONVERSE_CASES.find((x) => x.id === "C3-grounded"), { intent: "ask", replyFrom: "conversation", answer: "Our skilled technicians fix vehicles." }, ev);
+  assert.deepEqual(c3.checks.filter((x) => x.verdict === "fail"), [], JSON.stringify(c3.checks));
+  assert.ok(c3.checks.some((x) => x.verdict === "unverified"));
+  assert.equal(c3.review.answer, "Our skilled technicians fix vehicles.");
+  assert.match(c3.review.evidence.text, /Car repairs performed by certified mechanics/, "the source to read it against was not kept");
+  // "For example, you could charge $20 per class if that suits your business."
+  const hypo = "Both suit classes. For example, you could charge $20 per class if that suits your business.";
+  const c2 = judgeCase(CONVERSE_CASES.find((x) => x.id === "C2-compare"), { intent: "ask", replyFrom: "conversation", answer: hypo }, { pages: pageEvidence(PAGES, extractText), history: [] });
+  assert.deepEqual(c2.checks.filter((x) => x.verdict === "fail"), [], JSON.stringify(c2.checks));
+  assert.equal(c2.review.answer, hypo);
+  assert.ok(c2.review.signals.some((x) => /\$20/.test(x)), "the unmatched number was not offered as a hint");
+});
+
+test("WHAT IS OBJECTIVE STILL FAILS: work started, a reply not written by its own call, no answer, the route not told of the cut, and the hidden headline itself", () => {
   const ev = { pages: pageEvidence(PAGES, extractText), homePath: "/", history: [], hidden: "Version three: Crusts beside the lighthouse." };
   const c = (id) => CONVERSE_CASES.find((x) => x.id === id);
-  const verdictOf = (id, answer, extra = {}) => judgeCase(c(id), { intent: "ask", replyFrom: "conversation", answer, ...extra }, ev);
-  const failedOn = (list, re) => list.some((x) => x.verdict === "fail" && re.test(x.name));
-  assert.ok(failedOn(verdictOf("C3-grounded", "It talks about modern furniture design and mid-century chairs for interior lovers."), /home page's own words/));
-  assert.ok(failedOn(verdictOf("C5-cut-history", "Done: your headline is now 'Crusts beside the lighthouse'.", { decision: { reasons: ["history-cut"] } }), /hidden third version/));
-  assert.ok(failedOn(verdictOf("C8-attachment", "The clip shows a baker shaping dough at dawn, so use it on the home page."), /what is in the clip/));
-  assert.ok(failedOn(verdictOf("C4-missing", "On Sundays you open from 9am until 1pm."), /evidence lacks/));
-  assert.ok(failedOn(verdictOf("C1-greeting", "Hi! I've just visited your site and it looks great."), /inspection/));
-  // AND A MISSING SIGN IS NOT A FAILURE: unverified, never failed for wording.
-  const plain = verdictOf("C4-missing", "Sunday hours would be a good thing to show visitors.");
-  assert.ok(!plain.some((x) => x.verdict === "fail"), JSON.stringify(plain));
-  assert.ok(plain.some((x) => x.verdict === "unverified"));
+  const failedOn = (j, re) => j.checks.some((x) => x.verdict === "fail" && re.test(x.name));
+  assert.ok(failedOn(judgeCase(c("C1-greeting"), { intent: "edit", replyFrom: "conversation", answer: "On it.", job: "j1" }, ev), /nothing started/));
+  assert.ok(failedOn(judgeCase(c("C1-greeting"), { intent: "ask", replyFrom: "router", answer: "Hi." }, ev), /its own call/));
+  assert.ok(failedOn(judgeCase(c("C1-greeting"), { intent: "ask", replyFrom: "conversation", answer: "" }, ev), /an answer to judge/));
+  assert.ok(failedOn(judgeCase(c("C5-cut-history"), { intent: "ask", replyFrom: "conversation", answer: "Which one?", decision: { reasons: [] } }, ev), /told the history was cut/));
+  assert.ok(failedOn(judgeCase(c("C5-cut-history"), { intent: "ask", replyFrom: "conversation", answer: "Done: your headline is now \"Crusts beside the lighthouse\".", decision: { reasons: ["history-cut"] } }, ev), /hidden headline itself/));
+  // A WORD OF IT, ALONE, IS A HINT, NOT A VERDICT: "lighthouse" could be a guess.
+  const guess = judgeCase(c("C5-cut-history"), { intent: "ask", replyFrom: "conversation", answer: "Was it the one about a lighthouse? Could you paste it again?", decision: { reasons: ["history-cut"] } }, ev);
+  assert.deepEqual(guess.checks.filter((x) => x.verdict === "fail"), []);
+  assert.ok(guess.review.signals.some((x) => /lighthouse/.test(x)));
 });
 
 test("THE MISSING-INFORMATION FIXTURE MUST REALLY LACK IT: a site that lists Sunday hours, or whose pages cannot be read, is not sent the case", async () => {
@@ -247,9 +272,10 @@ test("AN EXCEPTION OUTSIDE A SEND STILL ANSWERS WITH RESULTS, never a throw", as
 // ── THE BUILD'S CHARGE ──────────────────────────────────────────────────────
 
 const JOB = "0123456789abcdef0123456789abcdef";
-function buildApp({ finish = true, window = "whole" } = {}) {
+function buildApp({ finish = true, window = "whole", last } = {}) {
   let balance = 200, polls = 0, n = 0;
   const rows = [];
+  const sent = { builds: 0, drafts: 0, deleted: [] };
   const fetch = async (url, init = {}) => {
     const p = new URL(url).pathname;
     const j = (v, s = 200) => Response.json(v, { status: s });
@@ -257,15 +283,18 @@ function buildApp({ finish = true, window = "whole" } = {}) {
     if (p === "/api/site/runtime") return j({ ok: true, deploy: "d", imagePurchases: false });
     if (p === "/api/site/build-health") return j({ ok: false }, 501);
     if (p === "/api/credits") return j({ balance });
+    if (p.startsWith("/api/media/drafts/file/") && init.method === "DELETE") { sent.deleted.push(p); return j({ ok: true }); }
+    if (p === "/api/media/drafts" && init.method === "POST") sent.drafts++;
     if (p === "/api/media/drafts" && init.method === "POST") return j({ ok: true, session: (n.toString(16) + "0".repeat(32)).slice(0, 32), parts: 1, partBytes: 8388608 }, 201);
     if (/^\/api\/media\/drafts\/[a-f0-9]{32}\/1$/.test(p)) return j({ ok: true, etag: "e" });
     if (/\/complete$/.test(p)) return j({ ok: true, name: "a".repeat(32) + (n % 2 ? ".webm" : ".mp3"), kind: "audio" }, 201);
-    if (p === "/api/site/react-build") { balance -= 25; rows.push({ id: rows.length + 1, delta: -25, ref: "build:" + JOB }); return j({ ok: true, pending: true, job: JOB, poll: "/api/site/build/" + JOB }, 202); }
+    if (p === "/api/site/react-build") { sent.builds++; balance -= 25; rows.push({ id: rows.length + 1, delta: -25, ref: "build:" + JOB }); return j({ ok: true, pending: true, job: JOB, poll: "/api/site/build/" + JOB }, 202); }
     if (p === "/api/site/build/" + JOB) { polls++; return finish && polls >= 2 ? j({ ok: true, slug: "harbour-loaf", notes: "Your video plays on the home page.", images: { made: 0 }, media: { placed: [], missing: [] } }) : j({ ok: true, pending: true }, 202); }
     return j({ files: [] });
   };
-  const ledger = { last: async () => ({ ok: true, id: rows.length }), window: async (a, b) => ({ ok: true, complete: window === "whole", rows: rows.filter((x) => x.id > a && x.id <= b) }) };
-  return { fetch, ledger };
+  let lastCalls = 0;
+  const ledger = { last: async () => (last ? last(++lastCalls, rows.length) : { ok: true, id: rows.length }), window: async (a, b) => ({ ok: true, complete: window === "whole", rows: rows.filter((x) => x.id > a && x.id <= b) }) };
+  return { fetch, ledger, sent };
 }
 const build = (app, extra = {}) => run({ fetch: app.fetch, ledger: app.ledger, base: "https://gofarther.dev", token: "t", mode: "build", slug: "verify-build", spend: "yes", maxCredits: 60, fixtures: FIX, sleep: async () => {}, ...extra });
 
@@ -277,9 +306,48 @@ test("THE BUILD'S CHARGE IS RECONCILED BY THE LEDGER WINDOW, or it is unknown an
   assert.deepEqual(partial.results.spends.map((x) => x.spent), [null], "a charge the ledger could not explain was recorded as a number");
   assert.equal(partial.results.stopped, "charge unknown");
   assert.equal(partial.ok, false);
-  const noLedger = await build(buildApp(), { ledger: null });
-  assert.deepEqual(noLedger.results.spends.map((x) => x.spent), [null]);
-  assert.equal(noLedger.ok, false);
+});
+
+test("BUILD'S STARTING LEDGER READING IS A PREREQUISITE: missing, unreadable or unsteady, and no draft is made and no Build is sent", async () => {
+  // CODEX'S CASE: ledger.last answers { ok: false }.
+  const unreadable = buildApp({ last: () => ({ ok: false }) });
+  const r1 = await build(unreadable);
+  assert.equal(unreadable.sent.builds, 0, "a paid react-build was sent with no starting ledger reading");
+  assert.equal(unreadable.sent.drafts, 0, "drafts were made for a Build that could not start");
+  assert.equal(r1.results.stopped, "ledger prerequisite");
+  assert.deepEqual(r1.results.spends, []);
+  assert.equal(r1.ok, false);
+  // NO LEDGER READER AT ALL.
+  const none = buildApp();
+  const r2 = await build(none, { ledger: null });
+  assert.equal(none.sent.builds + none.sent.drafts, 0);
+  assert.equal(r2.results.stopped, "ledger prerequisite");
+  // UNSTEADY: the last row moves between the two reads around the balance, every try.
+  const moving = buildApp({ last: (n) => ({ ok: true, id: n }) });
+  const r3 = await build(moving);
+  assert.equal(moving.sent.builds + moving.sent.drafts, 0);
+  assert.equal(r3.results.stopped, "ledger prerequisite");
+  // HALF A READER: the last row reads, but nothing could read the window after
+  // the send, so the charge could never be reconciled.
+  const half = buildApp();
+  const r5 = await build(half, { ledger: { last: half.ledger.last } });
+  assert.equal(half.sent.builds + half.sent.drafts, 0, "a Build was started that could never be reconciled");
+  assert.equal(r5.results.stopped, "ledger prerequisite");
+  // A READER THAT THROWS.
+  const throwing = buildApp({ last: () => { throw new Error("socket hang up"); } });
+  const r4 = await build(throwing);
+  assert.equal(throwing.sent.builds + throwing.sent.drafts, 0);
+  assert.equal(r4.ok, false);
+});
+
+test("STEADY BEFORE THE DRAFTS BUT NOT BEFORE THE SEND: the Build is not sent, and the drafts made for it are deleted", async () => {
+  // Steady for the first reading (calls 1–2), then unsteady from the second on.
+  const later = buildApp({ last: (n, id) => (n <= 2 ? { ok: true, id } : { ok: true, id: id + n }) });
+  const r = await build(later);
+  assert.equal(later.sent.drafts, 2);
+  assert.equal(later.sent.builds, 0, "a paid react-build was sent on an unsteady reading");
+  assert.equal(later.sent.deleted.length, 2, "the drafts were left behind");
+  assert.equal(r.results.stopped, "ledger prerequisite");
 });
 
 test("A BUILD STILL RUNNING WHEN THE POLL GIVES UP IS AN UNKNOWN CHARGE, not a finished one", async () => {

@@ -212,7 +212,7 @@ test("THE CONVERSATION MODE: the harness's own ceiling stops it before it sends;
     const one = await run({ fetch: f, base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "converse", slug: "verify-talk", spend: "yes", picker: "sonnet", maxCredits: ESTIMATES.message.high + 1 });
     assert.equal(calls.filter((c) => c.includes("/api/site/route")).length, 1, "exactly one case fits the ceiling");
     const c1 = one.results.checks.filter((c) => c.name.startsWith("C1-greeting"));
-    assert.deepEqual(c1.filter((c) => !c.pass), [], JSON.stringify(c1));
+    assert.deepEqual(c1.filter((c) => c.verdict === "fail"), [], JSON.stringify(c1));
     assert.equal(one.results.stopped, "ceiling", "the run did not stop at its ceiling");
   });
 });

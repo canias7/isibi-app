@@ -38,16 +38,21 @@
 //              existing site (no Build). Six deterministic cases, the
 //              cut-history one built from a fixed thread through the page's own
 //              `historyWire`, so it never depends on a model writing a long
-//              answer. Each answer is judged on its case's purpose against
-//              evidence read first and free (the stored pages, what they lack,
-//              what the cut hid, the file attached): pass, fail, or UNVERIFIED
-//              with the whole answer kept for a person (`judgeCase`). A case
-//              whose fixture cannot serve it is not sent. Needs `spend=yes`,
+//              answer. Objective facts pass or fail (answered as
+//              conversation, nothing started, the cut told and not leaked);
+//              each case's PURPOSE is UNVERIFIED, kept with the whole answer,
+//              the source evidence it should be read against and heuristic
+//              hints, for a person (`judgeCase`). A case whose fixture cannot
+//              serve it is not sent. Needs `spend=yes`,
 //              `max_credits`, and IMAGE_PURCHASES verified off on the live
 //              Worker before EVERY send.
 //   build      PAID: one new Build with two drafts attached before the site
-//              exists, judged on the model-written narration, the drafts moved,
-//              the files served, and NO image bought. Same gates as converse.
+//              exists; not started — not even its drafts — without a steady
+//              starting ledger reading (read again just before the send).
+//              Judged on the drafts moved, the files served, NO image bought
+//              and the charge explained by the ledger; whether the narration
+//              places the files rightly is unverified, kept whole. Same gates
+//              as converse.
 //
 // EXIT CODES: 0 passed · 3 passed everything the automation can establish,
 // with answers left for a person to read (`results.unverified`) · 1 failed,
@@ -215,79 +220,94 @@ const HOW_TO_ADD = /\b(?:add|update|put|include|list|set|tell me|let me know|sen
 const ASKS_AGAIN = /\b(?:paste|share|send|resend|repeat|remind|again|re-?share|which (?:one|version|headline)|what (?:was|is|did) (?:the )?(?:third|version|headline))\b/i;
 
 /**
- * One case's answer, judged on its purpose. Answers `[{ name, verdict, detail }]`,
- * `verdict` one of "pass", "fail", "unverified". A fail is a fact the evidence
- * contradicts; a pass is one it establishes; anything else is unverified.
+ * ONE CASE'S ANSWER: OBJECTIVE FACTS PASS OR FAIL; MEANING IS UNVERIFIED
+ * (2026-10-15, after Codex's review of `60c26eff`). Codex showed the previous
+ * judge failing valid natural language: a stored "Car repairs performed by
+ * certified mechanics" against the answer "Our skilled technicians fix
+ * vehicles" shared no keyword and failed, and C2 failed a plainly hypothetical
+ * "For example, you could charge $20 per class". Keyword overlap and an
+ * unmatched number cannot establish whether an answer is right or invented, so
+ * neither decides anything now.
+ *
+ * What CAN be established decides pass or fail:
+ *   - it was answered as conversation, by the reply's own call, with nothing started;
+ *   - there is an answer at all;
+ *   - C5: the route was told the history was cut, wrote nothing out from it,
+ *     and the answer does not carry the hidden headline itself, verbatim — text
+ *     it could only have had if the cut leaked.
+ * What cannot — whether it is grounded, sound, honest about what it was not
+ * shown, free of invention — is ONE unverified item per case, carrying the
+ * whole answer, the source evidence it should be read against, and the
+ * heuristic signals as hints for the reader (never as a verdict).
+ *
+ * Answers `{ checks: [{ name, verdict, detail }], review: { case, expect, answer, evidence, signals } | null }`.
  *   evidence: { pages: [{path, text}] | null, homePath, history (the sent turns), hidden (text the cut hid) }
  */
 export function judgeCase(c, body, evidence) {
-  const out = [];
-  const put = (name, verdict, detail = "") => out.push({ name: c.id + ": " + name, verdict, detail: String(detail).slice(0, 400) });
+  const checks = [];
+  const put = (name, verdict, detail = "") => checks.push({ name: c.id + ": " + name, verdict, detail: String(detail).slice(0, 400) });
   const b = body && typeof body === "object" ? body : {};
   const answer = typeof b.answer === "string" ? b.answer : null;
   put("answered as conversation, with nothing started", b.intent === "ask" && !b.job && !b.request && !b.resolved ? "pass" : "fail", b.intent + (b.job ? " job " + b.job : ""));
   put("the reply was written by its own call", b.replyFrom === "conversation" ? "pass" : "fail", b.replyFrom);
-  if (answer === null || !answer.trim()) { put("there is an answer to judge", "fail", "no answer"); return out; }
+  if (answer === null || !answer.trim()) { put("there is an answer to judge", "fail", "no answer"); return { checks, review: null }; }
   const ev = evidence || {};
-  const pageText = Array.isArray(ev.pages) ? ev.pages.map((p) => p.text).join(" \n ") : null;
+  const pages = Array.isArray(ev.pages) ? ev.pages : null;
+  const pageText = pages ? pages.map((p) => p.text).join(" \n ") : null;
   const sentText = [c.message, ...((ev.history || []).map((h) => (h && (h.text || h.t)) || ""))].join(" \n ");
 
-  // EVERY CASE: nothing invented, no inspection claimed.
-  const known = new Set([...specificsIn(sentText), ...(pageText === null ? [] : specificsIn(pageText))]);
-  const made = [...specificsIn(answer)].filter((x) => !known.has(x));
-  if (!made.length) put("no time, price, phone number or email that the evidence lacks", "pass");
-  else if (pageText === null) put("no time, price, phone number or email that the evidence lacks", "unverified", "the pages could not be read to check " + made.join(", "));
-  else put("no time, price, phone number or email that the evidence lacks", "fail", "not in the pages or the message: " + made.join(", "));
-  put("no claim of an inspection that did not happen", INSPECTED.test(answer) ? "fail" : "pass", (answer.match(INSPECTED) || [""])[0]);
-
-  if (c.id === "C1-greeting") {
-    const short = answer.length <= 600;
-    const invites = /\?|\b(?:what|how|tell me|let me know|would you like|can I help|happy to help)\b/i.test(answer);
-    put("a short greeting that invites them to say what they want", short && invites ? "pass" : "unverified", answer.length + " characters");
-  }
-  if (c.id === "C2-compare") {
-    const both = /\bbook/i.test(answer) && /\b(?:enquir|inquir)/i.test(answer);
-    put("it addresses both the booking page and the enquiry form", both ? "pass" : "fail", both ? "" : "one or both options never mentioned");
-    const structured = /(^|\n)\s*(?:[-*\u2022]|\d+[.)]|#{1,4}\s)/.test(answer) || /\n\n/.test(answer);
-    put("the comparison itself is sound (read it)", "unverified", structured ? "structured" : "unstructured");
-  }
-  if (c.id === "C3-grounded") {
-    const home = Array.isArray(ev.pages) ? ev.pages.find((p) => p.path === (ev.homePath || "/")) || ev.pages[0] : null;
-    if (!home || !home.text.trim()) put("it draws on the home page's own words", "unverified", "the home page's words could not be read");
-    else {
-      const asked = words(c.message);
-      const hw = [...words(home.text)].filter((w) => !asked.has(w));
-      const aw = words(answer);
-      const shared = hw.filter((w) => aw.has(w));
-      const need = Math.min(3, hw.length);
-      put("it draws on the home page's own words", hw.length && shared.length >= need ? "pass" : shared.length === 0 && hw.length >= 3 ? "fail" : "unverified", "shares " + shared.length + " of the page's words: " + shared.slice(0, 8).join(", "));
-    }
-    put("never a claim of having visited the live site", /\b(?:visited|browsed|loaded|went to)\b[^.]{0,40}\b(?:site|website|page)\b/i.test(answer) ? "fail" : "pass");
-  }
-  if (c.id === "C4-missing") {
-    const unknown = NOT_SHOWN.test(answer);
-    const how = HOW_TO_ADD.test(answer);
-    put("it says it was not shown Sunday hours", unknown ? "pass" : "unverified", unknown ? (answer.match(NOT_SHOWN) || [""])[0] : "no sign either way: read it");
-    put("it says how to add them", how ? "pass" : "unverified");
-  }
   if (c.id === "C5-cut-history") {
     const reasons = b.decision && Array.isArray(b.decision.reasons) ? b.decision.reasons : [];
     put("the route was told the history was cut", reasons.includes("history-cut") ? "pass" : "fail", JSON.stringify(reasons));
     put("nothing written out from a part it could not see", b.resolved === undefined ? "pass" : "fail", String(b.resolved));
+    const headline = (String(ev.hidden || "").match(/Version three:\s*([^.\n]+)/) || [])[1] || "";
+    const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    put("the hidden headline itself is not in the answer", headline && norm(answer).includes(norm(headline)) ? "fail" : "pass", headline);
+  }
+
+  // ── HINTS FOR THE READER, NEVER A VERDICT ──
+  const signals = [];
+  const known = new Set([...specificsIn(sentText), ...(pageText === null ? [] : specificsIn(pageText))]);
+  const unmatched = [...specificsIn(answer)].filter((x) => !known.has(x));
+  if (unmatched.length) signals.push("specifics not in the pages or the message (an example, or invented? read it): " + unmatched.join(", "));
+  if (INSPECTED.test(answer)) signals.push("reads like a claim of inspection: \"" + answer.match(INSPECTED)[0] + "\"");
+  let source = null;
+  if (c.id === "C1-greeting") signals.push(answer.length + " characters");
+  if (c.id === "C2-compare") {
+    signals.push(/\bbook/i.test(answer) ? "mentions booking" : "never says \"book…\" (a paraphrase?)");
+    signals.push(/\b(?:enquir|inquir)/i.test(answer) ? "mentions enquiries" : "never says \"enquir…\" (a paraphrase?)");
+  }
+  if (c.id === "C3-grounded") {
+    const home = pages ? pages.find((p) => p.path === (ev.homePath || "/")) || pages[0] : null;
+    source = home ? { path: home.path, text: home.text.slice(0, 2000) } : null;
+    if (home) {
+      const asked = words(c.message);
+      const aw = words(answer);
+      const shared = [...words(home.text)].filter((w) => !asked.has(w) && aw.has(w));
+      signals.push("shares " + shared.length + " of the home page's words" + (shared.length ? ": " + shared.slice(0, 8).join(", ") : " (a paraphrase is still possible)"));
+    } else signals.push("the home page's words could not be read");
+  }
+  if (c.id === "C4-missing") {
+    source = { hoursAbsent: hoursAbsent(pages).why };
+    signals.push(NOT_SHOWN.test(answer) ? "a sign it says it was not shown: \"" + answer.match(NOT_SHOWN)[0] + "\"" : "no plain sign it says it was not shown");
+    signals.push(HOW_TO_ADD.test(answer) ? "a sign it says how to add them" : "no plain sign of how to add them");
+  }
+  if (c.id === "C5-cut-history") {
+    source = { hidden: String(ev.hidden || "").slice(0, 300) };
     const hidden = words(ev.hidden || "");
     const seen = words(sentText);
     const leaked = [...words(answer)].filter((w) => hidden.has(w) && !seen.has(w));
-    put("nothing of the hidden third version in the answer", leaked.length ? "fail" : "pass", leaked.join(", "));
-    const topical = /\b(?:third|version|headline|3rd)\b/i.test(answer);
-    put("it asks for the third version again", topical && (answer.includes("?") || ASKS_AGAIN.test(answer)) ? "pass" : "unverified", topical ? "" : "never mentions the version or headline: read it");
+    if (leaked.length) signals.push("words found only in the hidden part (a guess, or a leak? read it): " + leaked.join(", "));
+    signals.push(/\b(?:third|version|headline|3rd)\b/i.test(answer) && (answer.includes("?") || ASKS_AGAIN.test(answer)) ? "a sign it asks for the third version again" : "no plain sign it asks again");
   }
   if (c.id === "C8-attachment") {
-    const names = /\b(?:clip|video|webm|footage)\b/i.test(answer);
-    put("it talks about the attached clip", names ? "pass" : "fail", names ? "" : "the clip is never mentioned");
-    put("no description of what is in the clip", SAW_CLIP.test(answer) ? "fail" : "pass", (answer.match(SAW_CLIP) || [""])[0]);
-    put("it says it was not shown the clip itself", NOT_SHOWN.test(answer) ? "pass" : "unverified", NOT_SHOWN.test(answer) ? "" : "no sign either way: read it");
+    source = { attached: (c.message.match(/\[Attached[^\]]*\]/) || [""])[0] };
+    signals.push(/\b(?:clip|video|webm|footage)\b/i.test(answer) ? "mentions the clip" : "never says clip/video (a paraphrase?)");
+    if (SAW_CLIP.test(answer)) signals.push("reads like a description of its contents: \"" + answer.match(SAW_CLIP)[0] + "\"");
+    signals.push(NOT_SHOWN.test(answer) ? "a sign it says it was not shown the clip" : "no plain sign it says it was not shown the clip");
   }
-  return out;
+  put("does what the case is for: " + c.expect + " (read it)", "unverified", signals.join("; "));
+  return { checks, review: { case: c.id, expect: c.expect, answer, evidence: source, signals } };
 }
 
 /** Before C4 may spend: the stored pages must really lack Sunday opening times. */
@@ -1039,11 +1059,11 @@ async function converseChecks(ctx) {
     await afterSend(ctx, c.id, before, ESTIMATES.message, b.cost);
     const hidden = c.thread === "cut" ? cutThread()[1].t.slice(cutThread()[1].t.indexOf("Version three")) : "";
     const judged = judgeCase(c, r.status === 200 ? b : { ...b, intent: "http " + r.status }, { pages: ev.pages, homePath: ev.homePath, history: history || [], hidden });
-    for (const j of judged) verdict(j.name, j.verdict, j.detail);
-    const open = judged.filter((j) => j.verdict === "unverified").map((j) => j.name);
-    // THE WHOLE ANSWER IS KEPT, always — and with what is still open beside it.
-    results.recorded.push({ case: c.id, expect: c.expect, status: r.status, intent: b.intent, replyFrom: b.replyFrom, cost: b.cost, answer: typeof b.answer === "string" ? b.answer : null, reasons: b.decision && b.decision.reasons, unverified: open });
-    if (open.length) results.unverified.push({ case: c.id, expect: c.expect, open, answer: typeof b.answer === "string" ? b.answer : null });
+    for (const j of judged.checks) verdict(j.name, j.verdict, j.detail);
+    // THE WHOLE ANSWER IS KEPT, always — and what a person must still judge,
+    // with the source evidence to judge it against, beside it.
+    results.recorded.push({ case: c.id, expect: c.expect, status: r.status, intent: b.intent, replyFrom: b.replyFrom, cost: b.cost, answer: typeof b.answer === "string" ? b.answer : null, reasons: b.decision && b.decision.reasons });
+    if (judged.review) results.unverified.push(judged.review);
   }
 }
 
@@ -1052,6 +1072,20 @@ async function converseChecks(ctx) {
 async function buildChecks(ctx) {
   const { opts, call, check, verdict, results, log } = ctx;
   const dir = opts.fixtures;
+  // THE LEDGER IS A PREREQUISITE, NOT A HOPE (2026-10-15, after Codex's
+  // review of `60c26eff`): Codex gave `ledger.last` an answer of `{ ok:false }`
+  // and the harness still sent one paid react-build, because the starting
+  // reading was taken and never required. Now, before anything is made — not
+  // even the drafts — the ledger readers must exist and give a steady reading
+  // (the balance read between two equal last-row ids). Missing, unreadable or
+  // unsteady: the Build is not started, and nothing is created or spent.
+  const ledger = opts.ledger || null;
+  const steady = async () => (ledger && typeof ledger.last === "function" && typeof ledger.window === "function" ? stableReading({ ledgerLast: ledger.last, balance: ctx.balance }) : { ok: false, why: "no ledger reader was given" });
+  const pre = await steady().catch((e) => ({ ok: false, why: String((e && e.message) || e) }));
+  if (!check("P9 the ledger reads steadily before anything is made or spent", pre.ok, pre.ok ? "last row " + pre.id + ", balance " + pre.balance : pre.why || "the balance and the ledger's last row did not read together, steadily")) {
+    results.stopped = "ledger prerequisite";
+    return;
+  }
   const drafts = [];
   for (const f of ["clip.webm", "tone.mp3"]) {
     const u = await uploadVia(call, "/api/media/drafts", new Uint8Array(readFileSync(path.join(dir, f))), f);
@@ -1062,10 +1096,15 @@ async function buildChecks(ctx) {
   if (before === null) return;
   // THE BUILD'S CHARGE IS RECONCILED AS THE BUILD CANARY'S IS: a steady
   // balance and last ledger row at both ends, the window between them read
-  // whole, and the whole movement explained (`buildMoneyVerdict`).
-  const ledger = opts.ledger || null;
-  const steady = async () => (ledger ? stableReading({ ledgerLast: ledger.last, balance: ctx.balance }) : { ok: false });
-  const startReading = await steady();
+  // whole, and the whole movement explained (`buildMoneyVerdict`). The start
+  // is read again here, immediately before the send, and must be steady too;
+  // if it is not, the drafts made for it are deleted and nothing is sent.
+  const startReading = await steady().catch(() => ({ ok: false }));
+  if (!check("P9 the ledger reads steadily immediately before the send", startReading.ok, startReading.ok ? "last row " + startReading.id : "not steady")) {
+    results.stopped = "ledger prerequisite";
+    for (const d of drafts) await call("DELETE", "/api/media/drafts/file/" + d.name).catch(() => {});
+    return;
+  }
   const chat = "media-verify-" + Date.now().toString(36);
   const brief = "A small bakery in Leeds called Harbour Loaf. Put the attached video on the home page and the jingle on an About page.";
   const sleep = opts.sleep || ((ms) => new Promise((ok) => setTimeout(ok, ms)));
