@@ -1,5 +1,70 @@
 # Owner Notes
 
+## Branch `new` — the verification harness stops guessing at meaning, and Build waits for a steady ledger (2026-10-15, after Codex's review of `60c26eff`; harness commit `6661a3cf`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
+
+**What Codex found:**
+- **The judge failed valid natural language.**
+  - The stored text read "Car repairs performed by certified mechanics", and
+    the answer "Our skilled technicians fix vehicles" failed on keyword
+    overlap.
+  - C2 failed a hypothetical "For example, you could charge $20 per class".
+- **Build sent one paid request when its starting ledger read failed**
+  (`ledger.last` answering `{ ok: false }`).
+
+**What changed** (only `scripts/media-verify.mjs` and its tests; no product
+prompt or file touched):
+- **Only objective facts pass or fail:**
+  - answered as conversation, with nothing started;
+  - the reply written by its own call;
+  - an answer present;
+  - for C5: the route told the history was cut, nothing written out from it,
+    and the hidden headline itself not in the answer.
+- **Each case's purpose is now one unverified item, always.** It carries the
+  whole answer, the source evidence to read it against, and the old
+  heuristics as hints. The evidence is the home page's text, the hours check,
+  the hidden part, or the attachment line. The hints include an unmatched
+  number, a missing keyword, a word found only in the hidden part, and phrases
+  that read like claims.
+- **A converse press therefore ends "needs review" at best,** with exit 3, for
+  Codex or you to read. An irrelevant answer can no longer pass, and a
+  paraphrase or a hypothetical is never failed.
+- **Build needs a steady starting ledger before anything is made.** Both
+  ledger readers must be present, and the balance must read between two equal
+  last-row ids.
+  - **If not:** no draft is made, nothing is sent, and the run stops.
+  - **It is read again just before the send.** If that reading is unsteady,
+    the drafts are deleted and nothing is sent.
+- **Kept from the previous round:** the post-send reconciliation,
+  unknown-charge stopping, real playback and the missing-browser failure.
+
+**Offline verification.** Focused files only, not a full suite.
+- **`test/media-verify-judging.test.mjs`: 19 cases**, all passing on
+  `6661a3cf`.
+  - **6 new or changed, and all 6 fail on `60c26eff`'s script**, run in a
+    throwaway worktree. With `{ ok: false }` there, one paid react-build was
+    sent.
+  - **On the old judge directly,** the garage paraphrase failed on "shares 0
+    of the page's words". The "$20" failed on "price $20" and on the options
+    never being named. Both are unverified now, with the source kept.
+  - **The 13 kept from the last round** pass on both.
+- **Sweep: 9 of 9 killed, control survived.** A first-pass survivor, a ledger
+  with no window reader, was a real gap and got a case.
+- **The focused media, conversation, workflow and build-canary files:** 220 of
+  220.
+- **CI:** unit CI green on `6661a3cf` (run 38737633964; I did not read the per-test totals). No site build ran, because it watches no path this round touched.
+
+**What still needs live verification (all on your approval, after a merge):**
+- The free rehearsal, storage and browser presses on a demo site you name.
+- `IMAGE_PURCHASES` off on the live Worker, shown by a rehearsal.
+- The paid converse and build presses, each with a ceiling you set.
+- **Reading every conversational answer.** Each comes back unverified, with
+  its evidence, and that is the review the automation cannot do.
+- **Still not covered anywhere:** Safari (macOS and iOS), Android Chrome and
+  Edge, which no runner has; and R2's own abort and finish answers, for which
+  no probe is built.
+
+The proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
 ## Branch `new` — the verification harness judges what each check is for (2026-10-15, after Codex's review of `1b52561f`; harness commit `6f84607a`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
 
 **What Codex reproduced, and what changed** (all in `scripts/media-verify.mjs`;

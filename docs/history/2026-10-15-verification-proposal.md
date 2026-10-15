@@ -36,6 +36,21 @@ What changed from the first version:
 - **A browser run with no browsers could pass.** A missing required browser
   now fails the run.
 
+**Corrected after Codex's review of `60c26eff`** (harness commit `6661a3cf`).
+Two gaps remained:
+- **The judge failed valid natural language.** With the stored text "Car
+  repairs performed by certified mechanics", the answer "Our skilled
+  technicians fix vehicles" failed on keyword overlap. C2 failed a plainly
+  hypothetical "For example, you could charge $20 per class".
+  - Keyword overlap and unmatched numbers cannot establish meaning or
+    invention, so they no longer decide anything. They are kept as hints.
+  - Only objective facts pass or fail.
+  - **Each case's purpose is unverified,** with the whole answer, the source
+    evidence and the hints kept.
+- **Build sent one paid request with no starting ledger reading.** A steady
+  starting ledger reading is now required before anything is made. It is
+  checked again just before the send.
+
 ## Where things stand
 
 - **Code head: `cbd396d8`.**
@@ -371,25 +386,48 @@ six are fixed messages.
 pages through `/api/site/source` and takes their words with `extractText`, the
 same reader the conversation step uses.
 
-**Every answer, in every case:**
-- **No invented specifics.** No time, price, phone number or email may appear
-  unless the pages or what was sent hold it. Times compare as one form: "3pm",
-  "3:00 p.m." and "15:00" are the same.
-- **No claimed inspection.** No claim of having checked, visited, watched or
-  opened anything.
-- **Answered as conversation**, with nothing started, by the reply's own call.
+**What passes or fails: only what can be established** (`judgeCase`, after
+Codex's review of `60c26eff`):
+- **Every case:**
+  - answered as conversation, with nothing started;
+  - the reply written by its own call;
+  - an answer present.
+- **C5 also:**
+  - the route was told the history was cut;
+  - nothing was written out (`resolved`);
+  - the hidden headline itself ("Crusts beside the lighthouse") is not in the
+    answer. The model could only have that text if the cut leaked.
 
-**Each case on its own purpose** (✗ = fails on, ? = unverified when the answer
-shows no sign either way):
+**What is unverified: each case's purpose, always, as one item.** That item
+carries:
+- the whole answer;
+- the source evidence it should be read against:
+  - C3: the home page's text;
+  - C4: the hours check;
+  - C5: the hidden part;
+  - C8: the attachment line;
+- hints for the reader, never verdicts:
+  - specifics in the answer that the pages and the message lack (an example,
+    or invented?);
+  - a phrase that reads like a claimed inspection;
+  - whether the two options are named;
+  - the words shared with the home page;
+  - single words found only in the hidden part (a guess, or a leak?);
+  - signs that it says what it was not shown, asks again, or says how to add
+    the hours.
 
-| Case | Message | Judged on |
+So a paraphrase, a hypothetical example and a natural turn of phrase are never
+failed, and an irrelevant answer can never pass. Each case comes back for a
+person, with what they need to judge it.
+
+| Case | Message | What a person judges |
 |---|---|---|
-| C1 | "hi" | a short answer that invites them to say what they want (else ?) |
-| C2 | a booking page or an enquiry form for bread-making classes, compared | ✗ one of the two options never mentioned; whether the comparison is sound is always ? |
-| C3 | "What does my home page say? Summarise it in two sentences." | ✗ none of the home page's own words (beyond the question's); 1–2 shared is ?; ✗ a claim of having visited the live site |
-| C4 | "What time do we open on Sundays?" | ✗ an invented time; "says it wasn't shown" and "says how to add them" are each ? without a sign |
-| C5 | "ok, use the third version", on the fixed cut thread | ✗ the route not told the history was cut; ✗ `resolved` written; ✗ any word of the hidden headline ("Crusts beside the lighthouse"); asking again is ? without a sign |
-| C8 | the question, plus the page's own attachment line for `clip.webm` | ✗ the clip never mentioned; ✗ its contents described; "says it was not shown the clip" is ? without a sign |
+| C1 | "hi" | a short greeting that invites them to say what they want |
+| C2 | a booking page or an enquiry form for bread-making classes, compared | a comparison that addresses both, soundly |
+| C3 | "What does my home page say? Summarise it in two sentences." | drawn from the stored home page (kept beside it); no claim of visiting the live site |
+| C4 | "What time do we open on Sundays?" | says it was not shown Sunday hours, and how to add them; no invented time |
+| C5 | "ok, use the third version", on the fixed cut thread | asks for the third version again |
+| C8 | the question, plus the page's own attachment line for `clip.webm` | talks about the clip as a file it was not shown, without describing it |
 
 **A case is not sent unless its fixture can serve it.** Nothing is spent on a
 case that cannot show what it is for:
@@ -402,9 +440,11 @@ case that cannot show what it is for:
 video (`[Attached video "clip.webm"]`), in its form before the file has an
 address. This mode uploads nothing.
 
-**Every answer is kept whole** in `results.recorded`. Anything unverified is
-also listed in `results.unverified`, with the full answer and what is still
-open, for Codex or the owner to read.
+**Every answer is kept whole** in `results.recorded`. Each case's review item
+is in `results.unverified` (`case`, `expect`, `answer`, `evidence`,
+`signals`), for Codex or the owner to read. A converse press therefore ends
+"needs review" (exit 3) at best. It ends failed when an objective check fails
+or a charge is unknown.
 
 **C5 is deterministic.**
 - **The earlier history is fixed** (`cutThread()`): a long earlier reply whose
@@ -424,6 +464,14 @@ the owner types.
   > A small bakery in Leeds called Harbour Loaf. Put the attached video on the
   > home page and the jingle on an About page.
 - **The drafts:** `clip.webm` and `tone.mp3`, uploaded as drafts first.
+- **The ledger first, before anything is made.**
+  - Both ledger readers must be present, and the balance must read between
+    two equal last-row ids.
+  - Missing, unreadable, unsteady or throwing: no draft is made, nothing is
+    sent, and the run stops ("ledger prerequisite").
+  - The reading is taken again immediately before the send. If that one is
+    not steady, the drafts made for the Build are deleted and nothing is
+    sent.
 - **The early-accepted build is followed.** Its `202` is followed through its
   poll until the build answers.
 - **It is judged on:**
@@ -455,8 +503,37 @@ decides whether the press can proceed at all.
 
 ## Offline proof of the harness (`test/media-verify.test.mjs`, `test/media-verify-judging.test.mjs`)
 
-**This round's regressions** are in `test/media-verify-judging.test.mjs`, 16
-cases.
+**After Codex's review of `60c26eff`**, `test/media-verify-judging.test.mjs`
+holds 19 cases.
+- **Six are new or changed:**
+  - Codex's irrelevant answer can no longer pass. Each purpose is unverified,
+    with the answer and the "time 3:17" hint kept.
+  - Natural answers fail nothing.
+  - **Codex's two counter-examples** (the garage paraphrase and the
+    hypothetical "$20") are unverified, with the source text kept.
+  - The objective checks still fail: work started, a reply not written by its
+    own call, no answer, the route not told of the cut, and the hidden
+    headline itself. One word of the headline alone is only a hint.
+  - **Build's ledger prerequisite.** Codex's `{ ok: false }`, no reader, half
+    a reader, an unsteady reading and a throwing reader each make no draft and
+    send no Build.
+  - Steady first but not just before the send: no Build is sent, and its
+    drafts are deleted.
+- **The red check, on `60c26eff`'s script in a throwaway worktree:**
+  - those 6 fail there;
+  - with `{ ok: false }`, one paid react-build was sent;
+  - run directly on the old judge, the garage paraphrase failed on "shares 0
+    of the page's words", and the "$20" failed on both "price $20" and on the
+    options never being named;
+  - the 13 cases kept from the previous round pass there and here.
+- **Sweep: 9 of 9 killed, control survived.** One first-pass survivor was a
+  real gap (a ledger with no window reader), and it now has its case.
+- **The focused media, conversation, workflow and build-canary files:** 220 of
+  220.
+- **CI:** unit green on `6661a3cf` (run 38737633964).
+
+**The previous round's regressions** (`1b52561f`) were 16 cases in the same
+file.
 - **The red check.** Every one fails on `1b52561f`'s script, run there in a
   throwaway worktree.
   - On the old script, Codex's answer gives `ok: true`.
@@ -544,20 +621,13 @@ cases.
 
 ## What stays unverified, by design
 
-- **The meaning the automation cannot read.** Unless an answer shows a sign
-  either way, these stay open:
-  - whether C2's comparison is sound;
-  - whether C1 invites them in;
-  - whether C4 says it was not shown the hours, and how to add them;
-  - whether C5 asks again;
-  - whether C8 says it was not shown the clip;
-  - whether P9's narration says rightly where each file plays.
-
-  Each comes back as `unverified`, with the whole answer, for a person.
-- **What the evidence cannot cover.** Specifics are checked only by kind:
-  times, prices, phone numbers and emails. An invented claim of any other kind
-  (a street, a product, a person) is not caught automatically. It is in the
-  kept answer, to read.
+- **The meaning of every conversational answer.** Each of C1–C5 and C8, and
+  P9's narration, comes back as `unverified`. The whole answer, its source
+  evidence and the hints come with it, for Codex or the owner to judge.
+  - Whether it is grounded, sound, honest about what it was not shown, or free
+    of invention is not decided by the automation.
+  - That covers invented specifics: a time, price, phone number or email
+    missing from the pages is a hint, never a failure.
 - **The browsers no runner has:** Safari on macOS and iOS, Chrome on Android,
   and Edge. Proprietary codecs in Chromium, Firefox and WebKit on Linux are
   recorded only.
