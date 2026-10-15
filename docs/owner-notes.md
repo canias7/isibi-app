@@ -1,21 +1,164 @@
 # Owner Notes
 
-## Branch `new` — the conversation and video/audio batch (2026-10-14, after Codex's review of `9ceca1d4`; unmerged, undeployed, nothing pressed or spent)
+## Branch `new` — the conversation and video/audio batch (2026-10-14/15, after Codex's review of `9ceca1d4`; unmerged, undeployed, nothing pressed, no paid call, no generated media, no new service)
 
-**1. The assistant (this commit).** A chat-only message now gets a reply
-written by its own call, with the conversation so far, the owner's own site
-(its pages' words, its tables' columns and who may write to them — never a
-row — and its file library) and room for a real explanation or plan; the
-routing call keeps its ceiling. The old "one to three sentences, no Markdown,
-no headings or bullets" and "it cannot do anything else" rules are gone, and
-the reply is told plainly what it did not do (open the site, browse, run
-anything, watch or listen). A side question, planning, or talk about an
-attached file stays conversation and leaves a waiting question waiting; "ok,
-do that" runs the request written out from the conversation. Suite `10822 /
-10819 / 1 / 2` before commit (the one failure is the image check that needs
-the new module committed); sweep 23 of 23 killed. Record:
-`docs/history/2026-10-14-conversation.md`. The video and audio half and the
-full handoff follow in the next commits.
+**Commits, oldest first** (review together):
+1. `5f425ceb` — the assistant: conversation gets its own reply, history, site
+   context and honest capabilities. Record:
+   `docs/history/2026-10-14-conversation.md`.
+2. `3802f7e9` — video and audio, upload to playback. Record:
+   `docs/history/2026-10-14-media.md`.
+3. the commit on top of `3802f7e9` that carries these records (documents only).
+
+**The assistant, in short.** A message the router reads as conversation gets a
+reply written by its own call (`builder/site-converse.mjs`):
+- **The ceiling.** 2,400 tokens, about 1,500 words. The routing call keeps
+  its 700. It writes only a gist, and gets 400 more only when it is shown a
+  conversation, to write a request out ("ok, do that" → `resolved`, which runs
+  in place of the typed words).
+- **The rules.** The 1–3 sentence, no-Markdown and no-headings rules are
+  gone. The reply matches its length to the question and may use headings,
+  lists, bold, code and links; the page draws these, escaped first.
+- **What it knows.** The capabilities are what is known to work, what is not
+  offered today, and honest uncertainty for the rest. "It cannot do anything
+  else" is gone. The reply is told it has not opened the site, browsed, run
+  anything, or watched or listened to a file, and never to imply it.
+- **The context.**
+  - This project's thread, sent by the page and windowed: 30 turns, 4,000
+    characters each, 24,000 in all. The router sees 8 turns. Every cut is
+    said.
+  - The owner's site, read for the verified owner only, each read bounded to
+    3 s: the pages' own words, the tables' columns and access (never a row),
+    and the file library by name, kind and size (no visitor files).
+  - Attached files by name, said to be unseen.
+  - A waiting question, said to stay open.
+- **Conversation stays conversation.** Only an answer pressed from our
+  options is never read as talk. A typed side question keeps a first build's
+  round, and on a live site leaves the waiting question waiting. A file no
+  longer turns talk into work.
+- **Billing.** The reply's call is billed with the routing call, under one
+  charge. If the reply cannot be written, the router's gist is shown and only
+  the routing is charged.
+
+**Video and audio, in short** (`site-media.mjs`; the full design is in its
+header and the history file):
+- **Formats, read from the file's contents:**
+  - video: MP4 (incl. M4V), WebM, QuickTime MOV;
+  - audio: MP3, M4A, AAC (ADTS), WAV, Ogg (Vorbis/Opus), FLAC.
+
+  Stored with the type the bytes named. Anything else is refused, including a
+  renamed file.
+- **Limits, separate from pictures and documents** (theirs are unchanged).
+  Each can be set by an environment variable, and is clamped to a ceiling.
+  Nothing is unlimited.
+
+  | | default | ceiling | variable |
+  |---|---|---|---|
+  | a video file | 250 MB | 2 GB | `MEDIA_MAX_VIDEO_BYTES` |
+  | an audio file | 50 MB | 500 MB | `MEDIA_MAX_AUDIO_BYTES` |
+  | media per site | 2 GB | 20 GB | `MEDIA_MAX_SITE_BYTES` |
+  | files per site | 100 | 1,000 | `MEDIA_MAX_SITE_FILES` |
+  | files before a site exists | 6 | 20 | `MEDIA_MAX_DRAFT_FILES` |
+- **Upload, in parts, never whole through the Worker.** An 8 MiB part per
+  request goes to an R2 multipart upload. The first part is sniffed, and
+  every part's length is exact. The file appears only when the last part is
+  in. A part that fails is sent again alone. Sessions are stored records that
+  expire in 24 h, and in-flight uploads count against the limits. Routes:
+  - `POST /api/site/<slug>/media` — start;
+  - `PUT …/<session>/<n>` — one part;
+  - `POST …/<session>/complete` — finish;
+  - `DELETE …/<session>` — give up.
+- **Storage and addresses.**
+  - Stored at `uploads/<slug>/<32 hex>.<ext>`, outside what a publish
+    replaces, so it is kept through publishes, edits, retries and rebuilds.
+  - Served at `/u/<slug>/<name>`, on the app and at the site's own address.
+- **Serving.**
+  - `GET`/`HEAD`, `Accept-Ranges`, one range as `206`, `416` past the end,
+    `ETag` and `304`.
+  - Media is cached for 5 minutes and revalidated, because it can be
+    replaced. Pictures and documents keep the year-long immutable cache.
+- **Manage** (the Files panel).
+  - **List:** each file with its kind, plus both allowances.
+  - **Use in chat:** puts the file in the composer.
+  - **Replace:** same kind and format, same address, new ETag.
+  - **Delete:** a file a page plays is held, naming the pages, until
+    confirmed; the player there then stops working.
+- **Before a site exists.** Uploads go to `/api/media/drafts`, kept for the
+  account only, never served, for 7 days. The first build moves the ones its
+  message names into the new site's library once it holds the address. The
+  move streams the file, checks the site's limits, and says what could not be
+  moved. Another account's draft is never found.
+- **The models.**
+  - Every page writer (build, edit page step, add-on) gets each file's
+    address, format, kind, size and the browser-reported length and frame
+    size, with how to play it, and "Nobody has watched or listened to these
+    files".
+  - The build's designer is told the names and kinds of files moving in.
+  - The conversation lists them.
+  - A video is never offered as a photograph, a link preview, or in the
+    picture lane's library.
+- **The composer.** A video or recording attached is hosted at once, shown as
+  a chip (uploading n% / ready / not uploaded). It takes none of the three
+  picture places. The message waits while one is sending, then names each file
+  with its address.
+- **Unchanged.** Pictures and documents behave as before. Visitor uploads stay
+  pictures only.
+
+**Tests and readings.**
+- Full suite:
+  - before the assistant commit: `10822 / 10819 / 1 / 2`; the one failure is
+    the image-input check, which passes once committed;
+  - final, on the media commit: `10854 / 10851 / 1 / 2` (the one is the image-input check, run before the commit; on `3802f7e9` it passes, 17 of 17).
+- Mutation sweeps: assistant 23 of 23 killed; media 23 of 23 killed (21 of 23 on the first run; tests were added for the two survivors: parts missing from the list, and the pictures' allowance counting media); the
+  comment-only control survived both.
+- A real headless Chromium plays and seeks WebM video and WAV, MP3, Ogg and
+  FLAC audio from `/u/`, served by the real Worker handler, with range
+  requests answered 206.
+- The real routes for upload, list, play, replace, delete, drafts, build
+  adoption, the add-on writer and the edit page writer.
+- Screenshots sent: the formatted reply, the Files panel with video and
+  audio, and the composer chips.
+- Image predictions:
+  - `9ceca1d4` → `357c5a0ed583d713` (206 inputs);
+  - `5f425ceb` → `921a27192841e207` (207);
+  - `3802f7e9` → `a711b5b0cecacce7` (208).
+
+  The worker tree now carries `builder/site-converse.mjs` and
+  `site-media.mjs`.
+- CI on these commits: `5f425ceb` green (unit tests run 38655868176, site build run 38655868111); `3802f7e9` running when these records were written (unit tests run 38658988774, site build run 38658988769).
+
+**What is not shown — the remaining live gaps.**
+1. What a real model writes in a conversational reply: length, tone, keeping
+   to the honesty rules, and whether a real router writes `resolved` well. No
+   paid call was made.
+2. A real R2 multipart upload. It is shown only against an R2 stand-in that
+   checks parts as R2 does, as are the streamed draft move
+   (`FixedLengthStream`) and R2's default abort of unfinished uploads.
+3. Real playback in a browser:
+   - MP4, MOV, M4A and AAC were not played: this Chromium has no
+     H.264/AAC decoder. They are served with their types and ranges.
+   - MOV with HEVC, and Firefox with MOV, may not play. The panel says what
+     each format is.
+4. On the live domain:
+   - the edge's handling of range responses and the 5-minute cache;
+   - upload throughput;
+   - a custom domain's `/u/` path, which is the same handler by
+     `servedAtRoot`.
+5. Housekeeping:
+   - Expired drafts are removed when the account's drafts are next listed or
+     used, not on a schedule. There is no R2 lifecycle rule.
+   - Deleting a played file leaves the page naming a dead address, as
+     designed; the delete is asked twice.
+6. The conversation is the browser's own copy, so another device sends the
+   thread it holds.
+7. Not done, by design: visitor video or audio, transcoding, posters,
+   captions, and any reading of a file's contents.
+8. The composer's media chips are covered by pure tests and source guards,
+   not by a real-browser drive.
+
+**Still paused (unchanged):** the combined release candidate and its
+verification wait for the main branch's route-selection and connection-loss
+fixes. Nothing is merged, deployed, rebuilt or pressed.
 
 ## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
 
