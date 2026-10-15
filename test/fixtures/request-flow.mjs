@@ -167,6 +167,21 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // A READ OF THE JOB TABLE THAT FAILS (`failRead`, 2026-10-06): the service down for that one call.
   const readFaults = [];
   const beforePuts = [];
+  const afterGets = [];
+  const uploads = [];
+  const beforeUploads = [];
+  const dispatched = [];
+  const afterUploads = [];
+  const scriptText = async (body) => {
+    try {
+      if (body && typeof body.entries === "function") {
+        let out = "";
+        for (const [, v] of body.entries()) out += typeof v === "string" ? v : (v && typeof v.text === "function" ? await v.text() : "");
+        return out;
+      }
+      return typeof body === "string" ? body : "";
+    } catch { return ""; }
+  };
   const beforeDeletes = [];
   const rpcFaults = [];
   let sendHangs = 0;
@@ -627,7 +642,24 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     }
     if (url.includes("/rest/v1/credits")) return resp([{ balance: credits.balance }]);
     if (url.includes("/v1/messages")) return model(args, (init && init.signal) || (input && input.signal) || null);
-    if (isDispatchUpload(url)) return dispatchOk();
+    if (isDispatchUpload(url)) {
+      // EVERY SITE-SCRIPT UPLOAD, KEPT (2026-10-15): the version and build the
+      // script names, in order — the last one is the live script. A case may
+      // hold one (`beforeUpload`) between the request and its landing.
+      const text = await scriptText(init && init.body);
+      const bu = beforeUploads.shift();
+      if (bu) await bu(text);
+      const v = /\/\/ site-version: (\S*)/.exec(text), b = /\/\/ site-build: (\S*)/.exec(text);
+      // AND WHICH SCRIPT NAME: `site-<slug>` is the live one, `draft-<slug>`
+      // a draft's preview (draft-first, 2026-10-15).
+      const sn = /\/scripts\/([^/?]+)/.exec(url);
+      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" });
+      // LANDED, AND THEN (`afterUpload`): a hook that throws is an upload
+      // whose answer was lost; one that never ends is an uploader that died.
+      const au = afterUploads.shift();
+      if (au) await au(text);
+      return dispatchOk();
+    }
     // NOT SET UP FOR (2026-10-09, round 4): answered 503 as before, and
     // recorded, so a case can assert that nothing unexpected was asked for.
     unexpected.push({ method, url });
@@ -637,6 +669,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
     EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}),
+    // THE LIVE SCRIPT, ASKED (`liveScripts`, 2026-10-15): the dispatch stub
+    // answers the probe with the last uploaded script's own stamps, as a
+    // deployed site script does on every response.
+    ...(liveScripts ? { SITE_WORKERS: { get: (name) => ({ fetch: async (req) => {
+      // EVERY DISPATCH, with the script asked and the preview header it carried.
+      try { dispatched.push({ name, path: new URL(req.url).pathname, preview: req.headers.get("x-site-preview") }); } catch { /* a probe without a request */ }
+      const mine = uploads.filter((u) => !u.name || !name || u.name === name);
+      const last = mine[mine.length - 1];
+      const h = new Headers();
+      if (last) { h.set("x-site-build", last.build); if (last.version) h.set("x-site-version", last.version); }
+      return new Response("ok", { status: 200, headers: h });
+    } }) } } : {}),
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }
@@ -743,6 +787,19 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     failRead(match) { readFaults.push({ match }); },
     /** Before the next write to a key `match(key)` accepts, run `then(key)`; the write then meets what it left. */
     beforePut(match, then) { beforePuts.push({ match, then }); },
+    /** After the next read of a key `match(key)` accepts has taken its snapshot, run `then(key)`; the reader then goes on with what it read. */
+    afterGet(match, then) { afterGets.push({ match, then }); },
+    /** Before the next site-script upload lands, run `then(scriptText)`; the upload then goes ahead. */
+    beforeUpload(then) { beforeUploads.push(then); },
+    afterUpload(then) { afterUploads.push(then); },
+    /** Every site-script upload so far: `{ version, build, at }`, in order. */
+    uploads() { return uploads.slice(); },
+    /** The live script's version: the last upload's, or null before any. */
+    liveScript() { const live = uploads.filter((u) => !String(u.name || "").startsWith("draft-")); return live.length ? live[live.length - 1].version : null; },
+    dispatched() { return dispatched.slice(); },
+    previewScript() { const d = uploads.filter((u) => String(u.name || "").startsWith("draft-")); return d.length ? d[d.length - 1].version : null; },
+    /** A stored object's custom metadata, or null. */
+    metaOf(key) { const o = objects.get(key); return o && o.customMetadata ? { ...o.customMetadata } : null; },
     /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */
     beforeDelete(match, then) { beforeDeletes.push({ match, then }); },
     /** The next call to `fn` (or the first whose `when(args)` holds) is refused before it lands. */

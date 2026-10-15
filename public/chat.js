@@ -7951,7 +7951,85 @@ function siteHistoryRail(site) {
 }
 // Publish panel (mirrors Lovable's popover): the live link, visibility, visitors,
 // republish/copy. Unpublish + edit-settings are visual placeholders for now.
+// ── DRAFT-FIRST (owner, 2026-10-15): "only an explicit click on the Publish
+// button may make changes live." Every task saves a draft; this reads where
+// the site stands and publishes exactly the version the owner looked at.
+const siteDraftState = {};
+const siteDraftAt = {};
+const DRAFT_SAY = { processing: 'Still processing\u2026', saved: 'Saved \u00b7 not published', published: 'Published' };
+function paintDraftChip(d) {
+  const el = document.getElementById('stDraftState');
+  if (!el) return;
+  if (!d || d.enabled !== true || !DRAFT_SAY[d.state]) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = DRAFT_SAY[d.state];
+  el.dataset.state = d.state;
+}
+async function loadDraftState(site) {
+  const slug = String((site && site.slug) || '');
+  if (!slug) return null;
+  siteDraftAt[slug] = Date.now();
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft');
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true) return null;
+    siteDraftState[slug] = d;
+    paintDraftChip(d);
+    return d;
+  } catch (e) { return null; }
+}
+function siteDraftPanel(site, d) {
+  const slug = String(site.slug || '');
+  let box = document.getElementById('sitePubModal'); if (box) box.remove();
+  box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
+  // THE VERSION THIS PANEL SHOWS IS THE ONE THE BUTTON PUBLISHES — read once,
+  // here, so a change saved while the panel is open is a later draft and
+  // never slips into this publication.
+  const version = d.unpublished ? String(d.draft || '') : '';
+  const head = d.state === 'processing' ? 'Still processing' : d.unpublished ? 'Saved, not published' : 'Published';
+  const intro = d.unpublished
+    ? 'Your latest changes are saved as a draft. Your live site is unchanged until you publish.'
+    : 'Your live site shows your latest saved changes.';
+  const busy = d.state === 'processing'
+    ? '<p class="sp-intro sp-note">A change is still being made. It will be saved as a later draft \u2014 publishing now releases only the draft below.</p>' : '';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + esc(head) + '</b><button type="button" class="si-x" aria-label="Close">\u00d7</button></div><div class="si-body">' +
+    '<p class="sp-intro">' + esc(intro) + '</p>' + busy +
+    (d.preview && d.unpublished ? '<div class="sp-row"><span class="sp-k">Draft preview</span><a class="sp-url" href="' + esc(d.preview) + '" target="_blank" rel="noopener">Open the draft</a></div>' : '') +
+    (slug ? '<div class="sp-row"><span class="sp-k">Live site</span><span class="sp-v">' + esc(siteChipUrl({ slug })) + '</span></div>' : '') +
+    '<div class="sp-actions">' +
+      '<button type="button" class="st-publish" id="spPublishDraft"' + (version ? '' : ' disabled') + '>' + (version ? 'Publish this draft' : 'Nothing new to publish') + '</button>' +
+    '</div>' +
+  '</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const go = box.querySelector('#spPublishDraft');
+  if (go && version) go.onclick = async () => {
+    go.disabled = true; go.textContent = 'Publishing\u2026';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/publish', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (r.ok && out.ok) {
+        close();
+        if (out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
+        if (typeof sbToast === 'function') sbToast(out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
+      } else {
+        go.disabled = false; go.textContent = 'Publish this draft';
+        if (typeof sbToast === 'function') sbToast((out && out.error) || 'Could not publish just now \u2014 nothing changed on your live site');
+      }
+    } catch (e) {
+      go.disabled = false; go.textContent = 'Publish this draft';
+      if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 nothing changed on your live site');
+    }
+  };
+}
 function sitePublishPanel(site) {
+  // UNDER DRAFT-FIRST the panel is the Publish door itself.
+  const ds = site.slug ? siteDraftState[site.slug] : null;
+  if (ds && ds.enabled === true) { siteDraftPanel(site, ds); loadDraftState(site); return; }
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   // ONE PUBLIC ADDRESS. `siteChipUrl` is the single place that knows what a
   // site's address is; two copies of that answer is how the panel ends up
@@ -8252,6 +8330,11 @@ function renderSiteWorkspace(view, site) {
           // saying what to do — the Download button's rule two lines up, and the
           // card icons' before it. Hiding a control is how a customer never
           // learns it is there.
+          // WHERE THE CHANGES ARE (draft-first, owner 2026-10-15): saved and not
+          // published, still being made, or published — read from the server
+          // (`GET /api/site/<slug>/draft`) after the bar is drawn, and drawn
+          // only when the server says draft-first is on.
+          '<span class="st-draft-state" id="stDraftState" hidden></span>' +
           '<button type="button" class="st-publish" id="stPublish"' +
             (site.slug
               ? ' title="Your site is live — see its link, or take it off the web"'
@@ -8836,6 +8919,9 @@ function renderSiteWorkspace(view, site) {
   // that would notice.
   const pub = document.getElementById('stPublish');
   if (pub) pub.onclick = () => sitePublishPanel(site);
+  // THE DRAFT'S STATE, painted from the last reading and read again when stale.
+  paintDraftChip(siteDraftState[site.slug] || null);
+  if (site.slug && !(siteDraftAt[site.slug] > Date.now() - 5000)) loadDraftState(site);
   // The inbox and members handlers went with their buttons (above). Both
   // panels are still reached from their own Cloud cards, which is the door
   // that describes what it opens.

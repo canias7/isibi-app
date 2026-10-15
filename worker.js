@@ -101,6 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
+import { DRAFT_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -235,7 +236,7 @@ import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "
 // and the id is minted by `mintVersion` before the compile so the container
 // can bake it.
 import {
-  mintVersion, stageBuild, activateBuild, readPointer, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
+  mintVersion, stageBuild, activateBuild, readPointer, readPointerTag, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
   assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY,
   // THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05):
   // the marker every state copy ends with, and the repair a job makes before
@@ -12134,6 +12135,82 @@ async function sitePointer(env, slug) {
  * script's fallback hop is then the legacy prefix, which is exactly where
  * the restored files are.
  */
+/** What a saved draft tells the owner: its version, its preview address, and that it is not live. */
+function draftFacts(slug, version, act) {
+  const token = act && act.record && act.record.preview;
+  const label = previewLabel(slug, token);
+  return {
+    version, published: false,
+    preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
+    previewUploaded: !!(act && act.previewed && act.previewed.ok === true),
+  };
+}
+/** How many of the owner's jobs for this site are still running: a count, or null when it cannot be read. */
+async function runningForSite(env, uid, slug) {
+  if (!env.SUPABASE_SERVICE_KEY || !uid) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,state&uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(slug)}&state=not.in.(done,failed,cancelled,lost)&limit=50`, { headers: svcHeaders(env) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    // EACH ROW'S STATE READ AGAIN HERE: the filter is the database's, the
+    // count is ours, and a row without a readable state is not counted as done.
+    return Array.isArray(rows) ? rows.filter((x) => !x || !["done", "failed", "cancelled", "lost"].includes(x.state)).length : null;
+  } catch { return null; }
+}
+/**
+ * PUBLISH: THE ONE DOOR TO THE LIVE SITE under draft-first (owner,
+ * 2026-10-15). The owner names the version they approved — the draft they
+ * saw, or an earlier saved draft — and exactly that staged build becomes
+ * live: the pointer, the sidecar, the live marker and its own script, through
+ * the same activation every publish used, keyed on the pointer's etag and
+ * followed by the script-follows-pointer guarantee. Staged builds never
+ * change, so a task still running or an edit made after the click is a later
+ * draft and cannot slip in. The editable copy is NOT touched: it holds the
+ * draft, which may already be newer than what was approved.
+ */
+async function publishDraft(env, slug, version) {
+  const deps = buildDeps(env);
+  let draft = null;
+  try { draft = (await readDraft(deps, slug)).draft; }
+  catch { return { ok: false, status: 503, error: "the draft could not be read — nothing was published" }; }
+  if (!publishable(draft, version)) return { ok: false, status: 409, error: "that version is not a saved draft of this site — nothing was published" };
+  let b = null;
+  try { b = await readBuild(deps, slug, version); } catch { b = null; }
+  if (!b || b.manifest.worker !== true || !b.worker) return { ok: false, status: 409, error: "that draft's build is not complete — nothing was published" };
+  let before = null; let beforeTag = null;
+  try { const t = await readPointerTag(deps, slug); before = t.pointer; beforeTag = t.etag; }
+  catch { return { ok: false, status: 503, error: "the site's pointer could not be read — try again in a moment" }; }
+  if (before && before.version === version) return { ok: true, version, already: true };
+  let wput = null;
+  const act = await activateBuild(deps, {
+    slug, version, build: b.manifest.build || "", parent: before ? before.version : "", job: null,
+    expectEtag: beforeTag, previous: before || null,
+    sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
+    liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+    putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version }); return wput; },
+  });
+  _pointerCache.delete(slug);
+  if (!act.ok) return { ok: false, status: 409, error: act.error === "superseded" ? "the site changed while publishing — try again" : "publish failed: " + act.error };
+  return { ok: true, version, uploaded: act.uploaded, worker: wput && wput.ok === false ? { uploaded: false, status: wput.status } : undefined };
+}
+
+/** Serve a draft's preview: the token checked against the draft record, the draft's own script asked. */
+async function servePreview(env, request, url, pv) {
+  const no = () => new Response("Not found", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+  if (!env.SITE_WORKERS || !env.SITES_BUCKET) return no();
+  let draft = null;
+  try { draft = (await readDraft(buildDeps(env), pv.slug)).draft; } catch { return no(); }
+  if (!draft || !draft.preview || draft.preview !== pv.token) return no();
+  const fwd = new Request(url.toString(), request);
+  try { fwd.headers.set(PREVIEW_HEADER, "1"); } catch { return no(); }
+  let res;
+  try { res = await env.SITE_WORKERS.get(previewScriptName(pv.slug)).fetch(fwd); } catch { return no(); }
+  const h = new Headers(res.headers);
+  h.set("cache-control", "no-store");
+  h.set("x-robots-tag", "noindex");
+  return new Response(res.body, { status: res.status, headers: h });
+}
+
 async function restoreVersion(env, slug, id) {
   const deps = buildDeps(env);
   let b = null;
@@ -12216,6 +12293,17 @@ async function ensureEditableState(env, slug) {
   let pointer = null;
   try { pointer = await readPointer(deps, slug); }
   catch (e) { console.error("editable state: pointer unreadable for", slug, e && e.message); return { ok: false, why: "pointer" }; }
+  const livePointer = pointer;
+  // UNDER DRAFT-FIRST THE EDITABLE COPY IS THE DRAFT'S, not the live
+  // version's: put back to the live version it would erase every unpublished
+  // change. The draft names the version the copy must match; with none, the
+  // live version does. A draft that cannot be read repairs nothing.
+  if (draftFirst(env)) {
+    let d = null;
+    try { d = (await readDraft(deps, slug)).draft; }
+    catch (e) { console.error("editable state: draft unreadable for", slug, e && e.message); return { ok: false, why: "draft" }; }
+    if (d) pointer = { version: d.version, build: d.build };
+  }
   if (!pointer) return { ok: true, why: "no-pointer" };
   const head = await readHead(deps, slug);
   const need = repairNeeded({ pointer, head });
@@ -12323,7 +12411,7 @@ function confirmFields(wput) {
   return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
 }
 
-async function putSiteWorker(env, slug, worker) {
+async function putSiteWorker(env, slug, worker, { preview = false } = {}) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
   //
@@ -12358,7 +12446,9 @@ async function putSiteWorker(env, slug, worker) {
     return null;
   }
   const creds = dispatchCreds(env);
-  const name = scriptNameFor(slug);
+  // A DRAFT'S PREVIEW goes up under its own name, which no live address
+  // dispatches to (draft-first publishing, 2026-10-15).
+  const name = preview ? previewScriptName(slug) : scriptNameFor(slug);
   if (!creds || !name) return null;
   const r = await uploadSiteWorker({
     ...creds,
@@ -12410,7 +12500,7 @@ async function putSiteWorker(env, slug, worker) {
   //
   // NOT GATED ON `confirmed`: the wait is explicitly never fatal, so a slow
   // confirmation must not leave a stand-in over a site that really is serving.
-  await clearPlaceholder(env, slug);
+  if (!preview) await clearPlaceholder(env, slug);
   // `stamped` IS WHAT SEPARATES THE TWO WAYS OF NOT BEING CONFIRMED. Without
   // it, "the wait spent its budget" and "there was nothing to wait for" are the
   // same `confirmed: false` — and they need opposite fixes.
@@ -14120,10 +14210,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // inside the module is the pointer's own — the first — so a throw here
   // means nothing moved; a typed refusal's `code` and `key` ride out.
   let act = null;
+  // DRAFT-FIRST (owner, 2026-10-15): "only an explicit click on the Publish
+  // button may make changes live". With `DRAFT_FIRST=on` the staged version is
+  // saved as the site's draft instead — the record, the editable copy, the
+  // preview, the job's commit — and nothing live moves; the Publish route
+  // activates exactly the version the owner approves.
+  const toDraft = draftFirst(env);
   try {
   act = await activateBuild(buildDeps(env), {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
     expectEtag: pointerBefore ? pointerBefore.etag : null,
+    asDraft: toDraft ? saveAsDraft : null,
+    base: pointerBefore ? pointerBefore.version : "",
+    preview: toDraft ? () => putSiteWorker(env, slug, built.worker, { preview: true }) : undefined,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
     // put it back instead of leaving the site pointing at a version nothing
     // serves. Null on a first activation, where the undo is a delete.
@@ -14223,18 +14322,22 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // job's publish having landed first, never the customer's change.
     return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
-  tm("activate", "ok", { uploaded: act.uploaded });
+  tm("activate", "ok", { uploaded: act.uploaded, draft: act.draft === true });
   // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
   // answered ok — the pointer moved and the site's script went up (one that
   // could not undoes itself). Said as published; no live page is fetched.
-  try { if (job && job.progress && job.progress.talk) job.progress.mark("published", publishedFacts()); } catch { /* the record never costs the publish */ }
+  // A DRAFT IS NOT A PUBLISH, and is never said as one.
+  try { if (!act.draft && job && job.progress && job.progress.talk) job.progress.mark("published", publishedFacts()); } catch { /* the record never costs the publish */ }
   const wrote = staged.files;
   // THE CAP, kept clear of the pointer's version and its parent — the build a
   // visitor's previous document still asks for. Best-effort: storage, never
   // the response.
   tm("prune", "start");
   let pruned = 0;
-  try { pruned = await pruneBuilds(buildDeps(env), { slug, keep: [version, parentVersion] }); }
+  // NOT UNDER DRAFT-FIRST: the live version, the draft and every draft the
+  // owner may still approve by name are all staged builds, and the cap knows
+  // only two of them.
+  try { if (!act.draft) pruned = await pruneBuilds(buildDeps(env), { slug, keep: [version, parentVersion] }); }
   catch (e) { console.error("prune failed:", slug, e && e.message); }
   tm("prune", "ok", { pruned });
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
@@ -14262,7 +14365,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
     // report included, which `render` above leaves off the wire — so every
     // final reply reads the checks from the answer, whatever the narration did.
-    checks: checksOf({ render: built.render, version, published: true, cssChecked: verifyOnly ? verifyOnly.size : 0 }),
+    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0 }),
+    // SAVED, NOT PUBLISHED (draft-first): the version is the site's draft,
+    // seen at its preview, live only when the owner presses Publish.
+    draft: act.draft === true ? draftFacts(slug, version, act) : undefined,
     lookSoft: lookSoft.length ? lookSoft : undefined,
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
@@ -15328,7 +15434,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       let before = null;
       try { before = await readPointer(buildDeps(env), slug); }
       catch (e) { console.error("pointer unreadable, activating over it:", slug, e && e.message); before = null; }
+      const toDraft = draftFirst(env);
       const act = await activateBuild(buildDeps(env), {
+        // A BUILD IS SAVED AS A DRAFT TOO (draft-first): the owner publishes it.
+        asDraft: toDraft ? saveAsDraft : null,
+        base: before ? before.version : "",
+        preview: toDraft ? () => putSiteWorker(env, slug, worker, { preview: true }) : undefined,
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
         // mid-build — the resumed-build collector — hands one in, and it is
         // asked with no await between it and the conditional write.
@@ -15374,10 +15485,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         throw new Error("the build could not be activated: " + String((act && act.error) || "activate"));
       }
       if (fenced) await markPublished(env, jobId, bVersion);
-      try { await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
+      try { if (!act.draft) await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
-      // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence.
-      return { files: staged.files, version: bVersion };
+      // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence —
+      // or, under draft-first, which version was saved as the draft.
+      return { files: staged.files, version: bVersion, draft: act.draft === true ? draftFacts(slug, bVersion, act) : undefined };
     },
     // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
     // publish-pages.mjs for why this is not in the failure branches. Its own key,
@@ -17865,6 +17977,9 @@ const RECONCILE_SAID = new Set();
  * stays unknown, said, and capped per isolate at RECONCILE_RETRY_MAX.
  */
 async function retryLostUpload(env, row, facts, out) {
+  // DRAFT-FIRST: a job's version goes live only by the owner's Publish, so a
+  // recovery never uploads one.
+  if (draftFirst(env)) return { ...out, verdict: "unknown", kind: "draft-first", why: "under draft-first a job's version is published only by the owner" };
   const id = String(row.id);
   const n = RECONCILE_TRIES.get(id) || 0;
   if (n >= RECONCILE_RETRY_MAX) return { ...out, verdict: "unknown", kind: "retry-exhausted", why: "the upload was retried " + n + " times by this isolate and the live script is still older" };
@@ -24637,6 +24752,13 @@ async function handleRequest(request, env, ctx) {
       if (pretty) return Response.redirect("https://" + pretty + (sm2[2] || "/") + url.search, 301);
     }
 
+    // A DRAFT'S PREVIEW (draft-first, 2026-10-15): `<slug>--draft-<token>`
+    // on the site zone renders the draft's own script, never the live one,
+    // and only with the token the draft record holds.
+    {
+      const pv = previewOf(siteHostSlug(url.hostname) || "");
+      if (pv) return servePreview(env, request, url, pv);
+    }
     let zoneSlug = siteHostSlug(url.hostname);
     // ── A RENAMED SITE ANSWERS AT BOTH ADDRESSES ────────────────────────────
     //
@@ -24794,7 +24916,11 @@ async function handleRequest(request, env, ctx) {
             inner.pathname = "/" + rest;
             try {
               const stub = env.SITE_WORKERS.get(name);
-              const res = await stub.fetch(new Request(inner.toString(), request));
+              // THE PREVIEW HEADER NEVER REACHES A LIVE SCRIPT: only the
+              // platform's own draft route sends it.
+              const fwd = new Request(inner.toString(), request);
+              try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* an immutable header list carries none of ours */ }
+              const res = await stub.fetch(fwd);
               const ct = res.headers.get("content-type") || "";
               const html = /text\/html/i.test(ct);
 
@@ -28948,6 +29074,11 @@ async function handleRequest(request, env, ctx) {
       // shape-checked by `isVersionId` before it can address an object.
       const vr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/versions(\/restore)?$/i);
       const tx = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/text$/i);
+      // THE DRAFT AND THE ONE DOOR TO THE LIVE SITE (draft-first, 2026-10-15):
+      // `GET …/draft` says whether changes are saved, still processing or
+      // published; `POST …/publish` releases the version the owner approved.
+      const pb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/publish$/i);
+      const dr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/draft$/i);
       // THE EDIT LANE. Change what the site already has, and nothing else.
       //
       // Its own route rather than a mode on the build handler, deliberately: the
@@ -29024,10 +29155,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -40480,6 +40611,34 @@ async function handleRequest(request, env, ctx) {
             }
 
             return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, cost: Number(out.langCharged) || 0 });
+          }
+          if (pb || dr) {
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            const readState = async () => {
+              let draft = null, live = null;
+              try { draft = (await readDraft(buildDeps(env), ownerSlug)).draft; } catch { return null; }
+              try { live = await readPointer(buildDeps(env), ownerSlug); } catch { return null; }
+              const running = await runningForSite(env, ou.id, ownerSlug);
+              const st = draftState({ draft, live, running: running || 0 });
+              const label = draft ? previewLabel(ownerSlug, draft.preview) : "";
+              return { ...st, runningKnown: running !== null, enabled: draftFirst(env), preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null, saved: draft ? draft.history.concat(draft.version) : [] };
+            };
+            if (dr && request.method === "GET") {
+              const st = await readState();
+              if (!st) return Response.json({ ok: false, error: "the draft or the live version could not be read" }, { status: 503 });
+              return Response.json({ ok: true, ...st });
+            }
+            if (pb && request.method === "POST") {
+              const pbody = await request.json().catch(() => ({}));
+              const version = pbody && typeof pbody.version === "string" ? pbody.version : "";
+              if (!version) return Response.json({ ok: false, error: "name the version to publish" }, { status: 400 });
+              const r = await publishDraft(env, ownerSlug, version);
+              if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: r.status || 409 });
+              return Response.json({ ok: true, published: r.version, already: r.already === true, worker: r.worker, state: await readState() });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }
           if (vr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

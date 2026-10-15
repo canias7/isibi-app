@@ -102,13 +102,16 @@ function browserOf(r) {
  * drops), the version it activated, whether activation answered ok, and how
  * many of the change's style rules were checked. Never throws.
  */
-export function checksOf({ render = null, version = "", published = false, cssChecked = 0 } = {}) {
+export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false } = {}) {
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
   return {
     compiled: true,
     browser: browserOf(render),
     ...(css ? { css } : {}),
     published: published === true,
+    // SAVED AS THE SITE'S DRAFT (draft-first, 2026-10-15): not published, by
+    // design, until the owner presses Publish — never a failure to publish.
+    ...(draft === true && published !== true ? { draft: true } : {}),
     ...(typeof version === "string" && VERSION.test(version) ? { version } : {}),
   };
 }
@@ -133,6 +136,7 @@ export function readChecks(v) {
     if (Object.keys(b).length !== 1) return null;
   } else return null;
   if (v.css !== undefined && !posInt(v.css)) return null;
+  if (v.draft !== undefined && !(v.draft === true && v.published === false)) return null;
   if (v.version !== undefined && !(typeof v.version === "string" && VERSION.test(v.version))) return null;
   return v;
 }
@@ -192,9 +196,12 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   if (c.css) add(cssSaid(c.css));
   add(c.published
     ? "Published: the new version is now the one the site's address is set to serve. Nobody opened the live address afterwards to confirm it."
-    : "Not published: the version this made is not the one the site's address serves.");
+    : c.draft === true
+      ? DRAFT_SAID
+      : "Not published: the version this made is not the one the site's address serves.");
   return out;
 }
+export const DRAFT_SAID = "Saved as a draft: the change is in the site's draft and its preview, and the live site is unchanged until the owner presses Publish.";
 export const COMPILED_SAID = "The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.";
 export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote was checked to match something on the page.";
 
