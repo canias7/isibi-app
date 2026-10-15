@@ -56,6 +56,8 @@
 //   get(key)                             → { text(), etag } | null
 //   list(prefix)                         → [{ key }]
 //   remove(key)                          → void
+//   hold(key, onlyIf)                    → optional: hold a key absent, conditionally
+//                                          (`holdAbsent`); a plain put of the held body without it
 //   mime(rel)                            → the content type for a published file
 import { versionId, isVersionId, MAX_VERSIONS } from "./site-versions.mjs";
 
@@ -186,6 +188,41 @@ export const POINTER_NONE = Object.freeze({ v: 1, none: true });
 export const isPointerNone = (p) => !!p && p.none === true && !p.version;
 
 /**
+ * A KEY HELD ABSENT (2026-10-15, after Codex's third review). R2 has no
+ * conditional delete and no condition on an object that is not there except
+ * "not there" itself — so a stale holder's create-if-absent lands whenever
+ * the key is still absent, whoever holds the turn by then. Absence is
+ * therefore stored: a guarded key that is not there is written as this body
+ * (with `held: absent` in its metadata) by the holder that takes the turn,
+ * and an undo that would delete writes it instead, conditionally on the
+ * object it read. Every reader takes it as no object; a write after it is
+ * conditional on its etag like any other. The pointer's own form of it is
+ * `POINTER_NONE`.
+ */
+export const HELD_ABSENT_BODY = '{"held":"absent"}';
+export const HELD_META = Object.freeze({ held: "absent" });
+/** A parsed body that is the held form: exactly `{ held: "absent" }`. */
+export function isHeldBody(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v) && v.held === "absent" && Object.keys(v).length === 1;
+}
+/** An object read from the store that holds absence: by its metadata, or (when a copy lost it) by its text. */
+export function isHeldObject(o, text) {
+  if (!o) return false;
+  if (o.customMetadata && o.customMetadata.held === "absent") return true;
+  if (typeof text !== "string") return false;
+  try { return isHeldBody(JSON.parse(text)); } catch { return false; }
+}
+/**
+ * Hold `key` absent, conditionally on `onlyIf` (the object as read): the
+ * deps' own `hold` when it has one (fenced, or the Worker's), else a plain
+ * put of the held body. Answers null when the condition fails.
+ */
+export async function holdAbsent(deps, key, onlyIf) {
+  if (typeof deps.hold === "function") return deps.hold(key, onlyIf);
+  return deps.put(key, HELD_ABSENT_BODY, "application/json", onlyIf);
+}
+
+/**
  * IS THE OBJECT STILL THE ONE OUR PUT WROTE? By the etag the put answered
  * when there is one (a fenced write carries its holder's fence in its bytes,
  * so its stored text is not the body sent); by the bytes only when the store
@@ -245,12 +282,13 @@ export async function readPointerTag(deps, slug) {
  *   2. the SIDECAR, before the script: a site script reads its head once per
  *      isolate, so a new isolate of the new script must find the new routes,
  *      redirects and description already there.
- *   3. the LIVE MARKER at its old address, where every script — old and new —
- *      probes for it.
- *   4. the SCRIPT, through the caller's uploader. The old script keeps serving
+ *   3. the SCRIPT, through the caller's uploader. The old script keeps serving
  *      its own prefix until this lands; a failed upload leaves the pointer
  *      ahead of the live script, which is the state stage 3b's reconcile
  *      reads (pointer names the job's version, live is older: retry is safe).
+ *   4. the LIVE MARKER at its old address, where every script — old and new —
+ *      probes for it: created after the script answered, only when it is not
+ *      there, and never undone (2026-10-15; see the step itself).
  *   5. the caller's COMMIT (`edit_committed`), only after the script is up.
  *   6. the caller's STATE COPY into the editable locations, best-effort: the
  *      site is live by now, and a failed copy costs the next edit its anchor
@@ -325,7 +363,13 @@ export async function activateBuild(deps, {
   const undos = [];
   const reversible = async (key, body, contentType, what) => {
     let had;
-    try { const cur = await deps.get(key); had = cur ? await cur.text() : null; }
+    try {
+      const cur = await deps.get(key);
+      const t = cur ? await cur.text() : null;
+      // A KEY HELD ABSENT WAS ABSENT: its undo holds it again, never puts
+      // the held body back as if it were content.
+      had = cur && !isHeldObject(cur, t) ? t : null;
+    }
     catch (e) { if (deps.log) deps.log(what + " read failed, its write will not be undone", slug, e && e.message); had = undefined; }
     let wrote;
     try { wrote = await deps.put(key, body, contentType); }
@@ -339,17 +383,50 @@ export async function activateBuild(deps, {
       // and the bytes only where the store answered no etag.
       const cur = await deps.get(key);
       if (!cur || !(await stillOurs(cur, wrote, body))) return false;
-      if (had === null) await deps.remove(key);
-      else if (cur.etag) await deps.put(key, had, contentType, { etagMatches: cur.etag });
+      // NO READ-THEN-DELETE (2026-10-15, after Codex's third review): a
+      // delete cannot be conditional, so one made after the read above
+      // removes whatever a newer holder wrote between the two. A key that
+      // was absent is held absent instead, on the etag just read — refused
+      // by the store when anything has been written since.
+      if (had === null) {
+        if (cur.etag) await holdAbsent(deps, key, { etagMatches: cur.etag });
+        else await deps.remove(key);
+      } else if (cur.etag) await deps.put(key, had, contentType, { etagMatches: cur.etag });
       else await deps.put(key, had, contentType);
       return true;
     });
   };
   if (typeof sidecar === "string" && sidecarKey) await reversible(sidecarKey, sidecar, "application/json", "sidecar");
-  if (liveKey) await reversible(liveKey, "1", "text/plain", "live marker");
 
   let worker = null;
   if (typeof putWorker === "function") worker = await putWorker();
+  let uploadedOk = !!(worker && worker.ok === true);
+
+  // ── THE LIVE MARKER AFTER THE SCRIPT, AND ONLY EVER CREATED ───────────────
+  //
+  // (2026-10-15, after Codex's third review.) Every site script — the ones
+  // already deployed included — asks only whether `site.live` exists, so its
+  // absence cannot be stored the way other keys' is: a held marker would
+  // read as live. So this key is never deleted by an activation and never
+  // undone: it is created once, after this activation's own script answered,
+  // and left alone when it already stands (its content is a constant).
+  // Before the script it could only ever need an undo — a delete, which no
+  // store makes conditional; after it, a failed upload leaves nothing to put
+  // back. A first site whose script landed but whose marker could not be
+  // created answers 404, so that is told as not served.
+  let liveMissing = false;
+  if (uploadedOk && liveKey) {
+    let made = false;
+    for (let i = 0; i < 3 && !made; i++) {
+      try {
+        const cur = await deps.get(liveKey);
+        if (cur) { made = true; break; }
+        const put = await deps.put(liveKey, "1", "text/plain", { etagDoesNotMatch: "*" });
+        made = put !== null || !!(await deps.get(liveKey));
+      } catch (e) { if (deps.log) deps.log("live marker write failed", slug, e && e.message); }
+    }
+    if (!made) { liveMissing = true; uploadedOk = false; }
+  }
 
   // ── SERVED, NOT MERELY "NOT REFUSED" ──────────────────────────────────────
   //
@@ -359,7 +436,7 @@ export async function activateBuild(deps, {
   // published with no dispatch credentials therefore moved its pointer,
   // recorded a commit and advanced its editable state with no script uploaded
   // at all. Only an explicit success is a success.
-  const uploaded = !!(worker && worker.ok === true);
+  const uploaded = uploadedOk;
 
   // ── AND IF IT DID NOT LAND, THE POINTER GOES BACK ─────────────────────────
   //
@@ -382,7 +459,7 @@ export async function activateBuild(deps, {
   // recovery, and now it is the only way in rather than the ordinary outcome.
   let reverted = false;
   if (!uploaded) {
-    // IN REVERSE ORDER — the marker, then the sidecar, then the pointer. The
+    // IN REVERSE ORDER — the sidecar, then the pointer (the live marker is never undone: it is written only after a script answered). The
     // sidecar is the visitor-facing one, so it goes back before the pointer
     // rather than after it; a failure here is logged and never rethrown,
     // because the pointer's own undo below is the one that matters most.
@@ -409,13 +486,25 @@ export async function activateBuild(deps, {
         // one and is named rather than papered over: it is narrower than the
         // window it replaces, and the alternative — leaving a pointer at a
         // version nothing serves — is the defect being fixed.
-        const cur = await deps.get(POINTER_KEY(slug));
-        const same = !!cur && (await stillOurs(cur, moved, JSON.stringify(pointer)));
-        if (same) { await deps.remove(POINTER_KEY(slug)); reverted = true; }
+        //
+        // NOW A HOLD, NOT A DELETE (2026-10-15, after Codex's third review):
+        // the empty pointer (`POINTER_NONE`, read as no pointer everywhere)
+        // is written on the etag our own put answered, so a pointer anybody
+        // wrote since is refused by the store rather than deleted. Only a
+        // put that answered no etag (a store that gives none) falls back to
+        // the read-then-delete.
+        if (moved && moved.etag) {
+          const r = await deps.put(POINTER_KEY(slug), JSON.stringify(POINTER_NONE), "application/json", { etagMatches: moved.etag });
+          reverted = r !== null;
+        } else {
+          const cur = await deps.get(POINTER_KEY(slug));
+          const same = !!cur && (await stillOurs(cur, moved, JSON.stringify(pointer)));
+          if (same) { await deps.remove(POINTER_KEY(slug)); reverted = true; }
+        }
       }
     } catch (e) { if (deps.log) deps.log("pointer revert failed", slug, e && e.message); }
     if (!reverted && deps.log) deps.log("pointer left ahead of the live script", slug, version);
-    return { ok: false, error: "not-served", version, pointer, worker, uploaded: false, reverted };
+    return { ok: false, error: "not-served", version, pointer, worker, uploaded: false, reverted, ...(liveMissing ? { liveMarker: false } : {}) };
   }
 
   if (typeof commit === "function") await commit();

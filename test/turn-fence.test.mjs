@@ -598,7 +598,9 @@ test("TS1 THE SCRIPT GUARD — a page change's activation moves the pointer and 
   try {
     await publishedOnce(P);
     const v0 = JSON.parse(P.readObj(POINTER(P))).version;
-    P.beforePut((k) => k === LIVE(P) && inside("activateBuild"), async () => {
+    // BETWEEN THE POINTER AND THE SCRIPT: the sidecar write (the live marker
+    // now comes after the script, 2026-10-15).
+    P.beforePut((k) => k === "sitemeta/" + P.slug + ".json" && inside("activateBuild"), async () => {
       paused = true;
       B = await bPublishes(P, siteTurn, v0);
       mark = P.uploads().length;
@@ -1065,4 +1067,269 @@ test("DF6 EVERY ACTIVATION A TASK REACHES CARRIES THE DRAFT GATE — of the acti
   const ungated = sites.filter((x) => !x.gated).map((x) => x.name).sort();
   assert.deepEqual(ungated, ["publishDraft", "restoreVersion"], "an activation a task reaches is not behind the draft gate: " + JSON.stringify(sites));
   for (const x of sites.filter((y) => y.gated)) assert.ok(["recompileAndPublish", "buildAndPublishPages"].includes(x.name), x.name);
+});
+
+// ── ABSENT KEYS HELD IN THE STORE, AND UNDO WITHOUT DELETE (2026-10-15, ─────
+// after Codex's third review). Codex reproduced it with `kit.json` and the
+// draft record: the key starts absent; A pauses inside its fenced write
+// immediately before the conditional PUT; A's turn lapses; B takes it and its
+// takeover completes; A resumes and its create-if-absent lands, with A's
+// older fence. Driven here through the Worker's own functions.
+import { saveDraftRecord, readDraft } from "../site-draft.mjs";
+import { isHeldObject } from "../site-builds.mjs";
+const KIT = (P) => "source/" + P.slug + "/kit.json";
+
+// HELD BY ITS METADATA, as a fenced write reads it (a `head` carries no body).
+async function heldBy(P, key, gen) {
+  const o = await P.env.SITES_BUCKET.head(key);
+  return !!o && isHeldObject(o) && String(o.customMetadata && o.customMetadata.fence) === String(gen);
+}
+
+test("TA3 AN ABSENT KIT, A STALE CREATE — A's fenced write of `kit.json` pauses immediately before its create; its turn lapses; B takes it and completes its takeover: A's create is refused by the store, and the kit is held absent under B's fence", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("ta3"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    P.objects.delete(KIT(P));
+    const A = await siteTurn.tryTurn(P.env, P.slug, "job:a:o1", "a");
+    let paused = false;
+    P.beforePut((k) => k === KIT(P) && inside("fencedPut") && !paused, async () => {
+      paused = true;
+      assert.equal(P.readObj(KIT(P)), null, "the kit was there before A's create — not this case");
+      const took = await lapseAndTake(P, siteTurn); B = took.B;
+      const st = await P.run(() => siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } }));
+      assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+    });
+    let err = null;
+    try { await siteTurn.fencedPut(P.env, KIT(P), JSON.stringify([{ path: "src/stale.ts", source: "STALE" }]), { fence: { gen: A.gen } }); }
+    catch (e) { err = e; }
+    assert.ok(paused, "A's create was never paused");
+    assert.equal(err && err.code, "TURN_FENCED", "A's create landed after the turn passed to B: " + P.readObj(KIT(P)));
+    assert.doesNotMatch(String(P.readObj(KIT(P))), /STALE/, "A's stale kit landed");
+    assert.ok(await heldBy(P, KIT(P), B.gen), "the kit is not held absent under B's fence: " + JSON.stringify([P.readObj(KIT(P)), P.metaOf(KIT(P))]));
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+test("TA4 AN ABSENT DRAFT RECORD, A STALE FIRST SAVE — A saves its draft through its fenced deps and pauses immediately before the create; its turn lapses; B takes it and completes its takeover: A's save is refused (create, then the read-again write), no draft names A's version, and the record is held under B's fence", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("ta4"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    const DRAFT_K = "drafts/" + P.slug + ".json";
+    assert.equal(P.readObj(DRAFT_K), null);
+    const A = await siteTurn.tryTurn(P.env, P.slug, "job:a:o1", "a");
+    let paused = false;
+    P.beforePut((k) => k === DRAFT_K && !paused, async () => {
+      paused = true;
+      const took = await lapseAndTake(P, siteTurn); B = took.B;
+      const st = await P.run(() => siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } }));
+      assert.equal(st.ok, true, "B's takeover failed: " + JSON.stringify(st));
+    });
+    const depsA = siteTurn.fencedBuildDeps(P.env, P.slug, { gen: A.gen });
+    let err = null;
+    try { await saveDraftRecord(depsA, P.slug, { version: "01790000000999-staled" }); } catch (e) { err = e; }
+    assert.ok(paused, "A's save was never paused");
+    assert.equal(err && err.code, "TURN_FENCED", "A's draft save was not refused: " + P.readObj(DRAFT_K));
+    const { draft } = await readDraft({ get: (k) => P.env.SITES_BUCKET.get(k) }, P.slug);
+    assert.equal(draft, null, "a draft names A's stale version: " + JSON.stringify(draft));
+    assert.ok(await heldBy(P, DRAFT_K, B.gen), "the draft record is not held under B's fence");
+    // AND THE HOLDER CAN WRITE IT: the held record is no obstacle to B.
+    const ok = await saveDraftRecord(siteTurn.fencedBuildDeps(P.env, P.slug, { gen: B.gen }), P.slug, { version: "01790000001000-bnewer" });
+    assert.equal(ok.ok, true, "B could not save its own first draft over the held record: " + JSON.stringify(ok));
+    assert.equal((await readDraft({ get: (k) => P.env.SITES_BUCKET.get(k) }, P.slug)).draft.version, "01790000001000-bnewer");
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+test("TA5 EVERY ABSENT GUARDED KEY IS HELD AT TAKEOVER — the head marker, sidecar, source, parts, kit and draft record absent: B's stamp holds each under its fence; the live marker alone stays absent (a held marker would read as live to every site script)", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("ta5"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    const keys = ["source/" + P.slug + "/head.json", "sitemeta/" + P.slug + ".json", "source/" + P.slug + "/pages.json", "source/" + P.slug + "/parts.json", KIT(P), "drafts/" + P.slug + ".json"];
+    for (const k of [...keys, LIVE(P)]) P.objects.delete(k);
+    B = await siteTurn.tryTurn(P.env, P.slug, "job:b:o2", "b");
+    await P.run(() => siteTurn.stampFences(P.env, P.slug, { gen: B.gen }));
+    for (const k of keys) assert.ok(await heldBy(P, k, B.gen), k + " was left absent by the takeover: " + JSON.stringify([P.readObj(k), P.metaOf(k)]));
+    assert.equal(P.readObj(LIVE(P)), null, "the takeover created the live marker — a held marker reads as live");
+    // A SECOND HOLDER RESTAMPS THEM AND THEY STAY HELD (absence, not content).
+    await siteTurn.giveTurn(P.env, P.slug, B);
+    const C = await siteTurn.tryTurn(P.env, P.slug, "job:c:o3", "c"); B = C;
+    await P.run(() => siteTurn.stampFences(P.env, P.slug, { gen: C.gen }));
+    for (const k of keys) assert.ok(await heldBy(P, k, C.gen), k + " lost its held form on a restamp");
+  } finally { await finish(P, compiler, siteTurn, B); }
+});
+
+// ── RECOVERY UPLOADS ARE THEMSELVES RECOVERABLE (2026-10-15, after Codex's ──
+// third review). An alignment, the takeover repair and the sweep each upload
+// the pointer's script; none of those uploads had a note, so a repair that
+// stopped after an upload left nothing to find. Codex: B and C staged, C
+// live, the pointer at B; alignment begins and uploads B; the pointer moves
+// back to C before B's upload takes effect; the repair stopped; final state
+// pointer C, live script B, no notes, and the sweep ten minutes later found
+// nothing. An accepted upload takes effect later (`deferLanding`): the probe
+// still shows C while B is the last upload accepted.
+const SIX_MIN = 6 * 60 * 1000;
+
+test("TJ1 CODEX'S ALIGNMENT, A DELAYED UPLOAD — C live, the pointer at B; the alignment uploads B, which is accepted but not yet serving, and the pointer moves back to C: the alignment does not settle on the probe alone — it sends C after B's answer — and once B takes effect the live script is still C", async () => {
+  const { P, compiler, siteTurn, v0: B, v1: C } = await twoVersions("tj1");
+  try {
+    setPointer(P, B);
+    const slow = P.deferLanding();
+    P.afterUpload(async () => { setPointer(P, C); });
+    const a = await P.run(() => siteTurn.alignLiveScript(P.env, P.slug));
+    slow.release();
+    assert.equal(P.liveScript(), C, "B's delayed upload left the live script off the pointer: " + JSON.stringify(P.uploads().map((u) => u.version)));
+    assert.equal(a.aligned, true, JSON.stringify(a));
+    assert.deepEqual(NOTES(P), [], "a settled alignment left its note");
+  } finally { await P.settle(); compiler.uninstall(); }
+});
+
+test("TJ2 AN ALIGNMENT WHOSE ANSWER IS LOST — the alignment's upload lands and its answer is lost; the pointer then moves: the alignment leaves a note, the sweep leaves it while it is young and settles it once stale, putting the pointer's script up", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj2");
+  try {
+    setPointer(P, v0);
+    P.afterUpload(async () => { throw new Error("connection reset"); });
+    const a = await P.run(() => siteTurn.alignLiveScript(P.env, P.slug));
+    // SEEN ON THE POINTER NOW, BUT AN UPLOAD WHOSE ANSWER WAS LOST MAY STILL
+    // TAKE EFFECT LATER: its note is kept for the sweep.
+    assert.equal(a.answered, false, "a lost answer read as answered: " + JSON.stringify(a));
+    assert.equal(NOTES(P).length, 1, "the alignment's upload left no note");
+    setPointer(P, v1);
+    assert.deepEqual(await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() })), { sites: 0, settled: 0 });
+    P.advance(SIX_MIN);
+    const s = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s, { sites: 1, settled: 1 }, JSON.stringify(s));
+    assert.equal(P.liveScript(), v1);
+    assert.deepEqual(NOTES(P), []);
+  } finally { await P.settle(); compiler.uninstall(); }
+});
+
+test("TJ3 AN ALIGNMENT THAT DIES AFTER ITS UPLOAD — the alignment uploads v0 while the pointer moves to v1 and never runs again: its note was written before the upload, and the cron tick's sweep puts v1's script back with no customer request", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj3");
+  try {
+    setPointer(P, v0);
+    P.beforeUpload(async () => { setPointer(P, v1); });
+    let landed = false;
+    P.afterUpload(() => { landed = true; return new Promise(() => {}); });
+    P.run(() => siteTurn.alignLiveScript(P.env, P.slug));
+    for (let i = 0; i < 200 && !landed; i++) await new Promise((ok) => setTimeout(ok, 5));
+    assert.ok(landed, "the alignment's upload never landed");
+    assert.equal(P.liveScript(), v0, "not this case: the stale upload is not live");
+    assert.equal(NOTES(P).length, 1, "the dead alignment left no note");
+    P.advance(SIX_MIN);
+    const s = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s, { sites: 1, settled: 1 }, JSON.stringify(s));
+    assert.equal(P.liveScript(), v1, "the sweep did not put the pointer's script back");
+    assert.deepEqual(NOTES(P), []);
+  } finally { compiler.uninstall(); }
+});
+
+test("TJ4 THE TAKEOVER REPAIR, ANSWER LOST AND DELAYED — a new holder finds the live script off the pointer; its repair upload lands late with its answer lost: the repair leaves a note, and the sweep settles it once stale; the live script ends on the pointer", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj4");
+  let B = null;
+  try {
+    setPointer(P, v0);
+    const slow = P.deferLanding();
+    P.afterUpload(async () => { throw new Error("connection reset"); });
+    B = await siteTurn.tryTurn(P.env, P.slug, "job:b:o2", "b");
+    const st = await P.run(() => siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: B.owner, fence: { gen: B.gen } }));
+    assert.equal(st.ok, true, JSON.stringify(st));
+    assert.equal(NOTES(P).length, 1, "the takeover repair's upload left no note");
+    // THE POINTER MOVES ON, AND THE REPAIR'S UPLOAD TAKES EFFECT AFTER IT.
+    setPointer(P, v1);
+    slow.release();
+    assert.equal(P.liveScript(), v0, "not this case: the late upload is not live");
+    P.advance(SIX_MIN);
+    const s = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s, { sites: 1, settled: 1 }, JSON.stringify(s));
+    assert.equal(P.liveScript(), v1);
+    assert.deepEqual(NOTES(P), []);
+  } finally { if (B) await siteTurn.giveTurn(P.env, P.slug, B); await P.settle(); compiler.uninstall(); }
+});
+
+test("TJ5 THE SWEEP'S OWN UPLOAD, ANSWER LOST — a stale note for a site off its pointer; the sweep's upload loses its answer: the notes stay (nothing settled), and the next tick settles them", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj5");
+  try {
+    setPointer(P, v0);
+    P.afterUpload(async () => { throw new Error("connection reset"); });
+    await P.run(() => siteTurn.alignLiveScript(P.env, P.slug));
+    assert.equal(NOTES(P).length, 1);
+    setPointer(P, v1);
+    P.advance(SIX_MIN);
+    P.afterUpload(async () => { throw new Error("connection reset"); });
+    const s1 = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s1, { sites: 1, settled: 0 }, "a sweep whose own answer was lost settled: " + JSON.stringify(s1));
+    assert.equal(NOTES(P).length, 1, "the sweep took notes away without settling");
+    P.advance(3 * 60 * 1000);
+    const s2 = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s2, { sites: 1, settled: 1 }, JSON.stringify(s2));
+    assert.equal(P.liveScript(), v1);
+    assert.deepEqual(NOTES(P), []);
+  } finally { await P.settle(); compiler.uninstall(); }
+});
+
+test("TJ6 THE SWEEP'S OWN UPLOAD, ACCEPTED AND NOT YET SERVING — the sweep puts the pointer's script up but it is not serving at once: the sweep does not settle on its own upload's answer (the notes stay); once serving, the next tick settles", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj6");
+  try {
+    setPointer(P, v0);
+    P.afterUpload(async () => { throw new Error("connection reset"); });
+    await P.run(() => siteTurn.alignLiveScript(P.env, P.slug));
+    setPointer(P, v1);
+    P.advance(SIX_MIN);
+    const slow = P.deferLanding();
+    const s1 = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s1, { sites: 1, settled: 0 }, JSON.stringify(s1));
+    assert.equal(NOTES(P).length, 1);
+    slow.release();
+    P.advance(3 * 60 * 1000);
+    const s2 = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.deepEqual(s2, { sites: 1, settled: 1 }, JSON.stringify(s2));
+    assert.equal(P.liveScript(), v1);
+    assert.deepEqual(NOTES(P), []);
+  } finally { await P.settle(); compiler.uninstall(); }
+});
+
+test("TJ7 A PUBLICATION'S DELAYED UPLOAD AFTER AN EARLIER RECONCILIATION — v0's publication is accepted but not yet serving and its answer comes back; the pointer has moved to v1 meanwhile and the probe already shows v1: the follow still sends v1 after v0's answer, so v0 taking effect later cannot win", async () => {
+  const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tj7");
+  try {
+    setPointer(P, v0);
+    const slow = P.deferLanding();
+    P.afterUpload(async () => { setPointer(P, v1); });
+    const r = await P.run(() => siteTurn.putSiteWorker(P.env, P.slug, { ok: true, code: stagedScript(P, v0), build: "" }, { version: v0 }));
+    slow.release();
+    assert.equal(P.liveScript(), v1, "the delayed upload won over the pointer: " + JSON.stringify(P.uploads().map((u) => u.version)));
+    assert.equal(r.follow.settled, true, JSON.stringify(r.follow));
+    assert.deepEqual(NOTES(P), []);
+  } finally { await P.settle(); compiler.uninstall(); }
+});
+
+test("TA6 A HELD KEY IS ABSENT TO ITS HOLDER'S OWN \"ONLY IF ABSENT\" — after B's stamp holds the kit, B's fenced create-if-absent writes it, and so does an unfenced one; a stale holder's is still refused", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const compiler = installCompiler();
+  const P = platform({ slug: slugOf("ta6"), pages: PAGES2, beside: true });
+  let B = null;
+  try {
+    P.objects.delete(KIT(P));
+    const A = await siteTurn.tryTurn(P.env, P.slug, "job:a:o1", "a");
+    await siteTurn.giveTurn(P.env, P.slug, A);
+    B = await siteTurn.tryTurn(P.env, P.slug, "job:b:o2", "b");
+    await P.run(() => siteTurn.stampFences(P.env, P.slug, { gen: B.gen }));
+    assert.ok(await heldBy(P, KIT(P), B.gen));
+    let stale = null;
+    try { stale = await siteTurn.fencedPut(P.env, KIT(P), "[]", { onlyIf: { etagDoesNotMatch: "*" }, fence: { gen: A.gen } }); } catch (e) { stale = e; }
+    assert.ok(stale && stale.code === "TURN_FENCED", "a stale holder's create-if-absent over the held kit was not refused: " + JSON.stringify(stale));
+    const put = await siteTurn.fencedPut(P.env, KIT(P), JSON.stringify([{ path: "src/a.ts", source: "B" }]), { onlyIf: { etagDoesNotMatch: "*" }, fence: { gen: B.gen } });
+    assert.ok(put, "the holder's create-if-absent over its own held key was refused");
+    assert.match(P.readObj(KIT(P)), /"B"/);
+    assert.equal(P.metaOf(KIT(P)).held, undefined, "real content kept the held marker");
+    // UNFENCED, THE SAME RULE (a job not running beside others).
+    P.writeObj("drafts/" + P.slug + ".json", '{"held":"absent"}');
+    P.objects.get("drafts/" + P.slug + ".json").customMetadata = { held: "absent" };
+    const base = siteTurn.fencedBuildDeps(P.env, P.slug, null);
+    const made = await base.put("drafts/" + P.slug + ".json", "{}", "application/json", { etagDoesNotMatch: "*" });
+    assert.ok(made, "an unfenced create-if-absent over a held key was refused");
+  } finally { await finish(P, compiler, siteTurn, B); }
 });

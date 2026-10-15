@@ -240,6 +240,8 @@ import {
   // the marker every state copy ends with, and the repair a job makes before
   // it reads a site whose copy is behind the pointer — see `ensureEditableState`.
   readHead, writeHead, repairNeeded, repairEditable, repairConfigOf, sameJson, buildPrefix, STATE_DIR,
+  // ABSENCE HELD IN THE STORE (2026-10-15, after Codex's third review).
+  HELD_ABSENT_BODY, HELD_META, isHeldObject, isHeldBody,
 } from "./site-builds.mjs";
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, readConfig, writeConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
@@ -11267,7 +11269,10 @@ async function readSiteSource(env, slug, { strict = false } = {}) {
   try {
     const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
     if (!o) return { ok: true, pages: [] };
-    const v = JSON.parse(await o.text());
+    const t = await o.text();
+    // HELD ABSENT (2026-10-15): absence kept in the store reads as none.
+    if (isHeldObject(o, t)) return { ok: true, pages: [] };
+    const v = JSON.parse(t);
     if (strict && (!Array.isArray(v) || v.some((p) => !p || typeof p.path !== "string" || !p.path.trim()
       || typeof p.source !== "string" || !p.source.trim()))) {
       return { ok: false, pages: [], why: "shape" };
@@ -11689,7 +11694,10 @@ async function readSiteParts(env, slug, { strict = false } = {}) {
   try {
     const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
     if (!o) return { ok: true, parts: [] };
-    const v = JSON.parse(await o.text());
+    const t = await o.text();
+    // HELD ABSENT (2026-10-15): absence kept in the store reads as none.
+    if (isHeldObject(o, t)) return { ok: true, parts: [] };
+    const v = JSON.parse(t);
     if (strict && (!Array.isArray(v) || v.some((p) => !p || typeof p.name !== "string" || !p.name.trim()
       || typeof p.source !== "string" || !p.source.trim()))) {
       return { ok: false, parts: [], why: "shape" };
@@ -11774,7 +11782,9 @@ async function loadSiteKit(env, slug) {
   try {
     const o = await env.SITES_BUCKET.get(KIT_KEY(slug));
     if (!o) return [];
-    const v = JSON.parse(await o.text());
+    const t = await o.text();
+    if (isHeldObject(o, t)) return [];
+    const v = JSON.parse(t);
     return Array.isArray(v) ? v.filter((f) => f && typeof f.path === "string" && typeof f.source === "string") : [];
   } catch (e) { console.error("kit read failed:", slug, e && e.message); return []; }
 }
@@ -11836,8 +11846,22 @@ function versionDepsWithSweep(env) {
  */
 function buildDeps(env) {
   return {
-    put: (key, body, contentType, onlyIf) => env.SITES_BUCKET.put(key, body, {
-      httpMetadata: { contentType: contentType || "application/octet-stream" },
+    put: async (key, body, contentType, onlyIf) => {
+      // "ONLY IF ABSENT" MEETS A KEY HELD ABSENT (2026-10-15): the held body
+      // is absence kept in the store, so the write goes ahead — conditional
+      // on that object's etag, so whatever replaced it since still refuses.
+      let cond = onlyIf;
+      if (onlyIf && onlyIf.etagDoesNotMatch === "*") {
+        const cur = await env.SITES_BUCKET.head(key);
+        if (cur && isHeldObject(cur)) { if (!cur.etag) return null; cond = { etagMatches: cur.etag }; }
+      }
+      return env.SITES_BUCKET.put(key, body, {
+        httpMetadata: { contentType: contentType || "application/octet-stream" },
+        ...(cond ? { onlyIf: cond } : {}),
+      });
+    },
+    hold: (key, onlyIf) => env.SITES_BUCKET.put(key, HELD_ABSENT_BODY, {
+      httpMetadata: { contentType: "application/json" }, customMetadata: { ...HELD_META },
       ...(onlyIf ? { onlyIf } : {}),
     }),
     get: (key) => env.SITES_BUCKET.get(key),
@@ -12314,19 +12338,27 @@ const fencedKeys = (slug) => new Set([POINTER_KEY(slug), HEAD_KEY(slug), SOURCE_
  * as R2 does; without one, a write that met a change since its read reads
  * again and decides again.
  */
-async function fencedPut(env, key, body, { contentType = "application/json", onlyIf = null, fence } = {}) {
+async function fencedPut(env, key, body, { contentType = "application/json", onlyIf = null, fence, hold = false } = {}) {
   if (!fence || fence.lost) throw fenceRefused(key);
   for (let i = 0; i < 4; i++) {
     const cur = await env.SITES_BUCKET.head(key);
     if (cur && storedFence(cur) > fence.gen) throw fenceRefused(key);
+    // A KEY HELD ABSENT IS ABSENT to the caller's own condition, and an
+    // object to the store's: "only if absent" goes ahead on the held
+    // object's etag, so a write made since — by any holder — still refuses.
+    const held = !!cur && isHeldObject(cur);
     let cond;
     if (onlyIf) {
       if (onlyIf.etagMatches != null && (!cur || cur.etag !== String(onlyIf.etagMatches))) return null;
-      if (onlyIf.etagDoesNotMatch === "*" && cur) return null;
+      if (onlyIf.etagDoesNotMatch === "*" && cur && !held) return null;
     }
     if (cur) { cond = sinceRead(cur); if (!cond) throw new Error("fenced write: " + key + " read without its etag"); }
     else cond = { etagDoesNotMatch: "*" };
-    const put = await env.SITES_BUCKET.put(key, fenceBytes(body, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
+    const put = await env.SITES_BUCKET.put(key, fenceBytes(hold ? HELD_ABSENT_BODY : body, fence.gen), {
+      httpMetadata: { contentType: hold ? "application/json" : contentType },
+      customMetadata: { fence: String(fence.gen), ...(hold ? HELD_META : {}) },
+      onlyIf: cond,
+    });
     if (put) return put;
     if (onlyIf) return null;
   }
@@ -12337,7 +12369,12 @@ function fencedBuildDeps(env, slug, fence) {
   const base = buildDeps(env);
   if (!fence) return base;
   const guarded = fencedKeys(slug);
-  return { ...base, put: (key, body, contentType, onlyIf) => (guarded.has(key) ? fencedPut(env, key, body, { contentType: contentType || "application/octet-stream", onlyIf, fence }) : base.put(key, body, contentType, onlyIf)) };
+  return {
+    ...base,
+    put: (key, body, contentType, onlyIf) => (guarded.has(key) ? fencedPut(env, key, body, { contentType: contentType || "application/octet-stream", onlyIf, fence }) : base.put(key, body, contentType, onlyIf)),
+    // AN UNDO THAT WOULD DELETE HOLDS THE KEY ABSENT, fenced like any write.
+    hold: (key, onlyIf) => (guarded.has(key) ? fencedPut(env, key, "", { onlyIf, fence, hold: true }) : base.hold(key, onlyIf)),
+  };
 }
 /**
  * THE NEW HOLDER'S FIRST ACT: the pointer, the head marker and the config
@@ -12352,14 +12389,24 @@ function fencedBuildDeps(env, slug, fence) {
  * activation (create-if-absent) meets an object; a site with no config object
  * gets the config as it reads now — its legacy fields from the database, or
  * empty — so a stale create meets one too. A legacy read that cannot be made
- * refuses the stamp: cannot-tell is never written as empty. The head marker
- * is left absent: the repair that follows writes it whenever a pointer
- * stands, and nothing reads it without one.
+ * refuses the stamp: cannot-tell is never written as empty.
+ *
+ * EVERY OTHER GUARDED KEY TOO (2026-10-15, after Codex's third review). The
+ * head marker, the sidecar, the source, parts and kit, and the draft record
+ * were left absent, so a stale holder paused just before a create-if-absent
+ * landed it after this stamp (Codex: `kit.json` and `drafts/<slug>.json`).
+ * Each absent one is now held absent (`HELD_ABSENT_BODY`, read as no object
+ * by every reader) with this holder's fence, so that create meets an object
+ * and the store refuses it. The one exception is the live marker: every site
+ * script asks only whether it exists, so a held marker would read as live.
+ * It is never deleted or undone by an activation and is created only after
+ * that activation's own script answered (`activateBuild`), so the only stale
+ * write it can meet is a create of the marker for a pointer that already
+ * names a published version.
  */
 async function stampFences(env, slug, fence) {
   const absent = {
     [POINTER_KEY(slug)]: async () => JSON.stringify(POINTER_NONE),
-    [HEAD_KEY(slug)]: null,
     [CONFIG_KEY(slug)]: async () => {
       let db = null;
       try { db = await siteBackendBySlug(env, slug); }
@@ -12369,29 +12416,28 @@ async function stampFences(env, slug, fence) {
       return writeConfig(cur.config);
     },
   };
-  absent[siteMetaKey(slug)] = null;
+  // HELD ABSENT, every guarded key the reader takes as nothing when it is
+  // not there; the live marker alone stays absent (see above).
+  const holdIt = async () => HELD_ABSENT_BODY;
+  absent[HEAD_KEY(slug)] = holdIt;
+  absent[siteMetaKey(slug)] = holdIt;
   absent[LIVE_KEY(slug)] = null;
-  // THE EDITABLE COPY TOO (2026-10-15, after Codex's second review): the
-  // source, parts and kit carry the new holder's fence from here, so a stale
-  // holder's write of any of them — read before the turn passed, landed
-  // after — fails on its etag even when the new holder never writes that
-  // key itself. Absent ones stay absent: nothing reads them as anything.
-  absent[SOURCE_KEY(slug)] = null;
-  absent[PARTS_KEY(slug)] = null;
-  absent[KIT_KEY(slug)] = null;
-  // AND THE DRAFT RECORD (draft-first publishing): a stale holder never
-  // names its version as the draft once the turn has passed.
-  absent[DRAFT_KEY(slug)] = null;
+  absent[SOURCE_KEY(slug)] = holdIt;
+  absent[PARTS_KEY(slug)] = holdIt;
+  absent[KIT_KEY(slug)] = holdIt;
+  absent[DRAFT_KEY(slug)] = holdIt;
   for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"], [siteMetaKey(slug), "application/json"], [LIVE_KEY(slug), "text/plain"], [SOURCE_KEY(slug), "application/json"], [PARTS_KEY(slug), "application/json"], [KIT_KEY(slug), "application/json"], [DRAFT_KEY(slug), "application/json"]]) {
     let done = false;
     for (let i = 0; i < 4 && !done; i++) {
       const o = await env.SITES_BUCKET.get(key);
       if (!o) {
         if (!absent[key]) { done = true; break; }
-        const body = await absent[key]();
+        const make = absent[key];
+        const body = await make();
+        const asHeld = make === holdIt;
         // THE LEGACY READ MAY HAVE WRITTEN IT BACK ITSELF (`loadConfig`'s
         // backfill): created only if still absent, read again otherwise.
-        const put = await env.SITES_BUCKET.put(key, fenceBytes(body, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagDoesNotMatch: "*" } });
+        const put = await env.SITES_BUCKET.put(key, fenceBytes(body, fence.gen), { httpMetadata: { contentType: asHeld ? "application/json" : contentType }, customMetadata: { fence: String(fence.gen), ...(asHeld ? HELD_META : {}) }, onlyIf: { etagDoesNotMatch: "*" } });
         if (put) done = true;
         continue;
       }
@@ -12403,7 +12449,9 @@ async function stampFences(env, slug, fence) {
       if (!cond) throw new Error("fence stamp: " + key + " read without its etag");
       // THE SAME CONTENT, THIS HOLDER'S FENCE IN ITS BYTES: a new etag, so a
       // write keyed on the etag an earlier holder read fails on R2 itself.
-      const put = await env.SITES_BUCKET.put(key, fenceBytes(text, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
+      // A HELD KEY STAYS HELD: its metadata goes with the new fence.
+      const wasHeld = isHeldObject(o, unfence(text));
+      const put = await env.SITES_BUCKET.put(key, fenceBytes(text, fence.gen), { httpMetadata: { contentType: wasHeld ? "application/json" : contentType }, customMetadata: { fence: String(fence.gen), ...(wasHeld ? HELD_META : {}) }, onlyIf: cond });
       if (put) done = true;
     }
     if (!done) throw new Error("fence stamp: " + key + " kept changing");
@@ -12481,21 +12529,60 @@ async function putSiteWorker(env, slug, worker, { version = "" } = {}) {
   let first;
   try { first = await uploadScriptOnce(env, slug, worker); }
   catch (e) { first = { ok: false, stage: "upload", status: 0, error: String((e && e.message) || e) }; }
-  const follow = await followPointer(env, slug, { version, answered: !!(first && first.ok === true) });
+  const follow = await followPointer(env, slug, { version, answered: !!(first && first.ok === true) }, { note });
   if (follow.settled && follow.answered) {
     try { await env.SITES_BUCKET.delete(note); } catch { /* the sweep takes it */ }
   }
   return first && typeof first === "object" ? { ...first, follow } : first;
 }
 /**
+ * A NOTE BEFORE EVERY UPLOAD THAT FOLLOWS THE POINTER (2026-10-15, after
+ * Codex's third review). The publication's own upload had one; the uploads
+ * the follow makes did not, and neither did an alignment's or the takeover
+ * repair's — so a repair that stopped, died or lost an answer after its
+ * upload left nothing for the sweep to find (Codex: pointer C, live script
+ * B, no note, and the sweep ten minutes later answered `{sites:0}`). The
+ * caller's note covers them when it has one (`ctx.note`, or `ctx.covered`
+ * for the sweep, whose notes stay until it settles); otherwise one is
+ * written here, before the first upload, and handed back on `ctx.note` for
+ * the caller to take away only once the follow settled.
+ */
+async function noteBeforeUpload(env, slug, ctx, version) {
+  if (!ctx || ctx.covered || ctx.note) return true;
+  const key = scriptPendingKey(slug, crypto.randomUUID());
+  try {
+    await env.SITES_BUCKET.put(key, JSON.stringify({ slug, version, at: Date.now(), by: ctx.by || "follow" }), { httpMetadata: { contentType: "application/json" } });
+  } catch (e) {
+    console.error("site script: pending note unwritable, nothing uploaded", slug, errorClassForLog(e));
+    return false;
+  }
+  ctx.note = key;
+  return true;
+}
+/**
  * READ THE POINTER, ASK THE LIVE SCRIPT, AND PUT THE POINTER'S SCRIPT UP
  * WHILE THEY DISAGREE. `last` is the upload just made (its version, and
  * whether it answered). `{ settled, answered, version, uploads, why }`:
- * settled when the live script was seen on the pointer (or, with no way to
- * ask it, when the last upload answered for the pointer's version); answered
- * false when any upload here did not answer — its landing is not known.
+ * answered false when any upload here did not answer — its landing is not
+ * known.
+ *
+ * SETTLED, precisely (2026-10-15, after Codex's third review):
+ *  - with no upload of this call's own: the live script was seen on the
+ *    pointer's version;
+ *  - after an upload of its own: the last one was the pointer's version and
+ *    the live script was seen serving it. An upload of another version
+ *    (the pointer moved after it was sent) is never trusted to be behind
+ *    whatever the live script shows now — a script does not serve the
+ *    moment its upload is accepted, so a live script seen on the pointer
+ *    can still be replaced by the earlier upload when it takes effect. The
+ *    pointer's own script is therefore sent again, after that upload's
+ *    answer: an upload sent after another's answer is ordered after it.
+ *
+ * EVERY UPLOAD HERE HAS A NOTE BEFORE IT (`noteBeforeUpload`), so a follow
+ * that stops for any reason — a refusal, a script not staged, a death, a
+ * lost answer — leaves the sweep something to find.
  */
-async function followPointer(env, slug, last = null) {
+async function followPointer(env, slug, last = null, ctx = {}) {
   let answered = !last || last.answered === true;
   let uploads = 0;
   let lastUp = last && last.version ? { version: last.version, ok: last.answered === true } : null;
@@ -12508,17 +12595,21 @@ async function followPointer(env, slug, last = null) {
       const live = await probeSiteWorker({ stubFor: (n) => env.SITE_WORKERS.get(n), name: scriptNameFor(slug) });
       if (live && live.version) liveVersion = live.version;
     }
-    const onPointer = liveVersion !== null ? liveVersion === pointer.version : !!(lastUp && lastUp.ok && lastUp.version === pointer.version);
-    if (onPointer) return { settled: true, answered, uploads, version: pointer.version, why: "" };
+    const mineIsPointer = !!lastUp && lastUp.version === pointer.version;
+    const seenOnPointer = liveVersion !== null ? liveVersion === pointer.version : !!(mineIsPointer && lastUp.ok);
+    // AN UPLOAD OF ANOTHER VERSION STANDS BETWEEN THIS READ AND THE TRUTH:
+    // only the pointer's own upload, sent after it, settles anything.
+    if (seenOnPointer && (!lastUp || mineIsPointer)) return { settled: true, answered, uploads, version: pointer.version, why: "" };
     // THE POINTER'S OWN VERSION WAS JUST SENT — refused, or accepted and not
     // yet answering: sending it again at once only repeats that. Left to the
     // note and the sweep; only a pointer that moved to another version is
     // followed here.
-    if (lastUp && lastUp.version === pointer.version) return { settled: false, answered: lastUp.ok ? answered : false, uploads, version: pointer.version, why: lastUp.ok ? "not-serving" : "upload" };
+    if (mineIsPointer) return { settled: false, answered: lastUp.ok ? answered : false, uploads, version: pointer.version, why: lastUp.ok ? "not-serving" : "upload" };
     if (i === SCRIPT_FOLLOW_TRIES) break;
     let staged = null;
     try { staged = await readBuild(buildDeps(env), slug, pointer.version); } catch { staged = null; }
     if (!staged || !staged.worker) return { settled: false, answered, uploads, version: pointer.version, why: "no-script-staged" };
+    if (!(await noteBeforeUpload(env, slug, ctx, pointer.version))) return { settled: false, answered, uploads, version: pointer.version, why: "note" };
     let put;
     try { put = await uploadScriptOnce(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || pointer.build || "") }); }
     catch (e) { put = { ok: false, status: 0, error: String((e && e.message) || e) }; }
@@ -12531,10 +12622,19 @@ async function followPointer(env, slug, last = null) {
   }
   return { settled: false, answered, uploads, why: "moving" };
 }
-/** Put the live script on the pointer's version (a takeover, the sweep, a test). `{ aligned, version, why }`. */
+/**
+ * Put the live script on the pointer's version (a takeover, a test).
+ * `{ aligned, version, why }`. Its uploads are noted first, like every
+ * other; the note goes only when the follow settled with every upload
+ * answered, and is otherwise the sweep's to settle.
+ */
 async function alignLiveScript(env, slug) {
-  const f = await followPointer(env, slug, null);
-  return { aligned: f.settled === true, version: f.version || "", why: f.settled ? "" : f.why, uploads: f.uploads, answered: f.answered };
+  const ctx = { by: "align" };
+  const f = await followPointer(env, slug, null, ctx);
+  if (ctx.note && f.settled && f.answered) {
+    try { await env.SITES_BUCKET.delete(ctx.note); } catch { /* the sweep takes it */ }
+  }
+  return { aligned: f.settled === true, version: f.version || "", why: f.settled ? "" : f.why, uploads: f.uploads, answered: f.answered, noted: !!ctx.note };
 }
 /**
  * THE SWEEP OF PENDING SCRIPT NOTES (the 2-minute tick): every site with a
@@ -12568,7 +12668,10 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
     if (sites >= maxSites) break;
     sites++;
     let f;
-    try { f = await followPointer(env, slug, null); } catch (e) { f = { settled: false, why: errorClassForLog(e) }; }
+    // ITS OWN UPLOADS ARE COVERED BY THE NOTES IT READ, which stay until a
+    // follow settles — a sweep that dies or loses an answer leaves them for
+    // the next tick.
+    try { f = await followPointer(env, slug, null, { covered: true }); } catch (e) { f = { settled: false, why: errorClassForLog(e) }; }
     console.log("script sweep:", slug, f.settled && f.answered ? "on its pointer" : "(" + (f.why || "an upload did not answer") + ")", "notes", keys.length);
     if (f.settled && f.answered) {
       settled++;
@@ -12581,7 +12684,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * The turn's own functions, for the tests that drive a second holder against
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
-export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, alignLiveScript, putSiteWorker, runScriptPendingSweep };
+export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -12927,7 +13030,9 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // publish (run 49: `/gallery` and `/the-starter` both 404). The serve
         // path has read the sidecar through this function since 2026-08-22.
         if (po) {
-          const side = JSON.parse(await po.text());
+          const sideRaw = JSON.parse(await po.text());
+          // A SIDECAR HELD ABSENT IS NO SIDECAR (2026-10-15).
+          const side = isHeldBody(sideRaw) ? {} : sideRaw;
           prev = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
         }
       } catch (e) {
@@ -14810,6 +14915,17 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
 }
 
 /**
+ * A sidecar's text as the object the owner panels patch: `{}` for none, and
+ * for one held absent (2026-10-15) — the held marker is never carried into a
+ * real sidecar.
+ */
+function sidecarOf(text) {
+  if (typeof text !== "string") return {};
+  const v = JSON.parse(text);
+  return isHeldBody(v) ? {} : v;
+}
+
+/**
  * Where a renamed or deleted address goes now, or null.
  *
  * READS THE SIDECAR, which is where the publish has written the manifest since
@@ -14834,6 +14950,7 @@ async function siteRedirectFor(env, slug, path) {
     const obj = await env.SITES_BUCKET.get(siteMetaKey(slug));
     if (!obj) return null;
     const side = JSON.parse(await obj.text());
+    if (isHeldBody(side)) return null;
     const manifest = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
     const verdict = decideFallback(manifest, path);
     return verdict.kind === "redirect" ? verdict.to : null;
@@ -32040,7 +32157,7 @@ async function handleRequest(request, env, ctx) {
               let live = false;
               try {
                 const cur = await env.SITES_BUCKET.get(siteMetaKey(ownerSlug));
-                const side = cur ? JSON.parse(await cur.text()) : {};
+                const side = sidecarOf(cur ? await cur.text() : null);
                 side.origin = addressOf(wanted);
                 await env.SITES_BUCKET.put(siteMetaKey(ownerSlug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
                 live = true;
@@ -39312,7 +39429,19 @@ async function handleRequest(request, env, ctx) {
             // can still take a page back out. A page that came back without it
             // is refused — nothing published, nothing charged — never
             // published under a reply saying it was added.
-            const aWordsAt = wordsLanded(aSrc, aMerge.pages, aFold.words);
+            // THE SITE'S OWN FILES A PAGE MAY IMPORT (2026-10-15, after
+            // Codex's third review): its components — as they stood, and as
+            // this change returned them — and its stored kit, so a component
+            // imported from one of them is read where it is rendered. One
+            // imported from anywhere else renders nothing vouched for.
+            const aKitFiles = aFold.words.length ? await loadSiteKit(env, ownerSlug) : [];
+            const aPartFiles = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.name === "string" && typeof x.source === "string").map((x) => ({ path: partPath(x.name), source: x.source }));
+            const aPartsAfter = new Map(aPartFiles(aStoredParts).map((f) => [f.path, f]));
+            for (const f of aPartFiles(aValid && aValid.parts)) aPartsAfter.set(f.path, f);
+            const aWordsAt = wordsLanded(aSrc, aMerge.pages, aFold.words, {
+              filesBefore: [...aPartFiles(aStoredParts), ...aKitFiles],
+              files: [...aPartsAfter.values(), ...aKitFiles],
+            });
             const aPhotosAt = photosLanded(aSrc, aMerge.pages, aFold.reuse, ownerSlug);
             aMark("landed", aWordsAt.ok && aPhotosAt.ok ? "ok" : "fail", { words: aFold.words.length, photos: aFold.reuse.length, missing: aWordsAt.missing.length + aPhotosAt.missing.length });
             if (!aWordsAt.ok || !aPhotosAt.ok) {
@@ -41667,7 +41796,7 @@ async function handleRequest(request, env, ctx) {
             let live = false;
             try {
               const cur = await env.SITES_BUCKET.get(siteMetaKey(vslug));
-              const side = cur ? JSON.parse(await cur.text()) : {};
+              const side = sidecarOf(cur ? await cur.text() : null);
               side.verify = verificationPairs(merged.verify);
               await env.SITES_BUCKET.put(siteMetaKey(vslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
               live = true;
@@ -41771,7 +41900,7 @@ async function handleRequest(request, env, ctx) {
             try {
               const img = await siteOgImage(env, shslug, null);
               const cur = await env.SITES_BUCKET.get(siteMetaKey(shslug));
-              const side = cur ? JSON.parse(await cur.text()) : {};
+              const side = sidecarOf(cur ? await cur.text() : null);
               side.image = img || "";
               await env.SITES_BUCKET.put(siteMetaKey(shslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
               shLive = true;
@@ -41881,7 +42010,7 @@ async function handleRequest(request, env, ctx) {
             let sqLive = false;
             try {
               const cur = await env.SITES_BUCKET.get(siteMetaKey(sqslug));
-              const side = cur ? JSON.parse(await cur.text()) : {};
+              const side = sidecarOf(cur ? await cur.text() : null);
               side.description = sqClean.value;
               await env.SITES_BUCKET.put(siteMetaKey(sqslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
               sqLive = true;

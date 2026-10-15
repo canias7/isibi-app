@@ -159,3 +159,30 @@ The live site is made of:
   audited line by line.
 - **Live verification: none.** Nothing here has run against real
   Cloudflare, R2 or a deployed Worker.
+
+## 5. Changed under draft-first by the corrections chat (2026-10-15, late)
+
+Draft-first belongs to another chat. These corrections, made in the
+concurrency chat, touch the code draft-first uses; reuse them rather than
+redo them:
+
+- **The draft record can be held absent.** A takeover writes
+  `{"held":"absent"}` (metadata `held: absent`) at `drafts/<slug>.json` when
+  there is no draft, so a stale first save is refused by the store.
+  `readDraft` reads that as no draft and returns its etag, so the first real
+  save is conditional on it. Any new reader of the record must do the same
+  (`isHeldObject` in `site-builds.mjs`).
+- **The live marker is written only after the script answered**, only when
+  absent, and never undone (`activateBuild`). Publish inherits this through
+  the same activation.
+- **The live script follows the pointer with a durable note before every
+  upload.** That covers the publication's own upload and the uploads made by
+  the follow, an alignment, the takeover repair and the sweep
+  (`noteBeforeUpload`). It does not make a publication atomic. Between a
+  stale upload landing and its correction, visitors can be served the
+  previous version for about one upload plus one read, or until the
+  2-minute sweep after a death or lost answer (notes older than 5 minutes).
+  Publish's own "live at once" claims must not promise more than that.
+- **Rollback writes hold keys absent instead of deleting them.** Any undo
+  the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the
+  pointer), never `deps.remove`.

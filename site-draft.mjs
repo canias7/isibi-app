@@ -14,6 +14,8 @@
 // Pure helpers over a `deps` of `{ get, put }` (R2-shaped), so the Worker and
 // the tests read and write the record the same way.
 
+import { isHeldObject } from "./site-builds.mjs";
+
 export const DRAFT_KEY = (slug) => "drafts/" + slug + ".json";
 const VERSION_ID = /^\d{14}-[a-z0-9]{6}$/;
 export const isDraftVersion = (v) => typeof v === "string" && VERSION_ID.test(v);
@@ -30,7 +32,11 @@ export function draftFirst(env) {
 export async function readDraft(deps, slug) {
   const o = await deps.get(DRAFT_KEY(slug));
   if (!o) return { draft: null, etag: null };
-  const d = JSON.parse(await o.text());
+  const t = await o.text();
+  // HELD ABSENT (2026-10-15): no draft — and its etag, so the first save is
+  // conditional on that object, never "only if absent".
+  if (isHeldObject(o, t)) return { draft: null, etag: String(o.etag || "") || null };
+  const d = JSON.parse(t);
   if (!d || !isDraftVersion(d.version)) throw new Error("draft unreadable");
   return {
     draft: {

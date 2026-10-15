@@ -120,9 +120,14 @@ test("THE LIVENESS MARKER IS THE TAKE-DOWN, and both sides spell it the same", (
   assert.equal((WORKER.match(/liveKey: "sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE/g) || []).length, 4,
     "the marker is not handed to activation on every path that makes a site live");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
-  // RE-ANCHORED 2026-09-06, same change: written through `reversible`, so a
-  // first activation that never served does not leave a site marked live.
-  assert.match(builds, /reversible\(liveKey, "1", "text\/plain", "live marker"\)/, "activation does not write the marker");
+  // RE-ANCHORED 2026-10-15: created only after the activation's own script
+  // answered and only when absent — never undone, because a marker's absence
+  // cannot be held in the store (every script asks only whether it exists).
+  const write = builds.indexOf('deps.put(liveKey, "1", "text/plain", { etagDoesNotMatch: "*" })');
+  const upload = builds.indexOf("worker = await putWorker()");
+  assert.ok(upload > 0 && write > 0, "activation does not write the marker, or no longer uploads a script");
+  assert.ok(write > upload, "the marker is written before the script answered");
+  assert.doesNotMatch(builds, /reversible\(liveKey/, "the marker is undone again — its undo is a delete");
 });
 
 test("A MISS IS PERMANENT AND A THROW IS TRANSIENT", () => {
