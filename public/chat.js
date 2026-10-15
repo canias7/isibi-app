@@ -4463,7 +4463,45 @@ function mediaApi(base) {
     part: (sid, n, blob) => ask('/' + sid + '/' + n, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: blob }),
     complete: (sid, parts) => ask('/' + sid + '/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parts }) }),
     abort: (sid) => ask('/' + sid, { method: 'DELETE' }),
+    status: (sid) => ask('/' + sid, { method: 'GET' }),
   };
+}
+// THE PAGE'S RECORD OF ITS UPLOADS (2026-10-15): which session each file went
+// up in, and what it made — never the bytes — so a lost answer, a reconnect
+// or a reload comes back to the same upload instead of sending the file twice.
+// The browser's own storage, read and written inside a catch: a private window
+// or blocked storage only means the record is not kept.
+const MEDIA_RECORDS_KEY = 'gf-media-uploads';
+function mediaStore() {
+  const read = () => { try { const v = JSON.parse(localStorage.getItem(MEDIA_RECORDS_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } };
+  const write = (all) => {
+    const now = Date.now();
+    for (const k of Object.keys(all)) if (!all[k] || !(all[k].at + SiteMedia.RECORD_MS > now)) delete all[k];
+    try { localStorage.setItem(MEDIA_RECORDS_KEY, JSON.stringify(all)); } catch (e) { /* not kept */ }
+  };
+  return {
+    get: (fp) => read()[fp] || null,
+    put: (fp, rec) => { const all = read(); all[fp] = rec; write(all); },
+    drop: (fp) => { const all = read(); delete all[fp]; write(all); },
+  };
+}
+const mediaBase = (slug) => (slug ? '/api/site/' + encodeURIComponent(slug) + '/media' : '/api/media/drafts');
+// A CHIP WHOSE UPLOAD COULD NOT BE CONFIRMED is asked about again — after a
+// pause, and whenever the connection comes back — and never shown as failed
+// until the server says it is gone.
+function mediaRecheck(chip, tries) {
+  if (!chip || chip.state !== 'unsure' || !chip.session) return;
+  SiteMedia.confirm(chip.session, { api: mediaApi(chip.base) }).then((c) => {
+    if (chip.state !== 'unsure') return;
+    if (c.ok) { chip.state = 'done'; chip.ref = c.file.name; chip.url = c.file.url || ''; }
+    else if (c.gone) { chip.state = 'failed'; chip.error = 'That upload expired before it finished \u2014 attach the file again.'; }
+    else if ((tries || 0) < 6) setTimeout(() => mediaRecheck(chip, (tries || 0) + 1), 5000);
+    paintAttachStrip();
+  });
+}
+const mediaUnsure = [];
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', () => { mediaUnsure.splice(0).forEach((c) => mediaRecheck(c, 0)); });
 }
 // WHAT THE BROWSER CAN READ OF A FILE BEFORE IT IS SENT — its length and frame
 // size, from the browser's own player — kept with it, and said everywhere as
@@ -4493,17 +4531,20 @@ function siteAttachMedia(owner, f) {
   if (!draft.media) draft.media = [];
   const s = siteById(owner);
   const slug = s && s.slug && sitePages(s).length ? s.slug : '';
-  const chip = { media: true, name: f.name || 'file', kind: SiteMedia.kindOf(f), state: 'up', pct: 0, draft: !slug };
+  const base = mediaBase(slug);
+  const chip = { media: true, name: f.name || 'file', kind: SiteMedia.kindOf(f), state: 'up', pct: 0, draft: !slug, base };
   draft.media.push(chip);
   paintAttachStrip();
   mediaFileMeta(f).then((meta) => SiteMedia.upload(f, {
-    api: mediaApi(slug ? '/api/site/' + encodeURIComponent(slug) + '/media' : '/api/media/drafts'),
+    api: mediaApi(base), base, store: mediaStore(),
     meta,
     cancelled: () => chip.state === 'cancelled',
     progress: (sent, total) => { chip.pct = total ? Math.round((sent / total) * 100) : 100; paintAttachStrip(); },
   })).then((r) => {
     if (chip.state === 'cancelled') return;
     if (r && r.ok) { chip.state = 'done'; chip.ref = r.file.name; chip.url = r.file.url || ''; }
+    // NOT CONFIRMED IS NOT FAILED: the chip says it is being checked, and is.
+    else if (r && r.uncertain) { chip.state = 'unsure'; chip.session = r.session; mediaUnsure.push(chip); setTimeout(() => mediaRecheck(chip, 0), 5000); }
     else { chip.state = 'failed'; chip.error = (r && r.error) || 'Couldn\u2019t upload that file.'; if (typeof sbToast === 'function') sbToast(chip.name + ': ' + chip.error); }
     paintAttachStrip();
   });
@@ -4564,7 +4605,7 @@ function paintAttachStrip() {
       // VIDEO AND AUDIO (2026-10-14): named, with where the upload is.
       (draft.media || []).map((m, i) => '<div class="st-att st-att-doc st-att-media' + (m.state === 'failed' ? ' st-att-bad' : '') + '">' +
         '<span class="st-att-name">' + esc(m.name) + '</span>' +
-        '<span class="st-att-state">' + esc(m.state === 'up' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 uploading ' + (m.pct || 0) + '%' : m.state === 'done' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 ready' : 'Not uploaded') + '</span>' +
+        '<span class="st-att-state">' + esc(m.state === 'up' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 uploading ' + (m.pct || 0) + '%' : m.state === 'done' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 ready' : m.state === 'unsure' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 checking it finished\u2026' : 'Not uploaded') + '</span>' +
         '<button type="button" class="st-att-x" data-media="' + i + '" aria-label="Remove">×</button></div>').join('');
     el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { draft.imgs.splice(+b.dataset.att, 1); paintAttachStrip(); });
     // A FILE TAKEN OUT WHILE IT IS STILL SENDING is cancelled, and what was
@@ -5795,7 +5836,7 @@ function renderSites() {
   const ta = document.getElementById('stPrompt');
   if (gen && ta) {
     // A VIDEO OR A RECORDING STILL SENDING holds the brief back (2026-10-14), said.
-    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } if ((siteNewDraft.media || []).some((m) => m.state === 'up')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; } siteCreate(t); };
+    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } if ((siteNewDraft.media || []).some((m) => m.state === 'up' || m.state === 'unsure')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; } siteCreate(t); };
     gen.onclick = go;
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } };
   }
@@ -14865,6 +14906,7 @@ function siteSend(text, leaveDraft) {
   if (!leaveDraft) {
     const md = siteDraft(siteOpenId).media || [];
     if (md.some((m) => m.state === 'up')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; }
+    if (md.some((m) => m.state === 'unsure')) { md.filter((m) => m.state === 'unsure').forEach((m) => mediaRecheck(m, 6)); if (typeof sbToast === 'function') sbToast('Still confirming your file finished uploading \u2014 send once it says ready.'); return; }
     const ready = md.filter((m) => m.state === 'done' && m.ref);
     if (ready.length) {
       t = t + '\n\n' + ready.map(mediaRefLine).join('\n');
@@ -15811,7 +15853,7 @@ async function siteFunctions(site) {
 async function siteMediaSend(slug, f, replace, onPct) {
   const meta = await mediaFileMeta(f);
   return SiteMedia.upload(f, {
-    api: mediaApi('/api/site/' + encodeURIComponent(slug) + '/media'), meta, replace: replace || undefined,
+    api: mediaApi(mediaBase(slug)), base: mediaBase(slug), store: mediaStore(), meta, replace: replace || undefined,
     progress: (sent, total) => { if (typeof onPct === 'function') onPct(total ? Math.round((sent / total) * 100) : 100); },
   });
 }
@@ -15846,6 +15888,7 @@ async function siteFiles(site) {
       if (typeof SiteMedia !== 'undefined' && SiteMedia.isMedia(f)) {
         try {
           const r = await siteMediaSend(slug, f, null, (pct) => { addBtn.textContent = 'Uploading ' + pct + '%\u2026'; });
+          if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm that upload finished yet \u2014 it will show in this list once it has.'); list(); return; }
           if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
           list();
         } finally { addBtn.textContent = was; addBtn.disabled = false; }
@@ -15986,6 +16029,7 @@ async function siteFiles(site) {
           const was = b.textContent; b.disabled = true;
           try {
             const r = await siteMediaSend(slug, f, name, (pct) => { b.textContent = pct + '%'; });
+            if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm the replacement finished yet \u2014 check this list again in a moment.'); list(); return; }
             if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
             if (typeof sbToast === 'function') sbToast('Replaced \u2014 pages that play it play the new file.');
             list();

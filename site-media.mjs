@@ -293,11 +293,47 @@ export function readStoredMeta(cm) {
 export const partsFor = (size) => Math.max(1, Math.ceil(size / MEDIA_PART_BYTES));
 export const partLength = (size, n) => (n < partsFor(size) ? MEDIA_PART_BYTES : size - (partsFor(size) - 1) * MEDIA_PART_BYTES);
 
+// ── ADMISSION, COMPLETION AND RECOVERY (2026-10-15, Codex's review of `7ca339d1`) ──
+//
+// THE LEDGER IS WHERE ROOM IS TAKEN. Codex reproduced two starts at once both
+// answered 201 under a one-file, 100-byte limit, reserving two files and 120
+// bytes: each read the sessions, found room, and wrote its own. Now every
+// reservation — an upload, a replacement, a draft moved into a site — is an
+// entry in one small record per scope (`media-ledger/<scope>.json`), changed
+// only by a conditional write over the etag it was read at, so of two writers
+// that read the same record one wins and the other reads again and counts
+// the winner. Read in this order — the ledger, then what the scope holds, then
+// the write — because a finished upload stores its file BEFORE it gives back
+// its reservation: whichever moment a start reads at, it sees the bytes once
+// or twice, never not at all. Twice is the safe side, and lasts only between
+// those two writes.
+//
+// A REPLACEMENT RESERVES ITS WHOLE SIZE, and one at a time. While it is being
+// sent the old file is still there and still served, and the new parts are
+// stored beside it, so a promise to be smaller releases nothing; and a second
+// replacement of the same file is refused while one is open, rather than
+// letting two race to be the file.
+//
+// COMPLETION IS RECORDED, AND ASKED AGAIN SAFELY. The upload's own session is
+// kept after it finishes, with what it made, and the file carries its upload's
+// id in its metadata (`up`). So a second `complete` — the page sending it again
+// because the first answer was lost — answers what the first did; one that
+// meets an upload R2 has already finished reads the file's `up` and knows it
+// is its own; and `status` tells a page that reloaded, or reconnected, what
+// became of an upload it had started. A finished upload is never aborted: an
+// abort that arrives after it answers what it made. Every session is bound to
+// the account that started it (`by`): another account's id is not found.
+//
+// THE PARTS ARE RECORDED AS THEY LAND (`savePart`), each with the etag R2 gave
+// it, so a part whose answer was lost is not sent again and `complete` can be
+// asked with what the server already holds.
 /**
  * deps (all async, injected so this runs without R2 or a Worker):
  *   gate(scope)                         → {error} | {}         ownership
- *   used(scope)                         → { files, bytes, names }  the scope's media now, and the names it holds
- *   sessions(scope)                     → [session]          live sessions (their sizes are reserved)
+ *   who                                 → the account id this request is for (a session is bound to it)
+ *   used(scope)                         → { files, bytes }     the scope's stored media now
+ *   readLedger(scope)                   → { held: { id: entry }, etag }   (etag null: none yet)
+ *   writeLedger(scope, held, etag)      → true, or false when another writer changed it first
  *   random()                            → 32 hex
  *   now()                               → ms
  *   create(key, { mime, meta })         → uploadId           R2 createMultipartUpload
@@ -305,11 +341,86 @@ export const partLength = (size, n) => (n < partsFor(size) ? MEDIA_PART_BYTES : 
  *   complete(key, uploadId, parts)      → { size }           the object as stored
  *   abort(key, uploadId)                → void
  *   saveSession(scope, s), loadSession(scope, sid), dropSession(scope, sid)
+ *   savePart(scope, sid, n, etag), savedParts(scope, sid) → { n: etag }, dropParts(scope, sid)
  *   objectKey(scope, name)              → the R2 key a name lives at in this scope
  *   urlOf(scope, name)                  → its address, or "" (a draft has none)
- *   exists(key)                         → { size, kind } | null   for a replacement
+ *   exists(key)                         → { size, kind, up } | null
  * `limits` are `mediaLimits(env)`.
  */
+export const LEDGER_TRIES = 8;
+
+/**
+ * CHANGE THE LEDGER, ATOMICALLY: `change(live, now)` is shown the live entries
+ * (expired ones are dropped from what it sees) and answers `{ refuse }` or
+ * `{ held }` — the entries to write. Written over the etag it was read at;
+ * read again, up to `LEDGER_TRIES` times, when another writer got there first.
+ * Answers `{ ok: true }`, `{ refuse }`, or a 503 when it could not get a turn.
+ * Expired entries' uploads are aborted once the write that dropped them landed.
+ */
+export async function changeLedger(deps, scope, change) {
+  for (let i = 0; i < LEDGER_TRIES; i++) {
+    const read = await deps.readLedger(scope);
+    const now = deps.now();
+    const live = {};
+    const expired = [];
+    for (const [id, h] of Object.entries((read && read.held) || {})) {
+      if (h && typeof h === "object" && h.expires > now) live[id] = h; else if (h) expired.push(h);
+    }
+    const r = await change(live, now);
+    if (r && r.refuse) return r;
+    if (r && r.same && !expired.length) return { ok: true };
+    if (await deps.writeLedger(scope, r.held, (read && read.etag) || null)) {
+      for (const h of expired) {
+        if (h.uploadId && h.key) { try { await deps.abort(h.key, h.uploadId); } catch { /* R2's own expiry aborts it */ } }
+        if (h.sid) { try { await deps.dropSession(scope, h.sid); } catch { /* left to expire */ } }
+      }
+      return { ok: true };
+    }
+  }
+  return { refuse: res({ error: "too many uploads are starting at once — try again in a moment", code: "busy" }, 503) };
+}
+
+/** What the ledger's live entries hold back: files and bytes. */
+const heldTotals = (live) => Object.values(live).reduce((t, h) => ({ files: t.files + (h.files ? 1 : 0), bytes: t.bytes + (Number(h.size) || 0) }), { files: 0, bytes: 0 });
+
+/**
+ * TAKE ROOM FOR ONE FILE in a scope: `{ ok: true }` with the entry written, or
+ * `{ refuse }` with the limit it would pass. `files` is 1 for a new file, 0
+ * for a replacement (which reserves its whole size). The scope's stored media
+ * is read inside each try, after the ledger — the order the header explains.
+ */
+export async function holdMedia(deps, { scope, limits, id, entry, draft = false }) {
+  const maxFiles = draft ? limits.draftFiles : limits.siteFiles;
+  return changeLedger(deps, scope, async (live) => {
+    if (entry.replace && Object.values(live).some((h) => h.replace === entry.replace)) {
+      return { refuse: res({ error: "that file is already being replaced — wait for that upload to finish, or cancel it", code: "replacing" }, 409) };
+    }
+    const usage = await deps.used(scope);
+    const held = heldTotals(live);
+    const files = usage.files + held.files + (entry.files ? 1 : 0);
+    const bytes = usage.bytes + held.bytes + entry.size;
+    if (files > maxFiles) {
+      return { refuse: res({ error: draft ? "you can keep " + maxFiles + " video and audio files before your site is built — send some first" : "this site has reached its limit of " + maxFiles + " video and audio files — delete some first", code: "full", max: maxFiles }, 409) };
+    }
+    if (bytes > limits.siteBytes) {
+      return { refuse: res({ error: "this site is out of video and audio storage (" + Math.floor(limits.siteBytes / 1e6) + " MB) — delete some first", code: "full", max: limits.siteBytes }, 409) };
+    }
+    return { held: { ...live, [id]: entry } };
+  });
+}
+
+/** Give a reservation back. Never throws; a reservation that could not be given back expires with its session. */
+export async function releaseMedia(deps, scope, id) {
+  try {
+    return await changeLedger(deps, scope, async (live) => {
+      if (!Object.hasOwn(live, id)) return { same: true, held: live };
+      const next = { ...live };
+      delete next[id];
+      return { held: next };
+    });
+  } catch { return { ok: false }; }
+}
+
 export async function handleMediaStart(deps, { scope, limits, name, size, type, replace, meta, draft = false } = {}) {
   const gate = await deps.gate(scope);
   if (gate && gate.error) return gate.error;
@@ -329,19 +440,6 @@ export async function handleMediaStart(deps, { scope, limits, name, size, type, 
     if (have.kind !== kind) return res({ error: "a " + have.kind + " file can only be replaced with another " + have.kind + " file", code: "kind_mismatch" }, 409);
     target = { name: replace, size: Number(have.size) || 0 };
   }
-  const now = deps.now();
-  const live = (await deps.sessions(scope)).filter((s) => s && s.expires > now && (!target || s.replace !== target.name));
-  const usage = await deps.used(scope);
-  const files = usage.files + live.filter((s) => !s.replace).length + (target ? 0 : 1);
-  const bytes = usage.bytes + live.reduce((n, s) => n + (Number(s.size) || 0) - (Number(s.replacing) || 0), 0) + size - (target ? target.size : 0);
-  const maxFiles = draft ? limits.draftFiles : limits.siteFiles;
-  if (files > maxFiles) {
-    return res({ error: draft ? "you can keep " + maxFiles + " video and audio files before your site is built — send some first" : "this site has reached its limit of " + maxFiles + " video and audio files — delete some first", code: "full", max: maxFiles }, 409);
-  }
-  if (bytes > limits.siteBytes) {
-    return res({ error: "this site is out of video and audio storage (" + Math.floor(limits.siteBytes / 1e6) + " MB) — delete some first", code: "full", max: limits.siteBytes }, 409);
-  }
-  const sid = deps.random();
   // THE EXTENSION IS DECIDED BY THE BYTES: until the first part arrives the
   // object's key carries the declared one; a first part that names another
   // format of the same kind is refused, never renamed.
@@ -349,29 +447,52 @@ export async function handleMediaStart(deps, { scope, limits, name, size, type, 
   const ext = Object.hasOwn(MEDIA_FORMATS, declaredExt) && MEDIA_FORMATS[declaredExt].kind === kind ? declaredExt
     : declaredExt === "m4v" ? "mp4" : declaredExt === "opus" || declaredExt === "oga" ? "ogg" : null;
   if (!ext) return res({ error: "that doesn't look like a video or audio file — " + MEDIA_FORMATS_SAID, code: "bad_type" }, 415);
-  const fileName = target ? target.name : mediaName(deps.random(), ext);
-  if (!fileName) return res({ error: "couldn't start that upload just now" }, 500);
-  if (target && fileName.split(".").pop() !== ext) {
-    return res({ error: "a replacement must be the same format as the file it replaces (" + MEDIA_FORMATS[fileName.split(".").pop()].label + ")", code: "format_mismatch" }, 409);
+  if (target && target.name.split(".").pop() !== ext) {
+    return res({ error: "a replacement must be the same format as the file it replaces (" + MEDIA_FORMATS[target.name.split(".").pop()].label + ")", code: "format_mismatch" }, 409);
   }
-  const m = readMediaMeta(meta);
+  const sid = deps.random();
+  const fileName = target ? target.name : mediaName(deps.random(), ext);
+  if (!fileName || !HEX32.test(String(sid || ""))) return res({ error: "couldn't start that upload just now" }, 500);
+  const now = deps.now();
+  const expires = now + MEDIA_SESSION_MS;
   const key = deps.objectKey(scope, fileName);
-  const uploadId = await deps.create(key, { mime: MEDIA_FORMATS[ext].mime, meta: mediaMetadata({ name, meta: m, kind }) });
+  // ROOM FIRST, then the upload: a start that is refused has made nothing.
+  const held = await holdMedia(deps, { scope, limits, draft, id: sid, entry: { sid, size, files: target ? 0 : 1, expires, key, ...(target ? { replace: target.name } : {}) } });
+  if (held.refuse) return held.refuse;
+  const m = readMediaMeta(meta);
+  let uploadId;
+  try {
+    uploadId = await deps.create(key, { mime: MEDIA_FORMATS[ext].mime, meta: { ...mediaMetadata({ name, meta: m, kind }), up: sid } });
+  } catch {
+    await releaseMedia(deps, scope, sid);
+    return res({ error: "couldn't start that upload just now — try again", code: "start_failed" }, 502);
+  }
   const session = {
     sid, scope, key, name: fileName, display: clean(name, 120), ext, kind, size, parts: partsFor(size), uploadId,
-    created: now, expires: now + MEDIA_SESSION_MS, ...(target ? { replace: target.name, replacing: target.size } : {}), meta: m,
+    created: now, expires, state: "open", ...(deps.who ? { by: String(deps.who) } : {}), ...(target ? { replace: target.name, replacing: target.size } : {}), meta: m,
   };
-  await deps.saveSession(scope, session);
+  try { await deps.saveSession(scope, session); } catch {
+    try { await deps.abort(key, uploadId); } catch { /* expires */ }
+    await releaseMedia(deps, scope, sid);
+    return res({ error: "couldn't start that upload just now — try again", code: "start_failed" }, 502);
+  }
+  // The upload's id travels to the ledger entry, so an expired one is aborted.
+  await changeLedger(deps, scope, async (live) => (Object.hasOwn(live, sid) ? { held: { ...live, [sid]: { ...live[sid], uploadId } } } : { same: true, held: live })).catch(() => {});
   return res({ ok: true, session: sid, name: fileName, partBytes: MEDIA_PART_BYTES, parts: session.parts, kind }, 201);
 }
 
+/** The session, if it is this scope's, this account's, and not expired — open or finished. */
 async function liveSession(deps, scope, sid) {
   if (!HEX32.test(String(sid || ""))) return null;
   const s = await deps.loadSession(scope, sid);
   if (!s || s.scope !== scope || s.sid !== sid) return null;
+  if (s.by && deps.who && String(deps.who) !== s.by) return null;
   if (!(s.expires > deps.now())) return null;
   return s;
 }
+
+/** What a finished upload made, as its completion answered it. */
+const finishedBody = (s, extra = {}) => ({ ok: true, ...s.file, ...extra });
 
 /** One part. The first is read for what the file is; every part's length is exact. */
 export async function handleMediaPart(deps, { scope, sid, n, bytes } = {}) {
@@ -379,6 +500,7 @@ export async function handleMediaPart(deps, { scope, sid, n, bytes } = {}) {
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ error: "that upload has expired or was cancelled — start it again", code: "no_session" }, 404);
+  if (s.state === "done") return res({ error: "that upload has already finished", code: "done", file: s.file }, 409);
   if (!Number.isInteger(n) || n < 1 || n > s.parts) return res({ error: "no such part", code: "bad_part" }, 400);
   const want = partLength(s.size, n);
   if (!bytes || bytes.length !== want) return res({ error: "that part arrived incomplete — send it again", code: "bad_length", expected: want }, 400);
@@ -394,44 +516,124 @@ export async function handleMediaPart(deps, { scope, sid, n, bytes } = {}) {
     }
   }
   const up = await deps.uploadPart(s.key, s.uploadId, n, bytes);
-  return res({ ok: true, n, etag: up && up.etag });
+  const etag = up && typeof up.etag === "string" ? up.etag : "";
+  if (etag) { try { await deps.savePart(scope, sid, n, etag); } catch { /* the page holds it too */ } }
+  return res({ ok: true, n, etag });
 }
 
 async function abortQuietly(deps, s) {
   try { await deps.abort(s.key, s.uploadId); } catch { /* the session's expiry aborts it */ }
   try { await deps.dropSession(s.scope, s.sid); } catch { /* expires on its own */ }
+  try { await deps.dropParts(s.scope, s.sid); } catch { /* expires on its own */ }
+  await releaseMedia(deps, s.scope, s.sid);
 }
 
-/** Closes the upload: every part, exactly once, in order. The file appears only now. */
+/** Every part's etag, 1…parts: what the server recorded, else what the page sent. `null` when one is missing. */
+function partList(s, saved, sent) {
+  const fromPage = new Map();
+  for (const p of Array.isArray(sent) ? sent : []) {
+    if (p && Number.isInteger(p.n) && p.n >= 1 && p.n <= s.parts && typeof p.etag === "string" && p.etag && p.etag.length <= 200) fromPage.set(p.n, p.etag);
+  }
+  const out = [];
+  const missing = [];
+  const unrecorded = [];
+  for (let n = 1; n <= s.parts; n++) {
+    const own = saved && typeof saved[n] === "string" && saved[n];
+    const e = own || fromPage.get(n);
+    if (e) out.push({ partNumber: n, etag: e }); else missing.push(n);
+    if (e && !own) unrecorded.push(n);
+  }
+  return { list: out, missing, unrecorded };
+}
+
+/**
+ * CLOSES THE UPLOAD, and may be asked again. The file appears only now; what
+ * it made is kept with the session, so a repeated `complete` answers the
+ * same, and one that finds the upload already finished by R2 — the first
+ * answer lost on the way back — reads the file's own `up` and answers it too.
+ */
 export async function handleMediaComplete(deps, { scope, sid, parts } = {}) {
   const gate = await deps.gate(scope);
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ error: "that upload has expired or was cancelled — start it again", code: "no_session" }, 404);
-  const list = Array.isArray(parts) ? parts : [];
-  const ok = list.length === s.parts && list.every((p, i) => p && p.n === i + 1 && typeof p.etag === "string" && p.etag && p.etag.length <= 200);
-  if (!ok) return res({ error: "some of that file's parts are missing — send them and finish again", code: "parts_missing", parts: s.parts }, 400);
-  let done;
-  try {
-    done = await deps.complete(s.key, s.uploadId, list.map((p) => ({ partNumber: p.n, etag: p.etag })));
-  } catch {
-    return res({ error: "couldn't finish that upload — send it again", code: "complete_failed" }, 502);
+  if (s.state === "done") return res(finishedBody(s, { again: true }), 200);
+  let saved = {};
+  try { saved = (await deps.savedParts(scope, sid)) || {}; } catch { saved = {}; }
+  const { list, missing, unrecorded } = partList(s, saved, parts);
+  let done = null;
+  if (missing.length) {
+    // NOTHING TO CLOSE WITH — unless R2 already closed it (a lost answer).
+    const own = await ownFile(deps, s);
+    if (!own) return res({ error: "some of that file's parts are missing — send them and finish again", code: "parts_missing", parts: s.parts, missing: missing.slice(0, 50) }, 400);
+    done = own;
+  } else {
+    try {
+      const c = await deps.complete(s.key, s.uploadId, list);
+      done = { size: c && Number.isSafeInteger(c.size) ? c.size : s.size };
+    } catch {
+      done = await ownFile(deps, s);
+      // A PART ONLY THE PAGE VOUCHED FOR is the likelier cause: asked for again
+      // by number, rather than the whole upload called failed.
+      if (!done && unrecorded.length) return res({ error: "some of that file's parts need sending again", code: "parts_missing", parts: s.parts, missing: unrecorded.slice(0, 50) }, 400);
+      if (!done) return res({ error: "couldn't finish that upload — try finishing it again", code: "complete_failed", retry: true }, 502);
+    }
   }
-  await deps.dropSession(scope, sid);
-  const size = done && Number.isSafeInteger(done.size) ? done.size : s.size;
   const url = deps.urlOf(scope, s.name);
-  return res({
-    ok: true, name: s.name, ...(url ? { url } : {}), kind: s.kind, mime: MEDIA_FORMATS[s.ext].mime, size,
+  const file = {
+    name: s.name, ...(url ? { url } : {}), kind: s.kind, mime: MEDIA_FORMATS[s.ext].mime, size: done.size,
     ...(s.display ? { download: s.display } : {}), ...s.meta, ...(s.replace ? { replaced: true } : {}),
-  }, s.replace ? 200 : 201);
+  };
+  // RECORDED BEFORE THE ROOM IS GIVEN BACK: the file is counted from now on.
+  try { await deps.saveSession(scope, { ...s, state: "done", file, finished: deps.now(), expires: deps.now() + MEDIA_SESSION_MS }); } catch { /* `up` on the file still answers a second ask */ }
+  await releaseMedia(deps, scope, sid);
+  try { await deps.dropParts(scope, sid); } catch { /* expires on its own */ }
+  return res({ ok: true, ...file }, s.replace ? 200 : 201);
 }
 
-/** Gives an upload up: its parts are aborted and nothing appears. */
+/** The file at the session's key, when it is the one this upload made (`up`). */
+async function ownFile(deps, s) {
+  try {
+    const h = await deps.exists(s.key);
+    return h && h.up === s.sid ? { size: Number(h.size) || s.size } : null;
+  } catch { return null; }
+}
+
+/**
+ * WHAT BECAME OF AN UPLOAD, for a page that lost an answer, reconnected or
+ * reloaded: `done` with the file, `open` with the parts the server holds (so
+ * only the rest is sent), or 404 when it expired, was cancelled, or is not
+ * this account's.
+ */
+export async function handleMediaStatus(deps, { scope, sid } = {}) {
+  const gate = await deps.gate(scope);
+  if (gate && gate.error) return gate.error;
+  const s = await liveSession(deps, scope, sid);
+  if (!s) return res({ error: "that upload has expired or was cancelled", code: "no_session" }, 404);
+  if (s.state === "done") return res({ ok: true, state: "done", file: s.file });
+  const own = await ownFile(deps, s);
+  if (own) {
+    // FINISHED BY R2, RECORD NOT YET WRITTEN: finish the record now.
+    return handleMediaComplete(deps, { scope, sid, parts: [] }).then((r) => (r.status < 300 ? res({ ok: true, state: "done", file: stripOk(r.body) }) : r));
+  }
+  let saved = {};
+  try { saved = (await deps.savedParts(scope, sid)) || {}; } catch { saved = {}; }
+  const have = Object.keys(saved).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= s.parts).sort((a, b) => a - b);
+  return res({ ok: true, state: "open", name: s.name, kind: s.kind, size: s.size, parts: s.parts, partBytes: MEDIA_PART_BYTES, have, etags: have.map((n) => saved[n]) });
+}
+const stripOk = (b) => { const { ok, again, ...rest } = b || {}; return rest; };
+
+/** Gives an upload up: its parts are aborted and nothing appears. One already finished is kept, and said. */
 export async function handleMediaAbort(deps, { scope, sid } = {}) {
   const gate = await deps.gate(scope);
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ ok: true, gone: true });
+  if (s.state === "done") return res({ ok: true, done: true, file: s.file });
+  if (await ownFile(deps, s)) {
+    const r = await handleMediaComplete(deps, { scope, sid, parts: [] });
+    return r.status < 300 ? res({ ok: true, done: true, file: stripOk(r.body) }) : r;
+  }
   await abortQuietly(deps, s);
   return res({ ok: true });
 }
@@ -459,8 +661,16 @@ export function mediaForModel(f) {
 
 /** The block every writer is shown: the owner's own video and audio, by address, and what is not known about them. */
 export function mediaBlock(files, { heading = "THE OWNER'S VIDEO AND AUDIO FILES" } = {}) {
-  const list = (Array.isArray(files) ? files : []).filter((f) => f && (f.kind === "video" || f.kind === "audio") && typeof f.url === "string").slice(0, 40);
-  if (!list.length) return "";
+  const all = Array.isArray(files) ? files : [];
+  const list = all.filter((f) => f && (f.kind === "video" || f.kind === "audio") && typeof f.url === "string").slice(0, 40);
+  // WHAT BECAME OF THE FILES THIS BUILD'S REQUEST BROUGHT (2026-10-15, Codex's
+  // review of `7ca339d1`): given to the writer as facts, so the reply it writes
+  // in `notes` says it in its own words — never a fixed sentence of ours.
+  // `moved` marks a file moved in from the owner's drafts for this request; an
+  // entry `{ kind: "missing", name, why }` one that could not be.
+  const moved = list.filter((f) => f.moved === true);
+  const missing = all.filter((f) => f && f.kind === "missing" && typeof f.name === "string").slice(0, 20);
+  if (!list.length && !missing.length) return "";
   const line = (f) => {
     const bits = [MEDIA_FORMATS[String(f.url).split(".").pop()] ? MEDIA_FORMATS[String(f.url).split(".").pop()].label + " " + f.kind : f.kind];
     if (f.size) bits.push(f.size >= 1e6 ? (f.size / 1e6).toFixed(1).replace(/\.0$/, "") + " MB" : Math.max(1, Math.round(f.size / 1000)) + " KB");
@@ -468,11 +678,26 @@ export function mediaBlock(files, { heading = "THE OWNER'S VIDEO AND AUDIO FILES
     if (f.width && f.height) bits.push(f.width + "×" + f.height);
     return "- " + (f.name ? JSON.stringify(String(f.name)) + ": " : "") + f.url + " (" + bits.join(", ") + ")";
   };
-  return heading + " — uploaded by the owner and hosted on the site. Play one with an HTML <video> or <audio> " +
-    "element whose src is the address exactly as written (add `controls`; for video add `playsInline` and " +
-    "`preload=\"metadata\"`). Nobody has watched or listened to these files: you know only the name, the type, the " +
-    "size and, where given, the length and frame size the owner's browser reported — never say what is in one.\n" +
-    list.map(line).join("\n");
+  const said = (f) => JSON.stringify(String(f.download || f.name || "a file"));
+  const out = [];
+  if (list.length) {
+    out.push(heading + " — uploaded by the owner and hosted on the site. Play one with an HTML <video> or <audio> " +
+      "element whose src is the address exactly as written (add `controls`; for video add `playsInline` and " +
+      "`preload=\"metadata\"`). Nobody has watched or listened to these files: you know only the name, the type, the " +
+      "size and, where given, the length and frame size the owner's browser reported — never say what is in one.\n" +
+      list.map(line).join("\n"));
+  }
+  if (moved.length) {
+    out.push("FILES THE OWNER ATTACHED TO THIS REQUEST, moved into the site's file library for it: " + moved.map(said).join(", ") +
+      ". Use each where the request asks for it. In `notes`, tell the owner in your own words where each one is played, " +
+      "or that it is in the file library if no page plays it.");
+  }
+  if (missing.length) {
+    out.push("FILES THE OWNER ATTACHED THAT COULD NOT BE ADDED to the site: " +
+      missing.map((m) => JSON.stringify(String(m.name)) + " (" + String(m.why || "it could not be moved").slice(0, 120) + ")").join(", ") +
+      ". There is no address for them: never reference them on a page. In `notes`, say plainly that they were not added and why.");
+  }
+  return out.join("\n\n");
 }
 
 /** What the designer is told about files kept before the site existed: names and kinds, no addresses yet. */
@@ -485,16 +710,16 @@ export function mediaDesignNote(files) {
       (f.duration ? ", " + Math.floor(f.duration / 60) + ":" + String(Math.round(f.duration % 60)).padStart(2, "0") + " long" : "")).join("\n");
 }
 
-/** The build's sentence about them, from what really happened: placed, or not, and why. */
-export function mediaSentence({ placed = [], missing = [] } = {}) {
-  const name = (f) => JSON.stringify(String(f.name || f.download || "a file"));
-  const out = [];
-  if (placed.length) {
-    out.push((placed.length === 1 ? "Your " + placed[0].kind + " " + name(placed[0]) + " is" : "Your " + placed.length + " video and audio files are") +
-      " in your site's file library now, and the pages were given " + (placed.length === 1 ? "its" : "their") + " address.");
-  }
-  if (missing.length) {
-    out.push("I couldn't add " + missing.map((m) => JSON.stringify(String(m.name || "a file")) + " (" + (m.why || "it could not be moved") + ")").join(", ") + " to your site's library.");
-  }
-  return out.join(" ");
+/**
+ * THE FIXED LINE THAT STAYS (2026-10-15): only what went wrong, as a
+ * technical fact — a file the request named that could not be moved in, and
+ * why. Where the files went, and what plays them, is the page writer's own
+ * reply (`mediaBlock` gives it the facts); a line of ours saying it was the
+ * ordinary narration this replaced. Empty when nothing went wrong.
+ */
+export function mediaErrorNote({ missing = [] } = {}) {
+  const list = (Array.isArray(missing) ? missing : []).filter((m) => m && typeof m === "object");
+  if (!list.length) return "";
+  return "Not added to your site's file library: " +
+    list.map((m) => JSON.stringify(String(m.name || "a file")) + " (" + (m.why || "it could not be moved") + ")").join(", ") + ".";
 }

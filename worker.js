@@ -37,7 +37,7 @@ import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
-import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaSentence, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -9918,36 +9918,23 @@ async function siteMediaFiles(env, slug) {
   });
 }
 
-// ── VIDEO AND AUDIO: THE STORE'S HALF (2026-10-14) ─────────────────────────
+// ── VIDEO AND AUDIO: THE STORE'S HALF (2026-10-14; 2026-10-15) ─────────────
 //
 // The R2 calls `site-media.mjs`'s handlers are given, for a site's library
 // (`site-<slug>`) and for an account's files kept before its site exists
 // (`draft-<uid>`). A session is a small JSON record beside the upload, read
 // back on every part — so a part can arrive at any Worker, after any
-// reconnect, and is checked against what was started. Expired sessions are
-// aborted and dropped as they are met; R2 also aborts an unfinished multipart
-// upload on its own after seven days.
+// reconnect, and is checked against what was started — and kept, with what it
+// made, after it finishes. Each part's etag is recorded as it lands
+// (`media-parts/`). Room is taken in the scope's ledger (`media-ledger/`),
+// written only over the etag it was read at — the conditional write this file
+// already uses for build claims and replies — so two requests can never both
+// take the last room. Expired reservations are dropped, and their uploads
+// aborted, by the next write; R2 also aborts an unfinished multipart upload on
+// its own after seven days.
 const MEDIA_SESSION_PREFIX = (scope) => "media-sessions/" + scope + "/";
-async function mediaSessions(env, scope) {
-  const out = [];
-  let cursor;
-  for (;;) {
-    const page = await env.SITES_BUCKET.list({ prefix: MEDIA_SESSION_PREFIX(scope), cursor });
-    for (const o of page.objects || []) {
-      try {
-        const got = await env.SITES_BUCKET.get(o.key);
-        const s = got ? JSON.parse(await got.text()) : null;
-        if (s && s.expires > Date.now()) out.push(s);
-        else if (s) {
-          try { await env.SITES_BUCKET.resumeMultipartUpload(s.key, s.uploadId).abort(); } catch { /* already gone */ }
-          await env.SITES_BUCKET.delete(o.key);
-        }
-      } catch { /* a record that will not read reserves nothing */ }
-    }
-    if (!page.truncated || !page.cursor) return out;
-    cursor = page.cursor;
-  }
-}
+const MEDIA_PARTS_PREFIX = (scope, sid) => "media-parts/" + scope + "/" + sid + "/";
+const MEDIA_LEDGER_KEY = (scope) => "media-ledger/" + scope + ".json";
 /** A draft file (kept before a site exists): its key, size, kind and stored metadata; expired ones removed. */
 async function draftMediaList(env, uid) {
   const out = [];
@@ -9967,10 +9954,11 @@ async function draftMediaList(env, uid) {
     cursor = page.cursor;
   }
 }
-function mediaDeps(env, { scope, gate, draftUid = null, slug = "" }) {
+function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
   return {
     gate,
+    who: who ? String(who) : "",
     now: () => Date.now(),
     random: () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join(""),
     objectKey: (sc, name) => (draftUid ? draftKey(draftUid, name) : uploadKey(slug, name)),
@@ -9979,11 +9967,21 @@ function mediaDeps(env, { scope, gate, draftUid = null, slug = "" }) {
       const list = draftUid ? await draftMediaList(env, draftUid) : (await siteUploadList(env, slug)).filter((f) => !f.visitor && f.kind && (f.kind === "video" || f.kind === "audio"));
       return { files: list.length, bytes: list.reduce((n, f) => n + (Number(f.size) || 0), 0) };
     },
-    sessions: (sc) => mediaSessions(env, sc),
+    readLedger: async (sc) => {
+      const got = await B.get(MEDIA_LEDGER_KEY(sc));
+      if (!got) return { held: {}, etag: null };
+      let held = {};
+      try { const j = JSON.parse(await got.text()); held = j && j.held && typeof j.held === "object" && !Array.isArray(j.held) ? j.held : {}; } catch { held = {}; }
+      return { held, etag: got.etag || got.httpEtag || null };
+    },
+    writeLedger: async (sc, held, etag) => !!(await B.put(MEDIA_LEDGER_KEY(sc), JSON.stringify({ v: 1, held }), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+    })),
     exists: async (key) => {
       const h = await B.head(key);
       if (!h) return null;
-      return { size: h.size, kind: mediaKindOf(key.split(".").pop()) };
+      return { size: h.size, kind: mediaKindOf(key.split(".").pop()), up: (h.customMetadata && h.customMetadata.up) || "" };
     },
     create: async (key, { mime, meta }) => (await B.createMultipartUpload(key, { httpMetadata: { contentType: mime }, customMetadata: meta })).uploadId,
     uploadPart: (key, uploadId, n, bytes) => B.resumeMultipartUpload(key, uploadId).uploadPart(n, bytes),
@@ -9999,6 +9997,30 @@ function mediaDeps(env, { scope, gate, draftUid = null, slug = "" }) {
       try { return JSON.parse(await got.text()); } catch { return null; }
     },
     dropSession: (sc, sid) => B.delete(MEDIA_SESSION_PREFIX(sc) + sid + ".json"),
+    savePart: (sc, sid, n, etag) => B.put(MEDIA_PARTS_PREFIX(sc, sid) + n, "", { customMetadata: { etag: String(etag).slice(0, 200) } }),
+    savedParts: async (sc, sid) => {
+      const out = {};
+      let cursor;
+      for (;;) {
+        const page = await B.list({ prefix: MEDIA_PARTS_PREFIX(sc, sid), cursor, include: ["customMetadata"] });
+        for (const o of page.objects || []) {
+          const n = Number(o.key.slice(MEDIA_PARTS_PREFIX(sc, sid).length));
+          if (Number.isInteger(n) && n > 0 && o.customMetadata && typeof o.customMetadata.etag === "string") out[n] = o.customMetadata.etag;
+        }
+        if (!page.truncated || !page.cursor) return out;
+        cursor = page.cursor;
+      }
+    },
+    dropParts: async (sc, sid) => {
+      let cursor;
+      for (;;) {
+        const page = await B.list({ prefix: MEDIA_PARTS_PREFIX(sc, sid), cursor });
+        const keys = (page.objects || []).map((o) => o.key);
+        if (keys.length) await B.delete(keys);
+        if (!page.truncated || !page.cursor) return;
+        cursor = page.cursor;
+      }
+    },
   };
 }
 /**
@@ -10027,9 +10049,17 @@ async function mediaRoute(env, request, deps, { scope, sid, step, draft = false 
     return handleMediaComplete(deps, { scope, sid, parts: Array.isArray(rd.body.parts) ? rd.body.parts : null });
   }
   if (sid && !step && request.method === "DELETE") return handleMediaAbort(deps, { scope, sid });
+  if (sid && !step && request.method === "GET") return handleMediaStatus(deps, { scope, sid });
   return { status: 405, body: { error: "method not allowed" } };
 }
 
+/** The page writers' media list for a build: the library, the request's moved files marked, and what could not be moved. */
+function buildMediaFacts(library, outcome) {
+  const moved = new Set((outcome && Array.isArray(outcome.placed) ? outcome.placed : []).map((f) => f.name));
+  const list = (Array.isArray(library) ? library : []).map((f) => (moved.has(f.name) ? { ...f, moved: true } : f));
+  for (const m of (outcome && Array.isArray(outcome.missing) ? outcome.missing : [])) list.push({ kind: "missing", name: String(m.name || "a file"), why: String(m.why || "") });
+  return list;
+}
 /**
  * THE DRAFT FILES A BUILD'S MESSAGE NAMES, for that account only (2026-10-14):
  * `{ files, missing }` — each name read strictly (a media name this account
@@ -10057,13 +10087,24 @@ async function draftMediaFor(env, uid, names) {
 async function adoptDraftMedia(env, uid, slug, files) {
   const lim = mediaLimits(env);
   const placed = [], missing = [];
-  let used = { files: 0, bytes: 0 };
-  try {
-    const now = (await siteUploadList(env, slug)).filter((o) => !o.visitor && (o.kind === "video" || o.kind === "audio"));
-    used = { files: now.length, bytes: now.reduce((n, o) => n + (Number(o.size) || 0), 0) };
-  } catch (e) { console.error("site media read:", slug, errorClassForLog(e)); }
+  // ROOM IS TAKEN IN THE SITE'S LEDGER, like an upload's (2026-10-15): so a
+  // move and an upload the owner starts at the same moment cannot both take
+  // the last of it. Held until the copy is stored, then given back.
+  const deps = mediaDeps(env, { scope: siteScope(slug), slug, who: uid, gate: async () => ({}) });
   for (const f of files) {
-    if (used.files + 1 > lim.siteFiles || used.bytes + f.size > lim.siteBytes) { missing.push({ name: f.download || f.name, why: "the site's video and audio storage is full" }); continue; }
+    const id = deps.random();
+    let held;
+    try {
+      held = await holdMedia(deps, { scope: siteScope(slug), limits: lim, id, entry: { size: Number(f.size) || 0, files: 1, expires: Date.now() + 10 * 60 * 1000, adopt: true } });
+    } catch (e) {
+      console.error("site media hold:", slug, errorClassForLog(e));
+      missing.push({ name: f.download || f.name, why: "it could not be moved just now" });
+      continue;
+    }
+    if (held.refuse) {
+      missing.push({ name: f.download || f.name, why: held.refuse.body && held.refuse.body.code === "busy" ? "it could not be moved just now" : "the site's video and audio storage is full" });
+      continue;
+    }
     try {
       const src = await env.SITES_BUCKET.get(f.key);
       if (!src) { missing.push({ name: f.download || f.name, why: "it was no longer kept" }); continue; }
@@ -10071,11 +10112,12 @@ async function adoptDraftMedia(env, uid, slug, files) {
       const body = typeof FLS === "function" ? src.body.pipeThrough(new FLS(src.size)) : src.body;
       await env.SITES_BUCKET.put(uploadKey(slug, f.name), body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
       try { await env.SITES_BUCKET.delete(f.key); } catch { /* the draft expires on its own */ }
-      used = { files: used.files + 1, bytes: used.bytes + f.size };
       placed.push(mediaForModel({ url: uploadUrl(slug, f.name), name: f.name, download: f.download, kind: f.kind, mime: f.mime, size: f.size, duration: f.duration, width: f.width, height: f.height }));
     } catch (e) {
       console.error("draft media move:", slug, errorClassForLog(e));
       missing.push({ name: f.download || f.name, why: "it could not be moved just now" });
+    } finally {
+      await releaseMedia(deps, siteScope(slug), id);
     }
   }
   return { placed, missing };
@@ -23352,7 +23394,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             spec: pageSpec, slug, brand,
             // THE SITE'S VIDEO AND AUDIO, BY ADDRESS (2026-10-14): what moved in
             // just now and what the library already held, for the page writers.
-            media: (await withinMs(siteMediaFiles(env, slug), CONVERSE_READ_MS, "build media:", slug)) || bMedia.placed,
+            // WITH WHAT BECAME OF THE REQUEST'S OWN FILES (2026-10-15): the
+            // ones moved in are marked, and the ones that could not be are
+            // listed with why, so the writer's own reply (`notes`) says it.
+            media: buildMediaFacts((await withinMs(siteMediaFiles(env, slug), CONVERSE_READ_MS, "build media:", slug)) || bMedia.placed, bMedia),
             // THE BUILD'S OWN LEDGER REF (stage 1c), so the pages debit lands
             // under `<billRef>:pages` — and, because this object is what the
             // resume record stores, so a resumed build debits under the SAME
@@ -23948,7 +23993,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // sentence built there would be a second copy of this logic that drifts
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaSentence(bMedia)].filter(Boolean).join(" ") || undefined,
+        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaErrorNote(bMedia)].filter(Boolean).join(" ") || undefined,
         ownPhotos: ownPhotoFacts(ownPhotos),
         // WHAT BECAME OF THE VIDEO AND AUDIO (2026-10-14): moved in, by address, or not, with why.
         media: bMedia.placed.length || bMedia.missing.length ? { placed: bMedia.placed.map((f) => ({ name: f.name, url: f.url, kind: f.kind })), missing: bMedia.missing } : undefined,
@@ -28519,7 +28564,7 @@ async function handleRequest(request, env, ctx) {
           const files = (await draftMediaList(env, uid)).map((f) => ({ name: f.name, kind: f.kind, mime: f.mime, size: f.size, ...(f.download ? { download: f.download } : {}), ...(f.duration ? { duration: f.duration } : {}), ...(f.width ? { width: f.width, height: f.height } : {}) }));
           return Response.json({ files, maxCount: lim.draftFiles });
         }
-        const ddeps = mediaDeps(env, { scope: draftScope(uid), draftUid: uid, gate: async () => ({}) });
+        const ddeps = mediaDeps(env, { scope: draftScope(uid), draftUid: uid, who: uid, gate: async () => ({}) });
         const dres = await mediaRoute(env, request, ddeps, { scope: draftScope(uid), sid: dr[1] ? dr[1].toLowerCase() : "", step: dr[2] ? dr[2].toLowerCase() : "", draft: true });
         return Response.json(dres.body, { status: dres.status });
       }
@@ -41125,7 +41170,7 @@ async function handleRequest(request, env, ctx) {
             const mslug = mdr[1].toLowerCase();
             // THE SITE OWNER'S GATE, on every step: a session belongs to its
             // site's scope, and nobody but that site's owner reaches it.
-            const mdeps = mediaDeps(env, { scope: siteScope(mslug), slug: mslug, gate: async () => {
+            const mdeps = mediaDeps(env, { scope: siteScope(mslug), slug: mslug, who: ou.id, gate: async () => {
               const g = await assertOwner(ownerDeps, mslug, ou.id);
               return g && g.error ? g : {};
             } });

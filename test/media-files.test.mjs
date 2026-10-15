@@ -18,7 +18,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import {
   sniffMedia, declaredMediaKind, mediaLimits, MEDIA_DEFAULTS, MEDIA_CEILINGS, MEDIA_FORMATS, MEDIA_EXTS, MEDIA_PART_BYTES,
   parseRange, mediaHeaders, etagMatches, partsFor, partLength, handleMediaStart, handleMediaPart, handleMediaComplete,
-  handleMediaAbort, readMediaMeta, mediaMetadata, readStoredMeta, pagesUsing, mediaBlock, isMediaName, mediaName, MEDIA_CACHE,
+  handleMediaAbort, handleMediaStatus, readMediaMeta, mediaMetadata, readStoredMeta, pagesUsing, mediaBlock, isMediaName, mediaName, MEDIA_CACHE,
 } from "../site-media.mjs";
 import { sniffUpload, uploadKind, uploadIsImage, IMAGE_EXTS, UPLOAD_EXTS } from "../site-uploads.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
@@ -116,10 +116,13 @@ test("a range is read as browsers send it", () => {
 // ── THE UPLOAD, IN PARTS, AGAINST A BUCKET ─────────────────────────────────
 
 /** The deps the Worker gives the handlers, over a fake bucket: a site's library. */
-function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now() } = {}) {
+function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now(), who = "u-owner" } = {}) {
   let n = 0;
+  const ledgerKey = (sc) => "media-ledger/" + sc + ".json";
+  const partsPrefix = (sc, sid) => "media-parts/" + sc + "/" + sid + "/";
   return {
     gate: async () => (owner ? {} : { error: { status: 404, body: { error: "not found" } } }),
+    who,
     now,
     random: () => (++n).toString(16).padStart(32, "0"),
     objectKey: (_s, name) => "uploads/" + slug + "/" + name,
@@ -128,8 +131,16 @@ function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now() } = {
       const objs = [...B.store.keys()].filter((k) => k.startsWith("uploads/" + slug + "/") && isMediaName(k.split("/").pop()));
       return { files: objs.length, bytes: objs.reduce((t, k) => t + B.raw(k).length, 0) };
     },
-    sessions: async (sc) => [...B.store.keys()].filter((k) => k.startsWith("media-sessions/" + sc + "/")).map((k) => JSON.parse(new TextDecoder().decode(B.raw(k)))),
-    exists: async (key) => (B.store.has(key) ? { size: B.raw(key).length, kind: MEDIA_FORMATS[key.split(".").pop()].kind } : null),
+    // THE LEDGER OVER THE BUCKET'S OWN CONDITIONAL WRITE, as the Worker's.
+    readLedger: async (sc) => {
+      const got = await B.get(ledgerKey(sc));
+      return got ? { held: JSON.parse(await got.text()).held, etag: got.etag } : { held: {}, etag: null };
+    },
+    writeLedger: async (sc, held, etag) => !!(await B.put(ledgerKey(sc), JSON.stringify({ v: 1, held }), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
+    exists: async (key) => {
+      const h = await B.head(key);
+      return h ? { size: h.size, kind: MEDIA_FORMATS[key.split(".").pop()].kind, up: h.customMetadata.up || "" } : null;
+    },
     create: async (key, { mime, meta }) => (await B.createMultipartUpload(key, { httpMetadata: { contentType: mime }, customMetadata: meta })).uploadId,
     uploadPart: (key, id, i, bytes) => B.resumeMultipartUpload(key, id).uploadPart(i, bytes),
     complete: async (key, id, parts) => ({ size: (await B.resumeMultipartUpload(key, id).complete(parts)).size }),
@@ -137,6 +148,9 @@ function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now() } = {
     saveSession: (sc, s) => B.put("media-sessions/" + sc + "/" + s.sid + ".json", JSON.stringify(s)),
     loadSession: async (sc, sid) => (B.store.has("media-sessions/" + sc + "/" + sid + ".json") ? JSON.parse(new TextDecoder().decode(B.raw("media-sessions/" + sc + "/" + sid + ".json"))) : null),
     dropSession: (sc, sid) => B.delete("media-sessions/" + sc + "/" + sid + ".json"),
+    savePart: (sc, sid, i, etag) => B.put(partsPrefix(sc, sid) + i, "", { customMetadata: { etag } }),
+    savedParts: async (sc, sid) => Object.fromEntries([...B.store.keys()].filter((k) => k.startsWith(partsPrefix(sc, sid))).map((k) => [Number(k.split("/").pop()), B.store.get(k).customMetadata.etag])),
+    dropParts: async (sc, sid) => B.delete([...B.store.keys()].filter((k) => k.startsWith(partsPrefix(sc, sid)))),
   };
 }
 /** A file of `size` bytes whose first bytes are a real fixture's. */
@@ -178,7 +192,13 @@ test("A SMALL FILE: one part, the bytes decide, and it appears at its address wi
   assert.equal(stored.httpMetadata.contentType, "video/webm");
   assert.deepEqual(readStoredMeta(stored.customMetadata), { duration: 4, width: 64, height: 48 });
   assert.equal(decodeURIComponent(stored.customMetadata.dl), "Our kitchen.webm");
-  assert.equal([...B.store.keys()].filter((k) => k.startsWith("media-sessions/")).length, 0, "the session outlived the upload");
+  // THE SESSION IS KEPT AS A COMPLETION RECORD (2026-10-15), its parts'
+  // records gone and its room given back: the file is counted from now on.
+  const rec = [...B.store.keys()].filter((k) => k.startsWith("media-sessions/"));
+  assert.equal(rec.length, 1);
+  assert.equal(JSON.parse(new TextDecoder().decode(B.raw(rec[0]))).state, "done");
+  assert.equal([...B.store.keys()].filter((k) => k.startsWith("media-parts/")).length, 0, "the parts' records outlived the upload");
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(B.raw("media-ledger/site-fold.json"))).held, {}, "the finished upload still holds room");
 });
 
 test("A LARGE FILE GOES IN PARTS, EACH CHECKED, AND APPEARS ONLY WHEN THE LAST ONE IS IN", async () => {
@@ -200,17 +220,18 @@ test("A LARGE FILE GOES IN PARTS, EACH CHECKED, AND APPEARS ONLY WHEN THE LAST O
   assert.deepEqual([short.status, short.body.code, short.body.expected], [400, "bad_length", MEDIA_PART_BYTES]);
   assert.equal(B.calls.filter((c) => c === "uploadPart").length, before);
   const p2 = await handleMediaPart(deps, { scope: "site-fold", sid: st.body.session, n: 2, bytes: bytes.subarray(MEDIA_PART_BYTES, MEDIA_PART_BYTES * 2) });
-  const p3 = await handleMediaPart(deps, { scope: "site-fold", sid: st.body.session, n: 3, bytes: bytes.subarray(MEDIA_PART_BYTES * 2) });
-  // FINISHING WITH A PART MISSING IS REFUSED, AND NOTHING APPEARS.
-  const early = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [{ n: 1, etag: p1.body.etag }, { n: 3, etag: p3.body.etag }] });
-  assert.deepEqual([early.status, early.body.code], [400, "parts_missing"]);
+  // FINISHING WITH A PART MISSING IS REFUSED, NAMING IT, AND NOTHING APPEARS —
+  // whatever the page claims: the third part never reached the server.
+  const early = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [{ n: 1, etag: p1.body.etag }, { n: 3, etag: "made-up" }] });
+  assert.deepEqual([early.status, early.body.code, early.body.missing], [400, "parts_missing", [3]]);
   assert.equal(B.store.has(key), false);
-  // …AND A CORRECT START THAT STOPS SHORT (1 and 2 of 3) — every part it names
-  // is real and in order, and it is still not the whole file.
   const short2 = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [{ n: 1, etag: p1.body.etag }, { n: 2, etag: p2.body.etag }] });
-  assert.deepEqual([short2.status, short2.body.code], [400, "parts_missing"], "a file was finished without its last part");
+  assert.deepEqual([short2.status, short2.body.code, short2.body.missing], [400, "parts_missing", [3]], "a file was finished without its last part");
   assert.equal(B.store.has(key), false, "a file appeared without its last part");
-  const done = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [p1, p2, p3].map((p, i) => ({ n: i + 1, etag: p.body.etag })) });
+  const p3 = await handleMediaPart(deps, { scope: "site-fold", sid: st.body.session, n: 3, bytes: bytes.subarray(MEDIA_PART_BYTES * 2) });
+  assert.equal(p3.status, 200);
+  // THE SERVER HOLDS EVERY PART'S ETAG, so finishing needs none from the page.
+  const done = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [] });
   assert.equal(done.status, 201);
   assert.equal(done.body.size, size);
   assert.deepEqual(B.raw(key), bytes, "the parts were not joined in order");
@@ -317,10 +338,15 @@ test("REPLACING keeps the address, the kind and the format; a missing file or an
   assert.equal(none.status, 404);
   const bad = await handleMediaStart(deps, { scope: "site-fold", limits: LIM, name: "x.mp3", size: 100, replace: "../../etc/passwd" });
   assert.equal(bad.status, 404);
-  // A replacement counts only the difference against the site's bytes.
-  const tight = { ...LIM, siteBytes: B.raw("uploads/fold/" + name).length + 500 };
-  const grow = await handleMediaStart(deps, { scope: "site-fold", limits: tight, name: "x.mp3", size: B.raw("uploads/fold/" + name).length + 400, replace: name });
-  assert.equal(grow.status, 201, "a replacement was charged as a new file");
+  // A REPLACEMENT RESERVES ITS WHOLE SIZE (2026-10-15): while it is sent the
+  // old file is still stored and served, so a promise to be smaller — or only
+  // a little bigger — releases nothing. It adds no file to the count.
+  const have = B.raw("uploads/fold/" + name).length;
+  const tight = { ...LIM, siteBytes: have + 500, siteFiles: 1 };
+  const smaller = await handleMediaStart(deps, { scope: "site-fold", limits: tight, name: "x.mp3", size: have - 100, replace: name });
+  assert.deepEqual([smaller.status, smaller.body.code], [409, "full"], "an unfinished smaller replacement was let release storage");
+  const fits = await handleMediaStart(deps, { scope: "site-fold", limits: tight, name: "x.mp3", size: 400, replace: name });
+  assert.equal(fits.status, 201, "a replacement was charged as a new file");
 });
 
 test("OWNERSHIP: every step asks the gate, and a session is only its scope's", async () => {
@@ -339,6 +365,16 @@ test("OWNERSHIP: every step asks the gate, and a session is only its scope's", a
   assert.equal(other.body.code, "no_session");
   const forged = await handleMediaPart(mine, { scope: "site-fold", sid: "../x", n: 1, bytes: fixture("tone.mp3") });
   assert.equal(forged.body.code, "no_session");
+  // A SESSION IS BOUND TO THE ACCOUNT THAT STARTED IT (2026-10-15): in the
+  // same scope, past the same gate, another account's request finds nothing —
+  // not its status, its parts, its finish or its abort.
+  const someoneElse = siteDeps(B, { who: "u-other" });
+  for (const r of [
+    await handleMediaStatus(someoneElse, { scope: "site-fold", sid: st.body.session }),
+    await handleMediaPart(someoneElse, { scope: "site-fold", sid: st.body.session, n: 1, bytes: fixture("tone.mp3") }),
+    await handleMediaComplete(someoneElse, { scope: "site-fold", sid: st.body.session, parts: [] }),
+  ]) assert.deepEqual([r.status, r.body.code], [404, "no_session"], "another account reached this account's upload");
+  assert.equal((await handleMediaStatus(mine, { scope: "site-fold", sid: st.body.session })).body.state, "open");
 });
 
 test("the browser's report is kept as metadata, strictly, and said as the browser's", () => {

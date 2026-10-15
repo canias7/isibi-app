@@ -6,22 +6,31 @@
 // at completion naming each part's own etag.
 //
 // `fail` makes the next call of a name throw once: { uploadPart: 1, complete: 1 }.
+// `lose` makes a call of a name DO its work and then throw, as a request does
+// whose answer is lost on the way back: { complete: 1 }.
+// `put` honours `onlyIf` as R2 does — `etagMatches` writes only over that
+// etag, `etagDoesNotMatch: "*"` only where there is no object — answering
+// null when the condition fails (2026-10-15). `lag` yields to the event loop
+// inside every call, so requests sent together really interleave.
 // `calls` records each call by name, so a case can show what was — and was not —
 // done (a part never reached R2, nothing completed).
 import { randomBytes, createHash } from "node:crypto";
 
 export const MIN_PART = 5 * 1024 * 1024;
 
-export function mediaBucket({ fail = {} } = {}) {
+export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
   const store = new Map();
   const uploads = new Map();
   const calls = [];
   let n = 0;
   const failing = { ...fail };
+  const losing = { ...lose };
   const trip = (name) => {
     calls.push(name);
     if (failing[name] > 0) { failing[name]--; throw new Error("r2 " + name + " failed"); }
   };
+  const lost = (name) => { if (losing[name] > 0) { losing[name]--; throw new Error("r2 " + name + " answer lost"); } };
+  const pause = () => (lag ? new Promise((r) => setTimeout(r, 0)) : null);
   const etagOf = (bytes) => createHash("md5").update(bytes).digest("hex");
   const objOf = (key, o, range) => {
     const all = o.bytes;
@@ -49,11 +58,17 @@ export function mediaBucket({ fail = {} } = {}) {
     async put(key, value, opts = {}) {
       trip("put");
       const bytes = await toBytes(value);
-      store.set(key, { bytes, etag: etagOf(bytes), at: Date.now() + (++n), httpMetadata: opts.httpMetadata || {}, customMetadata: opts.customMetadata || {} });
-      return { key, size: bytes.length };
+      await pause();
+      const c = opts.onlyIf;
+      if (c && c.etagDoesNotMatch === "*" && store.has(key)) return null;
+      if (c && typeof c.etagMatches === "string" && (!store.has(key) || store.get(key).etag !== c.etagMatches)) return null;
+      // A NEW ETAG ON EVERY WRITE, as R2's own: the same bytes written twice are two versions.
+      store.set(key, { bytes, etag: etagOf(bytes) + "." + (++n), at: Date.now() + n, httpMetadata: opts.httpMetadata || {}, customMetadata: opts.customMetadata || {} });
+      return { key, size: bytes.length, etag: store.get(key).etag };
     },
     async get(key, opts = {}) {
       trip("get");
+      await pause();
       const o = store.get(key);
       if (!o) return null;
       let range = null;
@@ -67,6 +82,7 @@ export function mediaBucket({ fail = {} } = {}) {
     },
     async head(key) {
       trip("head");
+      await pause();
       const o = store.get(key);
       if (!o) return null;
       const x = objOf(key, o, null);
@@ -79,6 +95,7 @@ export function mediaBucket({ fail = {} } = {}) {
     },
     async list({ prefix = "", cursor, include } = {}) {
       trip("list");
+      await pause();
       const keys = [...store.keys()].filter((k) => k.startsWith(prefix)).sort();
       const start = cursor ? Number(cursor) : 0;
       const page = keys.slice(start, start + 2);
@@ -129,6 +146,7 @@ export function mediaBucket({ fail = {} } = {}) {
           u.done = true;
           uploads.delete(uploadId);
           store.set(key, { bytes, etag: etagOf(bytes), at: Date.now() + (++n), httpMetadata: u.opts.httpMetadata || {}, customMetadata: u.opts.customMetadata || {} });
+          lost("complete");
           return { key, size: total, etag: etagOf(bytes), httpEtag: '"' + etagOf(bytes) + '"' };
         },
         async abort() {

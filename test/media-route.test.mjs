@@ -246,10 +246,18 @@ test("BUILD: the drafts the message names move into the new site's library, and 
   assert.equal(r.store.has(draft), false, "the draft was kept after it moved");
   assert.deepEqual(r.reply.media.placed, [{ name, url: "/u/harbour-loaf/" + name, kind: "video" }]);
   assert.deepEqual(r.reply.media.missing, [{ name: "f".repeat(32) + ".mp3", why: "it was no longer kept" }]);
-  assert.match(r.reply.contextNote, /Your video ".*" is in your site's file library now/);
+  // WHERE THE FILES WENT IS THE WRITER'S OWN REPLY (2026-10-15): it is given
+  // the facts — the moved file marked, the missing one with why — and no
+  // sentence of ours narrates the move; only the file that could not be
+  // moved keeps a fixed technical line.
+  assert.doesNotMatch(r.reply.contextNote || "", /is in your site's file library now|were given (its|their) address/, "the build still narrates the move in a fixed sentence");
+  assert.equal(r.reply.contextNote, 'Not added to your site\'s file library: "' + "f".repeat(32) + '.mp3" (it was no longer kept).');
   assert.match(r.seen.designer[0], /THE OWNER'S VIDEO AND AUDIO FILES, which go into the site's own library/, "the designer was not told");
   assert.ok(writer, "the page writer was never asked — this case cannot see what it is shown");
   assert.match(writer, new RegExp("/u/harbour-loaf/" + name), "the page writer was not given the address");
+  assert.match(writer, /FILES THE OWNER ATTACHED TO THIS REQUEST, moved into the site's file library for it: \\"c{32}\.mp4\\"/, "the writer was not told which file this request moved in");
+  assert.match(writer, /In `notes`, tell the owner in your own words where each one is played/, "the writer was not asked to say it in its reply");
+  assert.match(writer, /FILES THE OWNER ATTACHED THAT COULD NOT BE ADDED to the site: \\"f{32}\.mp3\\" \(it was no longer kept\)/, "the writer was not told what could not be moved");
 });
 
 test("BUILD: another account's draft is never moved", async () => {
@@ -279,5 +287,5 @@ test("BUILD: a draft that would pass the site's video and audio limit stays a dr
   assert.equal(r.store.has("uploads/harbour-loaf/" + name), false, "a draft past the site's limit moved in");
   assert.ok(r.store.has(draft), "the draft was lost though it did not move");
   assert.deepEqual(r.reply.media.missing.map((m) => m.why), ["the site's video and audio storage is full"]);
-  assert.match(r.reply.contextNote, /I couldn't add .* \(the site's video and audio storage is full\) to your site's library\./);
+  assert.match(r.reply.contextNote, /^Not added to your site's file library: ".*" \(the site's video and audio storage is full\)\.$/);
 });
