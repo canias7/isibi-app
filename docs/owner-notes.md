@@ -125,7 +125,7 @@ header and the history file):
 
   The worker tree now carries `builder/site-converse.mjs` and
   `site-media.mjs`.
-- CI on these commits: `5f425ceb` green (unit tests run 38655868176, site build run 38655868111); `3802f7e9` running when these records were written (unit tests run 38658988774, site build run 38658988769).
+- CI on these commits: `5f425ceb` green (unit tests run 38655868176, site build run 38655868111); `3802f7e9` site build green (run 38658988769); its unit run (38658988774) was cancelled when the records commit was pushed on top, and the unit run on `7ca339d1` (the same code plus owner-notes) is green (run 38659217384).
 
 **What is not shown — the remaining live gaps.**
 1. What a real model writes in a conversational reply: length, tone, keeping
