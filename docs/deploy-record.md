@@ -1902,3 +1902,38 @@ and names the wrong person to go and ask.
 - **Afterwards:** `f1b81477` closed the two opt-ins; it is scripts and tests
   only and started no deploy. The switches were left as set, on the owner's
   word ("I dont need to restore settings, i have no customers").
+
+## The verification batch's deploy: `8e24ca5b`, run 38671851113 (2026-10-15)
+
+- **What was merged:** `main` was fast-forwarded `f1b81477` → `8e24ca5b`
+  (14 commits: the batch fix round, Codex's review answered, the proposal,
+  and the Step 0 commit) at 02:36:05 UTC, on the owner's word: "Approved —
+  do Step 0 through Press 2 as written". One deploy run, 38671851113,
+  `success`, 02:36:07–02:39:01.
+- **Before the merge:**
+  - required unit CI on `8e24ca5b` (run 38671177863): `10976 / 10932 / 0 /
+    44`;
+  - nothing in flight except unit tests on the `new` branch, which a merge
+    here does not touch;
+  - no open edit job;
+  - balance 726, last ledger row 476;
+  - `ferry-lane-deli` free all three ways, its address 404.
+- **Image:** `built isibi-app-sitebuildcontainer:e420b3c2d3224dd3`
+  (predicted on both ends; "registry answered 404; 207 inputs"). Container
+  `- …:e1582f6f71a41dfb` / `+ …:e420b3c2d3224dd3`, `SUCCESS Modified
+  application` at 02:38:56Z; Worker version `bc272ed9-37c…`.
+- **Assets:** 2 uploaded (`/edit-poll.js`, `/chat.js`), 84 already there.
+- **Served files:**
+  - the before read matched `main`'s bytes (`chat.js` `0795960275b5`,
+    `edit-poll.js` `543a30826793`);
+  - after the deploy, at 02:39, all three were byte-identical to the merged
+    files: `chat.js` `0e1a4721bdb3`, `edit-poll.js` `05efc5862cbd`,
+    `styles.css` `044a7c2a5892` (unchanged).
+- **Rollback (rehearsed):** restore `f1b81477`'s tree and commit (`git
+  restore --source=f1b81477 --staged --worktree :/`), verified identical to
+  `main`'s tree in a throwaway worktree. A `git revert` of the range does not
+  apply: it contains a merge commit (`e4e0f944`).
+- **Switches as left:** `IMAGE_PURCHASES` off, `PROGRESS_TALK` on. The opt-ins
+  are open for `check-no-images` and `acc-mixed-2` only, closed again by
+  commit after the presses.
+- **Runtime confirmation:** pending, after the image window.
