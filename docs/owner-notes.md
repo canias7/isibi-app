@@ -1,5 +1,147 @@
 # Owner Notes
 
+## Branch `new` — Codex's review of `7ca339d1`: four reproduced gaps fixed (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
+
+Codex confirmed green unit CI on `7ca339d1` and reproduced four problems the
+tests did not reach. All four are fixed. Each reproduction is now a test, and
+each of those tests fails on the old code.
+
+**Commits, oldest first** (on top of `01483928`):
+
+1. `7d89ec11`: the conversation. What the page cut from the history is now said
+   end to end, and a reference into a cut part is asked about.
+2. `4315e31c`: video and audio. Completion is recorded and can be asked again
+   safely, room is taken atomically, and the build's media outcome is written
+   by the model.
+3. `4ce4fa68`: the first build's router pin, re-pinned on purpose.
+4. the commit on top of `4ce4fa68` carrying these records and `docs/history/2026-10-15-media-recovery.md` (documents only).
+
+**1. Finishing an upload is durable and can be asked again.**
+
+- **Server.**
+  - A finished upload's session is kept for 24 hours, together with the file it
+    made. A second `complete` returns the same file (it returned 404 before).
+    An abort that arrives after the finish keeps the file.
+  - The file carries its upload's id in its stored metadata. If R2's own reply
+    to "finish" is lost, a retry recognises the file as its own.
+  - Each part's etag is recorded as the part lands, so finishing does not
+    depend on the page's list.
+  - A new status call (`GET …/media/<session>`) answers done (with the file),
+    open (with the parts the server holds) or gone.
+  - Each session is bound to the account that started it.
+- **Page.**
+  - When the reply to "finish" is lost, the page no longer reports a failure or
+    aborts. It asks the server: done means done; open means it finishes,
+    sending only the missing parts; if it cannot find out, the result is "not
+    confirmed yet", never "failed".
+  - The page keeps a record of each upload in browser storage (the session id
+    and the result, never the bytes). If you attach the same file again after
+    a lost reply, a reconnect or a reload, a finished upload is reused and an
+    open one resumes. No second upload and no duplicate file.
+- **What you see.** The composer chip shows a new state, "Video · checking it
+  finished…". It is re-checked every 5 seconds and again whenever the browser
+  comes back online. Your message waits while a chip shows it. Screenshots are
+  in the chat.
+
+**2. Storage limits are checked atomically, including replacements.**
+
+- **The fix.** Every reservation goes into one record per site library or
+  account's drafts: an upload, a replacement, or a build moving files in. That
+  record changes only through R2's conditional write, the same mechanism
+  `worker.js` already uses for build claims. A request that loses the race
+  reads the record again and counts the winner; after 8 tries it answers
+  "busy, try again" (503).
+- **Two starts at once** under a one-file, 100-byte limit now admit one and
+  refuse the other. Before, both got 201 and 120 bytes were reserved.
+- **Five starts at once** under a three-file limit admit exactly three.
+- **Replacements.**
+  - Only one replacement of a given file can run at a time; a second gets 409
+    `replacing`.
+  - A replacement reserves its full size, because the old file stays stored
+    and served until it finishes. A replacement that promises to be smaller
+    frees nothing until it is done.
+
+**3. Cut conversation history is now said to the models.**
+
+- **What the page sends.** A turn it shortened carries its full length, and
+  when it drops earlier turns the list opens with `{ omitted: n }`.
+- **How the server reads it.** Only figures that add up are believed;
+  anything else claims nothing.
+- **What the router and the reply are told.** Each cut, with its real length,
+  for example "only the first 4000 of its 5714 characters are shown", and how
+  many messages are not shown. They are also told to ask, never guess, when the
+  message refers to something that may be in a part not shown.
+- **Requests written out from the conversation.** The router never writes one
+  (`resolved`) from a part not shown; it asks the owner to say it again.
+
+**4. The build's media narration comes from the model.**
+
+- The fixed sentence "Your video … is in your site's file library now" is
+  gone.
+- The page writer, whose `notes` is the build's reply, is told which files this
+  request moved in and which could not be added and why, and says it in its own
+  words.
+- The only fixed line left is the technical error: "Not added to your site's
+  file library: "x" (…)".
+
+**Tests and readings.**
+
+- **New tests:**
+  - `test/media-recovery.test.mjs` (10). Real Worker routes and the real
+    uploader, with lost replies and concurrent requests.
+  - `test/conversation-gaps.test.mjs` (4). The page's own `historyWire`, run
+    through the real route.
+  - `test/media-composer-browser.test.mjs` (1). Real Chromium on the repo's own
+    page, with every media request answered by the real Worker. It covers a
+    lost "finish" reply with status unreachable, recovery, the message carrying
+    the file's address, a reload that reuses the file, and the Files panel's
+    list, replace, add and delete.
+- **Red checks** (new tests against `01483928`'s code): media-recovery failed
+  10 of 10 and conversation-gaps 4 of 4, each for the reason Codex reproduced
+  ("both admitted", the 404, "reported as failed").
+- **Mutation sweep:** 26 of 27 killed; the comment-only control survived. The
+  survivor, "an abort after the finish aborts", is equivalent: the next branch
+  recognises the file by its upload id and returns the same answer.
+- **Browser test.** It passed 10 runs in a row with files picked from disk. The
+  first run, with in-memory files, failed once with two part requests in
+  step 1. That run still stored one file, which is the outcome that matters.
+  The failure did not happen again, and its cause is not established.
+- **First-build router pin.** Re-pinned on purpose: all 42 old request hashes
+  are reproduced once the two new strings are taken out, and all 42 readings
+  are unchanged.
+- **Full offline suite:** `10869 / 10867 / 0 / 2` on `4ce4fa68`. On `4315e31c` it was `10869 / 10866 / 1 / 2`; the one failure was the pin.
+- **Image predictions (nothing built):**
+  - `7d89ec11` → `a9366a97b2c932d9` (208 inputs);
+  - `4315e31c` → `011a9824fca9ce06` (208 inputs).
+- **CI:**
+  - unit tests green on `4ce4fa68` (run 38664068165, `10869 / 10823 / 0 / 46`); the browser cases are among CI's skips and are shown only locally;
+  - site build green on `4315e31c` (run 38663267953);
+  - unit tests red on `4315e31c` (run 38663267999, `10869 / 10822 / 1 / 46`): the pin, re-pinned in the next commit.
+
+**Remaining gaps.**
+
+1. **R2 under real concurrency is not shown.** Real conditional writes,
+   contention, and a real multipart "finish" that stores the object but loses
+   its reply were all shown only against the R2 stand-in. Eight retries suit
+   one owner, not a crowd; past that the answer is 503.
+2. **Housekeeping.** A finished session's small record stays in
+   `media-sessions/` after its 24 hours until something reads it. There is no
+   sweep and no R2 lifecycle rule.
+3. **The upload record lives in one browser.** Another device re-sends the
+   file.
+4. **Codecs and browsers.** MP4, MOV, M4A and AAC are still not played here
+   (this Chromium has no H.264/AAC decoder). Safari and Firefox were not run.
+5. **No real model was called.** So it is not shown what a real model writes
+   in `notes` about moved files, or whether a real router asks rather than
+   writing `resolved` when the reference is in a cut part.
+6. **The browser test's one unexplained early failure** (above).
+7. **Unchanged from the first round:** the edge's handling of ranges and the
+   5-minute cache, upload throughput, and a custom domain's `/u/`.
+
+**Still paused (unchanged).** The combined release candidate waits for the
+main branch's route-selection and connection-loss fixes. Nothing is merged,
+deployed, built or pressed.
+
 ## Branch `new` — the conversation and video/audio batch (2026-10-14/15, after Codex's review of `9ceca1d4`; unmerged, undeployed, nothing pressed, no paid call, no generated media, no new service)
 
 **Commits, oldest first** (review together):
