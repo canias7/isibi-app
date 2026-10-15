@@ -151,8 +151,10 @@ test("the publish path waits, and cannot be failed by the wait", async () => {
   // the build route, the cheap-edit spine and a version rollback — so the wait
   // belongs there and not at three call sites that can each forget it.
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const i = src.indexOf("async function putSiteWorker(");
-  assert.ok(i > 0, "putSiteWorker is gone — re-point this");
+  // RE-ANCHORED 2026-10-15: the raw upload every publish goes through
+  // (`putSiteWorker` and its pointer-following both call it).
+  const i = src.indexOf("async function uploadScriptOnce(");
+  assert.ok(i > 0, "uploadScriptOnce is gone — re-point this");
   const body = src.slice(i, src.indexOf("\n}\n", i));
   assert.match(body, /confirmSiteWorker\(\{/, "the upload does not wait for the script to serve");
   assert.match(body, /\.catch\(/, "an unhandled rejection here would fail a publish that really succeeded");

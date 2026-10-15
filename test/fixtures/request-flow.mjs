@@ -62,6 +62,29 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
+/**
+ * R2's conditional check, as Miniflare implements it (`_testR2Conditional`):
+ * strong comparison for etagMatches, weak for etagDoesNotMatch, a wildcard
+ * matching any object, and the upload-time conditions overridden by the etag
+ * conditions as stated there. `secondsGranularity` truncates both times.
+ */
+export function r2Conditional(cond, cur) {
+  const c = cond || {};
+  const list = (v) => (v == null ? null : (Array.isArray(v) ? v : [v]).map((e) => String(e)));
+  const strip = (e) => String(e).replace(/^W\//, "").replace(/^"|"$/g, "");
+  const includes = (tags, etag, weak) => tags.some((t) => t === "*" || (weak ? strip(t) === strip(etag) : t.replace(/^"|"$/g, "") === etag && !/^W\//.test(t)));
+  const matches = list(c.etagMatches), notMatches = list(c.etagDoesNotMatch);
+  if (!cur) return matches === null && c.uploadedAfter == null;
+  const sec = c.secondsGranularity === true;
+  const t = (d) => { const ms = new Date(d).getTime(); return sec ? Math.floor(ms / 1000) * 1000 : ms; };
+  const uploaded = sec ? Math.floor(cur.at / 1000) * 1000 : cur.at;
+  const ifMatch = matches === null || includes(matches, cur.etag, false);
+  const ifNoneMatch = notMatches === null || !includes(notMatches, cur.etag, true);
+  const ifModifiedSince = c.uploadedAfter == null || t(c.uploadedAfter) < uploaded || (notMatches !== null && ifNoneMatch);
+  const ifUnmodifiedSince = c.uploadedBefore == null || t(c.uploadedBefore) > uploaded || (matches !== null && ifMatch);
+  return ifMatch && ifNoneMatch && ifModifiedSince && ifUnmodifiedSince;
+}
+
 export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false, liveScripts = false } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
@@ -117,12 +140,14 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (bp >= 0) { const x = beforePuts.splice(bp, 1)[0]; await x.then(k); }
       const cur = objects.get(k);
       const c = opts.onlyIf || {};
-      if (c.etagMatches != null && (!cur || cur.etag !== String(c.etagMatches))) return null;
-      if (c.etagDoesNotMatch != null && cur && (String(c.etagDoesNotMatch) === "*" || cur.etag === String(c.etagDoesNotMatch))) return null;
-      // THE UPLOAD-TIME CONDITIONS, as R2 states them: before / after the date
-      // given, compared to the millisecond; a missing object fails either.
-      if (c.uploadedBefore != null && (!cur || !(cur.at < new Date(c.uploadedBefore).getTime()))) return null;
-      if (c.uploadedAfter != null && (!cur || !(cur.at > new Date(c.uploadedAfter).getTime()))) return null;
+      // R2'S CONDITIONS, AS MINIFLARE'S OWN VALIDATOR CHECKS THEM (2026-10-15,
+      // after Codex's review; `_testR2Conditional` in workers-sdk's
+      // miniflare/src/workers/r2/validator.worker.ts): a MATCHING etagMatches
+      // overrides uploadedBefore, a non-matching etagDoesNotMatch overrides
+      // uploadedAfter, and a missing object passes only with neither
+      // etagMatches nor uploadedAfter. So identical bytes — the same etag —
+      // pass an "unmodified since" condition however recent the rewrite.
+      if (!r2Conditional(c, cur)) return null;
       const body = v instanceof ArrayBuffer ? new Uint8Array(v) : v instanceof Uint8Array ? v : String(v);
       // A WRITE THAT FAILS OUTRIGHT (`failPut`), or one that LANDS AND NEVER
       // ANSWERS (`hangPut`): the store down, or the writer evicted after it.
@@ -195,6 +220,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const afterGets = [];
   const uploads = [];
   const beforeUploads = [];
+  const afterUploads = [];
   const scriptText = async (body) => {
     try {
       if (body && typeof body.entries === "function") {
@@ -679,6 +705,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (bu) await bu(text);
       const v = /\/\/ site-version: (\S*)/.exec(text), b = /\/\/ site-build: (\S*)/.exec(text);
       uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now() });
+      // LANDED, AND THEN (`afterUpload`): a hook that throws is an upload
+      // whose answer was lost; one that never ends is an uploader that died.
+      const au = afterUploads.shift();
+      if (au) await au(text);
       return dispatchOk();
     }
     // NOT SET UP FOR (2026-10-09, round 4): answered 503 as before, and
@@ -809,6 +839,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     afterGet(match, then) { afterGets.push({ match, then }); },
     /** Before the next site-script upload lands, run `then(scriptText)`; the upload then goes ahead. */
     beforeUpload(then) { beforeUploads.push(then); },
+    afterUpload(then) { afterUploads.push(then); },
     /** Every site-script upload so far: `{ version, build, at }`, in order. */
     uploads() { return uploads.slice(); },
     /** The live script's version: the last upload's, or null before any. */

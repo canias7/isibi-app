@@ -185,6 +185,17 @@ export async function stageBuild(deps, { slug, version, files, worker, state, ma
 export const POINTER_NONE = Object.freeze({ v: 1, none: true });
 export const isPointerNone = (p) => !!p && p.none === true && !p.version;
 
+/**
+ * IS THE OBJECT STILL THE ONE OUR PUT WROTE? By the etag the put answered
+ * when there is one (a fenced write carries its holder's fence in its bytes,
+ * so its stored text is not the body sent); by the bytes only when the store
+ * answered none.
+ */
+async function stillOurs(cur, wrote, body) {
+  if (wrote && wrote.etag) return !!cur.etag && cur.etag === wrote.etag;
+  return (await cur.text()) === body;
+}
+
 export async function readPointer(deps, slug) {
   const o = await deps.get(POINTER_KEY(slug));
   if (!o) return null;
@@ -311,15 +322,20 @@ export async function activateBuild(deps, {
     let had;
     try { const cur = await deps.get(key); had = cur ? await cur.text() : null; }
     catch (e) { if (deps.log) deps.log(what + " read failed, its write will not be undone", slug, e && e.message); had = undefined; }
-    try { await deps.put(key, body, contentType); }
+    let wrote;
+    try { wrote = await deps.put(key, body, contentType); }
     catch (e) { if (deps.log) deps.log(what + " write failed", slug, e && e.message); return; }
     if (had === undefined) return;
     undos.push(async () => {
-      // CONDITIONAL ON OUR OWN BYTES, the pointer undo's argument: a value
+      // CONDITIONAL ON OUR OWN WRITE, the pointer undo's argument: a value
       // somebody else has written since is theirs and is left where it is.
+      // Ours is the object our put answered (its etag) — a fenced write puts
+      // its holder's fence in the bytes, so the text is not the body sent —
+      // and the bytes only where the store answered no etag.
       const cur = await deps.get(key);
-      if (!cur || (await cur.text()) !== body) return false;
+      if (!cur || !(await stillOurs(cur, wrote, body))) return false;
       if (had === null) await deps.remove(key);
+      else if (cur.etag) await deps.put(key, had, contentType, { etagMatches: cur.etag });
       else await deps.put(key, had, contentType);
       return true;
     });
@@ -389,7 +405,7 @@ export async function activateBuild(deps, {
         // window it replaces, and the alternative — leaving a pointer at a
         // version nothing serves — is the defect being fixed.
         const cur = await deps.get(POINTER_KEY(slug));
-        const same = cur && (await cur.text()) === JSON.stringify(pointer);
+        const same = !!cur && (await stillOurs(cur, moved, JSON.stringify(pointer)));
         if (same) { await deps.remove(POINTER_KEY(slug)); reverted = true; }
       }
     } catch (e) { if (deps.log) deps.log("pointer revert failed", slug, e && e.message); }

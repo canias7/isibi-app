@@ -570,3 +570,20 @@ test("the config a repair restores is the baked look and never the translation c
   assert.equal(sameJson(null, {}), false);
   assert.equal(sameJson("x", "x"), true);
 });
+
+test("A FAILED ACTIVATION PUTS BACK ITS OWN SIDECAR AND LIVE MARKER WHEN THE STORE WRITES A FENCE INTO THE BYTES — its writes are recognised by the etag its put answered, not by comparing text it never stored (2026-10-15)", async () => {
+  const deps = fakeR2();
+  await staged(deps, V1);
+  // A FENCED STORE: every write lands with a suffix, as `fenceBytes` writes one.
+  const plain = deps.put;
+  deps.put = (key, body, ct, onlyIf) => plain(key, typeof body === "string" && !key.startsWith("builds/") ? body + "\n\t \t" : body, ct, onlyIf);
+  await deps.put("sitemeta/cafe.json", '{"origin":"before"}', "application/json");
+  const r = await activateBuild(deps, {
+    slug: "cafe", version: V1, expectEtag: null,
+    sidecar: '{"origin":"after"}', sidecarKey: "sitemeta/cafe.json", liveKey: "sites/cafe/site.live",
+    putWorker: async () => ({ ok: false, status: 500, error: "refused" }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(await (await deps.get("sitemeta/cafe.json")).text(), /"before"/, "the failed activation left its own sidecar standing");
+  assert.equal(deps.store.has("sites/cafe/site.live"), false, "the failed activation left its live marker standing");
+});

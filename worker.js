@@ -1502,6 +1502,10 @@ export default {
     // (stage 9, 2026-09-06). One nibble of the prefix per tick and nothing
     // younger than a week, so it needs no lease and no row.
     ctx.waitUntil(runJobRetention(env));
+    // Put every site's script back on its pointer where an upload left a
+    // pending note and its uploader never took it away (2026-10-15): the
+    // uploader died, or an upload's answer was lost.
+    ctx.waitUntil(runScriptPendingSweep(env).catch((e) => console.error("script sweep failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -9006,7 +9010,7 @@ async function patchConfigFenced(env, slug, db, patch, fence) {
     let o;
     try { o = await env.SITES_BUCKET.get(key); } catch (e) { return { ok: false, error: "store: " + String((e && e.message) || e) }; }
     if (o && storedFence(o) > fence.gen) return { ok: false, error: TURN_FENCED, fenced: true };
-    if (o && !sinceRead(o)) return { ok: false, error: "the config was read without its upload time — nothing written" };
+    if (o && !sinceRead(o)) return { ok: false, error: "the config was read without its etag — nothing written" };
     let config;
     if (o) {
       config = readConfig(await o.text());
@@ -9019,7 +9023,7 @@ async function patchConfigFenced(env, slug, db, patch, fence) {
     }
     let put;
     try {
-      put = await env.SITES_BUCKET.put(key, writeConfig(withConfig(config, patch)), {
+      put = await env.SITES_BUCKET.put(key, fenceBytes(writeConfig(withConfig(config, patch)), fence.gen), {
         httpMetadata: { contentType: "application/json; charset=utf-8" }, customMetadata: { fence: String(fence.gen) },
         onlyIf: o ? sinceRead(o) : { etagDoesNotMatch: "*" },
       });
@@ -11908,7 +11912,7 @@ async function restoreVersion(env, slug, id) {
       sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
-        wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" });
+        wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });
         return wput;
       },
       afterActivate: async () => {
@@ -12171,19 +12175,38 @@ function jobFence(env, job) {
 }
 const storedFence = (o) => { const n = Number(o && o.customMetadata && o.customMetadata.fence); return Number.isFinite(n) ? n : 0; };
 /**
- * THE OBJECT AS READ, AND NO LATER WRITE OF IT (2026-10-15, after review):
- * the etag AND the upload time. R2's etag is the body's MD5, so a rewrite of
- * the same bytes — a new holder's stamp, or a repair that writes what was
- * already there — keeps the etag, and a stale holder's write conditional on
- * it alone lands. Every put moves the upload time, so `uploadedBefore` just
- * past the time read refuses a write over ANY put since the read. Null when
- * the read carries no upload time: nothing then proves the object unchanged,
- * and the caller refuses rather than guess.
+ * THE OBJECT AS READ, AND NO LATER WRITE OF IT (2026-10-15, corrected after
+ * Codex's second review): the etag, and only the etag. R2 gives a matching
+ * `etagMatches` precedence over `uploadedBefore` (Miniflare's validator:
+ * `ifUnmodifiedSince` holds when `etagMatches` is set and matches), so an
+ * upload-time condition beside the etag proves nothing — a rewrite of the
+ * same bytes keeps the etag (the body's MD5) and a stale write lands. What
+ * makes the etag change is the bytes: every guarded write carries its
+ * holder's fence in them (`fenceBytes`), so a new holder's stamp gives every
+ * guarded object an etag no earlier holder has read. Null when the read
+ * carries no etag: nothing then proves the object unchanged.
  */
 function sinceRead(o) {
-  const t = o && o.uploaded instanceof Date ? o.uploaded.getTime() : Number.NaN;
-  if (!o || !o.etag || !Number.isFinite(t)) return null;
-  return { etagMatches: o.etag, uploadedBefore: new Date(t + 1) };
+  if (!o || !o.etag) return null;
+  return { etagMatches: o.etag };
+}
+/**
+ * THE FENCE IN THE BYTES (2026-10-15, after Codex's second review). A
+ * guarded object's body ends with a newline and the holder's fence written
+ * in binary as spaces (0) and tabs (1): whitespace after a JSON value, which
+ * every JSON reader skips, and after the live marker, which is only ever
+ * asked whether it exists. Two holders never write the same bytes, so never
+ * the same etag, and a conditional write keyed on an etag read under an
+ * earlier holder fails on R2 itself — no clock, no second read. `unfence`
+ * takes one such suffix off (a body read back and put again carries one).
+ */
+const FENCE_TAIL = /\n[ \t]+$/;
+const unfence = (text) => String(text).replace(FENCE_TAIL, "");
+function fenceBytes(body, gen) {
+  if (typeof body !== "string") throw new Error("fenced write: a guarded body must be text");
+  const n = Math.floor(Number(gen));
+  if (!Number.isFinite(n) || n < 0) throw new Error("fenced write: no fence to write");
+  return unfence(body) + "\n" + n.toString(2).replace(/0/g, " ").replace(/1/g, "\t");
 }
 function fenceRefused(key) { const e = new Error(TURN_FENCED); e.code = "TURN_FENCED"; e.key = key; return e; }
 const isFenceRefusal = (e) => !!e && e.code === "TURN_FENCED";
@@ -12213,9 +12236,9 @@ async function fencedPut(env, key, body, { contentType = "application/json", onl
       if (onlyIf.etagMatches != null && (!cur || cur.etag !== String(onlyIf.etagMatches))) return null;
       if (onlyIf.etagDoesNotMatch === "*" && cur) return null;
     }
-    if (cur) { cond = sinceRead(cur); if (!cond) throw new Error("fenced write: " + key + " read without its upload time"); }
+    if (cur) { cond = sinceRead(cur); if (!cond) throw new Error("fenced write: " + key + " read without its etag"); }
     else cond = { etagDoesNotMatch: "*" };
-    const put = await env.SITES_BUCKET.put(key, body, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
+    const put = await env.SITES_BUCKET.put(key, fenceBytes(body, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
     if (put) return put;
     if (onlyIf) return null;
   }
@@ -12260,7 +12283,15 @@ async function stampFences(env, slug, fence) {
   };
   absent[siteMetaKey(slug)] = null;
   absent[LIVE_KEY(slug)] = null;
-  for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"], [siteMetaKey(slug), "application/json"], [LIVE_KEY(slug), "text/plain"]]) {
+  // THE EDITABLE COPY TOO (2026-10-15, after Codex's second review): the
+  // source, parts and kit carry the new holder's fence from here, so a stale
+  // holder's write of any of them — read before the turn passed, landed
+  // after — fails on its etag even when the new holder never writes that
+  // key itself. Absent ones stay absent: nothing reads them as anything.
+  absent[SOURCE_KEY(slug)] = null;
+  absent[PARTS_KEY(slug)] = null;
+  absent[KIT_KEY(slug)] = null;
+  for (const [key, contentType] of [[POINTER_KEY(slug), "application/json"], [HEAD_KEY(slug), "application/json"], [CONFIG_KEY(slug), "application/json; charset=utf-8"], [siteMetaKey(slug), "application/json"], [LIVE_KEY(slug), "text/plain"], [SOURCE_KEY(slug), "application/json"], [PARTS_KEY(slug), "application/json"], [KIT_KEY(slug), "application/json"]]) {
     let done = false;
     for (let i = 0; i < 4 && !done; i++) {
       const o = await env.SITES_BUCKET.get(key);
@@ -12269,7 +12300,7 @@ async function stampFences(env, slug, fence) {
         const body = await absent[key]();
         // THE LEGACY READ MAY HAVE WRITTEN IT BACK ITSELF (`loadConfig`'s
         // backfill): created only if still absent, read again otherwise.
-        const put = await env.SITES_BUCKET.put(key, body, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagDoesNotMatch: "*" } });
+        const put = await env.SITES_BUCKET.put(key, fenceBytes(body, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: { etagDoesNotMatch: "*" } });
         if (put) done = true;
         continue;
       }
@@ -12278,8 +12309,10 @@ async function stampFences(env, slug, fence) {
       if (had === fence.gen) { done = true; break; }
       const text = await o.text();
       const cond = sinceRead(o);
-      if (!cond) throw new Error("fence stamp: " + key + " read without its upload time");
-      const put = await env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
+      if (!cond) throw new Error("fence stamp: " + key + " read without its etag");
+      // THE SAME CONTENT, THIS HOLDER'S FENCE IN ITS BYTES: a new etag, so a
+      // write keyed on the etag an earlier holder read fails on R2 itself.
+      const put = await env.SITES_BUCKET.put(key, fenceBytes(text, fence.gen), { httpMetadata: { contentType }, customMetadata: { fence: String(fence.gen) }, onlyIf: cond });
       if (put) done = true;
     }
     if (!done) throw new Error("fence stamp: " + key + " kept changing");
@@ -12303,24 +12336,161 @@ async function scriptStillOurs(env, slug, version, fence) {
     return !!p && p.version === version;
   } catch { return false; }
 }
-/** Upload the stored script of the version the pointer names. `{ aligned, version, why }`. */
+/**
+ * THE SITE'S SCRIPT, UPLOADED FOR A VERSION THE POINTER NAMES, AND THEN MADE
+ * TO FOLLOW THE POINTER (2026-10-15, after Codex's second review). A script
+ * upload is a Cloudflare API call, not an R2 write: it cannot be made
+ * conditional, and a pointer read before it can be stale by the time it
+ * lands — Codex paused B's alignment before its upload, moved the pointer to
+ * C and finished C's, then let B's upload land: both said aligned, the
+ * pointer named C, the live script was B's. No check before an upload closes
+ * that, so the guarantee is made after it, by every uploader:
+ *
+ *  1. A NOTE FIRST (`scriptpending/<slug>/<id>.json`), durable, before the
+ *     upload: whatever happens to this uploader after it, the sweep knows
+ *     the site's script may not be its pointer's.
+ *  2. THE UPLOAD.
+ *  3. THE POINTER READ AGAIN, AND THE LIVE SCRIPT ASKED (`followPointer`):
+ *     when they disagree, the pointer's own staged script goes up, and again,
+ *     up to `SCRIPT_FOLLOW_TRIES` times. Whichever upload lands last was
+ *     followed by its uploader's read of the pointer; a pointer moved after
+ *     that read was moved by a publish whose own upload comes later still.
+ *     So the last uploader to finish leaves the script on the pointer —
+ *     unless it dies first, which the note covers.
+ *  4. THE NOTE TAKEN AWAY only when every upload of this call answered and
+ *     the live script was seen on the pointer. An upload that did not answer
+ *     may still land later (a lost response), so its note is left for the
+ *     sweep, which looks again once it is older than `SCRIPT_PENDING_STALE_MS`.
+ *
+ * Only a publication of a version the pointer names follows it (`version`
+ * given): a legacy restore serves `sites/<slug>/` with the pointer dropped,
+ * and must not be replaced by a pointer's script. What this does not give is
+ * an atomic swap: between a stale upload landing and its uploader's next
+ * read, the site serves the stale version — seconds, bounded by one upload
+ * and one read — and when the uploader dies there, until the sweep's next
+ * tick past the note's age.
+ */
+const SCRIPT_PENDING_PREFIX = "scriptpending/";
+const scriptPendingKey = (slug, id) => SCRIPT_PENDING_PREFIX + slug + "/" + id + ".json";
+const SCRIPT_FOLLOW_TRIES = 4;
+const SCRIPT_PENDING_STALE_MS = 5 * 60 * 1000;
+async function putSiteWorker(env, slug, worker, { version = "" } = {}) {
+  if (!version || !worker || worker.ok !== true || !worker.code) return uploadScriptOnce(env, slug, worker);
+  if (!dispatchCreds(env) || !scriptNameFor(slug)) return uploadScriptOnce(env, slug, worker);
+  const note = scriptPendingKey(slug, crypto.randomUUID());
+  try {
+    await env.SITES_BUCKET.put(note, JSON.stringify({ slug, version, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+  } catch (e) {
+    // NO NOTE, NO UPLOAD: an upload nothing could put right after a death is
+    // the defect this exists for. Said as a refused upload, which every
+    // activation already undoes.
+    console.error("site script: pending note unwritable, nothing uploaded", slug, errorClassForLog(e));
+    return { ok: false, stage: "upload", status: 0, error: "the script's pending note could not be written — nothing was uploaded" };
+  }
+  let first;
+  try { first = await uploadScriptOnce(env, slug, worker); }
+  catch (e) { first = { ok: false, stage: "upload", status: 0, error: String((e && e.message) || e) }; }
+  const follow = await followPointer(env, slug, { version, answered: !!(first && first.ok === true) });
+  if (follow.settled && follow.answered) {
+    try { await env.SITES_BUCKET.delete(note); } catch { /* the sweep takes it */ }
+  }
+  return first && typeof first === "object" ? { ...first, follow } : first;
+}
+/**
+ * READ THE POINTER, ASK THE LIVE SCRIPT, AND PUT THE POINTER'S SCRIPT UP
+ * WHILE THEY DISAGREE. `last` is the upload just made (its version, and
+ * whether it answered). `{ settled, answered, version, uploads, why }`:
+ * settled when the live script was seen on the pointer (or, with no way to
+ * ask it, when the last upload answered for the pointer's version); answered
+ * false when any upload here did not answer — its landing is not known.
+ */
+async function followPointer(env, slug, last = null) {
+  let answered = !last || last.answered === true;
+  let uploads = 0;
+  let lastUp = last && last.version ? { version: last.version, ok: last.answered === true } : null;
+  for (let i = 0; i <= SCRIPT_FOLLOW_TRIES; i++) {
+    let pointer = null;
+    try { pointer = await readPointer(buildDeps(env), slug); } catch { return { settled: false, answered, uploads, why: "pointer" }; }
+    if (!pointer) return { settled: true, answered, uploads, why: "no-pointer" };
+    let liveVersion = null;
+    if (env.SITE_WORKERS) {
+      const live = await probeSiteWorker({ stubFor: (n) => env.SITE_WORKERS.get(n), name: scriptNameFor(slug) });
+      if (live && live.version) liveVersion = live.version;
+    }
+    const onPointer = liveVersion !== null ? liveVersion === pointer.version : !!(lastUp && lastUp.ok && lastUp.version === pointer.version);
+    if (onPointer) return { settled: true, answered, uploads, version: pointer.version, why: "" };
+    // THE POINTER'S OWN VERSION WAS JUST SENT — refused, or accepted and not
+    // yet answering: sending it again at once only repeats that. Left to the
+    // note and the sweep; only a pointer that moved to another version is
+    // followed here.
+    if (lastUp && lastUp.version === pointer.version) return { settled: false, answered: lastUp.ok ? answered : false, uploads, version: pointer.version, why: lastUp.ok ? "not-serving" : "upload" };
+    if (i === SCRIPT_FOLLOW_TRIES) break;
+    let staged = null;
+    try { staged = await readBuild(buildDeps(env), slug, pointer.version); } catch { staged = null; }
+    if (!staged || !staged.worker) return { settled: false, answered, uploads, version: pointer.version, why: "no-script-staged" };
+    let put;
+    try { put = await uploadScriptOnce(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || pointer.build || "") }); }
+    catch (e) { put = { ok: false, status: 0, error: String((e && e.message) || e) }; }
+    if (put === null) return { settled: false, answered, uploads, version: pointer.version, why: "no-dispatch" };
+    uploads++;
+    const ok = !!(put && put.ok === true);
+    if (!ok) answered = false;
+    lastUp = { version: pointer.version, ok };
+    console.log("site script: followed the pointer", slug, pointer.version, ok ? "" : "(upload did not answer)");
+  }
+  return { settled: false, answered, uploads, why: "moving" };
+}
+/** Put the live script on the pointer's version (a takeover, the sweep, a test). `{ aligned, version, why }`. */
 async function alignLiveScript(env, slug) {
-  let pointer = null;
-  try { pointer = await readPointer(buildDeps(env), slug); } catch { return { aligned: false, why: "pointer" }; }
-  if (!pointer) return { aligned: false, why: "no-pointer" };
-  let staged = null;
-  try { staged = await readBuild(buildDeps(env), slug, pointer.version); } catch { staged = null; }
-  if (!staged || !staged.worker) return { aligned: false, version: pointer.version, why: "no-script-staged" };
-  const put = await putSiteWorker(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || pointer.build || "") });
-  const aligned = !!(put && put.ok === true);
-  console.log("site script: aligned to the pointer", slug, pointer.version, aligned ? "" : "(refused)");
-  return { aligned, version: pointer.version, why: aligned ? "" : "upload" };
+  const f = await followPointer(env, slug, null);
+  return { aligned: f.settled === true, version: f.version || "", why: f.settled ? "" : f.why, uploads: f.uploads, answered: f.answered };
+}
+/**
+ * THE SWEEP OF PENDING SCRIPT NOTES (the 2-minute tick): every site with a
+ * note older than `SCRIPT_PENDING_STALE_MS` has its script put on its pointer
+ * (`followPointer`), and the notes it read are taken away only when that
+ * settled with every upload answered. A site whose script cannot be asked or
+ * put right keeps its notes and is looked at again on the next tick. No
+ * customer request is needed for any of it.
+ */
+async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = {}) {
+  if (!env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { sites: 0, settled: 0 };
+  const bySlug = new Map();
+  let cursor;
+  try {
+    for (let page = 0; page < 10; page++) {
+      const r = await env.SITES_BUCKET.list({ prefix: SCRIPT_PENDING_PREFIX, limit: 1000, ...(cursor ? { cursor } : {}) });
+      for (const o of (r && r.objects) || []) {
+        const rest = String(o.key).slice(SCRIPT_PENDING_PREFIX.length);
+        const slug = rest.split("/")[0];
+        const at = o.uploaded instanceof Date ? o.uploaded.getTime() : Number.NaN;
+        if (!slug || !Number.isFinite(at) || now - at < SCRIPT_PENDING_STALE_MS) continue;
+        if (!bySlug.has(slug)) bySlug.set(slug, []);
+        bySlug.get(slug).push(o.key);
+      }
+      if (!r || !r.truncated || !r.cursor) break;
+      cursor = r.cursor;
+    }
+  } catch (e) { console.error("script sweep: the notes could not be listed", errorClassForLog(e)); }
+  let settled = 0, sites = 0;
+  for (const [slug, keys] of bySlug) {
+    if (sites >= maxSites) break;
+    sites++;
+    let f;
+    try { f = await followPointer(env, slug, null); } catch (e) { f = { settled: false, why: errorClassForLog(e) }; }
+    console.log("script sweep:", slug, f.settled && f.answered ? "on its pointer" : "(" + (f.why || "an upload did not answer") + ")", "notes", keys.length);
+    if (f.settled && f.answered) {
+      settled++;
+      try { await env.SITES_BUCKET.delete(keys); } catch { /* the next tick */ }
+    }
+  }
+  return { sites, settled };
 }
 /**
  * The turn's own functions, for the tests that drive a second holder against
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
-export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, alignLiveScript };
+export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -12445,7 +12615,7 @@ function confirmFields(wput) {
   return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
 }
 
-async function putSiteWorker(env, slug, worker) {
+async function uploadScriptOnce(env, slug, worker) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
   //
@@ -14362,11 +14532,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         tm("worker:put", "fail", { why: "turn-lost" });
         return wput;
       }
-      wput = await putSiteWorker(env, slug, built.worker);
-      if (fence && wput && wput.ok === true && !(await scriptStillOurs(env, slug, version, { gen: Number.MAX_SAFE_INTEGER }))) {
-        const al = await alignLiveScript(env, slug);
-        tm("worker:align", al.aligned ? "ok" : "fail", { version: al.version || "", why: al.why || "" });
-      }
+      // AND FOLLOWS THE POINTER after it, whoever moved it (`putSiteWorker`).
+      wput = await putSiteWorker(env, slug, built.worker, { version });
+      if (wput && wput.follow && wput.follow.uploads) tm("worker:align", wput.follow.settled ? "ok" : "fail", { version: wput.follow.version || "", why: wput.follow.why || "" });
       tm("worker:put", wput && (wput.ok === false || wput.uploaded === false) ? "fail" : "ok", { status: (wput && wput.status) || 0 });
       return wput;
     },
@@ -15555,7 +15723,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // nothing serves. Null on a first build, where the undo is a delete.
         previous: before || null,
         sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
-        putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker); return workerUpload; },
+        putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker, { version: bVersion }); return workerUpload; },
         afterActivate: async () => {
           // AND WHETHER THE SOURCE LANDED: a lost source store turns the NEXT
           // revise into a full rewrite from the brief, so the answer rides out
@@ -18090,7 +18258,7 @@ async function retryLostUpload(env, row, facts, out) {
   let staged = null;
   try { staged = await readBuild(buildDeps(env), slug, facts.mine.version); } catch { staged = null; }
   if (!staged || !staged.worker) return { ...out, verdict: "unknown", kind: "no-script-staged", why: "the staged prefix holds no script to upload again" };
-  const put = await putSiteWorker(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || facts.mine.build || "") });
+  const put = await putSiteWorker(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || facts.mine.build || "") }, { version: facts.mine.version });
   if (!put) return { ...out, verdict: "unknown", kind: "no-dispatch", why: "no dispatch credentials to upload the script with" };
   if (put.ok === false) return { ...out, verdict: "unknown", kind: "upload-refused", why: "the upload was refused again: " + String(put.status || 0) + " " + String(put.error || "").slice(0, 120) };
   const live = env.SITE_WORKERS ? await probeSiteWorker({ stubFor: (n2) => env.SITE_WORKERS.get(n2), name: scriptNameFor(slug) }) : null;

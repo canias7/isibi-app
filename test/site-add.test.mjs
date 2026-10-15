@@ -2696,3 +2696,64 @@ test("renderedLinks reads each element's destination and words, skipping comment
   const src = 'export default () => <main><Link to="/a">One <b>two</b></Link>{/* <Link to="/b">no</Link> */}<a href="https://x.example/p">{"Three"}</a><Link to="/c" /></main>';
   assert.deepEqual(RL(src), [{ href: "/a", text: "one two" }, { href: "https://x.example/p", text: "three" }]);
 });
+
+// ── WHAT THE PAGE MOUNTS, AND WHERE A LINK REALLY GOES (2026-10-15, Codex's
+// second review): an unused component holding the line, while the page only
+// renders Home, passed; so did `<a href="/classes" {...{href:"/wrong"}}>`,
+// whose spread wins. Read now: the route's own component and what it
+// renders, and each attribute as it takes effect.
+const LINE_C = "Book a [workshop place](/classes) by Friday.";
+const P_LINE = '<p>Book a <a href="/classes">workshop place</a> by Friday.</p>';
+const landed = (after, words = LINE_C, before = WL_BASE) => WL([{ path: "index.tsx", source: before }], [{ path: "index.tsx", source: after }], [{ page: "/", words }]).ok;
+test("wordsLanded reads only what the page mounts — Codex's unused component fails; a component the page renders, children it is given, and every root form pass", () => {
+  // CODEX'S CASE: the line in a component nothing renders.
+  assert.equal(landed(WL_BASE + "function Unused(){ return " + P_LINE + " }\n"), false, "a component the page never renders answered for the line");
+  assert.equal(landed(WL_BASE + "export function Promo(){ return (" + P_LINE + ") }\n"), false, "an exported component the route does not render answered");
+  assert.equal(landed(WL_BASE + "const promo = " + P_LINE + ";\n"), false, "JSX assigned and never rendered answered");
+  // CONTROLS: the same line where it renders.
+  assert.equal(landed(WL_BASE.replace("</main>", P_LINE + "\n</main>")), true);
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "function Promo(){ return " + P_LINE + " }\n"), true, "a component the page renders did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "const Promo = () => (\n  " + P_LINE + "\n);\n"), true, "an arrow component the page renders did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "const Promo = memo(function Promo(){ return " + P_LINE + " });\n"), true, "a wrapped component did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band({ children }){ return <section className=\"band\">{children}</section> }\n"), true, "children rendered by a component did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band(props){ return <section>{props.children}</section> }\n"), true);
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band(){ return <section>Nothing here</section> }\n"), false, "children a component never renders answered");
+  // WHAT A COMPONENT'S BODY HOLDS BUT DOES NOT RETURN.
+  const HOME_IF = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ if (loading) { return " + P_LINE + " }\n return <main><h1>Fretwork</h1></main> }\n";
+  assert.equal(landed(HOME_IF), false, "an early return behind a condition answered");
+  const HOME_CB = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ const show = () => { return " + P_LINE + " }; return <main><h1>Fretwork</h1></main> }\n";
+  assert.equal(landed(HOME_CB), false, "a callback's return answered for the component's");
+  // EVERY ROOT FORM.
+  assert.equal(landed("export default function Home(){ return <main>" + P_LINE + "</main> }"), true);
+  assert.equal(landed("function Home(){ return <main>" + P_LINE + "</main> }\nexport default Home;"), true);
+  assert.equal(landed("export default () => <main>" + P_LINE + "</main>"), true);
+  assert.equal(landed("export const Route = createFileRoute('/')({ head: () => ({ meta: [] }), component: () => (<main>" + P_LINE + "</main>) })"), true, "an inline route component did not count");
+  assert.equal(landed("export const Route = createFileRoute('/')({ component: RouteComponent })\nconst RouteComponent = (): JSX.Element => {\n  return (\n    <main>" + P_LINE + "</main>\n  );\n};\n"), true, "a typed arrow component did not count");
+  // NO ROOT THIS CAN FIND: nothing vouched for.
+  assert.equal(landed("const x = 1;\nfunction Helper(){ return <main>" + P_LINE + "</main> }"), false, "a page with no root answered");
+  // A COMPONENT THAT RENDERS ITSELF does not loop.
+  assert.equal(landed(WL_BASE.replace("</main>", "<Loop />\n</main>") + "function Loop(){ return <div><Loop /></div> }\n"), false);
+});
+test("wordsLanded reads a link's effective destination — Codex's spread override fails; attributes and spreads take effect in order", () => {
+  const at = (a) => landed(WL_BASE.replace("</main>", "<p>Book a " + a + "workshop place</a> by Friday.</p>\n</main>"));
+  // CODEX'S CASE.
+  assert.equal(at('<a href="/classes" {...{href:"/wrong"}}>'), false, "a spread written after href did not override it");
+  assert.equal(at('<a href="/classes" {...{ "href": "/wrong" }}>'), false);
+  assert.equal(at('<a href="/classes" {...props}>'), false, "an unknown spread after href was vouched for");
+  assert.equal(at('<a href="/classes" {...{href: dest}}>'), false, "a spread of an unknown value was vouched for");
+  assert.equal(at('<a href="/classes" {...{...other}}>'), false);
+  assert.equal(at('<a href="/classes" href="/wrong">'), false, "the last of two hrefs is the one that counts");
+  // CONTROLS: what is written last takes effect.
+  assert.equal(at('<a {...{href:"/wrong"}} href="/classes">'), true, "an href written after the spread is the destination");
+  assert.equal(at('<a {...props} href="/classes">'), true);
+  assert.equal(at('<a href="/classes" {...{className:"underline"}}>'), true, "a spread that writes no href changed the destination");
+  assert.equal(at('<a href="/wrong" {...{href:"/classes"}}>'), true);
+  // A ROUTER LINK: its `to`, after spreads; an `href` beside it that disagrees is unknown.
+  const lk = (a) => landed(WL_BASE.replace("</main>", "<p>Book a " + a + "workshop place</Link> by Friday.</p>\n</main>"));
+  assert.equal(lk('<Link to="/classes" {...{to:"/wrong"}}>'), false);
+  assert.equal(lk('<Link {...{to:"/wrong"}} to="/classes">'), true);
+  assert.equal(lk('<Link to="/classes" href="/wrong">'), false, "a router link whose href disagrees with its to was vouched for");
+  assert.equal(lk('<Link to="/classes" className="u">'), true);
+  // AN ANCHOR GOES WHERE ITS href SAYS, whatever a `to` says.
+  assert.equal(at('<a to="/classes" href="/wrong">'), false, "an anchor's to was read as its destination");
+});
