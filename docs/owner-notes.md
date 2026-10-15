@@ -1,5 +1,209 @@
 # Owner Notes
 
+## 2026-10-15 (after midnight) — Codex's third review: absent keys held in the store, recovery uploads noted, content read along reachable paths (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
+`DRAFT_FIRST` stay off, `supabase/proposed/request_beside.sql` stays
+unapplied, nothing is merged. Draft-first stays with the other chat (see 4).
+
+Codex reviewed `ece810c2` and the integration candidate `800669a9`.
+Integration CI was green there: 11,156 passed, 0 failed, 48 skipped. Its
+focused run passed 125 of 125. Its probes still reproduced three defect
+groups, all fixed here.
+
+**Commits:**
+- `45c163d3`: the three fixes and their tests.
+- `6c492b16`: a store without `head` is read with `get`, and one source
+  guard is re-anchored. The full suite on `45c163d3` failed 54 tests: 46
+  from test stores without `head`, the rest from one guard.
+
+### 1. Absent keys and rollback deletes
+
+**Reproduced (Codex, now TA3 and TA4).** `kit.json` and `drafts/<slug>.json`
+start absent. A pauses inside its fenced write, right before its
+create-if-absent. A's turn lapses, and B takes it and completes its takeover,
+whose stamp skipped absent keys. A resumes and its create lands, carrying
+A's older fence.
+
+**Now — absence is stored.**
+- A takeover writes every absent guarded key in a held form, under its own
+  fence: the head marker, sidecar, source, parts, kit and draft record. The
+  held form is `{"held":"absent"}` with metadata `held: absent`. A stale
+  create then meets an object and the store refuses it.
+- Every reader takes the held form as no object: source, parts, kit, head,
+  draft record, the sidecar readers, and the owner panels through
+  `sidecarOf`.
+- A holder's own "only if absent" write goes ahead on the held object's
+  etag, fenced or not.
+- A restamp keeps the held metadata.
+
+**Now — no read-then-delete.**
+- The sidecar's undo holds the key absent (`holdAbsent`) on the etag it read.
+- A first pointer's undo writes `POINTER_NONE` on its own put's etag.
+- A write landed between the read and the undo is now kept by the store
+  (RW1, RW2).
+
+**The live marker is the exception.** Every site script, the ones already
+deployed included, only asks whether `site.live` exists, so a held marker
+would read as live.
+- It is created only after the activation's own script answered, and only
+  when absent.
+- It is never rewritten and never undone (RW3).
+- A first site whose marker cannot be created is told as not served (RW4).
+- So the only stale write it can meet is a create of a marker whose pointer
+  already names a published version.
+
+### 2. Recovery uploads are themselves recoverable
+
+**Reproduced (Codex, now TJ1).** B and C were staged with C live and the
+pointer at B. The alignment uploaded B, and the pointer moved back to C
+before B took effect. The repair stopped, leaving pointer C, live script B
+and no note. The sweep ten minutes later answered `{sites:0}`.
+
+**Now:**
+- **Notes.** Every upload the follow makes carries a durable note written
+  before it (`noteBeforeUpload`): for an alignment, the takeover repair, the
+  sweep and a publication alike. A note is taken away only when the follow
+  settled with every upload answered. The sweep's own uploads are covered by
+  the notes it read, which stay until it settles.
+- **Settling.** After uploading another version than the pointer's, the
+  follow always uploads the pointer's own version, even when the probe
+  already shows it. A script does not serve the moment its upload is
+  accepted, so the earlier upload could still take effect; an upload sent
+  after its answer is ordered after it.
+- **Test fixture.** It now models an accepted upload that is not yet
+  serving (`deferLanding`).
+
+**Tests:**
+- TJ1: Codex's case.
+- TJ2–TJ4: lost answers and deaths at an alignment and at the takeover
+  repair.
+- TJ5–TJ6: the sweep's own upload, answer lost or not yet serving.
+- TJ7: a publication's delayed upload after an earlier reconciliation.
+
+**This is eventual correction, not atomic publication.** Visitors can be
+served the previous version for about one upload plus one read, or until
+the 2-minute sweep after a death or a lost answer (notes older than 5
+minutes). The bound assumes an upload the API accepted takes effect within
+that window.
+
+### 3. Content verification follows execution
+
+**Reproduced (Codex, through the exported function).** `wordsLanded`
+returned ok for:
+- `if(false) return <line>;`
+- a second return after an unconditional first;
+- children handed to an imported component whose rendering is unknown.
+
+**Now — what a component can output.**
+- Each component's reachable outputs are alternatives (`outputPaths`).
+- Returns under `if (false)`, or after an unconditional return, are dropped.
+- Returns behind an unknown condition, a loop, a `switch` or a `try` are one
+  possible output each.
+- A body that can end without a return renders nothing on that path.
+
+**Now — how a line is counted.**
+- A line counts only where every alternative renders it.
+- "Before the change" uses the most any alternative could show.
+
+**Now — children and imports.**
+- A component renders its children only where its parameters show it: a
+  destructured `children`, `x.children`, or a props spread onto an element
+  with no written children.
+- An imported component is read from the site's stored parts and kit, which
+  the add-on route now passes. Anything else counts as not rendering them.
+
+**Tests:** 2 groups in `test/site-add.test.mjs`. Codex's three cases fail.
+The positive controls pass: a line in every output, `if (true)`, a stored
+part that renders its children, and the kit's `React.forwardRef` card with
+a props spread.
+
+### 4. Draft-first handoff (unchanged ownership)
+
+Draft-first stays with the other chat; nothing was added to it here. What
+these corrections changed under it is written for that chat in
+`docs/history/2026-10-15-draft-first.md` §5:
+- the draft record can be held absent (`readDraft` handles it);
+- the live marker is written after the script answered;
+- every script upload is noted, and publication is eventual, not atomic;
+- undo holds a key absent rather than deleting it.
+
+### 5. Test process and exact results
+
+- **Red check on the old code (`ece810c2`).** Test-only shims supplied the
+  new exports. All 16 new tests fail there for the reported reasons
+  (TA3–TA5, TJ1–TJ7, RW1–RW4, and both wordsLanded groups); RW5 and TA6 were
+  added after the sweep.
+- **Mutation sweep.**
+  - First pass: 18 of 23 mutants killed.
+  - Three survivors exposed real test gaps: the holder's create over a held
+    key, held metadata on a restamp, and the undo of a held key. TA6 and RW5
+    were added, the guard on held metadata tightened, and those three
+    mutants are now killed.
+  - Two were equivalent. One is the live-marker rewrite, which the
+    conditional create already refuses. The other was the unreadable
+    parameter branch, now removed as redundant.
+  - Result: 21 of 21 non-equivalent killed. The comment-only control
+    survived, and the md5 of every file matched after restore.
+- **Focused runs:**
+  - 167 of 167 across turn-fence, publish-integrity, site-add, site-draft,
+    site-builds and r2-conditions;
+  - 1,392 of 1,392 across the 60 add-on-related files.
+- **Full suite locally:**
+  - on `45c163d3`, 11,086 tests: 11,032 pass, 54 fail, all fixed in
+    `6c492b16`;
+  - on `6c492b16`, 11,086 of 11,086 pass.
+- **CI:**
+  - `45c163d3`: unit tests run 38810045259 failed (the same cause);
+  - `6c492b16`: unit tests run 38811169965 and site build run 38811169977,
+    both success.
+- **Integration candidate** `claude/help-needed-ehlwlj-integration` at
+  `0b8a363e`: `6c492b16` merged onto `800669a9`. Main is unchanged at
+  `772bb885`, so the assistant and audio/video work is kept, and there were
+  no conflicts. Full suite locally: 11,222 tests, 11,221 pass, 1 fail; the failure is the `no-generated-deps` artifact from my local `node_modules` link, and that file passes 2 of 2 without it. CI: unit tests run 38813210929 and site build run 38813210948, both success.
+- **Image predictions (not built):**
+  - help-needed `6c492b16`: `d4cc3e9cf7831427` (209 inputs);
+  - integration `0b8a363e`: `fec941389635d906` (211 inputs);
+  - main `772bb885`: `712a579f8e81a3bb`.
+
+| Item | Implemented | Locally verified | CI verified | Live verified |
+|---|---|---|---|---|
+| Absent guarded keys held at takeover; holder writes over them | yes | yes (red check, sweep) | yes | no |
+| Undo without delete (held form, empty pointer) | yes | yes | yes | no |
+| Live marker after the script, never undone | yes | yes | yes | no |
+| Note before every follow, alignment, repair and sweep upload | yes | yes | yes | no |
+| Pointer's own upload after another version's | yes | yes | yes | no |
+| wordsLanded: reachable outputs, all-paths counting, imports from stored files | yes | yes | yes | no |
+| Integration with main | merged on a separate branch | yes (1 local-link artifact) | yes (`0b8a363e`) | no |
+
+### 6. Remaining limitations
+
+- **The live marker's absence is not held** (deployed scripts read it by
+  existence). Its safety rests on two things: creation only after the
+  creator's script answered, and the pointer never returning to empty once
+  it names a version. Owner actions outside the turn — take offline, delete
+  site — are not fenced. A stale holder could recreate the live marker,
+  sidecar or other keys after such an action.
+- **Eventual, not atomic.** Script publication can lag the pointer by about
+  one upload plus one read, or by up to the sweep's 5-minute age after a
+  death or lost answer. It assumes an accepted upload takes effect within
+  that window, and the follow depends on the live script answering its
+  version probe.
+- **wordsLanded is stricter now.** A line is not verified, so the add-on is
+  refused as not landed, when:
+  - a page has an early return such as a loading state that lacks the line;
+  - the words sit only inside an imported component whose file is not in
+    the site's stored parts or kit — a kit component the site has never
+    stored, a package component, or a namespace import such as `UI.Card`;
+  - a component renders its children through anything but a destructured
+    `children`, `x.children` or a props spread.
+
+  More than 32 alternative outputs read as unknown. Whether these refusals
+  happen in practice is not measured live.
+- **Not live verified.** Nothing here has run against real R2, Workers or a
+  deployed Worker.
+
+
 ## 2026-10-15 (late night) — R2's real conditions, the script following the pointer, mounted content; draft-first handed to another chat (branch only)
 
 **Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
