@@ -21533,6 +21533,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // (2026-10-02, the review of batch 2): this is the answer the customer
         // reads after a 202, and it names the parts as the inline reply would.
         ...resumeHeld(claimed),
+        ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
@@ -21626,6 +21627,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...(rk.billing ? { billing: true } : {}),
         // AND ON A FAILURE TOO: the parts were put off, and nothing tried them.
         ...resumeHeld(claimed),
+        ...resumeMedia(claimed),
         // AND WHAT THE FIRST INVOCATION READ (2026-10-08, the sixth batch):
         // a failed resume still owes the customer which links were used —
         // and (the seventh batch) where its pictures got to, when the
@@ -21734,6 +21736,19 @@ const BUILD_HELD = new WeakMap();
 function resumeHeld(record) {
   const d = deferredOf(record && record.deferred);
   return d === undefined ? {} : { deferred: d };
+}
+
+// WHAT A RESUME RECORD SAYS BECAME OF THE OWNER'S VIDEO AND AUDIO (2026-10-15,
+// the combined candidate): `media` and the one fixed line for a file that could
+// not be moved, as the inline answer carries them; nothing for a record that
+// names none, so an answer without drafts is exactly as it was. Before this, a
+// build that fired its generation — the container path — moved the drafts and
+// then said nothing of them on the answer the page reads.
+function resumeMedia(record) {
+  const m = record && record.media;
+  if (!m || typeof m !== "object") return {};
+  const note = mediaErrorNote(m);
+  return { media: { placed: m.placed || [], missing: m.missing || [] }, ...(note ? { contextNote: note } : {}) };
 }
 
 // THE PARTS A REWRITE TAKES OUT OF ITS MESSAGE — one reading, for the build
@@ -23943,6 +23958,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // of batch 2). The answer the customer finally reads is written by
             // a later invocation, which has only this record to say it from.
             deferred: bHeld.parts.slice(),
+            // WHERE THE OWNER'S VIDEO AND AUDIO WENT (2026-10-15, the combined
+            // candidate): the answer the page follows is written by the resume.
+            media: { placed: bMedia.placed.map((f) => ({ name: f.name, url: f.url, kind: f.kind })), missing: bMedia.missing },
           })));
           stored = true;
         } catch (e) {

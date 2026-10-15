@@ -1700,6 +1700,53 @@ test("RC 27 — A SEND THAT ASKS TO BE ANSWERED AT ONCE (accept: early) gets a 2
   await settlePost(b2, held);
 });
 
+test("RC 27b — THE COMBINED CANDIDATE (2026-10-15, main 8e24ca5b + new 22779ea5): a send answered early that carries video and audio drafts — the drafts ride the queued job, the real consumer moves them into the new site's library, and the final answer the browser follows by its poll names where they went", async () => {
+  // main's early answer (`accept: "early"`) and new's draft move (`media`)
+  // were each tested alone; this is the one path where they meet. The page's
+  // own send carries both (public/chat.js, the build body).
+  const name = "c".repeat(32) + ".webm";
+  const draft = "drafts/" + BUILD_USER.id + "/" + name;
+  const b = buildBucket({ [draft]: "a small video" });
+  const q = queue();
+  const gone = "f".repeat(32) + ".mp3";
+  const early = await call(b, q, stand(), "POST", "/api/site/react-build", { body: { brief: BRIEF, images: [], picker: "sonnet", qa: [], chat: CHAT, accept: "early", media: [name, gone] } });
+  assert.equal(early.status, 202, JSON.stringify(early.body));
+  assert.equal(early.body.stage, "accepted");
+  const job = early.body.job;
+  // THE QUEUED JOB CARRIES THE DRAFTS: the consumer runs the body the send sent.
+  const env = JSON.parse(b.store.get(jobKey(job)));
+  assert.deepEqual(JSON.parse(env.body).media, [name, gone], "the queued job lost the drafts");
+  assert.ok(b.store.has(draft), "the draft moved before the build ran");
+  // THE REAL CONSUMER, on that very envelope, then its resume.
+  const led = ledger();
+  await fireInterim(b, job, led, { design: GOOD_DESIGN, keepJob: true });
+  await finishResume(b, job, led, { credits: 400, source: page() });
+  // MOVED: into the new site's library, out of the drafts.
+  assert.ok(b.store.has("uploads/" + GOOD_DESIGN.slug + "/" + name), "the draft did not move into the new site's library");
+  assert.equal(b.store.has(draft), false, "the draft was kept after it moved");
+  // AND THE ANSWER THE PAGE FOLLOWS SAYS SO, whole.
+  const polled = await call(b, q, stand({ rows: { [job]: { state: "done" } } }), "GET", "/api/site/build/" + job);
+  assert.equal(polled.status, 200, JSON.stringify(polled.body).slice(0, 300));
+  assert.equal(polled.body.slug, GOOD_DESIGN.slug);
+  assert.equal(polled.body.resumed, "finish", "this case did not take the fired path it is about");
+  assert.deepEqual(polled.body.media && polled.body.media.placed, [{ name, url: "/u/" + GOOD_DESIGN.slug + "/" + name, kind: "video" }], "the followed answer does not say where the file went: " + JSON.stringify(polled.body.media));
+  assert.deepEqual(polled.body.media.missing, [{ name: gone, why: "it was no longer kept" }]);
+  assert.equal(polled.body.contextNote, 'Not added to your site\'s file library: "' + gone + '" (it was no longer kept).');
+});
+
+test("RC 27c — A FIRED BUILD WITH NO DRAFTS says nothing of media: the resume's answer has no `media` and no media note, as before", async () => {
+  const b = buildBucket();
+  const q = queue();
+  const early = await call(b, q, stand(), "POST", "/api/site/react-build", { body: { brief: BRIEF, images: [], picker: "sonnet", qa: [], chat: CHAT, accept: "early" } });
+  const led = ledger();
+  await fireInterim(b, early.body.job, led, { design: GOOD_DESIGN, keepJob: true });
+  await finishResume(b, early.body.job, led, { credits: 400, source: page() });
+  const polled = await call(b, q, stand({ rows: { [early.body.job]: { state: "done" } } }), "GET", "/api/site/build/" + early.body.job);
+  assert.equal(polled.body.resumed, "finish");
+  assert.equal(polled.body.media, undefined);
+  assert.equal(polled.body.contextNote, undefined);
+});
+
 test("RC 28 — THE LINES TO THE END: a finished build's final answer carries the lines read while it ran — on the first read that collects the slot, on the kept answer a later session reads, and in the account's list once it is done; another account's record gives none", async () => {
   const b = buildBucket();
   const q = queue();

@@ -450,7 +450,7 @@ export function readGenReport(raw) {
  * shape that already has one, and the day they disagree the resume refuses a
  * design that is perfectly good.
  */
-export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, steps, design, deferred }) {
+export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, steps, design, deferred, media }) {
   return {
     v: RESUME_VERSION,
     kind: RESUME_KIND,
@@ -501,6 +501,10 @@ export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, 
     // re-packs the record it read), and OPTIONAL: a record written before this
     // has none and resumes exactly as it did.
     deferred: normalizeDeferred(deferred),
+    // WHAT BECAME OF THE OWNER'S VIDEO AND AUDIO DRAFTS (2026-10-15, the
+    // combined candidate): moved into the library before the build fired, and
+    // said on the answer a later invocation writes, as `deferred` is.
+    media: normalizeMedia(media),
   };
 }
 
@@ -512,6 +516,29 @@ export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, 
  * something. The Worker writes it from the parts the build really took out
  * (`heldParts`), already read.
  */
+/**
+ * THE MEDIA OUTCOME A RESUME CARRIES: `{ placed: [{name, url, kind}], missing:
+ * [{name, why}] }`, each list at most 20, every field a short string; anything
+ * else is dropped rather than coerced. Empty on both sides reads as none.
+ */
+const MAX_RESUME_MEDIA = 20;
+export function normalizeMedia(m) {
+  const str = (v, n) => (typeof v === "string" && v.length <= n ? v : null);
+  const placed = [];
+  const missing = [];
+  if (m && typeof m === "object" && !Array.isArray(m)) {
+    for (const f of Array.isArray(m.placed) ? m.placed.slice(0, MAX_RESUME_MEDIA) : []) {
+      const name = f && str(f.name, 200), url = f && str(f.url, 400), kind = f && str(f.kind, 20);
+      if (name && url && kind) placed.push({ name, url, kind });
+    }
+    for (const f of Array.isArray(m.missing) ? m.missing.slice(0, MAX_RESUME_MEDIA) : []) {
+      const name = f && str(f.name, 200), why = f && str(f.why, 200);
+      if (name) missing.push({ name, why: why || "it could not be moved" });
+    }
+  }
+  return placed.length || missing.length ? { placed, missing } : undefined;
+}
+
 function normalizeDeferred(list) {
   if (!Array.isArray(list)) return [];
   const out = [];
@@ -609,6 +636,8 @@ export function readResume(raw) {
     // NARROWED ON THE WAY OUT TOO, and absent reads as none: a record written
     // before the field existed resumes and names nothing, as it always did.
     deferred: normalizeDeferred(raw.deferred),
+    // ABSENT READS AS NONE: a record written before the field resumes as before.
+    media: normalizeMedia(raw.media),
   };
 }
 
