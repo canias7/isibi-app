@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -176,7 +176,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
-import { checksOf, readChecks } from "./builder/check-evidence.mjs";
+import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
@@ -1446,7 +1446,9 @@ async function readCapped(resp, maxBytes) {
 export default {
   async fetch(request, env, ctx) {
     const resp = harden(await handleRequest(request, env, ctx), request);
-    try { const m = new URL(request.url).pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\//); if (m) recordSiteHit(env, ctx, m[1].toLowerCase(), resp.status); } catch {}
+    // A DRAFT'S PREVIEW IS NOT TRAFFIC (draft-first, 2026-10-15): its reads
+    // are never counted in the site's own metrics table.
+    try { const u = new URL(request.url); const m = u.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\//); if (m && !previewOf(siteHostSlug(u.hostname) || "")) recordSiteHit(env, ctx, m[1].toLowerCase(), resp.status); } catch {}
     return resp;
   },
   // Cron trigger (see wrangler.jsonc): the platform's own housekeeping — the
@@ -12205,6 +12207,8 @@ function draftFacts(slug, version, act) {
   const label = previewLabel(slug, token);
   return {
     version, published: false,
+    // THE REVISION THIS TASK SAVED (draft-first, 2026-10-15): what Publish names.
+    revision: Number.isSafeInteger(act && act.revision) ? act.revision : 0,
     preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
     previewUploaded: !!(act && act.previewed && act.previewed.ok === true),
   };
@@ -12221,50 +12225,422 @@ async function runningForSite(env, uid, slug) {
     return Array.isArray(rows) ? rows.filter((x) => !x || !["done", "failed", "cancelled", "lost"].includes(x.state)).length : null;
   } catch { return null; }
 }
+// ── HELD CHANGES ON A PUBLISHED SITE (draft-first, 2026-10-15) ──────────────
+//
+// The owner: *"every builder-made change to a site must save to a persistent
+// draft and appear in the builder's preview. Visitors keep seeing the last
+// published version until the owner explicitly clicks Publish."* The code of
+// a change is a staged version (`saveAsDraft`). What a task changes in the
+// site's DATABASE and LIBRARY on a site visitors already use is HELD here —
+// the schema, scheduled jobs, starter rows, row changes, a file replaced or
+// taken off — read back by the next task and the preview as if made, and
+// applied to the live site only by the owner's Publish (`applyHeldPlan`).
+// Before a site's first publication nothing is live to protect: a task writes
+// its database directly, scheduled jobs excepted (they run by themselves).
+
+/** Is a version of this site live (a pointer stands)? When it cannot be told: true — hold rather than write live. */
+async function siteIsLive(env, slug) {
+  try { return !!(await readPointer(buildDeps(env), slug)); } catch { return true; }
+}
+
+/** What `applySiteSchema` would have answered, for a schema held instead: every declared table, named. */
+function heldMade(spec) {
+  const made = ((spec && spec.tables) || []).map((t) => t && String(t.name || "")).filter(Boolean);
+  made.functions = ((spec && spec.functions) || []).map((f) => f && String(f.name || "").toLowerCase()).filter(Boolean);
+  made.held = true;
+  return made;
+}
+
 /**
- * PUBLISH: THE ONE DOOR TO THE LIVE SITE under draft-first (owner,
- * 2026-10-15). The owner names the version they approved — the draft they
- * saw, or an earlier saved draft — and exactly that staged build becomes
- * live: the pointer, the sidecar, the live marker and its own script, through
- * the same activation every publish used, keyed on the pointer's etag and
- * followed by the script-follows-pointer guarantee. Staged builds never
- * change, so a task still running or an edit made after the click is a later
- * draft and cannot slip in. The editable copy is NOT touched: it holds the
- * draft, which may already be newer than what was approved.
+ * ONE TASK'S BACKEND WRITER. Off draft-first every call writes live, exactly
+ * as the call it stands in for. Under it, on a live site, the schema, the
+ * starter rows and row changes are held in `hold`; jobs are held whenever
+ * draft-first is on. `holding` says which.
  */
-async function publishDraft(env, slug, version) {
+async function backendWriter(env, slug) {
+  const on = draftFirst(env);
+  const live = on ? await siteIsLive(env, slug) : false;
+  const hold = on ? newHold(buildDeps(env), slug) : null;
+  const holding = on && live;
+  const w = {
+    on, holding, hold,
+    async schema(conn, schemaSpec) {
+      if (holding) { hold.add({ kind: "schema", spec: schemaSpec }); return heldMade(schemaSpec); }
+      return applySiteSchema(conn, schemaSpec);
+    },
+    async jobs(uid, jobs) {
+      if (on) { hold.add({ kind: "jobs", jobs: Array.isArray(jobs) ? jobs : [] }); return { held: true }; }
+      return persistSiteJobs(env, uid, slug, jobs);
+    },
+    async seed(conn, schemaSpec, seed) {
+      if (holding) {
+        hold.add({ kind: "seed", spec: schemaSpec, seed: seed && typeof seed === "object" ? seed : {} });
+        const seeded = {};
+        for (const [t, rows] of Object.entries(seed && typeof seed === "object" ? seed : {})) if (Array.isArray(rows) && rows.length) seeded[t] = rows.length;
+        return { seeded, skipped: [], rows: {}, held: true };
+      }
+      return seedSiteRows(conn, schemaSpec, seed);
+    },
+  };
+  // THE SAME THREE NAMES, THE SAME ARGUMENTS: a route binds them from its
+  // writer (`const { applySiteSchema, … } = writer.calls`), so its calls read
+  // exactly as before and go through the writer.
+  w.calls = {
+    applySiteSchema: (conn, schemaSpec) => w.schema(conn, schemaSpec),
+    seedSiteRows: (conn, schemaSpec, seed) => w.seed(conn, schemaSpec, seed),
+    persistSiteJobs: (_env, uid, _slug, jobs) => w.jobs(uid, jobs),
+  };
+  return w;
+}
+
+/**
+ * WHAT THE NEXT TASK READS: the draft and its unpublished held changes, or
+ * `null` off draft-first or with no draft. Throws when the draft or a journal
+ * it names cannot be read: a task never acts on the live state in its place.
+ */
+async function draftView(env, slug) {
+  if (!draftFirst(env) || !env.SITES_BUCKET) return null;
   const deps = buildDeps(env);
+  const { draft } = await readDraft(deps, slug);
+  if (!draft) return null;
+  return { draft, ops: await unpublishedOps(deps, slug, draft) };
+}
+
+/**
+ * A TASK THAT CHANGED ONLY HELD THINGS (a data or rules edit, a pageless
+ * addition, a library change) saves them as a revision of their own on the
+ * draft's code. `{ ok, revision }`; nothing held is `{ ok: true, revision: 0 }`.
+ */
+async function sealHeld(env, slug, writer, { job = null } = {}) {
+  if (!writer || !writer.hold || writer.hold.empty) return { ok: true, revision: 0 };
+  const deps = buildDeps(env);
+  let liveVersion = "";
+  try { const p = await readPointer(deps, slug); liveVersion = p ? p.version : ""; } catch { /* the draft names one */ }
+  try {
+    const ref = await writer.hold.flush();
+    const r = await sealHeldRevision(deps, slug, { held: ref, job, liveVersion });
+    if (!r.ok) return { ok: false, error: r.error };
+    return { ok: true, revision: r.revision };
+  } catch (e) {
+    console.error("draft: held changes could not be saved", slug, errorClassForLog(e));
+    return { ok: false, error: "held" };
+  }
+}
+
+/**
+ * A LIBRARY FILE TAKEN OFF: held in the draft on a published site under
+ * draft-first (the live pages keep it until Publish; the preview no longer
+ * serves it), otherwise done now by `now`. Answers the route's `{status, body}`.
+ */
+async function heldDeleteOr(env, slug, op, now) {
+  if (!(draftFirst(env) && await siteIsLive(env, slug))) return now();
+  const w = await backendWriter(env, slug);
+  w.hold.add(op);
+  const sealed = await sealHeld(env, slug, w, {});
+  if (!sealed.ok) return { status: 503, body: { error: "couldn't save that to your draft just now — try again", code: "draft", retry: true } };
+  return { status: 200, body: { ok: true, held: true, draft: heldDraft(sealed.revision) } };
+}
+
+/**
+ * WHAT A HELD-ONLY ANSWER CARRIES (`draft`): saved to the draft as this
+ * revision, not published. Not a `checks` block — nothing was compiled.
+ */
+function heldDraft(revision) {
+  return { published: false, held: true, revision, said: DRAFT_SAID };
+}
+
+// ── THE OWNER'S PUBLISH ──────────────────────────────────────────────────────
+const PUBLISH_LOCK_MS = 10 * 60 * 1000;
+/**
+ * ONE PUBLICATION AT A TIME PER SITE. `{ ok, id }`; a second click on the same
+ * revision while it runs is `{ ok: false, status: 202, publishing: true }`, a
+ * click on another revision `409`. A lock older than `PUBLISH_LOCK_MS` belongs
+ * to a publication that died; it is taken over (its work is resumable).
+ */
+async function takePublishLock(env, slug, n) {
+  const B = env.SITES_BUCKET;
+  const id = crypto.randomUUID();
+  const body = JSON.stringify({ n, id, at: Date.now() });
+  const opts = (onlyIf) => ({ httpMetadata: { contentType: "application/json" }, onlyIf });
+  if (await B.put(PUBLISHING_KEY(slug), body, opts({ etagDoesNotMatch: "*" }))) return { ok: true, id };
+  const cur = await B.get(PUBLISHING_KEY(slug));
+  if (!cur) return { ok: false, status: 409, error: "another publication just finished — look again and press Publish if you still want to" };
+  let held = null;
+  try { held = JSON.parse(await cur.text()); } catch { held = null; }
+  const fresh = held && Number(held.at) > Date.now() - PUBLISH_LOCK_MS;
+  if (fresh) {
+    return held.n === n
+      ? { ok: false, status: 202, publishing: true, error: "that revision is already being published" }
+      : { ok: false, status: 409, error: "another revision is being published right now — wait for it to finish" };
+  }
+  if (await B.put(PUBLISHING_KEY(slug), body, opts({ etagMatches: cur.etag }))) return { ok: true, id, tookOver: true };
+  return { ok: false, status: 409, error: "another publication just started — wait for it to finish" };
+}
+async function releasePublishLock(env, slug, lock) {
+  try {
+    const cur = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
+    if (!cur) return;
+    const held = JSON.parse(await cur.text());
+    if (held && held.id === lock.id) await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug));
+  } catch (e) { console.error("publish lock not released (it expires):", slug, errorClassForLog(e)); }
+}
+/** The publication in progress, or null. */
+async function publishingNow(env, slug) {
+  try {
+    const cur = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
+    if (!cur) return null;
+    const held = JSON.parse(await cur.text());
+    return held && Number(held.at) > Date.now() - PUBLISH_LOCK_MS ? { revision: held.n } : null;
+  } catch { return null; }
+}
+
+/**
+ * APPLY THE HELD CHANGES OF A PUBLICATION to the live database and library,
+ * in an order that can be repeated: the schema (re-emitted whole, `IF NOT
+ * EXISTS`), the jobs (written over by name), the starter rows (a table is
+ * seeded only while empty), each change to an existing row (an UPDATE or a
+ * DELETE by id, the same result twice), the new rows in ONE statement beside
+ * a `_meta` key for this publication (`rowsInsert`: a second run collides on
+ * the key and rolls back, and the first run's ids are read from it), then the
+ * library. `{ ok, refs }` or `{ ok: false, stage, error }` — a stop leaves
+ * what came before it applied, and Publish pressed again finishes the rest.
+ */
+async function applyHeldPlan(env, slug, plan, { uid = "", mark = "" } = {}) {
+  // THE SAME WRITER, WITH THE SWITCH OFF: the one place the real schema,
+  // seed and job calls are made is `backendWriter`.
+  const live = (await backendWriter({ ...env, DRAFT_FIRST: "" }, slug)).calls;
+  const wantsDb = !!(plan.spec || plan.seeds.length || plan.changes.length || plan.inserts.length);
+  let db = null;
+  if (wantsDb) {
+    db = await siteBackendBySlug(env, slug);
+    if (!db) {
+      const back = await siteBackendDetail(env, slug);
+      if (!back.conn) return { ok: false, stage: "database", error: "the site's database could not be reached" };
+      db = back.conn;
+    }
+  }
+  if (plan.spec) {
+    try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); }
+    catch (e) { return { ok: false, stage: "schema", error: errorClassForLog(e) }; }
+  }
+  if (plan.jobs) {
+    try { if (plan.jobs.length) await live.persistSiteJobs(env, uid, slug, plan.jobs); }
+    catch (e) { return { ok: false, stage: "jobs", error: errorClassForLog(e) }; }
+  }
+  for (const sd of plan.seeds) {
+    try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); }
+    catch (e) { return { ok: false, stage: "seed", error: errorClassForLog(e) }; }
+  }
+  for (const c of plan.changes) {
+    const name = String(c.table).replace(/"/g, "");
+    try {
+      if (c.op === "remove") await sqlQuery(db, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
+      else {
+        const cols = Object.keys(c.values || {});
+        if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
+      }
+    } catch (e) { return { ok: false, stage: "rows", error: errorClassForLog(e) }; }
+  }
+  const refs = {};
+  if (plan.inserts.length) {
+    const key = "draft-publish:" + mark;
+    const rowsOf = (list) => { for (const r of list || []) { const i = Number(r.n); const row = typeof r.row === "string" ? JSON.parse(r.row) : r.row; if (plan.inserts[i] && row && Number.isSafeInteger(row.id)) refs[plan.inserts[i].ref] = row.id; } };
+    try {
+      const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
+      rowsOf(await sqlQuery(db, st.sql, st.params));
+    } catch (e) {
+      // ALREADY IN: this publication's key stands — a click that finished the
+      // rows and stopped later. Its ids are read from the key.
+      if (!(e && e.code === "23505")) return { ok: false, stage: "rows", error: errorClassForLog(e) };
+      try {
+        const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
+        const v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
+        rowsOf(v && Array.isArray(v.rows) ? v.rows.map((r) => ({ n: r.n, row: r.row })) : []);
+      } catch (e2) { return { ok: false, stage: "rows", error: errorClassForLog(e2) }; }
+    }
+  }
+  for (const m of plan.media) {
+    const r = await applyHeldMedia(env, slug, m, { uid });
+    if (!r.ok) return { ok: false, stage: "library", error: r.error };
+  }
+  return { ok: true, refs };
+}
+
+/** One held library change, made live. Each is safe to repeat. */
+async function applyHeldMedia(env, slug, m, { uid = "" } = {}) {
+  const B = env.SITES_BUCKET;
+  const scope = siteScope(slug);
+  const deps = mediaDeps(env, { scope, slug, who: uid, gate: async () => ({}) });
+  try {
+    if (m.kind === "media-replace") {
+      // THE NEW BYTES TO THE OLD ADDRESS, then the stand-in name taken off. A
+      // repeat finds the stand-in gone and the address already holding them.
+      const src = await B.get(uploadKey(slug, m.with));
+      if (src) {
+        await B.put(uploadKey(slug, m.name), src.body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
+        const del = await handleMediaDelete(deps, { scope, name: m.with });
+        if (del && del.status && del.status >= 500) return { ok: false, error: "the replaced file's stand-in could not be taken off" };
+      }
+      return { ok: true };
+    }
+    if (m.kind === "media-delete") {
+      const del = await handleMediaDelete(deps, { scope, name: m.name });
+      if (del && del.status && del.status >= 500) return { ok: false, error: "a file could not be taken off" };
+      return { ok: true };
+    }
+    if (m.kind === "upload-delete") {
+      if (!/^[a-f0-9]{1,32}\.[a-z0-9]{2,5}$/.test(String(m.file || ""))) return { ok: true };
+      await B.delete(uploadKey(slug, m.file));
+      return { ok: true };
+    }
+  } catch (e) { return { ok: false, error: errorClassForLog(e) }; }
+  return { ok: true };
+}
+
+/**
+ * PUBLISH EXACTLY THE REVISION THE OWNER APPROVED (draft-first, 2026-10-15).
+ *
+ * The click names a revision (and its version, a cross-check); nothing newer
+ * is reached for. Only the owner's own route calls this — no task, retry,
+ * recovery, reconnect or background completion can. In order:
+ *   1. the revision is one the draft record holds, and its build is complete;
+ *   2. one publication at a time (`takePublishLock`): a second click on the
+ *      same revision is told it is under way;
+ *   3. the held changes of every unpublished revision up to and including it
+ *      are applied to the live database and library (`applyHeldPlan`);
+ *   4. its version is activated through the same conditional activation,
+ *      the script following the pointer;
+ *   5. the draft record says it is published (`applied`).
+ * A stop at any step answers what stopped, and Publish pressed again finishes
+ * it. Staged builds never change, so a task still running, or an edit made
+ * after, is a later revision and cannot slip in. The editable copy is not
+ * touched: it holds the draft, which may already be newer than what was
+ * approved.
+ */
+async function publishDraft(env, slug, pick, { uid = "" } = {}) {
+  const deps = buildDeps(env);
+  if (typeof pick === "string") pick = { version: pick };
   let draft = null;
   try { draft = (await readDraft(deps, slug)).draft; }
   catch { return { ok: false, status: 503, error: "the draft could not be read — nothing was published" }; }
-  if (!publishable(draft, version)) return { ok: false, status: 409, error: "that version is not a saved draft of this site — nothing was published" };
+  const c = chooseRevision(draft, pick || {});
+  if (!c.ok) return { ok: false, status: c.status, error: c.error };
+  const rev = c.rev;
+  const version = rev.version;
+  if (c.already) return { ok: true, version, revision: rev.n, already: true };
   let b = null;
   try { b = await readBuild(deps, slug, version); } catch { b = null; }
   if (!b || b.manifest.worker !== true || !b.worker) return { ok: false, status: 409, error: "that draft's build is not complete — nothing was published" };
-  let before = null; let beforeTag = null;
-  try { const t = await readPointerTag(deps, slug); before = t.pointer; beforeTag = t.etag; }
-  catch { return { ok: false, status: 503, error: "the site's pointer could not be read — try again in a moment" }; }
-  if (before && before.version === version) return { ok: true, version, already: true };
-  let wput = null;
-  const act = await activateBuild(deps, {
-    slug, version, build: b.manifest.build || "", parent: before ? before.version : "", job: null,
-    expectEtag: beforeTag, previous: before || null,
-    sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
-    liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
-    putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version }); return wput; },
-  });
-  _pointerCache.delete(slug);
-  if (!act.ok) return { ok: false, status: 409, error: act.error === "superseded" ? "the site changed while publishing — try again" : "publish failed: " + act.error };
-  return { ok: true, version, uploaded: act.uploaded, worker: wput && wput.ok === false ? { uploaded: false, status: wput.status } : undefined };
+  const lock = await takePublishLock(env, slug, rev.n);
+  if (!lock.ok) return { ok: false, status: lock.status, error: lock.error, publishing: lock.publishing === true };
+  try {
+    let range;
+    try { range = await heldRange(deps, slug, draft, { from: draft.applied, to: rev.n }); }
+    catch { return { ok: false, status: 503, error: "the draft's held changes could not be read — nothing was published" }; }
+    const pl = publishPlan(range.flatMap((r) => r.ops), { refs: draft.refs });
+    if (!pl.ok) return { ok: false, status: 409, error: pl.error + " — nothing was published" };
+    const back = await applyHeldPlan(env, slug, pl.plan, { uid, mark: (draft.preview || slug) + ":" + rev.n });
+    if (!back.ok) {
+      console.error("publish: held changes stopped", slug, rev.n, back.stage, back.error);
+      return { ok: false, status: 502, stage: back.stage, error: "publishing stopped while applying the " + back.stage + " changes — press Publish again to finish; the site's pages are unchanged" };
+    }
+    let before = null; let beforeTag = null;
+    try { const t = await readPointerTag(deps, slug); before = t.pointer; beforeTag = t.etag; }
+    catch { return { ok: false, status: 503, stage: "pages", error: "the site's pointer could not be read — press Publish again to finish" }; }
+    let wput = null; let uploaded = false;
+    if (!before || before.version !== version) {
+      const act = await activateBuild(deps, {
+        slug, version, build: b.manifest.build || "", parent: before ? before.version : "", job: null,
+        expectEtag: beforeTag, previous: before || null,
+        sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
+        liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+        putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version }); return wput; },
+      });
+      _pointerCache.delete(slug);
+      if (!act.ok) {
+        console.error("publish: activation stopped", slug, rev.n, act.error);
+        return { ok: false, status: 409, stage: "pages", error: act.error === "superseded"
+          ? "the site changed while publishing — press Publish again to finish"
+          : "the new version didn't go live (" + String(act.error) + ") — your live site still shows the previous version; press Publish again to finish" };
+      }
+      uploaded = act.uploaded;
+    }
+    const m = await markApplied(deps, slug, { revision: rev.n, refs: back.refs });
+    if (!m.ok) console.error("publish: the draft record could not be marked published", slug, rev.n, m.error);
+    return { ok: true, version, revision: rev.n, uploaded, worker: wput && wput.ok === false ? { uploaded: false, status: wput.status } : undefined };
+  } finally { await releasePublishLock(env, slug, lock); }
 }
 
-/** Serve a draft's preview: the token checked against the draft record, the draft's own script asked. */
-async function servePreview(env, request, url, pv) {
+/**
+ * Serve a draft's preview: the token checked against the draft record, the
+ * draft's own script asked — and, since the draft-first round (2026-10-15),
+ * the site's own `/api/` and `/u/` answered for the DRAFT and never written
+ * through:
+ *   - `/u/<slug>/<file>`: the library as the draft has it — a file replaced
+ *     in the draft serves its new bytes, a file taken off answers 404;
+ *   - `GET /api/db/<slug>/data/<table>`: the live rows with the draft's held
+ *     row changes and starter rows applied (`rowsOverlay`);
+ *   - everything else under `/api/` — a write, a checkout, a sign-in, a
+ *     function call, an upload, a form, a hook — answers 403 `preview`:
+ *     nothing done in the preview reaches the live database, a payment, a
+ *     message or a visitor's account.
+ */
+async function servePreview(env, request, url, pv, ctx) {
   const no = () => new Response("Not found", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
   if (!env.SITE_WORKERS || !env.SITES_BUCKET) return no();
   let draft = null;
   try { draft = (await readDraft(buildDeps(env), pv.slug)).draft; } catch { return no(); }
   if (!draft || !draft.preview || draft.preview !== pv.token) return no();
+  const path = url.pathname;
+  if (path.startsWith("/api/") || UPLOAD_URL_PATH.test(path)) {
+    const shut = (why) => Response.json({ error: "preview", message: why }, { status: 403, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    let ops = [];
+    try { ops = await unpublishedOps(buildDeps(env), pv.slug, draft); } catch { return Response.json({ error: "the draft could not be read" }, { status: 503, headers: { "cache-control": "no-store" } }); }
+    const um = path.match(UPLOAD_URL_PATH);
+    if (um) {
+      if (um[1].toLowerCase() !== pv.slug) return no();
+      if (request.method !== "GET" && request.method !== "HEAD") return shut("The preview only shows the site.");
+      let file = um[2].toLowerCase();
+      for (const o of ops) {
+        if ((o.kind === "media-delete" && o.name === file) || (o.kind === "upload-delete" && o.file === file)) return no();
+        if (o.kind === "media-replace" && o.name === file) file = o.with;
+      }
+      // THE PLATFORM'S OWN `/u/` ROUTE, asked on the app's address for the draft's file.
+      const res = await handleRequest(new Request("https://" + APP_ZONE + "/u/" + pv.slug + "/" + file, { method: request.method, headers: request.headers }), env, ctx);
+      const h = new Headers(res.headers);
+      h.set("cache-control", "no-store");
+      return new Response(res.body, { status: res.status, headers: h });
+    }
+    const dm = path.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
+    if (!dm || dm[1].toLowerCase() !== pv.slug || request.method !== "GET" || /^rpc\//i.test(dm[2])) {
+      return shut("This is a preview: it shows the site, and nothing done here is saved or sent.");
+    }
+    const hit = _dataLimiter.hit(bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug: pv.slug, table: "data", method: "GET" }), DATA_PROXY_PER_MIN);
+    if (!hit.ok) { const t = tooMany(hit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
+    const table = dm[2].split("/")[0];
+    // NO PREFER, NO SINGLE OBJECT: the preview asks for the list and overlays it.
+    const ask = new Request(request.url, { method: "GET", headers: (() => { const h = new Headers(request.headers); h.delete("accept"); h.delete("prefer"); h.delete(PREVIEW_HEADER); return h; })() });
+    const live = await proxySiteService(env, ask, url, pv.slug, dm[2], "data", ctx);
+    const touches = ops.some((o) => (o.kind === "row" && o.table === table) || (o.kind === "seed" && o.seed && Array.isArray(o.seed[table])));
+    if (!touches) {
+      const h = new Headers(live.headers); h.set("cache-control", "no-store");
+      return new Response(live.body, { status: live.status, headers: h });
+    }
+    let rows = null; let exists = true;
+    if (live.ok) { try { const j = await live.json(); rows = Array.isArray(j) ? j : null; } catch { rows = null; } }
+    else {
+      // A TABLE THE DRAFT ADDS AND THE LIVE DATABASE DOES NOT HAVE YET: only
+      // the data service's own "no such table" reads as one — any other
+      // failure is passed on as it came, never shown as an empty list.
+      let j = null;
+      try { j = await live.clone().json(); } catch { j = null; }
+      const missing = j && (j.code === "42P01" || j.code === "PGRST205" || /does not exist|could not find the table/i.test(String(j.message || "")));
+      if (!missing) { const h = new Headers(live.headers); h.set("cache-control", "no-store"); return new Response(live.body, { status: live.status, headers: h }); }
+      rows = []; exists = false;
+    }
+    if (!rows) return Response.json({ error: "couldn't read that just now" }, { status: 503, headers: { "cache-control": "no-store" } });
+    return Response.json(rowsOverlay(table, rows, ops, { tableExists: exists }).rows, { headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+  }
   const fwd = new Request(url.toString(), request);
   try { fwd.headers.set(PREVIEW_HEADER, "1"); } catch { return no(); }
   let res;
@@ -12888,6 +13264,8 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * The turn's own functions, for the tests that drive a second holder against
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
+/** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
+export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, applyHeldPlan, siteIsLive, heldDeleteOr };
 export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -13999,12 +14377,12 @@ async function publishBeside(env, opts) {
   }
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, held = null, charges = null }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
   if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
-    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, models, charge, charges });
+    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, models, charge, charges, held });
   }
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
@@ -14898,6 +15276,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   act = await activateBuild(adeps, {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
     asDraft: toDraft ? saveAsDraft : null,
+    // THE TASK'S HELD BACKEND AND LIBRARY CHANGES ride its draft revision.
+    held: toDraft ? held : null,
     base: pointerBefore ? pointerBefore.version : "",
     preview: toDraft ? () => uploadScriptOnce(env, slug, built.worker, { preview: true }) : undefined,
     expectEtag: pointerTag,
@@ -15213,7 +15593,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -15435,6 +15815,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       return n;
     } catch { return 0; }
   };
+  // SAVED TO THE DRAFT, NOT PUBLISHED (draft-first): what the activation
+  // said, carried onto this build's answer so the page and the reply can say so.
+  let bDraftSaved = null;
   const out = await publishPages({
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
@@ -16133,6 +16516,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const act = await activateBuild(buildDeps(env), {
         // A BUILD IS SAVED AS A DRAFT TOO (draft-first): the owner publishes it.
         asDraft: toDraft ? saveAsDraft : null,
+        held: toDraft ? held : null,
         base: before ? before.version : "",
         preview: toDraft ? () => uploadScriptOnce(env, slug, worker, { preview: true }) : undefined,
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
@@ -16184,7 +16568,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       catch (e) { console.error("prune failed:", slug, e && e.message); }
       // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence —
       // or, under draft-first, which version was saved as the draft.
-      return { files: staged.files, version: bVersion, draft: act.draft === true ? draftFacts(slug, bVersion, act) : undefined };
+      bDraftSaved = act.draft === true ? draftFacts(slug, bVersion, act) : null;
+      return { files: staged.files, version: bVersion, draft: bDraftSaved || undefined };
     },
     // THE RAW ANSWER, BEFORE ANYTHING JUDGES IT — see the call site in
     // publish-pages.mjs for why this is not in the failure branches. Its own key,
@@ -16281,6 +16666,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // describing one that was never served would aim the next edit at elements
   // nobody can see.
   if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks);
+  if (out && bDraftSaved) out.draft = bDraftSaved;
   return out;
 }
 
@@ -24051,6 +24437,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // database — so a path where the two disagree cannot send `null` into
       // `neon()`, which answers with a sentence about `[object Object]` and
       // reads as a schema-engine failure.
+      // DRAFT-FIRST (2026-10-15): a revise of a published site holds its
+      // schema and starter rows in the draft — the live site keeps its own
+      // until Publish — and every build holds its scheduled jobs, which would
+      // otherwise start running before anything is published.
+      const bWriter = await backendWriter(env, slug);
+      // THIS BUILD'S BACKEND WRITES GO THROUGH ITS WRITER: the same names, the same arguments.
+      const { applySiteSchema, seedSiteRows, persistSiteJobs } = bWriter.calls;
       let made = null;
       try {
         if (db) made = await applySiteSchema(db, spec);
@@ -24104,7 +24497,6 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         if (seeded && Object.keys(seeded.seeded).length) console.log("seeded:", slug, JSON.stringify(seeded.seeded));
         if (seeded && seeded.skipped.length) console.log("seed skipped:", slug, JSON.stringify(seeded.skipped.slice(0, 6)));
       } catch (e) { console.error("seeding failed:", slug, e && (e.detail || e.message)); }
-
       // Write the site's pages against the schema that was just created, compile
       // them, and publish the dist. The database is already live at this point, so
       // this stage cannot fail the build — it either publishes the real app or
@@ -24514,6 +24906,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             throw err;
           }
           buildArgs = {
+            // THE DRAFT'S HELD CHANGES (draft-first): they ride the revision
+            // this build saves — here as the hold itself, and on a resume as
+            // the `{ id, ops }` its record kept, written then if not yet.
+            held: bWriter.hold && !bWriter.hold.empty ? bWriter.hold : null,
             // The linked pages and the researched facts ride on the brief, which
             // both model calls already take — so neither had to learn a new
             // shape. `briefForPages` composes the revise anchor first; the
@@ -25498,7 +25894,7 @@ async function handleRequest(request, env, ctx) {
     // and only with the token the draft record holds.
     {
       const pv = previewOf(siteHostSlug(url.hostname) || "");
-      if (pv) return servePreview(env, request, url, pv);
+      if (pv) return servePreview(env, request, url, pv, ctx);
     }
     let zoneSlug = siteHostSlug(url.hostname);
     // ── A RENAMED SITE ANSWERS AT BOTH ADDRESSES ────────────────────────────
@@ -26802,7 +27198,9 @@ async function handleRequest(request, env, ctx) {
         if (!r.ok) throw 0;
         let paid = false;
         try { paid = p && p.ok ? (await p.json()) === true : false; } catch {}
-        return Response.json({ balance: Number(await r.json()), paid });
+        // `draftFirst` (2026-10-15): whether a task's work is saved to a draft
+        // that only Publish releases — the page words its labels by it.
+        return Response.json({ balance: Number(await r.json()), paid, draftFirst: draftFirst(env) });
       } catch {
         return Response.json({ error: "credits unavailable" }, { status: 503 });
       }
@@ -31895,6 +32293,18 @@ async function handleRequest(request, env, ctx) {
               //       is the rung that changes words, for ~1 credit.
               //   unreadable → said, at no cost. Ours, and nothing a rewrite of
               //       the pages touches.
+              // DRAFT-FIRST (2026-10-15): on a published site the rows this
+              // step changes are HELD in the draft — read back here by the next
+              // task, shown in the preview, applied only by Publish. The draft
+              // and its held changes are read first; a draft that cannot be
+              // read stops the step rather than act on the live rows.
+              const dWriter = await backendWriter(env, ownerSlug);
+              let dView = null;
+              if (dWriter.on) {
+                try { dView = await draftView(env, ownerSlug); }
+                catch (e) { console.error("data edit: draft unreadable", ownerSlug, errorClassForLog(e)); return explain("data/backend-unreadable", {}, { backend: "draft" }); }
+              }
+              const dTemp = new Map();
               let ddb = await siteBackendBySlug(env, ownerSlug);
               let dResolved = false;
               if (!ddb) {
@@ -31947,6 +32357,8 @@ async function handleRequest(request, env, ctx) {
               // enquiries — the visitor's data, not the owner's content — and
               // "cancel John's booking" is not a sentence to hand a model. The
               // Data panel is where those are changed, with the row on screen.
+              // THE SCHEMA AS THE DRAFT HAS IT: a held change to it is read here.
+              if (dView) dSpec = specOverlay(dSpec, dView.ops);
               const dTables = [];
               for (const t of (dSpec.tables || [])) {
                 if (!t || !t.name) continue;
@@ -31966,9 +32378,19 @@ async function handleRequest(request, env, ctx) {
                 const cols = (Array.isArray(t.columns) ? t.columns : [])
                   .map((c) => (typeof c === "string" ? c : c && c.name)).filter(Boolean);
                 try {
-                  const rows = await sqlQuery(ddb, "SELECT * FROM \"" + String(t.name).replace(/"/g, "") + "\" ORDER BY id LIMIT " + MAX_DATA_ROWS);
+                  let rows = await sqlQuery(ddb, "SELECT * FROM \"" + String(t.name).replace(/"/g, "") + "\" ORDER BY id LIMIT " + MAX_DATA_ROWS);
+                  // THE ROWS AS THE DRAFT HAS THEM: held changes applied, a
+                  // held new row by a negative id that leads back to it.
+                  if (dView) { const ov = rowsOverlay(t.name, rows || [], dView.ops); rows = ov.rows; dTemp.set(t.name, ov.tempRefs); }
                   dTables.push({ name: t.name, columns: cols, rows: rows || [] });
-                } catch (e) { console.error("data edit row read failed:", ownerSlug, t.name, e && e.message); }
+                } catch (e) {
+                  // A TABLE HELD IN THE DRAFT AND NOT YET LIVE reads as its held rows.
+                  if (dView && dView.ops.some((o) => (o.kind === "row" && o.table === t.name) || (o.kind === "seed" && o.seed && Array.isArray(o.seed[t.name])))) {
+                    const ov = rowsOverlay(t.name, [], dView.ops, { tableExists: false });
+                    dTemp.set(t.name, ov.tempRefs);
+                    dTables.push({ name: t.name, columns: cols, rows: ov.rows });
+                  } else console.error("data edit row read failed:", ownerSlug, t.name, e && e.message);
+                }
               }
 
               // WHAT THE PAGE OFFERS TO PUT BACK, CHECKED AGAINST THE ROWS AS
@@ -32010,6 +32432,23 @@ async function handleRequest(request, env, ctx) {
                 apply: async (c) => {
                   const name = String(c.table).replace(/"/g, "");
                   const row = (rows) => (Array.isArray(rows) && rows[0] && typeof rows[0] === "object" && !Array.isArray(rows[0]) ? rows[0] : null);
+                  // HELD, NOT WRITTEN (draft-first, a published site): the
+                  // change goes into the draft, and what it answers is the row
+                  // as the draft now has it.
+                  if (dWriter.holding) {
+                    const shown = dTables.find((t) => t.name === c.table);
+                    const was = shown ? shown.rows.find((r) => Number(r.id) === Number(c.id)) : null;
+                    const ref = c.id !== undefined && Number(c.id) < 0 ? (dTemp.get(c.table) || new Map()).get(Number(c.id)) : null;
+                    const target = ref ? { ref } : { id: c.id };
+                    if (c.remove) { if (!was) return false; dWriter.hold.add({ kind: "row", table: c.table, op: "remove", ...target }); return true; }
+                    if (c.id === undefined) {
+                      const op = dWriter.hold.add({ kind: "row", table: c.table, op: "insert", values: { ...c.values } });
+                      return { ...c.values, id: null, held: op.ref };
+                    }
+                    if (!was) return false;
+                    dWriter.hold.add({ kind: "row", table: c.table, op: "update", ...target, values: { ...c.values } });
+                    return { ...was, ...c.values };
+                  }
                   // A REMOVAL. The id has already been checked against the rows
                   // the model was shown, so it cannot name one it never saw.
                   if (c.remove) {
@@ -32074,6 +32513,14 @@ async function handleRequest(request, env, ctx) {
               // an order lives in the page source, so it needs the container.
               // Skipped entirely when nothing was reordered, which is every
               // ordinary data edit.
+              // THE HELD ROWS ARE THIS TASK'S REVISION OF THE DRAFT, saved
+              // before anything is said of them. A save that failed is said:
+              // the change is not in the draft.
+              let dSealed = { ok: true, revision: 0 };
+              if (dWriter.holding) {
+                dSealed = await sealHeld(env, ownerSlug, dWriter, { job: eJob ? String(eJob.id) : null });
+                if (!dSealed.ok) return Response.json({ ok: false, error: "draft", ours: true, cost: dBilled ? dCost : await eCharge(dOut.usage), usage: dOut.usage, msg: "I couldn't save that change to your draft just now, so nothing changed — try again in a moment." }, { status: 503 });
+              }
               let dPub = null;
               if (dOut.sortPages) {
                 dPub = await publishStep(env, {
@@ -32108,6 +32555,7 @@ async function handleRequest(request, env, ctx) {
                 files: dPub ? dPub.files : undefined,
                 render: dPub ? dPub.render : undefined,
                 renderNote: dPub ? dPub.renderNote : undefined, checks: dPub ? dPub.checks : undefined,
+                draft: dSealed.revision ? heldDraft(dSealed.revision) : undefined,
                 // `was` RIDES BACK ON A REMOVAL, and it is the only undo a
                 // deleted row has: pages are archived on every publish and can
                 // be restored, rows are not. With the contents in the thread,
@@ -32262,7 +32710,18 @@ async function handleRequest(request, env, ctx) {
               // somebody's stored schema as a side effect of reading it would
               // be a write nobody asked for, on the money path.
               const rRead = await specForAddon(rdb);
-              const rSpec = rRead.spec;
+              // DRAFT-FIRST (2026-10-15): the rules as the draft has them, and
+              // a rule on a published site held for Publish — a rule changes
+              // what visitors' submissions do the moment it is applied.
+              const rWriter = await backendWriter(env, ownerSlug);
+              let rView = null;
+              if (rWriter.on) {
+                try { rView = await draftView(env, ownerSlug); }
+                catch (e) { console.error("rules edit: draft unreadable", ownerSlug, errorClassForLog(e)); return Response.json({ status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: "draft", unchanged: true, msg: "I couldn't read your draft just now, so nothing changed — try again in a moment." }, { status: 503 }); }
+              }
+              const rSpec = rView && rRead.ok ? specOverlay(rRead.spec, rView.ops) : rRead.spec;
+              // THIS RULE'S SCHEMA WRITE GOES THROUGH ITS WRITER: the same name, the same arguments.
+              const { applySiteSchema } = rWriter.calls;
               if (!rRead.ok) {
                 console.error("rules edit schema read failed:", ownerSlug, rRead.why);
                 return eAnswer({
@@ -32333,9 +32792,16 @@ async function handleRequest(request, env, ctx) {
                 // a rule needs a table, and making one is that step's.
                 return escalate("no-tables", { layer: "addon" });
               }
+              // THE HELD RULE IS THIS TASK'S REVISION OF THE DRAFT.
+              let rSealed = { ok: true, revision: 0 };
+              if (rWriter.holding) {
+                rSealed = await sealHeld(env, ownerSlug, rWriter, { job: eJob ? String(eJob.id) : null });
+                if (!rSealed.ok) return Response.json({ ok: false, error: "draft", ours: true, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage, msg: "I couldn't save that change to your draft just now, so nothing changed — try again in a moment." }, { status: 503 });
+              }
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
                 msg: rOut.msg, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
+                draft: rSealed.revision ? heldDraft(rSealed.revision) : undefined,
               });
             }
             if (eLayer === "rename") {
@@ -36162,6 +36628,20 @@ async function handleRequest(request, env, ctx) {
               aMark("backend", "healed", { ref: aHealedRef ? 1 : 0 });
             }
 
+            // DRAFT-FIRST (2026-10-15): on a published site this addition's
+            // schema, jobs, starter rows and entries are HELD in the draft and
+            // ride its revision; the stored schema it designs against is the
+            // draft's. A draft that cannot be read stops the step.
+            const aWriter = await backendWriter(env, ownerSlug);
+            // THIS TASK'S BACKEND WRITES GO THROUGH ITS WRITER: the names below
+            // are the writer's, with the same arguments.
+            const { applySiteSchema, seedSiteRows, persistSiteJobs } = aWriter.calls;
+            let aPagelessRevision = 0;
+            let aDraftView = null;
+            if (aWriter.on) {
+              try { aDraftView = await draftView(env, ownerSlug); }
+              catch (e) { console.error("addon: draft unreadable", ownerSlug, errorClassForLog(e)); return aFailure("no-meta"); }
+            }
             let aLook = null, aCss = "", aSpec = null, aRecovered = [];
             // `{ tables: [] }` IS TRUE IN EXACTLY ONE STATE and this is it: no
             // database recorded AND no project row, which is every frontend-only
@@ -36190,7 +36670,7 @@ async function handleRequest(request, env, ctx) {
                 // Those three used to be one throw and then one inference.
                 const stored = await specForAddon(adb);
                 if (!stored.ok) throw new Error("schema read: " + stored.why + (stored.tables ? " " + JSON.stringify(stored.tables) : ""));
-                aSpec = stored.spec;
+                aSpec = aDraftView ? specOverlay(stored.spec, aDraftView.ops) : stored.spec;
                 aRecovered = stored.recovered || [];
                 if (aRecovered.length) aMark("backend", "recovered", { tables: aRecovered.length });
               }
@@ -36550,7 +37030,7 @@ async function handleRequest(request, env, ctx) {
             // entry's table, its own id and the row as stored, never the
             // request's wording. `added: []` and no publish: the pages read the
             // list as it stands, so the entry is on them already.
-            const aRowsReply = (saved, { repeat = false, cost = 0, skipped = [] } = {}) => Response.json({
+            const aRowsReply = (saved, { repeat = false, cost = 0, skipped = [], draft = undefined } = {}) => Response.json({
               ok: true,
               kinds: ["row"],
               rows: saved,
@@ -36558,6 +37038,8 @@ async function handleRequest(request, env, ctx) {
               notAdded: skipped.length ? skipped : undefined,
               added: [], changed: [], removed: [], moved: [],
               cost,
+              // SAVED TO THE DRAFT, NOT LIVE (draft-first): the entry is held.
+              draft,
             });
             // ── AN OUTCOME THIS STEP CANNOT SEE (2026-10-01, the reviews of
             //    f6532d66 and 31741f6f) ──────────────────────────────────
@@ -36796,6 +37278,21 @@ async function handleRequest(request, env, ctx) {
                   ok: false, error: "row-unprotected", cost: 0, ours: true,
                   msg: "I couldn't start saving that entry safely just now, so nothing was added and you won't be charged for it. Try again in a moment.",
                 }, { status: 503 });
+              }
+              // HELD, NOT WRITTEN, on a published site under draft-first: the
+              // entries are this task's revision of the draft; the live list
+              // is unchanged until Publish.
+              if (aWriter.holding) {
+                for (const r of rowClean.value) aWriter.hold.add({ kind: "row", table: r.table, op: "insert", values: { ...r.values } });
+                const sealed = await sealHeld(env, ownerSlug, aWriter, { job: aJob ? String(aJob.id) : null });
+                if (!sealed.ok) {
+                  return Response.json({ ok: false, error: "draft", cost: 0, ours: true, msg: "I couldn't save that entry to your draft just now, so nothing was added and you won't be charged for it. Try again in a moment." }, { status: 503 });
+                }
+                if (aJob) await aRowCommitted();
+                else rowCost = await aCharge(rowBill);
+                aMark("add:row", "ok", { rows: rowClean.value.length, held: sealed.revision });
+                const labelOf = (v) => { for (const x of Object.values(v || {})) if (typeof x === "string" && x.trim()) return x.trim().slice(0, 80); return ""; };
+                return aRowsReply(rowClean.value.map((r) => ({ table: r.table, id: null, label: labelOf(r.values), row: { ...r.values }, held: true })), { cost: rowCost, skipped: rowSkipped, draft: heldDraft(sealed.revision) });
               }
               const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: aJob ? rowCost : null } : null);
               let rowSaved = null, rowLost = "";
@@ -38644,7 +39141,7 @@ async function handleRequest(request, env, ctx) {
                   // "made a bookings table" for a booking table the site has had
                   // since it was built.
                   aTables = folded.added;
-                  aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
+                  aSpec = aWriter.holding ? merged : (await loadSiteSchema(adb).catch(() => null)) || merged;
                   aSpecHad = null;
                 } catch (e) {
                   // `failed`: nothing activated, the refund clean — the seam
@@ -38853,6 +39350,12 @@ async function handleRequest(request, env, ctx) {
                 // before the error is not known, and the answer says so.
                 if (!ap.ok) return aFail({ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap.detail, migration: migrationSummary(aMigration) }, 502, { database: "unknown" });
                 aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied", { publish: { ok: true, pageless: true } })) || aMigration;
+                // A PAGELESS ADDITION'S HELD CHANGES are its own revision of the draft.
+                if (aWriter.hold && !aWriter.hold.empty) {
+                  const sealed = await sealHeld(env, ownerSlug, aWriter, { job: aJob ? String(aJob.id) : null });
+                  if (!sealed.ok) return aFail({ ok: false, error: "draft", cost: 0, ours: true, msg: "I couldn't save that change to your draft just now, so nothing changed — try again in a moment." }, 503, { database: "unchanged" });
+                  aPagelessRevision = sealed.revision;
+                }
                 // THE STORED COVERAGE, RE-WRITTEN OVER THE APPLIED RESULT
                 // (owner, 2026-09-14). The write above the loop was decided
                 // against an empty `made`; this one is decided against what
@@ -38890,6 +39393,7 @@ async function handleRequest(request, env, ctx) {
                 provisioned: aProvisioned || undefined,
                 migration: migrationSummary(aMigration),
                 cost: aCostNow,
+                draft: aPagelessRevision ? heldDraft(aPagelessRevision) : undefined,
               });
             }
 
@@ -40493,6 +40997,8 @@ async function handleRequest(request, env, ctx) {
               models: aModels,
               // AND THE FUNNEL THAT CALL IS CHARGED THROUGH (run 39), above.
               charge: aChargeLangs,
+              // THE HELD BACKEND CHANGES (draft-first): this revision's, with its pages.
+              held: aWriter.hold,
             });
             aMark("publish:1", aPub && aPub.ok ? "ok" : "fail", { error: aPub && aPub.error, repair: aRepairRound ? (aRepairRound.why || aRepairRound.failed || aRepairRound.repaired.length) : undefined });
             // A FAILED COMPILE LEAVES THE LIVE SITE ALONE. Not escalated: the
@@ -41376,9 +41882,19 @@ async function handleRequest(request, env, ctx) {
               try { draft = (await readDraft(buildDeps(env), ownerSlug)).draft; } catch { return null; }
               try { live = await readPointer(buildDeps(env), ownerSlug); } catch { return null; }
               const running = await runningForSite(env, ou.id, ownerSlug);
-              const st = draftState({ draft, live, running: running || 0 });
+              const publishing = await publishingNow(env, ownerSlug);
+              const st = draftState({ draft, live, running: running || 0, publishing });
               const label = draft ? previewLabel(ownerSlug, draft.preview) : "";
-              return { ...st, runningKnown: running !== null, enabled: draftFirst(env), preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null, saved: draft ? draft.history.concat(draft.version) : [] };
+              // EVERY UNPUBLISHED REVISION, newest last: what the Publish panel
+              // shows and what a click may name. A revision's code is ready
+              // when its version's build is complete.
+              const revisions = draft ? draft.revs.filter((r) => r.n > draft.applied).map((r) => ({ revision: r.n, version: r.version, at: r.at, held: r.ops })) : [];
+              return {
+                ...st, runningKnown: running !== null, enabled: draftFirst(env),
+                preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
+                saved: draft ? draft.history.concat(draft.version) : [],
+                revisions, publishing: publishing ? publishing.revision : null,
+              };
             };
             if (dr && request.method === "GET") {
               const st = await readState();
@@ -41386,12 +41902,15 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true, ...st });
             }
             if (pb && request.method === "POST") {
+              // THE OWNER'S CLICK, AND ONLY IT: a revision (and its version, a
+              // cross-check) the Publish panel showed. Never "the latest".
               const pbody = await request.json().catch(() => ({}));
               const version = pbody && typeof pbody.version === "string" ? pbody.version : "";
-              if (!version) return Response.json({ ok: false, error: "name the version to publish" }, { status: 400 });
-              const r = await publishDraft(env, ownerSlug, version);
-              if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: r.status || 409 });
-              return Response.json({ ok: true, published: r.version, already: r.already === true, worker: r.worker, state: await readState() });
+              const revision = pbody && Number.isSafeInteger(pbody.revision) ? pbody.revision : null;
+              if (!version && revision === null) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
+              const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
+              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, publishing: r.publishing === true, state: await readState() }, { status: r.status || 409 });
+              return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, state: await readState() });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }
@@ -42421,7 +42940,26 @@ async function handleRequest(request, env, ctx) {
               remove: (key) => env.SITES_BUCKET.delete(key),
             };
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
-            if (request.method === "GET" && !uf[2]) r = await handleUploadList({ ...udeps, mediaLimits: mediaLimits(env) }, { slug: uslug, uid: ou.id });
+            if (request.method === "GET" && !uf[2]) {
+              r = await handleUploadList({ ...udeps, mediaLimits: mediaLimits(env) }, { slug: uslug, uid: ou.id });
+              // WHAT THE DRAFT WILL DO TO THE LIBRARY AT PUBLISH (draft-first):
+              // a file held for removal says so; a file held as another's new
+              // bytes names the file it replaces. The live site is as listed.
+              if (draftFirst(env) && r && r.status === 200 && r.body && Array.isArray(r.body.files)) {
+                let ops = [];
+                try { const v = await draftView(env, uslug); ops = v ? v.ops : []; } catch { ops = []; }
+                if (ops.length) {
+                  const off = new Set(ops.filter((o) => o.kind === "media-delete" || o.kind === "upload-delete").map((o) => o.name || o.file));
+                  const stand = new Map(ops.filter((o) => o.kind === "media-replace").map((o) => [o.with, o.name]));
+                  r = { ...r, body: { ...r.body, files: r.body.files.map((f) => {
+                    const n = String((f && f.name) || "");
+                    if (off.has(n)) return { ...f, draft: "remove" };
+                    if (stand.has(n)) return { ...f, draft: "replaces", replaces: stand.get(n) };
+                    return f;
+                  }) } };
+                }
+              }
+            }
             else if (request.method === "DELETE" && uf[2] && isMediaName(uf[2].toLowerCase())) {
               // ── A VIDEO OR A RECORDING A PAGE PLAYS IS NOT DELETED UNASKED
               //    (2026-10-14) ──────────────────────────────────────────────
@@ -42439,10 +42977,23 @@ async function handleRequest(request, env, ctx) {
                 // replacement's close are one sequence, never a race.
                 r = using.length
                   ? { status: 409, body: { error: "a page plays this file", code: "in_use", pages: using } }
-                  : await handleMediaDelete(mediaDeps(env, { scope: siteScope(uslug), slug: uslug, who: ou.id, gate: async () => ({}) }), { scope: siteScope(uslug), name: uf[2].toLowerCase() });
+                  : await heldDeleteOr(env, uslug, { kind: "media-delete", name: uf[2].toLowerCase() }, () => handleMediaDelete(mediaDeps(env, { scope: siteScope(uslug), slug: uslug, who: ou.id, gate: async () => ({}) }), { scope: siteScope(uslug), name: uf[2].toLowerCase() }));
               }
             }
-            else if (request.method === "DELETE" && uf[2]) r = await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
+            else if (request.method === "DELETE" && uf[2]) {
+              // HELD ON A PUBLISHED SITE (draft-first): a picture a live page
+              // shows stays until Publish. Ownership and the file are checked
+              // first, as the delete itself checks them.
+              const g = await assertOwner(ownerDeps, uslug, ou.id);
+              if (g && g.error) r = g.error;
+              else {
+                const file = String(uf[2]);
+                const exists = (await siteUploadList(env, uslug)).some((f) => f && (f.name === file || String(f.key || "").endsWith("/" + file)));
+                r = exists
+                  ? await heldDeleteOr(env, uslug, { kind: "upload-delete", file }, () => handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file }))
+                  : await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file });
+              }
+            }
             else if (request.method === "POST" && !uf[2]) {
               // Raw bytes, not base64 and not multipart: base64 inflates a photo
               // by a third for no benefit, and the declared type is ignored
@@ -42474,7 +43025,59 @@ async function handleRequest(request, env, ctx) {
               const g = await assertOwner(ownerDeps, mslug, ou.id);
               return g && g.error ? g : {};
             } });
-            r = await mediaRoute(env, request, mdeps, { scope: siteScope(mslug), sid: mdr[2] ? mdr[2].toLowerCase() : "", step: mdr[3] ? mdr[3].toLowerCase() : "" });
+            const msid = mdr[2] ? mdr[2].toLowerCase() : "";
+            const mstep = mdr[3] ? mdr[3].toLowerCase() : "";
+            // DRAFT-FIRST, A PUBLISHED SITE (2026-10-15): a replacement keeps
+            // the file's address, so writing it there would change the live
+            // site at once. It is uploaded under a name of its own instead, and
+            // the pair is held in the draft: the preview plays the new bytes at
+            // the old address, and Publish puts them there.
+            const mHolding = draftFirst(env) && await siteIsLive(env, mslug);
+            let mReq = request;
+            let mReplace = "";
+            if (mHolding && !msid && request.method === "POST") {
+              const g = await mdeps.gate(siteScope(mslug));
+              if (g && g.error) return Response.json(g.error.body, { status: g.error.status });
+              const rd = await readJsonBody(request, { max: 8000 });
+              if (!rd.ok) return Response.json({ error: rd.error, code: rd.code }, { status: rd.status });
+              const want = rd.body && rd.body.replace;
+              if (want !== undefined && want !== null && want !== "") {
+                const name = String(want).toLowerCase();
+                if (!isMediaName(name)) return Response.json({ error: "no such file", code: "no_file" }, { status: 404 });
+                const have = await env.SITES_BUCKET.head(uploadKey(mslug, name));
+                const a = await mdeps.readAsset(siteScope(mslug), name).catch(() => null);
+                if (!have || (a && a.rec && a.rec.state === "deleted")) return Response.json({ error: "no such file", code: "no_file" }, { status: 404 });
+                const ext = String((rd.body && rd.body.name) || "").toLowerCase().split(".").pop();
+                const same = name.split(".").pop() === ext || (name.endsWith(".mp4") && ext === "m4v") || (name.endsWith(".ogg") && (ext === "opus" || ext === "oga"));
+                if (!same) return Response.json({ error: "a replacement must be the same format as the file it replaces (" + MEDIA_FORMATS[name.split(".").pop()].label + ")", code: "format_mismatch" }, { status: 409 });
+                mReplace = name;
+              }
+              const { replace: _drop, ...rest } = rd.body || {};
+              mReq = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(rest) });
+            }
+            r = await mediaRoute(env, mReq, mdeps, { scope: siteScope(mslug), sid: msid, step: mstep });
+            const REPLACING = (sid) => "site-drafts/" + mslug + "/replacing/" + sid + ".json";
+            if (mReplace && r && r.status < 300 && r.body && typeof r.body.sid === "string") {
+              await env.SITES_BUCKET.put(REPLACING(r.body.sid), JSON.stringify({ name: mReplace }), { httpMetadata: { contentType: "application/json" } });
+              r = { ...r, body: { ...r.body, replacesInDraft: mReplace } };
+            }
+            if (mHolding && msid && mstep === "complete" && r && r.status < 300 && r.body && r.body.file && typeof r.body.file.name === "string") {
+              const pend = await env.SITES_BUCKET.get(REPLACING(msid));
+              if (pend) {
+                let target = "";
+                try { target = String((JSON.parse(await pend.text()) || {}).name || ""); } catch { target = ""; }
+                if (isMediaName(target)) {
+                  const w = await backendWriter(env, mslug);
+                  w.hold.add({ kind: "media-replace", name: target, with: r.body.file.name });
+                  const sealed = await sealHeld(env, mslug, w, {});
+                  if (!sealed.ok) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
+                  else {
+                    await env.SITES_BUCKET.delete(REPLACING(msid)).catch(() => {});
+                    r = { ...r, body: { ...r.body, file: { ...r.body.file, replaces: target, url: uploadUrl(mslug, target) }, held: true, draft: heldDraft(sealed.revision) } };
+                  }
+                }
+              }
+            }
           } else if (an) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });

@@ -920,7 +920,7 @@ test("TS11 A FAILED ACTIVATION UNDOES ITS OWN FENCED WRITES — a page change be
 // task saves its result as the site's draft — the record, the editable copy,
 // a preview under the draft script's own name — and nothing live moves; the
 // owner's Publish releases exactly the version they approved.
-const DRAFT = (P) => "drafts/" + P.slug + ".json";
+const DRAFT = (P) => "site-drafts/" + P.slug + ".json";
 const draftOf = (P) => { const t = P.readObj(DRAFT(P)); return t ? JSON.parse(bare(t)) : null; };
 const liveVersion = (P) => JSON.parse(bare(P.readObj(POINTER(P)))).version;
 async function draftSite(name) {

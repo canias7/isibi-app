@@ -159,3 +159,228 @@ The live site is made of:
   audited line by line.
 - **Live verification: none.** Nothing here has run against real
   Cloudflare, R2 or a deployed Worker.
+
+## 5. The second round: every builder change (2026-10-15, `claude/draft-first-publish`)
+
+**The owner's requirement, restated:** "every builder-made change to a site
+must save to a persistent draft and appear in the builder's preview.
+Visitors keep seeing the last published version until the owner explicitly
+clicks Publish." It covers Build, Edit and Add-on, uploads, replacements,
+deletions, text, styling, pages, components, navigation, assets and backend
+functionality. Ordinary conversation changes nothing.
+
+**Where it was built.** The first round (`0966ea90`, above) is reused, not
+rebuilt. The branch `claude/draft-first-publish` is current `main`
+(`772bb885`, the assistant and hosting release) with help-needed at
+`0966ea90` merged in (`0da51d1a`). That merge also carries help-needed's
+publish-integrity corrections, unchanged, because the draft path depends on
+their conditional activation. Three conflicts, each resolved as a union:
+the Dockerfile's module lists, the owner-route dispatch list in `worker.js`,
+and `owner-notes`.
+
+**The record moved to its own namespace:** `site-drafts/<slug>.json`.
+`main`'s video and audio kept before a site exists live under
+`drafts/<uid>/`; the two never shared a key, but no longer share a prefix
+either.
+
+### 5.1 Revisions: what Publish names
+
+Every task that saves anything makes a numbered **revision** of the draft:
+- a code version, as before (the staged build, immutable);
+- plus, when the task changed the database or the library of a site
+  visitors already use, its **held changes**: a journal written once,
+  immutable, `site-drafts/<slug>/held/<id>.json`.
+
+A task whose only change is held (a row, a rule, a pageless addition, a
+library file) makes a revision on the draft's current code. A task with
+both makes **one** revision, so a half of a task is never publishable alone.
+The record keeps `applied`, the last revision published.
+
+`POST /api/site/<slug>/publish {revision, version}` publishes exactly that
+revision. The version is a cross-check: a mismatch is refused. Nothing newer
+is reached for. A revision at or below `applied` answers `already`.
+
+### 5.2 Held changes, where a live site would see them
+
+| What | Published site, switch on | Never-published site, switch on | Switch off |
+|---|---|---|---|
+| schema, rules (`applySiteSchema`) | held | written | written |
+| starter rows (`seedSiteRows`) | held | written | written |
+| scheduled jobs (`persistSiteJobs`) | **held** | **held** (they would run by themselves) | written |
+| data-step row changes and additions | held | written | written |
+| add-on entries (the `row` kind) | held | written | written |
+| a video or recording replaced | held: uploaded under its own name, paired with the one it replaces | written | written |
+| a video, recording, picture or document taken off | held | done | done |
+| a new upload | a new, unreferenced address: no live page uses it until a published one does | same | same |
+
+**One writer per task (`backendWriter`)** stands in for the three
+schema-side calls.
+- The add-on, the build and the rules step each bind those very names from
+  their writer (`const { applySiteSchema, seedSiteRows, persistSiteJobs } =
+  aWriter.calls`). Their call lines read exactly as before, and every earlier
+  guard anchored on them still holds.
+- Publish applies through the same writer, switched off, so the real calls
+  are made in one function only.
+- DFB11, a source guard, holds all of that.
+
+A build whose generation finishes in a later invocation carries its hold in
+its arguments, which its resume record keeps. `saveAsDraft` writes that
+journal if it is not yet written.
+
+**The next task reads the draft** (`draftView`):
+- the data step is shown the rows as the draft has them (held updates
+  applied, held removals gone, held new rows with a negative id that leads
+  back to their insert);
+- the rules step and the add-on design against the draft's schema;
+- the editable copy already follows the draft (first round).
+
+A change to a held new row amends that insert. If the insert was published
+earlier, the change goes to the id it was given (`refs`).
+
+### 5.3 Publish, in order
+
+1. The revision is one the record holds; its build is complete.
+2. **One publication at a time** (`site-drafts/<slug>.publishing.json`):
+   - a second click on the same revision answers 202 "already being
+     published";
+   - another revision's click while one runs is 409;
+   - a lock older than ten minutes belongs to a dead publication and is
+     taken over.
+3. The held changes of every unpublished revision up to the one named,
+   applied in a repeatable order:
+   - the latest schema (re-emitted whole);
+   - the jobs (written over by name);
+   - the starter rows (a table is seeded only while empty);
+   - each change to an existing row (`UPDATE`/`DELETE` by id: the same
+     result twice);
+   - the new rows in **one** statement beside a `_meta` key for this
+     publication (`rowsInsert`, the add-on's exactly-once pattern), so a
+     second run collides, rolls back, and reads the first run's ids from the
+     key;
+   - the library: new bytes copied to the old address and the stand-in
+     taken off; files taken off.
+4. The version is activated through the same conditional activation, unless
+   the live site is already on it (a rows-only revision).
+5. `applied` moves to the revision.
+
+A stop at any step answers what stopped and "press Publish again to finish".
+Nothing is marked published, and the lock is released. Pressed again, the
+publication resumes without doing anything twice.
+
+**Only the owner's route calls Publish** (DFB8, a source guard). No task,
+retry, recovery, reconnect, queue, cron or background completion can.
+
+### 5.4 The preview, isolated
+
+The preview host `<slug>--draft-<token>.gofarther.app` used to send every
+path to the draft's script, so its own `/api/db/...` reads reached nothing,
+and nothing refused a write. Now:
+- `GET /api/db/<slug>/data/<table>` is served by the platform: the live rows
+  with the draft's held changes applied (`rowsOverlay`). A table the draft
+  adds reads as its held rows only when the data service says it does not
+  exist; any other failure is passed on as it came;
+- `/u/<slug>/<file>` serves the draft's library, through the platform's own
+  `/u/` route asked on the app's address: a replaced file's new bytes at its
+  old address, a file taken off as 404;
+- **every other `/api/` path answers 403 `preview`**: writes, function calls
+  (GET or POST), checkout, sign-in, visitor uploads, form hooks and error
+  reports. Nothing done in the preview reaches the live database, a payment,
+  a message or a visitor's account;
+- preview reads are not counted in the site's own traffic metrics (DFB5
+  found the `_metrics` write).
+
+### 5.5 What the owner sees
+
+- **Labels:** the build's stage rail and rows say "Saving to your draft" and
+  "Saved to your draft" when the switch is on (`/api/credits` now says
+  `draftFirst`). A build's answer carries `draft` (its version, revision and
+  preview), which it used to drop on the way out.
+- **The edit reply** adds "Saved to your draft — your live site changes when
+  you publish." for a change saved to the draft. The rules reply no longer
+  says "It's live now" for a held rule. Customer conversation is untouched
+  and stays model-written.
+- **The Publish panel** publishes the revision it was opened with.
+  - States: "Saved, not published", "Not published yet" (a first build),
+    "Still processing" and "Publishing".
+  - One click sends one request. A 202 says it is already under way, and a
+    stop shows the server's sentence.
+- **The library list** marks a file the draft takes off (`draft: "remove"`)
+  and a stand-in for a replacement (`draft: "replaces"`).
+
+### 5.6 Tests (offline, supplied model answers only)
+
+`test/draft-first.test.mjs`, 11 cases, the real Worker over stand-ins that
+remember:
+
+| Case | What it shows |
+|---|---|
+| DFB1 | first build (fired path) saves revision 1; no pointer, no live marker; the answer says saved to the draft |
+| DFB2 | four edits (price, new loaf, change to the new loaf, a page line) are four revisions; the next task is shown the draft's rows; nothing live moves |
+| DFB3 | revision 2 published alone; revision 4 later, the held change reaching the new loaf by its id; an edit after publication held again; refusals |
+| DFB4 | a refused script stops after the rows; pressed again: no duplicate rows; two clicks at once; dead lock taken over; busy lock refused |
+| DFB5 | preview overlay against live data; 11 write and side-effect paths refused; a refused read passed on; a draft-only table read |
+| DFB6 | picture removal and recording replacement held, served live until Publish, previewed, listed, published, repeat is `already` |
+| DFB7 | the writer: what is held where; jobs held before first publication; switch off writes live; the publish plan's folding |
+| DFB8 | only the owner's route calls Publish; reloads read the same state |
+| DFB9 | ordinary conversation with the switch on writes nothing |
+| DFB10 | a row change finishing during a publication is the next revision, not in it |
+| DFB11 | backend writes only through the writer and Publish's apply |
+
+Also run: `site-draft` (5) and `turn-fence` (DF1–DF6 with the new key),
+`publish-integrity`, `publish-pages`, `site-meta-sidecar`: 217 of 217.
+**Mutation sweep: 21 of 21 killed, the comment-only control survived.** One
+first-pass survivor (the missing-table narrowing) was a gap; its case is in
+DFB5, and it is killed.
+
+**The first full run found real wiring gaps, and fixed them:**
+- 463 failures, nearly all because the tests run the page's reply
+  functions cut out by name: the new helpers and a new global were not
+  among them. They are now inline in the functions already listed.
+- A dozen earlier source guards had lost their anchors. The code was changed
+  to keep them, not the guards: call lines restored, a parameter order kept,
+  the `/u/` route left byte-identical, and no new build refusal path, so the
+  ten counted refusals stay ten.
+
+**Full suite, local, measured in two worktrees:**
+
+| | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| baseline, the merge `0da51d1a` | 11,204 | 11,201 | 1 | 2 |
+| this round | 11,215 | 11,212 | 1 | 2 |
+
+The one failure on both is environmental: `no-generated-deps`' symlink case
+fails where the worktree links `node_modules` (git refuses a path "beyond a
+symbolic link"); a plain checkout and CI answer it.
+
+**Screenshots** of the Publish panel (saved, first build, processing,
+published), rendered with the real `chat.js` functions and stylesheet, were
+shown in the conversation.
+
+### 5.7 Remaining gaps
+
+- **The switch is still off by default** (`DRAFT_FIRST`). With it off,
+  every path publishes as before. Turning it on is the owner's decision at
+  deploy.
+- **Owner panels act immediately, by design:** the Data panel, imports,
+  members, secrets, domains, the SEO, share and verification panels,
+  backups and restores. They are the owner's direct settings, not builder
+  tasks.
+- **The rename edit layer** (changing the site's address from chat) still
+  takes effect at once.
+- **The preview shows rows, not rules.** A held rule or access change is
+  applied at Publish; the preview reads anonymously. A held new table's
+  functions (RPC) are refused in the preview, not simulated.
+- **Preview row reads with filters or ordering:** held changes are overlaid
+  on what the live query returned; a held row that would match a filter the
+  live row did not is not added, and held new rows are appended unsorted.
+- **Migration records** for a held add-on schema still say `applied` when
+  the draft is saved; Publish does not rewrite them.
+- **Billing** is unchanged from round one: a task is charged when its draft
+  is saved (`published_at` means "delivered").
+- **A publication that stops after the rows** leaves the rows live with the
+  previous pages until Publish is pressed again (said in the stop).
+- **Concurrent edits from two tasks to the same row** in one draft: the later
+  revision's change wins at Publish, as it would have live.
+- **Live verification: none.** Nothing here has run against real
+  Cloudflare, R2, Neon or a deployed Worker. The preview host also needs a
+  deployed container image carrying the template change from round one.
