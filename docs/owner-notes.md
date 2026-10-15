@@ -92,7 +92,9 @@ case with fourteen assertions, controls included.
   integrity and N2 guards).
 - **Full suite** locally on `3104c025`: 11040 / 11040.
 - **CI** on `3104c025`: unit tests green (run 38784050100), site build
-  green (run 38784050316).
+  green (run 38784050316); on `9186a756` (the sweep's two added cases and
+  these records): unit tests green (run 38786768892). Job logs are not
+  readable from here, so CI's counts are not stamped.
 - **Sweep** (15 mutants over `worker.js`, `site-builds.mjs` and
   `builder/site-add.mjs`, a comment-only control): 13 killed at first; the
   control survived. Two survivors showed missing tests: S7 (the sidecar and
