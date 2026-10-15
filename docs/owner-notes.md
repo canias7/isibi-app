@@ -1,5 +1,88 @@
 # Owner Notes
 
+## Branch `new` — Codex's reviews of `aef027fd` and `69462730`: delete and replacement as one sequence per file; a stale claim settled only on proof; the progress-ordering failure explained (2026-10-15; unmerged, undeployed, no container build, no paid call, the help-needed branch untouched)
+
+The receipt, quota, history and narration fixes are unchanged, and their tests passed in every run below.
+
+**Commits, oldest first** (on top of `aef027fd`):
+1. `52ee03c1`: a delete and a replacement's close go through the file's own record.
+2. `344d1a10`: progress-live-writer waits for the milestone it reads; PLW 5 pins the late landing.
+3. `69462730`: the source guard on the media delete's page read, re-anchored.
+4. `cbd396d8`: a stale claim is settled only when the old upload is proven stopped. **This is the code head.**
+5. The commit on top of it: these records and `docs/history/2026-10-15-media-mutation.md` (documents only).
+
+**1. A delete and a replacement can no longer race (Codex's reproduction on `aef027fd`).**
+- **The record.** Each site file has its own record, `media-assets/<scope>/<name>.json`, changed only by R2 conditional writes. Each write carries a revision and a write id, and the record holds a generation and a state: live, committing (a replacement holds the claim), or deleted.
+- **A replacement claims the record before R2 closes its upload.** The claim is allowed only while the record is live at the generation the replacement started from. Afterwards the record moves to the next generation.
+  - Deleted meanwhile: 410 `removed`.
+  - Newer meanwhile: 409 `replaced`.
+
+  In both cases the upload is aborted and its room released.
+- **A delete marks the record deleted before removing the object.** While a fresh claim is held, the delete is refused with 409 `replacing` and can be sent again.
+- **An abandoned claim is recovered after 15 minutes.**
+- **Proof it closes the gap.** On `aef027fd`, under the same barriers, the delete in the gap answered 200 and the close then answered 200 with the file back. On the new code that delete is refused.
+
+**2. A stale claim is settled only on proof (Codex's reproduction on `69462730`).**
+- **The bug.** A failed abort was taken as "already gone". So with the old close paused and every abort failing, the delete answered 200, and the resumed close recreated the file.
+- **What happens now.** A claim is settled only when one of these is proven:
+  - the object carries the claim's upload id, so it landed;
+  - the abort succeeded, so it was stopped;
+  - R2 answered NoSuchUpload / 10024, so it was stopped.
+- **Otherwise the claim is kept** and the request answers 503 `unconfirmed` (retry). Nothing is released, deleted or given a new generation until storage answers.
+
+**3. The progress-ordering failure was a test-order assumption, not a product requirement.**
+- **Why.** `mark()` only queues a milestone's record write, and the job does not wait for it. So under load the pages milestone landed after the photo call.
+- **Reproduced byte for byte** by holding that write.
+- **The product behaviour was correct:** each fact was told once, in its own state, and the part ended done.
+- **The fix is in the test only.** The test now waits for that milestone, as it already did for publish. PLW 5 pins the late landing. No assertion was changed and no progress code touched.
+- **The earlier failure still stands in the record.** It happened in the full run on `bb1c1f31`, and green CI does not erase it.
+
+**Tests and readings.**
+- `test/media-mutation.test.mjs` has 13 cases on the production routes, with barriers before R2's close, before a delete, and before the record's conditional write:
+  - both orders;
+  - overlapping writes;
+  - retries and lost answers;
+  - an interruption before and after R2's close;
+  - abort failures with and without storage returning;
+  - controls: NoSuchUpload, a close that had landed, an ordinary replacement, an ordinary delete, and a file a page plays.
+
+  Each case checks that the object, the record's generation, both receipts, the reservation and the answers agree.
+- One newer-generation case in `test/media-files.test.mjs`.
+- **Red checks:**
+  - Codex's first sequence on `aef027fd`: delete 200, close 200, the file back.
+  - On `69462730`: exactly the two new abort-failure cases fail (the delete answered 200).
+- **Sweeps:**
+  - the record: 11 of 13 killed, the 2 survivors equivalent (recorded);
+  - the abort fix: 6 of 6 killed.
+  - The comment-only control survived both.
+- **Affected tests (final):** 288 files, 7272 pass, 0 fail.
+- **Full offline suites, every run recorded:**
+  - `344d1a10`: `10888 / 10885 / 1 / 2`. The one failure was this change's own source guard; it was re-anchored in `69462730`.
+  - `69462730`: stopped partway, before Codex's review was folded in. No result is claimed.
+  - `cbd396d8`: `10892 / 10890 / 0 / 2`.
+- **CI:**
+  - unit tests on `344d1a10`: red (run 38668530734), the same source guard;
+  - unit tests on `69462730`: green (run 38669279438);
+  - unit tests on `cbd396d8`: green, `10892 / 10845 / 0 / 47` (run 38670111433);
+  - site build on `cbd396d8`: green (run 38670111439).
+- **Image prediction:** `cbd396d8` → `484f4945d711b3c8` (208 inputs); nothing built.
+
+**Remaining gaps (live only).**
+1. **Real R2.** Real R2 under real concurrency is not shown. Nor is real R2's NoSuchUpload error, or its refusal to close an aborted multipart upload; the test double follows R2's documented behaviour.
+2. **A storage outage blocks deletes.** While R2 can't confirm that an old upload stopped, a delete of that file keeps answering 503 until it can. That is safe, but the owner waits.
+3. **The 15-minute claim lease is a choice.**
+4. **A crashed delete can leave the object behind.** If the record says deleted but the object wasn't removed, it is still served and listed until the delete is sent again. Receipts and replacements already treat it as deleted.
+5. **Drafts are outside this mechanism.** Drafts can't be replaced; a draft deleted while a build is moving it is not covered.
+6. **Still open from earlier rounds:**
+   - proprietary codecs (MP4, MOV, M4A, AAC), Safari and Firefox;
+   - real models;
+   - edge caching;
+   - the upload record lives in one browser;
+   - finished session records are not cleaned up on a schedule;
+   - the build-route test double still gives counter etags (suggested as its own task).
+
+**Still paused (unchanged).** The combined release candidate waits for the main branch's route-selection and connection-loss fixes. Nothing is merged, deployed, built or pressed.
+
 ## Branch `new` — Codex's review of `673e26cb`: receipts checked against the current file, and the ledger's repeated state (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
 
 Codex confirmed green CI on `673e26cb` and verified the previous round's recovery, history and narration fixes. It reproduced two remaining problems, and both are fixed. The conversation-history and model-written narration fixes are unchanged: their tests passed in the same run.
