@@ -2644,6 +2644,13 @@ test("wordsLanded: a linked phrase is judged by its own rendered link — wrong 
   assert.equal(wlF('<p>Go <Link to="/classes">here</Link> or <Link to="/classes">here</Link>.</p>', SAME), true);
   // A PHRASE THE PAGE ALREADY LINKED does not answer for the new one.
   assert.equal(wlF('<p>Book a workshop place by Friday.</p>', "Book a [Classes](/classes) now."), false);
+  // …AND WHEN THE WORDS DO LAND: the same words and place linked before (in
+  // the page's own nav), and the new line written as plain text, gains no link.
+  const NAV = WL_BASE.replace("<h1>Fretwork</h1>", '<h1>Fretwork</h1><nav><Link to="/classes">workshop place</Link></nav>');
+  const plain = NAV.replace("\n</main>", "\n<p>Book a workshop place by Friday.</p>\n</main>");
+  assert.equal(WL([{ path: "index.tsx", source: NAV }], [{ path: "index.tsx", source: plain }], [{ page: "/", words: W }]).ok, false, "a link the page already drew answered for the new line");
+  const linked = NAV.replace("\n</main>", '\n<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>\n</main>');
+  assert.equal(WL([{ path: "index.tsx", source: NAV }], [{ path: "index.tsx", source: linked }], [{ page: "/", words: W }]).ok, true, "the control: the new line drawn as its own link");
 });
 test("wordsLanded keeps every valid form: Link and anchor, braced and template destinations, nested markup and braced strings in the words", () => {
   const W = "Book a [workshop place](/classes) by Friday.";
