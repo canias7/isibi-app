@@ -2667,6 +2667,30 @@ test("wordsLanded keeps every valid form: Link and anchor, braced and template d
   assert.equal(wlF("<p>Book a <Link to={dest}>workshop place</Link> by Friday.</p>", W), false);
   assert.equal(wlF("<p>Book a <Link to={`/c${x}`}>workshop place</Link> by Friday.</p>", W), false);
 });
+test("wordsLanded ties each link to its own occurrence, reads attributes as attributes, and claims nothing hidden or unresolved", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  const wl = (html, words = W, base = FOOTER) => WL([{ path: "index.tsx", source: base }], [{ path: "index.tsx", source: base.replace("<footer>", html + "\n<footer>") }], [{ page: "/", words }]).ok;
+  // THE SAME WORDS LINKED RIGHT ELSEWHERE, WRONG IN THE LINE (a footer arriving with the change).
+  assert.equal(wl('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p><p><Link to="/classes">workshop place</Link></p>'), false, "a separate link with the same words answered for the line's own");
+  // HIDDEN OR UNRESOLVED.
+  assert.equal(wl('{false && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), false, "a line in a false branch counted as rendered");
+  assert.equal(wl('{null && (<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>)}'), false);
+  assert.equal(wl('{false ? <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p> : null}'), false, "the branch a false ternary skips counted");
+  assert.equal(wl('{open && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), false, "a line behind a condition on state was claimed as rendered");
+  assert.equal(wl('{true && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), true);
+  assert.equal(wl('{true ? <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p> : null}'), true);
+  assert.equal(wl('{false ? null : <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), true);
+  // ATTRIBUTES: a title is a title, and a destination in a string inside it is not one.
+  assert.equal(wl('<p>Book a <a title="try href=\'/classes\' here" href="/wrong">workshop place</a> by Friday.</p>'), false, "an address inside a title attribute was read as the destination");
+  assert.equal(wl('<p>Book a <a title="try href=\'/wrong\' here" href="/classes">workshop place</a> by Friday.</p>'), true);
+  assert.equal(wl('<p>Book a <a data-to="/classes" href="/wrong">workshop place</a> by Friday.</p>'), false, "an attribute merely ending in to= was read as the destination");
+  // AN UNRELATED LINE BETWEEN, OR A LINK THAT SWALLOWS MORE THAN THE PHRASE.
+  assert.equal(wl('<p>Book a <Link to="/classes">workshop place by Friday</Link>.</p>'), false, "a link showing more than the asked phrase answered for it");
+  assert.equal(wl('<p>Book a {name} <Link to="/classes">workshop place</Link> by Friday.</p>'), false, "words joined across unresolved content");
+  // A PLAIN LINE: hidden is still hidden.
+  assert.equal(wl('{false && <p>Open daily from nine.</p>}', "Open daily from nine."), false);
+  assert.equal(wl('<p>Open daily from nine.</p>', "Open daily from nine."), true);
+});
 test("renderedLinks reads each element's destination and words, skipping comments and self-closing tags", () => {
   const src = 'export default () => <main><Link to="/a">One <b>two</b></Link>{/* <Link to="/b">no</Link> */}<a href="https://x.example/p">{"Three"}</a><Link to="/c" /></main>';
   assert.deepEqual(RL(src), [{ href: "/a", text: "one two" }, { href: "https://x.example/p", text: "three" }]);

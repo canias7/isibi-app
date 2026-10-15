@@ -4689,18 +4689,29 @@ export function wordsParts(words) {
   return { text, links };
 }
 /**
- * EVERY LINK A PAGE DRAWS, AS A VISITOR MEETS IT (2026-10-15, after review):
- * each `<Link …>` or `<a …>` element's destination and the words it shows,
- * read element by element — never a page-wide count of an address, which a
- * footer link elsewhere, a JSX comment, or one link standing for two would
- * satisfy. Comments are dropped first. A destination is read from `to=` or
- * `href=` written as a quoted string, a string in braces, or a template with
- * no substitution; anything else (a variable, an expression) is not a
- * destination this can vouch for, and its link is not counted. The words are
- * the element's text, its string expressions included, other expressions
- * dropped.
+ * WHAT A PAGE RENDERS, READ AS A TREE (2026-10-15, after review): the page's
+ * JSX parsed into elements, attributes and children — a real attribute
+ * reader, so a `title="… href='/x' …"` is a title and never a destination —
+ * and walked into the stream of words a visitor meets, each word carrying the
+ * link element it sits in (`{ id, href }`, or null). Only what renders is
+ * read:
+ *
+ *   - comments are dropped;
+ *   - an expression child renders when it is a plain string, an element, or
+ *     a condition on a LITERAL (`true && …`, `false ? a : b`) — the branch it
+ *     selects; `false && …`, `null && …`, `0 && …` render nothing;
+ *   - ANY OTHER EXPRESSION IS UNRESOLVED: what it renders depends on values
+ *     this cannot know (a variable, a `.map`, a condition on state), so none
+ *     of its words are claimed, and it breaks the stream so words on either
+ *     side never join across it;
+ *   - a link's destination is read from its `to` or `href` attribute written
+ *     as a quoted string, a string in braces, or a template with no
+ *     substitution; any other destination is unknown and matches nothing.
+ *
+ * Elements in code are read where they are a component's output (after
+ * `return`, `=>`, `(`, `,`, `?`, `:`, `=`, `&&`, `||`), with a literal-false
+ * condition before them rendering nothing.
  */
-/** A page's source with its comments blanked: JSX comment blocks, block comments, HTML comments and whole-line `//` comments. */
 function stripComments(source) {
   return String(source == null ? "" : source)
     .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, " ")
@@ -4708,181 +4719,293 @@ function stripComments(source) {
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/^[ \t]*\/\/.*$/gm, " ");
 }
-export function renderedLinks(source) {
+const NAME_CH = /[A-Za-z0-9_$.:\-]/;
+/** Is `<` at `i` the start of a JSX element (a letter or `>` follows)? */
+const tagStartAt = (src, i) => src[i] === "<" && /[A-Za-z>]/.test(src[i + 1] || "");
+/** The character before `i` that is not white space, and the word ending there. */
+function before(src, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(src[j])) j--;
+  let k = j;
+  while (k >= 0 && /[A-Za-z_$]/.test(src[k])) k--;
+  return { ch: j >= 0 ? src[j] : "", word: src.slice(k + 1, j + 1) };
+}
+/** Is a `<` at `i` inside code or an expression the start of JSX, by what precedes it? */
+function jsxContext(src, i) {
+  if (!tagStartAt(src, i)) return false;
+  const b = before(src, i);
+  return b.ch === "" || "(,=:?&|>{[!".includes(b.ch) || b.word === "return";
+}
+/** The index just past a quoted string or template starting at `i` (templates nest `${…}`). */
+function skipString(src, i) {
+  const q = src[i];
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j];
+    if (c === "\\") { j++; continue; }
+    if (q === "`" && c === "$" && src[j + 1] === "{") { const e = exprEnd(src, j + 2); if (e < 0) return -1; j = e; continue; }
+    if (c === q) return j + 1;
+  }
+  return -1;
+}
+/** The matching `}` of an expression opened just before `from`: strings, templates and JSX inside it skipped whole. */
+function exprEnd(src, from) {
+  let depth = 1;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === "`") { const e = skipString(src, i); if (e < 0) return -1; i = e - 1; continue; }
+    if (c === "<" && jsxContext(src, i)) { const el = parseElement(src, i); if (!el) return -1; i = el.end - 1; continue; }
+    if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+/** One tag at `at` (`<`): its name, its attributes as JSX writes them, and where it ends. Null when it is not one. */
+function readTag(src, at) {
+  let i = at + 1;
+  let name = "";
+  while (i < src.length && NAME_CH.test(src[i])) name += src[i++];
+  const attrs = new Map();
+  for (;;) {
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (i >= src.length) return null;
+    if (src[i] === "/" && src[i + 1] === ">") return { name, attrs, end: i + 2, selfClosing: true };
+    if (src[i] === ">") return { name, attrs, end: i + 1, selfClosing: false };
+    if (src[i] === "{") { const e = exprEnd(src, i + 1); if (e < 0) return null; i = e + 1; continue; }
+    let an = "";
+    while (i < src.length && !/[\s=\/>{]/.test(src[i])) an += src[i++];
+    if (!an) return null;
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] !== "=") { attrs.set(an, { kind: "bool" }); continue; }
+    i++;
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] === '"' || src[i] === "'") {
+      const close = src.indexOf(src[i], i + 1);
+      if (close < 0) return null;
+      attrs.set(an, { kind: "string", value: src.slice(i + 1, close) });
+      i = close + 1;
+    } else if (src[i] === "{") {
+      const e = exprEnd(src, i + 1);
+      if (e < 0) return null;
+      attrs.set(an, { kind: "expr", value: src.slice(i + 1, e) });
+      i = e + 1;
+    } else return null;
+  }
+}
+/** An element from its `<`: `{ tag, attrs, children, end }`, children being `{ text }`, `{ el }` or `{ expr }`. Null when malformed. */
+function parseElement(src, at) {
+  const t = readTag(src, at);
+  if (!t) return null;
+  const node = { tag: t.name, attrs: t.attrs, children: [], end: t.end };
+  if (t.selfClosing) return node;
+  let text = "";
+  for (let i = t.end; i < src.length; i++) {
+    const c = src[i];
+    if (c === "<" && src[i + 1] === "/") {
+      if (text) node.children.push({ text });
+      const e = src.indexOf(">", i);
+      if (e < 0) return null;
+      node.end = e + 1;
+      return node;
+    }
+    if (tagStartAt(src, i)) {
+      if (text) { node.children.push({ text }); text = ""; }
+      const el = parseElement(src, i);
+      if (!el) return null;
+      node.children.push({ el });
+      i = el.end - 1;
+      continue;
+    }
+    if (c === "{") {
+      if (text) { node.children.push({ text }); text = ""; }
+      const e = exprEnd(src, i + 1);
+      if (e < 0) return null;
+      node.children.push({ expr: src.slice(i + 1, e) });
+      i = e;
+      continue;
+    }
+    text += c;
+  }
+  return null;
+}
+const STRING_LIT = /^(?:"([^"\\]*)"|'([^'\\]*)'|`([^`$\\]*)`)$/;
+const FALSY_LIT = /^(?:false|null|undefined|0|""|''|``)$/;
+/** Strip balanced outer parentheses. */
+function unwrap(e) {
+  let t = e.trim();
+  while (t.startsWith("(") && t.endsWith(")")) {
+    let depth = 0, whole = true;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (c === '"' || c === "'" || c === "`") { const j = skipString(t, i); if (j < 0) return t; i = j - 1; continue; }
+      if (c === "(") depth++;
+      else if (c === ")" && --depth === 0 && i < t.length - 1) { whole = false; break; }
+    }
+    if (!whole) break;
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+/** The first top-level occurrence of `op` (`&&`, `?`, `:`) in an expression, strings, brackets and JSX skipped; -1 when none. */
+function topLevel(t, op, from = 0) {
+  let depth = 0;
+  for (let i = from; i < t.length; i++) {
+    const c = t[i];
+    if (c === '"' || c === "'" || c === "`") { const j = skipString(t, i); if (j < 0) return -1; i = j - 1; continue; }
+    if (c === "<" && jsxContext(t, i)) { const el = parseElement(t, i); if (!el) return -1; i = el.end - 1; continue; }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+    else if (depth === 0 && t.startsWith(op, i)) {
+      if (op === "?" && (t[i + 1] === "." || t[i + 1] === "?")) { i++; continue; }
+      return i;
+    }
+  }
+  return -1;
+}
+const linkTag = (tag) => tag === "Link" || tag === "a";
+/** A link element's destination, when it is written so it can be read. */
+function destOf(attrs) {
+  for (const n of ["to", "href"]) {
+    const a = attrs.get(n);
+    if (!a) continue;
+    if (a.kind === "string") return a.value;
+    if (a.kind === "expr") { const m = STRING_LIT.exec(a.value.trim()); return m ? (m[1] ?? m[2] ?? m[3]) : null; }
+    return null;
+  }
+  return null;
+}
+/** The rendered word stream of a page: `{ w, link }` per word, `{ w: null }` where unresolved content breaks it. */
+export function renderedStream(source) {
   const src = stripComments(source);
-  // The end of a tag that opens at `from` (just past its name): its closing
-  // `>`, skipping quoted strings and braced expressions. -1 when unclosed.
-  const tagEnd = (from) => {
-    let depth = 0, q = "";
-    for (let i = from; i < src.length; i++) {
-      const c = src[i];
-      if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
-      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
-      if (c === "{") { depth++; continue; }
-      if (c === "}") { if (depth > 0) depth--; continue; }
-      if (c === ">" && depth === 0) return i;
-    }
-    return -1;
-  };
-  const DEST = /(?:^|[\s{])(?:to|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*\})/;
-  const words = jsxText;
   const out = [];
-  const OPEN = /<(Link|a)(?=[\s>\/])/g;
-  let m;
-  while ((m = OPEN.exec(src))) {
-    const name = m[1];
-    const end = tagEnd(m.index + 1 + name.length);
-    if (end < 0) break;
-    const attrs = src.slice(m.index + 1 + name.length, end);
-    if (/\/\s*$/.test(attrs)) continue; // self-closing: no words to show
-    // ITS OWN CLOSING TAG, past any of the same name nested inside it.
-    const re = new RegExp("<" + name + "(?=[\\s>\\/])|<\\/" + name + "\\s*>", "g");
-    re.lastIndex = end + 1;
-    let depth = 1, close = -1, r;
-    while ((r = re.exec(src))) {
-      if (r[0][1] === "/") { if (--depth === 0) { close = r.index; break; } }
-      else { const e = tagEnd(r.index + 1 + name.length); if (e < 0) break; if (!/\/\s*$/.test(src.slice(r.index + 1 + name.length, e))) depth++; re.lastIndex = e + 1; }
+  let ids = 0;
+  const words = (text, link) => { for (const w of plainWords(text).split(" ")) if (w) out.push({ w, link }); };
+  const gap = () => { if (out.length && out[out.length - 1].w !== null) out.push({ w: null, link: null }); };
+  const expr = (e, link, depth = 0) => {
+    if (depth > 40) { gap(); return; }
+    const t = unwrap(e);
+    if (!t) return;
+    const lit = STRING_LIT.exec(t);
+    if (lit) { words(lit[1] ?? lit[2] ?? lit[3], link); return; }
+    if (tagStartAt(t, 0)) { const el = parseElement(t, 0); if (el && el.end === t.length) { node(el, link); return; } }
+    const q = topLevel(t, "?");
+    if (q > 0) {
+      const cond = t.slice(0, q).trim();
+      const colon = topLevel(t, ":", q + 1);
+      if (colon > q) {
+        if (cond === "true") { expr(t.slice(q + 1, colon), link, depth + 1); return; }
+        if (FALSY_LIT.test(cond)) { expr(t.slice(colon + 1), link, depth + 1); return; }
+      }
+      gap(); return;
     }
-    if (close < 0) continue;
-    const d = DEST.exec(" " + attrs);
-    if (d) out.push({ href: d[1] ?? d[2] ?? d[3] ?? d[4] ?? d[5], text: plainWords(words(src.slice(end + 1, close))) });
+    const and = topLevel(t, "&&");
+    if (and > 0) {
+      const cond = t.slice(0, and).trim();
+      if (FALSY_LIT.test(cond)) return;
+      if (cond === "true") { expr(t.slice(and + 2), link, depth + 1); return; }
+    }
+    gap();
+  };
+  const node = (el, link) => {
+    let ctx = link;
+    if (linkTag(el.tag)) ctx = { id: ++ids, href: destOf(el.attrs) };
+    for (const c of el.children) {
+      if (c.text != null) words(c.text, ctx);
+      else if (c.el) node(c.el, ctx);
+      else expr(c.expr, ctx);
+    }
+  };
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === "`") { const j = skipString(src, i); if (j < 0) break; i = j - 1; continue; }
+    if (c === "<" && jsxContext(src, i)) {
+      const el = parseElement(src, i);
+      if (!el) continue;
+      // A LITERAL-FALSE CONDITION BEFORE IT renders nothing.
+      const pre = src.slice(Math.max(0, i - 40), i).replace(/\s+/g, " ");
+      if (!/(?:^|[^\w$])(?:false|null|undefined|0)\s*&&\s*\(?\s*$/.test(pre)) { gap(); node(el, null); gap(); }
+      i = el.end - 1;
+    }
   }
   return out;
 }
 /**
- * The words a run of JSX shows: its text, and any child expression that is a
- * plain string; tags (and so their attributes) and other expressions dropped.
+ * EVERY LINK A PAGE RENDERS: each link element's destination and the words it
+ * shows, read off the rendered stream — so a link in a comment, in a branch
+ * that never renders, or one whose destination cannot be read is not here.
  */
-function jsxText(inner) {
-  let t = "", depth = 0, q = "", expr = "";
-  for (let i = 0; i < inner.length; i++) {
-    const c = inner[i];
-    if (depth > 0) {
-      if (q) { if (c === "\\") { expr += c + (inner[i + 1] || ""); i++; continue; } if (c === q) q = ""; expr += c; continue; }
-      if (c === '"' || c === "'" || c === "`") { q = c; expr += c; continue; }
-      if (c === "{") { depth++; expr += c; continue; }
-      if (c === "}") { depth--; if (depth === 0) { const m = /^\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*$/.exec(expr); if (m) t += " " + (m[1] ?? m[2] ?? m[3]) + " "; else t += " "; expr = ""; } else expr += c; continue; }
-      expr += c; continue;
-    }
-    if (c === "{") { depth = 1; expr = ""; continue; }
-    if (c === "<") { const e = tagEndIn(inner, i + 1); if (e < 0) break; t += " "; i = e; continue; }
-    t += c;
+export function renderedLinks(source) {
+  const byId = new Map();
+  for (const t of renderedStream(source)) {
+    if (!t.w || !t.link) continue;
+    const l = byId.get(t.link.id) || { href: t.link.href, words: [] };
+    l.words.push(t.w);
+    byId.set(t.link.id, l);
   }
-  return t;
+  return [...byId.values()].filter((l) => typeof l.href === "string").map((l) => ({ href: l.href, text: l.words.join(" ") }));
+}
+/** A requested line as words in order, each linked word naming its link's address and its group. */
+function linePattern(words) {
+  const s = String(words == null ? "" : words);
+  const pat = [];
+  let at = 0, group = 0;
+  const plain = (text) => { for (const w of plainWords(text).split(" ")) if (w) pat.push({ w, href: null, group: -1 }); };
+  for (const m of s.matchAll(LINK_IN_WORDS)) {
+    plain(s.slice(at, m.index));
+    const g = group++;
+    for (const w of plainWords(m[1]).split(" ")) if (w) pat.push({ w, href: m[2], group: g });
+    at = m.index + m[0].length;
+  }
+  plain(s.slice(at));
+  return pat;
 }
 /**
- * WHAT A VISITOR READS ON A PAGE, read structurally: comments dropped, then
- * every JSX element walked from its opening tag — its text, child elements,
- * and child expressions (a plain string read as text, any element inside one
- * walked too); attributes and code outside JSX never read. A second reader
- * beside the text rung's `extractText`, whose heuristics skip short
- * connecting words between inline elements ("and" between two links) and
- * braced strings.
+ * How many times a requested line is rendered, each occurrence whole: its
+ * words in order with nothing unresolved between them, and each linked
+ * phrase rendered by ONE link element that goes exactly there and shows
+ * exactly those words — the link inside THIS occurrence, never one elsewhere
+ * on the page with the same words or address.
  */
-function visibleText(source) {
-  const src = stripComments(source);
-  const parts = [];
-  // An expression's end: its matching `}`, strings skipped.
-  const exprEnd = (from) => {
-    let depth = 1, q = "";
-    for (let i = from; i < src.length; i++) {
-      const c = src[i];
-      if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
-      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
-      if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) return i;
+function lineRendered(stream, pat) {
+  if (!pat.length) return 0;
+  let n = 0;
+  for (let i = 0; i + pat.length <= stream.length; i++) {
+    let ok = true;
+    const gid = new Map();
+    for (let k = 0; k < pat.length && ok; k++) {
+      const tok = stream[i + k], p = pat[k];
+      if (!tok.w || tok.w !== p.w) { ok = false; break; }
+      if (p.href === null) continue;
+      if (!tok.link || tok.link.href !== p.href) { ok = false; break; }
+      if (!gid.has(p.group)) gid.set(p.group, tok.link.id);
+      else if (gid.get(p.group) !== tok.link.id) ok = false;
     }
-    return -1;
-  };
-  const isOpen = (i) => src[i] === "<" && /[A-Za-z>]/.test(src[i + 1] || "");
-  // One element from its `<`: answers the index past its end, or -1.
-  const element = (at) => {
-    if (src[at + 1] === ">") { // a fragment
-      return children(at + 2);
-    }
-    const e = tagEndIn(src, at + 1);
-    if (e < 0) return -1;
-    if (/\/\s*$/.test(src.slice(at + 1, e))) return e + 1;
-    return children(e + 1);
-  };
-  const children = (from) => {
-    let text = "";
-    for (let i = from; i < src.length; i++) {
-      const c = src[i];
-      if (c === "<" && src[i + 1] === "/") { parts.push(text); const e = src.indexOf(">", i); return e < 0 ? -1 : e + 1; }
-      if (isOpen(i)) { parts.push(text); text = ""; const e = element(i); if (e < 0) return -1; i = e - 1; continue; }
-      if (c === "{") {
-        const e = exprEnd(i + 1);
-        if (e < 0) return -1;
-        const body = src.slice(i + 1, e);
-        const lit = /^\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*$/.exec(body);
-        if (lit) text += " " + (lit[1] ?? lit[2] ?? lit[3]) + " ";
-        else { parts.push(text); text = ""; scan(i + 1, e); }
-        i = e; continue;
+    if (ok) {
+      for (const [g, id] of gid) {
+        const ks = pat.map((p, k) => (p.group === g ? k : -1)).filter((k) => k >= 0);
+        const prev = stream[i + ks[0] - 1], next = stream[i + ks[ks.length - 1] + 1];
+        if ((prev && prev.link && prev.link.id === id) || (next && next.link && next.link.id === id)) { ok = false; break; }
       }
-      text += c;
     }
-    parts.push(text);
-    return -1;
-  };
-  // Code, not JSX: look for elements only.
-  const scan = (from, to) => {
-    for (let i = from; i < to; i++) {
-      if (src[i] === '"' || src[i] === "'" || src[i] === "`") { const q = src[i]; for (i++; i < to && src[i] !== q; i++) if (src[i] === "\\") i++; continue; }
-      if (isOpen(i) && (i === 0 || /[\s(=>&|?:,\[{]/.test(src[i - 1]))) { const e = element(i); if (e < 0) return; i = e - 1; }
-    }
-  };
-  scan(0, src.length);
-  return parts.join(" ");
-}
-/** `tagEnd` over another string: the closing `>` of a tag opened before `from`. */
-function tagEndIn(s, from) {
-  let depth = 0, q = "";
-  for (let i = from; i < s.length; i++) {
-    const c = s[i];
-    if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
-    if (c === '"' || c === "'" || c === "`") { q = c; continue; }
-    if (c === "{") { depth++; continue; }
-    if (c === "}") { if (depth > 0) depth--; continue; }
-    if (c === ">" && depth === 0) return i;
+    if (ok) { n++; i += pat.length - 1; }
   }
-  return -1;
-}
-/** How many rendered links show exactly these words and go exactly there. */
-function linkPairs(source) {
-  const m = new Map();
-  for (const l of renderedLinks(source)) { const k = l.href + "\u0000" + l.text; m.set(k, (m.get(k) || 0) + 1); }
-  return m;
+  return n;
 }
 
 export function wordsLanded(before, after, items) {
   const was = sourcesByPath(before), now = sourcesByPath(after);
-  // IN THE PAGE'S OWN ORDER, so a line the writer split across a tag (`Open
-  // <strong>daily</strong>`) reads back as the one line it is.
-  const said = (source) => " " + plainWords(extractText(source).sort((a, b) => a.at - b.at).map((w) => w.text).join(" ")) + " ";
   const missing = [];
   for (const it of Array.isArray(items) ? items : []) {
     const file = fileOfRoute(it && it.page);
-    // WHAT A VISITOR READS (`wordsParts`): a link's words, never its brackets
-    // or address — so a correctly drawn link is found, and markup left as
-    // visible text is not the words asked for.
-    const parts = wordsParts(it && it.words);
-    const want = plainWords(parts.text);
-    if (!file || !want) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
-    // BY EITHER READER, each against itself: the text rung's own, and the
-    // structural one (`visibleText`), which also reads short words between
-    // inline elements and braced strings.
-    const seen = (read) => occurrences(read(now.get(file) || ""), " " + want + " ") > occurrences(read(was.get(file) || ""), " " + want + " ");
-    const shown = seen(said) || seen((src) => " " + plainWords(visibleText(src)) + " ");
-    // …AND EVERY LINK IT CARRIES ARRIVED AS A LINK: those words, going to
-    // that address, on one rendered element — as many more such elements
-    // than the page drew before as the line asks for, so two links to one
-    // place need two.
-    const ask = new Map();
-    for (const l of parts.links) { const k = l.href + "\u0000" + plainWords(l.text); ask.set(k, (ask.get(k) || 0) + 1); }
-    const hadL = linkPairs(was.get(file) || ""), hasL = linkPairs(now.get(file) || "");
-    const linked = [...ask].every(([k, n]) => (hasL.get(k) || 0) - (hadL.get(k) || 0) >= n);
-    if (!shown || !linked) missing.push({ page: it.page, words: it.words });
+    // WHAT A VISITOR READS, TIED TOGETHER (`linePattern`): the line's words in
+    // order, each linked phrase bound to the link that renders it.
+    const pat = linePattern(it && it.words);
+    if (!file || !pat.length) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
+    // ONE MORE RENDERED OCCURRENCE THAN THE PAGE HAD: a line already there, or
+    // one only a comment, a branch that never renders or unresolved code
+    // holds, is not this change's.
+    const had = lineRendered(renderedStream(was.get(file) || ""), pat);
+    const has = lineRendered(renderedStream(now.get(file) || ""), pat);
+    if (has <= had) missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };
 }

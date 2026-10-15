@@ -4565,17 +4565,28 @@ for (const [name, html, ok] of [
 // THE SAME, THROUGH THE ROUTE, ON A PAGE WHOSE FOOTER ALREADY LINKS /classes
 // (2026-10-15, review): the footer must not answer for the asked link.
 const FOOTED = { ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <footer><Link to="/classes">Classes</Link></footer>\n</main>') };
-for (const [name, html, ok, stored] of [
+for (const [name, html, ok, stored, base] of [
   // THE FOOTER ARRIVES WITH THE CHANGE: one more /classes link on the page.
   ["linked to the wrong page while a new footer links the right one", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false, PHOTO_SITE[0]],
   ["linked to the wrong page beside a footer link to the right one", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false, FOOTED],
   ["the right link only inside a JSX comment", '<p>Book a workshop place by Friday.</p>{/* <Link to="/classes">workshop place</Link> */}', false, FOOTED],
   ["drawn as the site's Link beside the footer", '<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', true, FOOTED],
+  // (2026-10-15, Codex's review) THE SAME WORDS LINKED RIGHT IN A NEW FOOTER,
+  // while the line itself links them elsewhere: the link must be the one IN
+  // the requested line.
+  ["linked to the wrong page while a new footer links the same words to the right one", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false, PHOTO_SITE[0], { ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <footer><Link to="/classes">workshop place</Link></footer>\n</main>') }],
+  // THE WHOLE LINE IN A BRANCH THAT NEVER RENDERS, or one that may not.
+  ["the whole line inside a false condition", '{false && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}', false, FOOTED],
+  ["the whole line inside a condition on state", '{open && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}', false, FOOTED],
+  ["the whole line inside a true condition", '{true && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}', true, FOOTED],
+  // AN ATTRIBUTE IS READ AS AN ATTRIBUTE: a title that mentions an address is a title.
+  ["a title naming the right address on a link that goes elsewhere", '<p>Book a <a title="try href=\'/classes\' here" href="/visit">workshop place</a> by Friday.</p>', false, FOOTED],
+  ["a title naming another address on a link that goes the right way", '<p>Book a <a title="try href=\'/visit\' here" href="/classes">workshop place</a> by Friday.</p>', true, FOOTED],
 ]) {
   test("LINKED WORDS, FOOTER ON THE PAGE — " + name + (ok ? ": found and published" : ": refused before the bill"), async () => {
     const r = await addon("fw-photo", "add a line saying people can book a workshop place by Friday, linking to the classes page", {
       kinds: ["words"], publishes: ok, storedPages: [stored, storedPage("/classes")], answers: wordsAnswer("/", LINKED),
-      written: [withLine(FOOTED, html)],
+      written: [withLine(base || FOOTED, html)],
     });
     if (ok) assert.equal(r.body.ok, true, JSON.stringify(r.body));
     else { assert.equal(r.status, 422, JSON.stringify(r.body)); assert.equal(r.body.error, "not-landed"); assert.equal(r.body.cost, 0); assert.equal(r.compiles.length, 0); }
