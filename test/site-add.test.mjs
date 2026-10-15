@@ -2757,3 +2757,55 @@ test("wordsLanded reads a link's effective destination — Codex's spread overri
   // AN ANCHOR GOES WHERE ITS href SAYS, whatever a `to` says.
   assert.equal(at('<a to="/classes" href="/wrong">'), false, "an anchor's to was read as its destination");
 });
+
+// ── WHAT ACTUALLY RUNS, AND COMPONENTS THIS CANNOT READ (2026-10-15, Codex's
+// third review): `if(false) return <line>`, a second return after an
+// unconditional first, and children handed to an imported component whose
+// rendering is unknown all passed through the exported function. A line now
+// counts only where every reachable output renders it, and an imported
+// component renders what it is given only when its own source — the site's
+// stored components and kit — shows that it does.
+const HOME = (body) => "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ " + body + " }\n";
+const WLx = (after, opts) => WL([{ path: "index.tsx", source: WL_BASE }], [{ path: "index.tsx", source: after }], [{ page: "/", words: LINE_C }], opts).ok;
+test("wordsLanded follows control flow — Codex's unreachable return and second return fail; only a line every reachable output renders passes", () => {
+  // CODEX'S CASES.
+  assert.equal(WLx(HOME("if(false) return " + P_LINE + "; return <main><h1>Fretwork</h1></main>")), false, "a return under if(false) answered");
+  assert.equal(WLx(HOME("if (false) { return " + P_LINE + " } return <main><h1>Fretwork</h1></main>")), false);
+  assert.equal(WLx(HOME("return <main><h1>Fretwork</h1></main>; return " + P_LINE)), false, "a return after an unconditional return answered");
+  assert.equal(WLx(HOME("if(false) return " + P_LINE + ";")), false, "a body whose only line-bearing return never runs answered");
+  // A RETURN BEHIND A CONDITION ON STATE: the page has another output.
+  assert.equal(WLx(HOME("if (loading) return <p>Loading</p>; return <main>" + P_LINE + "</main>")), false, "a line missing from the loading output answered");
+  assert.equal(WLx(HOME("for (const x of xs) { return <p>x</p> } return <main>" + P_LINE + "</main>")), false, "a loop's return was ignored");
+  assert.equal(WLx(HOME("switch (k) { case 1: return <p>one</p> } return <main>" + P_LINE + "</main>")), false);
+  // CONTROLS: every reachable output renders it, or only one output is reachable.
+  assert.equal(WLx(HOME("if (loading) return <section>" + P_LINE + "</section>; return <main>" + P_LINE + "</main>")), true, "a line in every output did not count");
+  assert.equal(WLx(HOME("if (true) return <main>" + P_LINE + "</main>; return <p>never</p>")), true, "if(true) did not end the body");
+  assert.equal(WLx(HOME("if (false) return <p>never</p>; return <main>" + P_LINE + "</main>")), true, "an unreachable return blocked the real one");
+  assert.equal(WLx(HOME("const go = () => { return <p>x</p> }; return <main>" + P_LINE + "</main>")), true, "a callback's return was read as the component's");
+  assert.equal(WLx(HOME("return <main>" + P_LINE + "</main>; return <p>dead</p>")), true);
+});
+
+const PAGE_IMP = (imp, el) => imp + "\nexport const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ return <main><h1>Fretwork</h1>" + el + "</main> }\n";
+test("wordsLanded reads imported components only from their own source — Codex's unknown imported component fails; a stored part or kit component that renders its children passes", () => {
+  // CODEX'S CASE: an imported component whose rendering is unknown.
+  assert.equal(WLx(PAGE_IMP('import { Card } from "@/components/ui/card";', "<Card>" + P_LINE + "</Card>")), false, "children of an unknown imported component answered");
+  assert.equal(WLx(PAGE_IMP('import Fancy from "fancy-package";', "<Fancy>" + P_LINE + "</Fancy>")), false);
+  assert.equal(WLx(PAGE_IMP('import * as UI from "@/components/ui/card";', "<UI.Card>" + P_LINE + "</UI.Card>")), false);
+  // THE SITE'S OWN COMPONENT, STORED: read where it is rendered.
+  const BAND = { path: "-parts/band.tsx", source: "export default function Band({ children }) { return <section className=\"band\">{children}</section> }\n" };
+  assert.equal(WLx(PAGE_IMP('import Band from "./-parts/band";', "<Band>" + P_LINE + "</Band>"), { files: [BAND] }), true, "a stored part that renders its children did not count");
+  const DROP = { path: "-parts/band.tsx", source: "export default function Band({ children }) { return <section>Nothing</section> }\n" };
+  assert.equal(WLx(PAGE_IMP('import Band from "./-parts/band";', "<Band>" + P_LINE + "</Band>"), { files: [DROP] }), false, "a stored part that drops its children answered");
+  const HIDE = { path: "-parts/band.tsx", source: "export default function Band({ children, open }) { if (!open) return null; return <section>{children}</section> }\n" };
+  assert.equal(WLx(PAGE_IMP('import Band from "./-parts/band";', "<Band>" + P_LINE + "</Band>"), { files: [HIDE] }), false, "a part that renders its children only sometimes answered");
+  // THE KIT, STORED: shadcn's forwardRef form, children carried by the props spread.
+  const CARD = { path: "src/components/ui/card.tsx", source: 'import * as React from "react";\nimport { cn } from "@/lib/utils";\nconst Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (\n  <div ref={ref} className={cn("rounded", className)} {...props} />\n));\nCard.displayName = "Card";\nexport { Card };\n' };
+  assert.equal(WLx(PAGE_IMP('import { Card } from "@/components/ui/card";', "<Card>" + P_LINE + "</Card>"), { files: [CARD] }), true, "a kit component that spreads its props did not count");
+  const TOOK = { path: "src/components/ui/card.tsx", source: "export function Card({ children, ...rest }) { return <div {...rest} /> }\n" };
+  assert.equal(WLx(PAGE_IMP('import { Card } from "@/components/ui/card";', "<Card>" + P_LINE + "</Card>"), { files: [TOOK] }), false, "children taken out of the spread still answered");
+  const ARGS = { path: "src/components/ui/card.tsx", source: "export function Card(...args) { return <div>{args[0].children}</div> }\n" };
+  assert.equal(WLx(PAGE_IMP('import { Card } from "@/components/ui/card";', "<Card>" + P_LINE + "</Card>"), { files: [ARGS] }), false, "a parameter this cannot read was vouched for");
+  // THE ROUTER'S LINK AND REACT'S FRAGMENT render what they are given.
+  assert.equal(WLx(PAGE_IMP('import { Fragment } from "react";', "<Fragment>" + P_LINE + "</Fragment>")), true);
+  assert.equal(WLx(PAGE_IMP("", "<>" + P_LINE + "</>")), true);
+});

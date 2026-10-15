@@ -222,6 +222,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const beforeUploads = [];
   const dispatched = [];
   const afterUploads = [];
+  // ACCEPTED, NOT YET SERVING (2026-10-15): an upload the API accepted whose
+  // script the version probe does not show until the case releases it — a
+  // dispatch script does not serve the moment its upload is accepted. The
+  // eventual live script is still the last one ACCEPTED (`liveScript`).
+  const deferLandings = [];
   const scriptText = async (body) => {
     try {
       if (body && typeof body.entries === "function") {
@@ -708,7 +713,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // AND WHICH SCRIPT NAME: `site-<slug>` is the live one, `draft-<slug>`
       // a draft's preview (draft-first, 2026-10-15).
       const sn = /\/scripts\/([^/?]+)/.exec(url);
-      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" });
+      const entry = { version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" };
+      const dl = deferLandings.shift();
+      if (dl) { entry.hidden = true; dl.entry = entry; }
+      uploads.push(entry);
       // LANDED, AND THEN (`afterUpload`): a hook that throws is an upload
       // whose answer was lost; one that never ends is an uploader that died.
       const au = afterUploads.shift();
@@ -730,7 +738,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     ...(liveScripts ? { SITE_WORKERS: { get: (name) => ({ fetch: async (req) => {
       // EVERY DISPATCH, with the script asked and the preview header it carried.
       try { dispatched.push({ name, path: new URL(req.url).pathname, preview: req.headers.get("x-site-preview") }); } catch { /* a probe without a request */ }
-      const mine = uploads.filter((u) => !u.name || !name || u.name === name);
+      const mine = uploads.filter((u) => !u.hidden && (!u.name || !name || u.name === name));
       const last = mine[mine.length - 1];
       const h = new Headers();
       if (last) { h.set("x-site-build", last.build); if (last.version) h.set("x-site-version", last.version); }
@@ -847,6 +855,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** Before the next site-script upload lands, run `then(scriptText)`; the upload then goes ahead. */
     beforeUpload(then) { beforeUploads.push(then); },
     afterUpload(then) { afterUploads.push(then); },
+    /** The next upload is accepted but not yet serving: `release()` lets the probe see it. */
+    deferLanding() { const h = { entry: null, release() { if (h.entry) h.entry.hidden = false; } }; deferLandings.push(h); return h; },
     /** Every site-script upload so far: `{ version, build, at }`, in order. */
     uploads() { return uploads.slice(); },
     /** The live script's version: the last upload's, or null before any. */

@@ -4776,15 +4776,20 @@ function readTag(src, at) {
   let name = "";
   while (i < src.length && NAME_CH.test(src[i])) name += src[i++];
   const attrs = new Map();
+  const spreads = [];
   for (;;) {
     while (i < src.length && /\s/.test(src[i])) i++;
     if (i >= src.length) return null;
-    if (src[i] === "/" && src[i + 1] === ">") return { name, attrs, end: i + 2, selfClosing: true };
-    if (src[i] === ">") return { name, attrs, end: i + 1, selfClosing: false };
+    if (src[i] === "/" && src[i + 1] === ">") return { name, attrs, spreads, end: i + 2, selfClosing: true };
+    if (src[i] === ">") return { name, attrs, spreads, end: i + 1, selfClosing: false };
     if (src[i] === "{") {
       const e = exprEnd(src, i + 1);
       if (e < 0) return null;
-      spreadInto(attrs, src.slice(i + 1, e));
+      const inner = src.slice(i + 1, e);
+      spreadInto(attrs, inner);
+      // WHAT A SPREAD CARRIES, kept as written: a spread of the props a
+      // component was given carries the children it was given too.
+      if (inner.trim().startsWith("...")) spreads.push(inner.trim().slice(3).trim());
       i = e + 1;
       continue;
     }
@@ -4847,7 +4852,7 @@ function objectEntries(body) {
 function parseElement(src, at) {
   const t = readTag(src, at);
   if (!t) return null;
-  const node = { tag: t.name, attrs: t.attrs, children: [], end: t.end };
+  const node = { tag: t.name, attrs: t.attrs, spreads: t.spreads || [], children: [], end: t.end };
   if (t.selfClosing) return node;
   let text = "";
   for (let i = t.end; i < src.length; i++) {
@@ -4961,10 +4966,23 @@ function closeOf(src, i) {
   return -1;
 }
 const skipWs = (src, i) => { while (i < src.length && /\s/.test(src[i])) i++; return i; };
+/** Past a type's angle brackets at `i` (`<HTMLDivElement, Props>`), nested ones and arrows inside skipped; -1 when unbalanced. */
+function skipAngles(src, i) {
+  let depth = 0;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if (c === "=" && src[j + 1] === ">") { j++; continue; }
+    if (c === "<") depth++;
+    else if (c === ">" && --depth === 0) return j + 1;
+    else if (c === ";" || c === "{" && depth === 0) return -1;
+  }
+  return -1;
+}
 /**
- * A component written at `i`: `{ kind: "block", text }` (a function body) or
- * `{ kind: "expr", text }` (an arrow's expression), through one wrapping call
- * (`memo(…)`, `forwardRef(…)`). Null when it is not one this can read.
+ * A component written at `i`: `{ kind: "block", text, params }` (a function
+ * body) or `{ kind: "expr", text, params }` (an arrow's expression), through
+ * wrapping calls (`memo(…)`, `React.forwardRef<…>(…)`). `params` is its
+ * parameter list as written. Null when it is not one this can read.
  */
 function componentAt(src, i, depth = 0) {
   i = skipWs(src, i);
@@ -4978,32 +4996,116 @@ function componentAt(src, i, depth = 0) {
     const b = src.indexOf("{", pc);
     if (b < 0) return null;
     const e = closeOf(src, b);
-    return e < 0 ? null : { kind: "block", text: src.slice(b + 1, e), end: e + 1 };
+    return e < 0 ? null : { kind: "block", text: src.slice(b + 1, e), end: e + 1, params: src.slice(p + 1, pc) };
   }
-  let j = i;
-  if (src[j] === "(") { const pc = closeOf(src, j); if (pc < 0) return null; j = pc + 1; }
+  let j = i, params = "";
+  if (src[j] === "(") { const pc = closeOf(src, j); if (pc < 0) return null; params = src.slice(j + 1, pc); j = pc + 1; }
   else {
     const id = IDENT.exec(src.slice(j));
     if (!id) return null;
     j += id[0].length;
-    const after = skipWs(src, j);
+    // A MEMBER AND ITS TYPE ARGUMENTS: `React.forwardRef<…>(…)`.
+    let w = j;
+    while (src[w] === "." && IDENT.test(src.slice(w + 1))) w += 1 + IDENT.exec(src.slice(w + 1))[0].length;
+    let after = skipWs(src, w);
+    if (src[after] === "<") { const t = skipAngles(src, after); if (t > 0) after = skipWs(src, t); }
     // A WRAPPING CALL: `memo(function X() {…})`, `forwardRef((p, r) => …)`.
-    if (src[after] === "(" && !src.startsWith("=>", after)) {
-      const inner = componentAt(src, after + 1, depth + 1);
-      return inner;
-    }
+    if (src[after] === "(" && !src.startsWith("=>", after)) return componentAt(src, after + 1, depth + 1);
+    if (w !== j) return null;
+    params = id[0];
   }
   j = skipWs(src, j);
   // A TYPE ON THE RESULT: `(): JSX.Element =>`.
   if (src[j] === ":") { const arrow = src.indexOf("=>", j); if (arrow < 0) return null; j = arrow; }
   if (!src.startsWith("=>", j)) return null;
   j = skipWs(src, j + 2);
-  if (src[j] === "{") { const e = closeOf(src, j); return e < 0 ? null : { kind: "block", text: src.slice(j + 1, e), end: e + 1 }; }
-  if (src[j] === "(") { const e = closeOf(src, j); return e < 0 ? null : { kind: "expr", text: src.slice(j, e + 1), end: e + 1 }; }
-  if (tagStartAt(src, j)) { const el = parseElement(src, j); return el ? { kind: "expr", text: src.slice(j, el.end), end: el.end } : null; }
+  if (src[j] === "{") { const e = closeOf(src, j); return e < 0 ? null : { kind: "block", text: src.slice(j + 1, e), end: e + 1, params }; }
+  if (src[j] === "(") { const e = closeOf(src, j); return e < 0 ? null : { kind: "expr", text: src.slice(j, e + 1), end: e + 1, params }; }
+  if (tagStartAt(src, j)) { const el = parseElement(src, j); return el ? { kind: "expr", text: src.slice(j, el.end), end: el.end, params } : null; }
   return null;
 }
-/** The file's components by name (capitalized, declared at the top of the module) and its root. */
+/**
+ * WHERE A COMPONENT'S CHILDREN GO, read from its first parameter: a
+ * destructured `children` (or `children: kids`) is a name that renders
+ * them; a whole props object (`props`), or the rest of a destructuring that
+ * did not take `children` out (`...props`), carries them — as `x.children`,
+ * or spread onto an element. `known: false` when the parameter cannot be
+ * read: then nothing it is given is vouched for.
+ */
+function childBinding(params) {
+  const names = new Set(), carriers = new Set();
+  const t = String(params || "").trim();
+  if (!t) return { names, carriers, known: true };
+  let first = "", depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === '"' || c === "'" || c === "`") { const e = skipString(t, i); if (e < 0) return { names, carriers, known: false }; i = e - 1; continue; }
+    if ("([{<".includes(c)) depth++;
+    else if (")]}>".includes(c) && !(c === ">" && t[i - 1] === "=")) depth--;
+    else if (c === "," && depth === 0) { first = t.slice(0, i); break; }
+  }
+  first = (first || t).trim();
+  if (first.startsWith("{")) {
+    const e = closeOf(first, 0);
+    if (e < 0) return { names, carriers, known: false };
+    const entries = destructured(first.slice(1, e));
+    if (!entries) return { names, carriers, known: false };
+    const tookChildren = entries.some((x) => x.key === "children");
+    for (const x of entries) {
+      if (x.key === "children" && x.bind) names.add(x.bind);
+      if (x.rest && !tookChildren) carriers.add(x.rest);
+    }
+    return { names, carriers, known: true };
+  }
+  const id = IDENT.exec(first);
+  if (id && /^\s*(?::[\s\S]*)?$/.test(first.slice(id[0].length))) { carriers.add(id[0]); return { names, carriers, known: true }; }
+  return { names, carriers, known: false };
+}
+/** A destructuring pattern's entries: `{ key, bind }` (`children`, `children: kids`, `children = …`) or `{ rest }`. Null when unreadable. */
+function destructured(body) {
+  const out = [];
+  let depth = 0, from = 0;
+  const take = (p) => {
+    p = p.trim();
+    if (!p) return true;
+    if (p.startsWith("...")) { const id = IDENT.exec(p.slice(3).trim()); if (!id) return false; out.push({ rest: id[0] }); return true; }
+    const m = /^([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$]*))?\s*(?:=[\s\S]*)?$/.exec(p);
+    if (m) { out.push({ key: m[1], bind: m[2] || m[1] }); return true; }
+    const nested = /^([A-Za-z_$][\w$]*)\s*:/.exec(p);
+    if (nested) { out.push({ key: nested[1], bind: null }); return true; }
+    return false;
+  };
+  for (let i = 0; i <= body.length; i++) {
+    const c = body[i];
+    if (i === body.length || (c === "," && depth === 0)) { if (!take(body.slice(from, i))) return null; from = i + 1; continue; }
+    if (c === '"' || c === "'" || c === "`") { const j = skipString(body, i); if (j < 0) return null; i = j - 1; continue; }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+  }
+  return out;
+}
+/** A module's imports: local name → `{ spec, name }` (`name` "default" for a default import, "*" for a namespace). */
+function moduleImports(src) {
+  const out = new Map();
+  for (const m of src.matchAll(/(?:^|\n)[ \t]*import\s+(?!type\b)([\s\S]*?)\s+from\s+["']([^"']+)["']/g)) {
+    const clause = m[1].trim(), spec = m[2];
+    const ns = /^\*\s+as\s+([A-Za-z_$][\w$]*)$/.exec(clause);
+    if (ns) { out.set(ns[1], { spec, name: "*" }); continue; }
+    const def = /^([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(clause);
+    if (def) out.set(def[1], { spec, name: "default" });
+    const named = /\{([\s\S]*)\}/.exec(clause);
+    if (named) {
+      for (const part of named[1].split(",")) {
+        const q = part.trim().replace(/^type\s+/, "");
+        if (!q) continue;
+        const as = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(q);
+        if (as) out.set(as[2] || as[1], { spec, name: as[1] });
+      }
+    }
+  }
+  return out;
+}
+/** The file's components by name (capitalized, declared at the top of the module), its root and its imports. */
 function moduleComponents(src) {
   const comps = new Map();
   const decl = /(?:^|\n)[ \t]*(?:export[ \t]+(?:default[ \t]+)?)?(?:(?:async[ \t]+)?function[ \t]+([A-Z][\w$]*)|(?:const|let|var)[ \t]+([A-Z][\w$]*)[ \t]*(?::[^=\n]+)?=)/g;
@@ -5040,111 +5142,239 @@ function moduleComponents(src) {
       else root = componentAt(src, at);
     }
   }
-  return { comps, root };
+  return { comps, root, imports: moduleImports(src) };
 }
-/** The expressions a component renders: its arrow's expression, or each `return` at the top of its body. */
-function outputsOf(c) {
+/** The text of a `return` statement's value from `j` (just after `return`), and where it ends. */
+function returnValue(body, j) {
+  j = skipWs(body, j);
+  if (body[j] === "(") { const e = closeOf(body, j); return e < 0 ? null : { text: body.slice(j, e + 1), end: e + 1 }; }
+  if (tagStartAt(body, j)) { const el = parseElement(body, j); return el ? { text: body.slice(j, el.end), end: el.end } : null; }
+  // ANY OTHER RETURN: up to its end, read as an expression (a literal, a
+  // condition) or unresolved.
+  let k = j, d = 0;
+  for (; k < body.length; k++) {
+    const c2 = body[k];
+    if (c2 === '"' || c2 === "'" || c2 === "`") { const e = skipString(body, k); if (e < 0) return null; k = e - 1; continue; }
+    if (c2 === "<" && jsxContext(body, k)) { const el = parseElement(body, k); if (el) { k = el.end - 1; continue; } }
+    if ("([{".includes(c2)) d++;
+    else if (")]}".includes(c2)) { if (d === 0) break; d--; }
+    else if ((c2 === ";" || c2 === "\n") && d === 0) break;
+  }
+  return { text: body.slice(j, k), end: k };
+}
+const wordAt = (src, i, w) => src.startsWith(w, i) && !/[\w$.]/.test(src[i - 1] || "") && !/[\w$]/.test(src[i + w.length] || "");
+/**
+ * EVERY OUTPUT A COMPONENT CAN REACH (2026-10-15, after Codex's third
+ * review). An arrow's expression is its one output. A body's outputs are its
+ * `return`s that can run: each one behind a condition (an `if`, an `else`, a
+ * loop, a `switch`, a `try`) is one possible output and the body goes on; the
+ * first one that always runs ends it, and nothing after it is reached; a body
+ * that can end with no `return` renders nothing on that path (""). A branch
+ * under a literal false (`if (false)`) never runs, and one under a literal
+ * `true` always does. Returns inside a function written in the body (a
+ * handler, a callback) are not the component's.
+ */
+function outputPaths(c) {
   if (!c) return [];
   if (c.kind === "expr") return [c.text];
   const body = c.text, out = [];
-  let depth = 0;
+  // THE BLOCKS THE SCAN IS INSIDE: `{ cond }` — "true", "false" or "maybe".
+  const frames = [];
+  const reachable = () => !frames.some((f) => f.cond === "false");
+  const always = () => frames.every((f) => f.cond === "true");
+  const condOf = (text) => { const t = text.trim(); return t === "true" ? "true" : FALSY_LIT.test(t) ? "false" : "maybe"; };
+  let pending = null; // the condition a block or statement just after `if (…)`/`else`/a loop head runs under
   for (let i = 0; i < body.length; i++) {
     const ch = body[i];
     if (ch === '"' || ch === "'" || ch === "`") { const e = skipString(body, i); if (e < 0) break; i = e - 1; continue; }
     if (ch === "<" && jsxContext(body, i)) { const el = parseElement(body, i); if (el) { i = el.end - 1; continue; } }
     // A FUNCTION INSIDE (a handler, a callback): its returns are not this component's.
     if (body.startsWith("=>", i)) { const j = skipWs(body, i + 2); if (body[j] === "{") { const e = closeOf(body, j); if (e < 0) break; i = e; } continue; }
-    if (/[\w$]/.test(body[i - 1] || "") === false && body.startsWith("function", i) && !/[\w$]/.test(body[i + 8] || "")) {
-      const b = body.indexOf("{", i); if (b < 0) break; const e = closeOf(body, b); if (e < 0) break; i = e; continue;
+    if (wordAt(body, i, "function")) { const b = body.indexOf("{", i); if (b < 0) break; const e = closeOf(body, b); if (e < 0) break; i = e; continue; }
+    // A HEAD WITH A CONDITION: `if (…)` — its block or statement runs under it.
+    if (wordAt(body, i, "if") || wordAt(body, i, "while") || wordAt(body, i, "for") || wordAt(body, i, "switch") || wordAt(body, i, "catch")) {
+      const isIf = wordAt(body, i, "if");
+      const p = skipWs(body, i + (isIf ? 2 : body.startsWith("while", i) ? 5 : body.startsWith("switch", i) ? 6 : body.startsWith("catch", i) ? 5 : 3));
+      if (body[p] !== "(") { pending = "maybe"; continue; }
+      const pc = closeOf(body, p);
+      if (pc < 0) break;
+      pending = isIf ? condOf(body.slice(p + 1, pc)) : "maybe";
+      i = pc;
+      continue;
     }
-    if (ch === "{" || ch === "(" || ch === "[") { depth++; continue; }
-    if (ch === "}" || ch === ")" || ch === "]") { depth--; continue; }
-    if (depth === 0 && !/[\w$.]/.test(body[i - 1] || "") && body.startsWith("return", i) && !/[\w$]/.test(body[i + 6] || "")) {
-      let j = skipWs(body, i + 6);
-      if (body[j] === "(") { const e = closeOf(body, j); if (e < 0) break; out.push(body.slice(j, e + 1)); i = e; continue; }
-      if (tagStartAt(body, j)) { const el = parseElement(body, j); if (!el) break; out.push(body.slice(j, el.end)); i = el.end - 1; continue; }
-      // ANY OTHER RETURN: up to its end, read as an expression (a literal, a
-      // condition) or unresolved.
-      let k = j, d = 0;
-      for (; k < body.length; k++) {
-        const c2 = body[k];
-        if (c2 === '"' || c2 === "'" || c2 === "`") { const e = skipString(body, k); if (e < 0) break; k = e - 1; continue; }
-        if (c2 === "<" && jsxContext(body, k)) { const el = parseElement(body, k); if (el) { k = el.end - 1; continue; } }
-        if ("([{".includes(c2)) d++;
-        else if (")]}".includes(c2)) { if (d === 0) break; d--; }
-        else if (c2 === ";" && d === 0) break;
-      }
-      out.push(body.slice(j, k));
-      i = k;
+    if (wordAt(body, i, "else") || wordAt(body, i, "try") || wordAt(body, i, "finally") || wordAt(body, i, "do")) { pending = "maybe"; i += 1; continue; }
+    if (ch === "{") { frames.push({ cond: pending || (frames.length ? "true" : "true"), brace: true }); pending = null; continue; }
+    if (ch === "}") { while (frames.length && !frames[frames.length - 1].brace) frames.pop(); frames.pop(); continue; }
+    if (wordAt(body, i, "return")) {
+      const v = returnValue(body, i + 6);
+      if (!v) { out.push(null); return out; }
+      const cond = pending; pending = null;
+      const live = reachable() && cond !== "false";
+      if (live) out.push(v.text);
+      i = v.end - 1;
+      // THE FIRST RETURN THAT ALWAYS RUNS ENDS THE BODY.
+      if (live && always() && (cond === null || cond === "true")) return out;
+      continue;
     }
+    // A STATEMENT JUST AFTER A HEAD THAT IS NOT A BLOCK OR A RETURN: the
+    // condition applied to it, and is spent.
+    if (pending && !/\s/.test(ch)) pending = null;
   }
+  // IT CAN END WITHOUT A RETURN: nothing rendered on that path.
+  out.push("");
   return out;
 }
-/** The rendered word stream of a page: `{ w, link }` per word, `{ w: null }` where unresolved content breaks it. */
-export function renderedStream(source) {
+/**
+ * THE ALTERNATIVES A PAGE RENDERS: one word stream per way its components
+ * can come out (`outputPaths`), each `{ w, link }` per word and `{ w: null }`
+ * where unresolved content breaks it. Past `ALT_CAP` alternatives the page
+ * reads as unresolved (`overflow`) — never as any one of them.
+ */
+const ALT_CAP = 32;
+const GAP = Object.freeze({ w: null, link: null });
+function renderedAlternatives(source, { path = "", files = null } = {}) {
   const src = stripComments(source);
-  const out = [];
-  let ids = 0;
-  const { comps, root } = moduleComponents(src);
-  if (!root) return out;
-  const words = (text, link) => { for (const w of plainWords(text).split(" ")) if (w) out.push({ w, link }); };
-  const gap = () => { if (out.length && out[out.length - 1].w !== null) out.push({ w: null, link: null }); };
-  const stack = [];
-  // `kids`: the children the component being read was given, and the kids of
-  // the place they were written (`outer`), so `children` renders them there.
-  const expr = (e, link, kids, depth = 0) => {
-    if (depth > 40) { gap(); return; }
+  const mod0 = { ...moduleComponents(src), path: modulePath(path) };
+  if (!mod0.root) return { alts: [], overflow: false };
+  let ids = 0, overflow = false;
+  const index = fileIndex(files);
+  const seq = (a, b) => {
+    if (!a.length || !b.length) return a.length ? a : b;
+    if (a.length * b.length > ALT_CAP) { overflow = true; return [[GAP]]; }
+    const out = [];
+    for (const x of a) for (const y of b) out.push(x.concat(y));
+    return out;
+  };
+  const choice = (list) => {
+    const out = [];
+    for (const l of list) out.push(...l);
+    if (out.length > ALT_CAP) { overflow = true; return [[GAP]]; }
+    return out;
+  };
+  const one = (toks) => [toks];
+  const gapAlt = () => one([GAP]);
+  const words = (text, link) => one(plainWords(text).split(" ").filter(Boolean).map((w) => ({ w, link })));
+  // `ctx`: the module the content was written in, and the children binding
+  // of the component being read (`names`, `carriers`, and the children it
+  // was given with the context they were written in).
+  const expr = (e, link, ctx, depth = 0) => {
+    if (depth > 40) return gapAlt();
     const t = unwrap(e);
-    if (!t) return;
+    if (!t) return one([]);
     const lit = STRING_LIT.exec(t);
-    if (lit) { words(lit[1] ?? lit[2] ?? lit[3], link); return; }
-    if (/^(?:props\.)?children$/.test(t)) {
-      if (kids && kids.list) { for (const c of kids.list) child(c, link, kids.outer); return; }
-      gap(); return;
-    }
-    if (tagStartAt(t, 0)) { const el = parseElement(t, 0); if (el && el.end === t.length) { node(el, link, kids); return; } }
+    if (lit) return words(lit[1] ?? lit[2] ?? lit[3], link);
+    // THE CHILDREN THIS COMPONENT WAS GIVEN, where its parameters say so.
+    const kidsHere = ctx.kids && (ctx.kids.names.has(t) || (/^([A-Za-z_$][\w$]*)\.children$/.test(t) && ctx.kids.carriers.has(t.split(".")[0])));
+    if (kidsHere) return renderKids(ctx.kids, link);
+    if (tagStartAt(t, 0)) { const el = parseElement(t, 0); if (el && el.end === t.length) return node(el, link, ctx); }
     const q = topLevel(t, "?");
     if (q > 0) {
       const cond = t.slice(0, q).trim();
       const colon = topLevel(t, ":", q + 1);
       if (colon > q) {
-        if (cond === "true") { expr(t.slice(q + 1, colon), link, kids, depth + 1); return; }
-        if (FALSY_LIT.test(cond)) { expr(t.slice(colon + 1), link, kids, depth + 1); return; }
+        if (cond === "true") return expr(t.slice(q + 1, colon), link, ctx, depth + 1);
+        if (FALSY_LIT.test(cond)) return expr(t.slice(colon + 1), link, ctx, depth + 1);
       }
-      gap(); return;
+      return gapAlt();
     }
     const and = topLevel(t, "&&");
     if (and > 0) {
       const cond = t.slice(0, and).trim();
-      if (FALSY_LIT.test(cond)) return;
-      if (cond === "true") { expr(t.slice(and + 2), link, kids, depth + 1); return; }
+      if (FALSY_LIT.test(cond)) return one([]);
+      if (cond === "true") return expr(t.slice(and + 2), link, ctx, depth + 1);
     }
-    gap();
+    return gapAlt();
   };
-  const child = (c, link, kids) => {
-    if (c.text != null) words(c.text, link);
-    else if (c.el) node(c.el, link, kids);
-    else expr(c.expr, link, kids);
+  const renderKids = (kids, link) => {
+    let acc = one([]);
+    for (const c of kids.list) acc = seq(acc, child(c, link, kids.ctx));
+    return acc;
   };
-  const component = (comp, link, kids) => {
-    for (const e of outputsOf(comp)) { gap(); expr(e, link, kids); gap(); }
+  const child = (c, link, ctx) => {
+    if (c.text != null) return words(c.text, link);
+    if (c.el) return node(c.el, link, ctx);
+    return expr(c.expr, link, ctx);
   };
-  const node = (el, link, kids) => {
-    // A COMPONENT OF THIS FILE: read where it is rendered, with its children.
-    if (/^[A-Z]/.test(el.tag) && comps.has(el.tag)) {
-      if (stack.includes(el.tag) || stack.length > 20) { gap(); return; }
-      stack.push(el.tag);
-      component(comps.get(el.tag), link, { list: el.children, outer: kids });
-      stack.pop();
-      return;
+  const stack = [];
+  const component = (comp, mod, key, link, given) => {
+    if (stack.includes(key) || stack.length > 20) return gapAlt();
+    // A PARAMETER THIS CANNOT READ binds nothing (`childBinding` answers
+    // empty sets): nothing it is given is vouched for.
+    const b = childBinding(comp.params);
+    const kids = { names: b.names, carriers: b.carriers, list: given.list, ctx: given.ctx };
+    stack.push(key);
+    const paths = outputPaths(comp);
+    const alts = choice(paths.map((e) => (e === null ? gapAlt() : seq(seq(gapAlt(), expr(e, link, { mod, kids })), gapAlt()))));
+    stack.pop();
+    return alts;
+  };
+  const node = (el, link, ctx) => {
+    const tag = el.tag;
+    if (/^[A-Z]/.test(tag)) {
+      const given = { list: el.children, ctx };
+      // A COMPONENT OF THIS MODULE: read where it is rendered, with its children.
+      if (ctx.mod.comps.has(tag)) return component(ctx.mod.comps.get(tag), ctx.mod, ctx.mod.path + "#" + tag, link, given);
+      // AN IMPORTED ONE: read from its own file when the site's stored files
+      // hold it; otherwise what it renders — and whether it renders the
+      // children it is given — is unknown.
+      const imp = ctx.mod.imports.get(tag);
+      const target = imp && imp.name !== "*" ? resolveModule(index, ctx.mod.path, imp.spec) : null;
+      if (target) {
+        const comp = imp.name === "default" ? target.root : target.comps.get(imp.name);
+        if (comp) return component(comp, target, target.path + "#" + imp.name, link, given);
+      }
+      // THE ROUTER'S OWN LINK AND REACT'S FRAGMENT render their children.
+      if (!linkTag(tag) && tag !== "Fragment" && tag !== "React.Fragment") return gapAlt();
     }
-    let ctx = link;
-    if (linkTag(el.tag)) ctx = { id: ++ids, href: destOf(el.attrs, el.tag) };
-    for (const c of el.children) child(c, ctx, kids);
+    let lctx = link;
+    if (linkTag(tag)) lctx = { id: ++ids, href: destOf(el.attrs, tag) };
+    // NO CHILDREN WRITTEN, AND A SPREAD OF WHAT CARRIES THE COMPONENT'S OWN:
+    // they render here (`<div {...props} />`).
+    if (!el.children.length && ctx.kids && el.spreads.some((sp) => ctx.kids.carriers.has(sp))) return renderKids(ctx.kids, lctx);
+    let acc = one([]);
+    for (const c of el.children) acc = seq(acc, child(c, lctx, ctx));
+    return acc;
   };
-  stack.push("(root)");
-  component(root, null, null);
-  return out;
+  const alts = component(mod0.root, mod0, mod0.path + "#(root)", null, { list: [], ctx: null });
+  return { alts, overflow };
+}
+/** A page's or part's path as the project names it (`src/routes/…`). */
+function modulePath(p) {
+  const s = String(p || "");
+  return s.startsWith("src/") ? s : "src/routes/" + s;
+}
+/** The stored files a page can import from, by project path, parsed on first use. */
+function fileIndex(files) {
+  const byPath = new Map();
+  for (const f of Array.isArray(files) ? files : []) {
+    if (f && typeof f.path === "string" && typeof f.source === "string") byPath.set(modulePath(f.path), { source: f.source, mod: null });
+  }
+  return byPath;
+}
+/** The module an import names, from the stored files; null when it is not one of them (a package, a file not stored). */
+function resolveModule(index, from, spec) {
+  let base;
+  if (spec.startsWith("@/")) base = "src/" + spec.slice(2);
+  else if (spec.startsWith("./") || spec.startsWith("../")) {
+    const dir = from.split("/").slice(0, -1);
+    for (const part of spec.split("/")) {
+      if (part === "." || part === "") continue;
+      if (part === "..") { if (!dir.length) return null; dir.pop(); } else dir.push(part);
+    }
+    base = dir.join("/");
+  } else return null;
+  for (const cand of [base, base + ".tsx", base + ".ts", base + ".jsx", base + ".js", base + "/index.tsx", base + "/index.ts"]) {
+    const f = index.get(cand);
+    if (!f) continue;
+    if (!f.mod) f.mod = { ...moduleComponents(stripComments(f.source)), path: cand };
+    return f.mod;
+  }
+  return null;
+}
+/** The rendered word stream of a page when it has exactly one way to come out; empty when it has none or several. */
+export function renderedStream(source, opts = {}) {
+  const { alts, overflow } = renderedAlternatives(source, opts);
+  return !overflow && alts.length === 1 ? alts[0] : [];
 }
 /**
  * EVERY LINK A PAGE RENDERS: each link element's destination and the words it
@@ -5209,7 +5439,27 @@ function lineRendered(stream, pat) {
   return n;
 }
 
-export function wordsLanded(before, after, items) {
+/**
+ * HOW MANY TIMES A LINE IS RENDERED ON A PAGE, over every way the page can
+ * come out (2026-10-15, after Codex's third review): `least` is what every
+ * alternative renders — what the page is sure to show — and `most` what any
+ * one could. An alternative count past the cap is unknown: none sure, any
+ * possible.
+ */
+function lineCounts(source, pat, opts) {
+  const { alts, overflow } = renderedAlternatives(source, opts);
+  if (overflow) return { least: 0, most: Infinity };
+  if (!alts.length) return { least: 0, most: 0 };
+  const n = alts.map((a) => lineRendered(a, pat));
+  return { least: Math.min(...n), most: Math.max(...n) };
+}
+/**
+ * `files`: the site's stored files a page may import — its own components
+ * (`src/routes/-parts/…`) and its kit (`src/components/…`) — so a component
+ * imported from one of them is read where it is rendered. One imported from
+ * anywhere else renders nothing this can vouch for.
+ */
+export function wordsLanded(before, after, items, { files = [], filesBefore = null } = {}) {
   const was = sourcesByPath(before), now = sourcesByPath(after);
   const missing = [];
   for (const it of Array.isArray(items) ? items : []) {
@@ -5218,12 +5468,13 @@ export function wordsLanded(before, after, items) {
     // order, each linked phrase bound to the link that renders it.
     const pat = linePattern(it && it.words);
     if (!file || !pat.length) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
-    // ONE MORE RENDERED OCCURRENCE THAN THE PAGE HAD: a line already there, or
-    // one only a comment, a branch that never renders or unresolved code
-    // holds, is not this change's.
-    const had = lineRendered(renderedStream(was.get(file) || ""), pat);
-    const has = lineRendered(renderedStream(now.get(file) || ""), pat);
-    if (has <= had) missing.push({ page: it.page, words: it.words });
+    // ONE MORE OCCURRENCE THAN THE PAGE COULD HAVE SHOWN, ON EVERY WAY IT
+    // NOW COMES OUT: a line already there, or one only a comment, a branch
+    // that never runs, a return never reached, an alternative output or a
+    // component this cannot read holds, is not this change's.
+    const had = lineCounts(was.get(file) || "", pat, { path: file, files: filesBefore || files }).most;
+    const has = lineCounts(now.get(file) || "", pat, { path: file, files }).least;
+    if (!(has > had)) missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };
 }

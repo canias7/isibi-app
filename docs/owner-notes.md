@@ -60,7 +60,7 @@ draft path depends on them. The other chat's concurrency work stays theirs.
 - At a merge the container image would roll: `worker.js` and
   `site-draft.mjs` are among its inputs. Nothing was built.
 
-**Gaps, kept open** (in full in `docs/history/2026-10-15-draft-first.md` §5.7):
+**Gaps, kept open** (in full in `docs/history/2026-10-15-draft-first.md` §6.7):
 - the switch is off by default;
 - owner panels act immediately by design;
 - changing the site's address from chat is immediate;
@@ -481,6 +481,198 @@ keeps its evidence.
   abort and finish answers.
 
 The full record is `docs/history/2026-10-15-combined-candidate.md`.
+
+## 2026-10-15 (late night) — R2's real conditions, the script following the pointer, mounted content; draft-first handed to another chat (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
+`supabase/proposed/request_beside.sql` stays unapplied, nothing is merged.
+Branch `claude/help-needed-ehlwlj`, from `0164dbef`.
+
+### 1. The correction batch (`c124a264`): what Codex reproduced, and what changed
+
+**a. Storage conditions and ownership.** The fixture let `uploadedBefore`
+refuse a put even when `etagMatches` matched. Miniflare (and R2) pass a
+put when the etag matches, whatever the upload time. So the fence "by
+upload time" from the night entry did not hold in the real store: a stale
+holder whose etag still matched (identical bytes) got through.
+
+- The fixture now uses Miniflare's rule, exported as `r2Conditional`, and
+  `test/r2-conditions.test.mjs` (3 cases) pins it.
+- **The guarantee now rests on what R2 really checks: the etag.** Every
+  guarded write carries its turn's fence in its bytes: a newline, then the
+  generation in binary, written as spaces and tabs. Each holder's bytes,
+  and so its etag, differ. A conditional put matches on the etag only
+  (`sinceRead`). The fence in the metadata stays as an early refusal.
+- **Audit of the guarded keys:**
+  - covered: the pointer, head, page source, parts, kit, config, the
+    sitemeta sidecar, the live marker and the draft record;
+  - the takeover stamp (`stampFences`) restamps each one that stands;
+  - an absent pointer is held as `POINTER_NONE` and an absent config is
+    created as it reads now;
+  - undo recognises its own write by its etag (`stillOurs`), not by its
+    text, and its put-back is conditional on the etag it read.
+- **Red check on `0164dbef`'s code with the corrected fixture:** TF5, TF6,
+  TF11, TF12, TF13 and TA2 fail (stale writes accepted). With the fix they
+  pass. TF14 holds the fence bytes in `fencedPut`, and a `site-builds` case
+  holds undo by etag.
+
+**b. Publication and repair races.**
+- **Reproduced (Codex, TS5):** `alignLiveScript` could leave the live
+  script at B while the pointer names C (B and C interleaved).
+- **Now one routine serves every upload with a version:** `putSiteWorker`.
+  It is used by build, recompile, restore, the lost-upload retry and
+  publish.
+  - It writes a durable note `scriptpending/<slug>/<uuid>.json` before
+    the upload.
+  - It then follows the pointer: it reads the pointer again, asks the live
+    script which version it serves (`x-site-version`), and uploads the
+    pointer's own staged script while they disagree. It tries at most 4
+    times and never resends the version it just uploaded.
+  - It deletes the note only when they agree and every upload answered.
+- `alignLiveScript` follows the pointer the same way.
+- **A death or a lost response leaves the note.** The 2-minute cron
+  (`runScriptPendingSweep`) settles any note older than 5 minutes, so
+  recovery does not wait for a customer request.
+- **Tests:**
+  - TS5–TS11: normal publish, repair, rollback, recovery, interruption
+    after the upload, a lost upload response, and death mid-follow (the
+    sweep then settles it);
+  - TF12 and TF13;
+  - a TS10 source guard: every caller passes a version.
+
+**c. Words landed.** `wordsLanded` now reads what the page mounts. It
+starts from the route's root component (`createFileRoute(...)({component})`,
+inline or by name, or the default export). It expands local components
+only where they are rendered, and it renders passed `children`.
+JSX attributes take effect in order, spreads included. An object-literal
+spread overrides keys, and an unknown spread makes the earlier keys
+unknown. A link's destination is the effective `href` (or `to` on `Link`).
+
+- An unused component holding the words now fails.
+- `<a href="/classes" {...{href:"/wrong"}}>` now fails.
+- Unknown output stays unverified.
+
+Both cases fail on the old code (2 new cases in `test/site-add.test.mjs`).
+
+**Sweep:** 17 of 17 mutants killed; the comment-only control survived;
+md5 checked after restore.
+
+### 2. Test process status, exact results
+
+- **Locally:**
+  - on `c124a264`, full suite 11054 tests, 11051 pass, 3 fail. All three
+    were fixed in that commit: two guards re-anchored to `uploadScriptOnce`,
+    and the follow loop no longer resends its own version. Focused reruns
+    are green.
+  - on `0966ea90` (with draft-first), 11068 tests, 7 failures before the
+    commit, all fixed in it; focused reruns 309 of 309.
+- **CI on the branch:**
+  - `c124a264`: unit tests and site build green (site build run
+    38796068293);
+  - `0966ea90`: unit tests 38799025504 and site build 38799025321, both
+    success.
+- **Integration candidate** `claude/help-needed-ehlwlj-integration` at
+  `800669a9` is `0966ea90` merged with `main` `772bb885`. It keeps main's
+  assistant and audio/video work, and nothing is merged into main.
+  - Conflicts were resolved as unions:
+    - the worker's owner-route list (`mdr` with `pb` and `dr`);
+    - the Dockerfile COPY list (`site-media.mjs`,
+      `builder/site-converse.mjs`, `site-draft.mjs`,
+      `builder/publish-turn.mjs`);
+    - owner-notes (both sides kept).
+  - Full suite locally: 11204 tests, 11202 pass, 2 fail. Both failures are
+    artifacts of the local run:
+    - the image-inputs case passes once the merge is committed;
+    - `no-generated-deps` passes (2 of 2) without my local `node_modules`
+      link.
+  - CI on `800669a9`: unit tests 38801833801 and site build 38801833849,
+    both success.
+
+### 3. Implemented / locally verified / CI verified / live verified
+
+| Item | Implemented | Locally verified | CI verified | Live verified |
+|---|---|---|---|---|
+| Fixture uses R2's real precedence | yes | yes | yes | no |
+| Fence in bytes, etag-only conditional puts, undo by etag | yes | yes (red check, sweep) | yes | no |
+| Script follows pointer, durable note, cron sweep | yes | yes (TS5–TS11) | yes | no |
+| wordsLanded: mounted root, attribute and spread overrides | yes | yes | yes | no |
+| Integration with main | merged on a separate branch | yes (2 artifacts) | yes (`800669a9`) | no |
+
+### 4. Remaining gaps
+
+- **The script follows the pointer eventually, not atomically.** A Workers
+  script upload cannot be conditional, so a visitor can see the previous
+  version for about one upload plus one read.
+  - After a death or a lost response, recovery waits for the cron (notes
+    older than 5 minutes).
+  - The follow depends on the live script answering its version probe.
+  - An upload that answered but is not serving yet is left to the sweep.
+- **Undo after a first write** (a key that was absent before) reads and
+  then deletes. A delete cannot be conditional in R2, so a newer write
+  between the read and the delete is a narrow window.
+- **wordsLanded:**
+  - an imported component is assumed to render the children passed to it;
+  - content produced through props or expressions stays unverified, never
+    passed.
+- **Not live verified.** Nothing here has run against real R2, Workers or a
+  deployed Worker.
+
+### 5. Draft-first, handed to another chat (partial, switched off)
+
+Draft-first ("only an explicit Publish click makes changes live") moves to
+another Claude chat. Nothing more is added here. **It is committed and
+pushed in `0966ea90`, and it is partial.**
+
+**Files:**
+- `site-draft.mjs` (new): the draft record, save, publishable, state, and
+  the preview names;
+- `worker.js`:
+  - `draftFacts`, `runningForSite`, `publishDraft`, `servePreview`;
+  - the routes `/publish` (`pb`) and `/draft` (`dr`);
+  - the gate at both activation sites;
+  - the draft pointer in `ensureEditableState`;
+  - the refusal of the lost-upload retry;
+  - `checks.draft`;
+  - pruning skipped under the switch;
+- `site-builds.mjs`: `activateBuild`'s `asDraft`;
+- `builder/check-evidence.mjs`: the `draft` flag and `DRAFT_SAID`;
+- `builder/lovable/template/src/server.ts` and the regenerated
+  `builder/foundation-files.mjs`: the preview header skips the live probe;
+- `Dockerfile`: adds `site-draft.mjs`;
+- `public/chat.js` and `public/styles.css`: the state chip and the
+  Publish panel;
+- tests: `test/site-draft.test.mjs` (5 cases) and DF1–DF6 in
+  `test/turn-fence.test.mjs`, plus guard counts in `publish-integrity`,
+  `publish-pages` and `site-meta-sidecar`;
+- `docs/history/2026-10-15-draft-first.md`: the audit table of every path
+  that changes a live site, what is implemented, and the gaps;
+- `docs/owner-preferences.md`: the 2026-10-15 publishing preference.
+
+**Status:**
+- The switch `DRAFT_FIRST` is off everywhere.
+- Offline tests and its own sweep (10 of 10 killed, control survived) are
+  green, and CI is green on `0966ea90`.
+- The predicted image would roll `20f6f0aec07837e4` → `648b5ae93f7d318b`
+  (inputs 208 → 209). It is not built.
+
+**Open for the other chat** (detail in the history doc's section 4):
+- Neon backend effects (schema, grants, functions, data-layer rows, seeds)
+  still go live at once; a Neon branch per draft is proposed, not built.
+- The `rename` layer's sidecar patch and the share card read from the
+  config bypass the draft.
+- Billing is finalized when the draft is saved, not when it is published.
+- Put back online through its source fallback saves a draft.
+- Pruning is disabled under the switch.
+- Preview limits:
+  - slugs over 43 characters;
+  - the head comes from the live sidecar;
+  - it needs the deployed template.
+- Reply wording outside `checks` is not audited.
+- Nothing is live verified.
+
+The fencing and script-follow code that draft-first uses (`putSiteWorker`
+with `preview`, the draft record among the guarded keys) stays in this chat.
+
 
 ## 2026-10-15 (night) — Codex's two reproductions fixed: identical-bytes stamps and structural link reading; integration with main checked (branch only)
 

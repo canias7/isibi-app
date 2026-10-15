@@ -38,7 +38,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import {
   stageBuild, activateBuild, readPointer, POINTER_KEY,
-  HEAD_KEY, readHead, writeHead, repairNeeded, buildPrefix,
+  HEAD_KEY, readHead, writeHead, repairNeeded, buildPrefix, isHeldObject,
 } from "../site-builds.mjs";
 import { versionId } from "../site-versions.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -202,9 +202,12 @@ test("the undo is conditional on our own write: a newer publish that landed whil
   assert.ok(deps.logs.some((l) => l.includes("pointer left ahead")), "an undo that could not run said nothing, so 3b's reconcile has no trail");
 });
 
-test("with no previous pointer the undo is a delete, and it removes only what is still byte-for-byte ours", async () => {
-  // R2 HAS NO CONDITIONAL DELETE, so this leg is a read-then-delete and the
-  // race is named rather than papered over. Both halves are driven.
+test("with no previous pointer the undo holds the pointer empty on our own etag — never a delete — and leaves anybody else's pointer where it is", async () => {
+  // R2 HAS NO CONDITIONAL DELETE, so this leg used to be a read-then-delete,
+  // whose window could delete a pointer written between the read and the
+  // delete (2026-10-15, after Codex's third review). It is now a conditional
+  // write of the empty pointer, refused by the store when anything has been
+  // written since. Both halves are driven.
   const deps = fakeR2();
   await stage(deps, V1);
   const r = await activateBuild(deps, { slug: SLUG, version: V1, expectEtag: null, putWorker: async () => null });
@@ -212,7 +215,8 @@ test("with no previous pointer the undo is a delete, and it removes only what is
   assert.equal(r.error, "not-served");
   assert.equal(r.reverted, true);
   assert.equal(await readPointer(deps, SLUG), null, "a first activation that never served left a pointer behind");
-  assert.ok(deps.removes.includes(POINTER_KEY(SLUG)));
+  assert.ok(!deps.removes.includes(POINTER_KEY(SLUG)), "the undo deleted the pointer — a delete cannot be conditional");
+  assert.deepEqual(JSON.parse(await (await deps.get(POINTER_KEY(SLUG))).text()), { v: 1, none: true }, "the undo did not hold the pointer empty");
 
   // And the other half: somebody else's pointer is left exactly where it is.
   const d2 = fakeR2();
@@ -228,7 +232,7 @@ test("with no previous pointer the undo is a delete, and it removes only what is
   });
   assert.equal(r2.error, "not-served");
   assert.equal(r2.reverted, false);
-  assert.equal((await readPointer(d2, SLUG)).version, V2, "the read-then-delete took somebody else's pointer");
+  assert.equal((await readPointer(d2, SLUG)).version, V2, "the undo took somebody else's pointer");
   assert.ok(!d2.removes.includes(POINTER_KEY(SLUG)), "a pointer that was not ours was deleted");
 });
 
@@ -255,9 +259,10 @@ test("the undo puts the sidecar and the live marker back too — a failed publis
   assert.equal(r.error, "not-served");
   assert.equal(await (await deps.get(KEY)).text(), '{"origin":"https://cafe.gofarther.app/","title":"OLD"}', "the head advanced to a version nothing serves");
 
-  // (b) A sidecar that was NOT there is removed, and so is a live marker this
-  // activation invented — a first publish that never served must not leave a
-  // site claiming to be live.
+  // (b) A sidecar that was NOT there is held absent again (a conditional
+  // write, never a delete: 2026-10-15), and no live marker is invented — the
+  // marker is written only after a script answered, so a first publish that
+  // never served cannot leave a site claiming to be live.
   const fresh = fakeR2();
   await stage(fresh, V1);
   const f = await activateBuild(fresh, {
@@ -266,7 +271,9 @@ test("the undo puts the sidecar and the live marker back too — a failed publis
     putWorker: async () => null,
   });
   assert.equal(f.error, "not-served");
-  assert.equal(await fresh.get(KEY), null, "a sidecar written by a publish that never served was left behind");
+  const heldSide = await fresh.get(KEY);
+  assert.ok(heldSide && isHeldObject(heldSide, await heldSide.text()), "a sidecar written by a publish that never served was left behind");
+  assert.ok(!fresh.removes.includes(KEY), "the sidecar undo deleted — a delete cannot be conditional");
   assert.equal(await fresh.get(LIVE), null, "a site that has never served is marked live");
 
   // (c) A sidecar somebody else rewrote in the meantime is THEIRS and is left
@@ -360,7 +367,9 @@ test("a success still runs the whole tail in order — the correction must not h
   });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.uploaded, true);
-  assert.deepEqual(order, ["put current/cafe.json", "put sitemeta/cafe.json", "put sites/cafe/site.live", "script", "commit", "state"]);
+  // THE MARKER COMES AFTER THE SCRIPT (2026-10-15): created once the script
+  // answered, and only when it is not there (this fixture's V1 had none).
+  assert.deepEqual(order, ["put current/cafe.json", "put sitemeta/cafe.json", "script", "put sites/cafe/site.live", "commit", "state"]);
   assert.equal((await readPointer(deps, SLUG)).version, V2);
   assert.ok(!deps.removes.includes(POINTER_KEY(SLUG)), "a successful publish deleted its own pointer");
 });
@@ -949,4 +958,107 @@ test("the route reads the caller before the owner, and the owner before it answe
   // route can reach for it without saying so at the top of the file.
   const imports = W.slice(0, at(W, 'from "./builder/edit-job.mjs";', "the edit-job import"));
   assert.ok(!/\breadCanaryList\b/.test(imports), "readCanaryList is imported into the Worker, so the route is one line from handing back other customers' slugs");
+});
+
+/* ══ THE UNDO WITHOUT A DELETE (2026-10-15, after Codex's third review) ══ */
+//
+// R2 has no conditional delete, so an undo that read "still ours" and then
+// deleted could remove a write made between the two. Each undo is now a
+// conditional write on the etag it read; a newer write in that window is
+// kept by the store.
+
+test("RW1 THE SIDECAR UNDO RACES A NEWER WRITE — a first publish wrote a sidecar where there was none and never served; between its undo's read and its undo, somebody writes the sidecar: theirs stands, nothing is deleted", async () => {
+  const KEY = "sitemeta/" + SLUG + ".json";
+  const deps = fakeR2();
+  await stage(deps, V1);
+  const realPut = deps.put;
+  let raced = false;
+  deps.put = async (k, body, ct, onlyIf) => {
+    if (k === KEY && !raced && onlyIf && onlyIf.etagMatches && String(body).includes('"held"')) {
+      raced = true;
+      await realPut(KEY, '{"origin":"NEWER"}', "application/json");
+    }
+    return realPut(k, body, ct, onlyIf);
+  };
+  // …AND THE SAME RACE BEFORE A DELETE, the way the undo used to end.
+  const realRemove = deps.remove;
+  deps.remove = async (k) => { if (k === KEY && !raced) { raced = true; await realPut(KEY, '{"origin":"NEWER"}', "application/json"); } return realRemove(k); };
+  const r = await activateBuild(deps, { slug: SLUG, version: V1, expectEtag: null, sidecar: '{"origin":"MINE"}', sidecarKey: KEY, putWorker: async () => null });
+  assert.equal(r.error, "not-served");
+  assert.ok(raced, "the undo never reached its write — the race was not driven");
+  assert.equal(await (await deps.get(KEY)).text(), '{"origin":"NEWER"}', "the undo removed a write made after its read");
+  assert.ok(!deps.removes.includes(KEY), "the undo deleted");
+});
+
+test("RW2 THE FIRST POINTER'S UNDO RACES A NEWER POINTER — a first activation never served; immediately before its undo lands, another publish moves the pointer: the newer pointer stands, nothing is deleted", async () => {
+  const deps = fakeR2();
+  await stage(deps, V1);
+  await stage(deps, V2);
+  const realPut = deps.put;
+  let raced = false;
+  deps.put = async (k, body, ct, onlyIf) => {
+    if (k === POINTER_KEY(SLUG) && !raced && String(body).includes('"none":true')) {
+      raced = true;
+      const mid = await readPointer(deps, SLUG);
+      await realPut(POINTER_KEY(SLUG), JSON.stringify({ version: V2, build: "", parent: "", job: null, activatedAt: "x" }), "application/json", { etagMatches: mid.etag });
+    }
+    return realPut(k, body, ct, onlyIf);
+  };
+  const realRemove = deps.remove;
+  deps.remove = async (k) => {
+    if (k === POINTER_KEY(SLUG) && !raced) {
+      raced = true;
+      const mid = await readPointer(deps, SLUG);
+      await realPut(POINTER_KEY(SLUG), JSON.stringify({ version: V2, build: "", parent: "", job: null, activatedAt: "x" }), "application/json", { etagMatches: mid.etag });
+    }
+    return realRemove(k);
+  };
+  const r = await activateBuild(deps, { slug: SLUG, version: V1, expectEtag: null, putWorker: async () => null });
+  assert.ok(raced, "the undo never reached its write — the race was not driven");
+  assert.equal(r.reverted, false, "the undo claimed to have reverted over a newer pointer");
+  assert.equal((await readPointer(deps, SLUG)).version, V2, "the undo took the newer pointer");
+  assert.ok(!deps.removes.includes(POINTER_KEY(SLUG)), "the undo deleted");
+});
+
+test("RW3 THE LIVE MARKER IS NEVER UNDONE AND NEVER REWRITTEN — on a live site a failed publish leaves the marker exactly as it stood (no write, no delete); a successful one does not write it again", async () => {
+  const LIVE = "sites/" + SLUG + "/site.live";
+  const deps = await liveOnV1();
+  await deps.put(LIVE, "1", "text/plain");
+  const etag0 = (await deps.get(LIVE)).etag;
+  await stage(deps, V2);
+  const before = await readPointer(deps, SLUG);
+  const putsBefore = deps.puts.filter((k) => k === LIVE).length;
+  const r = await activateBuild(deps, { slug: SLUG, version: V2, expectEtag: before.etag, previous: before, liveKey: LIVE, putWorker: async () => ({ ok: false, status: 500 }) });
+  assert.equal(r.error, "not-served");
+  assert.equal((await deps.get(LIVE)).etag, etag0, "a failed publish touched the live marker");
+  assert.ok(!deps.removes.includes(LIVE), "a failed publish deleted the live marker");
+  const again = await readPointer(deps, SLUG);
+  const ok = await activateBuild(deps, { slug: SLUG, version: V2, expectEtag: again.etag, previous: again, liveKey: LIVE, putWorker: async () => ({ ok: true }) });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.equal(deps.puts.filter((k) => k === LIVE).length, putsBefore, "the marker was written again though it stood");
+});
+
+test("RW4 A FIRST SITE WHOSE MARKER CANNOT BE CREATED IS NOT SERVED — the script answered but the marker write keeps failing: told as not served (the site would 404), and the pointer goes back", async () => {
+  const LIVE = "sites/" + SLUG + "/site.live";
+  const deps = fakeR2();
+  await stage(deps, V1);
+  const realPut = deps.put;
+  deps.put = async (k, ...rest) => { if (k === LIVE) throw new Error("R2 down"); return realPut(k, ...rest); };
+  const r = await activateBuild(deps, { slug: SLUG, version: V1, expectEtag: null, liveKey: LIVE, putWorker: async () => ({ ok: true }) });
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "not-served");
+  assert.equal(r.liveMarker, false);
+  assert.equal(await readPointer(deps, SLUG), null, "the pointer names a version no visitor can reach");
+});
+
+test("RW5 A KEY HELD ABSENT IS HELD AGAIN BY THE UNDO — a publish writes a sidecar over a held one and never serves: the undo holds it (never puts the held body back as content)", async () => {
+  const KEY = "sitemeta/" + SLUG + ".json";
+  const deps = fakeR2();
+  const holds = [];
+  deps.hold = async (k, onlyIf) => { holds.push(k); return deps.put(k, '{"held":"absent"}', "application/json", onlyIf); };
+  await stage(deps, V1);
+  await deps.put(KEY, '{"held":"absent"}', "application/json");
+  const r = await activateBuild(deps, { slug: SLUG, version: V1, expectEtag: null, sidecar: '{"origin":"MINE"}', sidecarKey: KEY, putWorker: async () => null });
+  assert.equal(r.error, "not-served");
+  assert.deepEqual(holds, [KEY], "the undo of a held sidecar did not hold it again");
 });

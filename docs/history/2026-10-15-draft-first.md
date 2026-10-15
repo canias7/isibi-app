@@ -160,7 +160,34 @@ The live site is made of:
 - **Live verification: none.** Nothing here has run against real
   Cloudflare, R2 or a deployed Worker.
 
-## 5. The second round: every builder change (2026-10-15, `claude/draft-first-publish`)
+## 5. Changed under draft-first by the corrections chat (2026-10-15, late)
+
+Draft-first belongs to another chat. These corrections, made in the
+concurrency chat, touch the code draft-first uses; reuse them rather than
+redo them:
+
+- **The draft record can be held absent.** A takeover writes
+  `{"held":"absent"}` (metadata `held: absent`) at `drafts/<slug>.json` when
+  there is no draft, so a stale first save is refused by the store.
+  `readDraft` reads that as no draft and returns its etag, so the first real
+  save is conditional on it. Any new reader of the record must do the same
+  (`isHeldObject` in `site-builds.mjs`).
+- **The live marker is written only after the script answered**, only when
+  absent, and never undone (`activateBuild`). Publish inherits this through
+  the same activation.
+- **The live script follows the pointer with a durable note before every
+  upload.** That covers the publication's own upload and the uploads made by
+  the follow, an alignment, the takeover repair and the sweep
+  (`noteBeforeUpload`). It does not make a publication atomic. Between a
+  stale upload landing and its correction, visitors can be served the
+  previous version for about one upload plus one read, or until the
+  2-minute sweep after a death or lost answer (notes older than 5 minutes).
+  Publish's own "live at once" claims must not promise more than that.
+- **Rollback writes hold keys absent instead of deleting them.** Any undo
+  the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the
+  pointer), never `deps.remove`.
+
+## 6. The second round: every builder change (2026-10-15, `claude/draft-first-publish`)
 
 **The owner's requirement, restated:** "every builder-made change to a site
 must save to a persistent draft and appear in the builder's preview.
@@ -183,7 +210,7 @@ and `owner-notes`.
 `drafts/<uid>/`; the two never shared a key, but no longer share a prefix
 either.
 
-### 5.1 Revisions: what Publish names
+### 6.1 Revisions: what Publish names
 
 Every task that saves anything makes a numbered **revision** of the draft:
 - a code version, as before (the staged build, immutable);
@@ -200,7 +227,7 @@ The record keeps `applied`, the last revision published.
 revision. The version is a cross-check: a mismatch is refused. Nothing newer
 is reached for. A revision at or below `applied` answers `already`.
 
-### 5.2 Held changes, where a live site would see them
+### 6.2 Held changes, where a live site would see them
 
 | What | Published site, switch on | Never-published site, switch on | Switch off |
 |---|---|---|---|
@@ -237,7 +264,7 @@ journal if it is not yet written.
 A change to a held new row amends that insert. If the insert was published
 earlier, the change goes to the id it was given (`refs`).
 
-### 5.3 Publish, in order
+### 6.3 Publish, in order
 
 1. The revision is one the record holds; its build is complete.
 2. **One publication at a time** (`site-drafts/<slug>.publishing.json`):
@@ -270,7 +297,7 @@ publication resumes without doing anything twice.
 **Only the owner's route calls Publish** (DFB8, a source guard). No task,
 retry, recovery, reconnect, queue, cron or background completion can.
 
-### 5.4 The preview, isolated
+### 6.4 The preview, isolated
 
 The preview host `<slug>--draft-<token>.gofarther.app` used to send every
 path to the draft's script, so its own `/api/db/...` reads reached nothing,
@@ -289,7 +316,7 @@ and nothing refused a write. Now:
 - preview reads are not counted in the site's own traffic metrics (DFB5
   found the `_metrics` write).
 
-### 5.5 What the owner sees
+### 6.5 What the owner sees
 
 - **Labels:** the build's stage rail and rows say "Saving to your draft" and
   "Saved to your draft" when the switch is on (`/api/credits` now says
@@ -307,7 +334,7 @@ and nothing refused a write. Now:
 - **The library list** marks a file the draft takes off (`draft: "remove"`)
   and a stand-in for a replacement (`draft: "replaces"`).
 
-### 5.6 Tests (offline, supplied model answers only)
+### 6.6 Tests (offline, supplied model answers only)
 
 `test/draft-first.test.mjs`, 11 cases, the real Worker over stand-ins that
 remember:
@@ -356,7 +383,7 @@ symbolic link"); a plain checkout and CI answer it.
 published), rendered with the real `chat.js` functions and stylesheet, were
 shown in the conversation.
 
-### 5.7 Remaining gaps
+### 6.7 Remaining gaps
 
 - **The switch is still off by default** (`DRAFT_FIRST`). With it off,
   every path publishes as before. Turning it on is the owner's decision at

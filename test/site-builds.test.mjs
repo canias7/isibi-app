@@ -128,7 +128,7 @@ test("staging refuses an id it did not mint, an empty dist, and says when there 
 
 /* ─────────────────────────── activation ─────────────────────────── */
 
-test("activation: pointer, then sidecar, then the live marker, then the script, then the commit, then the state copy", async () => {
+test("activation: pointer, then sidecar, then the script, then the live marker (created after the script answered), then the commit, then the state copy", async () => {
   const deps = fakeR2();
   await staged(deps, V1);
   const order = [];
@@ -144,7 +144,7 @@ test("activation: pointer, then sidecar, then the live marker, then the script, 
   });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.uploaded, true);
-  assert.deepEqual(order, ["put current/cafe.json", "put sitemeta/cafe.json", "put sites/cafe/site.live", "script", "commit", "state"]);
+  assert.deepEqual(order, ["put current/cafe.json", "put sitemeta/cafe.json", "script", "put sites/cafe/site.live", "commit", "state"]);
   const p = await readPointer(deps, "cafe");
   assert.equal(p.version, V1);
   assert.equal(p.build, "bld-1");
