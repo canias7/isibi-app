@@ -104,9 +104,10 @@ test("the spine's stage and activation catches carry the typed refusal's code an
   // The activation: WRAPPED — a store that refuses the pointer write throws
   // out of the module, and before this that throw escaped the spine to the
   // route's catch, which keeps only the error's class.
-  const tryAt = spine.indexOf("try {\n  act = await activateBuild(buildDeps(env), {");
+  const tryAt = spine.indexOf("try {\n  act = await activateBuild(adeps, {");
   assert.ok(tryAt > 0, "the activation is not inside a try");
-  assert.match(spine, /\} catch \(e\) \{ act = \{ ok: false, error: String\(\(e && e\.message\) \|\| e\), code: \(e && e\.code\) \|\| undefined, key: \(e && e\.key\) \|\| undefined \}; \}/,
+  // A FENCE'S REFUSAL (2026-10-15) is answered apart, as `turn-lost`; every other throw keeps its code and key.
+  assert.match(spine, /else act = \{ ok: false, error: String\(\(e && e\.message\) \|\| e\), code: \(e && e\.code\) \|\| undefined, key: \(e && e\.key\) \|\| undefined \};/,
     "an activation that threw loses the refusal's code and key");
   // RE-ANCHORED 2026-09-06: this quoted the activation refusal's WHOLE line,
   // including the one-reason ternary (`superseded`) it passed through. Two more

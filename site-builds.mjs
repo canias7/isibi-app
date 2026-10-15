@@ -174,16 +174,62 @@ export async function stageBuild(deps, { slug, version, files, worker, state, ma
  * serve path catches and falls back; a caller about to activate must not
  * guess at what it is replacing.
  */
+/**
+ * THE POINTER OF A SITE THAT HAS NOT PUBLISHED YET, HELD (2026-10-15, after
+ * review). A job that takes the site's publish turn while there is no pointer
+ * writes this, stamped with its fence, so a stale holder's first activation —
+ * create-if-absent — meets an object and is refused by the store. Read as no
+ * pointer by every reader; only an activation's condition reads its etag
+ * (`readPointerTag`).
+ */
+export const POINTER_NONE = Object.freeze({ v: 1, none: true });
+export const isPointerNone = (p) => !!p && p.none === true && !p.version;
+
+/**
+ * IS THE OBJECT STILL THE ONE OUR PUT WROTE? By the etag the put answered
+ * when there is one (a fenced write carries its holder's fence in its bytes,
+ * so its stored text is not the body sent); by the bytes only when the store
+ * answered none.
+ */
+async function stillOurs(cur, wrote, body) {
+  if (wrote && wrote.etag) return !!cur.etag && cur.etag === wrote.etag;
+  return (await cur.text()) === body;
+}
+
 export async function readPointer(deps, slug) {
   const o = await deps.get(POINTER_KEY(slug));
   if (!o) return null;
   const p = JSON.parse(await o.text());
+  if (isPointerNone(p)) return null;
   if (!p || !isVersionId(p.version)) throw new Error("pointer unreadable");
   return {
     version: p.version, build: typeof p.build === "string" ? p.build : "",
     parent: isVersionId(p.parent) ? p.parent : "", job: typeof p.job === "string" ? p.job : null,
     activatedAt: typeof p.activatedAt === "string" ? p.activatedAt : "",
     etag: String(o.etag || ""),
+  };
+}
+
+/**
+ * The pointer AND the etag an activation is conditional on: the etag of
+ * whatever object stands there — a held empty pointer (`POINTER_NONE`)
+ * included — and null only when nothing does. A pointer that cannot be
+ * parsed throws, as `readPointer` does.
+ */
+export async function readPointerTag(deps, slug) {
+  const o = await deps.get(POINTER_KEY(slug));
+  if (!o) return { pointer: null, etag: null };
+  const p = JSON.parse(await o.text());
+  if (isPointerNone(p)) return { pointer: null, etag: String(o.etag || "") || null };
+  if (!p || !isVersionId(p.version)) throw new Error("pointer unreadable");
+  return {
+    pointer: {
+      version: p.version, build: typeof p.build === "string" ? p.build : "",
+      parent: isVersionId(p.parent) ? p.parent : "", job: typeof p.job === "string" ? p.job : null,
+      activatedAt: typeof p.activatedAt === "string" ? p.activatedAt : "",
+      etag: String(o.etag || ""),
+    },
+    etag: String(o.etag || "") || null,
   };
 }
 
@@ -213,8 +259,13 @@ export async function readPointer(deps, slug) {
  */
 export async function activateBuild(deps, {
   slug, version, build = "", parent = "", job = null, expectEtag, previous = null,
-  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now,
+  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now, asDraft = null,
 } = {}) {
+  // DRAFT-FIRST (owner, 2026-10-15): a caller that hands `asDraft` saves the
+  // staged version as the site's draft with it and moves nothing live — no
+  // pointer, sidecar, live marker or script. Only the owner's Publish calls
+  // this without one.
+  if (typeof asDraft === "function") return asDraft(deps, arguments[1]);
   if (!isVersionId(version)) return { ok: false, error: "bad version id" };
 
   // ── THE LEASE IS RE-ASKED IMMEDIATELY BEFORE THE POINTER MOVES ─────────────
@@ -276,15 +327,20 @@ export async function activateBuild(deps, {
     let had;
     try { const cur = await deps.get(key); had = cur ? await cur.text() : null; }
     catch (e) { if (deps.log) deps.log(what + " read failed, its write will not be undone", slug, e && e.message); had = undefined; }
-    try { await deps.put(key, body, contentType); }
+    let wrote;
+    try { wrote = await deps.put(key, body, contentType); }
     catch (e) { if (deps.log) deps.log(what + " write failed", slug, e && e.message); return; }
     if (had === undefined) return;
     undos.push(async () => {
-      // CONDITIONAL ON OUR OWN BYTES, the pointer undo's argument: a value
+      // CONDITIONAL ON OUR OWN WRITE, the pointer undo's argument: a value
       // somebody else has written since is theirs and is left where it is.
+      // Ours is the object our put answered (its etag) — a fenced write puts
+      // its holder's fence in the bytes, so the text is not the body sent —
+      // and the bytes only where the store answered no etag.
       const cur = await deps.get(key);
-      if (!cur || (await cur.text()) !== body) return false;
+      if (!cur || !(await stillOurs(cur, wrote, body))) return false;
       if (had === null) await deps.remove(key);
+      else if (cur.etag) await deps.put(key, had, contentType, { etagMatches: cur.etag });
       else await deps.put(key, had, contentType);
       return true;
     });
@@ -340,6 +396,11 @@ export async function activateBuild(deps, {
         // The ordinary case, and it is properly conditional.
         const r = await deps.put(POINTER_KEY(slug), JSON.stringify(back), "application/json", { etagMatches: moved.etag });
         reverted = r !== null;
+      } else if (typeof expectEtag === "string" && expectEtag) {
+        // A HELD EMPTY POINTER WAS WHAT STOOD (`POINTER_NONE`): put back as it
+        // was, conditionally, so the hold it gave is kept.
+        const r = await deps.put(POINTER_KEY(slug), JSON.stringify(POINTER_NONE), "application/json", { etagMatches: moved.etag });
+        reverted = r !== null;
       } else {
         // NO PREVIOUS POINTER — a first activation, so the undo is a delete,
         // and R2 HAS NO CONDITIONAL DELETE. Read back and remove only what is
@@ -349,7 +410,7 @@ export async function activateBuild(deps, {
         // window it replaces, and the alternative — leaving a pointer at a
         // version nothing serves — is the defect being fixed.
         const cur = await deps.get(POINTER_KEY(slug));
-        const same = cur && (await cur.text()) === JSON.stringify(pointer);
+        const same = !!cur && (await stillOurs(cur, moved, JSON.stringify(pointer)));
         if (same) { await deps.remove(POINTER_KEY(slug)); reverted = true; }
       }
     } catch (e) { if (deps.log) deps.log("pointer revert failed", slug, e && e.message); }

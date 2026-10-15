@@ -1008,7 +1008,8 @@ const ADDS = {
             description:
               "THE WORDS THEMSELVES, exactly as a visitor will read them — written for this business, in its voice, " +
               "and as short as what they asked for. The words, never a description of them: \"We're closed on bank " +
-              "holidays.\", not \"a note about bank holidays\".",
+              "holidays.\", not \"a note about bank holidays\". A LINK inside the words (when they asked for one) is written " +
+              "[the words that are the link](/route) — \"You can [book a class](/classes) online.\" — and only for a page the site has or will have, or a full outside address.",
           },
         },
         required: ["page", "words"],
@@ -4335,6 +4336,8 @@ export function addDirective(kind, value, site) {
       out.push("## The words you are adding");
       out.push("- On " + at(v.page) + ", " + (v.where || "where they belong in the page's order") + ".");
       out.push("- Add these words, exactly as written between the quotation marks (without the marks): \"" + v.words + "\"");
+      // A LINK INSIDE THE WORDS (2026-10-15): drawn as a link, never as text.
+      if (wordsParts(v.words).links.length) out.push("- Where the words show [some words](address), those words are a LINK to that address: draw them as a link (the site's Link for a page of this site, an <a> for an outside address) with exactly those words as its text. The brackets, the parentheses and the address never appear as text on the page.");
       out.push("- As ordinary text in the page's own style, beside what is around it: a line, a sentence or a short paragraph — not a new section, heading or component.");
       out.push("- Return that ONE page with these words added; every other component and every sentence byte-identical. No new page file.");
       break;
@@ -4669,18 +4672,557 @@ function sourcesByPath(pages) {
  * rung's own reader (`extractText`), which is what a visitor reads, and
  * counted, so words a page already said once do not pass for the new line.
  */
+/**
+ * WORDS THAT CARRY A LINK (2026-10-15, after run 38744698638): a designer asked
+ * for "a line … linking to the new page" writes the link inline, the way the
+ * schema now asks — `[the linked words](/route)`. What a visitor READS is the
+ * linked words, never the brackets or the address; what must ARRIVE is that
+ * text and, for each link, a real link to its address. Answers the visible
+ * text and the links; a link whose address is not a site route, an outside
+ * address, `mailto:` or `tel:` is read as plain words.
+ */
+const LINK_IN_WORDS = /\[([^\[\]\n]{1,200})\]\(\s*((?:\/[^\s()]*)|(?:https?:\/\/[^\s()]+)|(?:mailto:[^\s()]+)|(?:tel:[^\s()]+))\s*\)/g;
+export function wordsParts(words) {
+  const s = String(words == null ? "" : words);
+  const links = [];
+  const text = s.replace(LINK_IN_WORDS, (m, t, href) => { links.push({ text: t.trim(), href }); return t; });
+  return { text, links };
+}
+/**
+ * WHAT A PAGE RENDERS, READ AS A TREE (2026-10-15, after review): the page's
+ * JSX parsed into elements, attributes and children — a real attribute
+ * reader, so a `title="… href='/x' …"` is a title and never a destination —
+ * and walked into the stream of words a visitor meets, each word carrying the
+ * link element it sits in (`{ id, href }`, or null). Only what renders is
+ * read:
+ *
+ *   - comments are dropped;
+ *   - an expression child renders when it is a plain string, an element, or
+ *     a condition on a LITERAL (`true && …`, `false ? a : b`) — the branch it
+ *     selects; `false && …`, `null && …`, `0 && …` render nothing;
+ *   - ANY OTHER EXPRESSION IS UNRESOLVED: what it renders depends on values
+ *     this cannot know (a variable, a `.map`, a condition on state), so none
+ *     of its words are claimed, and it breaks the stream so words on either
+ *     side never join across it;
+ *   - a link's destination is read from its `to` or `href` attribute written
+ *     as a quoted string, a string in braces, or a template with no
+ *     substitution; any other destination is unknown and matches nothing.
+ *
+ * Elements in code are read where they are a component's output (after
+ * `return`, `=>`, `(`, `,`, `?`, `:`, `=`, `&&`, `||`), with a literal-false
+ * condition before them rendering nothing.
+ */
+function stripComments(source) {
+  return String(source == null ? "" : source)
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/^[ \t]*\/\/.*$/gm, " ");
+}
+const NAME_CH = /[A-Za-z0-9_$.:\-]/;
+/** Is `<` at `i` the start of a JSX element (a letter or `>` follows)? */
+const tagStartAt = (src, i) => src[i] === "<" && /[A-Za-z>]/.test(src[i + 1] || "");
+/** The character before `i` that is not white space, and the word ending there. */
+function before(src, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(src[j])) j--;
+  let k = j;
+  while (k >= 0 && /[A-Za-z_$]/.test(src[k])) k--;
+  return { ch: j >= 0 ? src[j] : "", word: src.slice(k + 1, j + 1) };
+}
+/** Is a `<` at `i` inside code or an expression the start of JSX, by what precedes it? */
+function jsxContext(src, i) {
+  if (!tagStartAt(src, i)) return false;
+  const b = before(src, i);
+  return b.ch === "" || "(,=:?&|>{[!".includes(b.ch) || b.word === "return";
+}
+/** The index just past a quoted string or template starting at `i` (templates nest `${…}`). */
+function skipString(src, i) {
+  const q = src[i];
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j];
+    if (c === "\\") { j++; continue; }
+    if (q === "`" && c === "$" && src[j + 1] === "{") { const e = exprEnd(src, j + 2); if (e < 0) return -1; j = e; continue; }
+    if (c === q) return j + 1;
+  }
+  return -1;
+}
+/** The matching `}` of an expression opened just before `from`: strings, templates and JSX inside it skipped whole. */
+function exprEnd(src, from) {
+  let depth = 1;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === "`") { const e = skipString(src, i); if (e < 0) return -1; i = e - 1; continue; }
+    if (c === "<" && jsxContext(src, i)) { const el = parseElement(src, i); if (!el) return -1; i = el.end - 1; continue; }
+    if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+/**
+ * One tag at `at` (`<`): its name, its attributes as they take effect, and
+ * where it ends. Null when it is not one.
+ *
+ * ATTRIBUTES IN ORDER, SPREADS INCLUDED (2026-10-15, after Codex's second
+ * review): JSX gives a prop the LAST value written for it, and a spread is a
+ * write of every key it carries. So `<a href="/classes" {...{href:"/wrong"}}>`
+ * goes to /wrong. A spread of an object literal writes its keys: a string
+ * value is read, any other value is unknown. A spread of anything else
+ * (`{...props}`) may write any key, so every attribute before it becomes
+ * unknown (`*`), and only one written after it is read again.
+ */
+function readTag(src, at) {
+  let i = at + 1;
+  let name = "";
+  while (i < src.length && NAME_CH.test(src[i])) name += src[i++];
+  const attrs = new Map();
+  for (;;) {
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (i >= src.length) return null;
+    if (src[i] === "/" && src[i + 1] === ">") return { name, attrs, end: i + 2, selfClosing: true };
+    if (src[i] === ">") return { name, attrs, end: i + 1, selfClosing: false };
+    if (src[i] === "{") {
+      const e = exprEnd(src, i + 1);
+      if (e < 0) return null;
+      spreadInto(attrs, src.slice(i + 1, e));
+      i = e + 1;
+      continue;
+    }
+    let an = "";
+    while (i < src.length && !/[\s=\/>{]/.test(src[i])) an += src[i++];
+    if (!an) return null;
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] !== "=") { attrs.set(an, { kind: "bool" }); continue; }
+    i++;
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src[i] === '"' || src[i] === "'") {
+      const close = src.indexOf(src[i], i + 1);
+      if (close < 0) return null;
+      attrs.set(an, { kind: "string", value: src.slice(i + 1, close) });
+      i = close + 1;
+    } else if (src[i] === "{") {
+      const e = exprEnd(src, i + 1);
+      if (e < 0) return null;
+      attrs.set(an, { kind: "expr", value: src.slice(i + 1, e) });
+      i = e + 1;
+    } else return null;
+  }
+}
+/** A `{…}` inside a tag: a spread writes its keys (an object literal) or makes every key so far unknown (anything else). */
+function spreadInto(attrs, inner) {
+  const t = inner.trim();
+  if (!t.startsWith("...")) { attrs.clear(); attrs.set("*", { kind: "unknown" }); return; }
+  const obj = unwrap(t.slice(3));
+  const entries = obj.startsWith("{") && obj.endsWith("}") ? objectEntries(obj.slice(1, -1)) : null;
+  if (!entries) { attrs.clear(); attrs.set("*", { kind: "unknown" }); return; }
+  for (const en of entries) {
+    if (en.key === null) { attrs.clear(); attrs.set("*", { kind: "unknown" }); continue; }
+    const lit = en.value === null ? null : STRING_LIT.exec(en.value.trim());
+    attrs.set(en.key, lit ? { kind: "string", value: lit[1] ?? lit[2] ?? lit[3] } : { kind: "unknown" });
+  }
+}
+/**
+ * The entries of an object literal's body, in order: `{ key, value }`, the
+ * key null where it cannot be read (a computed key, a nested spread), the
+ * value null for a shorthand. Null when the body cannot be split.
+ */
+function objectEntries(body) {
+  const parts = [];
+  let depth = 0, from = 0;
+  for (let i = 0; i <= body.length; i++) {
+    const c = body[i];
+    if (i === body.length || (c === "," && depth === 0)) { if (body.slice(from, i).trim()) parts.push(body.slice(from, i).trim()); from = i + 1; continue; }
+    if (c === '"' || c === "'" || c === "`") { const j = skipString(body, i); if (j < 0) return null; i = j - 1; continue; }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+  }
+  return parts.map((p) => {
+    if (p.startsWith("...") || p.startsWith("[")) return { key: null, value: null };
+    const m = /^(?:"([^"]*)"|'([^']*)'|([A-Za-z_$][\w$-]*))\s*(:\s*([\s\S]*))?$/.exec(p);
+    if (!m) return { key: null, value: null };
+    return { key: m[1] ?? m[2] ?? m[3], value: m[4] ? m[5] : null };
+  });
+}
+/** An element from its `<`: `{ tag, attrs, children, end }`, children being `{ text }`, `{ el }` or `{ expr }`. Null when malformed. */
+function parseElement(src, at) {
+  const t = readTag(src, at);
+  if (!t) return null;
+  const node = { tag: t.name, attrs: t.attrs, children: [], end: t.end };
+  if (t.selfClosing) return node;
+  let text = "";
+  for (let i = t.end; i < src.length; i++) {
+    const c = src[i];
+    if (c === "<" && src[i + 1] === "/") {
+      if (text) node.children.push({ text });
+      const e = src.indexOf(">", i);
+      if (e < 0) return null;
+      node.end = e + 1;
+      return node;
+    }
+    if (tagStartAt(src, i)) {
+      if (text) { node.children.push({ text }); text = ""; }
+      const el = parseElement(src, i);
+      if (!el) return null;
+      node.children.push({ el });
+      i = el.end - 1;
+      continue;
+    }
+    if (c === "{") {
+      if (text) { node.children.push({ text }); text = ""; }
+      const e = exprEnd(src, i + 1);
+      if (e < 0) return null;
+      node.children.push({ expr: src.slice(i + 1, e) });
+      i = e;
+      continue;
+    }
+    text += c;
+  }
+  return null;
+}
+const STRING_LIT = /^(?:"([^"\\]*)"|'([^'\\]*)'|`([^`$\\]*)`)$/;
+const FALSY_LIT = /^(?:false|null|undefined|0|""|''|``)$/;
+/** Strip balanced outer parentheses. */
+function unwrap(e) {
+  let t = e.trim();
+  while (t.startsWith("(") && t.endsWith(")")) {
+    let depth = 0, whole = true;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (c === '"' || c === "'" || c === "`") { const j = skipString(t, i); if (j < 0) return t; i = j - 1; continue; }
+      if (c === "(") depth++;
+      else if (c === ")" && --depth === 0 && i < t.length - 1) { whole = false; break; }
+    }
+    if (!whole) break;
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+/** The first top-level occurrence of `op` (`&&`, `?`, `:`) in an expression, strings, brackets and JSX skipped; -1 when none. */
+function topLevel(t, op, from = 0) {
+  let depth = 0;
+  for (let i = from; i < t.length; i++) {
+    const c = t[i];
+    if (c === '"' || c === "'" || c === "`") { const j = skipString(t, i); if (j < 0) return -1; i = j - 1; continue; }
+    if (c === "<" && jsxContext(t, i)) { const el = parseElement(t, i); if (!el) return -1; i = el.end - 1; continue; }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+    else if (depth === 0 && t.startsWith(op, i)) {
+      if (op === "?" && (t[i + 1] === "." || t[i + 1] === "?")) { i++; continue; }
+      return i;
+    }
+  }
+  return -1;
+}
+const linkTag = (tag) => tag === "Link" || tag === "a";
+/** One attribute's value when it is a string as written; null when it is anything else or unknown. */
+function attrString(attrs, n) {
+  const a = attrs.has(n) ? attrs.get(n) : attrs.has("*") ? { kind: "unknown" } : null;
+  if (!a) return undefined;
+  if (a.kind === "string") return a.value;
+  if (a.kind === "expr") { const m = STRING_LIT.exec(a.value.trim()); return m ? (m[1] ?? m[2] ?? m[3]) : null; }
+  return null;
+}
+/**
+ * A link element's EFFECTIVE destination, when it can be read: an anchor's
+ * `href`; a router link's `to` (its `href` when it has no `to`, and unknown
+ * when both are written and disagree). Read after every attribute and
+ * spread took effect (`readTag`).
+ */
+function destOf(attrs, tag = "Link") {
+  if (tag === "a") { const h = attrString(attrs, "href"); return typeof h === "string" ? h : null; }
+  const to = attrString(attrs, "to"), href = attrString(attrs, "href");
+  if (to === null || href === null) return null;
+  if (typeof to === "string") return href === undefined || href === to ? to : null;
+  return typeof href === "string" ? href : null;
+}
+/**
+ * WHAT THE PAGE MOUNTS (2026-10-15, after Codex's second review): a word in
+ * a component the page never renders is not on the page. The page's root is
+ * the component its route names (`createFileRoute(…)({ component: X })`, or
+ * one written inline there) or its default export; only what that component
+ * returns is read, and a component of the same file it renders is read where
+ * it is rendered, with the children it is given wherever it renders
+ * `children`. A page with no root this can find renders nothing this can
+ * vouch for. Only returns at the top of a component's body are its output:
+ * one inside a block (an early `if` return) depends on state.
+ */
+const IDENT = /^[A-Za-z_$][\w$]*/;
+/** The index of the bracket that closes the one at `i` (`(`, `[` or `{`), strings and JSX skipped; -1 when none. */
+function closeOf(src, i) {
+  const open = src[i], shut = open === "(" ? ")" : open === "[" ? "]" : "}";
+  let depth = 0;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if (c === '"' || c === "'" || c === "`") { const e = skipString(src, j); if (e < 0) return -1; j = e - 1; continue; }
+    if (c === "<" && jsxContext(src, j)) { const el = parseElement(src, j); if (el) { j = el.end - 1; continue; } }
+    if (c === open) depth++;
+    else if (c === shut && --depth === 0) return j;
+  }
+  return -1;
+}
+const skipWs = (src, i) => { while (i < src.length && /\s/.test(src[i])) i++; return i; };
+/**
+ * A component written at `i`: `{ kind: "block", text }` (a function body) or
+ * `{ kind: "expr", text }` (an arrow's expression), through one wrapping call
+ * (`memo(…)`, `forwardRef(…)`). Null when it is not one this can read.
+ */
+function componentAt(src, i, depth = 0) {
+  i = skipWs(src, i);
+  if (depth > 3) return null;
+  if (src.startsWith("async", i) && /\s/.test(src[i + 5] || "")) i = skipWs(src, i + 5);
+  if (src.startsWith("function", i) && !/[\w$]/.test(src[i + 8] || "")) {
+    const p = src.indexOf("(", i);
+    if (p < 0) return null;
+    const pc = closeOf(src, p);
+    if (pc < 0) return null;
+    const b = src.indexOf("{", pc);
+    if (b < 0) return null;
+    const e = closeOf(src, b);
+    return e < 0 ? null : { kind: "block", text: src.slice(b + 1, e), end: e + 1 };
+  }
+  let j = i;
+  if (src[j] === "(") { const pc = closeOf(src, j); if (pc < 0) return null; j = pc + 1; }
+  else {
+    const id = IDENT.exec(src.slice(j));
+    if (!id) return null;
+    j += id[0].length;
+    const after = skipWs(src, j);
+    // A WRAPPING CALL: `memo(function X() {…})`, `forwardRef((p, r) => …)`.
+    if (src[after] === "(" && !src.startsWith("=>", after)) {
+      const inner = componentAt(src, after + 1, depth + 1);
+      return inner;
+    }
+  }
+  j = skipWs(src, j);
+  // A TYPE ON THE RESULT: `(): JSX.Element =>`.
+  if (src[j] === ":") { const arrow = src.indexOf("=>", j); if (arrow < 0) return null; j = arrow; }
+  if (!src.startsWith("=>", j)) return null;
+  j = skipWs(src, j + 2);
+  if (src[j] === "{") { const e = closeOf(src, j); return e < 0 ? null : { kind: "block", text: src.slice(j + 1, e), end: e + 1 }; }
+  if (src[j] === "(") { const e = closeOf(src, j); return e < 0 ? null : { kind: "expr", text: src.slice(j, e + 1), end: e + 1 }; }
+  if (tagStartAt(src, j)) { const el = parseElement(src, j); return el ? { kind: "expr", text: src.slice(j, el.end), end: el.end } : null; }
+  return null;
+}
+/** The file's components by name (capitalized, declared at the top of the module) and its root. */
+function moduleComponents(src) {
+  const comps = new Map();
+  const decl = /(?:^|\n)[ \t]*(?:export[ \t]+(?:default[ \t]+)?)?(?:(?:async[ \t]+)?function[ \t]+([A-Z][\w$]*)|(?:const|let|var)[ \t]+([A-Z][\w$]*)[ \t]*(?::[^=\n]+)?=)/g;
+  for (const m of src.matchAll(decl)) {
+    const name = m[1] || m[2];
+    const at = m[1] ? src.indexOf("function", m.index) : m.index + m[0].length;
+    const c = componentAt(src, at);
+    if (c && !comps.has(name)) comps.set(name, c);
+  }
+  let root = null;
+  const route = /\bcreate(?:Lazy)?FileRoute\s*\(/.exec(src);
+  if (route) {
+    const p = route.index + route[0].length - 1;
+    const pc = closeOf(src, p);
+    const q = pc < 0 ? -1 : skipWs(src, pc + 1);
+    const o = q >= 0 && src[q] === "(" ? skipWs(src, q + 1) : -1;
+    if (o >= 0 && src[o] === "{") {
+      const oe = closeOf(src, o);
+      const entries = oe < 0 ? null : objectEntries(src.slice(o + 1, oe));
+      const en = entries && entries.find((x) => x.key === "component");
+      if (en && en.value) {
+        const v = en.value.trim();
+        const id = IDENT.exec(v);
+        root = id && id[0] === v ? comps.get(v) || null : componentAt(v, 0);
+      }
+    }
+  }
+  if (!root) {
+    const d = /(?:^|\n)[ \t]*export[ \t]+default[ \t]+/.exec(src);
+    if (d) {
+      const at = d.index + d[0].length;
+      const id = IDENT.exec(src.slice(at));
+      if (id && id[0] !== "function" && id[0] !== "async" && !src.startsWith("=>", skipWs(src, at + id[0].length)) && src[skipWs(src, at + id[0].length)] !== "(") root = comps.get(id[0]) || null;
+      else root = componentAt(src, at);
+    }
+  }
+  return { comps, root };
+}
+/** The expressions a component renders: its arrow's expression, or each `return` at the top of its body. */
+function outputsOf(c) {
+  if (!c) return [];
+  if (c.kind === "expr") return [c.text];
+  const body = c.text, out = [];
+  let depth = 0;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '"' || ch === "'" || ch === "`") { const e = skipString(body, i); if (e < 0) break; i = e - 1; continue; }
+    if (ch === "<" && jsxContext(body, i)) { const el = parseElement(body, i); if (el) { i = el.end - 1; continue; } }
+    // A FUNCTION INSIDE (a handler, a callback): its returns are not this component's.
+    if (body.startsWith("=>", i)) { const j = skipWs(body, i + 2); if (body[j] === "{") { const e = closeOf(body, j); if (e < 0) break; i = e; } continue; }
+    if (/[\w$]/.test(body[i - 1] || "") === false && body.startsWith("function", i) && !/[\w$]/.test(body[i + 8] || "")) {
+      const b = body.indexOf("{", i); if (b < 0) break; const e = closeOf(body, b); if (e < 0) break; i = e; continue;
+    }
+    if (ch === "{" || ch === "(" || ch === "[") { depth++; continue; }
+    if (ch === "}" || ch === ")" || ch === "]") { depth--; continue; }
+    if (depth === 0 && !/[\w$.]/.test(body[i - 1] || "") && body.startsWith("return", i) && !/[\w$]/.test(body[i + 6] || "")) {
+      let j = skipWs(body, i + 6);
+      if (body[j] === "(") { const e = closeOf(body, j); if (e < 0) break; out.push(body.slice(j, e + 1)); i = e; continue; }
+      if (tagStartAt(body, j)) { const el = parseElement(body, j); if (!el) break; out.push(body.slice(j, el.end)); i = el.end - 1; continue; }
+      // ANY OTHER RETURN: up to its end, read as an expression (a literal, a
+      // condition) or unresolved.
+      let k = j, d = 0;
+      for (; k < body.length; k++) {
+        const c2 = body[k];
+        if (c2 === '"' || c2 === "'" || c2 === "`") { const e = skipString(body, k); if (e < 0) break; k = e - 1; continue; }
+        if (c2 === "<" && jsxContext(body, k)) { const el = parseElement(body, k); if (el) { k = el.end - 1; continue; } }
+        if ("([{".includes(c2)) d++;
+        else if (")]}".includes(c2)) { if (d === 0) break; d--; }
+        else if (c2 === ";" && d === 0) break;
+      }
+      out.push(body.slice(j, k));
+      i = k;
+    }
+  }
+  return out;
+}
+/** The rendered word stream of a page: `{ w, link }` per word, `{ w: null }` where unresolved content breaks it. */
+export function renderedStream(source) {
+  const src = stripComments(source);
+  const out = [];
+  let ids = 0;
+  const { comps, root } = moduleComponents(src);
+  if (!root) return out;
+  const words = (text, link) => { for (const w of plainWords(text).split(" ")) if (w) out.push({ w, link }); };
+  const gap = () => { if (out.length && out[out.length - 1].w !== null) out.push({ w: null, link: null }); };
+  const stack = [];
+  // `kids`: the children the component being read was given, and the kids of
+  // the place they were written (`outer`), so `children` renders them there.
+  const expr = (e, link, kids, depth = 0) => {
+    if (depth > 40) { gap(); return; }
+    const t = unwrap(e);
+    if (!t) return;
+    const lit = STRING_LIT.exec(t);
+    if (lit) { words(lit[1] ?? lit[2] ?? lit[3], link); return; }
+    if (/^(?:props\.)?children$/.test(t)) {
+      if (kids && kids.list) { for (const c of kids.list) child(c, link, kids.outer); return; }
+      gap(); return;
+    }
+    if (tagStartAt(t, 0)) { const el = parseElement(t, 0); if (el && el.end === t.length) { node(el, link, kids); return; } }
+    const q = topLevel(t, "?");
+    if (q > 0) {
+      const cond = t.slice(0, q).trim();
+      const colon = topLevel(t, ":", q + 1);
+      if (colon > q) {
+        if (cond === "true") { expr(t.slice(q + 1, colon), link, kids, depth + 1); return; }
+        if (FALSY_LIT.test(cond)) { expr(t.slice(colon + 1), link, kids, depth + 1); return; }
+      }
+      gap(); return;
+    }
+    const and = topLevel(t, "&&");
+    if (and > 0) {
+      const cond = t.slice(0, and).trim();
+      if (FALSY_LIT.test(cond)) return;
+      if (cond === "true") { expr(t.slice(and + 2), link, kids, depth + 1); return; }
+    }
+    gap();
+  };
+  const child = (c, link, kids) => {
+    if (c.text != null) words(c.text, link);
+    else if (c.el) node(c.el, link, kids);
+    else expr(c.expr, link, kids);
+  };
+  const component = (comp, link, kids) => {
+    for (const e of outputsOf(comp)) { gap(); expr(e, link, kids); gap(); }
+  };
+  const node = (el, link, kids) => {
+    // A COMPONENT OF THIS FILE: read where it is rendered, with its children.
+    if (/^[A-Z]/.test(el.tag) && comps.has(el.tag)) {
+      if (stack.includes(el.tag) || stack.length > 20) { gap(); return; }
+      stack.push(el.tag);
+      component(comps.get(el.tag), link, { list: el.children, outer: kids });
+      stack.pop();
+      return;
+    }
+    let ctx = link;
+    if (linkTag(el.tag)) ctx = { id: ++ids, href: destOf(el.attrs, el.tag) };
+    for (const c of el.children) child(c, ctx, kids);
+  };
+  stack.push("(root)");
+  component(root, null, null);
+  return out;
+}
+/**
+ * EVERY LINK A PAGE RENDERS: each link element's destination and the words it
+ * shows, read off the rendered stream — so a link in a comment, in a branch
+ * that never renders, or one whose destination cannot be read is not here.
+ */
+export function renderedLinks(source) {
+  const byId = new Map();
+  for (const t of renderedStream(source)) {
+    if (!t.w || !t.link) continue;
+    const l = byId.get(t.link.id) || { href: t.link.href, words: [] };
+    l.words.push(t.w);
+    byId.set(t.link.id, l);
+  }
+  return [...byId.values()].filter((l) => typeof l.href === "string").map((l) => ({ href: l.href, text: l.words.join(" ") }));
+}
+/** A requested line as words in order, each linked word naming its link's address and its group. */
+function linePattern(words) {
+  const s = String(words == null ? "" : words);
+  const pat = [];
+  let at = 0, group = 0;
+  const plain = (text) => { for (const w of plainWords(text).split(" ")) if (w) pat.push({ w, href: null, group: -1 }); };
+  for (const m of s.matchAll(LINK_IN_WORDS)) {
+    plain(s.slice(at, m.index));
+    const g = group++;
+    for (const w of plainWords(m[1]).split(" ")) if (w) pat.push({ w, href: m[2], group: g });
+    at = m.index + m[0].length;
+  }
+  plain(s.slice(at));
+  return pat;
+}
+/**
+ * How many times a requested line is rendered, each occurrence whole: its
+ * words in order with nothing unresolved between them, and each linked
+ * phrase rendered by ONE link element that goes exactly there and shows
+ * exactly those words — the link inside THIS occurrence, never one elsewhere
+ * on the page with the same words or address.
+ */
+function lineRendered(stream, pat) {
+  if (!pat.length) return 0;
+  let n = 0;
+  for (let i = 0; i + pat.length <= stream.length; i++) {
+    let ok = true;
+    const gid = new Map();
+    for (let k = 0; k < pat.length && ok; k++) {
+      const tok = stream[i + k], p = pat[k];
+      if (!tok.w || tok.w !== p.w) { ok = false; break; }
+      if (p.href === null) continue;
+      if (!tok.link || tok.link.href !== p.href) { ok = false; break; }
+      if (!gid.has(p.group)) gid.set(p.group, tok.link.id);
+      else if (gid.get(p.group) !== tok.link.id) ok = false;
+    }
+    if (ok) {
+      for (const [g, id] of gid) {
+        const ks = pat.map((p, k) => (p.group === g ? k : -1)).filter((k) => k >= 0);
+        const prev = stream[i + ks[0] - 1], next = stream[i + ks[ks.length - 1] + 1];
+        if ((prev && prev.link && prev.link.id === id) || (next && next.link && next.link.id === id)) { ok = false; break; }
+      }
+    }
+    if (ok) { n++; i += pat.length - 1; }
+  }
+  return n;
+}
+
 export function wordsLanded(before, after, items) {
   const was = sourcesByPath(before), now = sourcesByPath(after);
-  // IN THE PAGE'S OWN ORDER, so a line the writer split across a tag (`Open
-  // <strong>daily</strong>`) reads back as the one line it is.
-  const said = (source) => " " + plainWords(extractText(source).sort((a, b) => a.at - b.at).map((w) => w.text).join(" ")) + " ";
   const missing = [];
   for (const it of Array.isArray(items) ? items : []) {
     const file = fileOfRoute(it && it.page);
-    const want = plainWords(it && it.words);
-    if (!file || !want) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
-    const had = occurrences(said(was.get(file) || ""), " " + want + " ");
-    const has = occurrences(said(now.get(file) || ""), " " + want + " ");
+    // WHAT A VISITOR READS, TIED TOGETHER (`linePattern`): the line's words in
+    // order, each linked phrase bound to the link that renders it.
+    const pat = linePattern(it && it.words);
+    if (!file || !pat.length) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
+    // ONE MORE RENDERED OCCURRENCE THAN THE PAGE HAD: a line already there, or
+    // one only a comment, a branch that never renders or unresolved code
+    // holds, is not this change's.
+    const had = lineRendered(renderedStream(was.get(file) || ""), pat);
+    const has = lineRendered(renderedStream(now.get(file) || ""), pat);
     if (has <= had) missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };

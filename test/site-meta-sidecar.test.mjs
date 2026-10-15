@@ -116,7 +116,8 @@ test("THE LIVENESS MARKER IS THE TAKE-DOWN, and both sides spell it the same", (
   // `sites/<slug>/site.live` — where every script, old and new, probes for it
   // — written by `activateBuild` on every activation (the spine, the build
   // path, the restore) and still under the prefix the take-down wipes.
-  assert.equal((WORKER.match(/liveKey: "sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE/g) || []).length, 3,
+  // FOUR SINCE 2026-10-15: the owner's Publish under draft-first (`publishDraft`).
+  assert.equal((WORKER.match(/liveKey: "sites\/" \+ slug \+ "\/" \+ SITE_LIVE_FILE/g) || []).length, 4,
     "the marker is not handed to activation on every path that makes a site live");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
   // RE-ANCHORED 2026-09-06, same change: written through `reversible`, so a

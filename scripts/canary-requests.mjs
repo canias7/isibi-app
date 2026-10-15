@@ -1655,11 +1655,29 @@ export const COVERAGE = Object.freeze({
     const logo = s ? partsOf([s]).find((p) => p && p.route === "logo") : null;
     return { covered: !!logo && logo.n > 0 && logo.status === "done", why: !logo ? "no part went to the logo step" : logo.n === 0 ? "the logo was the request's first part" : `part ${logo.n}, the logo, read the request's file, ${logo.status}` };
   },
+  // A CLOSED TAB, BY EITHER WAY OF SENDING ONE (2026-10-15, after run
+  // 38744698638, whose summary said NOT COVERED beside checks recording the
+  // tab closed): an `away` step, ended while no page was open; or a `fresh`
+  // step, read off the same facts its checks read (`closedTabFacts`).
   "closed-tab": (steps) => {
     const s = (steps || []).find((x) => x && x.mode === "away");
     const a = s && s.away;
-    const ok = !!a && a.closed === true && a.ended === true && Array.isArray(a.calls) && a.calls.length === 0;
-    return { covered: ok, why: !a ? "the tab was not closed" : ok ? `ended ${Math.round((a.endedMs || 0) / 1000)} s after the tab closed, read ${a.reads} time(s) through the list alone` : "the request did not end while the tab was closed" };
+    if (a) {
+      const ok = a.closed === true && a.ended === true && Array.isArray(a.calls) && a.calls.length === 0;
+      return { covered: ok, why: ok ? `ended ${Math.round((a.endedMs || 0) / 1000)} s after the tab closed, read ${a.reads} time(s) through the list alone` : "the request did not end while the tab was closed" };
+    }
+    const fs = (steps || []).find((x) => x && x.mode === "fresh");
+    const f = fs && fs.fresh;
+    if (!f) return { covered: false, why: "the tab was not closed" };
+    const ct = closedTabFacts(f);
+    const ok = ct.closed && ct.listOnly && ct.followed;
+    return {
+      covered: ok,
+      why: ok ? `closed ${Math.round((ct.closedMs || 0) / 1000)} s after the send with the request running, read ${ct.reads} time(s) through the list alone, followed to its end in a fresh session`
+        : !ct.closed ? "the sending tab was not closed while the request ran"
+        : !ct.listOnly ? (ct.calls ? `its own route was read ${ct.calls} time(s) with no page open` : "the list never named the request with no page open")
+        : "the fresh session did not follow the request to its end",
+    };
   },
   // EVERY PART SHOWED A PROGRESS LINE (2026-10-06): recorded, never failed on —
   // a part that finishes between two milestones' lines is told by its reply.
@@ -1667,12 +1685,30 @@ export const COVERAGE = Object.freeze({
     const s = (steps || []).find((x) => x && x.mode === "fresh");
     const f = s && s.fresh;
     if (!f) return { covered: false, why: "the message was not read in a fresh browser session" };
-    const most = new Map();
+    // LIVE PROGRESS APART FROM A FINISHED PART'S SUMMARY (2026-10-15, after
+    // run 38744698638, whose 3-second data part showed no line): the reason
+    // says, for each part, whether a line was seen live while it ran, only
+    // after it ended, or not at all — told only by its completed-work
+    // summary, a fast job rather than missing progress — never one as another.
+    const seen = new Map();
     for (const snap of [...arrOf(f.before), ...arrOf(f.after)]) {
-      for (const p of arrOf(snap && snap.parts)) most.set(p.n, Math.max(most.get(p.n) || 0, listOf(p.lines).length));
+      for (const p of arrOf(snap && snap.parts)) {
+        const o = seen.get(p.n) || { live: 0, lines: 0, summary: false };
+        o.lines = Math.max(o.lines, listOf(p.lines).length);
+        if (snap && snap.ended !== true && liveOnItsPart(p)) o.live++;
+        if (p.status === "done" && p.said && typeof p.said.done === "string" && p.said.done && p.words === p.said.done) o.summary = true;
+        seen.set(p.n, o);
+      }
     }
-    const each = [...most.entries()].sort((a, b) => a[0] - b[0]);
-    return { covered: each.length > 0 && each.every(([, c]) => c > 0), why: each.length ? each.map(([n, c]) => `part ${n}: ${c} line(s) at most`).join("; ") : "no part was read" };
+    const each = [...seen.entries()].sort((a, b) => a[0] - b[0]);
+    const say = ([n, o]) => o.live ? `part ${n}: a line live while it ran (${o.lines} line(s) at most)`
+      : o.lines ? `part ${n}: ${o.lines} line(s), none shown live while it ran`
+      : o.summary ? `part ${n}: no progress line; told by its completed-work summary`
+      : `part ${n}: no progress line`;
+    // COVERED BY A LINE SHOWN, as before: readings are taken at intervals, so
+    // a line seen only after its part ended may have been live between two of
+    // them. What the reason says keeps the three apart.
+    return { covered: each.length > 0 && each.every(([, o]) => o.lines > 0), why: each.length ? each.map(say).join("; ") : "no part was read" };
   },
 });
 
@@ -1697,6 +1733,27 @@ export const COVERAGE = Object.freeze({
  *   by its line for having done it.
  * The words themselves are recorded, never judged: no length, no keyword.
  */
+/**
+ * WHAT A FRESH-SESSION READING SHOWS OF ITS CLOSED TAB (2026-10-15, after
+ * run 38744698638): one reading for the checks and the coverage summary, so
+ * the summary can never say "not covered" beside checks that record the tab
+ * closed. `closed` — the sending tab was closed with the request still
+ * running; `listOnly` — with no page open, the request was found through the
+ * requests list and its own route never read; `followed` — the fresh session
+ * showed it to its end.
+ */
+export function closedTabFacts(f) {
+  const away = (f && f.away) || {};
+  const calls = arrOf(away.calls);
+  const re = (f && f.reopened) || {};
+  return {
+    closed: !!f && f.closed === true && f.closedRunning === true,
+    listOnly: (away.reads || 0) > 0 && arrOf(away.list).some((x) => x && x.found) && calls.length === 0,
+    followed: re.closed === true,
+    reads: away.reads || 0, calls: calls.length, closedMs: f && Number.isFinite(f.closedMs) ? f.closedMs : null,
+  };
+}
+
 export function progressChecks({ steps }) {
   const out = [];
   const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
@@ -1721,12 +1778,13 @@ export function progressChecks({ steps }) {
   add("a progress line was on screen in the tab that sent the message, live on its own running part, while the request still ran", firstLive,
     first ? `the line taken (part ${first.part}, ${first.status || "?"}) was never live on its own running part in the sending tab's readings`
       : f.closedRunning === false ? "the request had ended before any line was shown live" : "no line was shown live on a running part before the tab was closed");
-  add("the tab that sent it was then closed, the request still running", f.closed === true && f.closedRunning === true,
+  const ct = closedTabFacts(f);
+  add("the tab that sent it was then closed, the request still running", ct.closed,
     f.closed !== true ? "the tab was not closed" : "the request had already ended when the tab was closed");
   const away = f.away || {};
   const calls = arrOf(away.calls);
   add("with no page open, the request was read through the requests list alone, and nothing read its own route",
-    (away.reads || 0) > 0 && arrOf(away.list).some((x) => x && x.found) && calls.length === 0,
+    ct.listOnly,
     !away.reads ? "the list was never read" : calls.length ? `its own route was read ${calls.length} time(s) with no page open` : "the list never named the request");
   const re = f.reopened || {};
   add("a fresh browser session, signed in afresh as the same account, found the request on the server and drew its card",
@@ -1736,7 +1794,7 @@ export function progressChecks({ steps }) {
   const lost = [...before].filter((x) => !after.has(x));
   add("the fresh session showed every progress line the sending tab had shown", before.size > 0 && !lost.length,
     before.size === 0 ? "the sending tab showed no line" : `not shown again: ${lost.map((x) => JSON.stringify(x.split("\u0000")[1])).join(", ")}`);
-  add("the fresh session followed the request to its end, every part's reply on screen", re.closed === true, re.why || "the request was not shown closed");
+  add("the fresh session followed the request to its end, every part's reply on screen", ct.followed, re.why || "the request was not shown closed");
   const all = [...arrOf(f.before), ...arrOf(f.after)];
   const said = (p, state) => !!(p && p.said && typeof p.said[state] === "string" && p.said[state] && p.words === p.said[state]);
   add("while a part ran, its card named it by the model's own line for doing it",

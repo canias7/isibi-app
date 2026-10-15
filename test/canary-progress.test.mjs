@@ -184,7 +184,7 @@ test("END TO END: the first line is read in the tab that sent the message while 
   for (const x of [...one[0].fresh.before, ...one[0].fresh.after]) for (const p of x.parts) if (p.n === 1) p.lines = [];
   const half = coverageOf({ spec: LP, steps: one }).find((c) => c.name === "progress-each-part");
   assert.equal(half.covered, false);
-  assert.match(half.why, /part 1: 0 line\(s\)/);
+  assert.match(half.why, /part 1: no progress line; told by its completed-work summary/);
   // THE ACCOUNT WRITES THE WORDS OUT WHOLE.
   const told = describeUi(rec);
   assert.match(told, /first line on screen \d+ s after the send, part 0 \(started\): "I've worked out the FAQ page/);
@@ -799,4 +799,46 @@ test("THE CANARY: one sign-in, used for the run and handed to the driver for the
   assert.match(CANARY.slice(nc, ids), /check\("narration added no charge[^"]*", nc\.ok, nc\.why\);/, "the check does not pass and fail on the verdict");
   // THE PRESS READS NO LOG ITSELF: the usage is the next step's.
   assert.doesNotMatch(CANARY, /telemetry\/query|CLOUDFLARE_API_TOKEN/);
+});
+
+// ── THE COVERAGE SUMMARY READS WHAT THE CHECKS READ (2026-10-15) ─────────────
+// Run 38744698638 sent its message with the tab closed and read it in a fresh
+// session; its checks recorded the tab closed, and its summary still said
+// "closed-tab NOT COVERED", because the summary read only an `away` step.
+test("closed-tab coverage and the closed-tab checks agree on one fresh-session record: covered exactly when the three closed-tab checks pass", () => {
+  const closedChecks = (f) => progressChecks({ steps: stepOf(f) }).filter((c) => /^the tab that sent it was then closed|^with no page open|^the fresh session followed/.test(c.name));
+  const cover = (f) => coverageOf({ spec: { covers: ["closed-tab"] }, steps: stepOf(f) })[0];
+  const good = goodFresh();
+  assert.equal(closedChecks(good).length, 3, "the three closed-tab checks were not found — the observer is not alive");
+  assert.ok(closedChecks(good).every((c) => c.ok));
+  assert.equal(cover(good).covered, true, cover(good).why);
+  assert.match(cover(good).why, /closed 6 s after the send with the request running, read 2 time\(s\) through the list alone, followed to its end/);
+  for (const [mutate, re] of [
+    [(f) => { f.closedRunning = false; }, /not closed while the request ran/],
+    [(f) => { f.closed = false; }, /not closed while the request ran/],
+    [(f) => { f.away.calls = [{ ms: 1, method: "GET", path: "/api/site/request/x/y" }]; }, /own route was read 1 time/],
+    [(f) => { f.away.list = [{ ms: 1, status: 200, found: false }]; }, /list never named the request/],
+    [(f) => { f.reopened.closed = false; }, /did not follow the request to its end/],
+  ]) {
+    const f = goodFresh(); mutate(f);
+    const c = cover(f);
+    assert.equal(c.covered, false, "covered beside a failing closed-tab check: " + c.why);
+    assert.match(c.why, re);
+    assert.ok(closedChecks(f).some((x) => !x.ok), "a closed-tab check passed where the summary says not covered");
+  }
+  // AN `away` STEP is read as before; no step of either kind is "not closed".
+  assert.equal(coverageOf({ spec: { covers: ["closed-tab"] }, steps: [{ n: 1, sent: true, mode: "", network: [] }] })[0].why, "the tab was not closed");
+});
+
+test("progress-each-part says, per part, a line live while it ran, lines seen only after it ended, or none and told only by its completed-work summary", () => {
+  const f = goodFresh();
+  // A SECOND PART, FAST: never seen running, done with its summary and no line.
+  for (const x of f.after) x.parts.push(P(1, "done", SAID1.done, [], SAID1));
+  // A THIRD, ITS LINE SEEN ONLY ONCE DONE.
+  for (const x of f.after) x.parts.push(P(2, "done", SAID1.done, ["A line kept after the part finished."], SAID1));
+  const c = coverageOf({ spec: { covers: ["progress-each-part"] }, steps: stepOf(f) })[0];
+  assert.match(c.why, /part 0: a line live while it ran/);
+  assert.match(c.why, /part 1: no progress line; told by its completed-work summary/);
+  assert.match(c.why, /part 2: 1 line\(s\), none shown live while it ran/);
+  assert.equal(c.covered, false, "a part with no line counted as covered");
 });

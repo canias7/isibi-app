@@ -492,7 +492,7 @@ test("the addon reserves the designers' spend before the schema apply, the page 
   const bill = at(addon, "const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);", "the page path's bill");
   assert.match(addon.slice(bill, bill + 700), /aCharge\(aBill, 4\)/, "the page call is not reserved as sequence 4 after #1");
   const stop = at(addon, "if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }", "the page path's stop");
-  const store = at(addon, "const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);", "the look store");
+  const store = at(addon, "const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch, jobFence(env, aJob));", "the look store");
   assert.ok(bill < stop && stop < store, "the page path's refusal does not stop before the look is stored");
   // The reader the spine is handed.
   const pub = CODE.slice(at(CODE, "const aPub = await recompileAndPublish(env, {", "addon publish"), at(CODE, 'aMark("publish:1", aPub && aPub.ok ? "ok" : "fail"', "addon publish end"));

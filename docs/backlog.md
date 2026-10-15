@@ -20,6 +20,32 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Verification batch findings** (2026-10-15, runs 38742390550 and
+  38744698638): (a), (b), (e) fixed on the branch (`889f9b70`, `50d0aeca`,
+  `e49ac856`), offline only; (f)'s cleanup is prepared (`60bdc0cd`) and
+  waits for the next approved integration. Open:
+  - (c) one task-summary line said "now live" in the third person — true,
+    against the instructions; no code check (it would need language
+    keyword rules). Part 2's missing live line was a 3-second job, now
+    reported as such by the canary.
+  - (d) part 1's one narration call timed out at 45 s and was given up
+    (by design: retried once, the label kept). Not changed.
+- **Jobs of one request side by side: not live, two gaps** (2026-10-15,
+  branch only; `docs/history/2026-10-15-concurrent-writes.md`). To switch
+  on: apply `supabase/proposed/request_beside.sql`, merge and deploy, set
+  `PARALLEL_WRITES=on`; no live press has shown two writing jobs of one
+  request overlapping. Gaps: (b) the publish turn's exclusion under two
+  real isolates rests on R2's etag write, never raced live; (c) a conflict
+  caught at publish fails the part (refunded) rather than re-running it
+  against the new site. (a), a config writer beside a text step through the
+  Worker, is covered by CW10/CW11; the turn's ownership review by CW8, CW9,
+  CW12; ownership at the write itself by the turn's fence (`b49d8765`,
+  TF1–TF10), corrected for R2's content etags (`c47147e6`: writes
+  conditional on the object as read, keys held at takeover, sidecar and
+  live marker guarded, the script following the pointer). Open with it: a
+  newer write in the same millisecond as the previous upload is not told
+  apart; the live script is asked only where the dispatch binding answers;
+  a refusal after the publish gate is held for review before its refund.
 - **A Build send went unanswered for 18 minutes after its build had
   finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
   The send went at 22:13:35, the build ended at 22:22:16, and the press gave

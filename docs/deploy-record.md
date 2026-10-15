@@ -1902,3 +1902,70 @@ and names the wrong person to go and ask.
 - **Afterwards:** `f1b81477` closed the two opt-ins; it is scripts and tests
   only and started no deploy. The switches were left as set, on the owner's
   word ("I dont need to restore settings, i have no customers").
+
+## The verification batch's deploy: `8e24ca5b`, run 38671851113 (2026-10-15)
+
+- **What was merged:** `main` was fast-forwarded `f1b81477` → `8e24ca5b`
+  (14 commits: the batch fix round, Codex's review answered, the proposal,
+  and the Step 0 commit) at 02:36:05 UTC, on the owner's word: "Approved —
+  do Step 0 through Press 2 as written". One deploy run, 38671851113,
+  `success`, 02:36:07–02:39:01.
+- **Before the merge:**
+  - required unit CI on `8e24ca5b` (run 38671177863): `10976 / 10932 / 0 /
+    44`;
+  - nothing in flight except unit tests on the `new` branch, which a merge
+    here does not touch;
+  - no open edit job;
+  - balance 726, last ledger row 476;
+  - `ferry-lane-deli` free all three ways, its address 404.
+- **Image:** `built isibi-app-sitebuildcontainer:e420b3c2d3224dd3`
+  (predicted on both ends; "registry answered 404; 207 inputs"). Container
+  `- …:e1582f6f71a41dfb` / `+ …:e420b3c2d3224dd3`, `SUCCESS Modified
+  application` at 02:38:56Z; Worker version `bc272ed9-37c…`.
+- **Assets:** 2 uploaded (`/edit-poll.js`, `/chat.js`), 84 already there.
+- **Served files:**
+  - the before read matched `main`'s bytes (`chat.js` `0795960275b5`,
+    `edit-poll.js` `543a30826793`);
+  - after the deploy, at 02:39, all three were byte-identical to the merged
+    files: `chat.js` `0e1a4721bdb3`, `edit-poll.js` `05efc5862cbd`,
+    `styles.css` `044a7c2a5892` (unchanged).
+- **Rollback (rehearsed):** restore `f1b81477`'s tree and commit (`git
+  restore --source=f1b81477 --staged --worktree :/`), verified identical to
+  `main`'s tree in a throwaway worktree. A `git revert` of the range does not
+  apply: it contains a merge commit (`e4e0f944`).
+- **Switches as left:** `IMAGE_PURCHASES` off, `PROGRESS_TALK` on. The opt-ins
+  are open for `check-no-images` and `acc-mixed-2` only, closed again by
+  commit after the presses.
+- **Runtime confirmation:** run 38742119254 (the owner's free check, 13:22
+  UTC):
+  - both readers answered `8e24ca5bb8e9`;
+  - a cold container got `e420b3c2d3224dd3`;
+  - `imagePurchases=false`, `progressTalk=true`, `jobProgressTalk=true`;
+  - queued jobs and the runner on;
+  - balance 726, nothing charged.
+
+## An unintended deploy, `c37cbc41` (2026-10-15)
+
+**Not approved as a deploy. My error.** Closing the two paid opt-ins after
+the verification batch was meant to reach `main` as a scripts-and-tests
+commit that starts no deploy, as `f1b81477` did. The commit was built in a
+throwaway worktree, and its `node_modules` symlink (pointing at the
+session's own checkout) was committed with it. `node_modules` is not in the
+deploy's ignore list, so the push started deploy run 38747702721.
+
+- **Commit:** `c37cbc41`, on `8e24ca5b`, pushed 14:01 UTC. It changes
+  `scripts/canary-build.mjs`, `scripts/canary-ui.mjs`, three test files, and
+  adds the symlink.
+- **The run:** `success`, 14:01:20–14:02:25.
+  - `npm ci` removed the dangling link and installed as usual.
+  - Image `reused isibi-app-sitebuildcontainer:e420b3c2d3224dd3` (207
+    inputs), with no container changes.
+  - No asset uploaded.
+  - Worker redeployed under `DEPLOY_ID` `c37cbc41` (Cloudflare version
+    `8c0ab4ee`).
+- **What changed live:** only the deploy id the readers report. The Worker,
+  container and served files are the same code as `8e24ca5b`.
+- **Not runtime-confirmed by a press.** None was made after it.
+- **Still on `main`:** the symlink. Removing it is another push to `main`
+  that starts one more identical deploy, so it waits for the owner's word.
+

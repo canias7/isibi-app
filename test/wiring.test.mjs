@@ -1345,7 +1345,8 @@ test("EVERY prerendered document is written after the assets it names", () => {
   const stages = [...src.matchAll(/await stageBuild\(buildDeps\(env\), \{/g)].map((m) => m.index);
   assert.equal(stages.length, 2, "expected both publish paths to stage; found " + stages.length);
   for (const at of stages) {
-    const activate = src.indexOf("await activateBuild(buildDeps(env), {", at);
+    // THE SPINE ACTIVATES THROUGH ITS FENCED DEPS (2026-10-15), the build path through its own.
+    const activate = Math.min(...["await activateBuild(buildDeps(env), {", "await activateBuild(adeps, {"].map((s) => src.indexOf(s, at)).filter((i) => i > at).concat([Infinity]));
     const nextFn = src.indexOf("\nasync function ", at);
     assert.ok(activate > at && (nextFn < 0 || activate < nextFn), "a staged build is not activated after its files are all in place");
   }
@@ -1946,7 +1947,7 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // defaults `charge`, wherever it sits. `\bcharge\b` does not match
   // `charges`.)
   assert.match(w, /async function recompileAndPublish\(env, \{[^}]*\bcharge = null\b[^}]*\}\)/, "the spine takes no charge funnel");
-  const loopWrite = pos(spine, "patchSiteConfig(env, slug, db, { langStrings: nextStrings })", "the cache write");
+  const loopWrite = pos(spine, "patchSiteConfig(env, slug, db, { langStrings: nextStrings }, jobFence(env, job))", "the cache write");
   const charged = pos(spine, "let langCharged = 0;", "the charge");
   const compileDef = pos(spine, "const compile = async () => {", "the compile");
   const gate = pos(spine, 'editRpc(env, "edit_may_publish"', "the gate");

@@ -1277,6 +1277,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    button and every modal's primary action. They are short labels; if the bar
    truly runs out of room the icon buttons beside them give way instead. */
 .st-share, .st-publish { white-space: nowrap; flex: none; }
+/* WHERE THE CHANGES ARE (draft-first): a quiet chip beside Publish. */
+.st-draft-state { flex: none; white-space: nowrap; font-size: .76rem; font-weight: 650; padding: .28rem .6rem; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted, var(--text)); }
+.st-draft-state[data-state="saved"] { color: var(--text); border-color: var(--text); }
+.st-draft-state[data-state="processing"] { font-style: italic; }
+.sp-note { font-size: .8rem; opacity: .85; }
 /* HIDDEN, NOT REMOVED, outside the Preview view — which is the whole fix, and
    three attempts were needed to get here. Both side groups are `flex: 1 1 0`, so
    they split the free space equally but only down to each one's MIN-CONTENT

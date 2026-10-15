@@ -147,10 +147,15 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
       // randomness — there is no output to hash when the brand file is
       // written), so it is minted here the same way; the VERSION is the
       // caller's and rides in on the payload, so it is read off it.
+      // THE SCRIPT NAMES ITS OWN VERSION AND BUILD (2026-10-15), as the real
+      // one bakes them: a case can then tell which version is live from what
+      // was last uploaded, and a re-upload from a version's stored prefix.
+      const wkBuild = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+      const wkCode = STUB_WORKER_CODE + "\n// site-version: " + (body.version || "") + "\n// site-build: " + wkBuild + "\n";
       const wk = worker && body.worker && body.slug
         ? {
-            ok: true, why: "", code: STUB_WORKER_CODE, bytes: STUB_WORKER_CODE.length,
-            build: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+            ok: true, why: "", code: wkCode, bytes: wkCode.length,
+            build: wkBuild,
             version: body.version || "",
           }
         : null;

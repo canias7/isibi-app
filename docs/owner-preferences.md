@@ -1286,3 +1286,22 @@
   - records still say plainly what the live switches are, read live, never
     assumed;
   - once there are customers, ask again before leaving a switch changed.
+
+## What you've asked for since (2026-10-15)
+
+- **Only an explicit click on Publish makes changes live** (2026-10-15:
+  *"Important change to our publishing requirement: only an explicit click
+  on the Publish button may make changes live. Apply this universally across
+  Build, Edit and Add-on, including parallel tasks."*). So:
+  - every task saves into a persistent draft and updates its preview.
+    Completing a task, answering a question, recovering a job or finishing a
+    chain never publishes;
+  - Publish releases the specific ready draft version you approved. Tasks
+    still running, or edits made after, belong to a later draft;
+  - the screen says whether changes are saved, still processing or
+    published;
+  - every path that changes the live site counts, not just the button:
+    scripts, assets, configuration and backend behaviour.
+
+  On branch only, behind `DRAFT_FIRST`, off until you switch it on. The
+  audit and the gaps are in `docs/history/2026-10-15-draft-first.md`.

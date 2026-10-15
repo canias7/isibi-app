@@ -543,7 +543,9 @@ test("the collector hands a lease hook in, built from the lease it actually hold
   // a `buildDeps(env)` scan — which is exactly the call site whose undo matters
   // most, since a rollback that half-lands is a site stuck between versions.
   const sites = [...W.matchAll(/await activateBuild\(/g)];
-  assert.equal(sites.length, 3, "the activation call sites moved — rescope this");
+  // FOUR SINCE 2026-10-15: the owner's Publish under draft-first
+  // (`publishDraft`) is an activation too, held to every condition below.
+  assert.equal(sites.length, 4, "the activation call sites moved — rescope this");
   for (const m of sites) {
     const s = W.slice(m.index, W.indexOf("});", m.index));
     // NOT MERELY PRESENT: `previous: null` is the field with the undo removed,
@@ -552,7 +554,13 @@ test("the collector hands a lease hook in, built from the lease it actually hold
     // conditional on must come from that same read — one fact, two uses.
     const prev = s.match(/previous: ([A-Za-z][A-Za-z0-9_.]*) \|\| null,/);
     assert.ok(prev, "an activation hands no previous pointer, so its undo cannot run: " + s.slice(0, 200));
-    assert.match(s, new RegExp("expectEtag: " + prev[1] + "\\b"),
+    // ONE READ, TWO USES (2026-10-15): the pointer and the etag of whatever
+    // stands — a held empty pointer included — both from one `readPointerTag`.
+    const et = s.match(/expectEtag: ([A-Za-z][A-Za-z0-9_]*),/);
+    assert.ok(et, "an activation's condition is not a variable read with its pointer: " + s.slice(0, 200));
+    const read = W.slice(0, m.index).lastIndexOf("readPointerTag(");
+    const stmt = W.slice(read, W.indexOf("\n", read));
+    assert.ok(read > 0 && stmt.includes(prev[1] + " = t.pointer;") && stmt.includes(et[1] + " = t.etag;"),
       "the undo's `previous` is not the pointer the conditional write was made against: " + s.slice(0, 200));
   }
 });

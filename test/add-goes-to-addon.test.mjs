@@ -160,7 +160,7 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   assert.match(b, /const aNextCss = aCssAsk\.usable \? aCssAsk\.css : aCss;/, "an unusable css answer strips the stored sheet");
   // STORED AFTER EVERY REFUSAL AND BEFORE THE PUBLISH, so a refused addon
   // leaves the site as it was and the container bakes the new mark.
-  const store = b.indexOf("await patchSiteConfig(env, ownerSlug, adb, aLookPatch)");
+  const store = b.indexOf("await patchSiteConfig(env, ownerSlug, adb, aLookPatch, jobFence(env, aJob))");
   // RE-ANCHORED (2026-10-06): the merge's last refusal answers through the
   // failure door (`aFail`) since a failure says what it left behind; the
   // property — the look stored after it — is unchanged.
@@ -174,7 +174,7 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   assert.match(b.slice(b.lastIndexOf("if (", store), store), /^if \(aLookPatch\) \{/, "the store is not gated on the designed look having moved");
   // REVERTED ON THE ONE FAILURE AFTER IT, gated on the store having happened.
   const fail = b.indexOf("if (!aPub.ok) {", publish);
-  const revert = b.indexOf("patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss })", fail);
+  const revert = b.indexOf("patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss }, jobFence(env, aJob))", fail);
   assert.ok(fail > 0 && revert > fail && revert < b.indexOf("return Response.json", fail), "a failed publish does not put the old look back before answering");
   assert.match(b.slice(b.lastIndexOf("if (", revert), revert), /^if \(aStored\) \{/, "the revert is not gated on the look having been stored");
   // PARTS RIDE THE PUBLISH, and the reply says what was added.

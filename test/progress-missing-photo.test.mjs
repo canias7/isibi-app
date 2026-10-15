@@ -430,3 +430,20 @@ test("MPH 14 — THE ADD-ON'S THROWN PURCHASE: said as not confirmed, never as n
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
 });
+
+// THE DESIGN STEP SAYS ONLY WHAT THE DESIGN DID (2026-10-15, after run
+// 38742390550: an image-free build was told it had designed "the photographs
+// it will use"). Photographs are named only by the steps that make them.
+test("a first build's design fact names its pages and its look, never photographs; a build that buys none is told of none", () => {
+  const design = buildStepFacts({ s: "design", ms: 1 });
+  assert.equal(design.length, 1);
+  assert.doesNotMatch(design.map((f) => f.text).join(" "), /photo/i);
+  assert.match(design[0].text, /pages and its look/);
+  // AN IMAGE-FREE BUILD'S STEPS: nothing about a photograph anywhere.
+  const steps = [{ s: "design" }, { s: "provision", db: 0 }, { s: "gen" }, { s: "photos-alongside", started: 0 }, { s: "photos-joined", used: 0 }, { s: "compile" }];
+  const said = steps.flatMap((x) => buildStepFacts(x)).map((f) => f.text).join(" ");
+  assert.ok(said.length > 0, "no facts at all — the observer is not alive");
+  assert.doesNotMatch(said, /photo/i, said);
+  // CONTROL: a build that does buy one is told so, by that step.
+  assert.match(buildStepFacts({ s: "photos-alongside", started: 2 }).map((f) => f.text).join(" "), /2 photographs/);
+});

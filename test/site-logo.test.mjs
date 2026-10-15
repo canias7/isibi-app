@@ -440,7 +440,7 @@ test("an uploaded mark is a FORM on the look, and setting one mark keeps the oth
     assert.match(edit, new RegExp('EDIT_FIELDS = \\[[^\\]]*"' + f + '"'),
       f + " is not on EDIT_FIELDS, so a look edit will drop the mark stored there");
   }
-  assert.match(worker, /\[field\]: next \} \}\);/,
+  assert.match(worker, /\[field\]: next \} \}, jobFence\(env, eJob\)\);/,
     "the logo rung no longer writes the mark as a form on the look");
   assert.match(worker, /const next = url \? \{ form: "image", url \} : markRemove\(c\.config, field\);/,
     "an upload is not stored as an `image` form, or a removal does not ask what is under it");

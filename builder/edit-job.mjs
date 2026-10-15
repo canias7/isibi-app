@@ -1036,6 +1036,10 @@ export const JOB_ENV_NAMES = [
   // THE IMAGE-PURCHASE SWITCH (2026-10-11): a job in the container buys its
   // photographs there, so without it here the switch would stop at the Worker.
   "IMAGE_PURCHASES",
+  // JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15): a job in the container
+  // takes the site's publish turn and rebases its publish only with it on —
+  // so without it here a container job would publish its whole old copy.
+  "PARALLEL_WRITES",
   // THE BUILD'S PARALLEL DOORS (2026-10-14, after run 117). Since 2026-09-14
   // (`JOB_RUNNER_EVERYONE` on) a first build runs inside the container, and
   // the design split, the design graph and the page bands are each asked

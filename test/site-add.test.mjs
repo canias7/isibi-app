@@ -33,6 +33,7 @@ import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
 import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
+import { wordsParts as WP, wordsLanded as WL, renderedLinks as RL } from "../builder/site-add.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
@@ -2585,4 +2586,174 @@ test("the drop report's single-path belt is dead by the LIST partition, and that
   const drops = ["table", "page", "component"];
   for (const k of drops) assert.ok(LIST_ADDS.includes(k), k + " bins a sub-field and is no longer a list kind");
   for (const k of single) assert.ok(!drops.includes(k), k + " is single AND drops — the belt is live now, and needs a case");
+});
+
+// ── WORDS THAT CARRY A LINK (2026-10-15, after run 38744698638) ──────────────
+// The designer writes a link inside its words as `[linked words](/route)`. What
+// a visitor reads is the linked words; what must arrive is a real link to the
+// address. Read the markup apart, and require both.
+const WL_BASE = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ return <main><h1>Fretwork</h1>\n</main> }\n";
+const wlWith = (html) => WL_BASE.replace("</main>", html + "\n</main>");
+const wlCheck = (html, words, before = WL_BASE) => WL([{ path: "index.tsx", source: before }], [{ path: "index.tsx", source: wlWith(html) }], [{ page: "/", words }]).ok;
+
+test("wordsParts: a link's words are read, its brackets and address are not", () => {
+  assert.deepEqual(WP("Book a [workshop place](/classes) by Friday."), { text: "Book a workshop place by Friday.", links: [{ text: "workshop place", href: "/classes" }] });
+  assert.deepEqual(WP("Mail [us](mailto:a@b.co) or [call](tel:+441234) or see [the map](https://maps.example/x)."),
+    { text: "Mail us or call or see the map.", links: [{ text: "us", href: "mailto:a@b.co" }, { text: "call", href: "tel:+441234" }, { text: "the map", href: "https://maps.example/x" }] });
+  // NOT AN ADDRESS: kept as the words they are, never a link.
+  assert.deepEqual(WP("Try [this](javascript:alert(1)) now."), { text: "Try [this](javascript:alert(1)) now.", links: [] });
+  assert.deepEqual(WP("Plain words [in brackets] (and parentheses)."), { text: "Plain words [in brackets] (and parentheses).", links: [] });
+  assert.deepEqual(WP(null), { text: "", links: [] });
+});
+
+test("wordsLanded: linked words pass only when drawn as a link to their address", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  assert.equal(wlCheck('<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', W), true);
+  assert.equal(wlCheck('<p>Book a <a href="/classes">workshop place</a> by Friday.</p>', W), true);
+  assert.equal(wlCheck("<p>Book a <Link to={'/classes'}>workshop place</Link> by Friday.</p>", W), true);
+  assert.equal(wlCheck("<p>Book a [workshop place](/classes) by Friday.</p>", W), false, "markup left as text passed");
+  assert.equal(wlCheck("<p>Book a workshop place by Friday.</p>", W), false, "the words without their link passed");
+  assert.equal(wlCheck('<p>Book a <Link to="/">workshop place</Link> by Friday.</p>', W), false, "a link pointed elsewhere passed");
+  // A LINK THE PAGE ALREADY DREW does not answer for the new one.
+  const had = wlWith('<nav><Link to="/classes">Classes</Link></nav>');
+  assert.equal(wlCheck('<nav><Link to="/classes">Classes</Link></nav>\n<p>Book a workshop place by Friday.</p>', W, had), false);
+  assert.equal(wlCheck('<nav><Link to="/classes">Classes</Link></nav>\n<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', W, had), true);
+  // WORDS WITHOUT A LINK are judged as before.
+  assert.equal(wlCheck("<p>Open daily.</p>", "Open daily."), true);
+  assert.equal(wlCheck("<p>Closed.</p>", "Open daily."), false);
+});
+
+// ── EACH LINKED PHRASE AGAINST ITS OWN RENDERED LINK (2026-10-15, review) ─────
+// The page-wide count of an address passed a phrase linked elsewhere, an
+// address only in a comment, and two asked links to one place with one drawn.
+const FOOTER = WL_BASE.replace("</main>", '<footer><Link to="/classes">Classes</Link></footer>\n</main>');
+const withFooter = (html) => FOOTER.replace("<footer>", html + "\n<footer>");
+const wlF = (html, words) => WL([{ path: "index.tsx", source: FOOTER }], [{ path: "index.tsx", source: withFooter(html) }], [{ page: "/", words }]).ok;
+test("wordsLanded: a linked phrase is judged by its own rendered link — wrong destination beside a footer link to the right one, a comment-only link, and one of two links to one place all fail", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  assert.equal(wlF('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p>', W), false, "the footer's /classes answered for a phrase linked to /wrong");
+  // …AND WHEN THAT FOOTER ARRIVES WITH THE SAME CHANGE (one more /classes link).
+  assert.equal(WL([{ path: "index.tsx", source: WL_BASE }], [{ path: "index.tsx", source: withFooter('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p>') }], [{ page: "/", words: W }]).ok, false, "a new footer link to /classes answered for a phrase linked to /wrong");
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>\n{/* <Link to="/classes">workshop place</Link> */}', W), false, "a link inside a JSX comment counted");
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>\n/* <a href="/classes">workshop place</a> */', W), false, "a link inside a block comment counted");
+  const TWO = "See [our classes](/classes) and [book one](/classes).";
+  assert.equal(wlF('<p>See <Link to="/classes">our classes</Link> and book one.</p>', TWO), false, "two links to one place passed with one drawn");
+  assert.equal(wlF('<p>See <Link to="/classes">our classes</Link> and <Link to="/classes">book one</Link>.</p>', TWO), true);
+  const SAME = "Go [here](/classes) or [here](/classes).";
+  assert.equal(wlF('<p>Go <Link to="/classes">here</Link> or here.</p>', SAME), false, "the same phrase and place asked twice passed with one drawn");
+  assert.equal(wlF('<p>Go <Link to="/classes">here</Link> or <Link to="/classes">here</Link>.</p>', SAME), true);
+  // A PHRASE THE PAGE ALREADY LINKED does not answer for the new one.
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>', "Book a [Classes](/classes) now."), false);
+  // …AND WHEN THE WORDS DO LAND: the same words and place linked before (in
+  // the page's own nav), and the new line written as plain text, gains no link.
+  const NAV = WL_BASE.replace("<h1>Fretwork</h1>", '<h1>Fretwork</h1><nav><Link to="/classes">workshop place</Link></nav>');
+  const plain = NAV.replace("\n</main>", "\n<p>Book a workshop place by Friday.</p>\n</main>");
+  assert.equal(WL([{ path: "index.tsx", source: NAV }], [{ path: "index.tsx", source: plain }], [{ page: "/", words: W }]).ok, false, "a link the page already drew answered for the new line");
+  const linked = NAV.replace("\n</main>", '\n<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>\n</main>');
+  assert.equal(WL([{ path: "index.tsx", source: NAV }], [{ path: "index.tsx", source: linked }], [{ page: "/", words: W }]).ok, true, "the control: the new line drawn as its own link");
+});
+test("wordsLanded keeps every valid form: Link and anchor, braced and template destinations, nested markup and braced strings in the words", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  for (const html of [
+    '<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>',
+    '<p>Book a <a href="/classes" className="underline">workshop place</a> by Friday.</p>',
+    "<p>Book a <Link to={'/classes'}>workshop place</Link> by Friday.</p>",
+    '<p>Book a <Link to={"/classes"}>workshop place</Link> by Friday.</p>',
+    "<p>Book a <Link to={`/classes`}>workshop place</Link> by Friday.</p>",
+    '<p>Book a <Link to="/classes"><span>workshop</span> place</Link> by Friday.</p>',
+    '<p>Book a <Link to="/classes">{"workshop place"}</Link> by Friday.</p>',
+  ]) assert.equal(wlF(html, W), true, html);
+  // A DESTINATION THIS CANNOT READ is not vouched for.
+  assert.equal(wlF("<p>Book a <Link to={dest}>workshop place</Link> by Friday.</p>", W), false);
+  assert.equal(wlF("<p>Book a <Link to={`/c${x}`}>workshop place</Link> by Friday.</p>", W), false);
+});
+test("wordsLanded ties each link to its own occurrence, reads attributes as attributes, and claims nothing hidden or unresolved", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  const wl = (html, words = W, base = FOOTER) => WL([{ path: "index.tsx", source: base }], [{ path: "index.tsx", source: base.replace("<footer>", html + "\n<footer>") }], [{ page: "/", words }]).ok;
+  // THE SAME WORDS LINKED RIGHT ELSEWHERE, WRONG IN THE LINE (a footer arriving with the change).
+  assert.equal(wl('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p><p><Link to="/classes">workshop place</Link></p>'), false, "a separate link with the same words answered for the line's own");
+  // HIDDEN OR UNRESOLVED.
+  assert.equal(wl('{false && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), false, "a line in a false branch counted as rendered");
+  assert.equal(wl('{null && (<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>)}'), false);
+  assert.equal(wl('{false ? <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p> : null}'), false, "the branch a false ternary skips counted");
+  assert.equal(wl('{open && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), false, "a line behind a condition on state was claimed as rendered");
+  assert.equal(wl('{true && <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), true);
+  assert.equal(wl('{true ? <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p> : null}'), true);
+  assert.equal(wl('{false ? null : <p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>}'), true);
+  // ATTRIBUTES: a title is a title, and a destination in a string inside it is not one.
+  assert.equal(wl('<p>Book a <a title="try href=\'/classes\' here" href="/wrong">workshop place</a> by Friday.</p>'), false, "an address inside a title attribute was read as the destination");
+  assert.equal(wl('<p>Book a <a title="try href=\'/wrong\' here" href="/classes">workshop place</a> by Friday.</p>'), true);
+  assert.equal(wl('<p>Book a <a data-to="/classes" href="/wrong">workshop place</a> by Friday.</p>'), false, "an attribute merely ending in to= was read as the destination");
+  // AN UNRELATED LINE BETWEEN, OR A LINK THAT SWALLOWS MORE THAN THE PHRASE.
+  assert.equal(wl('<p>Book a <Link to="/classes">workshop place by Friday</Link>.</p>'), false, "a link showing more than the asked phrase answered for it");
+  assert.equal(wl('<p>Book a <Link to="/classes">workshop</Link> <Link to="/classes">place</Link> by Friday.</p>'), false, "one linked phrase split across two links answered for it");
+  assert.equal(wl('<p>Book a {name} <Link to="/classes">workshop place</Link> by Friday.</p>'), false, "words joined across unresolved content");
+  // A PLAIN LINE: hidden is still hidden.
+  assert.equal(wl('{false && <p>Open daily from nine.</p>}', "Open daily from nine."), false);
+  assert.equal(wl('<p>Open daily from nine.</p>', "Open daily from nine."), true);
+});
+test("renderedLinks reads each element's destination and words, skipping comments and self-closing tags", () => {
+  const src = 'export default () => <main><Link to="/a">One <b>two</b></Link>{/* <Link to="/b">no</Link> */}<a href="https://x.example/p">{"Three"}</a><Link to="/c" /></main>';
+  assert.deepEqual(RL(src), [{ href: "/a", text: "one two" }, { href: "https://x.example/p", text: "three" }]);
+});
+
+// ── WHAT THE PAGE MOUNTS, AND WHERE A LINK REALLY GOES (2026-10-15, Codex's
+// second review): an unused component holding the line, while the page only
+// renders Home, passed; so did `<a href="/classes" {...{href:"/wrong"}}>`,
+// whose spread wins. Read now: the route's own component and what it
+// renders, and each attribute as it takes effect.
+const LINE_C = "Book a [workshop place](/classes) by Friday.";
+const P_LINE = '<p>Book a <a href="/classes">workshop place</a> by Friday.</p>';
+const landed = (after, words = LINE_C, before = WL_BASE) => WL([{ path: "index.tsx", source: before }], [{ path: "index.tsx", source: after }], [{ page: "/", words }]).ok;
+test("wordsLanded reads only what the page mounts — Codex's unused component fails; a component the page renders, children it is given, and every root form pass", () => {
+  // CODEX'S CASE: the line in a component nothing renders.
+  assert.equal(landed(WL_BASE + "function Unused(){ return " + P_LINE + " }\n"), false, "a component the page never renders answered for the line");
+  assert.equal(landed(WL_BASE + "export function Promo(){ return (" + P_LINE + ") }\n"), false, "an exported component the route does not render answered");
+  assert.equal(landed(WL_BASE + "const promo = " + P_LINE + ";\n"), false, "JSX assigned and never rendered answered");
+  // CONTROLS: the same line where it renders.
+  assert.equal(landed(WL_BASE.replace("</main>", P_LINE + "\n</main>")), true);
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "function Promo(){ return " + P_LINE + " }\n"), true, "a component the page renders did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "const Promo = () => (\n  " + P_LINE + "\n);\n"), true, "an arrow component the page renders did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Promo />\n</main>") + "const Promo = memo(function Promo(){ return " + P_LINE + " });\n"), true, "a wrapped component did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band({ children }){ return <section className=\"band\">{children}</section> }\n"), true, "children rendered by a component did not count");
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band(props){ return <section>{props.children}</section> }\n"), true);
+  assert.equal(landed(WL_BASE.replace("</main>", "<Band>" + P_LINE + "</Band>\n</main>") + "function Band(){ return <section>Nothing here</section> }\n"), false, "children a component never renders answered");
+  // WHAT A COMPONENT'S BODY HOLDS BUT DOES NOT RETURN.
+  const HOME_IF = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ if (loading) { return " + P_LINE + " }\n return <main><h1>Fretwork</h1></main> }\n";
+  assert.equal(landed(HOME_IF), false, "an early return behind a condition answered");
+  const HOME_CB = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ const show = () => { return " + P_LINE + " }; return <main><h1>Fretwork</h1></main> }\n";
+  assert.equal(landed(HOME_CB), false, "a callback's return answered for the component's");
+  // EVERY ROOT FORM.
+  assert.equal(landed("export default function Home(){ return <main>" + P_LINE + "</main> }"), true);
+  assert.equal(landed("function Home(){ return <main>" + P_LINE + "</main> }\nexport default Home;"), true);
+  assert.equal(landed("export default () => <main>" + P_LINE + "</main>"), true);
+  assert.equal(landed("export const Route = createFileRoute('/')({ head: () => ({ meta: [] }), component: () => (<main>" + P_LINE + "</main>) })"), true, "an inline route component did not count");
+  assert.equal(landed("export const Route = createFileRoute('/')({ component: RouteComponent })\nconst RouteComponent = (): JSX.Element => {\n  return (\n    <main>" + P_LINE + "</main>\n  );\n};\n"), true, "a typed arrow component did not count");
+  // NO ROOT THIS CAN FIND: nothing vouched for.
+  assert.equal(landed("const x = 1;\nfunction Helper(){ return <main>" + P_LINE + "</main> }"), false, "a page with no root answered");
+  // A COMPONENT THAT RENDERS ITSELF does not loop.
+  assert.equal(landed(WL_BASE.replace("</main>", "<Loop />\n</main>") + "function Loop(){ return <div><Loop /></div> }\n"), false);
+});
+test("wordsLanded reads a link's effective destination — Codex's spread override fails; attributes and spreads take effect in order", () => {
+  const at = (a) => landed(WL_BASE.replace("</main>", "<p>Book a " + a + "workshop place</a> by Friday.</p>\n</main>"));
+  // CODEX'S CASE.
+  assert.equal(at('<a href="/classes" {...{href:"/wrong"}}>'), false, "a spread written after href did not override it");
+  assert.equal(at('<a href="/classes" {...{ "href": "/wrong" }}>'), false);
+  assert.equal(at('<a href="/classes" {...props}>'), false, "an unknown spread after href was vouched for");
+  assert.equal(at('<a href="/classes" {...{href: dest}}>'), false, "a spread of an unknown value was vouched for");
+  assert.equal(at('<a href="/classes" {...{...other}}>'), false);
+  assert.equal(at('<a href="/classes" href="/wrong">'), false, "the last of two hrefs is the one that counts");
+  // CONTROLS: what is written last takes effect.
+  assert.equal(at('<a {...{href:"/wrong"}} href="/classes">'), true, "an href written after the spread is the destination");
+  assert.equal(at('<a {...props} href="/classes">'), true);
+  assert.equal(at('<a href="/classes" {...{className:"underline"}}>'), true, "a spread that writes no href changed the destination");
+  assert.equal(at('<a href="/wrong" {...{href:"/classes"}}>'), true);
+  // A ROUTER LINK: its `to`, after spreads; an `href` beside it that disagrees is unknown.
+  const lk = (a) => landed(WL_BASE.replace("</main>", "<p>Book a " + a + "workshop place</Link> by Friday.</p>\n</main>"));
+  assert.equal(lk('<Link to="/classes" {...{to:"/wrong"}}>'), false);
+  assert.equal(lk('<Link {...{to:"/wrong"}} to="/classes">'), true);
+  assert.equal(lk('<Link to="/classes" href="/wrong">'), false, "a router link whose href disagrees with its to was vouched for");
+  assert.equal(lk('<Link to="/classes" className="u">'), true);
+  // AN ANCHOR GOES WHERE ITS href SAYS, whatever a `to` says.
+  assert.equal(at('<a to="/classes" href="/wrong">'), false, "an anchor's to was read as its destination");
 });

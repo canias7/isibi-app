@@ -150,7 +150,10 @@ test("IT IS CALLED, AND ONLY WHERE THE SCRIPT REALLY LANDED", () => {
   // did not land leaves a site with no page at any address — and that build still
   // answers `ok:true, page:"app"`. Clearing there would take the customer's one
   // remaining page away on exactly the build that needed it.
-  const fn = bare.slice(bare.indexOf("async function putSiteWorker("));
+  // RE-ANCHORED 2026-10-15: the raw upload, which `putSiteWorker` and its
+  // pointer-following both call — still the one place a script lands.
+  assert.ok(bare.indexOf("async function uploadScriptOnce(") > 0, "uploadScriptOnce is gone — re-anchor this");
+  const fn = bare.slice(bare.indexOf("async function uploadScriptOnce("));
   const end = fn.slice(1).search(/\n(?:\/\*\*|(?:export )?(?:async )?function )/);
   const body = fn.slice(0, end > 0 ? end + 1 : fn.length);
   assert.ok(body.includes("await clearPlaceholder(env, slug)"),

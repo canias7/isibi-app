@@ -16,6 +16,7 @@ path, with its known gap, rather than breaking.
 | File | What it adds | Why |
 |---|---|---|
 | `build_debit.sql` | `build_debit(p_id, p_uid, p_ref, p_amount, p_reason, p_partial, p_mint)` | A build's later debits (settle, pages) bill the build row's own account through the service role and the mint key, never the customer's access token, which can expire mid-build (the first-Build audit's H2) |
+| `request_beside.sql` | `private.site_busy(p_slug, p_self)`, redefined | Jobs of ONE request with non-conflicting targets may hold the site together when `PARALLEL_WRITES=on` (the request driver's `clearToWrite`); every other job still refuses them and they still refuse it. Publishing stays one at a time through the site's publish turn in R2. Without it the switch only makes the second job wait on the site's lock |
 
 **`build_debit` at the job gateway** (2026-10-08, Codex's review of
 `b4300a07`): a container-run build reaches `build_debit` through the job

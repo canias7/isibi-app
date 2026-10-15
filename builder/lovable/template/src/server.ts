@@ -187,7 +187,13 @@ const site = {
     // an isolate to recycle is not offline. It is one R2 head per document, and
     // that is CHEAPER than the get the old shell read cost on the same path, so
     // it is not a new expense — it is the old one, smaller.
-    if (env.SITES) {
+    // A DRAFT'S PREVIEW (draft-first, 2026-10-15). The platform sends this
+    // header only from its own draft route, to the preview copy of this
+    // script, and strips it from every request it forwards to a live one —
+    // so a draft is seen before the site is live (a first build has no live
+    // marker yet), and nothing a visitor sends can switch the probe off.
+    const previewing = request.headers.get("x-site-preview") === "1";
+    if (env.SITES && !previewing) {
       let live = true;
       try {
         live = (await env.SITES.head("sites/" + SITE_SLUG + "/" + LIVE_FILE)) !== null;

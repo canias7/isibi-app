@@ -630,7 +630,8 @@ test("N2: the build's publish passes the gate right before the pointer, records 
   const blank = (s) => s.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
   const code = blank(W);
   const gate = code.indexOf("const fenced = await buildPublishGate(env, jobId);");
-  const ptr = code.indexOf("before = await readPointer(buildDeps(env), slug);", gate);
+  // THE POINTER AND ITS ETAG FROM ONE READ (2026-10-15: `readPointerTag`, so a held empty pointer's etag keys the activation too).
+  const ptr = code.indexOf("const t = await readPointerTag(buildDeps(env), slug); before = t.pointer; beforeTag = t.etag;", gate);
   const act = code.indexOf("const act = await activateBuild(buildDeps(env), {", gate);
   assert.ok(gate > 0 && ptr > gate && act > ptr && act - gate < 400, "the gate is not the last step before activation");
   assert.match(code.slice(act, act + 4000), /if \(!act \|\| act\.ok !== true\) \{\s*if \(fenced\) await markPublishFailed\(env, jobId\);[\s\S]*?\}\s*if \(fenced\) await markPublished\(env, jobId, bVersion\);/);
@@ -762,7 +763,7 @@ test("H5: both publish paths mark the editable copy current only when every save
   const build = blank(W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("await writeHead(buildDeps(env), slug, bVersion);") + 60));
   assert.ok(build.length > 100 && build.length < 3000, "the build's afterActivate window moved: " + build.length);
   assert.match(build, /editableStored = sourceStored === true && partsStored === true && kitStored === true;\s*if \(!editableStored\) \{[\s\S]*?return;\s*\}\s*await writeHead/);
-  const spine = blank(W.slice(W.indexOf("const saved = { source: await saveSiteSource(env, slug, pages) };"), W.indexOf("await writeHead(buildDeps(env), slug, version);") + 60));
+  const spine = blank(W.slice(W.indexOf("const saved = { source: await saveSiteSource(env, slug, pages, fence) };"), W.indexOf("await writeHead(adeps, slug, version);") + 60));
   assert.ok(spine.length > 100 && spine.length < 3000, "the spine's afterActivate window moved: " + spine.length);
   assert.match(spine, /if \(unsaved\.length\) \{ tm\("r2:head", "fail"[^\n]*return; \}\s*await writeHead/);
 });
