@@ -152,9 +152,11 @@ with no generation.
 - **Returning from a side question** cannot be set up by the press, which
   sends routing only. It is offline (case 7) and, live, the optional E2 in the
   same batch: clarification, then a side question, then the answer, then the
-  work resumed, run in the app's chat
+  work resumed, driven by the UI canary in the real app
   (`docs/history/2026-10-15-verification-proposal.md`).
-- **A follow-up carried out end to end** is the optional E1 in the same batch.
+- **A follow-up carried out end to end** is the optional E1 in the same batch,
+  driven the same way. Neither needs the owner to type anything; the press is
+  their one act.
 - **Demo sites need no restore:** an executed case may leave its change in
   place.
 
@@ -178,5 +180,5 @@ The ceiling typed per press is the only limit, and the platform caps nothing.
 - **What is happening right now:** nothing new tells the assistant that a job
   is running. Job awareness is separate work.
 - **Returning from a side question, and a follow-up carried out,** live: not
-  run until the owner presses E2 and E1 (optional, in the same batch; about
+  run until live execution is authorized for E1 and E2 (optional, in the same batch; about
   5–32 and 4–30 more credits).

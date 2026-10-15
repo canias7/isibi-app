@@ -527,40 +527,98 @@ back, and no restore step or restore cost is planned. (The storage and browser
 modes still delete their own test files: that delete is the check being made,
 not a restore.)
 
-**Optional execution cases, in the same batch (2026-10-15 correction round):**
+**Optional execution cases, in the same batch (corrected 2026-10-15, after the
+owner accepted `e7da524b`): I drive them, and nobody types them.**
 
-They are run by the owner in the app's own chat on the demo site, as P7 and P10
-are, since the `converse` press sends routing only and cannot answer a live
-question. Afterwards I read, free, what each step did and kept:
-- the routing answers;
-- the stored question and its closing;
-- the edit jobs and their results;
-- the pages before and after;
-- the ledger rows.
+Owner: *"Correct the verification plan so Claude drives E1 and E2 through the
+existing automation or browser workflow when live execution is authorized,
+instead of requiring me to type the scenarios manually."*
 
-The whole chat thread is kept beside them for Codex.
+**Through what already exists.** E1 and E2 run as two named scenarios of the
+UI canary (`scripts/canary-ui.mjs`, the `ui_scenario` box on
+`edit-canary.yml`, request mode). That tool already:
+- signs in through the canary's own session and drives the real app in a real
+  Chromium;
+- sends a scenario's messages one after another in one tab, as typed into the
+  composer, and waits for each to end;
+- ends a message on a step's question (`until: "question"`) and sends the
+  answer next, as `rq-3-facebook` does;
+- takes the router's own question as a recorded alternative path;
+- stops any part filed at a layer the scenario does not list.
 
-- **E1, an end-to-end follow-up.**
-  1. Ask for three headline ideas, without changing anything: a talk reply.
-  2. Say "use the second idea".
-  3. Pass: it routes as work with the second idea written out, no question
-     comes back, the headline the page shows is that idea, one publish, and
-     the charge is the rung's.
+A scenario's messages are written in the code, reviewed and tied to one site.
+A form box takes only the scenario's name, so nothing is typed by the owner.
+**The owner's one act is the press,** because a session's dispatch answers 403.
+When asked, I try the dispatch once and never retry; otherwise I hand over the
+exact box values.
+
+**The one addition it needs, built only when live execution is authorized.**
+A message the server does not take on as a request stops the press today: "not
+taken on as a request … nothing more is sent" (`scripts/canary-ui.mjs`, line
+4660). E1's first message and E2's side question are answered as conversation
+on the candidate, so the UI canary needs one step kind, `talk`. Such a step:
+- expects a reply written by the reply's own call;
+- expects no request, no job and no charge beyond routing and the reply;
+- reads that reply from the screen;
+- for E2, checks that the waiting question is still open after it.
+
+That is test tooling, not a product feature. It is proven offline (the
+stand-in app, a red check, a sweep) before any press. It waits until then
+because help-needed is still changing `scripts/canary-ui.mjs`, so it is built
+on the file as it stands at authorization.
+
+**The demo site.** The scenarios are tied to the demo site the owner names,
+which is never one of help-needed's fixtures. Their words are written to fit
+that site's own pages, which I read first at no cost. The examples below assume
+a home headline and a Visit page with opening hours.
+
+- **E1, a follow-up carried out end to end** (`conv-e1-follow-up`):
+  1. *(talk)* "Give me three ideas for a new home page headline. Don't change
+     anything yet." Pass: a numbered list, written by the model, with nothing
+     started.
+  2. "Use the second idea." Pass:
+     - the route is work, with the second idea written out in `resolved`;
+     - no question comes back;
+     - the home headline is that idea;
+     - one publish, and everything else on the site preserved;
+     - the money is the rung's, by the ledger.
 - **E2, clarification, then a side question, then the answer, then the work
-  resumed.**
-  1. A request missing a detail, such as "change the opening hours on the
-     Visit page". Pass: a step asks for the detail, stores a live question,
-     writes nothing, and charges nothing for the edit.
-  2. A side question, such as "what does my home page say about delivery?".
-     Pass: it is answered as talk, and the question stays open.
-  3. The answer, such as "Mon–Fri 8–4, Sat 9–2". Pass: the question closes,
-     and the work resumes with the original request and the answer together.
-  4. Pass: the Visit page shows the new hours, one publish, and nothing is
-     done or charged twice.
+  resumed** (`conv-e2-clarify`):
+  1. "Change the opening hours on the Visit page." (`until: "question"`) Pass:
+     a step asks for the detail, a live question is stored, nothing is written,
+     and nothing is charged for the edit.
+  2. *(talk)* "Before that, what does my home page say about delivery?" Pass:
+     answered as conversation from the stored pages, with the question still
+     open.
+  3. "Mon–Fri 8–4, Sat 9–2." Pass:
+     - the question closes;
+     - the work resumes with the original request and the answer together;
+     - the Visit page shows those hours;
+     - one publish, and nothing done or charged twice.
 
   Whether a step asks in step 1 is the model's decision. If the router asks
-  instead, or the step simply makes the change, that is recorded as what
-  happened and not counted as E2's pass.
+  instead, that is the recorded alternative path. If the step simply makes the
+  change, that is recorded as what happened, step 2 still runs, and E2's
+  resume is reported as not reached: never a pass and never a retry.
+
+**The evidence kept for each (the UI canary's record, plus the `talk` step's
+readings):**
+- **Conversation:** every message as sent, and every reply as the page shows
+  it, in order, with whether each was the model's own.
+- **Routing:** each message's own routing answer (`routingEvidence`): the
+  intent, `resolved`, `unclear`, held-back parts, and whether it was the
+  model's.
+- **Clarification:** the question's id and text, the step that asked, its
+  card, that it stayed open through the side question, and its closing.
+- **Published result:** the request's jobs and publishes, in order; the stored
+  pages before and after, byte for byte apart from the named place; the
+  version the site serves.
+- **Billing:** the balance before and after each message, the ledger rows in
+  the window, and the jobs' reserves and refunds. An unread charge stays
+  unknown and stops the press.
+
+All of it goes in the press's artifact, beside the C-cases' evidence, for
+Codex.
 
 **For review:** every answer, or written-out request, is kept whole in
 `results.unverified` beside its evidence:
@@ -573,7 +631,7 @@ The whole chat thread is kept beside them for Codex.
 
 **Totals, estimates only:**
 
-| Set | Credits |
+| Set | Estimate (credits) |
 |---|---|
 | The twelve conversation cases (9 talk at 2–6; 3 routing-only at 1–6) | **about 21–72** |
 | P9 | about 13–47 |
@@ -582,10 +640,22 @@ The whole chat thread is kept beside them for Codex.
 | E2, optional: routing (1–2), the asking step (0 for the edit), the side question (2–6), routing the answer (1–2), the edit (1–22) | **about 5–32 more** |
 | **The whole batch with E1 and E2** | **about 43–181** |
 
-These are estimates. The owner sets the ceiling box per press, and E1 and E2,
-pressed in the app, are bounded only by the balance. The balance read before
-each send decides whether the press can proceed at all. No restore cost is
-included, because none is planned.
+**Estimates are not spending limits.** They come from measured costs, and a
+press can cost more or less. The limits are separate, and are the only things
+that stop spending:
+- **Each press's own ceiling,** typed by the owner when approving it:
+  - the `converse` and `build` presses: the "Harness ceiling for this press,
+    in credits" box;
+  - E1 and E2: each scenario's `budget`, which the UI canary enforces, set to
+    the figure the owner approves.
+
+  A ceiling stops further sends and stops a running part through the
+  request's own Stop. A step already past its publish gate is recorded as
+  done, so a ceiling bounds the press and not one model call.
+- **The account's balance,** read before every send. The platform caps
+  nothing per request.
+
+No restore cost is included, because none is planned.
 
 ## Offline proof of the harness (`test/media-verify.test.mjs`, `test/media-verify-judging.test.mjs`)
 
@@ -732,7 +802,7 @@ file.
 5. Approved, paid: `converse` with `spend=yes` and a ceiling, then `build` on a
    new slug with `spend=yes` and a ceiling. The balance is read by the script
    before every send.
-6. E1 and E2 (optional, in the same batch, in the app's chat), then P7 and P10, only on the owner's word. I read each one's evidence afterwards, free.
+6. E1 and E2, optional and in the same batch: once authorized, I build and prove the `talk` step offline, write the two scenarios for the named demo site, and hand over (or try once) one UI canary press for each, with each one's `budget`. Then P7 and P10, only on the owner's word.
 
 ## Correction to an earlier record
 

@@ -1,6 +1,52 @@
 # Owner Notes
 
 
+## E1 and E2 driven by the automation, not typed (2026-10-15; `candidate/new-on-main`, documents only; the candidate parked, unmerged, undeployed; no live execution, paid test, container build or image purchase)
+
+**You accepted `e7da524b` for offline readiness.** The candidate stays parked
+while help-needed finishes its confirmed fixes.
+
+**The correction.** The entry below said E1 and E2 would be run in the app's
+chat. That is replaced: **I drive them** through the existing UI canary (the
+`ui_scenario` box on `edit canary`, request mode). It drives the real app in a
+real browser and sends each scenario's messages as typed into the composer:
+- `conv-e1-follow-up`: ask for three headline ideas, then "use the second
+  idea";
+- `conv-e2-clarify`: a request missing a detail, a step's question, a side
+  question while it waits, the answer, and the work resumed.
+
+Your only act is the press, since a session's dispatch is refused. When you
+ask, I try it once and otherwise hand over the box values.
+
+**What it needs first.** The UI canary stops when a message is answered as
+conversation instead of becoming a request, and both scenarios have one such
+message. A `talk` step kind is needed. It is test tooling, not a product
+feature, and it is built and proven offline only when live execution is
+authorized, on `scripts/canary-ui.mjs` as help-needed leaves it.
+
+**The evidence kept for each:**
+- every message and reply in order, with whether each was the model's own;
+- each message's routing answer;
+- the question's id and text, that it stayed open, and its closing;
+- the jobs, publishes and stored pages before and after;
+- the balance and ledger rows around every message.
+
+**Estimates and limits are separate:**
+
+| | Credits |
+|---|---|
+| E1, estimate | about 4–30 |
+| E2, estimate | about 5–32 |
+| The whole batch, estimate | about 43–181 |
+
+The limits are each press's ceiling (the converse and build ceiling box, and
+each scenario's `budget`, set at approval) and the balance. The platform caps
+nothing.
+
+Unchanged: no demo-content restore; replies model-written; video and audio
+hosting-only; no feature added and no audit restarted.
+(`docs/history/2026-10-15-verification-proposal.md`.)
+
 ## The correction round closed; the combined verification plan ready (2026-10-15; `candidate/new-on-main` at `67a3bc28` plus this record; unmerged, undeployed; no container build, live mutation, paid test or image purchase)
 
 **This round is closed.** The code candidate is still `f7ac41b7`. This commit
