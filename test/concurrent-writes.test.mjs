@@ -582,3 +582,42 @@ test("CW11 A CONFIG WRITER FAILS BESIDE A TEXT JOB, AND RECOVERS — the descrip
     assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
   } finally { P.close(); compiler.uninstall(); }
 });
+
+test("CW12 A STALE PUBLISHER GIVES BACK NOTHING — a page change takes the site's turn at its publish; held at its compile, the turn lapses and another job takes it; the commit is refused, the newer job's turn is left exactly as it is, the page is unchanged, and the stale job is refunded once", async () => {
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const seen = { compiling: false };
+  const compiler = installCompiler({ before: async () => { seen.compiling = true; await freed; } });
+  const P = platform({
+    slug: slugOf("cw12"), pages: PAGES2, beside: true,
+    answers: {
+      // A PAGE NAMED: not a whole-site step, so it takes the turn at its publish.
+      route: [{ intent: "edit", layer: "text", page: "/", targets: [{ change: 0, writes: ["page:/"] }] }],
+      [T.text]: async (args) => ({ edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] }),
+    },
+  });
+  try {
+    P_.at = P;
+    const r = await sendMessage(P, { message: OPEN + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const m = P.queue.find((x) => x.body.kind !== "request-prep" && partOfMsg(P, x) === 0);
+    P.queue.splice(P.queue.indexOf(m), 1);
+    const run = deliver(P, m);
+    let taken = null;
+    try {
+      assert.ok(await until(() => seen.compiling, 6000), "the job never reached its compile");
+      assert.match(JSON.parse(P.readObj(turnKeyOf(P))).owner, /^job:/, "the job did not take the turn for its publish");
+      taken = TAKEN(P);
+      P.writeObj(turnKeyOf(P), JSON.stringify(taken));
+    } finally { release(); }
+    await run;
+    const turn = JSON.parse(P.readObj(turnKeyOf(P)));
+    assert.deepEqual(turn, taken, "the stale job wrote over the newer job's turn (gave it back or took it)");
+    assert.equal(P.page("index.tsx").includes(HOME_TO), false, "the stale job published");
+    const job = editJobs(P, r.key)[0];
+    assert.equal(job.state, "failed", JSON.stringify([job.state, JSON.stringify(job.result || null).slice(0, 300)]));
+    assert.ok(refundedOnce(P, job.id), "not refunded exactly once");
+    P.writeObj(turnKeyOf(P), JSON.stringify({ ...taken, until: 0 }));
+    await P.settle();
+    assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
+  } finally { P.close(); compiler.uninstall(); }
+});
