@@ -40,9 +40,10 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = 
   let n = 0;
   const failing = { ...fail };
   const losing = { ...lose };
+  const failErr = {};
   const trip = (name) => {
     calls.push(name);
-    if (failing[name] > 0) { failing[name]--; throw new Error("r2 " + name + " failed"); }
+    if (failing[name] > 0) { failing[name]--; throw failErr[name] ? failErr[name]() : new Error("r2 " + name + " failed"); }
   };
   const lost = (name) => { if (losing[name] > 0) { losing[name]--; throw new Error("r2 " + name + " answer lost"); } };
   const pause = () => (lag ? new Promise((r) => setTimeout(r, 0)) : null);
@@ -70,7 +71,8 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = 
   const b = {
     store, uploads, calls,
     // STORAGE THAT STOPS ANSWERING from now on, for `n` calls of a name (2026-10-15).
-    failNext: (name, n = 1) => { failing[name] = n; },
+    // …with the error a case names (`make()`), as R2's NoSuchUpload (2026-10-15).
+    failNext: (name, n = 1, make = null) => { failing[name] = n; failErr[name] = make; },
     raw: (k) => (store.has(k) ? store.get(k).bytes : null),
     async put(key, value, opts = {}) {
       trip("put");

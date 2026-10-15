@@ -579,23 +579,50 @@ export async function changeAsset(deps, scope, name, change) {
  * A CLAIM WHOSE HOLDER WENT AWAY, settled: its upload aborted first, then the
  * object read. Answers the record to write.
  */
+//
+// STOPPING THE OLD UPLOAD MUST BE PROVEN, NOT ASSUMED (2026-10-15, Codex's
+// review of `69462730`). An abort that throws because storage or the network
+// failed proves nothing: the holder's close may still be in flight and land
+// later. Codex reproduced it — two failed aborts were swallowed, the delete
+// answered 200, and the paused close then answered 200, recreated the object
+// and recorded its receipt done while the record said deleted. So a claim is
+// settled only on a PROVEN outcome:
+//   - the object carries the claim's upload id: it landed (whatever the abort
+//     said — a close happens once);
+//   - the abort succeeded, or R2 said the upload no longer exists
+//     (`NoSuchUpload`): it was stopped and cannot land;
+// and otherwise the claim is KEPT and the request is refused as unconfirmed
+// (503, try again), with nothing released, nothing deleted and no new
+// generation, until storage answers.
+/** An abort's failure that proves the upload is gone (R2's NoSuchUpload, code 10024), as opposed to one that proves nothing. */
+export function uploadGone(e) {
+  const t = String((e && (e.code || "")) + " " + (e && e.message || "") + " " + (e && e.name || ""));
+  return /NoSuchUpload|\b10024\b/.test(t);
+}
 async function recoverClaim(deps, scope, name, rec) {
   const c = rec.claim || {};
-  if (c.key && c.uploadId) { try { await deps.abort(c.key, c.uploadId); } catch { /* already closed or gone */ } }
+  let stopped = !(c.key && c.uploadId);
+  if (!stopped) {
+    try { await deps.abort(c.key, c.uploadId); stopped = true; } catch (e) { stopped = uploadGone(e); }
+  }
   let h = null;
-  try { h = await deps.exists(deps.objectKey(scope, name)); } catch { return null; }
+  try { h = await deps.exists(deps.objectKey(scope, name)); } catch { return { unknown: true }; }
   const s = c.sid ? await deps.loadSession(scope, c.sid).catch(() => null) : null;
   if (h && h.up === c.sid) {
     // IT LANDED: the replacement is the file, at the next generation.
     if (s && s.state !== "done") await recordDone(deps, scope, s, Number(h.size) || s.size).catch(() => {});
     return { gen: rec.gen + 1, state: "live", up: c.sid, at: deps.now() };
   }
-  // IT DID NOT: the file is as it was, and the replacement is given up.
+  // NOT LANDED, AND NOT PROVEN STOPPED: the claim stays; nothing is settled.
+  if (!stopped) return { unconfirmed: true };
+  // IT DID NOT, AND CANNOT: the file is as it was, and the replacement is given up.
   if (s && s.state !== "done") await abortQuietly(deps, s);
   else if (c.sid) await releaseMedia(deps, scope, c.sid);
   return { gen: rec.gen, state: "live", up: rec.up || "", at: deps.now() };
 }
 const claimStale = (deps, rec) => !(rec.claim && rec.claim.at + MEDIA_CLAIM_MS > deps.now());
+/** An earlier replacement that could not be shown to have stopped: nothing is changed, try again. */
+const unconfirmedClaim = () => res({ error: "an earlier replacement of that file could not be confirmed as stopped — nothing was changed; try again in a moment", code: "unconfirmed", retry: true }, 503);
 
 /**
  * DELETE A FILE, through its record (2026-10-15): `deleted` is written first,
@@ -613,7 +640,8 @@ export async function handleMediaDelete(deps, { scope, name } = {}) {
     if (rec.state === "committing") {
       if (!claimStale(deps, rec)) return { refuse: res({ error: "that file is being replaced right now — try deleting it again in a moment", code: "replacing", retry: true }, 409) };
       const back = await recoverClaim(deps, scope, name, rec);
-      if (!back) return { refuse: notNow({ now: "unknown" }) };
+      if (back.unknown) return { refuse: notNow({ now: "unknown" }) };
+      if (back.unconfirmed) return { refuse: unconfirmedClaim() };
       return { rec: back, again: true };
     }
     return { rec: { gen: rec.gen + 1, state: "deleted", up: rec.up || "", at: deps.now() } };
@@ -751,7 +779,8 @@ export async function handleMediaComplete(deps, { scope, sid, parts } = {}) {
         if (rec.state === "committing") {
           if (!claimStale(deps, rec)) return { refuse: res({ error: "that file is being replaced by another upload — try again in a moment", code: "replacing", retry: true }, 409) };
           const back = await recoverClaim(deps, scope, s.name, rec);
-          if (!back) return { refuse: notNow({ now: "unknown" }) };
+          if (back.unknown) return { refuse: notNow({ now: "unknown" }) };
+          if (back.unconfirmed) return { refuse: unconfirmedClaim() };
           return { rec: back, again: true };
         }
         const base = Number.isSafeInteger(s.baseGen) ? s.baseGen : 0;

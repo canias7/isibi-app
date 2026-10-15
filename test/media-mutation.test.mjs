@@ -305,3 +305,136 @@ test("INTERRUPTED AFTER R2 CLOSED, BEFORE THE RECORD MOVED: the recovery reads t
     });
   } finally { Date.now = realNow; }
 });
+
+// ── STOPPING THE OLD UPLOAD MUST BE PROVEN (2026-10-15, Codex's review of `69462730`) ──
+//
+// Codex's reproduction: the replacement paused inside R2's close; the clock
+// past MEDIA_CLAIM_MS; every abort throwing without stopping the upload; then
+// a delete. The recovery swallowed both aborts, released the claim and the
+// delete answered 200 — and the paused close, resumed, answered 200,
+// recreated the object and recorded its receipt done while the record said
+// deleted. Each case ends by checking that the object, the record's
+// generation, both receipts, the reservation and what each request answered
+// agree.
+
+/** The replacement held inside R2's close, its claim stale: the state every case below starts from. */
+async function staleClaim(S, realNow) {
+  const sid = await S.replacement();
+  const gap = barrier();
+  S.hold.complete = gap;
+  const zombie = S.complete(sid);
+  await until(() => gap.hit, "the replacement paused inside R2's close");
+  const t0 = realNow();
+  Date.now = () => t0 + MEDIA_CLAIM_MS + 1000;
+  return { sid, gap, zombie };
+}
+
+test("ABORT FAILS, UPLOAD NOT STOPPED (Codex's reproduction): the delete is refused as unconfirmed with the claim kept; the paused close lands; everything agrees it is the next generation; the delete then removes it", async () => {
+  const realNow = Date.now;
+  try {
+    await withWire({}, async () => {
+      const S = await site("mut-abort-fails");
+      const { sid, gap, zombie } = await staleClaim(S, realNow);
+      S.bucket.failNext("abort", 1000); // storage fails every abort; the upload goes on
+      const d = await S.del();
+      assert.deepEqual([d.status, d.body.code, d.body.retry], [503, "unconfirmed", true], "a delete was authorised while the old close could still land (Codex: it answered 200): " + JSON.stringify(d.body));
+      assert.deepEqual([S.record().state, S.record().gen, S.record().claim.sid], ["committing", 0, sid], "the claim was released though the old upload was not shown to have stopped");
+      assert.deepEqual(S.bucket.raw(S.key), S.original, "the file was touched");
+      assert.ok(Object.keys(S.held()).length === 1, "the replacement's reservation was released while it could still land");
+      assert.equal((await S.status(sid)).body.state, "open");
+      // THE PAUSED CLOSE RESUMES AND LANDS.
+      gap.open();
+      const r = await zombie;
+      assert.deepEqual([r.status, r.body.replaced], [200, true], JSON.stringify(r.body));
+      // EVERYTHING AGREES: the next generation, the replacement's bytes, its receipt done, the original's replaced, no reservation.
+      assert.deepEqual(S.bucket.raw(S.key), S.newer);
+      assert.deepEqual([S.record().state, S.record().gen, S.record().up], ["live", 1, sid]);
+      assert.equal((await S.status(sid)).body.state, "done");
+      assert.equal((await S.status(S.firstSid)).body.state, "replaced");
+      assert.deepEqual(S.held(), {});
+      // THE OWNER'S DELETE, SENT AGAIN (storage still failing aborts — none is needed now).
+      const d2 = await S.del();
+      assert.equal(d2.status, 200, JSON.stringify(d2.body));
+      assert.equal(S.bucket.raw(S.key), null);
+      assert.deepEqual([S.record().state, S.record().gen], ["deleted", 2]);
+      assert.equal((await S.status(sid)).body.state, "removed");
+    });
+  } finally { Date.now = realNow; }
+});
+
+test("ABORT FAILS, THEN STORAGE RETURNS BEFORE THE CLOSE: the delete sent again stops the old upload for certain, keeps the generation and deletes; the paused close cannot land and is told removed; everything agrees", async () => {
+  const realNow = Date.now;
+  try {
+    await withWire({}, async () => {
+      const S = await site("mut-abort-recovers");
+      const { sid, gap, zombie } = await staleClaim(S, realNow);
+      S.bucket.failNext("abort", 1000);
+      assert.equal((await S.del()).body.code, "unconfirmed");
+      // STORAGE ANSWERS AGAIN.
+      S.bucket.failNext("abort", 0);
+      const d = await S.del();
+      assert.equal(d.status, 200, JSON.stringify(d.body));
+      assert.equal(S.bucket.raw(S.key), null);
+      assert.deepEqual([S.record().state, S.record().gen], ["deleted", 1], "the stopped replacement was given a generation");
+      assert.equal((await S.status(sid)).status, 404, "the stopped replacement's session was kept");
+      assert.deepEqual(S.held(), {}, "the stopped replacement still holds room");
+      gap.open();
+      const late = await zombie;
+      assert.deepEqual([late.status, late.body.code], [410, "removed"], "the stopped close was not told what became of the file: " + JSON.stringify(late.body));
+      assert.equal(S.bucket.raw(S.key), null, "the stopped close brought the file back");
+      assert.deepEqual([S.record().state, S.record().gen], ["deleted", 1]);
+      assert.equal((await S.status(S.firstSid)).body.state, "removed");
+      assert.deepEqual(S.held(), {});
+    });
+  } finally { Date.now = realNow; }
+});
+
+test("CONTROL — R2 SAYS THE UPLOAD NO LONGER EXISTS (NoSuchUpload): that proves it stopped; the delete goes through and nothing can land", async () => {
+  const realNow = Date.now;
+  try {
+    await withWire({}, async () => {
+      const S = await site("mut-abort-gone");
+      const { sid, gap, zombie } = await staleClaim(S, realNow);
+      // THE UPLOAD IS REALLY GONE (expired at R2), AND R2 SAYS SO WHEN ABORTED.
+      S.bucket.uploads.clear();
+      S.bucket.failNext("abort", 1, () => Object.assign(new Error("NoSuchUpload: The specified multipart upload does not exist."), { code: 10024 }));
+      const d = await S.del();
+      assert.equal(d.status, 200, JSON.stringify(d.body));
+      assert.deepEqual([S.record().state, S.record().gen], ["deleted", 1]);
+      gap.open();
+      const late = await zombie;
+      assert.equal(late.status, 410);
+      assert.equal(S.bucket.raw(S.key), null);
+      assert.equal((await S.status(sid)).status, 404);
+      assert.deepEqual(S.held(), {});
+    });
+  } finally { Date.now = realNow; }
+});
+
+test("CONTROL — THE CLOSE HAD LANDED, AND THE ABORT FAILS: the object proves it landed; the recovery records the next generation and its receipt, and the delete removes it", async () => {
+  const realNow = Date.now;
+  try {
+    await withWire({}, async () => {
+      const S = await site("mut-landed-abort-fails");
+      const sid = await S.replacement();
+      // LANDED AT R2, HELD BEFORE ITS RECORD MOVED.
+      const gap = barrier();
+      gap.when = (j) => j && j.state === "live" && j.up === sid;
+      S.hold.asset = gap;
+      const zombie = S.complete(sid);
+      await until(() => gap.hit, "the replacement's final record write");
+      const t0 = realNow();
+      Date.now = () => t0 + MEDIA_CLAIM_MS + 1000;
+      S.bucket.failNext("abort", 1000);
+      const d = await S.del();
+      assert.equal(d.status, 200, "a landed replacement was held as unconfirmed: " + JSON.stringify(d.body));
+      assert.deepEqual([S.record().state, S.record().gen], ["deleted", 2]);
+      assert.equal(S.bucket.raw(S.key), null);
+      assert.equal((await S.status(sid)).body.state, "removed");
+      gap.open();
+      await zombie;
+      assert.equal(S.bucket.raw(S.key), null);
+      assert.deepEqual(S.held(), {});
+    });
+  } finally { Date.now = realNow; }
+});
