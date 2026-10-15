@@ -785,7 +785,9 @@ export const ASK_TOOL = {
           "so that someone who never saw the conversation would do exactly what they agreed to: name the page, the " +
           "words, the feature. Take only what the conversation really says; never add anything they did not ask for. " +
           "When you write this, any part you hold back (`alsoAsked`) is copied from this text. Leave it out whenever " +
-          "their message already says everything.",
+          "their message already says everything. NEVER write it from a part of the conversation marked as not " +
+          "shown: when what they agreed to is in such a part, or you cannot find it in what is shown, leave this out, " +
+          "answer \"ask\", and ask them to say again what they would like done.",
       },
       question: {
         type: "object",
@@ -1110,7 +1112,9 @@ const SYSTEM =
   "remark about files they attached, or a side question while one of ours waits is \"ask\" — even when it is about " +
   "a change they might make later. Work is a request to make a change now. When the latest message asks for work " +
   "and leans on the conversation shown to you (\"do that\", \"the second one\"), it is work, written out in full " +
-  "in `resolved`. Your \"ask\" answer is only the gist: the reply they read is written afterwards, with room.\n\n" +
+  "in `resolved` — unless what it leans on is in a part of the conversation marked as not shown, or cannot be found " +
+  "in what is shown: then it is \"ask\", asking them to say it again. Your \"ask\" answer is only the gist: the " +
+  "reply they read is written afterwards, with room.\n\n" +
   "DECIDE IN THIS ORDER, and stop at the first one that fits.\n" +
   "1. Is the message conversation — a greeting, a thank-you, a question about you or about their site, an idea or a " +
   "plan they are thinking through — \"hi\", \"thanks\", \"what can you do?\", \"can you read a link?\", \"what " +

@@ -54,11 +54,25 @@ export const ROUTER_TURN_CHARS = 800;
 export const ROUTER_HISTORY_CHARS = 4800;
 const ROLES = Object.freeze(["user", "assistant"]);
 
+/** The most the page may say it left out: a count beyond this is not a count. */
+const MAX_OMITTED = 100000;
+const MAX_FULL = 10_000_000;
+
 /**
- * The page's history, read: `{ turns: [{ role, text, cut? }], left: n }`, the
- * most recent last, `left` how many earlier turns were not kept. Anything that
- * is not a list of `{ role: "user"|"assistant", text: string }` is skipped and
- * counted with the rest left out — never coerced, never thrown on.
+ * The page's history, read: `{ turns: [{ role, text, cut?, full? }], left: n }`,
+ * the most recent last, `left` how many earlier turns were not kept — here or
+ * by the page. Anything that is not a list of `{ role: "user"|"assistant",
+ * text: string }` is skipped and counted with the rest left out — never
+ * coerced, never thrown on.
+ *
+ * WHAT THE PAGE CUT TRAVELS TOO (2026-10-15, Codex's review of `7ca339d1`):
+ * the page keeps 30 turns of 4,000 characters, so before this a turn it had
+ * cut, or the turns it had dropped, reached the model as if whole. Now the
+ * page says so — `{ omitted: n }` opening the list, and `full` on a cut turn
+ * — and each is read strictly: an integer in range, and a `full` longer than
+ * the text it came with. Anything else is not believed (it claims no cut), so
+ * a wrong figure can never make a whole turn look cut or a cut one look
+ * whole. A turn cut on either side carries `full`: its length before any cut.
  */
 export function readHistory(v, { turns = HISTORY_TURNS, turnChars = HISTORY_TURN_CHARS, total = HISTORY_CHARS } = {}) {
   const all = Array.isArray(v) ? v : [];
@@ -67,17 +81,25 @@ export function readHistory(v, { turns = HISTORY_TURNS, turnChars = HISTORY_TURN
   let used = 0;
   for (let i = all.length - 1; i >= 0; i--) {
     const t = all[i];
+    if (i === 0 && isOmitted(t)) { left += t.omitted; continue; }
     const ok = t && typeof t === "object" && !Array.isArray(t) && ROLES.includes(t.role) && typeof t.text === "string" && t.text.trim();
     if (!ok) { left++; continue; }
     if (kept.length >= turns || used >= total) { left++; continue; }
     let text = t.text.trim();
-    let cut = false;
+    const wireFull = Number.isInteger(t.full) && t.full > text.length && t.full <= MAX_FULL ? t.full : 0;
+    let cut = wireFull > 0;
+    const before = wireFull || text.length;
     const room = Math.min(turnChars, total - used);
     if (text.length > room) { text = text.slice(0, room); cut = true; }
     used += text.length;
-    kept.unshift({ role: t.role, text, ...(cut ? { cut: true } : {}) });
+    kept.unshift({ role: t.role, text, ...(cut ? { cut: true, full: before } : {}) });
   }
   return { turns: kept, left };
+}
+/** The page's own count of earlier turns it did not send: `{ omitted: n }` and nothing else. */
+function isOmitted(t) {
+  return !!t && typeof t === "object" && !Array.isArray(t) && Object.keys(t).length === 1 &&
+    Number.isInteger(t.omitted) && t.omitted > 0 && t.omitted <= MAX_OMITTED;
 }
 
 /** The router's window, from the same reading. */
@@ -93,11 +115,21 @@ export function historyBlock(h, heading = "THE CONVERSATION SO FAR") {
   const turns = h && Array.isArray(h.turns) ? h.turns : [];
   const left = h && Number.isInteger(h.left) && h.left > 0 ? h.left : 0;
   if (!turns.length && !left) return "";
-  const lines = turns.map((t) => (t.role === "user" ? "Owner: " : "Assistant (you): ") + t.text + (t.cut ? " [the rest of this message is not shown]" : ""));
+  const lines = turns.map((t) => (t.role === "user" ? "Owner: " : "Assistant (you): ") + t.text + (t.cut ? cutNote(t) : ""));
   const note = left
     ? "(" + left + " earlier message" + (left === 1 ? " is" : "s are") + " not shown here. Do not assume what they said.)\n"
     : "";
-  return heading + " — oldest first, their latest message is below, not here.\n" + note + (lines.length ? lines.join("\n") : "(nothing shown)");
+  const gap = left || turns.some((t) => t.cut)
+    ? "\nPARTS OF THIS CONVERSATION ARE NOT SHOWN (marked above). If their latest message refers to something that " +
+      "could be in a part not shown — words you suggested, an option, a detail — and you cannot find it above, do not " +
+      "guess or fill it in: say which part you cannot see and ask them to say it again."
+    : "";
+  return heading + " — oldest first, their latest message is below, not here.\n" + note + (lines.length ? lines.join("\n") : "(nothing shown)") + gap;
+}
+function cutNote(t) {
+  return Number.isInteger(t.full) && t.full > t.text.length
+    ? " [cut: only the first " + t.text.length + " of its " + t.full + " characters are shown; the rest is not]"
+    : " [the rest of this message is not shown]";
 }
 
 // ── WHAT THE BUILDER CAN DO, AND HOW SURE TO BE ─────────────────────────────

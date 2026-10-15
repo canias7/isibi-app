@@ -152,7 +152,10 @@ test("the page sends this project's thread, without the message being sent, with
   ]);
   // A DIFFERENT MESSAGE IS NOT DROPPED: only the one being sent.
   assert.equal(ChatTalk.historyWire([{ r: "u", t: "earlier" }], "now").length, 1);
-  assert.equal(ChatTalk.historyWire(Array.from({ length: 50 }, (_, i) => ({ r: "u", t: "m" + i })), "x").length, ChatTalk.HISTORY_TURNS);
+  // THE TURNS KEPT, AND THE ONES DROPPED COUNTED AHEAD OF THEM (2026-10-15).
+  const fifty = ChatTalk.historyWire(Array.from({ length: 50 }, (_, i) => ({ r: "u", t: "m" + i })), "x");
+  assert.deepEqual(fifty[0], { omitted: 50 - ChatTalk.HISTORY_TURNS });
+  assert.equal(fifty.length, ChatTalk.HISTORY_TURNS + 1);
   assert.deepEqual(ChatTalk.fileWire([{ name: "a.png", type: "image/png" }, { name: "talk.mp3", type: "audio/mpeg" }, { name: "" }]), [{ name: "a.png", kind: "image" }, { name: "talk.mp3", kind: "audio" }]);
 });
 

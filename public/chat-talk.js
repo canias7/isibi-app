@@ -21,6 +21,13 @@
    * (it goes as the message), and so is a reply still being written, which
    * holds no words yet. A question we asked is sent with the answers offered,
    * because "the second one" means one of them.
+   *
+   * WHAT IS CUT HERE IS SAID, NOT HIDDEN (2026-10-15, Codex's review of
+   * `7ca339d1`): a turn longer than `HISTORY_TURN_CHARS` keeps its start and
+   * carries `full`, its whole length, and when earlier turns are dropped to
+   * keep the last `HISTORY_TURNS` the list opens with `{ omitted: n }`. The
+   * server checks both and tells the models, so a cut message is never read
+   * as the whole of it.
    */
   function historyWire(msgs, current) {
     var list = Array.isArray(msgs) ? msgs.slice() : [];
@@ -45,9 +52,13 @@
         if (opts.length) text += (text ? "\n" : "") + "(Answers offered: " + opts.join(" / ") + ")";
       }
       if (!text) continue;
-      out.push({ role: x.r === "u" ? "user" : "assistant", text: text.slice(0, HISTORY_TURN_CHARS) });
+      var turn = { role: x.r === "u" ? "user" : "assistant", text: text.slice(0, HISTORY_TURN_CHARS) };
+      if (text.length > HISTORY_TURN_CHARS) turn.full = text.length;
+      out.push(turn);
     }
-    return out.slice(-HISTORY_TURNS);
+    var dropped = Math.max(0, out.length - HISTORY_TURNS);
+    var kept = out.slice(-HISTORY_TURNS);
+    return dropped ? [{ omitted: dropped }].concat(kept) : kept;
   }
 
   /** What a file in the composer is, by name only — the reply is told it was not shown its contents. */
