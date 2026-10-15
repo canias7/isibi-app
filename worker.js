@@ -12547,12 +12547,15 @@ async function holdScriptNote(env, slug, ctx, version) {
   try {
     if (ctx.note && ctx.noteEtag) {
       const put = await env.SITES_BUCKET.put(ctx.note, body, { ...meta, onlyIf: { etagMatches: ctx.noteEtag } });
-      if (put) { ctx.noteEtag = put.etag || null; return true; }
+      // R2 ANSWERS NULL for a failed condition — the note was retired.
+      if (put !== null) { ctx.noteEtag = (put && put.etag) || null; return true; }
     }
+    // A FRESH NOTE UNDER A FRESH KEY: no other invocation can hold it, so it
+    // needs no condition. One whose put answered no etag is not renewed in
+    // place; the next upload writes another, and all of them are this one's.
     const key = scriptPendingKey(slug, crypto.randomUUID());
-    const put = await env.SITES_BUCKET.put(key, body, { ...meta, onlyIf: { etagDoesNotMatch: "*" } });
-    if (!put) return false;
-    ctx.note = key; ctx.noteEtag = put.etag || null;
+    const put = await env.SITES_BUCKET.put(key, body, meta);
+    ctx.note = key; ctx.noteEtag = (put && put.etag) || null;
     (ctx.notes = ctx.notes || []).push(key);
     return true;
   } catch (e) {
