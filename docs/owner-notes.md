@@ -37,7 +37,7 @@
 | | Commit |
 |---|---|
 | merge of help-needed `d583030d` | `9c1a5af3` |
-| this fix batch (code, tests, records) | see the push below |
+| this fix batch (code, tests, records) | `373ba2ff` (the records in it name the commit; CI below) |
 
 **Checks (offline):**
 - **Tests.** DFR1–DFR8 are the new regressions: both reproductions, lost
