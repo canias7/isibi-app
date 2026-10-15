@@ -313,7 +313,7 @@ export function buildFactTexts() {
  * build still ran (202); every line a non-empty sentence that is no step's
  * fixed fact; no line read once and gone later; each line's number unique.
  */
-export function buildProgressVerdict(polls) {
+export function buildProgressVerdict(polls, { relisted } = {}) {
   const out = [];
   const add = check(out);
   const ps = arr(polls);
@@ -324,7 +324,10 @@ export function buildProgressVerdict(polls) {
   let lost = [], bad = [];
   for (const p of ps) {
     const now = new Map(arr(p && p.progress).filter((l) => l && Number.isInteger(l.n)).map((l) => [l.n, l.text]));
-    for (const [n, t] of all) if (now.size && !now.has(n)) lost.push(n);
+    // A FINAL READ MUST KEEP THEM (2026-10-15, after run 38646089624): the
+    // answer that ends the build is a read like any other, and one that
+    // carries no line drops every line read before it.
+    for (const [n, t] of all) if ((now.size || (p && p.status !== 202)) && !now.has(n)) lost.push(n);
     for (const [n, t] of now) {
       if (typeof t !== "string" || t.trim().length < 8 || facts.has(t.trim())) bad.push(n);
       if (all.has(n) && all.get(n) !== t) bad.push(n);
@@ -333,8 +336,32 @@ export function buildProgressVerdict(polls) {
   }
   lost = [...new Set(lost)]; bad = [...new Set(bad)];
   add("every line is the model's own sentence, never a step's fixed fact, and keeps its words", all.size > 0 && !bad.length, all.size ? `lines ${JSON.stringify(bad)} are not` : "no line was served");
-  add("no line read once was gone from a later read", all.size > 0 && !lost.length, `gone: ${JSON.stringify(lost)}`);
+  add("no line read once was gone from a later read, the final answer included", all.size > 0 && !lost.length, all.size ? `gone: ${JSON.stringify(lost)}` : "no line was served");
+  // …AND A SESSION THAT FINDS THE BUILD AFTER IT ENDED (the account's list,
+  // read afresh) reads every line, word for word.
+  const re = new Map(arr(relisted && relisted.progress).filter((l) => l && Number.isInteger(l.n)).map((l) => [l.n, l.text]));
+  const missing = [...all].filter(([n, t]) => re.get(n) !== t).map(([n]) => n);
+  add("a session that finds the finished build afresh reads every line, unchanged", all.size > 0 && !!relisted && !missing.length,
+    !all.size ? "no line was served" : !relisted ? "the finished build was not found in the account's list" : `missing or changed: ${JSON.stringify(missing)}`);
   return { checks: out, lines: [...all].sort((a, b) => a[0] - b[0]).map(([n, text]) => ({ n, text })) };
+}
+
+/**
+ * THE SEND'S OWN WAIT, JUDGED ON ITS OWN (2026-10-15, after run 38646089624:
+ * no answer for eighteen minutes, the build found afterwards by its attempt
+ * key). How the job came to be known — the answer, or the attempt key — is the
+ * closure's question; this one asks only whether the send itself was answered
+ * with its job, and how soon: `accepted` as the press records it (`ms`).
+ */
+export function buildSendVerdict(accepted, { within = 60_000 } = {}) {
+  const out = [];
+  const add = check(out);
+  const a = accepted && typeof accepted === "object" ? accepted : {};
+  const job = typeof a.job === "string" && /^[0-9a-f]{32}$/.test(a.job) ? a.job : "";
+  const ms = Number.isFinite(a.ms) ? a.ms : null;
+  add(`the send was answered with its job within ${Math.round(within / 1000)} s`, a.status === 202 && !!job && ms !== null && ms <= within,
+    ms === null ? `no answer reached the press${a.why ? ` (${a.why})` : ""}` : `answered ${a.status}${job ? "" : " with no job"} after ${Math.round(ms / 1000)} s`);
+  return out;
 }
 
 // ── THE CLOSURE ──────────────────────────────────────────────────────────────
@@ -453,7 +480,7 @@ export function buildClosureVerdict({ accepted, senderAfter, sender, fresh, fina
   const answered = !!(accepted && accepted.status === 202 && /^[0-9a-f]{32}$/.test(job));
   const found = !answered && !!(reconciled && reconciled.ok === true && /^[0-9a-f]{32}$/.test(String(reconciled.job || "")));
   const lost = accepted ? `answered ${accepted.status}${accepted.why ? ` (${accepted.why})` : ""}${job ? ` job ${job}` : ", no job"}` : "not sent";
-  add("API continuation: the build was accepted and its job is known — handed back (202), or found by this send's own attempt key after its answer was lost — the generation runs on the server",
+  add("API continuation: the build was accepted and its job is known — handed back (202), or found by this send's own attempt key — the generation runs on the server",
     answered || found,
     found ? "" : reconciled ? `${lost}; reconciling by attempt ${reconciled.attempt || "?"}: ${reconciled.why || "not found"}` : lost);
   if (found) out[out.length - 1].detail = `${lost}; found by attempt ${reconciled.attempt} as job ${reconciled.job}`;
@@ -735,23 +762,45 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const attempt = typeof io.attempt === "function" ? io.attempt() : newAttempt();
   record.attempt = attempt;
   const sentAt = io.now();
-  const accepted = await A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug, attempt }));
+  // ── THE SEND, ITS ANSWER AND THE FOLLOWING ARE THREE THINGS (2026-10-15,
+  // after run 38646089624): its press waited on the send's answer for eighteen
+  // minutes before it looked for the build at all, so it read the build only
+  // once it had ended and saw no line. Now the send asks to be answered at
+  // once (`accept: "early"`); the fresh session signs in at once and, while
+  // the send is still out, looks for THIS send's build by its attempt key; and
+  // whichever hands the job over first — the send's own answer or that
+  // discovery — starts the following, so the build is read while it runs. The
+  // send's own wait is judged on its own (`buildSendVerdict`), apart from how
+  // the job came to be known. It is never sent again.
+  let sendDone = null;
+  const sendP = A.get("post", (t) => io.post(t, { brief: spec.brief, slug: spec.slug, attempt, accept: "early" }))
+    .then((r) => { sendDone = { r, ms: io.now() - sentAt }; return r; }, (e) => { sendDone = { r: { status: 0, why: String((e && e.message) || e) }, ms: io.now() - sentAt }; return sendDone.r; });
   record.sent = true;
   const acceptedAt = record.calls.length;
-  const answeredJob = accepted && accepted.json && typeof accepted.json.job === "string" ? accepted.json.job : "";
-  // THE ORIGINAL ANSWER IS KEPT AS IT CAME, its network error included: a
-  // reconciled job never overwrites what the send itself was told.
-  record.accepted = { status: accepted ? accepted.status : 0, job: answeredJob, stage: accepted && accepted.json ? accepted.json.stage : undefined, ...(accepted && accepted.why ? { why: String(accepted.why) } : {}) };
-  log(`accepted: ${record.accepted.status}${record.accepted.why ? ` (${record.accepted.why})` : ""} job ${answeredJob || "(none)"}`);
   // THE SENDER LETS GO HERE. Everything after is the fresh session's.
   const fresh = await io.signIn();
   record.fresh = { uid: fresh && fresh.uid, sameToken: !!(fresh && fresh.token === sender.token) };
   const B = tagged("fresh", fresh.token);
-  // NO JOB IN THE ANSWER, AND NO FINAL ANSWER EITHER: the connection was lost
-  // (or answered nothing usable). The fresh session looks for THIS send's
-  // build by its attempt key — it never sends again.
-  let job = answeredJob;
-  if (!job && !(accepted && accepted.status === 200) && typeof io.builds === "function") {
+  const pause = (ms) => Promise.race([sendP, io.sleep(ms)]);
+  const jobOf = (r) => (r && r.json && typeof r.json.job === "string" ? r.json.job : "");
+  // FOUND WHILE THE SEND IS STILL OUT, by its own attempt key, never another's.
+  let job = "", discovered = null;
+  if (typeof io.builds === "function") {
+    const t0 = io.now();
+    while (!sendDone && io.now() - t0 < spec.followMs) {
+      const m = attemptMatch(await B.get("builds", (t) => io.builds(t)), attempt);
+      if (m.ok) { discovered = { ...m, ms: io.now() - sentAt }; job = m.job; break; }
+      if (m.ambiguous) { discovered = { ...m, ms: io.now() - sentAt }; break; }
+      await pause(spec.pollMs);
+    }
+  }
+  if (!job && !(discovered && discovered.ambiguous)) await sendP;
+  const sentAnswer = sendDone ? sendDone.r : null;
+  const answeredJob = sendDone ? jobOf(sentAnswer) : "";
+  if (!job && answeredJob && sentAnswer.status === 202) job = answeredJob;
+  // NO JOB IN THE ANSWER, AND NO FINAL ANSWER EITHER: looked for once more by
+  // the attempt key, after the send ended (`recovered`).
+  if (!job && !(sentAnswer && sentAnswer.status === 200) && !(discovered && discovered.ambiguous) && typeof io.builds === "function") {
     const t0 = io.now();
     let m = null;
     while (io.now() - t0 < (spec.reconcileMs || 120_000)) {
@@ -763,12 +812,8 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
     log(`reconciled by attempt ${attempt}: ${m && m.ok ? `job ${m.job}` : (m && m.why) || "not tried"}`);
     if (m && m.ok) job = m.job;
   }
+  if (discovered) { record.discovered = discovered; log(`found while the send was still out, by attempt ${attempt}, ${Math.round(discovered.ms / 1000)} s after the send: ${discovered.ok ? `job ${discovered.job}` : discovered.why}`); }
   record.job = job;
-  // PROMPT ACCEPTANCE AND RECOVERED TRACKING ARE TWO DIFFERENT FACTS
-  // (2026-10-14, the owner's review): `prompt` — the send's own answer handed
-  // the job back (202); `recovered` — the answer was lost and the job was
-  // found afterwards by this send's attempt key; `none` — neither.
-  record.acceptance = answeredJob && record.accepted.status === 202 ? "prompt" : job ? "recovered" : "none";
   const polls = [];
   let final = null;
   if (job) {
@@ -779,7 +824,29 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
       if (r && r.status !== 202) { final = r; break; }
       await io.sleep(spec.pollMs);
     }
-  } else if (accepted && accepted.status === 200) final = accepted;
+  } else if (sentAnswer && sentAnswer.status === 200) final = sentAnswer;
+  // THE SEND'S OWN ANSWER, IF IT IS STILL OUT, given a bounded while more —
+  // and then recorded as unanswered, never waited on for its full time.
+  if (!sendDone) await Promise.race([sendP, io.sleep(spec.sendGraceMs || 60_000)]);
+  const accepted = sendDone ? sendDone.r : null;
+  // THE ORIGINAL ANSWER IS KEPT AS IT CAME, its network error included: a
+  // discovered or reconciled job never overwrites what the send itself was told.
+  record.accepted = sendDone
+    ? { status: accepted ? accepted.status : 0, job: jobOf(accepted), stage: accepted && accepted.json ? accepted.json.stage : undefined, ms: sendDone.ms, ...(accepted && accepted.why ? { why: String(accepted.why) } : {}) }
+    : { status: 0, job: "", why: "still unanswered when the press ended", ms: null };
+  log(`accepted: ${record.accepted.status}${record.accepted.why ? ` (${record.accepted.why})` : ""} job ${record.accepted.job || "(none)"}${Number.isFinite(record.accepted.ms) ? ` after ${Math.round(record.accepted.ms / 1000)} s` : ""}`);
+  // PROMPT ACCEPTANCE, DISCOVERY AND RECOVERED TRACKING ARE DIFFERENT FACTS
+  // (2026-10-14, the owner's review; `discovered` 2026-10-15): `prompt` — the
+  // send's own answer handed the job back (202); `discovered` — this send's
+  // build was found by its attempt key while the send was still out;
+  // `recovered` — found that way after the send ended without it; `none`.
+  record.acceptance = record.accepted.job && record.accepted.status === 202 && (!discovered || !discovered.ok || record.accepted.ms <= discovered.ms) ? "prompt"
+    : discovered && discovered.ok ? "discovered" : job ? "recovered" : "none";
+  // A RECONNECTED READ AFTER THE END: the account's list, as a browser opening
+  // afresh reads it, must still carry the build's lines.
+  const relisted = job && final && typeof io.builds === "function" ? await B.get("builds", (t) => io.builds(t)) : null;
+  const relistedItem = relisted && Array.isArray(relisted.builds) ? relisted.builds.find((b) => b && b.job === job) : null;
+  record.relisted = relistedItem ? { state: relistedItem.state, progress: arr(relistedItem.progress) } : null;
   record.polls = polls;
   record.final = final ? { status: final.status, ok: final.json && final.json.ok, slug: final.json && final.json.slug } : null;
   // THE TRACE IS TAKEN ONLY WHEN IT IS THIS JOB'S (2026-10-14): read by slug,
@@ -808,7 +875,8 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const rows = endReading.ok ? await io.ledgerWindow(startReading.id, endReading.id) : { ok: false };
   const senderAfter = record.calls.slice(acceptedAt).filter((c) => c.who === "sender");
   const checks = [];
-  checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status, reconciled: record.reconciled || null }));
+  checks.push(...buildClosureVerdict({ accepted: record.accepted, senderAfter, sender, fresh, final, site: site && site.status, reconciled: record.reconciled || (record.discovered && record.discovered.ok ? { ...record.discovered, attempt } : null) }));
+  checks.push(...buildSendVerdict(record.accepted, { within: spec.answerMs || 60_000 }));
   checks.push({ name: TRACE_BOUND, ok: ta.ok, why: ta.why });
   checks.push({ name: SOURCE_BOUND, ok: sa.ok, why: sa.why });
   checks.push(...buildShapeVerdict(sourceBody).checks);
@@ -818,7 +886,7 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
   const order = buildOrderVerdict(tr);
   checks.push(...order.checks);
   record.order = order.order;
-  const pv = buildProgressVerdict(polls);
+  const pv = buildProgressVerdict(polls, { relisted: record.relisted });
   checks.push(...pv.checks);
   record.lines = pv.lines;
   const ph = spec.images === "none"

@@ -85,7 +85,11 @@ export function firstPerson(text) {
 // - "intended": said as still to come ("I'll publish", "the browser check is
 //   next", "going to run");
 // - "hedged": said as uncertain or conditional ("should be live", "if the
-//   check runs", "I think it's live").
+//   check runs", "I think it's live");
+// - "ongoing": said as under way, not finished (2026-10-15, after run
+//   38649153034's line "I'm publishing the site with those additions now" was
+//   read as a claim the publish was done): the progressive ("I'm publishing",
+//   "it's being published", "we're running the browser check").
 // Only an affirmed claim is a claim of completion, and only that is held to
 // the job's checks. A sentence with a true limitation and a false success
 // ("not live yet, but the browser check found no problems") is two clauses,
@@ -95,7 +99,7 @@ export function firstPerson(text) {
 // side.
 
 const TOPICS = Object.freeze({
-  published: /\b(?:publish(?:ed|es|ing)?|(?:is|are|was|went|gone|go|goes|going|now|be|been|being|put it|put them|it's|its|they're) live|live now|live on the site)\b/,
+  published: /\b(?:publish(?:ed|es|ing)?|(?:is|are|was|went|gone|go|goes|going|now|be|been|being|put it|put them|putting it|putting them|it's|its|they're) live|live now|live on the site)\b/,
   browser: /\b(?:browser|automated check|opened (?:the |each |every |all the )?(?:finished )?pages?)\b/,
   clean: /\b(?:no (?:problems?|issues?|errors?)|nothing (?:was |is |got )?(?:wrong|flagged|found|broken)|flagged nothing|found nothing|all clear|looks? (?:fine|good|clean|right))\b/,
 });
@@ -104,6 +108,10 @@ const TOPICS = Object.freeze({
 const CLEAN_ALL = new RegExp(TOPICS.clean.source, "g");
 const NEGATED = /n't\b|\b(?:not|never|no|none|without|unable|cannot|failed|fails|yet to)\b/;
 const INTENDED = /\b(?:will|'ll|shall|going to|gonna|about to|plans? to|planning to|intend(?:s|ing)? to|next|soon|still to)\b/;
+// THE PROGRESSIVE: a form of "be" before an -ing verb (an adverb between
+// allowed), "being" before a participle, or a clause that opens on its -ing
+// verb and says "now" ("publishing now"). "Going to" is INTENDED, read first.
+const ONGOING = /(?:'m|'re|\b(?:am|is|are|was|were|be|being))\s+(?:(?:now|currently|still|just|already|right now)\s+)?[a-z]+ing\b|\bbeing\s+[a-z]+(?:ed|en|un|ne)\b|^[a-z]+ing\b.*\b(?:now|currently|at the moment)\b|\b(?:in progress|under ?way)\b/;
 const HEDGED = /\b(?:may|might|maybe|perhaps|probably|possibly|likely|should|could|seems?|appears?|hopefully|if|whether|i think|i believe|i expect|i hope)\b/;
 // A clause that opens with its own subject reads its own grammar; one that
 // does not ("…and run the browser check") carries on the clause before it.
@@ -116,6 +124,7 @@ function modeOf(clause) {
   if (NEGATED.test(bare)) return "negated";
   if (INTENDED.test(bare)) return "intended";
   if (HEDGED.test(bare)) return "hedged";
+  if (ONGOING.test(bare)) return "ongoing";
   return "affirmed";
 }
 
@@ -141,7 +150,10 @@ export function claimsIn(text) {
       const own = modeOf(clause);
       const framed = (join === ":" || join === "then") && (carried === "intended" || carried === "hedged");
       const continues = framed || !OWN_SUBJECT.test(clause);
-      const mode = own === "affirmed" && carried && carried !== "affirmed" && continues ? carried : own;
+      // WHAT COMES "THEN" AFTER SOMETHING UNDER WAY is still to come
+      // ("publishing now, then the browser check").
+      const after = join === "then" && carried === "ongoing" && own === "affirmed";
+      const mode = after ? "intended" : own === "affirmed" && carried && carried !== "affirmed" && continues ? carried : own;
       carried = mode;
       for (const [topic, re] of Object.entries(TOPICS)) if (re.test(clause)) out.push({ topic, mode, clause });
     }
@@ -159,6 +171,12 @@ export function claimsOf(text) {
   return { published: done.some((c) => c.topic === "published"), browser: done.some((c) => c.topic === "browser"), clean: done.some((c) => c.topic === "clean") };
 }
 
+/** What a text says is UNDER WAY (`ongoing` mentions): begun, not claimed finished. */
+export function underwayOf(text) {
+  const now = claimsIn(text).filter((c) => c.mode === "ongoing");
+  return { published: now.some((c) => c.topic === "published"), browser: now.some((c) => c.topic === "browser") };
+}
+
 /**
  * HOLD A TEXT'S COMPLETION CLAIMS TO ITS OWN JOB'S CHECKS. `{ bad, timing }`:
  * `bad` the claims the checks contradict; `timing`, for a text said WHILE THE
@@ -169,14 +187,22 @@ export function claimsOf(text) {
  */
 export function groundingOf(text, checks, { during = false } = {}) {
   const c = claimsOf(text);
-  const bad = [], timing = [];
-  if (!c.published && !c.browser && !c.clean) return { bad, timing };
+  const bad = [], timing = [], underway = [];
+  // UNDER WAY IS NOT DONE: "I'm publishing now" claims no publish. It is held
+  // only where the final checks say the thing never happened at all — then
+  // whether it was really begun is not recorded anywhere the press reads, so
+  // it is unverified, never passed and never failed.
+  const u = underwayOf(text);
+  const ku = (u.published || u.browser) ? readChecks(checks) : null;
+  if (u.published && !(ku && ku.published === true)) underway.push("publishing, which the job's checks do not show as published");
+  if (u.browser && !(ku && ku.browser.ran === true)) underway.push("a browser check, which the job's checks do not show as run");
+  if (!c.published && !c.browser && !c.clean) return { bad, timing, underway };
   const k = readChecks(checks);
-  if (!k) return { bad: ["it claims a check as done, and the job's answer carries no readable checks"], timing };
+  if (!k) return { bad: ["it claims a check as done, and the job's answer carries no readable checks"], timing, underway };
   if (c.published) (k.published === true ? timing : bad).push(k.published === true ? "published" : "it says the change is live, and the job's checks say it was not published");
   if (c.browser) (k.browser.ran === true ? timing : bad).push(k.browser.ran === true ? "the browser check" : "it says a browser check ran, and the job's checks say none ran");
   if (c.clean) (browserClean(k.browser) ? timing : bad).push(browserClean(k.browser) ? "a clean result" : "it says nothing was found, and the job's browser check is not clean");
-  return { bad, timing: during ? timing : [] };
+  return { bad, timing: during ? timing : [], underway };
 }
 
 /** The first completion claim the job's own checks do not hold, or "" when every one is held. */
@@ -263,6 +289,7 @@ export function talkVerdict({ steps, talkSwitch } = {}) {
       const g = groundingOf(said, a && a.res ? a.res.checks : null, { during: true });
       for (const why of g.bad) bad.push(`job ${l.job.slice(0, 8)} line ${l.n}: ${why}`);
       if (g.timing.length) unverified.push(`${tag}: job ${l.job.slice(0, 8)} line ${l.n} said ${g.timing.join(", ")} as done while the work ran; the job's final checks hold it, but nothing recorded dates it against the line, so whether it was true when said is unverified`);
+      if (g.underway.length) unverified.push(`${tag}: job ${l.job.slice(0, 8)} line ${l.n} said ${g.underway.join(", ")} was under way; nothing recorded shows whether it was begun`);
     }
     add(`${tag}: every progress line and explanation claims nothing its own job's checks contradict`, !bad.length, bad.slice(0, 3).join("; "));
     const replies = [];

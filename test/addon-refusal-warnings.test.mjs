@@ -160,7 +160,7 @@ test("REFUSE 3 — every designer declined, each having said what the change nee
     "not-done: Their site cannot do this yet: People can pay by bank transfer (this step cannot take payments).",
     "not-done: Not done: Each enquiry is answered within a day.",
     "note: Their site already had this before this request, and nothing here can check that it works: The owner is emailed about each new enquiry.",
-    "not-done: Nothing here can see whether this is in place: The model is lit from above.",
+    "unverified: Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: The model is lit from above.",
   ]);
   const said = screen(r.body, false);
   assert.equal(said, r.body.msg + " " + r.body.coverNote);

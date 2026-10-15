@@ -433,7 +433,7 @@ test("REPLAY 2 — older answers of the later exits: the compile exit's database
   assert.deepEqual(g, [
     "not-done: The addition did not go through: nothing was published, so the site's pages are as they were. The builder's own reason: “" + OLD_STOP.msg + "”",
     "note: This answer does not record whether any part of the addition went in before it stopped, so that cannot be said either way.",
-    "not-done: Nothing here can see whether this is in place: Each signup is kept.",
+    "unverified: Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: Each signup is kept.",
   ]);
   assert.equal(screen(OLD_STOP, false), OLD_STOP.msg, "an older stop's note was printed");
   const note = replayedCoverNote(OLD_STOP);

@@ -158,10 +158,22 @@ export async function main() {
     return jr.ok ? 0 : 1;
   }
   console.log(`THE FIRST-BUILD CHECK${SPEC === BUILD_CHECK_NO_IMAGES ? " (no photographs)" : ""}: slug ${SPEC.slug}, budget ${SPEC.budget}, hard cap ${SPEC.cap}, spend ${SPEND ? "yes" : "no"}`);
+  const pressFrom = new Date().toISOString();
   const rec = await runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value });
   fs.writeFileSync(LOG_FILE, JSON.stringify(rec, null, 2));
+  // THE BUILD'S OWN NARRATION, MEASURED (2026-10-15, after run 38646089624,
+  // whose workflow had no step to read it, so whether its lines were ever
+  // written could not be told): the job and the window, for the workflow's
+  // next step (`scripts/narration-usage.mjs`), which reads the Worker's own
+  // log lines for it. Written whenever a build was sent and its job is known.
+  if (rec.sent && rec.job) {
+    const dir = process.env.CANARY_EVIDENCE_DIR || "canary-evidence";
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(`${dir}/narration-ids.json`, JSON.stringify({ scenario: "build-check", slug: SPEC.slug, from: pressFrom, to: new Date().toISOString(), requests: [], jobs: [rec.job] }, null, 2));
+  }
   if (rec.stopped) { console.log(`\n${rec.stopped}`); return rec.sent ? 1 : 0; }
-  console.log(`\nACCEPTANCE: ${rec.acceptance === "prompt" ? "prompt — the send's own answer handed the job back" : rec.acceptance === "recovered" ? "recovered — the answer was lost; the job was found afterwards by this send's attempt key (not prompt acceptance)" : "none — no job was handed back or found"}`);
+  console.log(`\nACCEPTANCE: ${rec.acceptance === "prompt" ? "prompt — the send's own answer handed the job back" : rec.acceptance === "discovered" ? "discovered — the job was found by this send's attempt key while the send was still out, and followed from then (not prompt acceptance)" : rec.acceptance === "recovered" ? "recovered — the answer was lost; the job was found afterwards by this send's attempt key (not prompt acceptance)" : "none — no job was handed back or found"}`);
+  console.log(`THE SEND'S OWN ANSWER: ${rec.accepted ? `${rec.accepted.status}${rec.accepted.why ? ` (${rec.accepted.why})` : ""}${Number.isFinite(rec.accepted.ms) ? ` after ${Math.round(rec.accepted.ms / 1000)} s` : ""}` : "(not sent)"}`);
   console.log(`THE BUILD'S TIMELINE: ${rec.order || "(no trace)"}`);
   if (rec.overlap) console.log(`OVERLAP: ${rec.overlap.ok ? `${rec.overlap.by} — ${rec.overlap.detail}` : rec.overlap.why}`);
   console.log("\nTHE MODEL'S LINES:");
@@ -170,7 +182,8 @@ export async function main() {
   for (const c of rec.checks) console.log(`  ${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.ok ? "" : ` — ${c.why}`}`);
   console.log("\nNOT VERIFIED (said, never passed):");
   for (const u of rec.unverified || []) console.log(`  ${u}`);
-  console.log("  the browser reconnecting to a build in flight: an open product gap; this press follows the build through the API only");
+  console.log("  the browser reconnecting to a build in flight: this press follows the build through the API only");
+  console.log("  whether the build's narration calls ran, and what they cost: read by the workflow's next step from the Worker's own logs");
   console.log(`\nbalance ${rec.balanceStart} -> ${rec.balanceEnd}; ${rec.ok ? "PASSED" : "FAILED"}`);
   return rec.ok ? 0 : 1;
 }

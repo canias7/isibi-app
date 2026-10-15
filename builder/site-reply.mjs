@@ -235,7 +235,7 @@ export const REPLY_SYSTEM =
   "The builder's code has already done the work and checked what really happened; you are given all of it as a list of " +
   "facts, each with an id. Your job is only to tell the customer, naturally and in your own words, what those facts say.\n\n" +
   "WHAT A FACT'S ID SAYS IT IS\n" +
-  "c: done. f: not done (with the reason when there is one). p: still waiting — not done yet. q: needs their answer " +
+  "c: done. f: not done (with the reason when there is one). v: not verified — nothing could look at whether it is in place, so it is neither done nor not done. p: still waiting — not done yet. q: needs their answer " +
   "(the question is shown under your message). x: nothing changed. m: money. u: how to undo. n: worth knowing. " +
   "k: a check, made or not made, exactly as far as its text says.\n\n" +
   "RULES\n" +
@@ -243,6 +243,8 @@ export const REPLY_SYSTEM =
   "order where they apply.\n" +
   "- Never say or suggest that something not done, or still waiting, was done. When only part of what they asked for " +
   "was done, say which part.\n" +
+  "- A v fact is unknown either way: never say it was done and never say it was not done. When a c or n fact says part of " +
+  "the same thing was done, say what was done and what could not be checked, without contradicting either.\n" +
   "- Say only what the facts say. Never claim a change, a failure, a charge, a refund, a question or a next step that no " +
   "fact states. If a fact says nothing on the site changed, say so plainly.\n" +
   "- Explain every fact, and list its id in covers. You may group related facts and summarize a long list in your own " +
@@ -336,12 +338,12 @@ const strings = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "s
 const partsOf = (v) => [...new Set((typeof v === "string" ? [v] : Array.isArray(v) ? v : []).filter((p) => typeof p === "string" && p.trim()).map(flat))];
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** A list of facts with ids by kind: c changed, f not done, p pending, q question, n note, m money, u undo, k a check. */
+/** A list of facts with ids by kind: c changed, f not done, v not verified, p pending, q question, n note, m money, u undo, k a check. */
 function factList() {
   const out = [];
   const seen = new Set();
   const n = {};
-  const PREFIX = { changed: "c", "not-done": "f", pending: "p", question: "q", note: "n", money: "m", undo: "u", nothing: "x", check: "k" };
+  const PREFIX = { changed: "c", "not-done": "f", unverified: "v", pending: "p", question: "q", note: "n", money: "m", undo: "u", nothing: "x", check: "k" };
   // `item` KEEPS TWO THINGS TWO (2026-10-03): the same words said twice from
   // two sources are one fact, but two entries that read the same — two
   // identical rows taken off a list — are two, and folding them would report
@@ -447,7 +449,11 @@ const TOLD_FACTS = Object.freeze({
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
   // up", and never said to be this request's work.
   "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "." + partlySaid(o)],
-  unseen: ["not-done", (o) => "Nothing here can see whether this is in place: " + o.need + "."],
+  // UNVERIFIED, NEVER "NOT DONE" (2026-10-15, after run 38649153034's reply
+  // said a menu link it could not read back was "not done" beside the links
+  // it had read): a requirement nothing could look at is unknown either way —
+  // not counted as undone by the request (`notDoneOf`), and not told as such.
+  unseen: ["unverified", (o) => "Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: " + o.need + "."],
   // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07, `overCapNeeds`): written
   // down by the designer and never judged or checked — not done, saying why.
   "not-tracked": ["not-done", (o) => "Not checked in this change, because " + (o.why || "it was past the limit one step keeps track of") + ": " + o.need + ". They can ask for it on its own."],
@@ -1785,7 +1791,9 @@ export const REPLY_OUTCOMES = Object.freeze(["done", "partly", "not-done", "aske
 export function replyOutcomeOf(read) {
   const facts = read && Array.isArray(read.facts) ? read.facts : [];
   const has = (kind) => facts.some((f) => f && f.kind === kind);
-  if (has("changed")) return has("not-done") || has("question") ? "partly" : "done";
+  // WHAT NOBODY COULD SEE IS NEVER CALLED DONE: an unverified fact keeps the
+  // reply's place as "partly", never "done" (and never "not done").
+  if (has("changed")) return has("not-done") || has("question") || has("unverified") ? "partly" : "done";
   if (has("not-done")) return "not-done";
   if (has("question")) return "asked";
   if (has("nothing")) return "nothing";

@@ -177,6 +177,56 @@ export function prepScope(part) {
 }
 
 /**
+ * A ROUTING'S DECLARED SCOPE (2026-10-15, after run 38649153034: a held price
+ * change waited 370 s for an addition beside it, because a routing reads the
+ * page list and the addition made a page). For a part still to be routed whose
+ * every write the router named, seeing the whole site, is a stored table —
+ * and which names no reads — those tables. `null` otherwise: an unnamed part
+ * is taken to reach the whole site, and is routed against it as it is.
+ *
+ * A PREPARED ROUTING IS SHOWN THE PAGE LIST AS IT WAS WHEN THE REQUEST WAS
+ * ACCEPTED (`jobBody` carries the scope; the Worker's route handler honours
+ * it), not as another part has since changed it, so its exact request is the
+ * one prepared and its answer can be replayed. An answer that reaches outside
+ * the scope — any route but a data or rules change of those tables — is asked
+ * again with the whole site as it is then (`routeInScope`): the scope only
+ * ever saves a call, it never decides a route.
+ */
+export function routeScope(part) {
+  if (!part || part.phase !== "route" || part.route) return null;
+  const t = part.targets && typeof part.targets === "object" ? part.targets : {};
+  if (Array.isArray(t.reads) && t.reads.map(readTarget).some(Boolean)) return null;
+  const named = Array.isArray(t.writes) ? t.writes.map(readTarget).filter(Boolean) : [];
+  if (!named.length || !named.every((w) => w.startsWith("data:"))) return null;
+  return { tables: [...new Set(named.map((w) => w.slice("data:".length)))] };
+}
+
+/**
+ * IS A SCOPED ROUTING'S ANSWER INSIDE ITS SCOPE? With nothing held back and
+ * no question: an edit of the data or rules layer whose own named writes, when
+ * it names any, are among the scope's tables; or an addition whose own named
+ * writes are all rows of those tables. Anything else is asked again of the
+ * whole site.
+ */
+export function routeInScope(scope, answer) {
+  if (!scope || !Array.isArray(scope.tables) || !scope.tables.length || !answer || typeof answer !== "object") return false;
+  const tableEdit = answer.intent === "edit" && (answer.layer === "data" || answer.layer === "rules");
+  // AN ADDITION THAT ONLY WRITES ROWS OF THE SCOPED TABLES ("add an entry to
+  // the list") stays inside it — but only when it names those writes itself.
+  const addition = answer.intent === "addon";
+  if (!tableEdit && !addition) return false;
+  const held = answer.alsoAsked;
+  if (held !== undefined && held !== null && !(Array.isArray(held) && !held.length)) return false;
+  if (answer.question) return false;
+  const named = readTargets(answer.targets);
+  const own = named && named[0] ? named[0] : null;
+  if (!own) return tableEdit;
+  const writes = (own.writes || []).map(readTarget).filter(Boolean);
+  const reads = (own.reads || []).map(readTarget).filter(Boolean);
+  return !reads.length && writes.length > 0 && writes.every((w) => w.startsWith("data:") && scope.tables.includes(w.slice("data:".length)));
+}
+
+/**
  * AN ADDITION'S DECLARED SCOPE (2026-10-11, the parallel-work goal: "a
  * component that does not need the image's contents can be generated
  * alongside it"): the existing pages it names, when every write the router
@@ -211,6 +261,10 @@ function pagesWritten(part) {
 
 export function stepInputs(part) {
   if (!part) return [SITE];
+  // A SCOPED ROUTING (`routeScope`) is shown the page list as recorded at
+  // acceptance; what can still change its request is the site's table list,
+  // which a table some part creates changes.
+  if (routeScope(part)) return ["tablelist"];
   if (part.phase === "route" || !part.route) return ["pagelist"];
   const layer = typeof part.route.layer === "string" ? part.route.layer : "";
   // A DECLARED SCOPE NARROWS WHAT THE STEP DEPENDS ON (`prepScope`).
@@ -388,6 +442,7 @@ function feeds(write, input) {
   // A PICTURE PLACED is written into a page's source.
   if (input === "pages") return ["page", "new-page", "component", "new-component", "header", "footer", "menu", "identity", "images"].includes(kind);
   if (input === "pagelist") return kind === "new-page" || kind === "pagelist";
+  if (input === "tablelist") return kind === "new-data";
   if (input === "images") return kind === "images" || kind === "new-page";
   if (input === "menu") return kind === "menu" || kind === "header" || kind === "new-page";
   if (input === "theme") return kind === "theme" || kind === "identity";

@@ -171,8 +171,13 @@ test("HELD 8 — the Worker hands both readings to the reply: the menu links the
   // only pages whose menus it reads. So the hand-off is held here, landmark to
   // landmark, and the facts' side of it in HELD 1.
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });");
-  assert.ok(at > 0, "the Worker no longer reads the menus it published");
+  // ONE READING (2026-10-15): made once, before the answer, and handed both to
+  // the requirement report (`linkEvidence`) and to the reply's two lists.
+  const read = src.indexOf("const aMenuKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });");
+  assert.ok(read > 0, "the Worker no longer reads the menus it published");
+  assert.ok(src.indexOf("aLinks = linkEvidence(aMenuKept);", read) > read, "the menu reading no longer reaches the requirement report");
+  const at = src.indexOf("const aKept = aMenuKept;", read);
+  assert.ok(at > read, "the reply's lists are not the same reading");
   const next = src.indexOf("})(),", at);
   const body = src.slice(at, next);
   assert.ok(next > at && body.includes("{ linked: aKept.kept }") && body.includes("{ linkedUnsure: aKept.unsure }"), body);

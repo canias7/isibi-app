@@ -53,7 +53,7 @@ import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
-import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope, addonScope } from "./request-plan.mjs";
+import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -1929,11 +1929,17 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
     // a part before this one may have added one. Its own page list replaces
     // the one kept here whenever it can be read.
     const digest = plain(rec.digest) ? { ...rec.digest, tables: [] } : { pages: [], tables: [] };
+    // …UNLESS ITS ROUTING IS SCOPED (2026-10-15, `routeScope`): a prepared part
+    // the router named only stored tables for keeps this page list, the one
+    // kept at acceptance, in its preparation and in its job alike — the same
+    // rule as a prepared step's scope, given only when the part was prepared.
+    const scope = p.prep ? routeScope(p) : null;
     return {
       url: "/api/site/route",
       body: {
         message: words, site: digest, picker: rec.picker, firstBuild: false, brief: words, qa: [],
         answering: false, attached: rec.files.length > 0 || rec.attached, slug: rec.slug, hasSite: true, idem: key, request,
+        ...(scope ? { scope } : {}),
       },
     };
   }

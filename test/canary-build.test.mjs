@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildFlagsVerdict, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
+import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildFlagsVerdict, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildSendVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
 import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 import { jobTagOf } from "../builder/build-live.mjs";
 
@@ -135,7 +135,7 @@ const goodPolls = () => [
 ];
 
 test("THE MODEL'S OWN LINES, LIVE: served while the build ran, never a step's fixed sentence, none lost, none rewritten", () => {
-  const v = buildProgressVerdict(goodPolls());
+  const v = buildProgressVerdict(goodPolls(), { relisted: { progress: goodPolls()[3].progress } });
   assert.deepEqual(failed(v.checks), []);
   assert.deepEqual(v.lines.map((l) => l.n), [0, 1]);
   const facts = [...buildFactTexts()];
@@ -148,9 +148,26 @@ test("THE MODEL'S OWN LINES, LIVE: served while the build ran, never a step's fi
   assert.ok(failed(buildProgressVerdict(rewritten).checks).some((f) => /keeps its words/.test(f)), "a rewritten line passed");
   const late = goodPolls().map((p) => ({ ...p, progress: p.status === 202 ? [] : p.progress }));
   assert.ok(failed(buildProgressVerdict(late).checks).some((f) => /while the build still ran/.test(f)), "lines read only at the end passed");
-  assert.equal(failed(buildProgressVerdict([]).checks).length, 3);
+  assert.equal(failed(buildProgressVerdict([]).checks).length, 4);
   const blank = goodPolls(); blank[1].progress = [{ n: 0, ms: 1, text: "  " }];
   assert.ok(failed(buildProgressVerdict(blank).checks).length > 0, "a blank line passed");
+  // RUN 38646089624'S SHAPE (2026-10-15): lines read while it ran, and a final
+  // answer with none — every line dropped at the end, which no check caught.
+  const dropped = goodPolls(); dropped[3].progress = [];
+  assert.ok(failed(buildProgressVerdict(dropped, { relisted: { progress: goodPolls()[3].progress } }).checks).some((f) => /gone from a later read, the final answer included: gone: \[0,1\]/.test(f)), "a final answer that dropped every line passed");
+  // …AND A SESSION THAT FINDS IT AFRESH MUST READ THEM: missing, changed or not listed fail.
+  const last = goodPolls()[3].progress;
+  assert.ok(failed(buildProgressVerdict(goodPolls(), { relisted: { progress: [last[1]] } }).checks).some((f) => /finds the finished build afresh.*missing or changed: \[0\]/.test(f)));
+  assert.ok(failed(buildProgressVerdict(goodPolls(), { relisted: { progress: [last[0], { ...last[1], text: "Something else entirely." }] } }).checks).some((f) => /missing or changed: \[1\]/.test(f)));
+  assert.ok(failed(buildProgressVerdict(goodPolls(), {}).checks).some((f) => /not found in the account's list/.test(f)));
+});
+
+test("THE SEND'S OWN WAIT IS JUDGED APART FROM RECOVERY (2026-10-15, run 38646089624: no answer in eighteen minutes, the job found afterwards by attempt key)", () => {
+  assert.deepEqual(failed(buildSendVerdict({ status: 202, job: JOB, ms: 1200 })), []);
+  assert.match(failed(buildSendVerdict({ status: 0, job: "", why: "no answer in 18 minutes", ms: 1080000 }))[0], /answered 0 with no job after 1080 s/);
+  assert.match(failed(buildSendVerdict({ status: 0, job: "", why: "still unanswered when the press ended", ms: null }))[0], /no answer reached the press \(still unanswered/);
+  assert.match(failed(buildSendVerdict({ status: 202, job: JOB, ms: 90_000 }))[0], /after 90 s/);
+  assert.match(failed(buildSendVerdict({ status: 200, job: "", ms: 500 }))[0], /answered 200 with no job/);
 });
 
 // ── THE CLOSURE ──────────────────────────────────────────────────────────────
@@ -309,7 +326,10 @@ function stub(over = {}) {
     balance: async () => (calls.some((c) => c === "post") ? 940 : 990),
     ledgerLast: async () => ({ ok: true, id: calls.some((c) => c === "post") ? 432 : 430 }),
     existing: async (slug) => { calls.push(`existing:${slug}`); return FREE(); },
-    post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.slug, SLUG); assert.equal(body.brief, BUILD_CHECK.brief); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
+    post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.slug, SLUG); assert.equal(body.brief, BUILD_CHECK.brief); assert.equal(body.accept, "early", "the send did not ask to be answered at once"); return { status: 202, json: { ok: false, stage: "resuming", job: JOB } }; },
+    // THE ACCOUNT'S LIST (2026-10-15): read after the end as a session opening
+    // afresh reads it, with the build's lines still on it.
+    builds: async (t) => { calls.push(`builds:${t}`); const last = goodPolls()[3]; return { builds: [{ job: JOB, state: "done", progress: last.progress }] }; },
     poll: async (t, job) => { calls.push(`poll:${t}`); assert.equal(job, JOB); const p = goodPolls()[Math.min(polled++, 3)]; return { status: p.status, json: p.status === 200 ? { ok: true, slug: SLUG, progress: p.progress } : { ok: false, pending: true, progress: p.progress } }; },
     trace: async () => ({ steps: tagged(NOW_TRACE), done: true, ok: true, started_at: TRACE_AT }),
     // THE JOB'S OWN ROW (2026-10-14): the trace is bound to it by slug and time.
@@ -340,7 +360,7 @@ test("END TO END, OFFLINE: the build is sent once by the first session, which th
   assert.ok(io.calls.filter((c) => c.startsWith("poll:")).every((c) => c === "poll:tok-2"), "a poll was made by the sender");
   assert.equal(rec.overlap.by, "bands");
   assert.equal(rec.money.net, 50);
-  assert.equal(rec.checks.length, 21); // the trace's own-build check joined on 2026-10-14, the source's own-version check after it
+  assert.equal(rec.checks.length, 23); // the trace's own-build check joined on 2026-10-14, the source's own-version check after it; the send's own wait and the reconnected read on 2026-10-15
   assert.ok(rec.checks.some((c) => /independent build work ran at once/.test(c.name)));
 });
 
@@ -655,4 +675,60 @@ test("BUILD OPT-IN 3 — the wiring: the workflow's box says CLOSED and reaches 
   assert.ok(read > 0 && signIn > read, "the box is not read before the sign-in");
   assert.ok(bc.slice(read, read + 300).includes("return 2;"));
   assert.ok(bc.includes("runBuildCheck(io, { spec: SPEC, spend: SPEND, named: optIn.value })"));
+});
+
+// ── RUN 38646089624'S SHAPE, THROUGH THE DRIVER (2026-10-15) ────────────────
+// The send never answered in eighteen minutes; the press waited on it before
+// looking for the build, so it read the build only after it ended and saw no
+// line. Now the fresh session looks for this send's build by its attempt key
+// while the send is still out, follows it from then, and reads its lines while
+// it runs; the send's own wait is judged apart, and the acceptance is
+// "discovered", never "prompt" and never "recovered".
+test("FOLLOWED WHILE THE SEND IS STILL OUT: found by the send's own attempt key during the send, read live, lines kept to the end and afresh; the unanswered send fails only its own check", async () => {
+  let attempt = "";
+  let listed = 0;
+  const io = stub({
+    post: async function (t, body) { this.calls.push("post"); this.calls.push(`post-by:${t}`); attempt = body.attempt; return new Promise(() => {}); },
+    builds: async function (t) {
+      this.calls.push(`builds:${t}`);
+      listed++;
+      if (listed === 1) return { builds: [] };
+      const last = goodPolls()[3];
+      return { builds: [{ job: JOB, attempt, state: listed > 2 ? "done" : "running", progress: last.progress }, { job: "d".repeat(32), attempt: "bc-someone-else-000000", state: "running" }] };
+    },
+  });
+  const rec = await runBuildCheck(io, { spend: true, sendGraceMs: 1000 });
+  assert.equal(rec.acceptance, "discovered");
+  assert.equal(rec.job, JOB);
+  assert.ok(rec.discovered && rec.discovered.ok && rec.discovered.job === JOB);
+  assert.equal(rec.accepted.status, 0);
+  assert.match(rec.accepted.why, /still unanswered/);
+  assert.ok(rec.polls.some((p) => p.status === 202 && p.progress.length), "the build was not read while it ran");
+  const f = failed(rec.checks);
+  assert.deepEqual(f.filter((x) => !/the send was answered with its job/.test(x)), [], "a check other than the send's own failed");
+  assert.equal(f.length, 1, "the unanswered send did not fail its own check");
+  assert.ok(io.calls.filter((c) => c.startsWith("builds:") || c.startsWith("poll:")).every((c) => c.endsWith("tok-2")), "the sender looked for or followed the build");
+  assert.equal(io.calls.filter((c) => c === "post").length, 1, "the build was sent again");
+});
+
+test("FOUND ONLY AFTER THE SEND ENDED WITH NO JOB is 'recovered', and an ambiguous attempt key is never taken", async () => {
+  let attempt = "";
+  let ended = false;
+  let lists = 0;
+  const lost = stub({
+    post: async function (t, body) { this.calls.push("post"); attempt = body.attempt; ended = true; return { status: 0, why: "socket hang up" }; },
+    // ITS BUILD IS LISTED ONLY ONCE THE SEND HAS ENDED (the first read finds nothing).
+    builds: async function () { lists++; return ended && lists > 1 ? { builds: [{ job: JOB, attempt, state: "done", progress: goodPolls()[3].progress }] } : { builds: [] }; },
+  });
+  const r1 = await runBuildCheck(lost, { spend: true });
+  assert.equal(r1.acceptance, "recovered");
+  assert.ok(failed(r1.checks).some((x) => /the send was answered with its job/.test(x)));
+  const two = stub({
+    post: async function (t, body) { this.calls.push("post"); attempt = body.attempt; return new Promise(() => {}); },
+    builds: async function () { return { builds: [{ job: JOB, attempt, state: "running" }, { job: "e".repeat(32), attempt, state: "running" }] }; },
+  });
+  const r2 = await runBuildCheck(two, { spend: true, sendGraceMs: 1000 });
+  assert.equal(r2.acceptance, "none");
+  assert.equal(r2.job, "");
+  assert.ok(r2.discovered && r2.discovered.ambiguous);
 });

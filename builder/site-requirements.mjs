@@ -101,7 +101,31 @@ export const OPAQUE_KINDS = ["component"];
  * honest pair: the designer can say what it made, and this layer says it cannot
  * see one. Refusing the kind would leave them naming nothing or lying.
  */
-export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.filter((k) => k !== "edit"));
+// …AND A MENU LINK THIS REQUEST PUTS IN (2026-10-15, after run 38649153034):
+// "a visitor can open the page from the menu" rests on the link, not on the
+// page, and the judgment could name nothing that did it — so it answered "no"
+// and the requirement was told as still to do beside a link added to every
+// menu. `link:/path` is the link to that page; whether each published menu
+// carries it is read after the menu step (`linkEvidence`), and a menu that
+// could not be read leaves it unknown, never missing.
+export const ITEM_KINDS = Object.freeze([...COVERAGE_STEPS.filter((k) => k !== "edit"), "link"]);
+
+/**
+ * WHAT THE PUBLISHED MENUS SHOWED OF EACH LINK THIS CHANGE PUT IN, by the page
+ * it opens: `kept` when at least one published menu read back carries it,
+ * `unsure` when none was read to carry it and some menu it went into could not
+ * be read, from `menuLinksKept`'s `{ kept, unsure }`. A link this change put in
+ * nowhere is absent from the map; with no reading at all the caller passes
+ * `null` and every link is unknown.
+ */
+export function linkEvidence(read) {
+  if (!read || typeof read !== "object") return null;
+  const out = {};
+  const dest = (list) => (Array.isArray(list) ? list : []).flatMap((e) => (e && Array.isArray(e.to) ? e.to : [])).filter((t) => typeof t === "string" && t.charAt(0) === "/").map((t) => t.toLowerCase());
+  for (const t of dest(read.unsure)) out[t] = "unsure";
+  for (const t of dest(read.kept)) out[t] = "kept";
+  return out;
+}
 
 /**
  * WHAT BECAME OF A REQUIREMENT ONCE THE WHOLE CHANGE RAN.
@@ -1611,7 +1635,7 @@ function contentOf(found) {
   return shown === null ? null : { shown, ...(hidden.length ? { hidden } : {}), ...(additions.length ? { additions } : {}) };
 }
 
-function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set(), content = null } = {}) {
+function carriersReading(by, { made = [], existing = null, reportable = [], broken = new Set(), content = null, links = null } = {}) {
   const ex = existing && typeof existing === "object" ? existing : null;
   const low = (m) => String((m && m.name) || "").trim().toLowerCase();
   const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === k);
@@ -1621,6 +1645,17 @@ function carriersReading(by, { made = [], existing = null, reportable = [], brok
   let worst = null;
   let present = "found";
   for (const c of Array.isArray(by) ? by : []) {
+    // A MENU LINK IS READ FROM THE PUBLISHED MENUS (`linkEvidence`): carried
+    // by one read back, found; only unreadable menus, unknown; put in nowhere
+    // although menus were read, absent. No reading at all: unknown.
+    if (c.kind === "link") {
+      const ev = links && typeof links === "object" && Object.hasOwn(links, c.name) ? links[c.name] : (links && typeof links === "object" ? "absent" : "unknown");
+      const st = ev === "kept" ? "" : ev === "absent" ? "absent" : "unknown";
+      if (st === "absent" || (st === "unknown" && present === "found")) present = st;
+      if (!st) found.push({ item: { kind: "link", name: c.name }, where: "applied" });
+      else if (!worst || rank[st] > rank[worst.state]) worst = { state: st, ref: c };
+      continue;
+    }
     // A COMPONENT IS READ FROM WHAT THIS CHANGE PUT ON ITS PAGE (2026-10-13,
     // `content-evidence.mjs`): text added to the stored code is the thing
     // itself, found; every route it names read whole with nothing added is
@@ -1823,7 +1858,7 @@ export function brokeWhy(ref) {
   return "the " + name + " it needs could not be created";
 }
 
-export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, judged = false, content = null } = {}) {
+export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, judged = false, content = null, links = null } = {}) {
   const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
   // ── WHICH THING FAILED, NOT WHICH KIND (owner, 2026-09-15) ──────────────
@@ -1888,7 +1923,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
         // disagree about the same evidence: a named thing that broke, then
         // the owning step's own failure over a thing that is not there, then
         // what is missing, then what nobody could see.
-        const rd = carriersReading(verdict.by, { made, existing, reportable, broken, content });
+        const rd = carriersReading(verdict.by, { made, existing, reportable, broken, content, links });
         impl = rd.present;
         partly = rd.partly;
         if (rd.state === "broken") { st = "blocked"; whyJ = whyJ || brokeWhy(rd.ref); }
@@ -2373,9 +2408,9 @@ export function overCapNeeds(skipped) {
  * exact: the same need in the same sentence is said once. Two different needs
  * are two entries, and one need told two different ways is two.
  */
-export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null } = {}) {
+export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null, links = null } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content }).filter((r) => !r.unjudged);
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content, links }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
   const unsupported = outcomes.filter((r) => r.state === "failed" && r.status === "unsupported");
@@ -2621,14 +2656,14 @@ export function requirementNote(list, opts = {}) {
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [], refusedRules = [], judgeItemsOver = 0, content = null } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [], suggestionsOver = [], judged = false, setAside = [], verdictsInvalid = [], verdictsMissing = [], refusedRules = [], judgeItemsOver = 0, content = null, links = null } = {}) {
   // WHOLE (2026-10-07): every list here was cut at twelve, so a change with
   // more requirements, properties or pages than that kept a record that
   // stopped part-way and said nothing of it. Each is bounded where it is
   // made — what a step's answers can say, a change designs a bounded number
   // of things — so the record keeps all of what it is given.
   const all = (v) => (Array.isArray(v) ? v : []);
-  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content });
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content, links });
   const n = (s) => outcomes.filter((r) => r.state === s && !r.unjudged).length;
   return {
     counts: {

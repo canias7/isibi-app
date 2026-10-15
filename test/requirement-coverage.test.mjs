@@ -960,8 +960,12 @@ test("the six states separate implementation from hand-off, and evidence is asym
   //   * `component` and `photo` are deliberately IN, although they always
   //     answer `unknown`: the designer can say what it made and this layer
   //     says it cannot see one. Refusing the kind leaves them naming nothing.
-  assert.deepEqual(ITEM_KINDS.slice().sort(), COVERAGE_STEPS.filter((k) => k !== "edit").slice().sort(),
+  //   * `link` is IN BEYOND THE STEPS (2026-10-15): a menu link this request
+  //     puts in is a thing the published menus are read for, and no step's
+  //     own artifact — the one item kind that is not a step.
+  assert.deepEqual(ITEM_KINDS.filter((k) => k !== "link").slice().sort(), COVERAGE_STEPS.filter((k) => k !== "edit").slice().sort(),
     "ITEM_KINDS and COVERAGE_STEPS disagree about what a reference may name");
+  assert.ok(ITEM_KINDS.includes("link") && !COVERAGE_STEPS.includes("link"), "a menu link must be nameable, and is not a step");
   assert.ok(!ITEM_KINDS.includes("edit"), "edit names no artifact and cannot be a reference's kind");
   for (const k of OPAQUE_KINDS) assert.ok(ITEM_KINDS.includes(k),
     k + " must be nameable even though this layer can never see one");

@@ -1053,7 +1053,7 @@ const SRC = [
  * (`{ status, body }`). Returns the requests made, the sites after, and what
  * each chat was told. `renders` re-runs the page's render this many times.
  */
-async function browserPage({ sites = [], answer, renders = 1, busy = false, clock = null, between = null } = {}) {
+async function browserPage({ sites = [], answer, renders = 1, busy = false, clock = null, between = null, stubs = {} } = {}) {
   const store = sites.map((s) => JSON.parse(JSON.stringify(s)));
   const reqs = [];
   const told = [];
@@ -1081,6 +1081,7 @@ async function browserPage({ sites = [], answer, renders = 1, busy = false, cloc
     setBuildPhase: () => {}, setBuildCode: () => {}, setBuildProgress: (origin, lines) => told.push({ origin, progress: lines.map((l) => l.text) }), buildWhy: () => "",
     siteBuildStart: () => {}, siteBuildStop: () => {}, paintReactLive: () => {}, designQuestion: () => false,
     buildPicker: "sonnet", siteBuild: null, siteAbort: null, siteErr: null, siteBusy: busy, siteOpenId: null,
+    ...stubs,
   });
   vm.runInContext(SRC, ctx);
   const settle = async () => { for (let j = 0; j < 600; j++) await new Promise((r) => setImmediate(r)); };
@@ -1669,4 +1670,119 @@ test("RC 26 — CODEX'S RETRY REPRODUCTIONS: two copies of one retry, both readi
 
 test("NET — no request in this file left the machine", () => {
   assert.deepEqual(unexpected().filter((u) => u.by === "blocked"), []);
+});
+
+// ── THE SEND ANSWERED AT ONCE, AND THE LINES KEPT TO THE END (2026-10-15,
+// after run 38646089624: its send was never answered in eighteen minutes, and
+// the poll put lines on its 202 answers alone, so the press that read only the
+// end saw none) ────────────────────────────────────────────────────────────
+
+test("RC 27 — A SEND THAT ASKS TO BE ANSWERED AT ONCE (accept: early) gets a 202 naming its job as soon as the build is queued and accepted — listed, followable by its poll — and one that does not ask still waits as before", async () => {
+  const b = buildBucket();
+  const q = queue();
+  const early = await call(b, q, stand(), "POST", "/api/site/react-build", { body: { brief: BRIEF, images: [], picker: "sonnet", qa: [], chat: CHAT, accept: "early" } });
+  assert.equal(early.status, 202, JSON.stringify(early.body));
+  assert.equal(early.body.stage, "accepted");
+  assert.match(early.body.job, /^[0-9a-f]{32}$/);
+  assert.equal(early.body.poll, "/api/site/build/" + early.body.job);
+  assert.equal(q.sent.length, 1);
+  assert.equal(q.sent[0].id, early.body.job);
+  const listed = await call(b, q, stand({ rows: { [early.body.job]: { state: "running" } } }), "GET", "/api/site/builds");
+  assert.equal(listed.body.builds[0].job, early.body.job, "the early-answered build was not listed");
+  const polled = await call(b, q, stand({ rows: { [early.body.job]: { state: "running" } } }), "GET", "/api/site/build/" + early.body.job);
+  assert.equal(polled.status, 202);
+  // the ordinary send still waits on its answer slot (the existing contract)
+  const b2 = buildBucket();
+  const q2 = queue();
+  const held = await startBuild(b2, q2, stand(), { chat: CHAT + "x" });
+  const raced = await Promise.race([held.answer.then(() => "answered"), new Promise((r) => setTimeout(() => r("waiting"), 50))]);
+  assert.equal(raced, "waiting", "a send that did not ask was answered before its build ended");
+  await settlePost(b2, held);
+});
+
+test("RC 28 — THE LINES TO THE END: a finished build's final answer carries the lines read while it ran — on the first read that collects the slot, on the kept answer a later session reads, and in the account's list once it is done; another account's record gives none", async () => {
+  const b = buildBucket();
+  const q = queue();
+  const s = await startBuild(b, q, stand());
+  const led = ledger();
+  await fireInterim(b, s.job, led, { design: GOOD_DESIGN });
+  await s.answer;
+  await finishResume(b, s.job, led, { credits: 400, source: page() });
+  progressFor(b, s.job, BUILD_USER.id, LINE);
+  PROGRESS = true;
+  try {
+    const rows = { [s.job]: { state: "done" } };
+    const p1 = await call(b, q, stand({ rows }), "GET", "/api/site/build/" + s.job);
+    assert.equal(p1.status, 200);
+    assert.deepEqual((p1.body.progress || []).map((l) => l.text), [LINE], "the final answer dropped the build's lines");
+    assert.equal(p1.body.slug, GOOD_DESIGN.slug, "the final answer's own fields were not kept");
+    const p2 = await call(b, q, stand({ rows }), "GET", "/api/site/build/" + s.job);
+    assert.deepEqual((p2.body.progress || []).map((l) => l.text), [LINE], "the kept answer a later session reads dropped the lines");
+    const listed = await call(b, q, stand({ rows }), "GET", "/api/site/builds");
+    assert.equal(listed.body.builds[0].state, "done");
+    assert.deepEqual((listed.body.builds[0].progress || []).map((l) => l.text), [LINE], "the finished build was listed without its lines");
+    // a record that is another account's gives none, finished or not
+    progressFor(b, s.job, OTHER.id, "someone else's line");
+    const p3 = await call(b, q, stand({ rows }), "GET", "/api/site/build/" + s.job);
+    assert.equal(p3.body.progress, undefined, "lines from another account's record were handed over");
+  } finally { PROGRESS = false; }
+});
+
+test("RC 29 — THE BROWSER FOLLOWS ITS ACCEPTED ATTEMPT AND KEEPS THE BUILD'S LINES: the send asks to be answered early, a 202 'accepted' is followed by its poll at once, the lines read while it ran and the last ones carried only by the final answer are all kept on the finished reply (drawn as a finished list, stored for a reload)", async () => {
+  const w = await workerBodies();
+  const EARLY = "I'm reading your brief and planning the pages.";
+  const LAST = "I published the site with its four pages.";
+  let polls = 0;
+  let sent = null;
+  const p = await browserPage({
+    renders: 0,
+    stubs: { siteOpenId: CHAT, siteBuild: {}, siteTicker: null },
+    sites: [{ id: CHAT, name: "Fold Lane", msgs: [{ r: "u", t: BRIEF }] }],
+    answer: (url, method) => {
+      if (method === "POST" && url === "/api/site/react-build") return { status: 202, body: { ok: true, pending: true, stage: "accepted", job: w.job, poll: "/api/site/build/" + w.job } };
+      if (url === "/api/site/build/" + w.job) {
+        polls++;
+        if (polls === 1) return { status: 202, body: { ...w.pending, progress: [{ n: 1, text: EARLY }] } };
+        return { status: w.poll.status, body: { ...w.poll.body, progress: [{ n: 1, text: EARLY }, { n: 2, text: LAST }] } };
+      }
+      return null;
+    },
+  });
+  vm.runInContext([cut("function setBuildProgress("), cut("function siteBuildStop("), cut("function progressListHTML("), cut("function esc(")].join("\n"), p.ctx);
+  const realFetch = p.ctx.fetch;
+  p.ctx.fetch = (url, init) => { if (init && init.method === "POST") sent = JSON.parse(init.body); return realFetch(url, init); };
+  vm.runInContext("siteBusy = true; reactSend(siteById('" + CHAT + "'), " + JSON.stringify(BRIEF) + ", '" + CHAT + "', 'build', [], siteBuildFinish('" + CHAT + "'), []);", p.ctx);
+  await p.settle();
+  assert.equal(sent && sent.accept, "early", "the send did not ask to be answered as soon as it was accepted");
+  assert.deepEqual(p.reqs, ["POST /api/site/react-build", "GET /api/site/build/" + w.job, "GET /api/site/build/" + w.job], "the accepted attempt was not followed by its poll");
+  const m = lastOf(p.store[0]);
+  assert.equal(m.r, "a", JSON.stringify(p.store[0].msgs));
+  assert.deepEqual((m.prog || []).map((l) => l.text), [EARLY, LAST], "the build's lines were lost at its end");
+  const html = vm.runInContext("progressListHTML", p.ctx)(m.prog, false, true);
+  assert.match(html, /st-prog-done/);
+  assert.ok(html.includes(LAST.replace("'", "&#39;")) || html.includes(LAST), html);
+  assert.equal(JSON.parse(JSON.stringify(m)).prog.length, 2, "the lines would not survive a reload");
+  assert.equal(p.busy, false);
+});
+
+test("RC 29 control — a build that wrote no lines finishes with no list on its reply, and a page open on another project keeps none of this build's", async () => {
+  const w = await workerBodies();
+  for (const open of [CHAT, "another-chat"]) {
+    const p = await browserPage({
+      renders: 0,
+      stubs: { siteOpenId: open, siteBuild: {}, siteTicker: null },
+      sites: [{ id: CHAT, name: "Fold Lane", msgs: [{ r: "u", t: BRIEF }] }],
+      answer: (url, method) => {
+        if (method === "POST") return { status: 202, body: { ok: true, pending: true, stage: "accepted", job: w.job } };
+        if (url === "/api/site/build/" + w.job) return { status: w.poll.status, body: { ...w.poll.body, ...(open === CHAT ? { progress: [] } : { progress: [{ n: 1, text: "a line" }] }) } };
+        return null;
+      },
+    });
+    vm.runInContext([cut("function setBuildProgress("), cut("function siteBuildStop("), cut("function progressListHTML(")].join("\n"), p.ctx);
+    vm.runInContext("siteBusy = true; reactSend(siteById('" + CHAT + "'), " + JSON.stringify(BRIEF) + ", '" + CHAT + "', 'build', [], siteBuildFinish('" + CHAT + "'), []);", p.ctx);
+    await p.settle();
+    const m = lastOf(p.store[0]);
+    assert.equal(m.r, "a");
+    assert.equal(m.prog, undefined, open + ": a list appeared that this build did not write here");
+  }
 });

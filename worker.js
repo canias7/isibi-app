@@ -255,8 +255,9 @@ import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReply
 import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked,
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
+  lateBatch, lateNeeded, commitLate, failLate,
   tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
-  editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
+  editPlanFacts, editPublishFacts, editAppliedFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
   takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
@@ -298,9 +299,9 @@ import { addedByRoute, publishedTexts, componentEvidence } from "./builder/conte
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { designOnly as planDesignOnly } from "./builder/request-plan.mjs";
+import { designOnly as planDesignOnly, routeInScope } from "./builder/request-plan.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
-import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -7717,8 +7718,11 @@ async function progressFromJob(env, ids, body) {
   if (b.op === "close") {
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.closed) return { done: true };
-      return { rec: closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now) };
+      const closed = closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now);
+      // …OWING ITS LATE LINE (`lateBatch`): a writer is asked now.
+      return lateNeeded(closed) && writerNeeded(closed, now) === "ask" ? { rec: markAsked(closed, now), ask: true } : { rec: closed };
     }, seen);
+    if (r && r.ask) await sendProgressTask(env, { id, uid }, PROGRESS_SETTLE_S);
     return answer(r);
   }
   return { ok: false };
@@ -7908,10 +7912,13 @@ async function progressStops(env, job, owner, batch, why) {
     if (f && f.retry) await sendProgressTask(env, { id: job, uid: f.rec.uid }, Math.ceil(PROGRESS_RETRY_MS / 1000));
     return;
   }
-  await progressUpdate(env, job, (rec) => {
+  const c = await progressUpdate(env, job, (rec) => {
     const closed = closeRecord(rec, why, Date.now());
-    return closed ? { rec: closed } : { done: true };
+    if (!closed) return { done: true };
+    // A WRITER THAT FOUND THE JOB ENDED leaves its late line asked for.
+    return lateNeeded(closed) ? { rec: markAsked(closed, Date.now()), ask: true } : { rec: closed };
   });
+  if (c && c.ask && c.rec) await sendProgressTask(env, { id: job, uid: c.rec.uid }, PROGRESS_SETTLE_S);
 }
 
 /**
@@ -7961,6 +7968,8 @@ async function writeProgressLine(env, task, owner) {
   // for them, because they say no state — the page picks the line for the
   // state it reads, so one written after the job ended claims nothing.
   if (tasksNeeded(rec)) return writeTaskLines(env, task, owner, rec);
+  // A CLOSED RECORD'S ONE LINE: what the job settled before it ended (`lateBatch`).
+  if (rec.closed) return writeLateLine(env, task, owner, rec);
   const batch = batchFor(rec);
   const before = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (!before.ok) { await progressStops(env, job, owner, batch, before.why); return false; }
@@ -8008,6 +8017,61 @@ async function writeProgressLine(env, task, owner) {
   if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);
   else if (post.why !== "unread") { await progressStops(env, job, owner, batch, post.why); return false; }
   return pendingMarks(done.rec).length > 0;
+}
+
+/**
+ * THE LATE LINE (2026-10-15, `lateBatch`): a job that ended before its line was
+ * written is told in one line, written after its end from what it settled —
+ * never what it was doing. Committed, already confirmed, only on a read of the
+ * job's row that finds it DONE (the evidence its settled facts happened), and
+ * only while its final reply is not written: no line ever appears after the
+ * reply. An edit's or an addition's job only: a first build's own answer is
+ * its account. A job that failed, was cancelled or was taken over gets none.
+ */
+async function writeLateLine(env, task, owner, rec) {
+  const job = task.id;
+  const give = (why, final, retry = false) => progressUpdate(env, job, (r) => {
+    const out = failLate(r, { owner, why, now: Date.now(), final });
+    return out ? { rec: out.rec, retry: out.retry } : null;
+  }).then(async (f) => { if (retry && f && f.retry) await sendProgressTask(env, { id: job, uid: task.uid }, Math.ceil(PROGRESS_RETRY_MS / 1000)); return false; });
+  if (rec.op !== "edit" && rec.op !== "addon") return give("op", true);
+  const batch = lateBatch(rec);
+  if (!batch.facts.length) return give("nothing", true);
+  const ended = async () => {
+    const row = await jobRowForProgress(env, job);
+    if (row === undefined) return "unread";
+    if (!row || typeof row !== "object" || row.uid !== rec.uid) return "gone";
+    // THE RECORD CLOSES BEFORE THE ROW IS FINALIZED: a row still running is
+    // read again shortly, never taken for a job that did not finish.
+    if (!isTerminalEdit(row.state)) return "unread";
+    if (row.state !== "done") return "not-done";
+    const rp = await replyRecordAt(env, replyKey(job));
+    if (!rp.read) return "unread";
+    if (rp.rec && rp.rec.state === "written") return "replied";
+    return "ok";
+  };
+  const before = await ended();
+  if (before === "unread") return give("row", false, true);
+  if (before !== "ok") return give(before, true);
+  const model = modelsFor(rec.picker || undefined).quick;
+  const { others, waited } = await requestOthersFor(env, rec);
+  const t0 = Date.now();
+  let out;
+  try {
+    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
+  } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
+  try {
+    console.log(usageLogLine({ kind: "line", id: job, ok: out.ok, why: out.why, model, milestones: batch.marks.length, facts: batch.facts.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }) + " late");
+  } catch { /* a log line never costs the line */ }
+  if (!out.ok) return give(out.why, false, true);
+  const after = await ended();
+  if (after === "unread") return give("row", false, true);
+  if (after !== "ok") return give(after, true);
+  await progressUpdate(env, job, (r) => {
+    const next = commitLate(r, { owner, marks: batch.marks, text: out.text, explain: out.explain || "", now: Date.now() });
+    return next ? { rec: next } : null;
+  });
+  return false;
 }
 
 /**
@@ -8124,7 +8188,7 @@ export async function runProgressSweep(env) {
   for (const j of Array.isArray(ended) ? ended : []) {
     if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || !isTerminalEdit(j.state)) continue;
     const at = await progressRecordAt(env, j.id);
-    if (!at.read || !at.rec || !tasksNeeded(at.rec) || writerNeeded(at.rec, now) !== "ask") continue;
+    if (!at.read || !at.rec || !(tasksNeeded(at.rec) || lateNeeded(at.rec)) || writerNeeded(at.rec, now) !== "ask") continue;
     await askProgress(env, j.id, j.uid, now);
   }
 }
@@ -8490,7 +8554,50 @@ function withinMs(promise, ms, label, slug) {
   ]).then((v) => { if (timer) clearTimeout(timer); return v; });
 }
 
-async function routeDigest(env, user, rb) {
+/** A routing scope from a body, read strictly: `{ tables }`, 1–32 table names, or null. */
+function routeScopeOf(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v) || !Array.isArray(v.tables)) return null;
+  if (!v.tables.length || v.tables.length > 32 || !v.tables.every((t) => typeof t === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(t))) return null;
+  return { tables: [...new Set(v.tables)] };
+}
+/** Do two digests list the same pages (as paths, in any order)? An unreadable list is never the same. */
+function samePages(a, b) {
+  const paths = (d) => (d && Array.isArray(d.pages) ? d.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : null)) : null);
+  const x = paths(a), y = paths(b);
+  if (!x || !y || x.some((p) => p === null) || y.some((p) => p === null)) return false;
+  const sx = [...new Set(x)].sort(), sy = [...new Set(y)].sort();
+  return sx.length === sy.length && sx.every((p, i) => p === sy[i]);
+}
+/** Two routing calls' usage, added: what a job that asked twice is billed for. */
+function sumRouteUsage(a, b) {
+  const out = { ...b };
+  for (const k of ["in", "out", "cacheRead", "cacheWrite"]) {
+    const x = Number(a && a[k]) || 0, y = Number(b && b[k]) || 0;
+    if (Object.hasOwn(a || {}, k) || Object.hasOwn(b || {}, k)) out[k] = x + y;
+  }
+  return out;
+}
+
+/**
+ * A BUILD'S ANSWER WITH ITS CONFIRMED PROGRESS LINES ON IT (2026-10-15, after
+ * run 38646089624, whose press read the build only once it had ended and was
+ * handed no line: the poll put lines on its 202s alone). A JSON object body
+ * gets `progress` when the build has lines and the body carries none of its
+ * own; anything else is sent exactly as it was.
+ */
+async function withBuildLines(env, jid, uid, status, body, type) {
+  let pv = null;
+  try { pv = await progressViewFor(env, jid, uid); } catch { pv = null; }
+  if (pv && pv.lines.length) {
+    try {
+      const pb = JSON.parse(body);
+      if (pb && typeof pb === "object" && !Array.isArray(pb) && !Object.hasOwn(pb, "progress")) return Response.json({ ...pb, progress: pv.lines }, { status });
+    } catch { /* sent as it was */ }
+  }
+  return new Response(body, { status, headers: { "content-type": type || "application/json" } });
+}
+
+async function routeDigest(env, user, rb, { keepPages = false } = {}) {
   const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
   if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null, pagesFilled: false, pagesComplete: false };
   const slug = typeof rb.slug === "string" ? rb.slug : "";
@@ -8505,7 +8612,10 @@ async function routeDigest(env, user, rb) {
   // and the browser's stand only when the read cannot answer.
   const [names, routes] = await Promise.all([
     owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
-    owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
+    // A SCOPED ROUTING (2026-10-15, `routeScope`) keeps the page list its
+    // request recorded at acceptance: it is never read, so a page another part
+    // has made since cannot change what this call is shown.
+    keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
   ]);
   let out = site;
   // THE THREE KEPT APART (2026-10-05): names read replace the browser's, and so
@@ -15917,6 +16027,19 @@ async function enqueueSiteBuild(request, env, { auth }) {
   }
   // ACCEPTED: listed from here, followed by the browser that sent it.
   await liveBuildAccept(env, bu.id, id, live);
+  // ── ANSWERED AT ONCE WHEN ASKED (2026-10-15, after run 38646089624) ──────
+  //
+  // A send that asks (`accept: "early"`) is answered here, the build accepted
+  // and its job named, and follows the build by its poll — its progress lines
+  // while it runs, its answer when it ends. The other answer, held below until
+  // the build ends, kept a socket open for up to sixteen minutes: run
+  // 38646089624's press sent at 22:13:35, the build finished at 22:22:16, and
+  // no answer reached it before its own eighteen-minute limit; it found the
+  // build afterwards by its attempt key. A caller that does not ask is answered
+  // as before.
+  if (rb && rb.body && rb.body.accept === "early") {
+    return { res: Response.json({ ok: true, pending: true, stage: "accepted", job: id, poll: "/api/site/build/" + id }, { status: 202 }) };
+  }
   // NO TRACE MARK HERE, and that is a decision rather than an omission. The
   // producer's recorder never learns a slug — the designer names the site, and
   // that happens on the other side — so `makeRecorder` buffers everything it is
@@ -27053,7 +27176,10 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ...prior.answer.accepted, ...(resumed && resumed.uid === ru.id ? { request: requestView(resumed) } : {}), duplicate: true });
         }
       }
-      const rDigest = await routeDigest(env, ru, rb);
+      // A PART'S ROUTING MAY BE SCOPED (2026-10-15): only a routing job or its
+      // preparation, never a browser's call, and only a scope that reads.
+      const rScope = rJob ? routeScopeOf(rb.scope) : null;
+      let rDigest = await routeDigest(env, ru, rb, { keepPages: !!rScope });
       // ── THE SITE'S LIVE QUESTION, READ BEFORE THE MODEL (2026-10-02) ──────
       //
       // A site that exists keeps one live question (`builder/clarify.mjs`).
@@ -27150,7 +27276,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: rGate.why === "cancelled" ? "cancelled" : "stopped", cost: 0 });
         }
       }
-      const routed = await routeMessage(
+      const rRoute = (rDigest) => routeMessage(
         // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
@@ -27227,6 +27353,25 @@ async function handleRequest(request, env, ctx) {
           part: rPart ? { original: rPart.original, done: rPart.done, others: rPart.others } : null,
         },
       );
+      let routed = await rRoute(rDigest);
+      // A SCOPED ANSWER THAT REACHES OUTSIDE ITS SCOPE IS ASKED AGAIN, of the
+      // site as it is now (`routeInScope`): the scope saves a call, it never
+      // decides a route. Both calls are billed, as every call the job made is.
+      // …ONLY WHEN THE SITE'S PAGES ARE NO LONGER THE ONES IT WAS SHOWN: with
+      // the same pages, the scoped request was already the one the whole site
+      // would get, and its answer stands as any answer does.
+      if (rScope && routed.failed !== true && !routeInScope(rScope, routed)) {
+        const whole = await routeDigest(env, ru, rb);
+        if (samePages(rDigest.site, whole.site)) rJob.routeScope = "current";
+        else {
+          const first = routed.usage;
+          rDigest = whole;
+          routed = await rRoute(rDigest);
+          if (first && routed.usage) routed = { ...routed, usage: sumRouteUsage(first, routed.usage) };
+          else if (first && !routed.usage) routed = { ...routed, usage: first };
+          rJob.routeScope = "widened";
+        }
+      } else if (rScope) rJob.routeScope = "kept";
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
@@ -27252,6 +27397,7 @@ async function handleRequest(request, env, ctx) {
           targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
           handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
           question: prepQuestion,
+          routeScope: rJob.routeScope || undefined,
         });
       }
       // ── AND SETTLED AFTER IT, BEFORE ANYTHING IS CHARGED (2026-10-02) ─────
@@ -27568,6 +27714,9 @@ async function handleRequest(request, env, ctx) {
         // request's plan — which parts may be prepared side by side, and which
         // reach the same thing and go one after the other. Absent when none.
         targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
+        // A SCOPED ROUTING'S OUTCOME (2026-10-15): "kept" when its answer stayed
+        // inside the scope, "widened" when it was asked again of the whole site.
+        routeScope: rJob && rJob.routeScope ? rJob.routeScope : undefined,
         // A PART'S QUESTION, as its request's step needs it to offer it again.
         questionFor: rQuestionFor,
       };
@@ -27895,7 +28044,11 @@ async function handleRequest(request, env, ctx) {
             try { body = JSON.parse(view.answer.body); } catch { body = null; }
             item.answer = { status: view.answer.status, body };
           }
-          if (view.state === "running") {
+          // THE BUILD'S LINES IN EVERY STATE (2026-10-15, after run
+          // 38646089624): a session that finds the build after it ended reads
+          // the lines it would have read while it ran — never a finished build
+          // with its narration gone.
+          {
             const pv = await progressViewFor(env, job, bu.id);
             if (pv.lines.length) item.progress = pv.lines;
           }
@@ -28009,13 +28162,14 @@ async function handleRequest(request, env, ctx) {
           try {
             const kept = await env.SITES_BUCKET.get(buildKeptKey(bu.id, jid));
             const kd = kept ? readBuildDone(JSON.parse(await kept.text())) : null;
-            if (kd) return new Response(kd.body, { status: kd.status, headers: { "content-type": kd.type } });
+            if (kd) return withBuildLines(env, jid, bu.id, kd.status, kd.body, kd.type);
           } catch { /* the row's own verdict below */ }
         }
         const rs = await buildRowStatus(env, jid, bu.id);
         if (rs && rs.verdict) {
           const vb = rs.verdict.body;
-          return Response.json(vb && typeof vb === "object" && !Object.hasOwn(vb, "deferred") ? { ...vb, ...recHeld } : vb, { status: rs.verdict.status });
+          const vOut = vb && typeof vb === "object" && !Object.hasOwn(vb, "deferred") ? { ...vb, ...recHeld } : vb;
+          return withBuildLines(env, jid, bu.id, rs.verdict.status, JSON.stringify(vOut), "application/json");
         }
         const pend = { ok: false, pending: true, job: jid };
         if (rs && rs.state) pend.state = rs.state;
@@ -28052,7 +28206,9 @@ async function handleRequest(request, env, ctx) {
           try { const pb = JSON.parse(out.body); if (pb && typeof pb === "object" && !Array.isArray(pb)) return Response.json({ ...pb, progress: pv.lines }, { status: 202 }); } catch { /* sent as it was */ }
         }
       }
-      return new Response(out.body, { status: out.status, headers: { "content-type": out.type } });
+      // …AND A FINAL ANSWER KEEPS THEM (2026-10-15): the lines read while it
+      // ran are still on the answer that ends it.
+      return withBuildLines(env, jid, bu.id, out.status, out.body, out.type);
     }
 
     if ((url.pathname === "/api/site/react-build" || url.pathname === "/api/site/build" || url.pathname === "/api/site/react-revise") && request.method === "POST") {
@@ -33721,6 +33877,9 @@ async function handleRequest(request, env, ctx) {
             // on a site that is not changing.
             let finalPub = null;
             let cssFixed = null;
+            // A CHANGE WITH NOTHING TO PUBLISH (a row, a rule) RECORDS WHAT IT
+            // APPLIED, as a publish records its steps (2026-10-15).
+            if (!pendingPublish && done.length && eJob && eJob.progress) eJob.progress.mark("applied", editAppliedFacts(done));
             if (pendingPublish && done.some((d) => !d.failed)) {
               // ── VERIFY THE SELECTORS THIS MESSAGE INTRODUCED ─────────────
               //
@@ -35694,6 +35853,10 @@ async function handleRequest(request, env, ctx) {
             // shipped (2026-10-13). Null until then: every component reads as
             // it always did, unknown.
             let aRendered = null, aContent = null;
+            // WHAT THE PUBLISHED MENUS SHOWED OF THE LINKS THIS CHANGE PUT IN
+            // (2026-10-15, `linkEvidence`): read once the menu step ran; null
+            // until then, when every link a requirement rests on is unknown.
+            let aLinks = null;
             let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [], aQrShown = null;
             // ⚠ ON A FAILURE (2026-10-06, `failed`, the exit's `failureOutcome`)
             // WHAT THE PUBLISH WOULD HAVE MADE IS NOTHING, and is known to be:
@@ -35967,7 +36130,7 @@ async function handleRequest(request, env, ctx) {
               // it one by one, and the note from it whole.
               // …AND WHAT EACH STEP WROTE DOWN PAST WHAT IT KEEPS TRACK OF
               // (2026-10-07, `skipped`): told as not checked, never dropped.
-              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped, content: failed ? null : aContent });
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped, content: failed ? null : aContent, links: failed ? null : aLinks });
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
@@ -39477,6 +39640,8 @@ async function handleRequest(request, env, ctx) {
             // Codex's review of 7fc7056d): null in a runtime with none, where every
             // link put in is told as not known.
             const aMenuParse = await tweakParser();
+            const aMenuKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });
+            aLinks = linkEvidence(aMenuKept);
             return Response.json({
               ok: true,
               // WHAT THIS TURN HELD BACK, for the reply's last sentence.
@@ -39522,7 +39687,7 @@ async function handleRequest(request, env, ctx) {
               // page whose menu cannot be read is `linkedUnsure`, never told
               // either way. Each absent when there were none.
               ...(() => {
-                const aKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });
+                const aKept = aMenuKept;
                 return { ...(aKept.kept.length ? { linked: aKept.kept } : {}), ...(aKept.unsure.length ? { linkedUnsure: aKept.unsure } : {}) };
               })(),
               // THE NEW WORDS AND THE SITE'S OWN PHOTOGRAPHS PLACED (2026-10-02),

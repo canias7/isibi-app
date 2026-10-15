@@ -345,6 +345,16 @@ test("LATE AND TWICE — a writer task delivered after its job ended writes noth
     assert.equal(writerCalls(P, "write_update").length, before, "a writer called the model for a job that had ended");
     const rec = P.progressOf(job.id);
     assert.ok(rec.closed);
-    assert.ok(rec.lines.every((l) => l.at <= rec.closed.at), "a line was committed after the job ended");
+    // ONE LATE LINE AT MOST (2026-10-15, `lateBatch`): after the job's end only
+    // a line marked late, said from milestones the end set aside, and from their
+    // final facts alone — never what was happening or what came next.
+    const after = rec.lines.filter((l) => l.at > rec.closed.at);
+    assert.ok(after.length <= 1, "more than one line after the job ended");
+    for (const l of after) {
+      assert.equal(l.late, true, "a line committed after the job ended is not marked late");
+      const facts = rec.marks.filter((m) => l.marks.includes(m.n)).flatMap((m) => m.facts);
+      assert.ok(facts.length > 0);
+      assert.ok(facts.some((f) => ["applied", "notdone", "checked", "published"].includes(f.state)), JSON.stringify(facts));
+    }
   });
 });

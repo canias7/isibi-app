@@ -105,7 +105,7 @@ const bodyOf = (report, { other = "", ...extra } = {}) => ({
   coverOther: other || undefined,
   ...extra,
 });
-const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", scheduled: "note", "already-there": "note", unseen: "not-done" };
+const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", scheduled: "note", "already-there": "note", unseen: "unverified" };
 const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CONFIGURED, ...SCHEDULED, ...ALREADY, ...UNSEEN];
 
 test("TOLD 1 — the report: every requirement of every kind of outcome, above every old cut and mixed, in the note's order, with what became of it and why where its sentence says", () => {
@@ -198,10 +198,12 @@ test("TOLD 4 — each requirement is its own fact, its kind the state's; the not
     ...SCHEDULED.map((n) => "Scheduled as asked; its automatic running has not been seen yet: " + n + "."),
     ...ALREADY.map((n) => "Their site already had this before this request, and nothing here can check that it works: " + n + "."),
   ]);
-  assert.ok(told.some((x) => x.text === "Their site cannot do this yet: People can pay by bank transfer (this kind of change cannot do that yet)."));
+  // UNVERIFIED, NEVER "NOT DONE" (2026-10-15): what nothing could look at is its own kind.
+  assert.deepEqual(told.filter((x) => x.kind === "unverified").map((x) => x.text), UNSEEN.map((n) => "Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: " + n + "."));
+  assert.ok(told.some((x) => x.text === "Their site cannot do this yet: People can pay by bank transfer (this kind of change cannot do that yet)."),);
   assert.ok(told.some((x) => x.text === "Not done: The number of signups is counted every hour."));
   assert.ok(told.some((x) => x.text === "Not done, because another part of this change it depends on did not work: The count starts again each month (the function step could not do its part)."));
-  assert.ok(told.some((x) => x.text === "Nothing here can see whether this is in place: Signups older than a year are archived."));
+  assert.ok(told.some((x) => x.text === "Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: Signups older than a year are archived."));
   // THE REST OF THE NOTE, ONCE; THE REQUIREMENTS' SENTENCES, NEVER.
   assert.deepEqual(f.filter((x) => x.text === OTHER).map((x) => x.kind), ["not-done"]);
   assert.ok(!f.some((x) => /Still to do|I've set that up|One thing your site/.test(x.text)), "the note was given beside the requirements");
@@ -235,7 +237,7 @@ test("TOLD 4 — each requirement is its own fact, its kind the state's; the not
 test("TOLD 5 — the reply writer's own completeness check holds the model to every requirement: one left out is asked for again by name, and left out twice the reply is never used", async () => {
   const r = requirementReport(MIXED(), OPTS);
   const f = addonReplyFacts(bodyOf(r)).facts;
-  const last = f.find((x) => x.text === "Nothing here can see whether this is in place: Signups older than a year are archived.");
+  const last = f.find((x) => x.text === "Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: Signups older than a year are archived.");
   assert.ok(last, "the last requirement has no fact — this case tests nothing");
   const said = (covers) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: REPLY_TOOL.name, input: { reply: "What happened, in the model's own words.", covers } }], usage: { input_tokens: 40, output_tokens: 20 } });
   const all = f.map((x) => x.id);

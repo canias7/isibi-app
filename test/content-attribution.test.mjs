@@ -56,7 +56,7 @@ test("AT 1 — CODEX'S FALSE SUCCESS: only a booking form asked for on /visit; t
   assert.notEqual(r.told[0].state, "unverified");
   const facts = factsOf(r.told);
   assert.ok(!facts.some((t) => /^Added/.test(t) || /seen on the published page/.test(t)), "the form was told as added: " + JSON.stringify(facts));
-  assert.ok(facts.some((t) => /Nothing here can see whether this is in place: The Visit page has a booking-form/.test(t)), JSON.stringify(facts));
+  assert.ok(facts.some((t) => /Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: The Visit page has a booking-form/.test(t)), JSON.stringify(facts));
   // NOR ABSENT ON A GUESS: something was added, so it is not "still to do".
   assert.ok(!facts.some((t) => /^Not done: The Visit page/.test(t)));
 });

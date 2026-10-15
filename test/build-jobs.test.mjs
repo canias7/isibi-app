@@ -620,9 +620,11 @@ test("the poll route asks the row only when there is no answer object, answers i
   // it is answered with the row's own status.
   const verdict = poll.indexOf("if (rs && rs.verdict) {");
   const pend = poll.indexOf("return Response.json(pend, { status: 202 });");
-  const served = poll.indexOf("return new Response(out.body, { status: out.status, headers: { \"content-type\": out.type } });");
+  // RE-ANCHORED 2026-10-15: every final answer is sent through `withBuildLines`
+  // (its lines kept), with its own status and body.
+  const served = poll.indexOf("return withBuildLines(env, jid, bu.id, out.status, out.body, out.type);");
   assert.ok(missing > 0 && flight > missing && rs > flight && verdict > rs && pend > verdict, "the row is not read inside the no-object branch, after the flight, before the pending answer");
-  assert.match(poll.slice(verdict, pend), /return Response\.json\([^;]*\{ status: rs\.verdict\.status \}\);/, "the row's verdict is not answered with its own status");
+  assert.match(poll.slice(verdict, pend), /return withBuildLines\(env, jid, bu\.id, rs\.verdict\.status, [^;]*\);/, "the row's verdict is not answered with its own status");
   assert.ok(served > pend, "the answer object is not served after the branch — it must always win");
   assert.match(poll, /if \(rs && rs\.state\) pend\.state = rs\.state;/);
   assert.match(poll, /if \(flight\) pend\.flight = flight;/);

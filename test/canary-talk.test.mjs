@@ -341,7 +341,7 @@ test("DURING THE WORK, eventual success is not proof: a completion claim the fin
   // the same words as a final reply are simply held
   assert.deepEqual(groundingOf("I've published it and the browser check found no problems.", FINAL).timing, []);
   // a limitation said during the work is not contradicted by the final success
-  assert.deepEqual(groundingOf("I haven't published it yet; I'll run the browser check next.", FINAL, { during: true }), { bad: [], timing: [] });
+  assert.deepEqual(groundingOf("I haven't published it yet; I'll run the browser check next.", FINAL, { during: true }), { bad: [], timing: [], underway: [] });
   // and a claim the final checks contradict fails during the work too
   assert.notDeepEqual(groundingOf("It's live now.", NOT_YET, { during: true }).bad, []);
 });
@@ -370,4 +370,50 @@ test("requestBatchVerdict carries the talk press's unverified timing into the pr
   const steps = [{ n: 1, sent: true, request: { key: "k1", final: viewOf(parts), seen: mergeSeen(null, viewOf(parts), 300) }, network: [answer(A, reply("I added the page and published it.", CLEAN))] }];
   const v = requestBatchVerdict({ before: null, after: null, served: {}, beforeServed: {}, steps, spec: { expect: { talk: true } }, talkSwitch: talkSwitchVerdict(rt(ON), true) });
   assert.ok(v.unverified.some((u) => /said published as done while the work ran/.test(u)), JSON.stringify(v.unverified));
+});
+
+// ── UNDER WAY IS NOT DONE (2026-10-15, after run 38649153034's line "I'm
+// publishing the site with those additions now" was read as a completed
+// publish). The progressive is its own mode; only affirmed claims are held as
+// done, and a claim of something under way is unverified only where the final
+// checks show it never happened.
+test("ONGOING: varied progressive wording is read as under way, never as done", () => {
+  const modes = (t) => claimsIn(t).map((c) => `${c.topic}:${c.mode}`);
+  assert.deepEqual(modes("I'm publishing the site with those additions now."), ["published:ongoing"]);
+  assert.deepEqual(modes("The new version is being published."), ["published:ongoing"]);
+  assert.deepEqual(modes("We're running the browser check on each page."), ["browser:ongoing"]);
+  assert.deepEqual(modes("Publishing now, then the browser check."), ["published:ongoing", "browser:intended"]);
+  assert.deepEqual(modes("I'm currently putting it live and opening the pages in a browser."), ["published:ongoing", "browser:ongoing"]);
+  // "going to" stays a plan, read before the progressive
+  assert.deepEqual(modes("I'm going to publish it."), ["published:intended"]);
+});
+
+test("ONGOING: an under-way claim the final checks hold is consistent; one they never show is unverified, never failed", () => {
+  const line = "I've built the page. I'm publishing the site with those additions now.";
+  assert.deepEqual(groundingOf(line, CLEAN, { during: true }), { bad: [], timing: [], underway: [] });
+  const g = groundingOf(line, NOT_YET, { during: true });
+  assert.deepEqual(g.bad, []);
+  assert.equal(g.underway.length, 1);
+  assert.match(g.underway[0], /publishing/);
+});
+
+test("ONGOING does not shelter a completion claim: mixed and past-tense success claims are still held", () => {
+  // a clause with its own subject reads its own grammar after something under way
+  assert.match(ungrounded("I'm still checking, but it's live now.", NOT_YET), /not published/);
+  assert.match(ungrounded("I was publishing earlier and it went live.", NOT_YET), /not published/);
+  assert.match(ungrounded("I'm wrapping up: the browser check found no problems.", NOT_YET), /browser check|not clean/);
+  assert.match(ungrounded("It is live.", NOT_YET), /not published/);
+});
+
+test("the talk press reports an under-way line it cannot place as UNVERIFIED, and passes it when the job published", () => {
+  const busy = { job: A, n: 1, ms: 100, text: "I'm publishing the site with those additions now." };
+  const parts = [part(0, [A], [busy])];
+  const mk = (res) => [{ n: 1, sent: true, request: { key: "k1", final: viewOf(parts), seen: mergeSeen(null, viewOf(parts), 300) }, network: [answer(A, res)] }];
+  const ok = talkVerdict({ steps: mk(reply("I added the page and published it.", CLEAN)), talkSwitch: talkSwitchVerdict(rt(ON), true) });
+  assert.deepEqual(ok.checks.filter((c) => !c.ok).map((c) => c.name), []);
+  assert.deepEqual(ok.unverified, []);
+  const never = talkVerdict({ steps: mk(reply("I added the page, but it isn't published.", UNPUBLISHED)), talkSwitch: talkSwitchVerdict(rt(ON), true) });
+  assert.deepEqual(never.checks.filter((c) => !c.ok).map((c) => c.name), []);
+  assert.equal(never.unverified.length, 1);
+  assert.match(never.unverified[0], /under way; nothing recorded shows whether it was begun/);
 });

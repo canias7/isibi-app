@@ -9368,6 +9368,12 @@ function buildFailureView(d) {
 }
 
 function siteFinishBuild(origin, reply, build, note, why) {
+  // THE BUILD'S OWN LINES STAY ON ITS REPLY (2026-10-15). They were shown while
+  // it ran and dropped with the live steps at the end; kept on the message, they
+  // are drawn as a finished list and survive a reload, as an edit's are.
+  const prog = siteBuild && siteOpenId === origin && Array.isArray(siteBuild.prog)
+    ? siteBuild.prog.filter((l) => l && typeof l.text === 'string' && l.text).map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }))
+    : [];
   siteBusy = false; siteBuildStop();
   const s = siteById(origin); if (!s) return;
   // `note` is its OWN field rather than being prepended to `t` with a blank
@@ -9377,7 +9383,7 @@ function siteFinishBuild(origin, reply, build, note, why) {
   // ("couldn't read your link"). Caught by looking at a render; every test
   // passed. Stored on the message so it survives a reload, since the thread is
   // rebuilt from localStorage.
-  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build });
+  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build, prog: prog.length ? prog : undefined });
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
@@ -13788,6 +13794,9 @@ async function followBuildJob(job, signal, origin) {
     if (r.status === 503) { if (++bad > 5) return null; continue; }
     const d = await r.json().catch(() => null);
     if (!d) return null;
+    // THE FINAL ANSWER CARRIES THE BUILD'S LINES TOO (2026-10-15), every one:
+    // the last ones written after the last 202 are kept, not lost at the end.
+    if (Array.isArray(d.progress)) setBuildProgress(origin, d.progress);
     return { r, d };
   }
   return null;
@@ -13856,7 +13865,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // from a second chat must not re-bind the site away from the first.
   const h = mode !== 'build' && ho && typeof ho === 'object' && !Array.isArray(ho) ? ho : {};
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin }
+    // `accept: 'early'` (2026-10-15): the route answers 202 as soon as the
+    // attempt is accepted, so the follow below starts at once instead of the
+    // send being held open while the build runs (run 38646089624's send went
+    // unanswered for 18 minutes after its build had finished).
+    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin, accept: 'early' }
     : {
       slug: site.slug, instruction: t, images: imgs, picker: buildPicker,
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
@@ -13886,7 +13899,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     // alternative is renaming it at six read sites in a 150-line handler for a
     // change that is three lines of behaviour.
     let firedJob = '';
-    if (r.status === 202 && d && d.stage === 'resuming' && d.job) {
+    if (r.status === 202 && d && (d.stage === 'resuming' || d.stage === 'accepted') && d.job) {
       if (Object.prototype.hasOwnProperty.call(d, 'deferred')) firedHeld = d.deferred;
       const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined, origin);
       if (done) { r = done.r; d = done.d; }

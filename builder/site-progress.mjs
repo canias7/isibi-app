@@ -263,7 +263,7 @@ function readLine(l) {
   // THE LINE'S EXPLANATION (talk, 2026-10-13): optional, the model's own
   // concise account of its approach and decisions for the folded section.
   const explain = typeof l.explain === "string" ? l.explain.replace(/\r\n/g, "\n").trim() : "";
-  return { n: l.n, at, text, marks: l.marks.slice(), ...(explain ? { explain } : {}), ...(l.confirmed === true ? { confirmed: true } : {}) };
+  return { n: l.n, at, text, marks: l.marks.slice(), ...(explain ? { explain } : {}), ...(l.confirmed === true ? { confirmed: true } : {}), ...(l.late === true ? { late: true } : {}) };
 }
 
 /** What each task is, in the customer's words: `[{ n, words }]`, [] when there are none, null when the list does not read. */
@@ -360,6 +360,9 @@ export function readProgressRecord(raw) {
     ...(raw.talk === true ? { talk: true } : {}),
     taskTries: Number.isInteger(raw.taskTries) && raw.taskTries >= 0 ? raw.taskTries : 0,
     tasksWhy: typeof raw.tasksWhy === "string" && raw.tasksWhy ? raw.tasksWhy.slice(0, 40) : null,
+    // THE LATE LINE'S OWN TRIES AND OUTCOME (2026-10-15, `lateBatch`).
+    ...(Number.isInteger(raw.lateTries) && raw.lateTries > 0 ? { lateTries: raw.lateTries } : {}),
+    ...(typeof raw.lateWhy === "string" && raw.lateWhy ? { lateWhy: raw.lateWhy.slice(0, 40) } : {}),
     // A JOB'S PLACE IN ITS REQUEST (2026-10-07), so its writer can be told the
     // request's other parts as they stand; a record from before then has none.
     ...(readRequestRef(raw.request) ? { request: readRequestRef(raw.request) } : {}),
@@ -533,6 +536,41 @@ export const unwrittenTasks = (rec) => (rec && Array.isArray(rec.taskWords) ? re
 /** Do the record's milestones need a line? Only while it is open. */
 const linesNeeded = (rec) => !!(rec && !rec.closed && pendingMarks(rec).length > 0);
 
+// ── A JOB THAT ENDED BEFORE ITS LINE WAS WRITTEN (2026-10-15, run 38649153034:
+// a fifteen-second price change ended at 22:49:29, its line's call answered at
+// 22:49:32, and the line was dropped — the part showed no line at all). What
+// such a job's milestones SETTLED — decided, designed, prepared, applied, not
+// done, checked, published — is still true after its end, and is said in one
+// line written after it (`late`), from its FINAL facts alone. A fact still
+// true after the job's end is one of these: applied (in effect in the
+// database), not done, checked (a check that ran) and published. What was
+// happening (`doing`), what came next (`next`) and the in-between states —
+// `decided` and `designed` ("nothing is built yet") and `prepared` ("not
+// published yet") — are
+// never said once the job has ended, so no "I'm changing it" or "not
+// published yet" appears after it changed and went live. Only for a job that
+// ended as it should (`closed.why` "ended"), committed only when its row says
+// it is done and no final reply was written (the Worker reads both), at most
+// once. Nothing waits for it: the job never slows for a line.
+const FINAL_STATES = Object.freeze(["applied", "notdone", "checked", "published"]);
+const SETTLED = (st) => FINAL_STATES.includes(st);
+
+/** The facts a late line may say: the settled facts of milestones the job's end set aside. */
+export function lateBatch(rec) {
+  if (!rec || !rec.closed || rec.closed.why !== "ended") return { marks: [], facts: [] };
+  const marks = [], facts = [];
+  for (const m of rec.marks) {
+    if (m.state !== "skipped" || m.why !== "ended") continue;
+    const own = m.facts.filter((f) => SETTLED(f.state));
+    if (!own.length) continue;
+    marks.push(m.n);
+    facts.push(...own);
+  }
+  return { marks, facts };
+}
+/** Does the record still owe its late line? */
+export const lateNeeded = (rec) => !!(rec && rec.closed && !rec.lateWhy && lateBatch(rec).facts.length > 0);
+
 /**
  * DOES THE RECORD NEED A WRITER ASKED FOR NOW — the one rule the recorder, the
  * writer letting go and the cron's recovery all read:
@@ -543,7 +581,7 @@ const linesNeeded = (rec) => !!(rec && !rec.closed && pendingMarks(rec).length >
  *   ask    a milestone waits and nobody is on it: ask (and say so on the record).
  */
 export function writerNeeded(rec, now) {
-  if (!linesNeeded(rec) && !tasksNeeded(rec)) return "none";
+  if (!linesNeeded(rec) && !tasksNeeded(rec) && !lateNeeded(rec)) return "none";
   if (writerLive(rec, now)) return "wait";
   if (num(rec.retryAt) !== null && rec.retryAt > now) return "wait";
   if (rec.asked && now - rec.asked < PROGRESS_ASK_GRACE_MS) return "wait";
@@ -563,7 +601,7 @@ export const markAsked = (rec, now) => ({ ...rec, asked: now });
  * lost) is this writer's still.
  */
 export function claimWriter(rec, owner, now) {
-  if (!linesNeeded(rec) && !tasksNeeded(rec)) return null;
+  if (!linesNeeded(rec) && !tasksNeeded(rec) && !lateNeeded(rec)) return null;
   if (typeof owner !== "string" || !owner) return null;
   if (rec.writer && rec.writer.owner === owner) return { rec: { ...rec, writer: { ...rec.writer, until: now + PROGRESS_LEASE_MS } }, claimed: true };
   if (writerLive(rec, now)) return null;
@@ -575,7 +613,14 @@ export function claimWriter(rec, owner, now) {
     const t = rec.taskTries || 0;
     if (t < PROGRESS_TRIES) return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: t + 1 }, taskTries: t + 1, retryAt: undefined, asked: 0 }, claimed: true };
     rec = { ...rec, taskTries: 0, tasksWhy: "tries" };
-    if (!linesNeeded(rec)) return { rec: { ...rec, writer: null, retryAt: undefined, asked: 0 }, gaveUp: true };
+    if (!linesNeeded(rec) && !lateNeeded(rec)) return { rec: { ...rec, writer: null, retryAt: undefined, asked: 0 }, gaveUp: true };
+  }
+  // THE LATE LINE (`lateBatch`), on tries of its own: a closed record's only
+  // line, after its tasks'.
+  if (!linesNeeded(rec) && lateNeeded(rec)) {
+    const t = rec.lateTries || 0;
+    if (t >= PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: undefined, asked: 0, lateTries: 0, lateWhy: "tries" }, gaveUp: true };
+    return { rec: { ...rec, writer: { owner, until: now + PROGRESS_LEASE_MS, attempt: t + 1 }, lateTries: t + 1, retryAt: undefined, asked: 0 }, claimed: true };
   }
   const tries = rec.tries || 0;
   if (tries >= PROGRESS_TRIES) {
@@ -636,6 +681,33 @@ export function failTasks(rec, { owner, why, now }) {
   if (!leaseHeld(rec, owner, now)) return null;
   if ((rec.taskTries || 0) < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };
   return { rec: { ...rec, writer: null, taskTries: 0, retryAt: undefined, tasksWhy: String(why || "send").slice(0, 40) }, retry: false };
+}
+
+/**
+ * THE LATE LINE COMMITTED (`lateBatch`): on the lease alone, the record closed
+ * and still owing it — added after every line, its milestones said, marked
+ * `late`, and CONFIRMED: the caller commits it only on a read of the job's row
+ * that found it done, the evidence its settled facts happened. Null otherwise.
+ */
+export function commitLate(rec, { owner, marks, text, explain = "", now }) {
+  if (!leaseHeld(rec, owner, now) || !lateNeeded(rec)) return null;
+  const t = typeof text === "string" ? text.replace(/\r\n/g, "\n").trim() : "";
+  if (!t) return null;
+  const ex = rec.talk === true && typeof explain === "string" ? explain.replace(/\r\n/g, "\n").trim() : "";
+  const covered = new Set(Array.isArray(marks) ? marks : []);
+  const n = rec.lines.length;
+  return {
+    ...rec,
+    marks: rec.marks.map((m) => (covered.has(m.n) && m.state === "skipped" ? { ...m, state: "said", line: n } : m)),
+    lines: [...rec.lines, { n, at: now, text: t, marks: [...covered].sort((a, b) => a - b), late: true, confirmed: true, ...(ex ? { explain: ex } : {}) }],
+    writer: null, lateTries: 0, lateWhy: "said", retryAt: undefined,
+  };
+}
+/** The late line not written: tried again while it has tries left, then given up — or given up at once (`final`: the job did not end done, or its reply is written). `{ rec, retry }`, or null without the lease. */
+export function failLate(rec, { owner, why, now, final = false }) {
+  if (!leaseHeld(rec, owner, now)) return null;
+  if (!final && (rec.lateTries || 0) < PROGRESS_TRIES) return { rec: { ...rec, writer: null, retryAt: now + PROGRESS_RETRY_MS, asked: now + PROGRESS_RETRY_MS }, retry: true };
+  return { rec: { ...rec, writer: null, lateTries: 0, retryAt: undefined, lateWhy: String(why || "send").slice(0, 40) }, retry: false };
 }
 
 /** One task's lines for a reader — one per state in `TASK_STATES` — or null when they are not written. */
@@ -725,7 +797,7 @@ export function releaseWriter(rec, owner) {
  */
 export function linesOf(rec) {
   if (!rec) return [];
-  return rec.lines.filter((l) => l.confirmed === true).map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text, ...(l.explain ? { explain: l.explain } : {}) }));
+  return rec.lines.filter((l) => l.confirmed === true).map((l) => ({ n: l.n, ms: Math.max(0, l.at - rec.at), text: l.text, ...(l.explain ? { explain: l.explain } : {}), ...(l.late === true ? { late: true } : {}) }));
 }
 
 /** How many lines the record holds that are not confirmed yet. */
@@ -827,6 +899,16 @@ export function editPublishFacts(done) {
   }
   out.push(fact("doing", "Publishing the site with the changes now."));
   return out;
+}
+
+/**
+ * AN EDIT THAT NEEDS NO PUBLISH (2026-10-15): a change in the database alone
+ * — a row, a rule — ends with no publish milestone, so what it applied was
+ * never recorded and a short job had nothing true to say once it ended. Its
+ * steps' outcomes, as at a publish, with no publish starting.
+ */
+export function editAppliedFacts(done) {
+  return editPublishFacts(done).filter((f) => f.state !== "doing");
 }
 
 /** The publish found a style rule that would match nothing on the page, and a correction began. */

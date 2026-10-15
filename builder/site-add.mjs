@@ -2711,6 +2711,10 @@ export function judgeItems({ answers = [], existing = null, spec = null, refs = 
         push("job:" + nameOf(v), "a scheduled job, " + ADDED + " — it runs " + flat(v.fn) + " " + jobEvery(v) + " and sends what that returns");
       } else if (a.kind === "page") {
         push("page:" + flat(v.path), "a page, " + ADDED + " — " + flat(v.path) + (v.name ? ", called \"" + flat(v.name) + "\"" : "") + (v.purpose ? ": " + flat(v.purpose) : ""));
+        // …AND THE MENU LINK TO IT, when it is planned to be put in a menu
+        // (2026-10-15): the thing a "reach it from the menu" requirement rests
+        // on, read back from the published menus after the change runs.
+        if (v.link && typeof v.link === "object" && v.link.in === "menu") push("link:" + flat(v.path), "a link to " + flat(v.path) + " that this request puts in the site's menu; whether each published menu carries it is read after the change runs");
         // …AND ITS PHOTOGRAPHS, BY PLACEMENT: the page writer may show one the
         // site already owns there, and whether one landed is read afterwards.
         push("photo:" + flat(v.path), "the photographs on " + flat(v.path) + ", if this request shows any there");

@@ -1174,6 +1174,21 @@ jobs:
           OWNER_BRIEF: ${{ github.event.inputs.brief || '' }}
           OWNER_BRIEF_DEFAULT: "I teach guitar to beginners in Sheffield, mostly adults who have never picked one up. One-to-one, and small groups of three. The thing every single person asks me for between lessons is the chord shapes - which finger goes on which fret, and which strings you do not strum. At the moment I photograph my own hand and send it on WhatsApp and it is useless, you cannot tell anything from it. I want the first eight chords up on the site so I can just tell them to go and look at it. Thirty pounds an hour one-to-one, eighteen each in a group, first lesson free. I am not a performer, I am not selling gigs, it is just teaching."
         run: node scripts/build-as-owner.mjs
+      # THE BUILD'S NARRATION, MEASURED ON ITS OWN (2026-10-15, after run
+      # 38646089624: its lines were never read, and with no such step whether
+      # they were written at all could not be told). The Worker's own log lines
+      # for the job the check wrote down (`canary-evidence/narration-ids.json`):
+      # attempts, tokens and time per progress call, priced at the platform's
+      # rates, read through the free query (nothing persisted, nothing
+      # charged), with CI's Cloudflare token, which this step alone is handed.
+      # It never fails the run; what it could not read, it says.
+      - name: narration usage (free, read-only)
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CANARY_EVIDENCE_DIR: canary-evidence
+        run: node scripts/narration-usage.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -1181,4 +1196,5 @@ jobs:
           path: |
             build-as-owner-log.md
             build-check.json
+            canary-evidence/
           if-no-files-found: ignore
