@@ -86,7 +86,8 @@ meet on the same base.
 - **Full suite: 11,009 / 11,009 / 0 / 0** locally on `b9ac6ae7` (CW12 adds
   one case after it; the concurrency files are 22 of 22 on `70d2425b`).
 - **Required CI on `b9ac6ae7`: green** — unit tests run 38756020542, site
-  build run 38756020671.
+  build run 38756020671; and unit tests run 38758109978 green on
+  `1b806ed3` (CW12 and these records on top).
 - **Mutation sweep, 13 mutants, comment-only control survived: 10 killed.**
   Survivors: the heartbeat's refused renewal (no case drives a 30 s beat;
   every write re-reads the turn instead), and the cached-turn and lost-turn
