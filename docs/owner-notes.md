@@ -16,17 +16,66 @@ only:
 `nextStep` still files a new job only when none of the request is live
 (`!live`).
 
-**2. What the approved batch has verified: nothing yet.** Neither the free
-runtime check, nor Press 1 (the image-free Build), nor Press 2
-(`acc-mixed-2`) has been pressed as of this entry. When they run, each
-result will be reported with its credits, request and job ids, and gaps.
-Two distinctions apply to Press 2:
-- It can show **preparation overlapping a write**, never two writes
-  overlapping.
-- A late completed-work summary will be told apart from live narration.
+**2. What the approved batch verified (pressed 2026-10-15, 13:22–13:59 UTC; opt-ins closed after).**
 
-The opt-ins close straight after the batch, and there are no retries.
-**This batch does not complete the parallel-task goal.**
+- **Free runtime check, run 38742119254: passed.** Both readers answered
+  `8e24ca5b` and a cold container got `e420b3c2d3224dd3`, with images off
+  and talk on. Nothing was charged; the balance was 726.
+- **Press 1, image-free Build, run 38742390550: passed, 22 credits (726 →
+  704).**
+  - Build job `44c3894d18358aae0fd1d171d6a44bf5`, site `ferry-lane-deli`.
+  - The send was answered `202` in 1 s.
+  - 8 page bands ran at once: 465,777 ms of calls in an 82,158 ms wave.
+  - 3 model-written lines were served live while the build ran, and kept on
+    the final answer and on a fresh session's read.
+  - No photograph was bought or placed.
+  - Each charge was taken once. Narration cost the platform about 1 credit,
+    never charged.
+  - Not tested: a browser reconnecting mid-build (API only).
+  - Finding: the first live line says it designed "the photographs it will
+    use" for a build with none.
+- **Press 2, `acc-mixed-2`, run 38744698638: ran, and failed its own checks,
+  26 credits (704 → 678).** Request `2142afe9`, three parts.
+  - **Part 0, the Gift Vouchers page:** add-on job `88a33c0d`, 16 credits.
+    The page was stored and served, and **every page's menu gained a labelled
+    link to `/gift-vouchers`** (menu reporting checked, every item kept).
+  - **Part 1, the Visit line linking to it:** **waited for part 0** (the
+    dependency was exercised). Its routing cost 3 (`c160c678`). Its add-on
+    job `16a9432c` then **failed, `not-landed`: the page writer returned the
+    Visit page without the new words**. Nothing was written, the job was not
+    charged, and the model-written reply said so.
+  - **Part 2, Olive & Rosemary back to £5.80:** routing 3 (`b0cfc3ef`), data
+    job `89994da2` 1 credit. Exactly one row changed (5.9 → 5.8), and
+    `/order` shows £5.80.
+  - **Preparation overlap, not execution overlap:** part 2's prepared step
+    ran for 17.6 s inside part 0's job and was reused exactly. **The three
+    jobs ran one after another** (+47–509 s, +610–717 s, +754–757 s), as the
+    deployed code requires.
+  - **Live narration vs late summaries:**
+    - A progress line was on screen live on its own running part.
+    - The tab was closed while the request ran, and a fresh session showed
+      every line again.
+    - Part 2 had **no progress lines**.
+    - One line was not in the first person: the task summary *"The Gift
+      Vouchers page is now live…"*.
+    - Part 1's one narration call was not written (it timed out at 45 s).
+    - Two of part 0's and part 2's lines were marked late in the logs.
+  - **Money:** routing 3 + jobs 23 = 26, exactly the balance move, every
+    charge once. Narration cost the platform about 2.7 credits, absorbed.
+  - Every other page, component and table was unchanged.
+- **Gaps:**
+  - The Visit line was never added.
+  - The canary's own coverage summary says "closed-tab NOT COVERED" while
+    its checks record the tab closed. The report contradicts itself.
+- **Opt-ins closed after the batch:** `c37cbc41` on `main`.
+- **An unintended deploy came with it (my error):** that commit carried a
+  stray `node_modules` symlink, so the push redeployed. Same code, same
+  image, only the deploy id changed (`docs/deploy-record.md`). The symlink
+  is still on `main`; removing it waits for your word, since it would
+  redeploy once more.
+
+This batch does not complete the parallel-task goal: it showed preparation
+overlapping a write, never two writes overlapping.
 
 **3. Concurrent independent Edit/Add-on execution: implemented on the
 branch, offline only.** It is not merged, not deployed, the SQL is not

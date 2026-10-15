@@ -20,6 +20,23 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Verification batch findings** (2026-10-15, runs 38742390550 and
+  38744698638; `docs/owner-notes.md` §2 of the 2026-10-15 entry).
+  - (a) **Build narration overclaims:** a build with no photographs said it
+    designed "the photographs it will use". The live-line checks test
+    authorship, not truth.
+  - (b) **A Visit-page line was not added:** add-on job `16a9432c`,
+    `not-landed`; the page writer returned `/visit` without the asked words.
+    Refused at no charge.
+  - (c) **Part 2 (data, 3 s) had no progress lines,** and one task-summary
+    line was not first person.
+  - (d) **Part 1's one narration call was not written:** it timed out at
+    45 s.
+  - (e) **The coverage summary contradicts the checks:** it says
+    "closed-tab NOT COVERED" while a check records the tab closed.
+  - (f) **A stray `node_modules` symlink is on `main`** (`c37cbc41`), and it
+    started an unintended identical deploy. Removing it redeploys once more
+    and waits for the owner.
 - **Jobs of one request side by side: not live, and three gaps** (2026-10-15,
   branch only; `docs/history/2026-10-15-concurrent-writes.md`). To switch
   on: apply `supabase/proposed/request_beside.sql`, merge and deploy, set

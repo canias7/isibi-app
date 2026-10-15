@@ -220,9 +220,9 @@ test("acc-mixed now carries the reconnect and the progress checks; acc-mixed-tal
   assert.equal(t.images, "none");
 });
 
-test("the paid opt-ins are open for the approved verification batch only (2026-10-15): acc-mixed-2 and check-no-images, nothing else", () => {
-  assert.deepEqual([...BALANCE_OPT_IN], ["acc-mixed-2"]);
-  assert.deepEqual([...BUILD_BALANCE_OPT_IN], ["check-no-images"]);
+test("the paid opt-ins stay closed: no scenario and no Build mode can spend until the owner names it", () => {
+  assert.deepEqual([...BALANCE_OPT_IN], []);
+  assert.deepEqual([...BUILD_BALANCE_OPT_IN], []);
 });
 
 test("the image-free Build check names a fresh slug, never run 117's or Press A's site", () => {
