@@ -370,14 +370,14 @@ checks on the owner's own devices. The script cannot reach them.
   own movement).
 - No earlier figure in any record is used.
 
-**Estimates against the one enforced limit:**
+**Estimates, and the harness's controls (none of them a hard cap):**
 
 | | What it is |
 |---|---|
 | A conversational message | **estimate** 2–6 credits: routing (measured 1–2) plus the reply's own call on grok-4.6 (about 2 typical, 5 at the full window and the 2,400-token ceiling), under one charge |
 | P9 | **estimate** 13–47 credits: a first build (measured 11–45) plus its routing; no photograph can be bought |
-| The ceiling box | **the harness's limit, set by the owner per press.** The next send is refused when what this press has spent plus that send's upper estimate would pass it. The press stops if a send overshoots it. |
-| The platform | **caps nothing**; the balance is the only bound it knows |
+| The ceiling box | **a check before each send, not a cap.** The next send is refused when this press's spend so far plus that send's upper estimate would pass it. A send already made is not cancelled, so a send that costs more than its estimate can carry the press past the ceiling. That is detected afterwards from the ledger and fails the run, and nothing more is sent. |
+| The platform | **caps nothing per request.** Its only hard bound is the account's balance: every charge path refuses what the balance cannot cover. |
 
 **The conversation cases**, on the demo site, run in one `converse` press. All
 are fixed messages. The press first had six; six more were added on
@@ -562,10 +562,15 @@ on the candidate, so the UI canary needs one step kind, `talk`. Such a step:
 - reads that reply from the screen;
 - for E2, checks that the waiting question is still open after it.
 
-That is test tooling, not a product feature. It is proven offline (the
-stand-in app, a red check, a sweep) before any press. It waits until then
-because help-needed is still changing `scripts/canary-ui.mjs`, so it is built
-on the file as it stands at authorization.
+**The `talk` step is NOT IMPLEMENTED.** It is test tooling, not a product
+feature. Order of work:
+1. help-needed's changes to `scripts/canary-ui.mjs` settle.
+2. I build the step on that settled integration code, with the two scenarios.
+3. I verify it offline: the stand-in app, a red check and a sweep, with CI
+   green.
+4. Only then do I ask for authorization for paid execution.
+
+Until all four are done, E1 and E2 cannot be pressed.
 
 **The demo site.** The scenarios are tied to the demo site the owner names,
 which is never one of help-needed's fixtures. Their words are written to fit
@@ -640,20 +645,41 @@ Codex.
 | E2, optional: routing (1–2), the asking step (0 for the edit), the side question (2–6), routing the answer (1–2), the edit (1–22) | **about 5–32 more** |
 | **The whole batch with E1 and E2** | **about 43–181** |
 
-**Estimates are not spending limits.** They come from measured costs, and a
-press can cost more or less. The limits are separate, and are the only things
-that stop spending:
-- **Each press's own ceiling,** typed by the owner when approving it:
-  - the `converse` and `build` presses: the "Harness ceiling for this press,
-    in credits" box;
-  - E1 and E2: each scenario's `budget`, which the UI canary enforces, set to
-    the figure the owner approves.
+**Estimates are not spending limits, and nothing in this batch is a hard
+cap.** Estimates come from measured costs, and a press can cost more or less.
+What actually controls spending:
+- **`media verify` (the `converse` and `build` presses):**
+  - Before each send, it checks the "Harness ceiling for this press, in
+    credits" box: this press's spend so far, read from the ledger, plus the
+    send's upper estimate, must fit within it.
+  - After each send, it reads the ledger again. Spending past the ceiling is
+    detected there, fails the run, and stops every later send.
+  - A charge it cannot read is recorded as unknown and also stops later sends.
+  - It cannot cancel a send already made. One send that costs more than its
+    upper estimate can carry the press past the ceiling.
+- **The UI canary (E1 and E2):**
+  - Before each message after the first, `budgetRefusal` compares the spend so
+    far with the scenario's `budget`. It sends nothing more once the spend has
+    reached the budget, or when the balance cannot be read.
+  - Before the first message, `fundsFirst` refuses unless the balance covers
+    the budget. A scenario that names a `cap` refuses while the balance is
+    above it.
+  - After the press, `overBudgetVerdict` reports a spend over the budget as a
+    failure.
+  - **It does not cancel a running request when the budget is reached.** A
+    message the server has taken on runs to its end, all of its parts
+    included. The step that crosses the budget can therefore overshoot it, by
+    as much as that one message's work costs: up to about 22 for a page-rung
+    edit.
+  - The request's own Stop is used only for a part filed outside the
+    scenario's layers. It is never a spending control.
+- **The account's balance** is the only hard bound. Every charge path refuses
+  what the balance cannot cover, so no press spends more than the balance it
+  starts with. The platform caps nothing per request.
 
-  A ceiling stops further sends and stops a running part through the
-  request's own Stop. A step already past its publish gate is recorded as
-  done, so a ceiling bounds the press and not one model call.
-- **The account's balance,** read before every send. The platform caps
-  nothing per request.
+So the owner should approve each press knowing it can end above its ceiling or
+budget, by up to its most expensive single send or message. The record says
+so, with the exact figure, whenever it happens.
 
 No restore cost is included, because none is planned.
 
@@ -802,7 +828,7 @@ file.
 5. Approved, paid: `converse` with `spend=yes` and a ceiling, then `build` on a
    new slug with `spend=yes` and a ceiling. The balance is read by the script
    before every send.
-6. E1 and E2, optional and in the same batch: once authorized, I build and prove the `talk` step offline, write the two scenarios for the named demo site, and hand over (or try once) one UI canary press for each, with each one's `budget`. Then P7 and P10, only on the owner's word.
+6. E1 and E2, optional and in the same batch. Before asking for paid authorization, I build the `talk` step (**not implemented today**) and the two scenarios on the settled integration code, and verify them offline. Once paid execution is authorized, I hand over (or try once) one UI canary press for each, with each one's `budget`. The budget is checked before each message and reported after, not a cap. Then P7 and P10, only on the owner's word.
 
 ## Correction to an earlier record
 

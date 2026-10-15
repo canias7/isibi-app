@@ -163,12 +163,12 @@ console step is asked of the owner.
 
 | Press | Mode | Estimate | What bounds it |
 |---|---|---|---|
-| V2.1 | `converse` (twelve fixed cases since 2026-10-15, on the demo site; three route only) | **about 21–72 credits** | the ceiling typed for the press; the platform caps nothing |
-| V2.2 | `build` (P9: one new Build with two drafts, on a new slug) | **about 13–47 credits** | the same |
-| V2.3, optional | E1: a follow-up carried out end to end, driven by the UI canary (`conv-e1-follow-up`) | about 4–30 more | the scenario's `budget`, set at approval |
+| V2.1 | `converse` (twelve fixed cases since 2026-10-15, on the demo site; three route only) | **about 21–72 credits** | the ceiling box, checked before each send and against the ledger after (not a cap; one send can overshoot) |
+| V2.2 | `build` (P9: one new Build with two drafts, on a new slug) | **about 13–47 credits** | the same check |
+| V2.3, optional | E1: a follow-up carried out end to end, driven by the UI canary (`conv-e1-follow-up`) | about 4–30 more | the scenario's `budget`, checked before each message and reported after (not a cap; the message that crosses it runs to its end) |
 | V2.4, optional | E2: clarification, then a side question, then the answer, then the work resumed (`conv-e2-clarify`) | about 5–32 more | the same |
 
-The core batch is about 34–119 credits, or about 43–181 with E1 and E2. These are estimates, not limits. E1 and E2 need one test-tooling addition, a `talk` step in the UI canary, built and proven offline only when live execution is authorized (`docs/history/2026-10-15-verification-proposal.md`). **Demo
+The core batch is about 34–119 credits, or about 43–181 with E1 and E2. These are estimates, not limits. No press has a hard cap: only the balance bounds spending, and a press can end above its ceiling or budget by its costliest single send or message. **E1 and E2 need a `talk` step in the UI canary, which is not implemented.** It is to be built and verified offline on the settled integration code before paid execution is requested (`docs/history/2026-10-15-verification-proposal.md`). **Demo
 sites need no restore**: an executed case may leave its change in place, and
 no restore step is planned.
 

@@ -168,7 +168,7 @@ with no generation.
 | Go-ahead (routing only) | 3 (C11, C13, C15) | 1–6 credits (up to 6 if answered as talk) | 3–18 |
 | **The press** | **12** | | **about 21–72 credits** |
 
-The ceiling typed per press is the only limit, and the platform caps nothing.
+The ceiling typed per press is checked before each send (spend so far plus the send's upper estimate) and against the ledger after. It is not a cap: a send is never cancelled, so one send can carry the press past it, which is then detected and stops the press. Only the balance is a hard bound.
 `IMAGE_PURCHASES` must still be off on the live Worker before every send.
 
 ## What stays a gap

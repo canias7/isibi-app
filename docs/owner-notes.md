@@ -1,6 +1,43 @@
 # Owner Notes
 
 
+## Spending controls described as they are; the `talk` step marked unimplemented (2026-10-15; `candidate/new-on-main`, documents only; parked, unmerged, undeployed; no live test or spending)
+
+**You accepted `591f7968`'s automation plan.** This entry corrects one thing:
+the earlier entries called the scenario budget and the ceiling box limits.
+**Neither is a hard spending cap, and neither cancels a running task.**
+
+**`media verify` (the conversation and Build runs):**
+- Before each send, the spend so far plus that send's upper estimate must fit
+  the ceiling box.
+- After each send, the ledger is read again. Spending past the ceiling is
+  detected there, fails the run, and stops later sends. An unread charge does
+  the same.
+- A send already made is never cancelled. One send costing more than its
+  estimate can carry the run past the ceiling.
+
+**The UI canary (E1 and E2):**
+- Before each message, `budgetRefusal` sends nothing more once the spend has
+  reached the scenario's `budget`.
+- Before the first message, `fundsFirst` and an optional `cap` check the
+  balance.
+- After the run, `overBudgetVerdict` reports any overspend as a failure.
+- A message the server has taken on runs to its end. The message that crosses
+  the budget can overshoot it by that message's whole cost, up to about 22 for
+  a page-rung edit.
+
+**The only hard bound is the account's balance.** Every charge path refuses
+what it cannot cover. Estimates are unchanged: about 43–181 for the whole
+batch with E1 and E2. Each run can end above its ceiling or budget by its
+costliest single send or message, and the record will say by how much.
+
+**The `talk` step is not implemented.** Before I ask for paid authorization:
+1. help-needed's changes to `scripts/canary-ui.mjs` settle;
+2. I build the step and the two scenarios on that settled code;
+3. I verify them offline (stand-in app, red check, sweep, CI green).
+
+No budget feature was added. (`docs/history/2026-10-15-verification-proposal.md`.)
+
 ## E1 and E2 driven by the automation, not typed (2026-10-15; `candidate/new-on-main`, documents only; the candidate parked, unmerged, undeployed; no live execution, paid test, container build or image purchase)
 
 **You accepted `e7da524b` for offline readiness.** The candidate stays parked
@@ -21,8 +58,7 @@ ask, I try it once and otherwise hand over the box values.
 **What it needs first.** The UI canary stops when a message is answered as
 conversation instead of becoming a request, and both scenarios have one such
 message. A `talk` step kind is needed. It is test tooling, not a product
-feature, and it is built and proven offline only when live execution is
-authorized, on `scripts/canary-ui.mjs` as help-needed leaves it.
+feature, and **it is not implemented** *(order corrected in the entry above)*.
 
 **The evidence kept for each:**
 - every message and reply in order, with whether each was the model's own;
@@ -39,9 +75,8 @@ authorized, on `scripts/canary-ui.mjs` as help-needed leaves it.
 | E2, estimate | about 5–32 |
 | The whole batch, estimate | about 43–181 |
 
-The limits are each press's ceiling (the converse and build ceiling box, and
-each scenario's `budget`, set at approval) and the balance. The platform caps
-nothing.
+*(Corrected in the entry above: neither the ceiling box nor a scenario's
+`budget` is a hard cap.)*
 
 Unchanged: no demo-content restore; replies model-written; video and audio
 hosting-only; no feature added and no audit restarted.
