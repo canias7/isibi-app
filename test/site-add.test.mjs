@@ -33,6 +33,7 @@ import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
 import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
+import { wordsParts as WP, wordsLanded as WL } from "../builder/site-add.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
@@ -2585,4 +2586,39 @@ test("the drop report's single-path belt is dead by the LIST partition, and that
   const drops = ["table", "page", "component"];
   for (const k of drops) assert.ok(LIST_ADDS.includes(k), k + " bins a sub-field and is no longer a list kind");
   for (const k of single) assert.ok(!drops.includes(k), k + " is single AND drops — the belt is live now, and needs a case");
+});
+
+// ── WORDS THAT CARRY A LINK (2026-10-15, after run 38744698638) ──────────────
+// The designer writes a link inside its words as `[linked words](/route)`. What
+// a visitor reads is the linked words; what must arrive is a real link to the
+// address. Read the markup apart, and require both.
+const WL_BASE = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ return <main><h1>Fretwork</h1>\n</main> }\n";
+const wlWith = (html) => WL_BASE.replace("</main>", html + "\n</main>");
+const wlCheck = (html, words, before = WL_BASE) => WL([{ path: "index.tsx", source: before }], [{ path: "index.tsx", source: wlWith(html) }], [{ page: "/", words }]).ok;
+
+test("wordsParts: a link's words are read, its brackets and address are not", () => {
+  assert.deepEqual(WP("Book a [workshop place](/classes) by Friday."), { text: "Book a workshop place by Friday.", links: [{ text: "workshop place", href: "/classes" }] });
+  assert.deepEqual(WP("Mail [us](mailto:a@b.co) or [call](tel:+441234) or see [the map](https://maps.example/x)."),
+    { text: "Mail us or call or see the map.", links: [{ text: "us", href: "mailto:a@b.co" }, { text: "call", href: "tel:+441234" }, { text: "the map", href: "https://maps.example/x" }] });
+  // NOT AN ADDRESS: kept as the words they are, never a link.
+  assert.deepEqual(WP("Try [this](javascript:alert(1)) now."), { text: "Try [this](javascript:alert(1)) now.", links: [] });
+  assert.deepEqual(WP("Plain words [in brackets] (and parentheses)."), { text: "Plain words [in brackets] (and parentheses).", links: [] });
+  assert.deepEqual(WP(null), { text: "", links: [] });
+});
+
+test("wordsLanded: linked words pass only when drawn as a link to their address", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  assert.equal(wlCheck('<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', W), true);
+  assert.equal(wlCheck('<p>Book a <a href="/classes">workshop place</a> by Friday.</p>', W), true);
+  assert.equal(wlCheck("<p>Book a <Link to={'/classes'}>workshop place</Link> by Friday.</p>", W), true);
+  assert.equal(wlCheck("<p>Book a [workshop place](/classes) by Friday.</p>", W), false, "markup left as text passed");
+  assert.equal(wlCheck("<p>Book a workshop place by Friday.</p>", W), false, "the words without their link passed");
+  assert.equal(wlCheck('<p>Book a <Link to="/">workshop place</Link> by Friday.</p>', W), false, "a link pointed elsewhere passed");
+  // A LINK THE PAGE ALREADY DREW does not answer for the new one.
+  const had = wlWith('<nav><Link to="/classes">Classes</Link></nav>');
+  assert.equal(wlCheck('<nav><Link to="/classes">Classes</Link></nav>\n<p>Book a workshop place by Friday.</p>', W, had), false);
+  assert.equal(wlCheck('<nav><Link to="/classes">Classes</Link></nav>\n<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', W, had), true);
+  // WORDS WITHOUT A LINK are judged as before.
+  assert.equal(wlCheck("<p>Open daily.</p>", "Open daily."), true);
+  assert.equal(wlCheck("<p>Closed.</p>", "Open daily."), false);
 });

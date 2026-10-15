@@ -1008,7 +1008,8 @@ const ADDS = {
             description:
               "THE WORDS THEMSELVES, exactly as a visitor will read them — written for this business, in its voice, " +
               "and as short as what they asked for. The words, never a description of them: \"We're closed on bank " +
-              "holidays.\", not \"a note about bank holidays\".",
+              "holidays.\", not \"a note about bank holidays\". A LINK inside the words (when they asked for one) is written " +
+              "[the words that are the link](/route) — \"You can [book a class](/classes) online.\" — and only for a page the site has or will have, or a full outside address.",
           },
         },
         required: ["page", "words"],
@@ -4335,6 +4336,8 @@ export function addDirective(kind, value, site) {
       out.push("## The words you are adding");
       out.push("- On " + at(v.page) + ", " + (v.where || "where they belong in the page's order") + ".");
       out.push("- Add these words, exactly as written between the quotation marks (without the marks): \"" + v.words + "\"");
+      // A LINK INSIDE THE WORDS (2026-10-15): drawn as a link, never as text.
+      if (wordsParts(v.words).links.length) out.push("- Where the words show [some words](address), those words are a LINK to that address: draw them as a link (the site's Link for a page of this site, an <a> for an outside address) with exactly those words as its text. The brackets, the parentheses and the address never appear as text on the page.");
       out.push("- As ordinary text in the page's own style, beside what is around it: a line, a sentence or a short paragraph — not a new section, heading or component.");
       out.push("- Return that ONE page with these words added; every other component and every sentence byte-identical. No new page file.");
       break;
@@ -4669,6 +4672,29 @@ function sourcesByPath(pages) {
  * rung's own reader (`extractText`), which is what a visitor reads, and
  * counted, so words a page already said once do not pass for the new line.
  */
+/**
+ * WORDS THAT CARRY A LINK (2026-10-15, after run 38744698638): a designer asked
+ * for "a line … linking to the new page" writes the link inline, the way the
+ * schema now asks — `[the linked words](/route)`. What a visitor READS is the
+ * linked words, never the brackets or the address; what must ARRIVE is that
+ * text and, for each link, a real link to its address. Answers the visible
+ * text and the links; a link whose address is not a site route, an outside
+ * address, `mailto:` or `tel:` is read as plain words.
+ */
+const LINK_IN_WORDS = /\[([^\[\]\n]{1,200})\]\(\s*((?:\/[^\s()]*)|(?:https?:\/\/[^\s()]+)|(?:mailto:[^\s()]+)|(?:tel:[^\s()]+))\s*\)/g;
+export function wordsParts(words) {
+  const s = String(words == null ? "" : words);
+  const links = [];
+  const text = s.replace(LINK_IN_WORDS, (m, t, href) => { links.push({ text: t.trim(), href }); return t; });
+  return { text, links };
+}
+/** How many links to exactly `href` a page's source draws (`href=` or `to=`, quoted or a string expression). */
+function linkCount(source, href) {
+  const esc = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("\\b(?:href|to)\\s*=\\s*(?:\"" + esc + "\"|'" + esc + "'|\\{\\s*[\"'`]" + esc + "[\"'`]\\s*\\})", "g");
+  return (String(source || "").match(re) || []).length;
+}
+
 export function wordsLanded(before, after, items) {
   const was = sourcesByPath(before), now = sourcesByPath(after);
   // IN THE PAGE'S OWN ORDER, so a line the writer split across a tag (`Open
@@ -4677,11 +4703,18 @@ export function wordsLanded(before, after, items) {
   const missing = [];
   for (const it of Array.isArray(items) ? items : []) {
     const file = fileOfRoute(it && it.page);
-    const want = plainWords(it && it.words);
+    // WHAT A VISITOR READS (`wordsParts`): a link's words, never its brackets
+    // or address — so a correctly drawn link is found, and markup left as
+    // visible text is not the words asked for.
+    const parts = wordsParts(it && it.words);
+    const want = plainWords(parts.text);
     if (!file || !want) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
     const had = occurrences(said(was.get(file) || ""), " " + want + " ");
     const has = occurrences(said(now.get(file) || ""), " " + want + " ");
-    if (has <= had) missing.push({ page: it.page, words: it.words });
+    // …AND EVERY LINK IT CARRIES ARRIVED AS A LINK to its address, once more
+    // than the page drew before.
+    const linked = parts.links.every((l) => linkCount(now.get(file), l.href) > linkCount(was.get(file), l.href));
+    if (has <= had || !linked) missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };
 }

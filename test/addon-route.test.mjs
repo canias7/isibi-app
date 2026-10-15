@@ -4527,6 +4527,41 @@ test("words a page already said once do not pass for the new line", async () => 
   assert.equal(r.compiles.length, 0);
 });
 
+// ── WORDS THAT CARRY A LINK (2026-10-15, run 38744698638's part 1) ────────
+//
+// "add a line … linking to the new page": the designer writes the link inline
+// (`[linked words](/route)`). Live, the route then looked for the address
+// itself among the page's words, so a line drawn correctly as a link was
+// refused as `not-landed`, while the same markup left as visible text would
+// have passed. Now the visitor's words are found, and every link must arrive
+// as a link to its address. Words and pages here are not run 38744698638's.
+const LINKED = "Book a [workshop place](/classes) by Friday.";
+for (const [name, html, ok] of [
+  ["drawn as the site's Link", '<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', true],
+  ["drawn as an anchor", '<p>Book a <a href="/classes">workshop place</a> by Friday.</p>', true],
+  ["left as visible markup", "<p>Book a [workshop place](/classes) by Friday.</p>", false],
+  ["the words without the link", "<p>Book a workshop place by Friday.</p>", false],
+  ["a link to another address", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false],
+]) {
+  test("LINKED WORDS — " + name + (ok ? ": found, published and charged once" : ": refused before the bill, nothing ships"), async () => {
+    const r = await addon("fw-photo", "add a line saying people can book a workshop place by Friday, linking to the classes page", {
+      kinds: ["words"], publishes: ok, storedPages: [PHOTO_SITE[0], storedPage("/classes")], answers: wordsAnswer("/", LINKED),
+      written: [withLine(PHOTO_SITE[0], html)],
+    });
+    if (ok) {
+      assert.equal(r.body.ok, true, JSON.stringify(r.body));
+      assert.equal(r.compiles.length > 0, true);
+      // THE WRITER WAS TOLD HOW TO DRAW THE LINK.
+      assert.match(pagePrompt(r).text, /those words are a LINK to that address/);
+    } else {
+      assert.equal(r.status, 422, JSON.stringify(r.body));
+      assert.equal(r.body.error, "not-landed");
+      assert.equal(r.body.cost, 0);
+      assert.equal(r.compiles.length, 0, "a page without the linked words was compiled");
+    }
+  });
+}
+
 test("words for a page the site does not have are refused by name, never moved to the home page", async () => {
   const r = await addon("fw-photo", "add a line about parking to the contact page", {
     kinds: ["words"], publishes: true, storedPages: PHOTO_SITE, answers: wordsAnswer("/contact", "Park behind the shop."),
