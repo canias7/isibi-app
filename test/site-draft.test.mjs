@@ -73,3 +73,42 @@ test("what the owner sees: processing, saved, published", () => {
   assert.equal(draftState({ draft: null, live: { version: V(2) } }).state, "published");
   assert.equal(draftState({ draft: { version: V(1) }, live: null }).unpublished, true, "a first build's draft read as published");
 });
+
+// ── THE PUBLICATION JOURNAL AND THE HELD ADDRESS (2026-10-15) ────────────────
+import { clickPlan, journalLive, newJournal, readJournal, addressOverlay, forgottenInDraft, publishPlan, PUBLICATION_PHASES, FINISH_STEPS } from "../site-draft.mjs";
+
+test("a click's plan: none or finished starts; a fresh runner is busy; the same revision stopped resumes; another revision switched is finished first; another before its switch is set aside", () => {
+  const V = "01790468089054-8btpep", stale = 180000, now = 1e9;
+  const j = (o) => ({ ...newJournal({ slug: "s", n: 3, version: V, now: now - 1000, id: "x" }), ...o });
+  assert.equal(clickPlan(null, 3, { now, staleMs: stale }), "start");
+  assert.equal(clickPlan(j({ phase: "finished" }), 3, { now, staleMs: stale }), "start");
+  assert.equal(clickPlan(j({}), 3, { now, staleMs: stale }), "busy");
+  assert.equal(clickPlan(j({}), 4, { now, staleMs: stale }), "busy");
+  assert.equal(clickPlan(j({ running: false, phase: "switched" }), 3, { now, staleMs: stale }), "resume");
+  assert.equal(clickPlan(j({ at: now - stale - 1 }), 3, { now, staleMs: stale }), "resume", "a dead runner was taken for a live one");
+  assert.equal(clickPlan(j({ running: false, phase: "switched" }), 4, { now, staleMs: stale }), "finishFirst");
+  assert.equal(clickPlan(j({ running: false, phase: "prepared" }), 4, { now, staleMs: stale }), "replace");
+  assert.equal(journalLive(j({ running: false }), { now, staleMs: stale }), false);
+  assert.deepEqual(PUBLICATION_PHASES, ["start", "prepared", "switched", "finished"]);
+  assert.deepEqual(FINISH_STEPS, ["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
+});
+
+test("a stored journal is read strictly — not one is null, never a guess", () => {
+  const V = "01790468089054-8btpep";
+  assert.equal(readJournal("{"), null);
+  assert.equal(readJournal({ n: "3", version: V, phase: "start" }), null);
+  assert.equal(readJournal({ n: 3, version: "nope", phase: "start" }), null);
+  assert.equal(readJournal({ n: 3, version: V, phase: "halfway" }), null);
+  const r = readJournal(JSON.stringify({ n: 3, version: V, phase: "switched", running: "yes", done: ["address", 4] }));
+  assert.deepEqual([r.running, r.done, r.attempts], [false, ["address"], 0]);
+});
+
+test("the draft's address: the last held rename wins; consecutive renames publish as one move from the live name (a name in between never becomes a redirect); a move back to the live name is no move; a rename back to a forgotten name keeps it", () => {
+  const ops = [{ kind: "alias", action: "rename", from: "a", to: "b" }, { kind: "alias", action: "rename", from: "b", to: "c" }];
+  assert.equal(addressOverlay("a", ops), "c");
+  assert.equal(addressOverlay("a", []), "a");
+  assert.deepEqual(publishPlan(ops).plan.alias, [{ kind: "alias", action: "rename", from: "a", to: "c" }]);
+  assert.deepEqual(publishPlan([...ops, { kind: "alias", action: "rename", from: "c", to: "a" }]).plan.alias, []);
+  const f = [{ kind: "alias", action: "forget", name: "old" }, { kind: "alias", action: "forget", name: "older" }, { kind: "alias", action: "rename", from: "a", to: "old" }];
+  assert.deepEqual([...forgottenInDraft(f)], ["older"]);
+});

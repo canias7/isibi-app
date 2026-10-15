@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -1513,6 +1513,9 @@ export default {
     // pending note and its uploader never took it away (2026-10-15): the
     // uploader died, or an upload's answer was lost.
     ctx.waitUntil(runScriptPendingSweep(env).catch((e) => console.error("script sweep failed", errorClassForLog(e))));
+    // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
+    // the approved revision, from its journal; this never begins one.
+    if (draftFirst(env)) ctx.waitUntil(runPublishRecovery(env).catch((e) => console.error("publish recovery failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -12258,7 +12261,7 @@ async function runningForSite(env, uid, slug) {
 // site's DATABASE and LIBRARY on a site visitors already use is HELD here —
 // the schema, scheduled jobs, starter rows, row changes, a file replaced or
 // taken off — read back by the next task and the preview as if made, and
-// applied to the live site only by the owner's Publish (`applyHeldPlan`).
+// applied to the live site only by the owner's Publish (`runPublication`).
 // Before a site's first publication nothing is live to protect: a task writes
 // its database directly, scheduled jobs excepted (they run by themselves).
 
@@ -12373,121 +12376,372 @@ function heldDraft(revision) {
   return { published: false, held: true, revision, said: DRAFT_SAID };
 }
 
-// ── THE OWNER'S PUBLISH ──────────────────────────────────────────────────────
-const PUBLISH_LOCK_MS = 10 * 60 * 1000;
-/**
- * ONE PUBLICATION AT A TIME PER SITE. `{ ok, id }`; a second click on the same
- * revision while it runs is `{ ok: false, status: 202, publishing: true }`, a
- * click on another revision `409`. A lock older than `PUBLISH_LOCK_MS` belongs
- * to a publication that died; it is taken over (its work is resumable).
- */
-async function takePublishLock(env, slug, n) {
-  const B = env.SITES_BUCKET;
-  const id = crypto.randomUUID();
-  const body = JSON.stringify({ n, id, at: Date.now() });
-  const opts = (onlyIf) => ({ httpMetadata: { contentType: "application/json" }, onlyIf });
-  if (await B.put(PUBLISHING_KEY(slug), body, opts({ etagDoesNotMatch: "*" }))) return { ok: true, id };
-  const cur = await B.get(PUBLISHING_KEY(slug));
-  if (!cur) return { ok: false, status: 409, error: "another publication just finished — look again and press Publish if you still want to" };
-  let held = null;
-  try { held = JSON.parse(await cur.text()); } catch { held = null; }
-  const fresh = held && Number(held.at) > Date.now() - PUBLISH_LOCK_MS;
-  if (fresh) {
-    return held.n === n
-      ? { ok: false, status: 202, publishing: true, error: "that revision is already being published" }
-      : { ok: false, status: 409, error: "another revision is being published right now — wait for it to finish" };
-  }
-  if (await B.put(PUBLISHING_KEY(slug), body, opts({ etagMatches: cur.etag }))) return { ok: true, id, tookOver: true };
-  return { ok: false, status: 409, error: "another publication just started — wait for it to finish" };
+// ── THE OWNER'S PUBLISH: A JOURNAL OF PHASES (draft-first, 2026-10-15) ───────
+//
+// The owner: *"Make the approved revision publish coherently, with safe
+// recovery from interruption or failure. Do not blindly roll back database
+// contents or overwrite visitor activity."* The phases are `site-draft.mjs`'s
+// (`PUBLICATION_PHASES`): start → prepared → switched → finished. Nothing a
+// visitor of the live version can see changes before the switch; after it the
+// publication only rolls forward, step by recorded step.
+//
+// WHAT THIS CANNOT DO, said plainly: the site's database and its script are two
+// systems, and no step changes both at once. Between the switch and the last
+// finishing step — normally the rest of one request, longer only when that
+// request dies or a step's store refuses — visitors are served the new pages
+// against the database as it was apart from the new tables: a rule, a new
+// column on an existing table, a changed row, an address or a library file the
+// revision holds is not there yet. The journal makes that window end with the
+// approved revision complete, by the next click or the recovery sweep; it does
+// not make it zero.
+const PUBLISH_STALE_MS = 3 * 60 * 1000;
+
+async function readPublication(env, slug) {
+  const o = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
+  if (!o) return { j: null, etag: null };
+  const j = readJournal(await o.text());
+  return { j, etag: String(o.etag || o.httpEtag || "") || null, unreadable: !j };
 }
-async function releasePublishLock(env, slug, lock) {
-  try {
-    const cur = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
-    if (!cur) return;
-    const held = JSON.parse(await cur.text());
-    if (held && held.id === lock.id) await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug));
-  } catch (e) { console.error("publish lock not released (it expires):", slug, errorClassForLog(e)); }
+/** Write the journal on the etag it was read at: null when another runner has it now. */
+async function writePublication(env, slug, j, etag) {
+  const put = await env.SITES_BUCKET.put(PUBLISHING_KEY(slug), JSON.stringify(j), {
+    httpMetadata: { contentType: "application/json" },
+    onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+  });
+  return put ? String(put.etag || put.httpEtag || "") || "x" : null;
 }
-/** The publication in progress, or null. */
+/** The publication standing, for the owner's state: null when none. */
 async function publishingNow(env, slug) {
   try {
-    const cur = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
-    if (!cur) return null;
-    const held = JSON.parse(await cur.text());
-    return held && Number(held.at) > Date.now() - PUBLISH_LOCK_MS ? { revision: held.n } : null;
+    const { j } = await readPublication(env, slug);
+    if (!j || j.phase === "finished") return null;
+    const live = journalLive(j, { staleMs: PUBLISH_STALE_MS });
+    if (!live && j.phase !== "switched") return null;
+    return { revision: j.n, phase: j.phase, running: live, finishing: j.phase === "switched", error: j.error || null };
   } catch { return null; }
 }
 
+/** The site's database connection, or null. */
+async function siteDbFor(env, slug) {
+  const db = await siteBackendBySlug(env, slug);
+  if (db) return db;
+  const back = await siteBackendDetail(env, slug);
+  return back.conn || null;
+}
+/** The tables the plan's schema declares that the live database does not have (by its stored schema). */
+async function newTablesOf(db, spec) {
+  const live = await loadSiteSchema(db).catch(() => null);
+  const have = new Set(((live && live.tables) || []).map((t) => String((t && t.name) || "").toLowerCase()));
+  return ((spec && spec.tables) || []).filter((t) => t && t.name && !have.has(String(t.name).toLowerCase()));
+}
+
 /**
- * APPLY THE HELD CHANGES OF A PUBLICATION to the live database and library,
- * in an order that can be repeated: the schema (re-emitted whole, `IF NOT
- * EXISTS`), the jobs (written over by name), the starter rows (a table is
- * seeded only while empty), each change to an existing row (an UPDATE or a
- * DELETE by id, the same result twice), the new rows in ONE statement beside
- * a `_meta` key for this publication (`rowsInsert`: a second run collides on
- * the key and rolls back, and the first run's ids are read from it), then the
- * library. `{ ok, refs }` or `{ ok: false, stage, error }` — a stop leaves
- * what came before it applied, and Publish pressed again finishes the rest.
+ * ONE PUBLICATION, RUN FROM WHERE ITS JOURNAL STANDS. `{ ok, … }`; a stop
+ * before the switch answers `{ ok: false, live: "unchanged" }` and removes the
+ * journal; a stop after it answers `{ ok: false, live: "switched" }` and keeps
+ * the journal for the next click or the sweep. Each phase and finishing step is
+ * written to the journal on the etag it was read at, so two runners never both
+ * act: the one whose write is refused stops.
  */
-async function applyHeldPlan(env, slug, plan, { uid = "", mark = "" } = {}) {
-  // THE SAME WRITER, WITH THE SWITCH OFF: the one place the real schema,
-  // seed and job calls are made is `backendWriter`.
-  const live = (await backendWriter({ ...env, DRAFT_FIRST: "" }, slug)).calls;
-  const wantsDb = !!(plan.spec || plan.seeds.length || plan.changes.length || plan.inserts.length);
-  let db = null;
-  if (wantsDb) {
-    db = await siteBackendBySlug(env, slug);
-    if (!db) {
-      const back = await siteBackendDetail(env, slug);
-      if (!back.conn) return { ok: false, stage: "database", error: "the site's database could not be reached" };
-      db = back.conn;
-    }
-  }
-  if (plan.spec) {
-    try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); }
-    catch (e) { return { ok: false, stage: "schema", error: errorClassForLog(e) }; }
-  }
-  if (plan.jobs) {
-    try { if (plan.jobs.length) await live.persistSiteJobs(env, uid, slug, plan.jobs); }
-    catch (e) { return { ok: false, stage: "jobs", error: errorClassForLog(e) }; }
-  }
-  for (const sd of plan.seeds) {
-    try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); }
-    catch (e) { return { ok: false, stage: "seed", error: errorClassForLog(e) }; }
-  }
-  for (const c of plan.changes) {
-    const name = String(c.table).replace(/"/g, "");
-    try {
-      if (c.op === "remove") await sqlQuery(db, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
-      else {
-        const cols = Object.keys(c.values || {});
-        if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
+async function runPublication(env, slug, j, etag) {
+  const deps = buildDeps(env);
+  const save = async (patch) => {
+    Object.assign(j, patch, { at: Date.now() });
+    const e = await writePublication(env, slug, j, etag);
+    if (!e) throw Object.assign(new Error("the publication was taken over"), { code: "TAKEN_OVER" });
+    etag = e;
+  };
+  const drop = async () => { try { const cur = await readPublication(env, slug); if (cur.etag === etag) await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug)); } catch { /* the sweep clears a stale one */ } };
+  const before = async (why, status = 409) => { await drop(); return { ok: false, status, live: "unchanged", error: why + " — nothing changed on your live site" }; };
+  const after = async (stage, why) => {
+    try { await save({ running: false, error: stage + ": " + why, attempts: j.attempts + 1 }); } catch { /* another runner has it */ }
+    return { ok: false, status: 502, live: "switched", stage, error: "your new version is live, but finishing its " + stage + " changes stopped — it is finished when you press Publish again, or automatically within a few minutes" };
+  };
+  try {
+    // ── WHAT THE CLICK NAMED, read again from the record: never anything newer.
+    let draft = null;
+    try { draft = (await readDraft(deps, slug)).draft; } catch { return before("the draft could not be read", 503); }
+    const rev = draft ? draft.revs.find((r) => r.n === j.n) : null;
+    if (!rev || rev.version !== j.version) return before("that revision is no longer in the draft");
+    let b = null;
+    try { b = await readBuild(deps, slug, j.version); } catch { b = null; }
+    if (!b || b.manifest.worker !== true || !b.worker) return before("that draft's build is not complete");
+    let range;
+    try { range = await heldRange(deps, slug, draft, { from: draft.applied, to: j.n }); }
+    catch { return before("the draft's held changes could not be read", 503); }
+    const pl = publishPlan(range.flatMap((r) => r.ops), { refs: draft.refs });
+    if (!pl.ok) return before(pl.error);
+    const plan = pl.plan;
+    const live = (await backendWriter({ ...env, DRAFT_FIRST: "" }, slug)).calls;
+    const wantsDb = !!(plan.spec || plan.seeds.length || plan.changes.length || plan.inserts.length);
+    const rename = plan.alias.filter((a) => a.action === "rename").pop() || null;
+
+    // ── PREFLIGHT AND PREPARE (nothing a visitor of the live version sees) ────
+    let db = null;
+    if (j.phase === "start") {
+      if (wantsDb) { db = await siteDbFor(env, slug); if (!db) return before("the site's database could not be reached", 503); }
+      if (rename) {
+        const taken = await addressTaken(env, slug, rename.to);
+        if (taken) return before("the address " + rename.to + " " + taken);
       }
-    } catch (e) { return { ok: false, stage: "rows", error: errorClassForLog(e) }; }
-  }
-  const refs = {};
-  if (plan.inserts.length) {
-    const key = "draft-publish:" + mark;
-    const rowsOf = (list) => { for (const r of list || []) { const i = Number(r.n); const row = typeof r.row === "string" ? JSON.parse(r.row) : r.row; if (plan.inserts[i] && row && Number.isSafeInteger(row.id)) refs[plan.inserts[i].ref] = row.id; } };
-    try {
-      const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
-      rowsOf(await sqlQuery(db, st.sql, st.params));
-    } catch (e) {
-      // ALREADY IN: this publication's key stands — a click that finished the
-      // rows and stopped later. Its ids are read from the key.
-      if (!(e && e.code === "23505")) return { ok: false, stage: "rows", error: errorClassForLog(e) };
-      try {
-        const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
-        const v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
-        rowsOf(v && Array.isArray(v.rows) ? v.rows.map((r) => ({ n: r.n, row: r.row })) : []);
-      } catch (e2) { return { ok: false, stage: "rows", error: errorClassForLog(e2) }; }
+      for (const m of plan.media) {
+        if (m.kind === "media-replace" && !(await env.SITES_BUCKET.head(uploadKey(slug, m.with))) && !(await env.SITES_BUCKET.head(uploadKey(slug, m.name)))) return before("a replacement file is missing");
+      }
+      // NEW TABLES AND THEIR STARTER ROWS: the live version reads none of them.
+      if (plan.spec && db) {
+        try {
+          const fresh = await newTablesOf(db, plan.spec);
+          if (fresh.length) {
+            await live.applySiteSchema(db, normalizeSchema({ tables: fresh }));
+            const names = new Set(fresh.map((t) => String(t.name).toLowerCase()));
+            for (const sd of plan.seeds) {
+              const only = Object.fromEntries(Object.entries(sd.seed || {}).filter(([k]) => names.has(String(k).toLowerCase())));
+              if (Object.keys(only).length) await live.seedSiteRows(db, normalizeSchema({ tables: fresh }), only);
+            }
+          }
+        } catch (e) { return before("the new tables could not be made (" + errorClassForLog(e) + ")", 502); }
+      }
+      await save({ phase: "prepared" });
     }
+
+    // ── THE SWITCH: the approved version, through the conditional activation ──
+    if (j.phase === "prepared") {
+      let ptr = null; let ptrTag = null;
+      try { const t = await readPointerTag(deps, slug); ptr = t.pointer; ptrTag = t.etag; }
+      catch { return before("the site's pointer could not be read", 503); }
+      // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
+      let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
+      if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
+      if (!ptr || ptr.version !== j.version) {
+        let wput = null;
+        const act = await activateBuild(deps, {
+          slug, version: j.version, build: b.manifest.build || "", parent: ptr ? ptr.version : "", job: null,
+          expectEtag: ptrTag, previous: ptr || null,
+          sidecar, sidecarKey: siteMetaKey(slug),
+          liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+          putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }); return wput; },
+        });
+        _pointerCache.delete(slug);
+        if (!act.ok) {
+          console.error("publish: the switch stopped", slug, j.n, act.error);
+          return before(act.error === "superseded" ? "the site changed while publishing" : "the new version didn't go live (" + String(act.error) + ")");
+        }
+      } else if (rename) {
+        // THE SAME VERSION ALREADY LIVE (a revision of held changes only): its
+        // address is written to the live sidecar here.
+        try {
+          const cur = await env.SITES_BUCKET.get(siteMetaKey(slug));
+          const side = sidecarOf(cur ? await cur.text() : null);
+          side.origin = addressOf(rename.to);
+          await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+        } catch (e) { return before("the site's address could not be set (" + errorClassForLog(e) + ")", 502); }
+      }
+      await save({ phase: "switched", done: [] });
+    }
+
+    // ── FINISH: roll forward, step by recorded step ──────────────────────────
+    if (j.phase === "switched") {
+      const did = (s) => j.done.includes(s);
+      const mark = async (s, extra = {}) => save({ done: [...j.done, s], error: null, ...extra });
+      if (!did("address")) {
+        for (const a of plan.alias) {
+          const r = await applyHeldAlias(env, slug, a, { uid: j.uid });
+          if (!r.ok) return after("address", r.error);
+        }
+        await mark("address");
+      }
+      if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return after("database", "the site's database could not be reached"); }
+      if (!did("schema")) {
+        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return after("schema", errorClassForLog(e)); } }
+        await mark("schema");
+      }
+      if (!did("jobs")) {
+        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return after("jobs", errorClassForLog(e)); } }
+        await mark("jobs");
+      }
+      if (!did("seeds")) {
+        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return after("seeds", errorClassForLog(e)); } }
+        await mark("seeds");
+      }
+      if (!did("changes")) {
+        for (const c of plan.changes) {
+          const name = String(c.table).replace(/"/g, "");
+          try {
+            if (c.op === "remove") await sqlQuery(db, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
+            else {
+              const cols = Object.keys(c.values || {});
+              if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
+            }
+          } catch (e) { return after("changes", errorClassForLog(e)); }
+        }
+        await mark("changes");
+      }
+      if (!did("inserts")) {
+        const refs = {};
+        if (plan.inserts.length) {
+          // ONE STATEMENT BESIDE THIS PUBLICATION'S `_meta` KEY: a second run
+          // collides and rolls back, and reads the first run's ids from the key.
+          const key = "draft-publish:" + (draft.preview || slug) + ":" + j.n;
+          const rowsOf = (list) => { for (const r of list || []) { const i = Number(r.n); const row = typeof r.row === "string" ? JSON.parse(r.row) : r.row; if (plan.inserts[i] && row && Number.isSafeInteger(row.id)) refs[plan.inserts[i].ref] = row.id; } };
+          try {
+            const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
+            rowsOf(await sqlQuery(db, st.sql, st.params));
+          } catch (e) {
+            if (!(e && e.code === "23505")) return after("inserts", errorClassForLog(e));
+            try {
+              const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
+              const v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
+              rowsOf(v && Array.isArray(v.rows) ? v.rows.map((r) => ({ n: r.n, row: r.row })) : []);
+            } catch (e2) { return after("inserts", errorClassForLog(e2)); }
+          }
+        }
+        await mark("inserts", { refs: { ...j.refs, ...refs } });
+      }
+      if (!did("library")) {
+        for (const m of plan.media) {
+          const r = await applyHeldMedia(env, slug, m, { uid: j.uid });
+          if (!r.ok) return after("library", r.error);
+        }
+        await mark("library");
+      }
+      const m = await markApplied(deps, slug, { revision: j.n, refs: j.refs });
+      if (!m.ok) return after("record", m.error || "the draft could not be marked published");
+      await save({ phase: "finished", running: false });
+      await drop();
+    }
+    return { ok: true, version: j.version, revision: j.n };
+  } catch (e) {
+    if (e && e.code === "TAKEN_OVER") return { ok: false, status: 409, error: "another publication took over — look again in a moment" };
+    console.error("publish: stopped", slug, j.n, j.phase, errorClassForLog(e));
+    if (j.phase === "switched") return after("finish", errorClassForLog(e));
+    return before("publishing stopped (" + errorClassForLog(e) + ")", 502);
   }
-  for (const m of plan.media) {
-    const r = await applyHeldMedia(env, slug, m, { uid });
-    if (!r.ok) return { ok: false, stage: "library", error: r.error };
+}
+
+/** Is the address `name` taken by anyone but this site? "" when free, else why not. */
+async function addressTaken(env, slug, name) {
+  if (!siteHostFor(name)) return "cannot be used";
+  if (name !== slug && await siteOwnerBySlug(name, env)) return "is taken";
+  const row = await aliasRowFor(env, name);
+  if (row === null) return "could not be checked";
+  if (row && row !== NO_ALIAS && row.slug !== slug) return "is taken";
+  return "";
+}
+/** Write one alias row (an upsert by name): null on success, else the store's words. */
+async function putAliasRow(env, row) {
+  const w = await fetch(`${SUPABASE_URL}/rest/v1/site_aliases`, {
+    method: "POST",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
+    body: JSON.stringify(row),
+    signal: AbortSignal.timeout(15000),
+  });
+  return w.ok ? null : (await w.text().catch(() => "")).slice(0, 200) || "refused";
+}
+/** One held address change, made live. Each is safe to repeat (upserts; a forget of a name already gone is done). */
+async function applyHeldAlias(env, slug, a, { uid = "" } = {}) {
+  try {
+    if (a.action === "rename") {
+      const rows = renameRows({ slug, uid, from: a.from, to: a.to });
+      if (!rows) return { ok: false, error: "the address is not a usable name" };
+      const bad = (await putAliasRow(env, rows.demote)) || (await putAliasRow(env, rows.promote));
+      if (bad) return { ok: false, error: bad };
+      forgetAlias(slug, a.from, a.to);
+      return { ok: true };
+    }
+    if (a.action === "forget") {
+      const d = await fetch(
+        `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(a.name)}&slug=eq.${encodeURIComponent(slug)}&current=is.false`,
+        { method: "DELETE", headers: svcHeaders(env), signal: AbortSignal.timeout(15000) });
+      if (!d.ok) return { ok: false, error: (await d.text().catch(() => "")).slice(0, 200) || "refused" };
+      forgetAlias(slug, a.name);
+      return { ok: true };
+    }
+  } catch (e) { return { ok: false, error: errorClassForLog(e) }; }
+  return { ok: true };
+}
+
+/**
+ * PUBLISH EXACTLY THE REVISION THE OWNER APPROVED. Only the owner's own route
+ * calls this. The click names a revision (and its version, a cross-check);
+ * the journal then holds that revision, and every resumption — a second
+ * click, the recovery sweep — runs that one and no other. In order:
+ *   1. the revision is one the draft record holds; at or below `applied` it
+ *      is `already`;
+ *   2. the journal standing decides (`clickPlan`): a publication running now
+ *      answers 202 (the same revision) or 409; one that stopped is resumed; one
+ *      of another revision that already switched is FINISHED first (it was
+ *      approved, and its version is live); one that stopped before its switch
+ *      is set aside (nothing of it is live);
+ *   3. the phases run (`runPublication`).
+ */
+async function publishDraft(env, slug, pick, { uid = "" } = {}) {
+  const deps = buildDeps(env);
+  if (typeof pick === "string") pick = { version: pick };
+  let draft = null;
+  try { draft = (await readDraft(deps, slug)).draft; }
+  catch { return { ok: false, status: 503, error: "the draft could not be read — nothing was published" }; }
+  const c = chooseRevision(draft, pick || {});
+  if (!c.ok) return { ok: false, status: c.status, error: c.error };
+  const rev = c.rev;
+  for (let i = 0; i < 4; i++) {
+    let cur;
+    try { cur = await readPublication(env, slug); }
+    catch { return { ok: false, status: 503, error: "the publication record could not be read — nothing was published" }; }
+    if (cur.unreadable) return { ok: false, status: 503, error: "the publication record could not be read — nothing was published" };
+    const what = clickPlan(cur.j, rev.n, { staleMs: PUBLISH_STALE_MS });
+    if (what === "busy") {
+      return cur.j.n === rev.n
+        ? { ok: false, status: 202, publishing: true, error: "that revision is already being published" }
+        : { ok: false, status: 409, error: "another revision is being published right now — wait for it to finish" };
+    }
+    if (what === "resume" || what === "finishFirst") {
+      const j = { ...cur.j, running: true, at: Date.now(), id: crypto.randomUUID(), uid: cur.j.uid || uid };
+      const etag = await writePublication(env, slug, j, cur.etag);
+      if (!etag) continue;
+      const r = await runPublication(env, slug, j, etag);
+      if (what === "resume") return r;
+      if (!r.ok) return { ...r, error: "the revision published before this one had to be finished first, and " + r.error };
+      continue;
+    }
+    // ALREADY PUBLISHED: read again, since a publication finished just above may have reached it.
+    let now = draft;
+    try { now = (await readDraft(deps, slug)).draft || draft; } catch { now = draft; }
+    if (now && rev.n <= now.applied) return { ok: true, version: rev.version, revision: rev.n, already: true };
+    const j = newJournal({ slug, n: rev.n, version: rev.version, uid, id: crypto.randomUUID() });
+    const etag = await writePublication(env, slug, j, what === "replace" ? cur.etag : null);
+    if (!etag) continue;
+    return runPublication(env, slug, j, etag);
   }
-  return { ok: true, refs };
+  return { ok: false, status: 409, error: "the publication kept changing under this click — look again in a moment" };
+}
+
+/**
+ * THE RECOVERY SWEEP (the 2-minute tick): a publication whose runner stopped
+ * or died AFTER its switch is finished — the approved revision, from its
+ * journal, never another; one that stopped before its switch, with nothing of
+ * it live, is set aside. It never begins a publication.
+ */
+async function runPublishRecovery(env, { now = Date.now(), max = 10 } = {}) {
+  if (!env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { finished: 0, cleared: 0 };
+  let finished = 0, cleared = 0;
+  const page = await env.SITES_BUCKET.list({ prefix: PUBLISHING_PREFIX, limit: 200 });
+  for (const o of (page.objects || []).slice(0, max)) {
+    const slug = String(o.key).slice(PUBLISHING_PREFIX.length).replace(/\.json$/, "");
+    let cur;
+    try { cur = await readPublication(env, slug); } catch { continue; }
+    if (!cur.j || journalLive(cur.j, { now, staleMs: PUBLISH_STALE_MS })) continue;
+    if (cur.j.phase !== "switched") {
+      if (cur.j.at < now - PUBLISH_STALE_MS) { try { await env.SITES_BUCKET.delete(PUBLISHING_KEY(slug)); cleared++; } catch { /* next tick */ } }
+      continue;
+    }
+    const j = { ...cur.j, running: true, at: now, id: crypto.randomUUID() };
+    const etag = await writePublication(env, slug, j, cur.etag);
+    if (!etag) continue;
+    const r = await runPublication(env, slug, j, etag);
+    if (r.ok) finished++;
+    else console.error("publish recovery: not finished yet", slug, j.n, r.stage || "", r.error || "");
+  }
+  return { finished, cleared };
 }
 
 /** One held library change, made live. Each is safe to repeat. */
@@ -12519,80 +12773,6 @@ async function applyHeldMedia(env, slug, m, { uid = "" } = {}) {
     }
   } catch (e) { return { ok: false, error: errorClassForLog(e) }; }
   return { ok: true };
-}
-
-/**
- * PUBLISH EXACTLY THE REVISION THE OWNER APPROVED (draft-first, 2026-10-15).
- *
- * The click names a revision (and its version, a cross-check); nothing newer
- * is reached for. Only the owner's own route calls this — no task, retry,
- * recovery, reconnect or background completion can. In order:
- *   1. the revision is one the draft record holds, and its build is complete;
- *   2. one publication at a time (`takePublishLock`): a second click on the
- *      same revision is told it is under way;
- *   3. the held changes of every unpublished revision up to and including it
- *      are applied to the live database and library (`applyHeldPlan`);
- *   4. its version is activated through the same conditional activation,
- *      the script following the pointer;
- *   5. the draft record says it is published (`applied`).
- * A stop at any step answers what stopped, and Publish pressed again finishes
- * it. Staged builds never change, so a task still running, or an edit made
- * after, is a later revision and cannot slip in. The editable copy is not
- * touched: it holds the draft, which may already be newer than what was
- * approved.
- */
-async function publishDraft(env, slug, pick, { uid = "" } = {}) {
-  const deps = buildDeps(env);
-  if (typeof pick === "string") pick = { version: pick };
-  let draft = null;
-  try { draft = (await readDraft(deps, slug)).draft; }
-  catch { return { ok: false, status: 503, error: "the draft could not be read — nothing was published" }; }
-  const c = chooseRevision(draft, pick || {});
-  if (!c.ok) return { ok: false, status: c.status, error: c.error };
-  const rev = c.rev;
-  const version = rev.version;
-  if (c.already) return { ok: true, version, revision: rev.n, already: true };
-  let b = null;
-  try { b = await readBuild(deps, slug, version); } catch { b = null; }
-  if (!b || b.manifest.worker !== true || !b.worker) return { ok: false, status: 409, error: "that draft's build is not complete — nothing was published" };
-  const lock = await takePublishLock(env, slug, rev.n);
-  if (!lock.ok) return { ok: false, status: lock.status, error: lock.error, publishing: lock.publishing === true };
-  try {
-    let range;
-    try { range = await heldRange(deps, slug, draft, { from: draft.applied, to: rev.n }); }
-    catch { return { ok: false, status: 503, error: "the draft's held changes could not be read — nothing was published" }; }
-    const pl = publishPlan(range.flatMap((r) => r.ops), { refs: draft.refs });
-    if (!pl.ok) return { ok: false, status: 409, error: pl.error + " — nothing was published" };
-    const back = await applyHeldPlan(env, slug, pl.plan, { uid, mark: (draft.preview || slug) + ":" + rev.n });
-    if (!back.ok) {
-      console.error("publish: held changes stopped", slug, rev.n, back.stage, back.error);
-      return { ok: false, status: 502, stage: back.stage, error: "publishing stopped while applying the " + back.stage + " changes — press Publish again to finish; the site's pages are unchanged" };
-    }
-    let before = null; let beforeTag = null;
-    try { const t = await readPointerTag(deps, slug); before = t.pointer; beforeTag = t.etag; }
-    catch { return { ok: false, status: 503, stage: "pages", error: "the site's pointer could not be read — press Publish again to finish" }; }
-    let wput = null; let uploaded = false;
-    if (!before || before.version !== version) {
-      const act = await activateBuild(deps, {
-        slug, version, build: b.manifest.build || "", parent: before ? before.version : "", job: null,
-        expectEtag: beforeTag, previous: before || null,
-        sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
-        liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
-        putWorker: async () => { wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version }); return wput; },
-      });
-      _pointerCache.delete(slug);
-      if (!act.ok) {
-        console.error("publish: activation stopped", slug, rev.n, act.error);
-        return { ok: false, status: 409, stage: "pages", error: act.error === "superseded"
-          ? "the site changed while publishing — press Publish again to finish"
-          : "the new version didn't go live (" + String(act.error) + ") — your live site still shows the previous version; press Publish again to finish" };
-      }
-      uploaded = act.uploaded;
-    }
-    const m = await markApplied(deps, slug, { revision: rev.n, refs: back.refs });
-    if (!m.ok) console.error("publish: the draft record could not be marked published", slug, rev.n, m.error);
-    return { ok: true, version, revision: rev.n, uploaded, worker: wput && wput.ok === false ? { uploaded: false, status: wput.status } : undefined };
-  } finally { await releasePublishLock(env, slug, lock); }
 }
 
 /**
@@ -13368,7 +13548,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
-export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, applyHeldPlan, siteIsLive, heldDeleteOr };
+export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr };
 export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -32930,7 +33110,23 @@ async function handleRequest(request, env, ctx) {
               // was rejected — briefly: R2 has no rename, so the copy is a loop
               // of PUTs with no transaction, and the alias record it would still
               // need is the entire feature on its own.
-              const current = await publicNameFor(env, ownerSlug);
+              // DRAFT-FIRST (2026-10-15): on a published site a change of address
+              // asked in chat is HELD — the live address, its aliases, its
+              // redirects and the sidecar's origin move only when the revision
+              // carrying it is published. The address the draft has is the one
+              // this message is about.
+              const nWriter = await backendWriter(env, ownerSlug);
+              let nView = null;
+              if (nWriter.on) {
+                try { nView = await draftView(env, ownerSlug); }
+                catch (e) { console.error("rename: draft unreadable", ownerSlug, errorClassForLog(e)); return explain("rename/rename-store", {}, { detail: "draft" }); }
+              }
+              const liveName = await publicNameFor(env, ownerSlug);
+              const current = nView ? addressOverlay(liveName, nView.ops) : liveName;
+              const nSeal = async (op) => {
+                nWriter.hold.add(op);
+                return sealHeld(env, ownerSlug, nWriter, { job: eJob ? String(eJob.id) : null });
+              };
 
               // NOTHING IS GUESSED. Every other lane biases toward acting,
               // because a wrong edit is visible and undoable. This one is
@@ -32971,6 +33167,25 @@ async function handleRequest(request, env, ctx) {
                 if (drop === current) {
                   return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
                     msg: aliasRefusal(drop, { live: true }) }, { status: 422 });
+                }
+                // HELD: the old address keeps answering until Publish. It must
+                // be one of this site's old addresses now, or the draft's
+                // own previous name.
+                if (nWriter.holding) {
+                  const row = await aliasRowFor(env, drop);
+                  const ours = (row && row !== NO_ALIAS && row.slug === ownerSlug) || drop === liveName;
+                  if (row === null) return explain("rename/rename-store", {}, { detail: "alias read" });
+                  if (!ours) {
+                    return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
+                      msg: aliasRefusal(drop, { stranger: true }) }, { status: 422 });
+                  }
+                  const sealed = await nSeal({ kind: "alias", action: "forget", name: drop });
+                  if (!sealed.ok) return Response.json({ ok: false, layer: "rename", error: "draft", ours: true, cost: await eCharge(rUsage), msg: "I couldn't save that to your draft just now, so nothing changed — try again in a moment." }, { status: 503 });
+                  const gone = siteHostFor(drop);
+                  return Response.json({
+                    ok: true, layer: "rename", forgotInDraft: drop, draft: heldDraft(sealed.revision), cost: await eCharge(rUsage),
+                    msg: "When you publish, " + (gone || drop) + " will stop answering. Until then it still works.",
+                  });
                 }
                 const d = await fetch(
                   `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(drop)}&slug=eq.${encodeURIComponent(ownerSlug)}&current=is.false`,
@@ -33042,6 +33257,16 @@ async function handleRequest(request, env, ctx) {
               if (!rows) {
                 return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
                   msg: aliasRefusal(wanted, {}) || "That name will not work as a web address." }, { status: 422 });
+              }
+              // HELD: the live address, its aliases and the sidecar move at Publish.
+              if (nWriter.holding) {
+                const sealed = await nSeal({ kind: "alias", action: "rename", from: current, to: wanted });
+                if (!sealed.ok) return Response.json({ ok: false, layer: "rename", error: "draft", ours: true, cost: await eCharge(rUsage), msg: "I couldn't save that to your draft just now, so nothing changed — try again in a moment." }, { status: 503 });
+                const addrH = siteHostFor(wanted);
+                return Response.json({
+                  ok: true, layer: "rename", renamedInDraft: wanted, draft: heldDraft(sealed.revision), cost: await eCharge(rUsage),
+                  msg: "When you publish, your site moves to " + (addrH || wanted) + " and " + (siteHostFor(liveName) || liveName) + " will send people there. Until then it stays at " + (siteHostFor(liveName) || liveName) + ".",
+                });
               }
               // THE OLD NAME FIRST, THE NEW ONE SECOND, and the ORDER is the
               // recovery story rather than style — see `renameRows`. A failure
@@ -42018,11 +42243,22 @@ async function handleRequest(request, env, ctx) {
               // shows and what a click may name. A revision's code is ready
               // when its version's build is complete.
               const revisions = draft ? draft.revs.filter((r) => r.n > draft.applied).map((r) => ({ revision: r.n, version: r.version, at: r.at, held: r.ops })) : [];
+              // THE ADDRESS: the one visitors use now, and the one the draft moves it to.
+              let address = null;
+              try {
+                const liveName = await publicNameFor(env, ownerSlug);
+                const ops = draft ? await unpublishedOps(buildDeps(env), ownerSlug, draft) : [];
+                address = { live: liveName, draft: addressOverlay(liveName, ops) };
+              } catch { address = null; }
               return {
                 ...st, runningKnown: running !== null, enabled: draftFirst(env),
                 preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
                 saved: draft ? draft.history.concat(draft.version) : [],
                 revisions, publishing: publishing ? publishing.revision : null,
+                // THE PUBLICATION STANDING: its revision, its phase, whether a
+                // runner has it now, and — after its switch — what stopped it.
+                publication: publishing || null,
+                address,
               };
             };
             if (dr && request.method === "GET") {
@@ -42038,7 +42274,7 @@ async function handleRequest(request, env, ctx) {
               const revision = pbody && Number.isSafeInteger(pbody.revision) ? pbody.revision : null;
               if (!version && revision === null) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
-              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, publishing: r.publishing === true, state: await readState() }, { status: r.status || 409 });
+              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, state: await readState() });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });

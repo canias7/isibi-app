@@ -1054,7 +1054,7 @@ test("DF5 THE DRAFT'S PREVIEW — its address serves the draft script with the p
   } finally { await finish(P, compiler, siteTurn, null); }
 });
 
-test("DF6 EVERY ACTIVATION A TASK REACHES CARRIES THE DRAFT GATE — of the activation call sites, only the owner's Publish (publishDraft) and the owner's version restore (restoreVersion) activate without `asDraft`; the edit/add-on publication and the build pass it", async () => {
+test("DF6 EVERY ACTIVATION A TASK REACHES CARRIES THE DRAFT GATE — of the activation call sites, only the owner's Publish (its phased runner, runPublication, called by publishDraft and the recovery sweep alone) and the owner's version restore (restoreVersion) activate without `asDraft`; the edit/add-on publication and the build pass it", async () => {
   const fs = await import("node:fs");
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const sites = [...src.matchAll(/await activateBuild\(/g)].map((m) => {
@@ -1065,7 +1065,13 @@ test("DF6 EVERY ACTIVATION A TASK REACHES CARRIES THE DRAFT GATE — of the acti
   });
   assert.equal(sites.length, 4, "the activation call sites moved — rescope this: " + JSON.stringify(sites));
   const ungated = sites.filter((x) => !x.gated).map((x) => x.name).sort();
-  assert.deepEqual(ungated, ["publishDraft", "restoreVersion"], "an activation a task reaches is not behind the draft gate: " + JSON.stringify(sites));
+  assert.deepEqual(ungated, ["restoreVersion", "runPublication"], "an activation a task reaches is not behind the draft gate: " + JSON.stringify(sites));
+  // THE RUNNER IS REACHED FROM THE OWNER'S CLICK AND THE SWEEP THAT FINISHES IT, NOTHING ELSE.
+  const callers = [...src.matchAll(/await runPublication\(/g)].map((m) => {
+    const fn = src.lastIndexOf("\nasync function ", m.index);
+    return /\nasync function ([A-Za-z0-9_]+)/.exec(src.slice(fn, fn + 80))[1];
+  });
+  assert.deepEqual([...new Set(callers)].sort(), ["publishDraft", "runPublishRecovery"], "the publication runner has another caller: " + JSON.stringify(callers));
   for (const x of sites.filter((y) => y.gated)) assert.ok(["recompileAndPublish", "buildAndPublishPages"].includes(x.name), x.name);
 });
 
