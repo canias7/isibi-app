@@ -1,6 +1,151 @@
 # Owner Notes
 
 
+## Proposal for your decision — one live verification batch (2026-10-15; nothing pressed, merged, deployed, built or switched)
+
+Codex reviewed through `894c3648` and confirmed the ten failures resolved
+(unit CI 38661901805: `10976 / 10932 / 0 / 44`; site build green). Unit CI
+on `894c3648` itself (run 38662596251) read `10976 / 10932 / 0 / 44`. **This is one batch to
+approve or decline, not another testing cycle.** Full detail: §9 of
+`docs/history/2026-10-14-combined-candidate.md`.
+
+**What is already proven live, and not paid for again:**
+- **Build parallel bands:** Press A ran eight bands at once (630,741 ms of
+  calls in a 210,592 ms wave), in dependency order, with each charge taken
+  once.
+- **Edit/Add-on reconnect:** Press B closed the tab mid-request and a fresh
+  session followed it to the end.
+- **Menu links really placed:** every menu carried `/bulk-orders` (Press
+  B).
+
+The Build press below still measures these again as a side effect; nothing
+extra is bought for them.
+
+**Two facts that bound what this batch can show:**
+- **Inside one Edit/Add-on request, two writing jobs never run at the same
+  time, by design.** The driver files one write at a time and runs
+  preparations beside it (`nextStep`, `PREP_MAX_LIVE`). So this batch can
+  show *preparation overlapping a write*, never two writes overlapping.
+  Execution overlap exists only inside a Build (bands) and inside one job
+  (designers). It is reported as such.
+- **A late completed-work summary is not live narration.** "Narration
+  worked" needs a line that was live on its own running part. A late line
+  shows only that the summary was written.
+
+### Step 0 — prerequisites (free, each one yours)
+
+1. **One scripts-only commit on this branch**, reviewed before the merge:
+   - the Build spec's slug changes to `ferry-lane-deli` with its own
+     image-free brief. `saltmarsh-cheese-lewes` is now a live site; the new
+     address answered 404 today, and the press reads the slug free three
+     ways before it sends;
+   - one new Edit/Add-on scenario, `acc-mixed-2`, holding the message and
+     expectations below;
+   - the two paid opt-ins opened: `BALANCE_OPT_IN`, and
+     `BUILD_BALANCE_OPT_IN` (the balance, 726, is above the press's
+     100-credit cap). They are closed again straight after, as `f1b81477`
+     did.
+2. **The merge:** fast-forward `main` to that commit. One deploy follows.
+3. **One container image build is required:** predicted `e1582f6f71a41dfb`
+   → `e420b3c2d3224dd3` (207 inputs). Then the 15–20 minute image window.
+4. **Your free runtime check:** both readers on the new sha; a cold
+   container on `e420b3c2d3224dd3`; `imagePurchases=false`,
+   `progressTalk=true`, `jobProgressTalk=true`. `IMAGE_PURCHASES` stays off
+   and `PROGRESS_TALK` on.
+
+### Press 1 — an image-free first Build (*build as owner*, `check-no-images`)
+
+**Request:** slug `ferry-lane-deli`. Brief: *"I run a small deli called
+Ferry Lane on the quay in Falmouth. We make sandwiches to order, sell
+Cornish cheeses, cured meats and a few local ciders, and do party platters
+if people order a day ahead. We're open Monday to Saturday, eight till
+four. I want one page that says what we sell, when we're open and how to
+order a platter. No photographs please, just words, a clear layout and our
+platter prices: small £30, medium £45, large £65."*
+
+**Passes only if all of these hold:**
+
+| Area | Condition |
+|---|---|
+| Early acceptance | The send is answered **202 `stage: "accepted"` with its job within 60 s** (`buildSendVerdict`): acceptance `prompt`, never just recovered. Finding the build by attempt key mid-send (`discovered`) is recorded, but does not pass this row. |
+| Live narration | At least one model-written line is read **while the build is running** (a 202 poll), attributed to this job. |
+| Retained after completion | Every line read during the build is in the final answer, unchanged. |
+| Retained on reconnect | A fresh session listing the account's builds reads every line, unchanged (`relisted`). |
+| Narration measured | The usage step reports this job's narration calls and tokens, or says plainly that it could not read them. |
+| Build parallelism (re-measured) | Bands overlap, and dependency order holds. |
+| Money | Only this job's own charges, each taken once (deposit, settle, pages); no resend. |
+| Shape | One page, no images, at most 15 components. |
+
+**Expected cost:** about 24 credits (Press A spent 24; range 11–45). The
+press stops itself above its budget, 45.
+
+### Press 2 — one compact mixed Edit/Add-on message (*edit canary*, `acc-mixed-2`, on `fold-lane-bakery`, tab closed mid-request and followed in a fresh session)
+
+**Message:** *"Add a Gift Vouchers page explaining that vouchers come in
+£10, £25 and £50, are sold at the counter, and never expire. Once that page
+exists, add a line on the Visit page telling people they can buy gift
+vouchers, linking to the new page. And change the Olive & Rosemary's price
+back to £5.80."*
+
+`/gift-vouchers` answered 404 today, so the page is new. The price is 5.90
+since Press B, so this also puts it back.
+
+**Intended parts:**
+- P0: the add-on, a new page.
+- P1: a Visit-page edit that needs P0 (a genuine dependency: it links to a
+  page that does not exist yet).
+- P2: the price, independent.
+
+What the real router makes of the message is **recorded, never forced**.
+
+**Passes only if all of these hold:**
+
+| Area | Condition |
+|---|---|
+| Outcome | `/gift-vouchers` is live with £10/£25/£50, counter and never-expire. `/visit` gains a line linking to it, with everything else kept. The Olive & Rosemary row reads 5.8, and no other row changes. One publish per page-writing part; no duplicate job for any part. |
+| Independent **preparation** overlap | P2's routing (and, once routed, its data step) is **prepared while P0's job is writing**: a prep start earlier than P0's job end. Its job then **replays** the prepared answer exactly, with no fresh model call for that step. |
+| Independent **execution** | P2's job starts after P0's write ends (one write at a time, by design), with no 370 s-style wait: it is filed as soon as the site's write slot frees. **Overlapping execution is not claimed.** |
+| Dependent task waits | If the router names P1 → P0: P1 is never filed, running or finished before P0 is done, and starts after it. If the router folds P1 into P0, this row is **"not exercised"**, never passed. |
+| Live narration | A model-written line is shown live on its own running part in the sending tab before the tab closes (`progressChecks`). A late line never satisfies this. |
+| Retained after reconnect | The fresh session shows every line the sending tab showed, and each part's line for having finished. |
+| Late summaries | Any `late` line is listed separately in the report as a completed-work summary, built only from facts that hold after the job ended. |
+| Menu-link reporting | The reply's account of the new page's menu link matches the published menus as read. A link carried by any menu that was read is "set up"; a link only unreadable menus could show is "not verified"; it is never "not done" while a read menu carries it. No contradiction within the reply. |
+| Talk checks | No completion claim without evidence. An action under way ("I'm publishing now") is judged against the final checks, never as a false completion. |
+| Money | The press's own charges only: routing and each part's job, each taken once, with every reserve refunded or settled. |
+
+**Expected cost:** about 20–35 credits (routing 1–3; add-on 12–18;
+Visit-edit routing 1–3 and its job 1–2, or 6–22 if it climbs to the page
+rung; price routing 1–3 and data 1). Press B, the closest message, spent
+23. The scenario's own budget is 34. **Narration is platform-paid and
+measured separately** (Press B's: about 2.6 credits).
+
+**Batch total:** expected about 45–60 credits, at most about 80 by the
+presses' own budgets. **The balance, 726, is the only hard bound.**
+
+### What this batch cannot cover, said plainly
+
+- **Two writes executing at the same time inside one Edit/Add-on request:**
+  not a feature (one write at a time per request). Only preparation overlap
+  is shown.
+- **The dependent task waiting**, if the real router folds the Visit line
+  into the add-on: then "not exercised". The driver's offline tests remain
+  the only proof.
+- **"Not verified" menu links** appear only if some menus cannot be read
+  back. That cannot be arranged honestly; if every menu reads, only the
+  "set up" path is shown.
+- **Live narration on a very short job** (the price change may finish
+  before its writer speaks): it may show only a late summary, which is
+  recorded as late, not as live.
+- **The old 18-minute unanswered POST:** its root cause is not established
+  and is not reproducible on demand. Early acceptance is the correction
+  being verified.
+- **A held part with no named writes** still waits for a page-writing part.
+  That is by design, and not tested here.
+
+**The decision asked of you:** approve Step 0 through Press 2 as written
+(about 45–60 credits expected, one image build, the opt-ins opened and then
+closed), or decline. Nothing else is proposed.
+
 ## Current handoff — read this first (2026-10-15: the live batch's findings fixed together offline, and Codex's review of `fd0a5f42` answered; nothing spent, deployed, built or switched; the branch is unmerged)
 
 **Where it stands:**

@@ -753,3 +753,28 @@ workflow path. Eight were stale expectations. Beyond fixing them:
   `e420b3c2d3224dd3`.
 - **The old 18-minute POST:** early acceptance is the implemented
   correction. Its root cause is still not established.
+
+## 9. The proposed live verification batch (2026-10-15; not pressed)
+
+The proposal, the pass conditions and the budget are in the owner-notes
+section "Proposal for your decision". The design facts it rests on, read
+in code:
+- `nextStep` (`builder/request.mjs`) files the next write only when no job
+  of the request is live (`!live`). Preparations run beside it, up to
+  `PREP_MAX_LIVE`. So inside one Edit/Add-on request, independent parts
+  overlap in preparation, never in execution. Execution overlap exists in a
+  Build's bands (Press A: 630,741 ms of calls in a 210,592 ms wave) and
+  inside one job's designers.
+- The live footer of `fold-lane-bakery` already lists every page, Bulk
+  Orders included, so a "link in the menu/footer" part is likely folded
+  into the add-on (as Press B's was). The proposed dependent task is
+  instead an edit to an existing page (`/visit`) that links to the new
+  page.
+- Read free on 2026-10-15: `fold-lane-bakery.gofarther.app/gift-vouchers`
+  404; `/bulk-orders` 200; `saltmarsh-cheese-lewes.gofarther.app` 200 (now a
+  live site, so the Build spec needs a new slug);
+  `ferry-lane-deli.gofarther.app` 404.
+- The image prediction for the code head `470223cb` is `e420b3c2d3224dd3`,
+  against production's `e1582f6f71a41dfb`, so one image build is required.
+- CI: unit on `0f50792a` `10976 / 10932 / 0 / 44` (run 38661901805), site
+  build green; unit on `894c3648` `10976 / 10932 / 0 / 44` (run 38662596251).
