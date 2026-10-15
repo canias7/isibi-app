@@ -2249,10 +2249,10 @@ export function capRefusal({ now, cap }) {
 // `acc-isolation-page` (run 144), `acc-isolation` (run 141), the
 // K0/K/E/M0/M batch and P1/P2, all closed. It admits no press now: every
 // press is bound by its cap until the owner names a new one.
-// OPEN FOR ONE RUN (2026-10-15, the owner: "Approved — do Step 0 through
-// Press 2 as written"). It admits `acc-mixed-2` alone, and is closed again
-// by commit after that run.
-export const BALANCE_OPT_IN = Object.freeze(["acc-mixed-2"]);
+// CLOSED AGAIN (2026-10-15, after its one approved run: acc-mixed-2, run
+// 38744698638; an earlier press, run 38744259761, refused before the
+// sign-in on the wrong site box and spent nothing). It admits no press now.
+export const BALANCE_OPT_IN = Object.freeze([]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";

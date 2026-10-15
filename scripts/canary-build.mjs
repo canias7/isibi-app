@@ -646,11 +646,10 @@ export function slugFreeVerdict(existing) {
  * CLOSED: it admits no mode. Not a budget: the build may spend up to the
  * whole balance; the server is the only bound.
  */
-// OPEN FOR ONE RUN (2026-10-15, the owner: "Approved — do Step 0 through
-// Press 2 as written"). It admits `check-no-images` alone, and is closed
-// again by commit after that run. Before: run 117, then Press A
-// (run 38646089624), each closed after it.
-export const BUILD_BALANCE_OPT_IN = Object.freeze(["check-no-images"]);
+// CLOSED (2026-10-15, after its one approved run: Press 1 of the
+// verification batch, run 38742390550). It admits no mode now. Before:
+// run 117, then Press A (run 38646089624), each closed after it.
+export const BUILD_BALANCE_OPT_IN = Object.freeze([]);
 
 /** The box, read before the sign-in: blank (`value` null), a whole number for an admitted mode, or a refusal (`ok` false). */
 export function readBuildOptIn(raw, { mode = "", admitted = BUILD_BALANCE_OPT_IN } = {}) {
