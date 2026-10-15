@@ -26,6 +26,7 @@ import {
 } from "../scripts/media-verify.mjs";
 
 const FIX = new URL("./fixtures/media/", import.meta.url).pathname;
+const JOB = "0123456789abcdef0123456789abcdef";
 const EXE = "/opt/pw-browsers/chromium";
 let chromium = null;
 try { ({ chromium } = await import("playwright-core")); } catch { chromium = null; }
@@ -222,6 +223,8 @@ test("THE BUILD MODE follows an early-accepted build by its poll and judges its 
   let balance = 200;
   let polls = 0;
   const said = [];
+  const rows = [];
+  const ledger = { last: async () => ({ ok: true, id: rows.length }), window: async (from, to) => ({ ok: true, complete: true, rows: rows.filter((x) => x.id > from && x.id <= to) }) };
   const fake = async (url, init = {}) => {
     const u = new URL(url);
     const p = u.pathname;
@@ -233,11 +236,12 @@ test("THE BUILD MODE follows an early-accepted build by its poll and judges its 
     if (p === "/api/media/drafts" && init.method === "POST") return j({ ok: true, session: (said.length.toString(16) + "0".repeat(32)).slice(0, 32), parts: 1, partBytes: 8388608 }, 201);
     if (/^\/api\/media\/drafts\/[a-f0-9]{32}\/1$/.test(p)) return j({ ok: true, etag: "e" });
     if (/\/complete$/.test(p)) return j({ ok: true, name: "a".repeat(32) + (said.length % 2 ? ".webm" : ".mp3"), kind: "audio" }, 201);
-    if (p === "/api/site/react-build") return j({ ok: true, pending: true, job: "j", poll: "/api/site/build/j" }, 202);
-    if (p === "/api/site/build/j") {
+    if (p === "/api/site/react-build") return j({ ok: true, pending: true, job: JOB, poll: "/api/site/build/" + JOB }, 202);
+    if (p === "/api/site/build/" + JOB) {
       polls++;
       if (polls < 3) return j({ ok: true, pending: true }, 202);
       balance -= 20;
+      rows.push({ id: rows.length + 1, kind: "debit", reason: "build", delta: -20, ref: "build:" + JOB, at: "t" });
       return j({ ok: true, slug: "harbour-loaf", notes: "Your tour video plays on the home page and the jingle on the About page.", contextNote: undefined, cost: 20, images: { made: 0 }, media: { placed: [{ name: "x.webm", url: "/u/harbour-loaf/x.webm" }, { name: "y.mp3", url: "/u/harbour-loaf/y.mp3" }], missing: [] } });
     }
     if (p.startsWith("/u/")) return new Response("ok", { status: 200 });
@@ -245,10 +249,14 @@ test("THE BUILD MODE follows an early-accepted build by its poll and judges its 
     if (/^\/api\/media\/drafts\/[a-f0-9]{32}$/.test(p)) return j({ ok: true, state: "removed", finished: true });
     return j({ error: "unexpected " + p }, 599);
   };
-  const r = await run({ fetch: fake, base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "build", slug: "verify-build", spend: "yes", maxCredits: 60, sleep: async () => {} });
+  const r = await run({ fetch: fake, base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "build", slug: "verify-build", spend: "yes", maxCredits: 60, sleep: async () => {}, ledger });
   assert.equal(polls, 3, "the poll was not followed to its answer");
-  assert.deepEqual(r.results.checks.filter((c) => !c.pass), []);
+  assert.deepEqual(r.results.checks.filter((c) => c.verdict === "fail"), []);
   assert.deepEqual(r.results.spends.map((s) => s.spent), [20]);
+  assert.equal(r.results.money.ok, true, JSON.stringify(r.results.money));
+  // THE NARRATION'S MEANING IS FOR A PERSON: kept whole, and the run says so.
+  assert.equal(r.results.outcome, "needs review", JSON.stringify({ stopped: r.results.stopped, error: r.results.error }));
+  assert.equal(r.results.unverified.find((u) => u.case === "P9").answer, "Your tour video plays on the home page and the jingle on the About page.");
   assert.ok(said.some((s) => s === "GET /api/site/runtime"), "images were not read before the send");
 });
 
@@ -276,6 +284,7 @@ test("THE BROWSER MODE plays and seeks every required format in a real Chromium 
       const r = await run({
         fetch: f, base: "https://gofarther.dev", mediaOrigin: origin, token: "t", fixtures: FIX, mode: "browser", slug: "verify-play", mutate: "yes",
         browsers: { chromium: () => chromium.launch({ executablePath: EXE }), firefox: async () => { throw new Error("not on this runner"); } },
+        requiredEngines: ["chromium"],
         appOrigin: APP,
         composer: { launch: () => chromium.launch({ executablePath: EXE }), token: "t", refresh: "r", user: { id: "u-1", email: "owner@example.com" }, prepare: (ctx) => appRoutes(ctx, worker, env, "verify-play", blockedSeen) },
       });

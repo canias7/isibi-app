@@ -25,8 +25,10 @@
 //              is deleted again at the end, and the library is read back equal
 //              to how it was found. Needs `mutate=yes`.
 //   browser    STORAGE-MUTATING, NO MODEL CALL. Real browsers (Playwright's
-//              Chromium, and Google Chrome, Firefox and WebKit where the runner
-//              has them) play and seek every fixture from its `/u/` address;
+//              Chromium, Firefox and WebKit, and Google Chrome; each one
+//              required, a missing one fails the run) play every fixture from
+//              its `/u/` address — play() starts, the clock advances, a seek
+//              lands and playback continues, with no media error;
 //              the composer and Files panel run in Chromium on the real app,
 //              signed in, with every write but this site's media aborted:
 //              attach, reload and reattach (reused), delete and reattach (sent
@@ -36,11 +38,27 @@
 //              existing site (no Build). Six deterministic cases, the
 //              cut-history one built from a fixed thread through the page's own
 //              `historyWire`, so it never depends on a model writing a long
-//              answer. Needs `spend=yes`, `max_credits`, and IMAGE_PURCHASES
-//              verified off on the live Worker before EVERY send.
+//              answer. Each answer is judged on its case's purpose against
+//              evidence read first and free (the stored pages, what they lack,
+//              what the cut hid, the file attached): pass, fail, or UNVERIFIED
+//              with the whole answer kept for a person (`judgeCase`). A case
+//              whose fixture cannot serve it is not sent. Needs `spend=yes`,
+//              `max_credits`, and IMAGE_PURCHASES verified off on the live
+//              Worker before EVERY send.
 //   build      PAID: one new Build with two drafts attached before the site
 //              exists, judged on the model-written narration, the drafts moved,
 //              the files served, and NO image bought. Same gates as converse.
+//
+// EXIT CODES: 0 passed · 3 passed everything the automation can establish,
+// with answers left for a person to read (`results.unverified`) · 1 failed,
+// stopped, or a charge unknown · 2 refused before anything was done. The
+// results file is written in every case, an exception included.
+//
+// AN UNKNOWN CHARGE STOPS THE RUN. After every paid send the balance must
+// read and its movement must equal the cost the reply reports (a Build's, the
+// ledger window explains: `buildMoneyVerdict`). Otherwise the spend is
+// recorded as unknown (`spent: null`, never 0) or unreconciled, and no later
+// paid send is made.
 //
 // ESTIMATES ARE NOT LIMITS. The platform caps no request: a call can cost more
 // than its estimate, and the account's balance is the only bound it knows. The
@@ -61,6 +79,9 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+
+import { extractText } from "../builder/site-text.mjs";
+import { buildMoneyVerdict, stableReading } from "./canary-build.mjs";
 
 const require = createRequire(import.meta.url);
 const ChatTalk = require("../public/chat-talk.js");
@@ -115,7 +136,7 @@ export const ESTIMATES = Object.freeze({
 export function cutThread() {
   const filler = (n) => (" The bakery's mornings start before dawn, with the ovens warming and the first loaves shaped by hand." ).repeat(n);
   const reply = "Here are three versions of your headline, each with why it works.\n\nVersion one: Bread at dawn." + filler(18) +
-    "\n\nVersion two: Baked while the harbour sleeps." + filler(30) + "\n\nVersion three: Loaves from the harbour wall." + filler(4);
+    "\n\nVersion two: Baked while the harbour sleeps." + filler(30) + "\n\nVersion three: Crusts beside the lighthouse." + filler(4);
   return [
     { r: "u", t: "Give me three versions of a headline for my home page, with a long explanation of each." },
     { r: "a", t: reply, md: true },
@@ -123,14 +144,162 @@ export function cutThread() {
   ];
 }
 
+/**
+ * THE SIX CASES, EACH WITH THE PURPOSE IT IS JUDGED ON (2026-10-15, after
+ * Codex's review of `1b52561f`). Codex sent the same irrelevant answer to all
+ * six — "Your bakery opens at 3:17am on Sundays. Does that help?" — and every
+ * case passed, because the harness read the reply's metadata and almost none
+ * of its content. Each case is now judged against known evidence by
+ * `judgeCase`: what the stored pages say, what they do not say, what the cut
+ * history hid, and what file was attached. Wording is never required. A
+ * purpose the automation cannot establish either way is UNVERIFIED, and the
+ * whole answer is kept for a person to read.
+ *
+ * C8's attachment is the line the page itself appends for a video
+ * (`mediaRefLine` in public/chat.js), in the form it takes before the file has
+ * an address: this mode makes no upload, so it names no address it did not make.
+ */
 export const CONVERSE_CASES = Object.freeze([
   { id: "C1-greeting", message: "hi", thread: [], expect: "a short greeting and an invitation to say what they want; no work" },
-  { id: "C2-compare", message: "Should I take bookings for bread-making classes with a booking page or an enquiry form? Compare them for me.", thread: [], expect: "a structured comparison (headings or lists allowed), no work" },
-  { id: "C3-grounded", message: "What does my home page say? Summarise it in two sentences.", thread: [], expect: "an answer from the stored page words; never a claim of having visited the live site" },
-  { id: "C4-missing", message: "What time do we open on Sundays?", thread: [], expect: "says what it was not shown and how to add it; never an invented time" },
-  { id: "C5-cut-history", message: "ok, use the third version", thread: "cut", expect: "asks for the third version again (it was past the cut); `resolved` absent; no work" },
-  { id: "C8-attachment", message: "What could I use this clip for on my site?", thread: [], files: [{ name: "clip.webm", type: "video/webm" }], expect: "stays conversation; the file named as unseen; no claim of having watched it" },
+  { id: "C2-compare", message: "Should I take bookings for bread-making classes with a booking page or an enquiry form? Compare them for me.", thread: [], expect: "a comparison that addresses both the booking page and the enquiry form; no work" },
+  { id: "C3-grounded", message: "What does my home page say? Summarise it in two sentences.", thread: [], needs: "pages", expect: "an answer drawn from the stored home page's own words; never a claim of having visited the live site" },
+  { id: "C4-missing", message: "What time do we open on Sundays?", thread: [], needs: "absent-hours", expect: "says it was not shown Sunday hours and how to add them; never an invented time" },
+  { id: "C5-cut-history", message: "ok, use the third version", thread: "cut", expect: "asks for the third version again (it was past the cut); `resolved` absent; nothing from the hidden part; no work" },
+  { id: "C8-attachment", message: "What could I use this clip for on my site?\n\n[Attached video \"clip.webm\"]", thread: [], expect: "talks about the attached clip as a file it was not shown; no claim of having watched it" },
 ]);
+
+// ── JUDGING A CONVERSATIONAL ANSWER AGAINST EVIDENCE ────────────────────────
+
+const STOP = new Set("about above after again against their there these those which while would could should other where being through before between under every along with from into that this what when your yours have will been were they them then than also just like more most some such only very much many here make made page pages home site website bakery".split(" "));
+
+/** The stored pages' own words, as the conversation step reads them (`extractText`). */
+export function pageEvidence(pages, extract) {
+  if (!Array.isArray(pages)) return null;
+  const out = [];
+  for (const p of pages) {
+    if (!p || typeof p.source !== "string") continue;
+    let text = "";
+    try { text = extract(p.source).map((it) => it.text).join(" \u00b7 "); } catch { text = ""; }
+    out.push({ path: String(p.path || ""), text });
+  }
+  return out;
+}
+
+/**
+ * SPECIFICS A REPLY MAY ONLY REPEAT, NEVER INVENT: clock times, prices, phone
+ * numbers and email addresses. Each one in an answer must appear in the
+ * evidence the reply had (the stored pages, the message and the history it was
+ * sent); one that does not was made up. Only these four kinds are checked,
+ * because only these can be found without reading for meaning.
+ */
+export function specificsIn(text) {
+  const t = String(text || "");
+  const out = new Set();
+  // ONE KEY FOR A TIME HOWEVER IT IS WRITTEN: "3pm", "3:00 p.m." and "15:00" are the same time.
+  for (const m of t.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/gi)) {
+    const h = Number(m[1]) % 12 + (/^p/i.test(m[3]) ? 12 : 0);
+    if (Number(m[1]) <= 12) out.add("time " + h + ":" + (m[2] || "00"));
+  }
+  for (const m of t.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:a\.?m|p\.?m))/gi)) out.add("time " + Number(m[1]) + ":" + m[2]);
+  for (const m of t.matchAll(/[£$€]\s?\d+(?:[.,]\d{1,2})?/g)) out.add("price " + m[0].replace(/\s/g, ""));
+  for (const m of t.matchAll(/(?:\+\d{1,3}[\s-]?)?(?:\(?\d{2,5}\)?[\s-]?){2,4}\d{3,4}/g)) { const d = m[0].replace(/\D/g, ""); if (d.length >= 9) out.add("phone " + d.slice(-9)); }
+  for (const m of t.matchAll(/[\w.+-]+@[\w-]+\.[\w.]+/g)) out.add("email " + m[0].toLowerCase());
+  return out;
+}
+
+const words = (t) => new Set(String(t || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s'-]/g, " ").split(/\s+/).map((w) => w.replace(/^'+|'+$/g, "")).filter((w) => w.length >= 5 && !STOP.has(w)));
+const INSPECTED = /\bI(?:'ve| have)?\s+(?:just\s+)?(?:checked|visited|watched|listened to|opened|browsed|tested|looked at|played|viewed)\b/i;
+const SAW_CLIP = /\b(?:the|this|your)\s+(?:clip|video|footage)\s+(?:shows|features|opens with|starts with|has (?:a|some)|captures|depicts)\b|\bin (?:the|this|your) (?:clip|video),?\s+(?:I|we|you can) (?:can )?see\b/i;
+const NOT_SHOWN = /\b(?:can(?:not|'t)|could(?:n't| not)|unable to|haven't|have not|didn't|did not|don't|do not|wasn't|was not|weren't|isn't|is not|not been|no way to)\b[^.?!]{0,60}\b(?:see|seen|watch|watched|view|viewed|play|played|open|opened|shown|access|look|know|tell|find|listed|mentioned|included)\b|\bnot (?:listed|mentioned|shown|included|on (?:your|the) (?:site|page))\b|\bno (?:sunday|opening|hours)\b/i;
+const HOW_TO_ADD = /\b(?:add|update|put|include|list|set|tell me|let me know|send me|share)\b/i;
+const ASKS_AGAIN = /\b(?:paste|share|send|resend|repeat|remind|again|re-?share|which (?:one|version|headline)|what (?:was|is|did) (?:the )?(?:third|version|headline))\b/i;
+
+/**
+ * One case's answer, judged on its purpose. Answers `[{ name, verdict, detail }]`,
+ * `verdict` one of "pass", "fail", "unverified". A fail is a fact the evidence
+ * contradicts; a pass is one it establishes; anything else is unverified.
+ *   evidence: { pages: [{path, text}] | null, homePath, history (the sent turns), hidden (text the cut hid) }
+ */
+export function judgeCase(c, body, evidence) {
+  const out = [];
+  const put = (name, verdict, detail = "") => out.push({ name: c.id + ": " + name, verdict, detail: String(detail).slice(0, 400) });
+  const b = body && typeof body === "object" ? body : {};
+  const answer = typeof b.answer === "string" ? b.answer : null;
+  put("answered as conversation, with nothing started", b.intent === "ask" && !b.job && !b.request && !b.resolved ? "pass" : "fail", b.intent + (b.job ? " job " + b.job : ""));
+  put("the reply was written by its own call", b.replyFrom === "conversation" ? "pass" : "fail", b.replyFrom);
+  if (answer === null || !answer.trim()) { put("there is an answer to judge", "fail", "no answer"); return out; }
+  const ev = evidence || {};
+  const pageText = Array.isArray(ev.pages) ? ev.pages.map((p) => p.text).join(" \n ") : null;
+  const sentText = [c.message, ...((ev.history || []).map((h) => (h && (h.text || h.t)) || ""))].join(" \n ");
+
+  // EVERY CASE: nothing invented, no inspection claimed.
+  const known = new Set([...specificsIn(sentText), ...(pageText === null ? [] : specificsIn(pageText))]);
+  const made = [...specificsIn(answer)].filter((x) => !known.has(x));
+  if (!made.length) put("no time, price, phone number or email that the evidence lacks", "pass");
+  else if (pageText === null) put("no time, price, phone number or email that the evidence lacks", "unverified", "the pages could not be read to check " + made.join(", "));
+  else put("no time, price, phone number or email that the evidence lacks", "fail", "not in the pages or the message: " + made.join(", "));
+  put("no claim of an inspection that did not happen", INSPECTED.test(answer) ? "fail" : "pass", (answer.match(INSPECTED) || [""])[0]);
+
+  if (c.id === "C1-greeting") {
+    const short = answer.length <= 600;
+    const invites = /\?|\b(?:what|how|tell me|let me know|would you like|can I help|happy to help)\b/i.test(answer);
+    put("a short greeting that invites them to say what they want", short && invites ? "pass" : "unverified", answer.length + " characters");
+  }
+  if (c.id === "C2-compare") {
+    const both = /\bbook/i.test(answer) && /\b(?:enquir|inquir)/i.test(answer);
+    put("it addresses both the booking page and the enquiry form", both ? "pass" : "fail", both ? "" : "one or both options never mentioned");
+    const structured = /(^|\n)\s*(?:[-*\u2022]|\d+[.)]|#{1,4}\s)/.test(answer) || /\n\n/.test(answer);
+    put("the comparison itself is sound (read it)", "unverified", structured ? "structured" : "unstructured");
+  }
+  if (c.id === "C3-grounded") {
+    const home = Array.isArray(ev.pages) ? ev.pages.find((p) => p.path === (ev.homePath || "/")) || ev.pages[0] : null;
+    if (!home || !home.text.trim()) put("it draws on the home page's own words", "unverified", "the home page's words could not be read");
+    else {
+      const asked = words(c.message);
+      const hw = [...words(home.text)].filter((w) => !asked.has(w));
+      const aw = words(answer);
+      const shared = hw.filter((w) => aw.has(w));
+      const need = Math.min(3, hw.length);
+      put("it draws on the home page's own words", hw.length && shared.length >= need ? "pass" : shared.length === 0 && hw.length >= 3 ? "fail" : "unverified", "shares " + shared.length + " of the page's words: " + shared.slice(0, 8).join(", "));
+    }
+    put("never a claim of having visited the live site", /\b(?:visited|browsed|loaded|went to)\b[^.]{0,40}\b(?:site|website|page)\b/i.test(answer) ? "fail" : "pass");
+  }
+  if (c.id === "C4-missing") {
+    const unknown = NOT_SHOWN.test(answer);
+    const how = HOW_TO_ADD.test(answer);
+    put("it says it was not shown Sunday hours", unknown ? "pass" : "unverified", unknown ? (answer.match(NOT_SHOWN) || [""])[0] : "no sign either way: read it");
+    put("it says how to add them", how ? "pass" : "unverified");
+  }
+  if (c.id === "C5-cut-history") {
+    const reasons = b.decision && Array.isArray(b.decision.reasons) ? b.decision.reasons : [];
+    put("the route was told the history was cut", reasons.includes("history-cut") ? "pass" : "fail", JSON.stringify(reasons));
+    put("nothing written out from a part it could not see", b.resolved === undefined ? "pass" : "fail", String(b.resolved));
+    const hidden = words(ev.hidden || "");
+    const seen = words(sentText);
+    const leaked = [...words(answer)].filter((w) => hidden.has(w) && !seen.has(w));
+    put("nothing of the hidden third version in the answer", leaked.length ? "fail" : "pass", leaked.join(", "));
+    const topical = /\b(?:third|version|headline|3rd)\b/i.test(answer);
+    put("it asks for the third version again", topical && (answer.includes("?") || ASKS_AGAIN.test(answer)) ? "pass" : "unverified", topical ? "" : "never mentions the version or headline: read it");
+  }
+  if (c.id === "C8-attachment") {
+    const names = /\b(?:clip|video|webm|footage)\b/i.test(answer);
+    put("it talks about the attached clip", names ? "pass" : "fail", names ? "" : "the clip is never mentioned");
+    put("no description of what is in the clip", SAW_CLIP.test(answer) ? "fail" : "pass", (answer.match(SAW_CLIP) || [""])[0]);
+    put("it says it was not shown the clip itself", NOT_SHOWN.test(answer) ? "pass" : "unverified", NOT_SHOWN.test(answer) ? "" : "no sign either way: read it");
+  }
+  return out;
+}
+
+/** Before C4 may spend: the stored pages must really lack Sunday opening times. */
+export function hoursAbsent(pages) {
+  if (!Array.isArray(pages) || !pages.length) return { ok: false, why: "the stored pages could not be read" };
+  const all = pages.map((p) => p.text).join(" \n ");
+  if (/\bsun(?:day)?s?\b/i.test(all)) return { ok: false, why: "the pages mention Sunday" };
+  const times = [...specificsIn(all)].filter((x) => /^time /.test(x));
+  if (times.length) return { ok: false, why: "the pages give times: " + times.slice(0, 4).join(", ") };
+  if (/\bopen(?:ing)?\s+(?:hours|times)\b|\bhours\s*:/i.test(all)) return { ok: false, why: "the pages list opening hours" };
+  return { ok: true, why: "no Sunday, no times, no opening hours in " + pages.length + " pages" };
+}
 
 /**
  * The history the page would send for a case — through the page's own
@@ -223,9 +392,31 @@ function api({ fetch, base, token }) {
  */
 export async function run(opts) {
   const log = opts.log || (() => {});
-  const results = { mode: opts.mode, slug: opts.slug, checks: [], spends: [], recorded: [] };
-  const check = (name, pass, detail = "") => { results.checks.push({ name, pass: !!pass, detail: String(detail).slice(0, 400) }); log((pass ? "PASS  " : "FAIL  ") + name + (detail ? "  " + String(detail).slice(0, 200) : "")); return !!pass; };
+  const results = { mode: opts.mode, slug: opts.slug, checks: [], spends: [], recorded: [], unverified: [] };
+  // THREE VERDICTS: pass, fail, and unverified — what the automation could
+  // not establish either way, kept with its evidence for a person to read.
+  const verdict = (name, v, detail = "") => {
+    results.checks.push({ name, verdict: v, pass: v === "pass", detail: String(detail).slice(0, 400) });
+    log((v === "pass" ? "PASS  " : v === "fail" ? "FAIL  " : "UNVER ") + name + (detail ? "  " + String(detail).slice(0, 200) : ""));
+    return v === "pass";
+  };
+  const check = (name, pass, detail = "") => verdict(name, pass ? "pass" : "fail", detail);
   const refuse = (why) => { log("REFUSED: " + why); return { ok: false, refused: why, results, unmet: [why] }; };
+  try {
+    return await runInner(opts, { results, verdict, check, refuse, log });
+  } catch (e) {
+    // A NETWORK EXCEPTION KEEPS ITS EVIDENCE: whatever was read, sent and
+    // spent so far stays in the results, and the run is stopped, not lost.
+    results.error = String((e && e.stack) || e).slice(0, 1200);
+    results.stopped = results.stopped || "exception";
+    results.outcome = "failed";
+    if (PAID.has(opts.mode)) results.spending = spendSummary(results, opts);
+    log("ERROR " + String((e && e.message) || e));
+    return { ok: false, results, unmet: [], error: results.error };
+  }
+}
+
+async function runInner(opts, { results, verdict, check, refuse, log }) {
   if (!MODES.includes(opts.mode)) return refuse("no such mode: " + opts.mode);
   // EVERY MODE NAMES AN EXISTING SITE OF THE ACCOUNT: the switches are read
   // through it (`/api/site/runtime` answers per owned site), and the storage,
@@ -287,13 +478,48 @@ export async function run(opts) {
   }
   if (unmet.length) return refuse(unmet.join("; "));
 
-  const ctx = { opts, call, check, log, results, siteOrigin, balance };
-  if (opts.mode === "storage") await storageChecks(ctx);
-  if (opts.mode === "browser") await browserChecks(ctx);
-  if (opts.mode === "converse") await converseChecks(ctx);
-  if (opts.mode === "build") await buildChecks(ctx);
-  const ok = results.checks.length > 0 && results.checks.every((c) => c.pass) && !results.stopped;
-  return { ok, results, unmet: [] };
+  const ctx = { opts, call, check, verdict, log, results, siteOrigin, balance, startBalance };
+  try {
+    if (opts.mode === "storage") await storageChecks(ctx);
+    if (opts.mode === "browser") await browserChecks(ctx);
+    if (opts.mode === "converse") await converseChecks(ctx);
+    if (opts.mode === "build") await buildChecks(ctx);
+  } finally {
+    if (PAID.has(opts.mode)) results.spending = spendSummary(results, opts);
+  }
+  return finish(results);
+}
+
+/**
+ * WHAT A RUN ENDED AS. `ok` only when something was checked, nothing failed,
+ * nothing stopped it and no spend is unknown. `review` lists what passed the
+ * automation but still needs a person: the unverified items, answers kept.
+ */
+function finish(results) {
+  const failed = results.checks.filter((c) => c.verdict === "fail");
+  const review = results.checks.filter((c) => c.verdict === "unverified");
+  const unknownSpend = results.spends.some((x) => x.spent === null);
+  const ok = results.checks.length > 0 && !failed.length && !results.stopped && !unknownSpend;
+  results.outcome = !ok ? "failed" : review.length ? "needs review" : "passed";
+  return { ok, review: review.length, results, unmet: [] };
+}
+
+/**
+ * THE SPENDING, SAID AS IT IS KNOWN. `known` adds only charges the ledger
+ * showed and the reply's own cost agreed with; `unknown` counts sends whose
+ * charge could not be read or reconciled — never counted as zero. `ledger` is
+ * the balance's own movement from the start to the last reading, which also
+ * catches a charge nothing reported.
+ */
+function spendSummary(results, opts) {
+  const known = results.spends.filter((x) => x.spent !== null).reduce((n, x) => n + x.spent, 0);
+  const unknown = results.spends.filter((x) => x.spent === null).length;
+  const last = [...results.spends].reverse().find((x) => x.after !== null && x.after !== undefined);
+  return {
+    sends: results.spends.length, known, unknown,
+    ledger: last && results.balanceAtStart !== null ? results.balanceAtStart - last.after : null,
+    ceiling: opts.maxCredits, estimatesAreNotLimits: true,
+  };
 }
 
 // ── STORAGE (mutating, no model call) ───────────────────────────────────────
@@ -498,6 +724,57 @@ async function storageChecks({ opts, call, check, log, results, siteOrigin }) {
 
 // ── BROWSERS (mutating, no model call) ──────────────────────────────────────
 
+/**
+ * PLAYBACK, NOT METADATA (2026-10-15, after Codex's review of `1b52561f`):
+ * loading metadata and landing a seek is not playing. In the page: `play()`
+ * is called and must resolve, the clock must advance while playing, a seek to
+ * 40% must land, and the clock must advance again after it — with no media
+ * error at any point. Muted, so autoplay rules allow it.
+ */
+export const PLAY_IN_PAGE = async ({ src, kind }) => {
+  document.body.innerHTML = "";
+  const el = document.createElement(kind);
+  el.preload = "auto";
+  el.muted = true;
+  document.body.appendChild(el);
+  const errors = [];
+  el.addEventListener("error", () => errors.push(el.error ? el.error.code : "error"));
+  const once = (ev, ms) => new Promise((ok) => { const t = setTimeout(() => ok(false), ms); el.addEventListener(ev, () => { clearTimeout(t); ok(true); }, { once: true }); });
+  const advance = (from, by, ms) => new Promise((ok) => {
+    const t0 = Date.now();
+    const tick = () => { if (el.currentTime >= from + by) return ok(true); if (el.error || Date.now() - t0 > ms) return ok(false); setTimeout(tick, 50); };
+    tick();
+  });
+  el.src = src;
+  const loaded = await once("loadedmetadata", 15000);
+  if (!loaded) return { loaded, errors, error: el.error && el.error.code };
+  let played = false, playError = "";
+  try { await el.play(); played = true; } catch (e) { playError = String((e && e.name) || e); }
+  const start = el.currentTime;
+  const advanced = played && await advance(start, 0.25, 8000);
+  const target = el.duration * 0.4;
+  el.currentTime = target;
+  const sought = await once("seeked", 15000);
+  const landed = el.currentTime;
+  const continued = sought && await advance(landed, 0.2, 8000);
+  return { loaded, played, playError, advanced, sought, target, landed, continued, paused: el.paused, at: el.currentTime, duration: el.duration, errors, error: el.error && el.error.code };
+};
+
+/** What counts as playing: play resolved, the clock advanced, the seek landed and the clock advanced again, no media error. */
+export function judgePlayback(got) {
+  const g = got && typeof got === "object" ? got : {};
+  const why = [];
+  if (g.thrown) why.push("the page threw: " + g.thrown);
+  if (!g.loaded) why.push("metadata never loaded");
+  if (g.played !== true) why.push("play() did not start playback" + (g.playError ? " (" + g.playError + ")" : ""));
+  if (g.advanced !== true) why.push("the clock did not advance while playing");
+  if (g.sought !== true) why.push("the seek did not land");
+  else if (!(Math.abs(Number(g.landed) - Number(g.target)) < 0.5)) why.push("the seek landed at " + g.landed + ", not near " + g.target);
+  if (g.continued !== true) why.push("playback did not continue after the seek");
+  if ((Array.isArray(g.errors) && g.errors.length) || g.error) why.push("a media error: " + JSON.stringify(g.errors || g.error));
+  return { ok: why.length === 0, why: why.join("; ") };
+}
+
 async function browserChecks({ opts, call, check, log, results }) {
   const slug = opts.slug;
   const base = "/api/site/" + slug + "/media";
@@ -508,13 +785,17 @@ async function browserChecks({ opts, call, check, log, results }) {
       if (u.done && u.done.status === 201) made.push({ ...f, url: u.done.body.url, name: u.done.body.name });
     }
     check("every fixture is up for the browsers", made.length === FIXTURES.length, made.length);
+    // EVERY REQUIRED ENGINE IS GIVEN, OR THE RUN FAILS: a press with no
+    // browsers at all used to pass on the one upload check.
+    const required = opts.requiredEngines || ["chromium", "chrome", "firefox", "webkit"];
+    for (const e of required) if (!(opts.browsers && typeof opts.browsers[e] === "function")) check("B1 " + e + " is available to this run", false, "not given: a required browser is missing");
     for (const [engine, launch] of Object.entries(opts.browsers || {})) {
       let browser = null;
       try { browser = await launch(); } catch (e) {
         results.recorded.push({ engine, unavailable: String(e && e.message || e).slice(0, 120) });
         // AN ENGINE THE RUNNER INSTALLS MUST LAUNCH: a press that silently
         // played nothing in Firefox would read as Firefox passing.
-        if ((opts.requiredEngines || []).includes(engine)) check("B1 " + engine + " launches on this runner", false, String(e && e.message || e).slice(0, 120));
+        if (required.includes(engine)) check("B1 " + engine + " launches on this runner", false, String(e && e.message || e).slice(0, 120));
         else log("SKIP  " + engine + " is not on this runner");
         continue;
       }
@@ -523,25 +804,10 @@ async function browserChecks({ opts, call, check, log, results }) {
         const exp = BROWSER_EXPECT[engine] || { required: [], recorded: FIXTURES.map((x) => x.file) };
         for (const f of made) {
           const src = (opts.mediaOrigin || opts.base) + f.url;
-          const got = await page.evaluate(async ({ src, kind }) => {
-            document.body.innerHTML = "";
-            const el = document.createElement(kind);
-            el.preload = "metadata";
-            el.muted = true;
-            document.body.appendChild(el);
-            const wait = (ev, ms) => new Promise((ok) => { const t = setTimeout(() => ok(false), ms); el.addEventListener(ev, () => { clearTimeout(t); ok(true); }, { once: true }); el.addEventListener("error", () => { clearTimeout(t); ok(false); }, { once: true }); });
-            const can = el.canPlayType(kind === "video" ? "video/mp4" : "audio/mpeg");
-            el.src = src;
-            const loaded = await wait("loadedmetadata", 15000);
-            if (!loaded) return { loaded, can, error: el.error && el.error.code };
-            const to = el.duration * 0.75;
-            el.currentTime = to;
-            const sought = await wait("seeked", 15000);
-            return { loaded, sought, duration: el.duration, at: el.currentTime, can };
-          }, { src, kind: f.kind });
-          const ok = !!(got.loaded && got.sought && Math.abs(got.at - got.duration * 0.75) < 0.5);
+          const got = await page.evaluate(PLAY_IN_PAGE, { src, kind: f.kind }).catch((e) => ({ thrown: String((e && e.message) || e).slice(0, 200) }));
+          const ok = judgePlayback(got).ok;
           results.recorded.push({ engine, file: f.file, ...got });
-          if (exp.required.includes(f.file)) check("B1 " + engine + " plays and seeks " + f.file, ok, JSON.stringify(got));
+          if (exp.required.includes(f.file)) check("B1 " + engine + " plays, seeks and keeps playing " + f.file, ok, judgePlayback(got).why + " " + JSON.stringify(got));
           else log("REC   " + engine + " " + f.file + " " + JSON.stringify(got));
         }
       } finally { await browser.close(); }
@@ -551,7 +817,7 @@ async function browserChecks({ opts, call, check, log, results }) {
     for (const f of made) await call("DELETE", "/api/site/" + slug + "/uploads/" + f.name + "?force=1").catch(() => {});
   }
   if (opts.composer) await composerChecks({ opts, call, check, log, results });
-  else log("SKIP  the composer and Files panel: no app browser was given");
+  else check("B2 the composer and Files panel were checked", false, "no app browser was given");
 }
 
 /**
@@ -668,60 +934,123 @@ async function composerChecks({ opts, call, check, log, results }) {
 
 // ── CONVERSATION (paid) ─────────────────────────────────────────────────────
 
-/** Before every paid send: images off on the live Worker, the balance read, and the harness's ceiling. */
+/**
+ * BEFORE EVERY PAID SEND (2026-10-15, after Codex's review of `1b52561f`).
+ * Codex's offline run made six sends, spent 22 credits and recorded 10 against
+ * a ceiling of 16: the first balance read after a send answered 503, was
+ * counted as 0, and nothing stopped. Now a send happens only when:
+ *   - photographs are off on the live Worker, read just now;
+ *   - no earlier send's charge is unknown or unreconciled (`results.stopped`);
+ *   - the balance reads just now, and the ledger's own movement since the start
+ *     plus this send's UPPER ESTIMATE stays within the ceiling. The ceiling is
+ *     the harness's limit; the estimate only decides whether to try.
+ */
 async function beforeSend(ctx, what, estimate) {
-  const { call, check, results, opts, balance } = ctx;
+  const { call, check, results, opts, balance, startBalance } = ctx;
+  if (results.stopped) return null;
   const h = await call("GET", "/api/site/runtime?slug=" + encodeURIComponent(opts.slug || ""));
   if (!check(what + ": IMAGE_PURCHASES is off on the live Worker, read just now", h.body && h.body.imagePurchases === false, h.body && h.body.imagePurchases)) { results.stopped = "image purchases not off"; return null; }
   const b = await balance();
-  if (!check(what + ": the balance reads just now", b !== null, b)) { results.stopped = "balance unread"; return null; }
-  const spent = results.spends.reduce((n, s) => n + s.spent, 0);
+  if (!check(what + ": the balance reads just now", b !== null, b)) { results.stopped = "balance unread before a send"; return null; }
+  const moved = startBalance - b;
+  const recorded = results.spends.reduce((n, x) => n + (x.spent || 0), 0);
+  const spent = Math.max(moved, recorded);
   if (spent + estimate.high > opts.maxCredits) {
-    check(what + ": within this run's own ceiling (" + opts.maxCredits + ")", false, "spent " + spent + " + upper estimate " + estimate.high);
+    check(what + ": within this run's own ceiling (" + opts.maxCredits + ")", false, "spent " + spent + " (ledger moved " + moved + ") + upper estimate " + estimate.high);
     results.stopped = "ceiling";
     return null;
   }
   return b;
 }
-async function afterSend(ctx, what, before, estimate) {
+
+/**
+ * AFTER EVERY PAID SEND: the charge is reconciled or the run stops. The
+ * balance must read, and its movement must equal the cost the reply reports.
+ * A balance that cannot be read, a reply with no cost, a send that threw, or a
+ * movement that disagrees with the reported cost leaves the charge UNKNOWN
+ * (`spent: null`, never 0) or UNRECONCILED, and stops every later paid send.
+ */
+async function afterSend(ctx, what, before, estimate, reported) {
   const { balance, results, check, opts } = ctx;
-  const after = await balance();
-  const spent = before !== null && after !== null ? before - after : null;
-  results.spends.push({ what, before, after, spent: spent === null ? 0 : spent, estimate: estimate.low + "–" + estimate.high });
-  check(what + ": the balance reads after", after !== null, after);
-  const total = results.spends.reduce((n, s) => n + s.spent, 0);
+  let after = null;
+  try { after = await balance(); } catch { after = null; }
+  const cost = reported === undefined || reported === null || reported === "" || !Number.isFinite(Number(reported)) ? null : Number(reported);
+  const moved = before !== null && after !== null ? before - after : null;
+  const entry = { what, before, after, reported: cost, spent: moved, estimate: estimate.low + "–" + estimate.high + " (an estimate, not a limit)" };
+  results.spends.push(entry);
+  if (!check(what + ": the balance reads after the send", after !== null, after)) {
+    entry.spent = null;
+    entry.why = "balance unread after the send: the charge is unknown";
+    results.stopped = "charge unknown";
+    return null;
+  }
+  if (cost === null || moved !== cost) {
+    entry.unreconciled = true;
+    entry.why = cost === null ? "the reply reported no cost; the ledger moved " + moved : "the ledger moved " + moved + ", the reply reported " + cost;
+    check(what + ": the charge reconciles (ledger movement equals the reported cost)", false, entry.why);
+    results.stopped = "charge unreconciled";
+  } else check(what + ": the charge reconciles (ledger movement equals the reported cost)", true, moved);
+  const total = Math.max(results.balanceAtStart - after, results.spends.reduce((n, x) => n + (x.spent || 0), 0));
   if (total > opts.maxCredits) { results.stopped = "spent past the ceiling"; check(what + ": the run stayed within its ceiling", false, total + " > " + opts.maxCredits); }
-  return spent;
+  return moved;
+}
+
+/** A paid request that throws still leaves an entry: its charge unknown, the run stopped. */
+async function paidCall(ctx, what, before, estimate, send) {
+  try { return { r: await send() }; } catch (e) {
+    const { results, check, balance } = ctx;
+    let after = null;
+    try { after = await balance(); } catch { after = null; }
+    results.spends.push({ what, before, after, reported: null, spent: null, estimate: estimate.low + "–" + estimate.high + " (an estimate, not a limit)", why: "the request failed: " + String((e && e.message) || e).slice(0, 200) + "; the charge is unknown" });
+    check(what + ": the request completed", false, String((e && e.message) || e).slice(0, 200));
+    results.stopped = "charge unknown";
+    return { r: null };
+  }
+}
+
+/** The stored pages' words, read once, free: the evidence the cases are judged against. */
+async function readEvidence(ctx) {
+  const { call, opts } = ctx;
+  const src = await call("GET", "/api/site/source?slug=" + encodeURIComponent(opts.slug));
+  const readable = src.status === 200 && src.body && src.body.ok === true && src.body.reads && src.body.reads.pages === true && Array.isArray(src.body.pages);
+  return { pages: readable ? pageEvidence(src.body.pages, extractText) : null, homePath: "/", status: src.status };
 }
 
 async function converseChecks(ctx) {
-  const { opts, call, check, results } = ctx;
+  const { opts, call, check, verdict, results } = ctx;
+  const ev = await readEvidence(ctx);
+  results.evidence = { pages: ev.pages ? ev.pages.map((p) => ({ path: p.path, words: p.text.length })) : null, read: ev.status };
   for (const c of CONVERSE_CASES) {
     if (results.stopped) break;
     const { history, cutProven } = caseHistory(c);
     if (c.thread === "cut" && !check(c.id + ": the third version is past the page's cut before anything is sent", cutProven, "")) continue;
+    // A FIXTURE THAT CANNOT SERVE ITS CASE IS NOT SENT: no spend on a case that
+    // could not show what it is for.
+    if (c.needs === "pages" && !(ev.pages && ev.pages.some((p) => p.text.trim()))) { check(c.id + ": the stored pages read, so the answer can be judged against them", false, "source " + ev.status); continue; }
+    if (c.needs === "absent-hours") {
+      const a = hoursAbsent(ev.pages);
+      if (!check(c.id + ": the site really lacks Sunday opening times", a.ok, a.why)) continue;
+    }
     const before = await beforeSend(ctx, c.id, ESTIMATES.message);
     if (before === null) break;
-    const r = await call("POST", "/api/site/route", { json: { message: c.message, slug: opts.slug, picker: opts.picker || "grok", hasSite: true, firstBuild: false, picked: false, history, files: c.files || [], brief: c.message, qa: [], answering: false } });
-    const spent = await afterSend(ctx, c.id, before, ESTIMATES.message);
+    const { r } = await paidCall(ctx, c.id, before, ESTIMATES.message, () => call("POST", "/api/site/route", { json: { message: c.message, slug: opts.slug, picker: opts.picker || "grok", hasSite: true, firstBuild: false, picked: false, history, files: [], brief: c.message, qa: [], answering: false } }));
+    if (!r) break;
     const b = r.body || {};
-    results.recorded.push({ case: c.id, expect: c.expect, intent: b.intent, replyFrom: b.replyFrom, cost: b.cost, spent, answer: typeof b.answer === "string" ? b.answer : null, reasons: b.decision && b.decision.reasons });
-    check(c.id + ": answered as conversation", r.status === 200 && b.intent === "ask", r.status + " " + b.intent);
-    check(c.id + ": the reply was written by its own call", b.replyFrom === "conversation", b.replyFrom);
-    check(c.id + ": charged once, as the ledger shows", spent !== null && spent === Number(b.cost), "ledger " + spent + " vs reply " + b.cost);
-    check(c.id + ": no claim of inspection that did not happen", typeof b.answer === "string" && !/\bI (?:checked|visited|watched|listened to|opened|browsed|tested)\b/i.test(b.answer), "");
-    if (c.thread === "cut") {
-      check(c.id + ": told the history was cut", Array.isArray(b.decision && b.decision.reasons) && b.decision.reasons.includes("history-cut"), JSON.stringify(b.decision && b.decision.reasons));
-      check(c.id + ": nothing written out from a part it could not see", b.resolved === undefined, String(b.resolved));
-      check(c.id + ": it asks rather than guessing", typeof b.answer === "string" && b.answer.includes("?"), "");
-    }
+    await afterSend(ctx, c.id, before, ESTIMATES.message, b.cost);
+    const hidden = c.thread === "cut" ? cutThread()[1].t.slice(cutThread()[1].t.indexOf("Version three")) : "";
+    const judged = judgeCase(c, r.status === 200 ? b : { ...b, intent: "http " + r.status }, { pages: ev.pages, homePath: ev.homePath, history: history || [], hidden });
+    for (const j of judged) verdict(j.name, j.verdict, j.detail);
+    const open = judged.filter((j) => j.verdict === "unverified").map((j) => j.name);
+    // THE WHOLE ANSWER IS KEPT, always — and with what is still open beside it.
+    results.recorded.push({ case: c.id, expect: c.expect, status: r.status, intent: b.intent, replyFrom: b.replyFrom, cost: b.cost, answer: typeof b.answer === "string" ? b.answer : null, reasons: b.decision && b.decision.reasons, unverified: open });
+    if (open.length) results.unverified.push({ case: c.id, expect: c.expect, open, answer: typeof b.answer === "string" ? b.answer : null });
   }
 }
 
 // ── A NEW BUILD WITH DRAFTS (paid) ──────────────────────────────────────────
 
 async function buildChecks(ctx) {
-  const { opts, call, check, results, log } = ctx;
+  const { opts, call, check, verdict, results, log } = ctx;
   const dir = opts.fixtures;
   const drafts = [];
   for (const f of ["clip.webm", "tone.mp3"]) {
@@ -731,27 +1060,60 @@ async function buildChecks(ctx) {
   if (drafts.length !== 2) return;
   const before = await beforeSend(ctx, "P9 build", ESTIMATES.build);
   if (before === null) return;
+  // THE BUILD'S CHARGE IS RECONCILED AS THE BUILD CANARY'S IS: a steady
+  // balance and last ledger row at both ends, the window between them read
+  // whole, and the whole movement explained (`buildMoneyVerdict`).
+  const ledger = opts.ledger || null;
+  const steady = async () => (ledger ? stableReading({ ledgerLast: ledger.last, balance: ctx.balance }) : { ok: false });
+  const startReading = await steady();
   const chat = "media-verify-" + Date.now().toString(36);
   const brief = "A small bakery in Leeds called Harbour Loaf. Put the attached video on the home page and the jingle on an About page.";
-  let r = await call("POST", "/api/site/react-build", { json: { brief, images: [], picker: opts.picker || "grok", qa: [], chat, accept: "early", media: drafts.map((d) => d.name) } });
-  // AN EARLY-ACCEPTED BUILD (the combined candidate's route) is followed by its poll.
-  if (r.status === 202 && r.body && typeof r.body.poll === "string") {
-    const until = Date.now() + 20 * 60 * 1000;
-    let last = r;
-    while (Date.now() < until) {
-      await (opts.sleep || ((ms) => new Promise((ok) => setTimeout(ok, ms))))(10000);
-      last = await call("GET", r.body.poll);
-      if (last.status !== 202 && !(last.body && last.body.pending)) break;
+  const sleep = opts.sleep || ((ms) => new Promise((ok) => setTimeout(ok, ms)));
+  const sent = await paidCall(ctx, "P9 build", before, ESTIMATES.build, async () => {
+    let first = await call("POST", "/api/site/react-build", { json: { brief, images: [], picker: opts.picker || "grok", qa: [], chat, accept: "early", media: drafts.map((d) => d.name) } });
+    let r = first;
+    // AN EARLY-ACCEPTED BUILD (the combined candidate's route) is followed by its poll.
+    if (first.status === 202 && first.body && typeof first.body.poll === "string") {
+      const until = Date.now() + 20 * 60 * 1000;
+      let last = first;
+      while (Date.now() < until) {
+        await sleep(10000);
+        last = await call("GET", first.body.poll);
+        if (last.status !== 202 && !(last.body && last.body.pending)) break;
+      }
+      if (last.status === 202 || (last.body && last.body.pending)) throw new Error("the build was still running when the poll gave up");
+      r = last;
     }
-    r = last;
-  }
-  const spent = await afterSend(ctx, "P9 build", before, ESTIMATES.build);
+    return { first, r };
+  });
+  if (!sent.r) return;
+  const { first, r } = sent.r;
+  const job = (first.body && first.body.job) || (r.body && r.body.job) || "";
+  const endReading = await steady();
+  const rows = startReading.ok && endReading.ok ? await ledger.window(startReading.id, endReading.id) : { ok: false };
+  const money = buildMoneyVerdict({ start: startReading, end: endReading, rows, job, max: opts.maxCredits });
+  results.money = money;
+  // THE RECONCILED CHARGE, OR AN UNKNOWN ONE: the balance's own reading is
+  // recorded too, but a build's spend counts only once the ledger explains it.
+  let after = null;
+  try { after = await ctx.balance(); } catch { after = null; }
+  const entry = { what: "P9 build", before, after, reported: null, spent: money.ok ? money.net : null, estimate: ESTIMATES.build.low + "–" + ESTIMATES.build.high + " (an estimate, not a limit)" };
+  if (!money.ok) { entry.why = "the charge is unknown: " + money.why; results.stopped = "charge unknown"; }
+  results.spends.push(entry);
+  check("P9 the build's charge is explained by the ledger, taken once", money.ok, money.ok ? "net " + money.net + ", other rows " + money.other : money.why);
+  if (after !== null && results.balanceAtStart - after > opts.maxCredits) { results.stopped = "spent past the ceiling"; check("P9 the run stayed within its ceiling", false, (results.balanceAtStart - after) + " > " + opts.maxCredits); }
   const b = r.body || {};
-  results.recorded.push({ build: b.slug, notes: b.notes, contextNote: b.contextNote, media: b.media, images: b.images, cost: b.cost, spent });
+  results.recorded.push({ build: b.slug, job, notes: b.notes, contextNote: b.contextNote, media: b.media, images: b.images, spent: entry.spent });
+  // THE NARRATION IS THE MODEL'S OWN, AND ITS MEANING IS FOR A PERSON TO READ:
+  // whether it says rightly where each file plays is kept unverified, whole.
+  if (typeof b.notes === "string" && b.notes.trim()) {
+    verdict("P9 the reply says where each file plays (read it)", "unverified", "kept whole in results.unverified");
+    results.unverified.push({ case: "P9", expect: "the model's own words say where the video and the jingle play", open: ["where each file plays"], answer: b.notes });
+  }
   check("P9 the build answered", r.status === 200 && !!b.slug, r.status);
   check("P9 both drafts moved into the new site's library", b.media && Array.isArray(b.media.placed) && b.media.placed.length === 2 && !(b.media.missing || []).length, JSON.stringify(b.media));
   check("P9 no fixed narration of the move", !/is in your site's file library now|were given (its|their) address/.test(String(b.contextNote || "")), String(b.contextNote || ""));
-  check("P9 the reply is the model's own and names where the files are (read it)", typeof b.notes === "string" && b.notes.length > 0, String(b.notes || "").slice(0, 200));
+  check("P9 the reply is the model's own (notes present)", typeof b.notes === "string" && b.notes.trim().length > 0, String(b.notes || "").slice(0, 200));
   check("P9 no photograph was bought", !b.images || !Number(b.images.made), JSON.stringify(b.images));
   for (const p of (b.media && b.media.placed) || []) {
     const g = await call("GET", p.url);
@@ -790,13 +1152,49 @@ if (import.meta.url === "file://" + process.argv[1]) {
       composer = { launch: browsers.chromium, token, user, refresh, expiresAt };
     }
   }
-  const r = await run({
-    fetch, base: env.APP_ORIGIN || "https://gofarther.dev", token, mode: env.MODE || "rehearsal", slug: env.SITE || "",
-    mutate: env.MUTATE, spend: env.SPEND, maxCredits: env.MAX_CREDITS ? Number(env.MAX_CREDITS) : undefined,
-    fixtures: path.resolve("test/fixtures/media"), browsers, composer, requiredEngines: ["chromium", "chrome", "firefox", "webkit"], repeat: Number(env.REPEAT) || 3, picker: env.PICKER || "grok",
-    log: console.log,
-  });
-  writeFileSync(out, JSON.stringify(r, null, 2));
-  console.log(r.ok ? "RESULT  ok" : r.refused ? "RESULT  refused: " + r.refused : "RESULT  failed");
-  process.exit(r.ok ? 0 : r.refused ? 2 : 1);
+  // THE LEDGER, FOR THE BUILD'S CHARGE: the account's own credit events read
+  // with the service key, the id, kind, reason, amount, reference and time
+  // only (the build canary's readers, `scripts/build-check.mjs`).
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+  const SB = env.SUPABASE_URL;
+  const uid = user && user.id;
+  const ledger = uid && SB ? {
+    last: async () => {
+      try {
+        const r = await fetch(SB + "/rest/v1/credit_events?uid=eq." + uid + "&select=id&order=id.desc&limit=1", { headers: svc });
+        const rows = await r.json().catch(() => null);
+        return r.status === 200 && Array.isArray(rows) ? { ok: true, id: rows[0] ? Number(rows[0].id) : 0 } : { ok: false };
+      } catch { return { ok: false }; }
+    },
+    window: async (from, to) => {
+      try {
+        const r = await fetch(SB + "/rest/v1/credit_events?uid=eq." + uid + "&id=gt." + Number(from) + "&id=lte." + Number(to) + "&select=id,kind,reason,delta,ref,at&order=id.asc", { headers: { ...svc, Prefer: "count=exact" } });
+        const rows = await r.json().catch(() => null);
+        const { windowComplete } = await import("./canary-build.mjs");
+        return { ok: r.status === 200 && Array.isArray(rows), complete: windowComplete({ status: r.status, rows, range: String(r.headers.get("content-range") || "") }), rows: Array.isArray(rows) ? rows : null };
+      } catch { return { ok: false, complete: false, rows: null }; }
+    },
+  } : null;
+  // THE RESULTS FILE IS WRITTEN WHATEVER HAPPENS: `run` keeps its evidence on
+  // an exception, and anything thrown outside it is written too.
+  let r = { ok: false, results: { mode: env.MODE, slug: env.SITE, checks: [], spends: [], recorded: [], unverified: [] } };
+  try {
+    r = await run({
+      fetch, base: env.APP_ORIGIN || "https://gofarther.dev", token, mode: env.MODE || "rehearsal", slug: env.SITE || "",
+      mutate: env.MUTATE, spend: env.SPEND, maxCredits: env.MAX_CREDITS ? Number(env.MAX_CREDITS) : undefined,
+      fixtures: path.resolve("test/fixtures/media"), browsers, composer, ledger, requiredEngines: ["chromium", "chrome", "firefox", "webkit"], repeat: Number(env.REPEAT) || 3, picker: env.PICKER || "grok",
+      log: console.log,
+    });
+  } catch (e) {
+    r.error = r.results.error = String((e && e.stack) || e).slice(0, 1200);
+  } finally {
+    writeFileSync(out, JSON.stringify(r, null, 2));
+  }
+  const sp = r.results && r.results.spending;
+  if (sp) console.log("SPENT   known " + sp.known + ", unknown " + sp.unknown + " send(s), ledger moved " + sp.ledger + "; ceiling " + sp.ceiling + " (estimates are not limits)");
+  if (r.results && r.results.unverified && r.results.unverified.length) console.log("REVIEW  " + r.results.unverified.length + " answer(s) kept whole for a person to read: " + r.results.unverified.map((u) => u.case).join(", "));
+  console.log(r.refused ? "RESULT  refused: " + r.refused : "RESULT  " + ((r.results && r.results.outcome) || "failed"));
+  // 0 passed · 3 passed what the automation can establish, the rest awaits a
+  // person · 1 failed · 2 refused before anything was done.
+  process.exit(r.refused ? 2 : !r.ok ? 1 : r.review ? 3 : 0);
 }
