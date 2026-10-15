@@ -1,5 +1,76 @@
 # Owner Notes
 
+## Draft-first and the Publish button, for every builder change (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed; no production SQL, container build or paid test)
+
+**What you asked for:** every builder-made change saves to a persistent
+draft and shows in the builder's preview. Visitors keep the last published
+version until you press Publish, and Publish releases the exact ready version
+you approved. Ordinary conversation changes nothing.
+
+**Where it starts:**
+
+| | Commit |
+|---|---|
+| `main` | `772bb885` (the assistant and hosting release, deployed) |
+| help-needed, with the first draft-first round at its tip | `0966ea90` (reused, not rebuilt) |
+| the merge of the two on this branch | `0da51d1a` (three list conflicts, each a union) |
+| this round | `5d99cebd` (code, tests and `docs/history/2026-10-15-draft-first.md` §5) |
+
+help-needed's publish-integrity corrections ride the merge unchanged; the
+draft path depends on them. The other chat's concurrency work stays theirs.
+
+**What this round adds:**
+- **Numbered revisions.** Publish names one, and nothing newer can slip in.
+  A task's code and its database or library changes are one revision.
+- **Held backend changes on a live site:** schema and rules, starter rows,
+  row changes and additions, add-on entries, replaced and removed library
+  files. They are applied only by Publish, in an order that can be repeated,
+  with new rows added exactly once. Scheduled jobs are held even before the
+  first publication.
+- **The next task reads the draft:** its rows, its schema, its pages.
+- **Publish:** one at a time per site. A duplicate click is told it is under
+  way. A stop says so, and pressing again finishes it. A dead lock is taken
+  over. Only your Publish route can publish.
+- **The preview is isolated:**
+  - it reads the draft's rows and library;
+  - every write, function call, checkout, sign-in, visitor upload, form and
+    error report from the preview is refused;
+  - preview traffic is not counted in the site's metrics.
+- **Truthful wording:**
+  - builds say "Saved to your draft", and a build's answer now carries its
+    draft;
+  - edit replies say the change is saved to the draft;
+  - a held rule no longer says "live now";
+  - the Publish panel shows the state ("Saved, not published", "Not
+    published yet", "Still processing", "Publishing").
+
+**Checks (offline, supplied model answers only):**
+- `test/draft-first.test.mjs`, 11 cases: first build, repeated edits,
+  publishing a chosen revision, edits after publication, duplicate and
+  failed publication, preview isolation, the library, backend holding,
+  reload and recovery, a task finishing during a publication, and an
+  ordinary-chat control.
+- The first round's tests (DF1–DF6 and `site-draft`) and the publish tests:
+  217 of 217.
+- Mutation sweep: 21 of 21 killed, the control survived.
+- Full suite, local: 11,215 tests, 11,212 passed, 2 skipped, 1 failure.
+  The failure is environmental (the worktree's `node_modules` symlink),
+  and the baseline merge commit has the same one (11,204 / 11,201 / 1 / 2).
+- CI not yet read; the push starts unit tests.
+- At a merge the container image would roll: `worker.js` and
+  `site-draft.mjs` are among its inputs. Nothing was built.
+
+**Gaps, kept open** (in full in `docs/history/2026-10-15-draft-first.md` §5.7):
+- the switch is off by default;
+- owner panels act immediately by design;
+- changing the site's address from chat is immediate;
+- the preview shows rows but not rules, and overlays filtered reads
+  approximately;
+- migration records are not rewritten at Publish;
+- billing happens at save;
+- no live verification.
+
+
 ## Merged: `new` and `candidate/new-on-main` (2026-10-15)
 
 The owner's clarified merge request is complete. Main was fast-forwarded to

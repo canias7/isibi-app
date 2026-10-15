@@ -1305,3 +1305,15 @@
 
   On branch only, behind `DRAFT_FIRST`, off until you switch it on. The
   audit and the gaps are in `docs/history/2026-10-15-draft-first.md`.
+
+- **Every builder-made change is a draft until you click Publish** (2026-10-15,
+  restated: *"every builder-made change to a site must save to a persistent
+  draft and appear in the builder's preview. Visitors keep seeing the last
+  published version until the owner explicitly clicks Publish."*). It covers
+  uploads, replacements, deletions and backend functionality too.
+  - Later tasks build on the latest draft.
+  - Publish releases the specific ready version you approved.
+  - Retries, recovery, reconnects and background completion never publish.
+  - Preview activity must not touch production data or cause side effects.
+  - Status wording is truthful: saved to the preview is not "live".
+  - Ordinary conversation changes nothing.
