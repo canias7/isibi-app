@@ -4562,6 +4562,26 @@ for (const [name, html, ok] of [
   });
 }
 
+// THE SAME, THROUGH THE ROUTE, ON A PAGE WHOSE FOOTER ALREADY LINKS /classes
+// (2026-10-15, review): the footer must not answer for the asked link.
+const FOOTED = { ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <footer><Link to="/classes">Classes</Link></footer>\n</main>') };
+for (const [name, html, ok, stored] of [
+  // THE FOOTER ARRIVES WITH THE CHANGE: one more /classes link on the page.
+  ["linked to the wrong page while a new footer links the right one", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false, PHOTO_SITE[0]],
+  ["linked to the wrong page beside a footer link to the right one", '<p>Book a <Link to="/visit">workshop place</Link> by Friday.</p>', false, FOOTED],
+  ["the right link only inside a JSX comment", '<p>Book a workshop place by Friday.</p>{/* <Link to="/classes">workshop place</Link> */}', false, FOOTED],
+  ["drawn as the site's Link beside the footer", '<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>', true, FOOTED],
+]) {
+  test("LINKED WORDS, FOOTER ON THE PAGE — " + name + (ok ? ": found and published" : ": refused before the bill"), async () => {
+    const r = await addon("fw-photo", "add a line saying people can book a workshop place by Friday, linking to the classes page", {
+      kinds: ["words"], publishes: ok, storedPages: [stored, storedPage("/classes")], answers: wordsAnswer("/", LINKED),
+      written: [withLine(FOOTED, html)],
+    });
+    if (ok) assert.equal(r.body.ok, true, JSON.stringify(r.body));
+    else { assert.equal(r.status, 422, JSON.stringify(r.body)); assert.equal(r.body.error, "not-landed"); assert.equal(r.body.cost, 0); assert.equal(r.compiles.length, 0); }
+  });
+}
+
 test("words for a page the site does not have are refused by name, never moved to the home page", async () => {
   const r = await addon("fw-photo", "add a line about parking to the contact page", {
     kinds: ["words"], publishes: true, storedPages: PHOTO_SITE, answers: wordsAnswer("/contact", "Park behind the shop."),

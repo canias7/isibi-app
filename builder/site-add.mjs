@@ -4688,11 +4688,171 @@ export function wordsParts(words) {
   const text = s.replace(LINK_IN_WORDS, (m, t, href) => { links.push({ text: t.trim(), href }); return t; });
   return { text, links };
 }
-/** How many links to exactly `href` a page's source draws (`href=` or `to=`, quoted or a string expression). */
-function linkCount(source, href) {
-  const esc = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp("\\b(?:href|to)\\s*=\\s*(?:\"" + esc + "\"|'" + esc + "'|\\{\\s*[\"'`]" + esc + "[\"'`]\\s*\\})", "g");
-  return (String(source || "").match(re) || []).length;
+/**
+ * EVERY LINK A PAGE DRAWS, AS A VISITOR MEETS IT (2026-10-15, after review):
+ * each `<Link …>` or `<a …>` element's destination and the words it shows,
+ * read element by element — never a page-wide count of an address, which a
+ * footer link elsewhere, a JSX comment, or one link standing for two would
+ * satisfy. Comments are dropped first. A destination is read from `to=` or
+ * `href=` written as a quoted string, a string in braces, or a template with
+ * no substitution; anything else (a variable, an expression) is not a
+ * destination this can vouch for, and its link is not counted. The words are
+ * the element's text, its string expressions included, other expressions
+ * dropped.
+ */
+/** A page's source with its comments blanked: JSX comment blocks, block comments, HTML comments and whole-line `//` comments. */
+function stripComments(source) {
+  return String(source == null ? "" : source)
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/^[ \t]*\/\/.*$/gm, " ");
+}
+export function renderedLinks(source) {
+  const src = stripComments(source);
+  // The end of a tag that opens at `from` (just past its name): its closing
+  // `>`, skipping quoted strings and braced expressions. -1 when unclosed.
+  const tagEnd = (from) => {
+    let depth = 0, q = "";
+    for (let i = from; i < src.length; i++) {
+      const c = src[i];
+      if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+      if (c === "{") { depth++; continue; }
+      if (c === "}") { if (depth > 0) depth--; continue; }
+      if (c === ">" && depth === 0) return i;
+    }
+    return -1;
+  };
+  const DEST = /(?:^|[\s{])(?:to|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*\})/;
+  const words = jsxText;
+  const out = [];
+  const OPEN = /<(Link|a)(?=[\s>\/])/g;
+  let m;
+  while ((m = OPEN.exec(src))) {
+    const name = m[1];
+    const end = tagEnd(m.index + 1 + name.length);
+    if (end < 0) break;
+    const attrs = src.slice(m.index + 1 + name.length, end);
+    if (/\/\s*$/.test(attrs)) continue; // self-closing: no words to show
+    // ITS OWN CLOSING TAG, past any of the same name nested inside it.
+    const re = new RegExp("<" + name + "(?=[\\s>\\/])|<\\/" + name + "\\s*>", "g");
+    re.lastIndex = end + 1;
+    let depth = 1, close = -1, r;
+    while ((r = re.exec(src))) {
+      if (r[0][1] === "/") { if (--depth === 0) { close = r.index; break; } }
+      else { const e = tagEnd(r.index + 1 + name.length); if (e < 0) break; if (!/\/\s*$/.test(src.slice(r.index + 1 + name.length, e))) depth++; re.lastIndex = e + 1; }
+    }
+    if (close < 0) continue;
+    const d = DEST.exec(" " + attrs);
+    if (d) out.push({ href: d[1] ?? d[2] ?? d[3] ?? d[4] ?? d[5], text: plainWords(words(src.slice(end + 1, close))) });
+  }
+  return out;
+}
+/**
+ * The words a run of JSX shows: its text, and any child expression that is a
+ * plain string; tags (and so their attributes) and other expressions dropped.
+ */
+function jsxText(inner) {
+  let t = "", depth = 0, q = "", expr = "";
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (depth > 0) {
+      if (q) { if (c === "\\") { expr += c + (inner[i + 1] || ""); i++; continue; } if (c === q) q = ""; expr += c; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; expr += c; continue; }
+      if (c === "{") { depth++; expr += c; continue; }
+      if (c === "}") { depth--; if (depth === 0) { const m = /^\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*$/.exec(expr); if (m) t += " " + (m[1] ?? m[2] ?? m[3]) + " "; else t += " "; expr = ""; } else expr += c; continue; }
+      expr += c; continue;
+    }
+    if (c === "{") { depth = 1; expr = ""; continue; }
+    if (c === "<") { const e = tagEndIn(inner, i + 1); if (e < 0) break; t += " "; i = e; continue; }
+    t += c;
+  }
+  return t;
+}
+/**
+ * WHAT A VISITOR READS ON A PAGE, read structurally: comments dropped, then
+ * every JSX element walked from its opening tag — its text, child elements,
+ * and child expressions (a plain string read as text, any element inside one
+ * walked too); attributes and code outside JSX never read. A second reader
+ * beside the text rung's `extractText`, whose heuristics skip short
+ * connecting words between inline elements ("and" between two links) and
+ * braced strings.
+ */
+function visibleText(source) {
+  const src = stripComments(source);
+  const parts = [];
+  // An expression's end: its matching `}`, strings skipped.
+  const exprEnd = (from) => {
+    let depth = 1, q = "";
+    for (let i = from; i < src.length; i++) {
+      const c = src[i];
+      if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+      if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) return i;
+    }
+    return -1;
+  };
+  const isOpen = (i) => src[i] === "<" && /[A-Za-z>]/.test(src[i + 1] || "");
+  // One element from its `<`: answers the index past its end, or -1.
+  const element = (at) => {
+    if (src[at + 1] === ">") { // a fragment
+      return children(at + 2);
+    }
+    const e = tagEndIn(src, at + 1);
+    if (e < 0) return -1;
+    if (/\/\s*$/.test(src.slice(at + 1, e))) return e + 1;
+    return children(e + 1);
+  };
+  const children = (from) => {
+    let text = "";
+    for (let i = from; i < src.length; i++) {
+      const c = src[i];
+      if (c === "<" && src[i + 1] === "/") { parts.push(text); const e = src.indexOf(">", i); return e < 0 ? -1 : e + 1; }
+      if (isOpen(i)) { parts.push(text); text = ""; const e = element(i); if (e < 0) return -1; i = e - 1; continue; }
+      if (c === "{") {
+        const e = exprEnd(i + 1);
+        if (e < 0) return -1;
+        const body = src.slice(i + 1, e);
+        const lit = /^\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*$/.exec(body);
+        if (lit) text += " " + (lit[1] ?? lit[2] ?? lit[3]) + " ";
+        else { parts.push(text); text = ""; scan(i + 1, e); }
+        i = e; continue;
+      }
+      text += c;
+    }
+    parts.push(text);
+    return -1;
+  };
+  // Code, not JSX: look for elements only.
+  const scan = (from, to) => {
+    for (let i = from; i < to; i++) {
+      if (src[i] === '"' || src[i] === "'" || src[i] === "`") { const q = src[i]; for (i++; i < to && src[i] !== q; i++) if (src[i] === "\\") i++; continue; }
+      if (isOpen(i) && (i === 0 || /[\s(=>&|?:,\[{]/.test(src[i - 1]))) { const e = element(i); if (e < 0) return; i = e - 1; }
+    }
+  };
+  scan(0, src.length);
+  return parts.join(" ");
+}
+/** `tagEnd` over another string: the closing `>` of a tag opened before `from`. */
+function tagEndIn(s, from) {
+  let depth = 0, q = "";
+  for (let i = from; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === "\\") { i++; continue; } if (c === q) q = ""; continue; }
+    if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+    if (c === "{") { depth++; continue; }
+    if (c === "}") { if (depth > 0) depth--; continue; }
+    if (c === ">" && depth === 0) return i;
+  }
+  return -1;
+}
+/** How many rendered links show exactly these words and go exactly there. */
+function linkPairs(source) {
+  const m = new Map();
+  for (const l of renderedLinks(source)) { const k = l.href + "\u0000" + l.text; m.set(k, (m.get(k) || 0) + 1); }
+  return m;
 }
 
 export function wordsLanded(before, after, items) {
@@ -4709,12 +4869,20 @@ export function wordsLanded(before, after, items) {
     const parts = wordsParts(it && it.words);
     const want = plainWords(parts.text);
     if (!file || !want) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
-    const had = occurrences(said(was.get(file) || ""), " " + want + " ");
-    const has = occurrences(said(now.get(file) || ""), " " + want + " ");
-    // …AND EVERY LINK IT CARRIES ARRIVED AS A LINK to its address, once more
-    // than the page drew before.
-    const linked = parts.links.every((l) => linkCount(now.get(file), l.href) > linkCount(was.get(file), l.href));
-    if (has <= had || !linked) missing.push({ page: it.page, words: it.words });
+    // BY EITHER READER, each against itself: the text rung's own, and the
+    // structural one (`visibleText`), which also reads short words between
+    // inline elements and braced strings.
+    const seen = (read) => occurrences(read(now.get(file) || ""), " " + want + " ") > occurrences(read(was.get(file) || ""), " " + want + " ");
+    const shown = seen(said) || seen((src) => " " + plainWords(visibleText(src)) + " ");
+    // …AND EVERY LINK IT CARRIES ARRIVED AS A LINK: those words, going to
+    // that address, on one rendered element — as many more such elements
+    // than the page drew before as the line asks for, so two links to one
+    // place need two.
+    const ask = new Map();
+    for (const l of parts.links) { const k = l.href + "\u0000" + plainWords(l.text); ask.set(k, (ask.get(k) || 0) + 1); }
+    const hadL = linkPairs(was.get(file) || ""), hasL = linkPairs(now.get(file) || "");
+    const linked = [...ask].every(([k, n]) => (hasL.get(k) || 0) - (hadL.get(k) || 0) >= n);
+    if (!shown || !linked) missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };
 }

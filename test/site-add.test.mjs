@@ -33,7 +33,7 @@ import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
 import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
-import { wordsParts as WP, wordsLanded as WL } from "../builder/site-add.mjs";
+import { wordsParts as WP, wordsLanded as WL, renderedLinks as RL } from "../builder/site-add.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
@@ -2621,4 +2621,46 @@ test("wordsLanded: linked words pass only when drawn as a link to their address"
   // WORDS WITHOUT A LINK are judged as before.
   assert.equal(wlCheck("<p>Open daily.</p>", "Open daily."), true);
   assert.equal(wlCheck("<p>Closed.</p>", "Open daily."), false);
+});
+
+// ── EACH LINKED PHRASE AGAINST ITS OWN RENDERED LINK (2026-10-15, review) ─────
+// The page-wide count of an address passed a phrase linked elsewhere, an
+// address only in a comment, and two asked links to one place with one drawn.
+const FOOTER = WL_BASE.replace("</main>", '<footer><Link to="/classes">Classes</Link></footer>\n</main>');
+const withFooter = (html) => FOOTER.replace("<footer>", html + "\n<footer>");
+const wlF = (html, words) => WL([{ path: "index.tsx", source: FOOTER }], [{ path: "index.tsx", source: withFooter(html) }], [{ page: "/", words }]).ok;
+test("wordsLanded: a linked phrase is judged by its own rendered link — wrong destination beside a footer link to the right one, a comment-only link, and one of two links to one place all fail", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  assert.equal(wlF('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p>', W), false, "the footer's /classes answered for a phrase linked to /wrong");
+  // …AND WHEN THAT FOOTER ARRIVES WITH THE SAME CHANGE (one more /classes link).
+  assert.equal(WL([{ path: "index.tsx", source: WL_BASE }], [{ path: "index.tsx", source: withFooter('<p>Book a <Link to="/wrong">workshop place</Link> by Friday.</p>') }], [{ page: "/", words: W }]).ok, false, "a new footer link to /classes answered for a phrase linked to /wrong");
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>\n{/* <Link to="/classes">workshop place</Link> */}', W), false, "a link inside a JSX comment counted");
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>\n/* <a href="/classes">workshop place</a> */', W), false, "a link inside a block comment counted");
+  const TWO = "See [our classes](/classes) and [book one](/classes).";
+  assert.equal(wlF('<p>See <Link to="/classes">our classes</Link> and book one.</p>', TWO), false, "two links to one place passed with one drawn");
+  assert.equal(wlF('<p>See <Link to="/classes">our classes</Link> and <Link to="/classes">book one</Link>.</p>', TWO), true);
+  const SAME = "Go [here](/classes) or [here](/classes).";
+  assert.equal(wlF('<p>Go <Link to="/classes">here</Link> or here.</p>', SAME), false, "the same phrase and place asked twice passed with one drawn");
+  assert.equal(wlF('<p>Go <Link to="/classes">here</Link> or <Link to="/classes">here</Link>.</p>', SAME), true);
+  // A PHRASE THE PAGE ALREADY LINKED does not answer for the new one.
+  assert.equal(wlF('<p>Book a workshop place by Friday.</p>', "Book a [Classes](/classes) now."), false);
+});
+test("wordsLanded keeps every valid form: Link and anchor, braced and template destinations, nested markup and braced strings in the words", () => {
+  const W = "Book a [workshop place](/classes) by Friday.";
+  for (const html of [
+    '<p>Book a <Link to="/classes">workshop place</Link> by Friday.</p>',
+    '<p>Book a <a href="/classes" className="underline">workshop place</a> by Friday.</p>',
+    "<p>Book a <Link to={'/classes'}>workshop place</Link> by Friday.</p>",
+    '<p>Book a <Link to={"/classes"}>workshop place</Link> by Friday.</p>',
+    "<p>Book a <Link to={`/classes`}>workshop place</Link> by Friday.</p>",
+    '<p>Book a <Link to="/classes"><span>workshop</span> place</Link> by Friday.</p>',
+    '<p>Book a <Link to="/classes">{"workshop place"}</Link> by Friday.</p>',
+  ]) assert.equal(wlF(html, W), true, html);
+  // A DESTINATION THIS CANNOT READ is not vouched for.
+  assert.equal(wlF("<p>Book a <Link to={dest}>workshop place</Link> by Friday.</p>", W), false);
+  assert.equal(wlF("<p>Book a <Link to={`/c${x}`}>workshop place</Link> by Friday.</p>", W), false);
+});
+test("renderedLinks reads each element's destination and words, skipping comments and self-closing tags", () => {
+  const src = 'export default () => <main><Link to="/a">One <b>two</b></Link>{/* <Link to="/b">no</Link> */}<a href="https://x.example/p">{"Three"}</a><Link to="/c" /></main>';
+  assert.deepEqual(RL(src), [{ href: "/a", text: "one two" }, { href: "https://x.example/p", text: "three" }]);
 });
