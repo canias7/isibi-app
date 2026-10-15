@@ -449,7 +449,10 @@ export async function handleMediaStart(deps, { scope, limits, name, size, type, 
     const have = await deps.exists(deps.objectKey(scope, replace));
     if (!have) return res({ error: "no such file", code: "no_file" }, 404);
     if (have.kind !== kind) return res({ error: "a " + have.kind + " file can only be replaced with another " + have.kind + " file", code: "kind_mismatch" }, 409);
-    target = { name: replace, size: Number(have.size) || 0 };
+    // THE GENERATION IT REPLACES (2026-10-15): its close is allowed only over this one.
+    const a = await deps.readAsset(scope, replace);
+    if (a && a.rec && a.rec.state === "deleted") return res({ error: "no such file", code: "no_file" }, 404);
+    target = { name: replace, size: Number(have.size) || 0, gen: a && a.rec && Number.isSafeInteger(a.rec.gen) ? a.rec.gen : 0 };
   }
   // THE EXTENSION IS DECIDED BY THE BYTES: until the first part arrives the
   // object's key carries the declared one; a first part that names another
@@ -480,7 +483,7 @@ export async function handleMediaStart(deps, { scope, limits, name, size, type, 
   }
   const session = {
     sid, scope, key, name: fileName, display: clean(name, 120), ext, kind, size, parts: partsFor(size), uploadId,
-    created: now, expires, state: "open", ...(deps.who ? { by: String(deps.who) } : {}), ...(target ? { replace: target.name, replacing: target.size } : {}), meta: m,
+    created: now, expires, state: "open", ...(deps.who ? { by: String(deps.who) } : {}), ...(target ? { replace: target.name, replacing: target.size, baseGen: target.gen } : {}), meta: m,
   };
   try { await deps.saveSession(scope, session); } catch {
     try { await deps.abort(key, uploadId); } catch { /* expires */ }
@@ -505,6 +508,136 @@ async function liveSession(deps, scope, sid) {
 /** What a finished upload made, as its completion answered it. */
 const finishedBody = (s, extra = {}) => ({ ok: true, ...s.file, ...extra });
 
+// ── ONE FILE'S MUTATIONS, IN ONE PLACE (2026-10-15, Codex's review of `aef027fd`) ──
+//
+// Codex reproduced the gap the last round left: a replacement read the old
+// object, a delete landed just after, and R2's multipart close then answered
+// 200 and wrote the deleted file back. A second existence check only moves
+// that gap. So a delete and a replacement's close now go through the same
+// durable record for the file (`media-assets/<scope>/<name>.json`), changed
+// only by a conditional write over the etag it was read at — with a growing
+// revision and the write's own id, as the ledger, so it never comes back to an
+// old etag:
+//   - `live`, generation G: the file as it stands;
+//   - `committing`, generation G, with a CLAIM (the replacement's session, its
+//     upload and when it claimed): a replacement is closing R2's upload;
+//   - `deleted`, generation G+1: the owner deleted it.
+// A REPLACEMENT records the generation it started from (`baseGen`). To close,
+// it first CLAIMS the record — only while it is `live` at that same generation
+// — and only then asks R2 to close; after R2 has, it makes the record `live`
+// at G+1 with its own upload id. Deleted meanwhile: it is given up (410) and
+// nothing is closed. A newer generation meanwhile: given up (409). A DELETE
+// writes `deleted` first and removes the object after; while a claim is held
+// it is refused (409, `replacing`, try again) rather than racing the close.
+// So whichever reaches the record first wins, and the other is told so; a
+// stale upload can neither bring a deleted file back nor write over a newer
+// generation.
+//
+// A CLAIM WHOSE HOLDER WAS INTERRUPTED is recovered by the next request that
+// meets it after `MEDIA_CLAIM_MS`: the claimed upload is ABORTED first — so a
+// close still in flight cannot land afterwards — and then the object says
+// which way it went: carrying the claim's upload id, the replacement landed
+// and the record moves to G+1 (its session is recorded as done); otherwise it
+// did not, the record stays at G, and the session is given up with its room
+// released. A file with no record yet (every file before this change, and a
+// new file never replaced) is read as `live` at generation 0 from its object.
+export const MEDIA_CLAIM_MS = 15 * 60 * 1000;
+export const ASSET_TRIES = 8;
+
+/** The file's record as it stands: `{ rec, etag }`, a missing record read from the object (`live` 0, or `absent`). */
+async function readAssetNow(deps, scope, name) {
+  const got = await deps.readAsset(scope, name);
+  if (got && got.rec) return got;
+  const h = await deps.exists(deps.objectKey(scope, name));
+  return { rec: h ? { gen: 0, state: "live", up: h.up || "" } : { gen: 0, state: "absent" }, etag: null };
+}
+
+/**
+ * CHANGE ONE FILE'S RECORD, ATOMICALLY: `change(rec)` answers `{ refuse }`,
+ * `{ same: true }` (nothing to write), or `{ rec, again? }` — written over the
+ * etag it was read at, and read again when another writer got there first
+ * (`again` reads again after writing, for a recovery). Answers `{ ok, rec }`,
+ * `{ refuse }`, or a 503 when it could not get a turn.
+ */
+export async function changeAsset(deps, scope, name, change) {
+  for (let i = 0; i < ASSET_TRIES; i++) {
+    const read = await readAssetNow(deps, scope, name);
+    const r = await change(read.rec);
+    if (r && r.refuse) return r;
+    if (r && r.same) return { ok: true, rec: read.rec };
+    const rev = (Number.isSafeInteger(read.rec && read.rec.rev) ? read.rec.rev : 0) + 1;
+    const next = { ...r.rec, rev, w: deps.random() };
+    if (await deps.writeAsset(scope, name, next, read.etag)) {
+      if (r.again) continue;
+      return { ok: true, rec: next };
+    }
+  }
+  return { refuse: res({ error: "that file is being changed by another request — try again in a moment", code: "busy", retry: true }, 503) };
+}
+
+/**
+ * A CLAIM WHOSE HOLDER WENT AWAY, settled: its upload aborted first, then the
+ * object read. Answers the record to write.
+ */
+async function recoverClaim(deps, scope, name, rec) {
+  const c = rec.claim || {};
+  if (c.key && c.uploadId) { try { await deps.abort(c.key, c.uploadId); } catch { /* already closed or gone */ } }
+  let h = null;
+  try { h = await deps.exists(deps.objectKey(scope, name)); } catch { return null; }
+  const s = c.sid ? await deps.loadSession(scope, c.sid).catch(() => null) : null;
+  if (h && h.up === c.sid) {
+    // IT LANDED: the replacement is the file, at the next generation.
+    if (s && s.state !== "done") await recordDone(deps, scope, s, Number(h.size) || s.size).catch(() => {});
+    return { gen: rec.gen + 1, state: "live", up: c.sid, at: deps.now() };
+  }
+  // IT DID NOT: the file is as it was, and the replacement is given up.
+  if (s && s.state !== "done") await abortQuietly(deps, s);
+  else if (c.sid) await releaseMedia(deps, scope, c.sid);
+  return { gen: rec.gen, state: "live", up: rec.up || "", at: deps.now() };
+}
+const claimStale = (deps, rec) => !(rec.claim && rec.claim.at + MEDIA_CLAIM_MS > deps.now());
+
+/**
+ * DELETE A FILE, through its record (2026-10-15): `deleted` is written first,
+ * then the object is removed, so a replacement that has not yet claimed can
+ * never close over it; while a replacement holds a fresh claim the delete is
+ * refused, to be sent again. Deleting again is answered as done. Answers
+ * `{ ok: true }`, `{ ok: true, already: true }`, 404, 409 `replacing`, or 503.
+ */
+export async function handleMediaDelete(deps, { scope, name } = {}) {
+  if (!isMediaName(name)) return res({ error: "no such file", code: "no_file" }, 404);
+  let already = false;
+  const r = await changeAsset(deps, scope, name, async (rec) => {
+    if (rec.state === "absent") return { refuse: res({ error: "no such file", code: "no_file" }, 404) };
+    if (rec.state === "deleted") { already = true; return { same: true }; }
+    if (rec.state === "committing") {
+      if (!claimStale(deps, rec)) return { refuse: res({ error: "that file is being replaced right now — try deleting it again in a moment", code: "replacing", retry: true }, 409) };
+      const back = await recoverClaim(deps, scope, name, rec);
+      if (!back) return { refuse: notNow({ now: "unknown" }) };
+      return { rec: back, again: true };
+    }
+    return { rec: { gen: rec.gen + 1, state: "deleted", up: rec.up || "", at: deps.now() } };
+  });
+  if (r.refuse) return r.refuse;
+  // THE OBJECT GOES AFTER THE RECORD SAYS DELETED; a delete sent again finishes it.
+  try { await deps.deleteObject(deps.objectKey(scope, name)); } catch { return res({ error: "couldn't remove that file just now — delete it again", code: "delete_failed", retry: true }, 502); }
+  return res({ ok: true, ...(already ? { already: true } : {}) });
+}
+
+/** A session recorded as done with the file it made. */
+async function recordDone(deps, scope, s, size) {
+  const url = deps.urlOf(scope, s.name);
+  const file = {
+    name: s.name, ...(url ? { url } : {}), kind: s.kind, mime: MEDIA_FORMATS[s.ext].mime, size,
+    ...(s.display ? { download: s.display } : {}), ...s.meta, ...(s.replace ? { replaced: true } : {}),
+  };
+  // RECORDED BEFORE THE ROOM IS GIVEN BACK: the file is counted from now on.
+  try { await deps.saveSession(scope, { ...s, state: "done", file, finished: deps.now(), expires: deps.now() + MEDIA_SESSION_MS }); } catch { /* `up` on the file still answers a second ask */ }
+  await releaseMedia(deps, scope, s.sid);
+  try { await deps.dropParts(scope, s.sid); } catch { /* expires on its own */ }
+  return file;
+}
+
 // ── A RECEIPT IS HISTORY; THE FILE IS NOW (2026-10-15, Codex's review of `673e26cb`) ──
 //
 // A finished session says an upload COMPLETED. It does not say the file is
@@ -522,7 +655,12 @@ const finishedBody = (s, extra = {}) => ({ ok: true, ...s.file, ...extra });
 // again, so it cannot bring a deleted file back or write over a newer one.
 async function whereNow(deps, s) {
   let h;
-  try { h = await deps.exists(s.key); } catch { return { now: "unknown" }; }
+  try {
+    // DELETED BY ITS RECORD is gone, even while a crashed delete left the object.
+    const a = deps.readAsset ? await deps.readAsset(s.scope, s.name) : null;
+    if (a && a.rec && a.rec.state === "deleted") return { now: "missing" };
+    h = await deps.exists(s.key);
+  } catch { return { now: "unknown" }; }
   if (!h) return { now: "missing" };
   return h.up === s.sid ? { now: "here", size: Number(h.size) || s.size } : { now: "other" };
 }
@@ -600,15 +738,39 @@ export async function handleMediaComplete(deps, { scope, sid, parts } = {}) {
     const where = await whereNow(deps, s);
     return where.now === "here" ? res(finishedBody(s, { again: true }), 200) : notNow(where);
   }
-  // A REPLACEMENT WHOSE FILE WAS DELETED while it was being sent is not
-  // closed: closing it would bring the deleted file back. Given up instead.
+  // A REPLACEMENT CLAIMS ITS FILE'S RECORD BEFORE R2 IS ASKED TO CLOSE
+  // (2026-10-15): only over the generation it started from, and never over a
+  // delete. Deleted or newer meanwhile, it is given up and nothing is closed.
   if (s.replace) {
-    let h;
-    try { h = await deps.exists(s.key); } catch { return notNow({ now: "unknown" }); }
-    if (!h) {
+    let gone = null;
+    let claim;
+    try {
+      claim = await changeAsset(deps, scope, s.name, async (rec) => {
+        if (rec.state === "committing" && rec.claim && rec.claim.sid === sid) return { same: true };
+        if (rec.state === "deleted" || rec.state === "absent") { gone = "removed"; return { refuse: true }; }
+        if (rec.state === "committing") {
+          if (!claimStale(deps, rec)) return { refuse: res({ error: "that file is being replaced by another upload — try again in a moment", code: "replacing", retry: true }, 409) };
+          const back = await recoverClaim(deps, scope, s.name, rec);
+          if (!back) return { refuse: notNow({ now: "unknown" }) };
+          return { rec: back, again: true };
+        }
+        const base = Number.isSafeInteger(s.baseGen) ? s.baseGen : 0;
+        if (rec.gen !== base) { gone = "replaced"; return { refuse: true }; }
+        return { rec: { gen: rec.gen, state: "committing", up: rec.up || "", claim: { sid, at: deps.now(), key: s.key, uploadId: s.uploadId } } };
+      });
+    } catch { return notNow({ now: "unknown" }); }
+    if (gone) {
       await abortQuietly(deps, s);
-      return res({ error: "the file this was replacing has been deleted — upload it as a new file instead", code: "removed" }, 410);
+      return gone === "removed"
+        ? res({ error: "the file this was replacing has been deleted — upload it as a new file instead", code: "removed" }, 410)
+        : res({ error: "a newer version of that file was saved while this one was being sent — nothing was changed", code: "replaced" }, 409);
     }
+    if (claim.refuse) return claim.refuse;
+    // CLAIMED, BUT A CLAIM SETTLED WHILE THIS WAITED may have been our own: a
+    // session given up by a recovery is no longer there to close.
+    const still = await liveSession(deps, scope, sid);
+    if (!still) return res({ error: "that upload was given up while it waited — send the file again", code: "no_session" }, 404);
+    if (still.state === "done") return res(finishedBody(still, { again: true }), 200);
   }
   let saved = {};
   try { saved = (await deps.savedParts(scope, sid)) || {}; } catch { saved = {}; }
@@ -628,18 +790,31 @@ export async function handleMediaComplete(deps, { scope, sid, parts } = {}) {
       // A PART ONLY THE PAGE VOUCHED FOR is the likelier cause: asked for again
       // by number, rather than the whole upload called failed.
       if (!done && unrecorded.length) return res({ error: "some of that file's parts need sending again", code: "parts_missing", parts: s.parts, missing: unrecorded.slice(0, 50) }, 400);
+      // A REPLACEMENT WHOSE CLAIM WAS SETTLED BY ANOTHER REQUEST while it was
+      // closing (its upload aborted by a recovery): said as what the record
+      // now is, never as a close to try again.
+      if (!done && s.replace) {
+        const a = await deps.readAsset(scope, s.name).catch(() => null);
+        const rec = a && a.rec;
+        if (rec && !(rec.state === "committing" && rec.claim && rec.claim.sid === sid)) {
+          const gone = await liveSession(deps, scope, sid);
+          if (gone && gone.state !== "done") await abortQuietly(deps, gone);
+          return rec.state === "deleted"
+            ? res({ error: "the file this was replacing has been deleted — upload it as a new file instead", code: "removed" }, 410)
+            : res({ error: "this replacement was given up while it waited — nothing was changed; send the file again", code: "replaced" }, 409);
+        }
+      }
       if (!done) return res({ error: "couldn't finish that upload — try finishing it again", code: "complete_failed", retry: true }, 502);
     }
   }
-  const url = deps.urlOf(scope, s.name);
-  const file = {
-    name: s.name, ...(url ? { url } : {}), kind: s.kind, mime: MEDIA_FORMATS[s.ext].mime, size: done.size,
-    ...(s.display ? { download: s.display } : {}), ...s.meta, ...(s.replace ? { replaced: true } : {}),
-  };
-  // RECORDED BEFORE THE ROOM IS GIVEN BACK: the file is counted from now on.
-  try { await deps.saveSession(scope, { ...s, state: "done", file, finished: deps.now(), expires: deps.now() + MEDIA_SESSION_MS }); } catch { /* `up` on the file still answers a second ask */ }
-  await releaseMedia(deps, scope, sid);
-  try { await deps.dropParts(scope, sid); } catch { /* expires on its own */ }
+  // CLOSED: the replacement's record moves to the next generation, its own.
+  if (s.replace) {
+    await changeAsset(deps, scope, s.name, async (rec) => {
+      if (rec.state === "committing" && rec.claim && rec.claim.sid === sid) return { rec: { gen: rec.gen + 1, state: "live", up: sid, at: deps.now() } };
+      return { same: true };
+    }).catch(() => {});
+  }
+  const file = await recordDone(deps, scope, s, done.size);
   return res({ ok: true, ...file }, s.replace ? 200 : 201);
 }
 

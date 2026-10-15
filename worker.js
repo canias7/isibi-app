@@ -37,7 +37,7 @@ import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
-import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -9935,6 +9935,7 @@ async function siteMediaFiles(env, slug) {
 const MEDIA_SESSION_PREFIX = (scope) => "media-sessions/" + scope + "/";
 const MEDIA_PARTS_PREFIX = (scope, sid) => "media-parts/" + scope + "/" + sid + "/";
 const MEDIA_LEDGER_KEY = (scope) => "media-ledger/" + scope + ".json";
+const MEDIA_ASSET_KEY = (scope, name) => "media-assets/" + scope + "/" + name + ".json";
 /** A draft file (kept before a site exists): its key, size, kind and stored metadata; expired ones removed. */
 async function draftMediaList(env, uid) {
   const out = [];
@@ -9984,6 +9985,20 @@ function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
       httpMetadata: { contentType: "application/json" },
       onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
     })),
+    // ONE FILE'S RECORD (2026-10-15): its generation and state, written only
+    // over the etag it was read at; its revision and write id are in the bytes.
+    readAsset: async (sc, name) => {
+      const got = await B.get(MEDIA_ASSET_KEY(sc, name));
+      if (!got) return { rec: null, etag: null };
+      let rec = null;
+      try { const j = JSON.parse(await got.text()); rec = j && typeof j === "object" && Number.isSafeInteger(j.gen) && typeof j.state === "string" ? j : null; } catch { rec = null; }
+      return { rec, etag: got.etag || got.httpEtag || null };
+    },
+    writeAsset: async (sc, name, rec, etag) => !!(await B.put(MEDIA_ASSET_KEY(sc, name), JSON.stringify({ v: 1, ...rec }), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+    })),
+    deleteObject: (key) => B.delete(key),
     exists: async (key) => {
       const h = await B.head(key);
       if (!h) return null;
@@ -41130,7 +41145,7 @@ async function handleRequest(request, env, ctx) {
             };
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
             if (request.method === "GET" && !uf[2]) r = await handleUploadList({ ...udeps, mediaLimits: mediaLimits(env) }, { slug: uslug, uid: ou.id });
-            else if (request.method === "DELETE" && uf[2] && isMediaName(uf[2].toLowerCase()) && url.searchParams.get("force") !== "1") {
+            else if (request.method === "DELETE" && uf[2] && isMediaName(uf[2].toLowerCase())) {
               // ── A VIDEO OR A RECORDING A PAGE PLAYS IS NOT DELETED UNASKED
               //    (2026-10-14) ──────────────────────────────────────────────
               // Its address is in a page's source: the player there would go
@@ -41141,11 +41156,13 @@ async function handleRequest(request, env, ctx) {
               const g = await assertOwner(ownerDeps, uslug, ou.id);
               if (g && g.error) r = g.error;
               else {
-                const pages = await loadSiteSource(env, uslug).catch(() => null);
+                const pages = url.searchParams.get("force") === "1" ? null : await loadSiteSource(env, uslug).catch(() => null);
                 const using = pagesUsing(pages, uslug, uf[2].toLowerCase()).map((p) => routeOf(p)).filter(Boolean);
+                // THROUGH THE FILE'S OWN RECORD (2026-10-15): the delete and a
+                // replacement's close are one sequence, never a race.
                 r = using.length
                   ? { status: 409, body: { error: "a page plays this file", code: "in_use", pages: using } }
-                  : await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
+                  : await handleMediaDelete(mediaDeps(env, { scope: siteScope(uslug), slug: uslug, who: ou.id, gate: async () => ({}) }), { scope: siteScope(uslug), name: uf[2].toLowerCase() });
               }
             }
             else if (request.method === "DELETE" && uf[2]) r = await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });

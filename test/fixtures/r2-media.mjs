@@ -21,6 +21,9 @@
 // behaviour; it was not, and it hid a race in which a ledger returned to the
 // same bytes. A finished multipart upload's etag here is the MD5 of its
 // parts' MD5s and their count; nothing here relies on that form.
+// `hooks.beforeComplete(key, uploadId)` and `hooks.beforeDelete(key)` run
+// before a multipart close and a delete land: the barriers around the gap
+// between a replacement's check and its commit (2026-10-15).
 // `hooks.beforePut(key, value, opts)` runs before a write is decided, so a
 // case can hold one request between its read and its conditional write while
 // another runs whole.
@@ -107,6 +110,7 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = 
     },
     async delete(key) {
       trip("delete");
+      if (hooks.beforeDelete) await hooks.beforeDelete(key);
       for (const k of Array.isArray(key) ? key : [key]) store.delete(k);
     },
     async list({ prefix = "", cursor, include } = {}) {
@@ -144,6 +148,7 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = 
         },
         async complete(parts) {
           trip("complete");
+          if (hooks.beforeComplete) await hooks.beforeComplete(key, uploadId);
           const u = uploads.get(uploadId);
           if (!u || u.key !== key || u.done) throw new Error("no such upload");
           const list = [...parts].sort((x, y) => x.partNumber - y.partNumber);

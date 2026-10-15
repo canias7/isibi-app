@@ -139,6 +139,12 @@ function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now(), who 
       return { held: j.held, rev: j.rev || 0, etag: got.etag };
     },
     writeLedger: async (sc, { held, rev, w }, etag) => !!(await B.put(ledgerKey(sc), JSON.stringify({ v: 2, rev, w, held }), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
+    readAsset: async (sc, name) => {
+      const got = await B.get("media-assets/" + sc + "/" + name + ".json");
+      return got ? { rec: JSON.parse(await got.text()), etag: got.etag } : { rec: null, etag: null };
+    },
+    writeAsset: async (sc, name, rec, etag) => !!(await B.put("media-assets/" + sc + "/" + name + ".json", JSON.stringify(rec), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
+    deleteObject: (key) => B.delete(key),
     exists: async (key) => {
       const h = await B.head(key);
       return h ? { size: h.size, kind: MEDIA_FORMATS[key.split(".").pop()].kind, up: h.customMetadata.up || "" } : null;
@@ -394,4 +400,25 @@ test("the browser's report is kept as metadata, strictly, and said as the browse
   assert.equal(mediaName("z".repeat(32), "mp4"), null);
   assert.equal(isMediaName("a".repeat(32) + ".mp4"), true);
   assert.equal(isMediaName("a".repeat(32) + ".exe"), false);
+});
+
+test("A NEWER GENERATION SAVED WHILE A REPLACEMENT WAS SENT (2026-10-15): its close is refused as replaced, R2 is never asked, the newer file is untouched and the room given back", async () => {
+  const B = mediaBucket();
+  const deps = siteDeps(B);
+  const first = await send(deps, "site-fold", fixture("tone.mp3"), "intro.mp3");
+  const name = first.done.body.name;
+  const bytes = sized("tone.mp3", 9000);
+  const st = await handleMediaStart(deps, { scope: "site-fold", limits: LIM, name: "v2.mp3", size: bytes.length, replace: name });
+  assert.equal(st.status, 201);
+  await handleMediaPart(deps, { scope: "site-fold", sid: st.body.session, n: 1, bytes });
+  // ANOTHER GENERATION LANDED MEANWHILE (as the file's record says).
+  const newer = sized("tone.mp3", 7000);
+  await B.put("uploads/fold/" + name, newer, { customMetadata: { up: "f".repeat(32) } });
+  await B.put("media-assets/site-fold/" + name + ".json", JSON.stringify({ gen: 1, state: "live", up: "f".repeat(32), rev: 1 }));
+  const closes = B.calls.filter((c) => c === "complete").length;
+  const r = await handleMediaComplete(deps, { scope: "site-fold", sid: st.body.session, parts: [] });
+  assert.deepEqual([r.status, r.body.code], [409, "replaced"]);
+  assert.equal(B.calls.filter((c) => c === "complete").length, closes, "R2 was asked to close over a newer generation");
+  assert.deepEqual(B.raw("uploads/fold/" + name), newer, "the newer generation was overwritten");
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(B.raw("media-ledger/site-fold.json"))).held, {});
 });
