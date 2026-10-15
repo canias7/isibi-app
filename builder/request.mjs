@@ -53,7 +53,7 @@ import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
-import { readTargets, inferNeeds, applyOrder, clearToPrepare, prepScope, addonScope, routeScope } from "./request-plan.mjs";
+import { readTargets, inferNeeds, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -1336,7 +1336,7 @@ export function editJobOutcome(row, op = "edit") {
  * not yet given an id (the filer died after the write) comes back to be filed
  * again under the same key.
  */
-export function nextStep(record, rows = {}, now = Date.now()) {
+export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } = {}) {
   const rec = clone(record);
   for (const p of rec.parts) {
     const job = currentJob(p);
@@ -1399,13 +1399,22 @@ export function nextStep(record, rows = {}, now = Date.now()) {
       if (p.status !== want) { p.status = want; moved = true; }
     }
   }
-  let file = null;
-  const pending = rec.parts.find((p) => { const j = currentJob(p); return j && !j.id; });
-  const live = rec.parts.some((p) => ["queued", "started", "unverified"].includes(p.status) || (currentJob(p) && currentJob(p).id));
-  if (pending) {
-    const j = currentJob(pending);
-    file = { n: pending.n, key: j.key, kind: j.kind, op: j.op };
-  } else if (!live && !rec.stop) {
+  const files = [];
+  // EVERY JOB CHOSEN AND NOT YET FILED (its id unknown) is filed again first;
+  // nothing new is chosen on that step.
+  const pendings = rec.parts.filter((p) => { const j = currentJob(p); return j && !j.id; });
+  const running = (p) => ["queued", "started", "unverified"].includes(p.status) || !!(currentJob(p) && currentJob(p).id);
+  const live = rec.parts.some(running);
+  // HOW MANY JOBS OF ONE REQUEST MAY RUN AT ONCE (2026-10-15, the
+  // concurrent-execution round): one unless the Worker says more
+  // (`writeBesideMax`). Above one, a ready part is filed beside the jobs
+  // already running when nothing it must follow is unfinished and nothing
+  // running conflicts with it (`clearToWrite`); the site's publish turn and
+  // the rebase onto the site as it is then keep every outcome.
+  const many = Number.isInteger(writeMax) && writeMax > 1;
+  if (pendings.length) {
+    for (const p of pendings) { const j = currentJob(p); files.push({ n: p.n, key: j.key, kind: j.kind, op: j.op }); }
+  } else if ((!live || many) && !rec.stop) {
     // THE NEXT WRITE (2026-10-08): in the order the parts must be applied —
     // after what each needs, otherwise the message's order — a part whose
     // preparation found a question first (its job asks at once, at no new
@@ -1417,17 +1426,32 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     const ready = order.map((m) => rec.parts[m]).filter((p) => p && p.status === "ready");
     const asks = ready.filter((p) => prepFor(p) && p.prep.state === "done" && p.prep.outcome === "ask");
     const free = ready.filter((p) => !preparing(p, now));
-    const next = asks[0] || free[0] || null;
-    if (next) {
+    const choose = (next) => {
       const kind = next.phase === "run" && next.route ? "run" : "route";
       const op = kind === "route" ? ROUTE_OP : (next.route.op === "addon" ? "addon" : "edit");
       next.seq += 1;
       const key = jobKey(rec.key, next.n, next.seq);
       next.jobs.push({ key, kind, op, id: null, seq: next.seq, end: null });
       next.status = "queued";
-      file = { n: next.n, key, kind, op };
+      files.push({ n: next.n, key, kind, op });
+    };
+    if (!many) {
+      const next = asks[0] || free[0] || null;
+      if (next) choose(next);
+    } else {
+      let count = rec.parts.filter(running).length;
+      const ended = (q) => PART_TERMINAL.includes(q.status);
+      for (const next of [...asks, ...free.filter((p) => !asks.includes(p))]) {
+        if (count >= writeMax) break;
+        // THE FIRST JOB OF A REQUEST WITH NOTHING RUNNING is chosen as it
+        // always was; every one beside it must be clear to write.
+        if ((files.length || rec.parts.some(running)) && !clearToWrite(rec.parts, next.n, ended, running)) continue;
+        choose(next);
+        count++;
+      }
     }
   }
+  const file = files[0] || null;
   // WHAT IS PREPARED NOW: every ready part not being written, whose
   // preparation has not been made for the step it is on, that no earlier part
   // still to be applied conflicts with (`clearToPrepare`), up to
@@ -1467,7 +1491,7 @@ export function nextStep(record, rows = {}, now = Date.now()) {
   }
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
-  return { record: settleState(rec, now), file, prepare };
+  return { record: settleState(rec, now), file, files, prepare };
 }
 
 /** Is this part's preparation for the step it is on now (no job filed for it since)? */

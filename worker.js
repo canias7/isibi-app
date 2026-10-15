@@ -299,7 +299,8 @@ import { addedByRoute, publishedTexts, componentEvidence } from "./builder/conte
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { designOnly as planDesignOnly, routeInScope } from "./builder/request-plan.mjs";
+import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig } from "./builder/request-plan.mjs";
+import { turnKey, turnRecord, readTurn, turnFree, rebaseFiles, TURN_POLL_MS } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
@@ -11903,8 +11904,23 @@ async function restoreVersion(env, slug, id) {
  * wrong. Answers rather than throws; a check that cannot be made costs
  * nothing but a line in the log.
  */
-async function ensureEditableState(env, slug) {
+async function ensureEditableState(env, slug, { turnOwner = null } = {}) {
   if (!env || !env.SITES_BUCKET || !slug) return { ok: true, why: "no-bucket" };
+  // WITH JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15, `PARALLEL_WRITES`), a
+  // repair writes only under the site's publish turn: another job may be
+  // between its config write and its publish, or between its activation and
+  // its source write, and what looks behind is then simply not finished. A
+  // job that holds the turn asks with its name (`turnOwner`); any other asker
+  // takes the turn for the check, and finds it held, leaves it to the holder —
+  // every job checks again under its own turn before it publishes.
+  if (writesBeside(env) && !turnOwner) {
+    let t = null;
+    try { t = await tryTurn(env, slug, "repair:" + crypto.randomUUID()); }
+    catch (e) { console.error("editable state: turn unreadable for", slug, errorClassForLog(e)); return { ok: false, why: "turn" }; }
+    if (!t) return { ok: true, why: "turn-held", wrote: [] };
+    try { return await ensureEditableState(env, slug, { turnOwner: t.owner }); }
+    finally { await giveTurn(env, slug, t); }
+  }
   const deps = buildDeps(env);
   let pointer = null;
   try { pointer = await readPointer(deps, slug); }
@@ -11940,6 +11956,92 @@ async function ensureEditableState(env, slug) {
     console.error("editable state: repair failed for", slug, e && e.message);
     return { ok: false, why: "repair" };
   }
+}
+
+// ── JOBS OF ONE REQUEST SIDE BY SIDE: THE SITE'S PUBLISH TURN (2026-10-15) ──
+//
+// `PARALLEL_WRITES=on` lets the request driver file several jobs of one
+// request at once (`writeBesideMax`, `clearToWrite`). Each such job publishes
+// under the site's turn (`builder/publish-turn.mjs`): one publish at a time,
+// each applying only its own changes onto the site as it is then. Off, none of
+// this runs and one job of a request runs at a time, as before.
+const writesBeside = (env) => !!env && typeof env.PARALLEL_WRITES === "string" && env.PARALLEL_WRITES.trim().toLowerCase() === "on";
+/** How many jobs of one request may run at once. */
+const WRITE_BESIDE_MAX = 3;
+const writeBesideMax = (env) => (writesBeside(env) ? WRITE_BESIDE_MAX : 1);
+const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS); return Number.isFinite(n) && n > 0 ? n : TURN_POLL_MS; };
+/** The stored turn and its etag. A store failure throws. */
+async function readTurnObj(env, slug) {
+  const o = await env.SITES_BUCKET.get(turnKey(slug));
+  if (!o) return { obj: null, etag: null };
+  const text = await o.text();
+  return { obj: { turn: readTurn(text), uploadedAt: o.uploaded }, etag: o.etag || null };
+}
+/** Take the site's turn for `owner` if it is free, once, written only on the etag read: the turn, or null. */
+async function tryTurn(env, slug, owner, job = "") {
+  const { obj, etag } = await readTurnObj(env, slug);
+  if (!turnFree(obj, owner)) return null;
+  const rec = turnRecord(owner, Date.now(), job);
+  const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify(rec), {
+    httpMetadata: { contentType: "application/json" },
+    onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+  });
+  return put ? { ...rec, slug, etag: put.etag || null } : null;
+}
+/** Give a turn back, only while it is still the one taken: a lapsed turn another job now holds is never touched. */
+async function giveTurn(env, slug, t) {
+  if (!t || !env || !env.SITES_BUCKET) return;
+  try {
+    const { obj, etag } = await readTurnObj(env, slug);
+    if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return;
+    await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify({ ...turnRecord(t.owner, Date.now(), t.job), until: 0 }), {
+      httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag },
+    });
+  } catch (e) { console.error("publish turn: could not give back", slug, errorClassForLog(e)); }
+}
+/** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
+async function renewTurn(env, slug, t) {
+  try {
+    const { obj, etag } = await readTurnObj(env, slug);
+    if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return false;
+    const rec = turnRecord(t.owner, Date.now(), t.job);
+    const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } });
+    if (put) { t.until = rec.until; t.etag = put.etag || null; return true; }
+    return false;
+  } catch { return true; /* a store blip is not a lost turn; the next beat asks again */ }
+}
+/**
+ * WAIT FOR THE SITE'S TURN, as a job: looked at every `TURN_POLL_MS`, the
+ * lease kept by the job's own heartbeat meanwhile; given up when the customer
+ * stops the job or its budget runs out. Kept on the job (`beside.turn`).
+ */
+async function takeTurn(env, slug, job) {
+  const bs = job.beside;
+  if (bs.turn) return bs.turn;
+  const owner = "job:" + job.id + ":" + job.owner;
+  for (;;) {
+    let t = null;
+    try { t = await tryTurn(env, slug, owner, job.id); }
+    catch (e) { console.error("publish turn: unreadable for", slug, errorClassForLog(e)); }
+    if (t) { bs.turn = t; bs.waits = (bs.waits || 0); return t; }
+    bs.waits = (bs.waits || 0) + 1;
+    if (typeof job.cancelled === "function" && job.cancelled()) return null;
+    if (job.budget && typeof job.budget.expired === "function" && job.budget.expired()) return null;
+    await new Promise((r) => setTimeout(r, turnPollMs(env)));
+  }
+}
+/**
+ * What a job began with, kept the first time its route reads the site: the
+ * base its publish is rebased from — the pages, and the components read at
+ * the same moment (a route that reads its components later, or never, still
+ * has them to rebase from). A components read that fails leaves none kept,
+ * and a publish that sends components then refuses rather than guess.
+ */
+async function noteBase(env, slug, job, pages) {
+  if (!job || !job.beside || job.prepare === true || job.beside.base || !Array.isArray(pages)) return;
+  job.beside.base = pages.map((p) => ({ ...p }));
+  const r = await readSiteParts(env, slug);
+  if (r.ok) job.beside.baseParts = r.parts.map((p) => ({ ...p }));
 }
 
 /**
@@ -12942,7 +13044,52 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
+/**
+ * A JOB FILED BESIDE OTHERS OF ITS REQUEST PUBLISHES UNDER THE SITE'S TURN
+ * (2026-10-15): it takes the turn (unless it holds it already — a step that
+ * rewrites the config holds it from its start), checks the editable state as
+ * the turn's holder, reads the site as it is now, and publishes its own
+ * changes onto that (`rebaseFiles`): a file it did not change is published as
+ * stored now, never from the copy it began with. A file another job changed
+ * differently since is a conflict — refused, nothing written, our side. The
+ * turn is given back when the publish has ended, whatever it answered. Every
+ * other caller publishes exactly as before.
+ */
+async function recompileAndPublish(env, opts) {
+  const job = opts && opts.job;
+  const bs = job && job.beside;
+  if (!bs || !writesBeside(env) || !env.SITES_BUCKET) return recompileAndPublishOne(env, opts);
+  const slug = opts.slug;
+  const tm = (phase, status, detail) => { try { if (opts.trace) opts.trace.mark(phase, status, detail); } catch { /* never */ } };
+  const mine = !bs.turn;
+  const t = await takeTurn(env, slug, job);
+  if (!t) return { ok: false, error: "turn", ours: true, detail: "another change in this request is still being published, and this one ran out of time waiting — nothing was changed" };
+  tm("publish:turn", "ok", { waits: bs.waits || 0, held: !mine });
+  try {
+    const st = await ensureEditableState(env, slug, { turnOwner: t.owner });
+    if (!st || st.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't check the site's editable state before publishing — nothing was changed" };
+    if (!Array.isArray(bs.base)) return { ok: false, error: "read", ours: true, detail: "couldn't tell what this change began from — nothing was changed" };
+    const cur = await readSiteSource(env, slug, { strict: true });
+    if (!cur || cur.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't read the site as it is now — nothing was changed" };
+    const r = rebaseFiles(bs.base, opts.pages, cur.pages);
+    if (!r.ok) { tm("publish:rebase", "fail", { conflicts: r.conflicts, bad: !!r.bad }); return { ok: false, error: "conflict", ours: true, conflicts: r.conflicts, detail: "another change in this request changed " + (r.conflicts.join(", ") || "the same files") + " at the same time — nothing was changed" }; }
+    let parts = opts.parts;
+    if (Array.isArray(parts)) {
+      const curParts = await readSiteParts(env, slug, { strict: false });
+      if (!curParts.ok || !Array.isArray(bs.baseParts)) return { ok: false, error: "read", ours: true, detail: "couldn't read the site's components as they are now — nothing was changed" };
+      const rp = rebaseFiles(bs.baseParts, parts, curParts.parts, { key: "name" });
+      if (!rp.ok) { tm("publish:rebase", "fail", { conflicts: rp.conflicts, parts: true }); return { ok: false, error: "conflict", ours: true, conflicts: rp.conflicts, detail: "another change in this request changed the component " + (rp.conflicts.join(", ") || "") + " at the same time — nothing was changed" }; }
+      parts = rp.files;
+    }
+    tm("publish:rebase", "ok", { took: r.took.length, kept: r.kept.length });
+    bs.rebased = { took: r.took, kept: r.kept };
+    return await recompileAndPublishOne(env, { ...opts, pages: r.files, parts });
+  } finally {
+    if (mine) { await giveTurn(env, slug, t); bs.turn = null; }
+  }
+}
+
+async function recompileAndPublishOne(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -19349,10 +19496,10 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         if (wantsEvidence(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
         rows[id] = row;
       }
-      const { record, file, prepare } = nextStep(base, rows, Date.now());
+      const { record, files, prepare } = nextStep(base, rows, Date.now(), { writeMax: writeBesideMax(env) });
       // NOTHING MOVED, NOTHING WRITTEN: a look from the page or the sweep at a
       // request whose job is still running costs a read, never a write.
-      const same = !file && !(prepare && prepare.length) && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
+      const same = !files.length && !(prepare && prepare.length) && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
       let tag = same ? etag : await saveRequestRecord(env, record, etag);
       if (!tag) continue;
       let cur = same ? rec : record;
@@ -19373,7 +19520,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       // first runs beside every preparation delivered after it. Sent in
       // `finally`, so a filing that throws still sends what was claimed.
       try {
-        if (file) {
+        // EVERY JOB THIS STEP CHOSE (2026-10-15): one, as before, unless jobs of
+        // a request may run side by side (`writeBesideMax`).
+        for (const file of files) {
           const q = await fileRequestJob(env, cur, file);
           if (q.ok && q.job) {
             for (let k = 0; k < 4; k++) {
@@ -19389,7 +19538,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
             if (cur.stop) { try { await editRpc(env, "edit_cancel", { p_id: q.job, p_uid: cur.uid }); } catch { /* its own end settles it */ } }
             // A DUPLICATE OF A JOB THAT ALREADY ENDED (its filer died after the
             // filing): its row is read and settled on the next turn, now.
-            again = q.duplicate === true && ["done", "failed", "cancelled", "lost"].includes(String(q.state));
+            again = again || (q.duplicate === true && ["done", "failed", "cancelled", "lost"].includes(String(q.state)));
           } else {
             console.log("request:", slug, key, "could not file", file.key, String(q.error || ""), "— the sweep files it again");
             // THE SITE IS PAUSED FOR A CHECK: said on the part, which keeps its place.
@@ -20204,7 +20353,24 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     const budgetMs = inlineBudgetMs(startedAt, capMs);
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug, progress });
-    beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
+    beat = setInterval(() => {
+      jctx.beat(null).catch(() => {});
+      if (jctx.beside && jctx.beside.turn) renewTurn(env, job.slug, jctx.beside.turn).catch(() => {});
+    }, HEARTBEAT_S * 1000);
+    // A REQUEST'S JOB MAY RUN BESIDE OTHERS OF ITS REQUEST (2026-10-15,
+    // `PARALLEL_WRITES`): it publishes under the site's turn, rebased onto the
+    // site as it is then (`recompileAndPublish`). A step that rewrites the
+    // config before it publishes (`holdsConfig`) takes the turn before it
+    // starts and holds it to its end; a part that cannot be read is treated
+    // as one that does. The turn is renewed with the lease.
+    if (requestOf && writesBeside(env)) {
+      jctx.beside = { base: null, baseParts: null, turn: null, holds: true, waits: 0 };
+      try {
+        const { rec: rrec } = await loadRequest(env, job.slug, requestOf.key);
+        const rp = rrec && Array.isArray(rrec.parts) ? rrec.parts[requestOf.part] : null;
+        if (rp) jctx.beside.holds = partHoldsConfig(rp);
+      } catch (e) { console.error("edit queue: request unreadable for", id, "— its job holds the site's turn throughout", errorClassForLog(e)); }
+    }
     // ITS PART'S PREPARATION, WHEN ONE WAS STAGED FOR IT (2026-10-08): calls
     // whose request is exactly one prepared are answered from it; any other is
     // made now. Read wherever the job runs — the key is the job's own.
@@ -20250,8 +20416,16 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // browser security headers to a response nothing here sends to a browser,
       // and re-entering the module's own entry point to reach one route is a
       // longer way round with more that can surprise.
-      res = await handleRequest(req, env, ctx);
+      // A STEP THAT HOLDS THE SITE'S TURN THROUGHOUT (2026-10-15) waits for it
+      // here, before its first read of the site; one that cannot get it ends
+      // unchanged, our side, at no cost.
+      if (jctx.beside && jctx.beside.holds && !(await takeTurn(env, job.slug, jctx))) {
+        res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
+      } else {
+        res = await handleRequest(req, env, ctx);
+      }
     } finally {
+      if (jctx.beside && jctx.beside.turn) { await giveTurn(env, job.slug, jctx.beside.turn); jctx.beside.turn = null; }
       EDIT_JOBS.delete(job.secret);
       if (beat) { clearInterval(beat); beat = null; }
       // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL
@@ -29108,6 +29282,7 @@ async function handleRequest(request, env, ctx) {
             const eSource = eJob && eJob.prepare === true && Array.isArray(eJob.pages) && eJob.pages.length
               ? { ok: true, pages: eJob.pages }
               : await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            if (eSource.ok) await noteBase(env, ownerSlug, eJob, eSource.pages);
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
               eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
             let eSrc = eSource.pages;
@@ -34740,6 +34915,7 @@ async function handleRequest(request, env, ctx) {
             if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aFailure("unconfigured");
 
             const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            if (aRead.ok) await noteBase(env, ownerSlug, aJob, aRead.pages);
             if (!aRead.ok) return aFailure(aRead.why === "editable-state" ? "editable-state" : "no-source", { recovery: aRead.recovery });
             const aSrc = aRead.pages;
             aReplyOut.pages = () => aSrc.map((p) => routeOf(p && p.path)).filter(Boolean);

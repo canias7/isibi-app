@@ -1,5 +1,74 @@
 # Owner Notes
 
+## 2026-10-15 — Where things stand: deployed, verified, and the parallel work (branch only)
+
+**Three separate things. Read them apart.**
+
+**1. Deployed (live now).** `main` is `8e24ca5b`, with the records commit
+`76e10aa6` on the branch above it. Deployment 38671851113 succeeded and
+built image `e420b3c2d3224dd3`. It carries the approved batch's preparation
+only:
+- the Build check's slug `ferry-lane-deli`;
+- the Edit/Add-on scenario `acc-mixed-2`;
+- the two paid opt-ins, open for this batch only.
+
+**Nothing in it lets two writing jobs of one request run at once:**
+`nextStep` still files a new job only when none of the request is live
+(`!live`).
+
+**2. What the approved batch has verified: nothing yet.** Neither the free
+runtime check, nor Press 1 (the image-free Build), nor Press 2
+(`acc-mixed-2`) has been pressed as of this entry. When they run, each
+result will be reported with its credits, request and job ids, and gaps.
+Two distinctions apply to Press 2:
+- It can show **preparation overlapping a write**, never two writes
+  overlapping.
+- A late completed-work summary will be told apart from live narration.
+
+The opt-ins close straight after the batch, and there are no retries.
+**This batch does not complete the parallel-task goal.**
+
+**3. Concurrent independent Edit/Add-on execution: implemented on the
+branch, offline only.** It is not merged, not deployed, the SQL is not
+applied, and the switch is off. There is no live proof. The full record is
+`docs/history/2026-10-15-concurrent-writes.md`. In plain terms:
+- **Several jobs of one message at once.** Parts whose targets don't clash
+  now get their jobs filed together, at most 3 at once.
+- **What still waits its turn:**
+  - a part that changes the same page as another;
+  - a part the model said depends on another;
+  - two parts that both rewrite the site's design settings (look, logo,
+    addition);
+  - two parts that both rewrite the database schema (rules, addition).
+- **Publishing never overwrites another job's work.** Each job publishes in
+  the site's publish turn, one at a time, and applies only the files it
+  changed onto the site as it is at that moment. If two jobs changed the
+  same file differently, the later publish is refused, nothing is written,
+  and the job is refunded.
+- **To switch it on** needs three things, each yours:
+  - the proposed SQL `supabase/proposed/request_beside.sql`, which lets jobs
+    of the same request hold the site together;
+  - the merge and deploy;
+  - the secret `PARALLEL_WRITES=on`.
+
+  Without the SQL, the switch only makes the second job wait, as today.
+- **Proven offline** through the real Worker (`test/concurrent-writes.test.mjs`):
+  - one job ran from start to publish while the other sat inside its model
+    call;
+  - both changes kept;
+  - same-page changes in order;
+  - a dependent part waiting;
+  - a double delivery run and charged once;
+  - a hidden overlap refused and refunded;
+  - the switch-off control.
+
+  Each check was red-checked against a mutant of the code it guards.
+- **Not shown:**
+  - a look or logo step beside a text step through the Worker (only the
+    rule is tested);
+  - two real isolates racing the publish turn;
+  - anything live.
+
 
 ## Proposal for your decision — one live verification batch (2026-10-15; nothing pressed, merged, deployed, built or switched)
 

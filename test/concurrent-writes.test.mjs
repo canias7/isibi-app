@@ -1,0 +1,317 @@
+// JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15, the concurrent-execution
+// round). With `PARALLEL_WRITES=on` (the fixture's `beside`), the request driver
+// files a part's job beside the jobs of its request already running when their
+// targets do not conflict (builder/request-plan.mjs `clearToWrite`); the
+// site's lock lets jobs of one request hold the site together
+// (supabase/proposed/request_beside.sql, mirrored by the fixture); and every
+// publish takes the site's publish turn and applies only its own changes onto
+// the site as it is then (builder/publish-turn.mjs, worker.js
+// `recompileAndPublish`). Driven through the real Worker: the queue, the job
+// runner, the routes, the publish spine and the ledger, with the model's
+// answers supplied and held where a case says.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { platform, sendMessage, deliver, settle, T } from "./fixtures/request-flow.mjs";
+import { blockNetwork } from "./fixtures/no-network.mjs";
+import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { page as pageSrc } from "./fixtures/live-ask.mjs";
+
+blockNetwork();
+
+const slugOf = (k) => "cw-" + k + "-" + Math.random().toString(16).slice(2, 8);
+async function withPlatform(opts, fn) {
+  const compiler = installCompiler();
+  const P = platform(opts);
+  try { const out = await fn(P); await P.settle(); assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for"); return out; } finally { P.close(); compiler.uninstall(); }
+}
+const statuses = (rec) => rec.parts.map((p) => p.status);
+const calls = (P, tool) => P.modelLog.filter((m) => m.tool === tool);
+const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + "#") && e.reason === "reserve").map((e) => -e.delta);
+const lineId = (args, file, line) => {
+  const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[" + file + "] " + line));
+  return Number(String(at || "-1.").split(".")[0]);
+};
+/** The part a queued job message is for, from its job row's idem key (`<key>-p<n>-<seq>`); -1 for anything else. */
+const partOfMsg = (P, m) => { const id = m.body && (m.body.id || m.body.job); const j = id ? P.jobs.get(id) : null; const g = j && /-p(\d+)-\d+$/.exec(String(j.idem_key || "")); return g ? Number(g[1]) : -1; };
+const P_ = { at: null };
+/** Deliver what the queue holds, one message at a time, until `stop()` or nothing is left. */
+async function drain(P, stop = () => false, { max = 16, each = null } = {}) {
+  for (let i = 0; i < max && !stop(); i++) {
+    const m = P.queue.shift();
+    if (!m) { await new Promise((ok) => setTimeout(ok, 20)); if (!P.queue.length) return; continue; }
+    if (each) await each(m); else await deliver(P, m);
+  }
+}
+const editJobs = (P, key) => P.jobsOf(key).filter((j) => j.op === "edit");
+const editOfPart = (P, key, n) => editJobs(P, key).filter((j) => new RegExp("-p" + n + "-\\d+$").test(j.idem_key));
+const until = async (cond, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (cond()) return true; await new Promise((ok) => setTimeout(ok, 10)); } return cond(); };
+
+const HOME_FROM = "Bread from the harbour, every morning.";
+const HOME_TO = "Open from 8 every morning.";
+const TT_FROM = "Follow us on TikTok at @oldloaf";
+const TT_TO = "Follow us on TikTok at @harbourloaf";
+const HOME = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1><p>" + HOME_FROM + "</p></section>");
+const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>Come to the bakery</h1><p>" + TT_FROM + "</p></section>");
+const PAGES2 = [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }];
+const TIKTOK = "Change our TikTok link on the Visit page to @harbourloaf";
+const OPEN = "change the opening line on the home page to say we open at 8";
+// Two text changes, each on its own page: independent.
+const ROUTE_TWO_PAGES = [
+  { intent: "edit", layer: "text", page: "/visit", alsoAsked: [OPEN], targets: [{ change: 0, writes: ["page:/visit"] }, { change: 1, writes: ["page:/"] }] },
+  { intent: "edit", layer: "text", page: "/" },
+];
+const isVisitAsk = (args) => String(args.messages[0].content).includes("WHAT THEY ASKED FOR\n" + TIKTOK);
+
+test("CW1 EXECUTION OVERLAP, BOTH OUTCOMES KEPT — two text changes on two pages of one message: the home page's job runs from its claim to its publish while the Visit page's job is still inside its model call; the Visit job then publishes from the copy it began with, and the home change is kept, not overwritten; each job charged once", async () => {
+  const seen = { visitHeld: false, homeLiveWhileVisitHeld: false, leasedTogether: 0 };
+  await withPlatform({
+    slug: slugOf("cw1"), pages: PAGES2, beside: true,
+    answers: {
+      route: ROUTE_TWO_PAGES,
+      [T.text]: async (args) => {
+        if (isVisitAsk(args)) {
+          // THE VISIT JOB'S MODEL CALL answers only once the home page's
+          // change is ON THE STORED SITE — published by the other job while
+          // this one holds its lease and waits inside its call.
+          seen.visitHeld = true;
+          const P = P_.at;
+          const opened = await until(() => { const p = P.page("index.tsx"); return typeof p === "string" && p.includes(HOME_TO); }, 6000);
+          seen.homeLiveWhileVisitHeld = opened;
+          return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] };
+        }
+        const P = P_.at;
+        seen.leasedTogether = Math.max(seen.leasedTogether, [...P.jobs.values()].filter((j) => j.slug === P.slug && j.op === "edit" && j.lease_owner && j.lease_expires_at > P.now() && !["queued", "done", "failed", "cancelled", "lost"].includes(j.state)).length);
+        return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + OPEN + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Part 0's job is filed (part 1's routing may be filed beside it, since a
+    // routing writes nothing); part 0's runs and is held inside its model call.
+    const first = P.queue.filter((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    assert.equal(first.length, 1, JSON.stringify(P.queue.map((m) => [m.body.kind, partOfMsg(P, m)])));
+    P.queue.splice(P.queue.indexOf(first[0]), 1);
+    const visitRun = deliver(P, first[0]);
+    assert.ok(await until(() => seen.visitHeld), "the Visit job never reached its model call");
+    // EVERYTHING ELSE AS THE QUEUE HANDS IT OVER, while the Visit job is held:
+    // part 1's preparation, its routing job, its edit job — filed BESIDE the
+    // running Visit job, claimed though the Visit job holds the site.
+    for (let i = 0; i < 12 && !seen.homeLiveWhileVisitHeld; i++) {
+      const m = P.queue.shift();
+      if (!m) { await new Promise((ok) => setTimeout(ok, 20)); continue; }
+      await deliver(P, m);
+      if (P.page("index.tsx").includes(HOME_TO)) break;
+    }
+    assert.ok(P.page("index.tsx").includes(HOME_TO), "the home job did not publish while the Visit job was held: " + JSON.stringify(P.record(r.key).parts.map((p) => [p.status, p.why])) + " " + JSON.stringify(P.jobsOf(r.key).map((j) => [j.op, j.state, j.error, JSON.stringify(j.result || null).slice(0, 700)])));
+    assert.ok(seen.leasedTogether >= 2 || P.jobsOf(r.key).some((j) => j.op === "edit" && j.state !== "done"), "the home job's call was not made while the Visit job held its lease");
+    await visitRun;
+    assert.equal(seen.homeLiveWhileVisitHeld, true, "the Visit job's call answered before the home change was published — no execution overlap");
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // BOTH OUTCOMES KEPT: the Visit job began before the home change and
+    // published after it; its publish carried only its own file.
+    assert.ok(P.page("visit.tsx").includes(TT_TO) && !P.page("visit.tsx").includes(TT_FROM), "the Visit change is missing");
+    assert.ok(P.page("index.tsx").includes(HOME_TO) && !P.page("index.tsx").includes(HOME_FROM), "the home change was overwritten by the Visit job's old copy");
+    // EACH JOB ONCE, EACH CHARGED ONCE; the turn given back.
+    const edits = P.jobsOf(r.key).filter((j) => j.op === "edit");
+    assert.equal(edits.length, 2, JSON.stringify(P.jobsOf(r.key).map((j) => j.op + ":" + j.state)));
+    for (const j of edits) { assert.equal(j.state, "done"); assert.equal(reserveOf(P, j.id).length, 1, "a job was not charged exactly once"); }
+    const turn = P.readObj("publish-turn/" + P.slug + ".json");
+    assert.ok(!turn || JSON.parse(turn).until === 0, "the site's turn was left held: " + turn);
+  });
+});
+
+const HEAD_FROM = "Harbour Loaf";
+const HEAD_TO = "Harbour Loaf Bakery";
+const HEADING = "make the home page heading say Harbour Loaf Bakery";
+const asks = (args, words) => String(args.messages[0].content).includes("WHAT THEY ASKED FOR\n" + words);
+
+test("CW2 CONFLICTING CHANGES WAIT — two changes to the SAME page: the second part's edit job is never filed while the first is running, even with jobs side by side on; once it ends, the second runs against the first's result and both are kept", async () => {
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const seen = { firstHeld: false };
+  await withPlatform({
+    slug: slugOf("cw2"), pages: PAGES2, beside: true,
+    answers: {
+      route: [
+        { intent: "edit", layer: "text", page: "/", alsoAsked: [HEADING], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: ["page:/"] }] },
+        { intent: "edit", layer: "text", page: "/" },
+      ],
+      [T.text]: async (args) => {
+        if (asks(args, OPEN)) { seen.firstHeld = true; await freed; return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] }; }
+        return { edits: [{ id: lineId(args, "index.tsx", HEAD_FROM), to: HEAD_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: OPEN + ", and " + HEADING + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const first = P.queue.find((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    P.queue.splice(P.queue.indexOf(first), 1);
+    const run0 = deliver(P, first);
+    assert.ok(await until(() => seen.firstHeld), "the first job never reached its model call");
+    // EVERYTHING THE QUEUE HAS while the first job is held: the second part may
+    // be prepared and routed, never written.
+    await drain(P, () => false, { max: 10 });
+    assert.equal(editOfPart(P, r.key, 1).length, 0, "the second part's edit job was filed while a job changing the same page ran: " + JSON.stringify(P.jobsOf(r.key).map((j) => j.op + ":" + j.state)));
+    assert.equal(P.page("index.tsx").includes(HEAD_TO), false, "the second change was published while the first job ran");
+    release();
+    await run0;
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("index.tsx").includes(HOME_TO) && P.page("index.tsx").includes(HEAD_TO), "a change is missing: " + P.page("index.tsx"));
+    for (const j of editJobs(P, r.key)) assert.equal(reserveOf(P, j.id).length, 1);
+  });
+});
+
+test("CW3 A DEPENDENT PART WAITS FOR ITS PREREQUISITE — the model said the home change rests on the Visit change: with jobs side by side on, the home part files no job of any kind while the Visit job runs, then runs once it is done", async () => {
+  let release = null; const freed = new Promise((ok) => { release = ok; });
+  const seen = { visitHeld: false, homeAskedWhileHeld: false };
+  await withPlatform({
+    slug: slugOf("cw3"), pages: PAGES2, beside: true,
+    answers: {
+      route: [
+        { intent: "edit", layer: "text", page: "/visit", alsoAsked: [OPEN], targets: [{ change: 0, writes: ["page:/visit"] }, { change: 1, writes: ["page:/"] }], dependsOn: [{ change: 1, after: [0] }] },
+        { intent: "edit", layer: "text", page: "/" },
+      ],
+      [T.text]: async (args) => {
+        if (isVisitAsk(args)) { seen.visitHeld = true; await freed; return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }; }
+        if (!seen.released) seen.homeAskedWhileHeld = true;
+        return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + OPEN + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(P.record(r.key).parts[1].needs, [0], "the dependency was not recorded");
+    const first = P.queue.find((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    P.queue.splice(P.queue.indexOf(first), 1);
+    const run0 = deliver(P, first);
+    assert.ok(await until(() => seen.visitHeld), "the Visit job never reached its model call");
+    await drain(P, () => false, { max: 10 });
+    assert.equal(P.jobsOf(r.key).filter((j) => /-p1-\d+$/.test(j.idem_key)).length, 0, "the dependent part filed a job before its prerequisite ended");
+    assert.equal(P.record(r.key).parts[1].status, "blocked");
+    assert.equal(seen.homeAskedWhileHeld, false, "the dependent part's step was asked before its prerequisite ended");
+    seen.released = true;
+    release();
+    await run0;
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("visit.tsx").includes(TT_TO) && P.page("index.tsx").includes(HOME_TO));
+  });
+});
+
+test("CW4 A JOB RUNNING BESIDE ANOTHER, DELIVERED TWICE AT ONCE — the home job's message is handed to two consumers together while the Visit job is held: it runs once, publishes once, is charged once, and both changes are kept", async () => {
+  const seen = { visitHeld: false };
+  await withPlatform({
+    slug: slugOf("cw4"), pages: PAGES2, beside: true,
+    answers: {
+      route: ROUTE_TWO_PAGES,
+      [T.text]: async (args) => {
+        if (isVisitAsk(args)) { seen.visitHeld = true; const P = P_.at; await until(() => (P.page("index.tsx") || "").includes(HOME_TO), 6000); return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }; }
+        return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + OPEN + "." });
+    const first = P.queue.find((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    P.queue.splice(P.queue.indexOf(first), 1);
+    const run0 = deliver(P, first);
+    assert.ok(await until(() => seen.visitHeld));
+    let twice = 0;
+    await drain(P, () => (P.page("index.tsx") || "").includes(HOME_TO), {
+      max: 14,
+      each: async (m) => {
+        const j = m.body && P.jobs.get(m.body.id);
+        if (j && j.op === "edit" && /-p1-\d+$/.test(j.idem_key)) { twice++; await Promise.all([deliver(P, m), deliver(P, m)]); }
+        else await deliver(P, m);
+      },
+    });
+    assert.equal(twice, 1, "the home job's message was not delivered twice at once");
+    await run0;
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const home = editOfPart(P, r.key, 1);
+    assert.equal(home.length, 1, "the home part's job was filed twice");
+    assert.equal(reserveOf(P, home[0].id).length, 1, "the home job was charged more than once");
+    assert.equal((P.page("index.tsx").match(/Open from 8 every morning\./g) || []).length, 1);
+    assert.ok(P.page("visit.tsx").includes(TT_TO), "the Visit change is missing");
+    assert.equal(P.rpcLog.filter((e) => e.fn === "edit_may_publish" && e.args.p_id === home[0].id && e.out && e.out.granted === true).length, 1, "the home job was granted its publish more than once");
+  });
+});
+
+test("CW5 A REAL OVERLAP CAUGHT AT PUBLISH — the router said the Visit change touches only the Visit page, but its job changed the home page's line too, which the home job had already published differently: the Visit job's publish is refused as a conflict, nothing it held is written, the home change stands, and its reserve is given back", async () => {
+  const seen = { visitHeld: false };
+  await withPlatform({
+    slug: slugOf("cw5"), pages: PAGES2, beside: true,
+    answers: {
+      route: ROUTE_TWO_PAGES,
+      [T.text]: async (args) => {
+        if (isVisitAsk(args)) {
+          seen.visitHeld = true;
+          const P = P_.at;
+          await until(() => (P.page("index.tsx") || "").includes(HOME_TO), 6000);
+          return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }, { id: lineId(args, "index.tsx", HOME_FROM), to: "Open from 9 every morning." }] };
+        }
+        return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + OPEN + "." });
+    const first = P.queue.find((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    P.queue.splice(P.queue.indexOf(first), 1);
+    const run0 = deliver(P, first);
+    assert.ok(await until(() => seen.visitHeld));
+    await drain(P, () => (P.page("index.tsx") || "").includes(HOME_TO), { max: 14 });
+    assert.ok(P.page("index.tsx").includes(HOME_TO), "the home job did not publish while the Visit job was held");
+    await run0;
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.parts[1].status, "done");
+    assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // NOTHING OVERWRITTEN, NOTHING OF THE REFUSED JOB WRITTEN.
+    assert.ok(P.page("index.tsx").includes(HOME_TO) && !P.page("index.tsx").includes("Open from 9"), "the home change was overwritten: " + P.page("index.tsx"));
+    assert.ok(P.page("visit.tsx").includes(TT_FROM), "the refused job wrote part of its change");
+    const visit = editOfPart(P, r.key, 0)[0];
+    assert.match(JSON.stringify(visit.result || ""), /conflict|at the same time/, "the refusal does not say it was a conflict: " + JSON.stringify(visit.result).slice(0, 300));
+    // RESERVED, THEN GIVEN BACK IN FULL: the refusal is our side, never charged.
+    assert.equal(visit.billing, "refunded", "the refused job was not refunded: " + visit.billing);
+    const res = reserveOf(P, visit.id).reduce((a, b) => a + b, 0);
+    const back = P.ledger.filter((e) => e.ref === visit.id && e.reason === "refund").reduce((a, e) => a + e.delta, 0);
+    assert.ok(res > 0 && back === res, "reserved " + res + ", given back " + back);
+  });
+});
+
+test("CW6 CONTROL, SWITCH OFF — the same two-page message with jobs side by side off: the home part's edit job is not filed while the Visit job runs, so nothing overlaps; both changes still land one after the other", async () => {
+  const seen = { visitHeld: false, opened: null };
+  await withPlatform({
+    slug: slugOf("cw6"), pages: PAGES2,
+    answers: {
+      route: ROUTE_TWO_PAGES,
+      [T.text]: async (args) => {
+        if (isVisitAsk(args)) { seen.visitHeld = true; const P = P_.at; seen.opened = await until(() => (P.page("index.tsx") || "").includes(HOME_TO), 700); return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }; }
+        return { edits: [{ id: lineId(args, "index.tsx", HOME_FROM), to: HOME_TO }] };
+      },
+    },
+  }, async (P) => {
+    P_.at = P;
+    const r = await sendMessage(P, { message: TIKTOK + ", and " + OPEN + "." });
+    const first = P.queue.find((m) => m.body.kind !== "request-prep" && partOfMsg(P, m) === 0);
+    P.queue.splice(P.queue.indexOf(first), 1);
+    const run0 = deliver(P, first);
+    assert.ok(await until(() => seen.visitHeld));
+    await drain(P, () => false, { max: 10 });
+    // OFF, NOTHING BESIDE IT: no second job of any kind (routing included) is
+    // filed while the first runs — not merely held back by the site's lock.
+    assert.equal(P.jobsOf(r.key).length, 1, "with the switch off a second job of the request was filed while one ran: " + JSON.stringify(P.jobsOf(r.key).map((j) => j.op + ":" + j.state)));
+    await run0;
+    assert.equal(seen.opened, false, "with the switch off the home change was published while the Visit job was held");
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("visit.tsx").includes(TT_TO) && P.page("index.tsx").includes(HOME_TO));
+    assert.equal(P.readObj("publish-turn/" + P.slug + ".json"), null, "the publish turn was used with the switch off");
+  });
+});

@@ -572,3 +572,76 @@ export function clearToPrepare(parts, n, ended) {
   }
   return true;
 }
+
+/**
+ * WHAT TWO WRITING STEPS SHARE THAT THEIR TARGETS DO NOT NAME (2026-10-15, the
+ * concurrent-execution round). Two stores are rewritten whole, with no version
+ * check, whatever page a step names:
+ *   - the site's config (the look, the stylesheet, the marks): the look and
+ *     logo steps and an addition patch it before they publish
+ *     (`patchSiteConfig`), and put their snapshot back when they fail;
+ *   - the database schema: the rules step and an addition apply the whole
+ *     merged spec (`applySiteSchema`).
+ * Two steps that both write one of them run one after the other, whatever
+ * their targets say; one that writes neither shares nothing with them.
+ */
+const CONFIG_LAYERS = ["look", "logo"];
+const SCHEMA_KINDS = ["new-data", "function", "new-function", "api", "new-api", "job", "new-job"];
+function writesConfig(part) {
+  const r = part && part.route;
+  if (r && (r.op === "addon" || r.intent === "addon" || CONFIG_LAYERS.includes(r.layer))) return true;
+  return effectiveTargets(part).writes.some((w) => w === SITE || kindOf(w) === "theme" || kindOf(w) === "identity");
+}
+function writesSchema(part) {
+  const r = part && part.route;
+  if (r && (r.op === "addon" || r.intent === "addon" || r.layer === "rules")) return true;
+  return effectiveTargets(part).writes.some((w) => w === SITE || SCHEMA_KINDS.includes(kindOf(w)));
+}
+/** May two writing steps run at the same time? Never when their targets conflict, nor when both rewrite the config or both the schema. */
+export function besideConflict(a, b) {
+  if (conflicts(a, b)) return true;
+  if (writesConfig(a) && writesConfig(b)) return true;
+  if (writesSchema(a) && writesSchema(b)) return true;
+  return false;
+}
+/** Does this step rewrite the site's whole config before it publishes (so it holds the site's publish turn for its whole run)? */
+export function holdsConfig(part) { return !!(part && part.phase !== "route" && part.route) && writesConfig(part); }
+
+/**
+ * MAY A PART'S JOB BE FILED WHILE OTHER JOBS OF ITS REQUEST RUN? (2026-10-15)
+ *
+ * A WRITING STEP: never ahead of an earlier part in the apply order that has
+ * not ended and that it conflicts with (`besideConflict`) — conflicting parts
+ * are applied one after the other, in order — and never beside a job already
+ * running that it conflicts with, wherever that part stands in the order (a
+ * part routed since it was cleared can reach more than its plan named).
+ * What one step merely READS changing beside it is not a conflict: each job
+ * plans against the site as it began, its publish applies only its own
+ * changes onto the site as it is then (`rebaseFiles`), and where one change
+ * really rests on another the model said so (`needs`) or code inferred it
+ * (`inferNeeds`) — only a `ready` part, whose needs are met, is asked.
+ * A ROUTING writes nothing, so a running routing never holds a write back; it
+ * waits, as its preparation does, for an earlier or running part whose writes
+ * feed what it reads (the page or table list).
+ */
+export function clearToWrite(parts, n, ended, running) {
+  const order = applyOrder(parts);
+  const me = parts[n];
+  if (!me) return false;
+  const inputs = stepInputs(me);
+  const writes = me.phase !== "route" && !!me.route;
+  const feedsMe = (q) => effectiveTargets(q).writes.some((w) => inputs.some((i) => partFeeds(q, w, i)));
+  const runs = (q) => q.phase !== "route" && !!q.route;
+  const holds = (q) => (writes ? besideConflict(q, me) : feedsMe(q));
+  for (const q of parts) {
+    if (!q || q.n === n || ended(q) || !running(q) || !runs(q)) continue;
+    if (holds(q)) return false;
+  }
+  for (const m of order) {
+    if (m === n) return true;
+    const q = parts[m];
+    if (!q || ended(q)) continue;
+    if (holds(q)) return false;
+  }
+  return true;
+}

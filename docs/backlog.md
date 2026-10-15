@@ -20,6 +20,15 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Jobs of one request side by side: not live, and three gaps** (2026-10-15,
+  branch only; `docs/history/2026-10-15-concurrent-writes.md`). To switch
+  on: apply `supabase/proposed/request_beside.sql`, merge and deploy, set
+  `PARALLEL_WRITES=on`; no live press has shown two writing jobs of one
+  request overlapping. Gaps: (a) no Worker-level case drives a config writer
+  (look, logo, addition) beside a text step — only the rule and the runner
+  wiring; (b) the publish turn's exclusion under two real isolates rests on
+  R2's etag write, never raced live; (c) a conflict caught at publish fails
+  the part (refunded) rather than re-running it against the new site.
 - **A Build send went unanswered for 18 minutes after its build had
   finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
   The send went at 22:13:35, the build ended at 22:22:16, and the press gave

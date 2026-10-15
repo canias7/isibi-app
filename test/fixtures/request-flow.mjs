@@ -62,7 +62,7 @@ const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
 // a `FAL_KEY`, and every picture asked of it answered with a real JPEG header,
 // each call kept in `imageLog` (its prompt and when), optionally held by
 // `imageWith` (a slow picture) so a case can show what runs beside it.
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -209,7 +209,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     j.state = state;
     return { ok: true, refunded: 0, billing: j.billing };
   };
-  const siteBusy = (slugOf, self) => [...jobs.values()].find((o) => o.slug === slugOf && o.id !== self && live(o) && !o.needs_review && (leased(o) || o.state === "publishing"));
+  // `beside` (2026-10-15): the site's lock as supabase/proposed/request_beside.sql
+  // answers it — another live job of the SAME request and account is not a
+  // blocker; every other job still is. Off, exactly the applied function.
+  const reqGroup = (j) => { const m = j && typeof j.idem_key === "string" ? /^([A-Za-z0-9_-]{16,64})-p\d+-\d+$/.exec(j.idem_key) : null; return m ? m[1] : null; };
+  const sameRequest = (a, b) => beside && !!a && reqGroup(a) !== null && reqGroup(a) === reqGroup(b) && a.uid === b.uid;
+  const siteBusy = (slugOf, self) => [...jobs.values()].find((o) => o.slug === slugOf && o.id !== self && live(o) && !o.needs_review && (leased(o) || o.state === "publishing") && !sameRequest(jobs.get(self), o));
   const rpc = {
     edit_create(a) {
       const blocked = [...jobs.values()].find((o) => o.slug === a.p_slug && o.needs_review);
@@ -636,7 +641,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   };
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
-    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}),
+    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}), ...(beside ? { PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" } : {}),
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }

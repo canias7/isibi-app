@@ -218,6 +218,7 @@ jobs:
             PROGRESS_TALK
             REQUEST_FLOW
             IMAGE_PURCHASES
+            PARALLEL_WRITES
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -436,6 +437,17 @@ jobs:
           # ON BY DEFAULT, so production is unchanged. Set the secret to `off`
           # and redeploy before a press that must buy no image.
           IMAGE_PURCHASES: ${{ secrets.IMAGE_PURCHASES || 'on' }}
+          # ── JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15) ─────────────────
+          #
+          # `on` lets the request driver file a part's job beside the jobs of
+          # its request already running when their targets do not conflict
+          # (builder/request-plan.mjs `clearToWrite`); each publish then takes
+          # the site's publish turn and applies only its own changes onto the
+          # site as it is (builder/publish-turn.mjs). OFF BY DEFAULT: one job
+          # of a request at a time, as before. It also needs the proposed SQL
+          # (supabase/proposed/request_beside.sql) applied, or the second job
+          # waits on the site's own lock as any other job does.
+          PARALLEL_WRITES: ${{ secrets.PARALLEL_WRITES || 'off' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for
