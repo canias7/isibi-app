@@ -1,5 +1,9 @@
 # 2026-10-15 — Codex's review of `7ca339d1`: completion, admission, history cuts, media narration
 
+> **Changed 2026-10-15** (Codex's review of `673e26cb`; see `docs/history/2026-10-15-receipts.md`):
+> - A completion record is no longer taken as proof the file exists; the current object is read first.
+> - Each ledger write now carries a revision, because R2's etag is the MD5 of the bytes. The R2 double in this file's tests gave a counter etag, which R2 does not.
+
 Branch `new`. Unmerged and undeployed. No container build, no paid call, no
 generated media, and nothing on `claude/help-needed-ehlwlj` touched.
 

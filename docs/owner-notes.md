@@ -1,5 +1,56 @@
 # Owner Notes
 
+## Branch `new` — Codex's review of `673e26cb`: receipts checked against the current file, and the ledger's repeated state (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
+
+Codex confirmed green CI on `673e26cb` and verified the previous round's recovery, history and narration fixes. It reproduced two remaining problems, and both are fixed. The conversation-history and model-written narration fixes are unchanged: their tests passed in the same run.
+
+**Commits:**
+1. `bb1c1f31`: the fix and its tests.
+2. The commit on top of it: these records and `docs/history/2026-10-15-receipts.md` (documents only).
+
+**1. A completion receipt is history, not proof the file is there.**
+- **The bug.** `status` and a repeated `complete` handed back a finished upload's saved file without looking at the object, so the page reused a file that had been deleted after it was uploaded.
+- **What the server does now.** It reads the object as it is now before answering:
+  - still this upload's (its `up` id): the file;
+  - deleted, or moved by a build: `removed` (410);
+  - the address now holds a replacement's bytes: `replaced` (409);
+  - storage can't be read: `unreadable` (503), never done and never removed.
+- **A repeated `complete` never writes.** It cannot bring a deleted file back or overwrite a newer replacement. A replacement whose file is deleted while it is being sent is given up, not closed.
+- **What the page does now.** A removed or replaced file is sent again as its own new file, so a deleted file is never reused and a replacement's bytes never stand in for the original.
+
+**2. The ledger can no longer return to an old etag.**
+- **The bug.** R2's etag is the MD5 of the bytes, so a ledger that returned to identical reservations kept its old etag. A start that had read usage before another upload took room, finished and gave it back could still write. In Codex's interleaving that let 60 more bytes in under a 100-byte, one-file limit.
+- **The fix.** Every ledger write carries a growing revision and its own id, so no two writes have the same bytes.
+- **The test double.** The R2 double now gives R2's real etags: a content MD5 plus a separate version, as Miniflare does. The counter it had added, wrongly described as R2's behaviour, is gone.
+
+**Tests and readings.**
+- **New tests:**
+  - `test/media-receipts.test.mjs` (7, production routes): deleted, replaced, a replacement whose file is deleted mid-upload, a build moving a draft (the real build route), unreadable storage, the double's etags, and Codex's exact start-versus-completion interleaving. Each has a control for valid recovery.
+  - A second real-Chromium case in `test/media-composer-browser.test.mjs`, which reattaches in the composer:
+    - unchanged: reused;
+    - after a delete: sent again as a new file;
+    - after a replacement: the original's own bytes at a new address, with the message naming that address.
+
+    It passed 3 runs in a row.
+- **Red checks** against `673e26cb`'s code: 6 of the 6 behavioural cases fail for the reproduced reasons, including the stale start admitted with `201`. The browser case fails with "a deleted file was reused instead of sent again".
+- **Mutation sweep:** 11 of 11 killed; the comment-only control survived.
+- **Affected tests run together** (21 files using the media or build doubles, the conversation files, the router pin, uploads and every media file): 436 pass, 0 fail.
+- **Full offline suite, one run on `bb1c1f31`:** 10877 / 10874 / 1 / 2.
+  - The one failure is `PLW 4` in `test/progress-live-writer.test.mjs`: two photo-progress lines arrived in the opposite order. That file is not touched by this change.
+  - Run alone it passed 5 of 5, three times, and it passed on CI.
+  - It is recorded as an intermittent failure under load, not hidden by a re-run.
+- **Unit CI on `bb1c1f31`:** green, 10877 / 10830 / 0 / 47 (run 38666512719). The browser cases are among CI's skips. Site build is green (run 38666512619).
+- **Image prediction:** `bb1c1f31` → `44d1b12ef0924715` (208 inputs); nothing built.
+
+**Gaps that only a live run can close.**
+1. **R2's real conditional write under real concurrency.** The repeated-state race is shown only against a double that follows R2's documented etags.
+2. **The window between a replacement's check and R2's close.** It is one R2 call wide; a delete landing inside it can still be overwritten.
+3. **A finished upload whose record was never written, then deleted.** It reads as open, so the page ends "not confirmed yet" until the session expires (24 h).
+4. **The build-route double (`buildBucket`) still uses counter etags.** It is kept separate and suggested as its own task.
+5. **Still open from before:** proprietary codecs (MP4, MOV, M4A, AAC) aren't played here; Safari and Firefox aren't run; no real model was called; edge caching and ranges are unchecked; the upload record is per browser; finished session records are not cleaned up on a schedule.
+
+**Still paused (unchanged).** The combined release candidate waits for the main branch's route-selection and connection-loss fixes. Nothing is merged, deployed, built or pressed.
+
 ## Branch `new` — Codex's review of `7ca339d1`: four reproduced gaps fixed (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
 
 Codex confirmed green unit CI on `7ca339d1` and reproduced four problems the
