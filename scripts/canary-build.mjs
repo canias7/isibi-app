@@ -789,6 +789,9 @@ export async function runBuildCheck(io, { spec = BUILD_CHECK, spend = false, nam
     const t0 = io.now();
     while (!sendDone && io.now() - t0 < spec.followMs) {
       const m = attemptMatch(await B.get("builds", (t) => io.builds(t)), attempt);
+      // FOUND WHILE THE SEND IS STILL OUT, or not "discovered" at all: a send
+      // that answered (or failed) meanwhile is judged by the ordinary path.
+      if (sendDone) break;
       if (m.ok) { discovered = { ...m, ms: io.now() - sentAt }; job = m.job; break; }
       if (m.ambiguous) { discovered = { ...m, ms: io.now() - sentAt }; break; }
       await pause(spec.pollMs);

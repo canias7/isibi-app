@@ -464,7 +464,7 @@ test("A LIVE SITE'S QUESTION WITHOUT THE ID IT WAS KEPT UNDER, or with a malform
 
 test("CONTROL: an explicit build on an empty project is the first build, in its own chat", async () => {
   const o = await drive({ site: EMPTY, message: "A bakery in Leeds", route: ok200({ ok: true, intent: "build", cost: 2 }) });
-  assert.deepEqual(o.posts, [{ url: "/api/site/react-build", body: { brief: "A bakery in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1" } }]);
+  assert.deepEqual(o.posts, [{ url: "/api/site/react-build", body: { brief: "A bakery in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1", accept: "early" } }]);
 });
 
 test("CONTROL: a clarify round on an empty project asks, stores its round, and buys nothing", async () => {

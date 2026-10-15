@@ -58,6 +58,7 @@ on:
   #     paths:
   #       - '.github/workflows/build-as-owner.yml'
   #       - 'scripts/build-as-owner.mjs'
+  #       - 'scripts/narration-usage.mjs'
   #   # ── ON DEMAND, FOR THE EDIT LANE ──────────────────────────────────────────
   #   #
   #   # A build is bought by the marker on a push, because it costs real credits and

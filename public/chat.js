@@ -13864,11 +13864,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // names its slug, which already says which site it is, and a revise sent
   // from a second chat must not re-bind the site away from the first.
   const h = mode !== 'build' && ho && typeof ho === 'object' && !Array.isArray(ho) ? ho : {};
+  // `accept: 'early'` ON A BUILD (2026-10-15): the route answers 202 as soon as
+  // the attempt is accepted, so the follow below starts at once instead of the
+  // send being held open while the build runs (run 38646089624's send went
+  // unanswered for 18 minutes after its build had finished).
   const body = mode === 'build'
-    // `accept: 'early'` (2026-10-15): the route answers 202 as soon as the
-    // attempt is accepted, so the follow below starts at once instead of the
-    // send being held open while the build runs (run 38646089624's send went
-    // unanswered for 18 minutes after its build had finished).
     ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin, accept: 'early' }
     : {
       slug: site.slug, instruction: t, images: imgs, picker: buildPicker,

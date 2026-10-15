@@ -252,6 +252,8 @@ const SRC = { reads: { pages: true, parts: true, assets: true }, pages: [{ path:
 const rows = (list) => ({ ok: true, complete: true, rows: list.map((r, i) => ({ id: 467 + i, ...r })) });
 
 /** The press's whole network, offline: the send's answer is lost (`status 0`), the build carries on. */
+// THE BUILD'S ONE LINE, kept on its final answer and in the list (2026-10-15).
+const LINE0 = { n: 0, ms: 1000, text: "I'm laying out your cheese counter's page." };
 function pressNet(over = {}, { moved = 10, last = 469 } = {}) {
   const calls = [];
   let clock = 0, signIns = 0, polled = 0, listed = 0;
@@ -269,9 +271,10 @@ function pressNet(over = {}, { moved = 10, last = 469 } = {}) {
     runtime: async () => ({ status: 200, json: { imagePurchases: false, design: true, graph: true, bands: true, bandsEveryone: false, runner: true, runnerEveryone: true, jobDesign: true, jobGraph: true, jobBands: true, jobBandsEveryone: false } }),
     post: async (t, body) => { calls.push("post"); calls.push(`post-by:${t}`); assert.equal(body.attempt, ATT); return { status: 0, json: null, why: "ECONNRESET" }; },
     // NOT LISTED YET ON THE FIRST READ, then listed — beside another attempt's newer build for the same name.
-    builds: async (t) => { calls.push(`builds:${t}`); listed++; return { builds: listed < 2 ? [] : [{ job: OTHER_JOB, attempt: "bc-" + "f".repeat(32), state: "running", at: 9 }, { job: JOB, attempt: ATT, state: "running", at: 1 }] }; },
+    // THE LIST CARRIES THE BUILD'S LINES IN EVERY STATE (2026-10-15).
+    builds: async (t) => { calls.push(`builds:${t}`); listed++; return { builds: listed < 2 ? [] : [{ job: OTHER_JOB, attempt: "bc-" + "f".repeat(32), state: "running", at: 9 }, { job: JOB, attempt: ATT, state: polled >= 4 ? "done" : "running", at: 1, progress: [LINE0] }] }; },
     // STILL RUNNING FOR A WHILE, THEN DONE: the connection was lost, the build was not.
-    poll: async (t, job) => { calls.push(`poll:${t}:${job}`); polled++; return polled < 4 ? { status: 202, json: { ok: false, pending: true, progress: [{ n: 0, ms: 1000, text: "I'm laying out your cheese counter's page." }] } } : { status: 200, json: { ok: true, slug: SLUG } }; },
+    poll: async (t, job) => { calls.push(`poll:${t}:${job}`); polled++; return polled < 4 ? { status: 202, json: { ok: false, pending: true, progress: [LINE0] } } : { status: 200, json: { ok: true, slug: SLUG, progress: [LINE0] } }; },
     trace: async () => ({ steps: TRACE, done: true, ok: true, started_at: "2026-10-14T12:23:43Z" }),
     jobRow: async (job) => ({ id: job, slug: SLUG, op: "build", state: "done", created_at: "2026-10-14T12:21:23Z", updated_at: "2026-10-14T12:29:12Z" }),
     source: async (t) => { calls.push(`source:${t}`); return { status: 200, json: SRC }; },
@@ -289,7 +292,7 @@ const failed = (checks) => checks.filter((c) => !c.ok).map((c) => `${c.name} —
 test("PR 9 — CONNECTION LOST, BUILD COMPLETES: the original failure is kept (status 0, ECONNRESET), the fresh session finds THIS send by its attempt key — past another attempt's newer build of the same name — follows it to its end, and only then reads the source; sent once, charges of its own job only", async () => {
   const io = pressNet();
   const rec = await runBuildCheck(io, { spec: NI, spend: true, named: 783 });
-  assert.deepEqual(rec.accepted, { status: 0, job: "", stage: undefined, why: "ECONNRESET" }, "the original answer was rewritten");
+  assert.deepEqual(rec.accepted, { status: 0, job: "", stage: undefined, ms: 0, why: "ECONNRESET" }, "the original answer was rewritten");
   assert.equal(rec.reconciled.ok, true);
   assert.equal(rec.reconciled.job, JOB, "the latest listed build was taken, not this send's");
   assert.equal(rec.job, JOB);
@@ -297,7 +300,10 @@ test("PR 9 — CONNECTION LOST, BUILD COMPLETES: the original failure is kept (s
   assert.ok(io.calls.filter((c) => c.startsWith("poll:")).every((c) => c === `poll:tok-2:${JOB}`), "polled another job, or by the sender");
   const lastPoll = io.calls.lastIndexOf(`poll:tok-2:${JOB}`), firstSource = io.calls.indexOf("source:tok-2");
   assert.ok(firstSource > lastPoll, "the source was read before the build ended");
-  assert.deepEqual(failed(rec.checks), []);
+  // THE SEND'S OWN ANSWER IS JUDGED APART FROM THE RECOVERY (2026-10-15): a
+  // lost connection is not an answer, even though the build was found.
+  assert.deepEqual(failed(rec.checks), ["the send was answered with its job within 60 s — answered 0 with no job after 0 s"]);
+  assert.equal(rec.acceptance, "recovered");
   assert.equal(rec.money.net, 10);
   const closure = rec.checks.find((c) => /job is known/.test(c.name));
   assert.match(closure.detail, /answered 0 \(ECONNRESET\), no job; found by attempt bc-e+ as job c{32}/);

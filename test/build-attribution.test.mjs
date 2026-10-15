@@ -275,7 +275,7 @@ test("AT 7 — PROMPT ACCEPTANCE AND RECOVERED TRACKING ARE TWO FACTS: a 202 wit
     builds: async () => { listed++; return { builds: [{ job: JOB, attempt: "bc-" + "e".repeat(32), state: "running" }] }; },
   }), { spec: { ...NI, reconcileMs: 60_000 }, spend: true, named: 783 });
   assert.equal(lost.acceptance, "recovered");
-  assert.deepEqual(lost.accepted, { status: 0, job: "", stage: undefined, why: "ECONNRESET" });
+  assert.deepEqual(lost.accepted, { status: 0, job: "", stage: undefined, ms: 0, why: "ECONNRESET" });
   assert.ok(listed >= 1);
   const gone = await runBuildCheck(net({
     post: async function () { this.calls.push("post"); return { status: 0, json: null, why: "ECONNRESET" }; },

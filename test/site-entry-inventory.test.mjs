@@ -1236,7 +1236,7 @@ test("a new project's message is still a first build, with no page-list read", a
   assert.equal(routed.body.firstBuild, true);
   assert.equal(routed.body.hasSite, false);
   assert.equal(routed.body.slug, "");
-  assert.deepEqual(build, { method: "POST", url: "/api/site/react-build", body: { brief: "A guitar school in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1" } });
+  assert.deepEqual(build, { method: "POST", url: "/api/site/react-build", body: { brief: "A guitar school in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1", accept: "early" } });
 });
 
 test("a new project whose routing call fails still starts its first build (its documented default)", async () => {
@@ -1274,7 +1274,7 @@ test("a new project's round, skipped, still goes straight to the build with no r
     const h = workspace({ sites: [NEW_ROUND], route: [BUILD] });
     act(h);
     await settle();
-    assert.deepEqual(h.calls, [{ method: "POST", url: "/api/site/react-build", body: { brief: "A school in Leeds", images: [IMG], picker: "grok", qa: [], chat: "origin-1" } }]);
+    assert.deepEqual(h.calls, [{ method: "POST", url: "/api/site/react-build", body: { brief: "A school in Leeds", images: [IMG], picker: "grok", qa: [], chat: "origin-1", accept: "early" } }]);
     assert.equal(h.clarify(), null);
   }
 });

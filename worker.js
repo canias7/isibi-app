@@ -27276,7 +27276,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: rGate.why === "cancelled" ? "cancelled" : "stopped", cost: 0 });
         }
       }
-      const rRoute = (rDigest) => routeMessage(
+      const rRoute = async (rDigest) => await routeMessage(
         // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
