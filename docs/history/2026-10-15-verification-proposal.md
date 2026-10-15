@@ -20,6 +20,22 @@ What changed from the first version:
 - **A raw R2 probe** is explained as not supported by the existing tooling. It
   is proposed, not built.
 
+**Revised again after Codex's review of `1b52561f`** (harness commit
+`6f84607a`). Codex reproduced four gaps, now closed:
+- **The conversation cases checked metadata, not meaning.** All six passed on
+  one identical irrelevant answer: "Your bakery opens at 3:17am on Sundays.
+  Does that help?" Each case is now judged on its purpose against evidence
+  (below). No wording is required. What the automation cannot establish is
+  **unverified**, and the whole answer is kept for review.
+- **An unread charge counted as zero.** A balance that answered 503 after a
+  send was recorded as 0, and the run kept sending: six sends, 22 credits
+  spent, 10 recorded, against a ceiling of 16. Now an unknown or unreconciled
+  charge stops every later paid send, and stays unknown.
+- **B1 counted metadata plus a seek as playback.** It now requires real
+  playback.
+- **A browser run with no browsers could pass.** A missing required browser
+  now fails the run.
+
 ## Where things stand
 
 - **Code head: `cbd396d8`.**
@@ -91,8 +107,12 @@ printed or kept.
 | Code | Meaning |
 |---|---|
 | 0 | every check passed |
-| 1 | a check failed |
+| 3 | everything the automation can establish passed; some answers wait for a person to read (`results.unverified`) |
+| 1 | a check failed, the run stopped, or a charge is unknown |
 | 2 | refused before doing anything |
+
+The results file is written whatever happens, an exception included. Any code
+but 0 shows the press red, and its evidence is kept.
 
 **The workflow's boxes, by their descriptions:**
 
@@ -224,9 +244,15 @@ object, the receipts and the reservation are judged.
 **B1–B3. Browser mode**, on the demo site, with `mutate=yes`. Browsers are
 installed on the runner by Playwright: Chromium, Firefox and WebKit. Google
 Chrome is GitHub's own preinstalled one.
-- **B1 — play and seek every fixture** from its `/u/` address in each engine.
-  The media element must load, report its duration, and play past a seek near
-  the end.
+- **B1 — play every fixture** from its `/u/` address in each engine. In
+  order, muted:
+  1. `play()` must resolve;
+  2. the clock must advance;
+  3. a seek to 40% must land;
+  4. the clock must advance again;
+  5. no media error at any point (`judgePlayback`).
+
+  Metadata plus a seek is not playing.
 
   | Engine | Must pass | Recorded only (Linux codec builds vary) |
   |---|---|---|
@@ -235,8 +261,9 @@ Chrome is GitHub's own preinstalled one.
   | Firefox | WebM, MP3, WAV, Ogg, FLAC | MP4, MOV, M4A, AAC |
   | WebKit (Linux) | none | all nine |
 
-  An engine the runner installs but that fails to launch is a failed check,
-  not a skip, so a silent Firefox cannot read as a passing one.
+  All four engines are required. One that is missing, or fails to launch, is
+  a failed check, never a skip, so a run without Firefox cannot read as
+  Firefox passing. The composer check (B2) is required too.
 - **B2 — the composer, in Chromium, on the real app,** signed in by a planted
   session, as the UI canary does.
   - **The session.** It comes from the same handshake. `owner-session.mjs` now
@@ -305,8 +332,27 @@ checks on the owner's own devices. The script cannot reach them.
 **The balance is read, never assumed.**
 - Immediately before each send, the balance is read from the ledger
   (`/api/credits`).
-- Immediately after each send, it is read again. The charge must equal the
-  cost the reply reports.
+- **Immediately after each send, it is read again.** Its movement must equal
+  the cost the reply reports.
+- **If it cannot be read, the charge is unknown.** The same goes for a reply
+  with no cost, and for a send that threw. The spend is recorded as `null`,
+  never 0.
+- **If it moved by a different amount, the charge is unreconciled.** The
+  ledger's own movement is recorded.
+- **Either way, every later paid send stops,** and the run fails.
+- **The ceiling counts the ledger's own movement** since the start, so a
+  charge nothing reported still counts against it.
+- **P9's charge is reconciled the way the build canary's is**
+  (`buildMoneyVerdict`): a steady balance and last ledger row at both ends,
+  the window between them read whole, and the build's own rows explaining the
+  whole movement.
+  - The rows are read with the service key: id, kind, reason, amount,
+    reference and time only.
+  - A window that is not whole, or a poll that gives up while the build is
+    still running, leaves the charge unknown.
+- **The run's summary keeps them apart:** `known` (reconciled), `unknown`
+  (the number of sends whose charge is unknown), and `ledger` (the balance's
+  own movement).
 - No earlier figure in any record is used.
 
 **Estimates against the one enforced limit:**
@@ -319,16 +365,46 @@ checks on the owner's own devices. The script cannot reach them.
 | The platform | **caps nothing**; the balance is the only bound it knows |
 
 **The conversation cases**, on the demo site, run in one `converse` press. All
-six are fixed messages:
+six are fixed messages.
 
-| Case | Message | Expected |
+**Evidence first, free.** Before any send, the script reads the site's stored
+pages through `/api/site/source` and takes their words with `extractText`, the
+same reader the conversation step uses.
+
+**Every answer, in every case:**
+- **No invented specifics.** No time, price, phone number or email may appear
+  unless the pages or what was sent hold it. Times compare as one form: "3pm",
+  "3:00 p.m." and "15:00" are the same.
+- **No claimed inspection.** No claim of having checked, visited, watched or
+  opened anything.
+- **Answered as conversation**, with nothing started, by the reply's own call.
+
+**Each case on its own purpose** (✗ = fails on, ? = unverified when the answer
+shows no sign either way):
+
+| Case | Message | Judged on |
 |---|---|---|
-| C1 | "hi" | a short greeting and an invitation; no work |
-| C2 | a comparison of a booking page and an enquiry form | a structured comparison; no work |
-| C3 | "What does my home page say? Summarise it in two sentences." | an answer from the stored page words; never a claim of visiting the live site |
-| C4 | "What time do we open on Sundays?" | says what it wasn't shown and how to add it; no invented time |
-| C5 | "ok, use the third version", on a fixed cut thread | asks for the third version again; `resolved` absent; no work |
-| C8 | "What could I use this clip for on my site?", with `clip.webm` attached | stays conversation; the file named as unseen |
+| C1 | "hi" | a short answer that invites them to say what they want (else ?) |
+| C2 | a booking page or an enquiry form for bread-making classes, compared | ✗ one of the two options never mentioned; whether the comparison is sound is always ? |
+| C3 | "What does my home page say? Summarise it in two sentences." | ✗ none of the home page's own words (beyond the question's); 1–2 shared is ?; ✗ a claim of having visited the live site |
+| C4 | "What time do we open on Sundays?" | ✗ an invented time; "says it wasn't shown" and "says how to add them" are each ? without a sign |
+| C5 | "ok, use the third version", on the fixed cut thread | ✗ the route not told the history was cut; ✗ `resolved` written; ✗ any word of the hidden headline ("Crusts beside the lighthouse"); asking again is ? without a sign |
+| C8 | the question, plus the page's own attachment line for `clip.webm` | ✗ the clip never mentioned; ✗ its contents described; "says it was not shown the clip" is ? without a sign |
+
+**A case is not sent unless its fixture can serve it.** Nothing is spent on a
+case that cannot show what it is for:
+- **C3** needs the stored pages to read.
+- **C4** needs them to read, and to really lack the answer: no Sunday, no
+  times, no opening hours (`hoursAbsent`). A site that says "Closed on
+  Sundays" has the answer, and is refused.
+
+**What C8 sends.** Its attachment is the line the page itself appends for a
+video (`[Attached video "clip.webm"]`), in its form before the file has an
+address. This mode uploads nothing.
+
+**Every answer is kept whole** in `results.recorded`. Anything unverified is
+also listed in `results.unverified`, with the full answer and what is still
+open, for Codex or the owner to read.
 
 **C5 is deterministic.**
 - **The earlier history is fixed** (`cutThread()`): a long earlier reply whose
@@ -353,7 +429,9 @@ the owner types.
 - **It is judged on:**
   - both drafts placed and none missing;
   - no fixed narration of the move;
-  - a non-empty, model-written `notes`, recorded for reading;
+  - a non-empty, model-written `notes`. Whether it says rightly where each
+    file plays is **unverified**, with the whole of it kept;
+  - the charge explained by the ledger window, taken once;
   - no photograph made;
   - each file served from the new site;
   - the drafts gone from the drafts list;
@@ -375,7 +453,55 @@ the owner types.
 The owner sets the ceiling box per press, and the balance read before each send
 decides whether the press can proceed at all.
 
-## Offline proof of the harness (`test/media-verify.test.mjs`)
+## Offline proof of the harness (`test/media-verify.test.mjs`, `test/media-verify-judging.test.mjs`)
+
+**This round's regressions** are in `test/media-verify-judging.test.mjs`, 16
+cases.
+- **The red check.** Every one fails on `1b52561f`'s script, run there in a
+  throwaway worktree.
+  - On the old script, Codex's answer gives `ok: true`.
+  - A mismatched charge keeps sending (6 sends).
+  - An unfinished Build records 25 credits.
+  - A run with no browsers passes.
+- **On `6f84607a`, all 16 pass.** They cover:
+  - **Codex's answer**, sent to all six cases, fails every one, on its
+    invented time and on each case's own purpose.
+  - **Natural answers that do each job** pass with no required wording. The
+    comparison's quality stays unverified, with the answer kept.
+  - **Each case fails on its own purpose:**
+    - an ungrounded summary;
+    - the hidden headline used;
+    - the clip described as watched;
+    - an invented Sunday time;
+    - a claimed visit.
+
+    A missing sign is never a fail.
+  - **The C4 fixture must lack the answer.** It is refused when the site
+    lists Sunday hours, says it is closed on Sundays, or cannot be read.
+  - **Specifics are found by kind, not phrase.**
+  - **Accounting:**
+    - Codex's 503 case: one send, its charge unknown;
+    - an unreconciled charge;
+    - a reply with no cost;
+    - the ceiling counting the ledger's movement, including a charge nothing
+      reported;
+    - a send that throws, and an exception outside a send, both keeping their
+      results.
+  - **The Build's charge**, through the ledger window. A partial window, no
+    ledger, and a poll that gives up each leave it unknown.
+  - **`judgePlayback`** refuses the old metadata-and-seek observation, a
+    refused `play()`, a stalled clock and a media error.
+  - **A browser run with no browsers fails**, and the fixtures are cleaned up.
+- **Mutation sweep over the new logic: 14 of 15 killed.**
+  - The survivor is equivalent: `finish`'s "no unknown spend" guard. Every
+    path that leaves a spend unknown also sets `stopped`, so the guard is
+    redundant today, and kept.
+  - The comment-only control survived.
+  - Two survivors of a first pass were gaps, not equivalents: a charge nothing
+    reported, and a "Closed on Sundays" page. Each now has a case, and both
+    are killed.
+
+**From the previous round, still standing:**
 
 - **The judge.** It accepts every valid order, including close 200 then delete
   200. It refuses a delete that answered 200 with the file still served, wrong
@@ -398,7 +524,8 @@ decides whether the press can proceed at all.
   - its charge is read from the ledger.
 - **Build mode** follows a 202 poll and judges the answer.
 - **Browser mode** runs in real Chromium against a local server bridged to the
-  Worker. B2 and B3 run on the repository's own `public/` app, with media
+  Worker. Every required format **really plays** there: `play()`, the clock
+  advancing, the seek landing and playback continuing. B2 and B3 run on the repository's own `public/` app, with media
   answered by the real Worker, and all of their checks must be present and
   passing.
 - **The composer page's write rule** allows only this site's media and
@@ -408,6 +535,27 @@ decides whether the press can proceed at all.
 - **The workflow** is dispatch only. Its mode options equal the script's modes,
   and it passes every variable the command line reads. Three mutants of the
   workflow were each killed.
+
+## What stays unverified, by design
+
+- **The meaning the automation cannot read.** Unless an answer shows a sign
+  either way, these stay open:
+  - whether C2's comparison is sound;
+  - whether C1 invites them in;
+  - whether C4 says it was not shown the hours, and how to add them;
+  - whether C5 asks again;
+  - whether C8 says it was not shown the clip;
+  - whether P9's narration says rightly where each file plays.
+
+  Each comes back as `unverified`, with the whole answer, for a person.
+- **What the evidence cannot cover.** Specifics are checked only by kind:
+  times, prices, phone numbers and emails. An invented claim of any other kind
+  (a street, a product, a person) is not caught automatically. It is in the
+  kept answer, to read.
+- **The browsers no runner has:** Safari on macOS and iOS, Chrome on Android,
+  and Edge. Proprietary codecs in Chromium, Firefox and WebKit on Linux are
+  recorded only.
+- **R2's own abort and finish answers.** No probe is built.
 
 ## Order, when the owner approves
 

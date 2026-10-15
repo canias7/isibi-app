@@ -1,5 +1,90 @@
 # Owner Notes
 
+## Branch `new` — the verification harness judges what each check is for (2026-10-15, after Codex's review of `1b52561f`; harness commit `6f84607a`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
+
+**What Codex reproduced, and what changed** (all in `scripts/media-verify.mjs`;
+the product fixes are untouched):
+- **The six conversation cases passed on one irrelevant answer:** "Your bakery
+  opens at 3:17am on Sundays. Does that help?" The checks read the reply's
+  metadata. Now each case is judged on its purpose against evidence read first
+  and free: the site's stored pages, through the same text reader the
+  conversation step uses.
+  - **Every answer:** no time, price, phone number or email that the pages and
+    the message lack.
+  - **C2** must address both the booking page and the enquiry form.
+  - **C3** must share the home page's own words.
+  - **C5** must not use any word of the hidden third version. Its headline is
+    now distinctive, so the check means something.
+  - **C8** must talk about the attached clip without describing it. It is sent
+    as the page's own attachment line.
+  - **No wording is required.** Whatever the automation cannot establish is
+    marked unverified, and the whole answer is kept for review
+    (`results.unverified`).
+- **The missing-information fixture is checked first.** C4 is not sent unless
+  the stored pages really lack Sunday hours: no Sunday, no times, no opening
+  hours. A site saying "Closed on Sundays" is refused. C3 and C4 are not sent
+  if the pages can't be read.
+- **Accounting.** In Codex's case, a 503 balance after a send counted as 0:
+  six sends, 22 spent, 10 recorded, against a ceiling of 16. Now, after every
+  paid send, the balance must read and its movement must equal the reply's
+  cost.
+  - **If it doesn't,** the spend is unknown (`null`, never 0) or unreconciled,
+    and no later paid send is made.
+  - **The ceiling** counts the ledger's own movement since the start.
+  - **A send that throws** records an unknown charge.
+  - **Every exception** keeps its results, and the results file is always
+    written.
+  - **P9's charge** is reconciled through the ledger window, the build
+    canary's own check. A poll that gives up leaves it unknown.
+  - **Estimates stay labelled estimates.** The ceiling is the harness's only
+    limit; the platform caps nothing.
+- **B1 is now real playback:**
+  - `play()` must start;
+  - the clock must advance;
+  - a seek must land;
+  - playback must continue, with no media error.
+- **A browser run missing any required browser now fails.** Those are
+  Chromium, Chrome, Firefox and WebKit, plus the composer check.
+- **New exit code: 3 means "needs review".** Everything the automation can
+  establish passed, and some answers wait for a person to read. The press
+  shows red, and its evidence is kept.
+
+**Offline verification.** Focused files only, not a full suite.
+- **`test/media-verify-judging.test.mjs`: 16 new cases.** Every one fails on
+  `1b52561f`'s script, measured in a throwaway worktree. There, Codex's answer
+  gives `ok: true`, a mismatched charge keeps sending (6 sends), an unfinished
+  Build records 25, and a run with no browsers passes. On `6f84607a` all 16
+  pass.
+- **`test/media-verify.test.mjs`: 11 of 11.** Every required format really
+  plays in Chromium.
+- **Mutation sweep: 14 of 15 killed.**
+  - One equivalent survivor: the outcome's "no unknown spend" guard. Every
+    path that leaves a spend unknown also stops the run, so the guard is
+    redundant today, and kept.
+  - The comment-only control survived.
+  - Two first-pass survivors were real gaps, not equivalents: a charge nothing
+    reported, and a "Closed on Sundays" page. Each got a case.
+- **The focused media, conversation, workflow and build-canary files:**
+  217 of 217.
+
+**Still unverified, by design:**
+- **Meaning the automation cannot read:**
+  - whether C2's comparison is sound;
+  - C1's invitation;
+  - C4 saying it was not shown the hours, and how to add them;
+  - C5 asking again;
+  - C8 saying it was not shown the clip;
+  - whether P9's narration places the files rightly.
+
+  Each comes back unverified, with its answer, unless the answer shows a sign.
+- **Invented claims of other kinds** (a street, a product, a person). Only
+  times, prices, phone numbers and emails are checked automatically.
+- **The devices no runner has:** Safari on macOS and iOS, Android Chrome, and
+  Edge.
+- **R2's own abort and finish answers.** No probe is built.
+
+The proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
 ## Branch `new` — the verification proposal revised, and its checks prepared as a script and a workflow (2026-10-15, after Codex's review of `9a2ea70b`; nothing run, merged, deployed or built; no storage written, no model called, nothing bought)
 
 **What Codex's review confirmed.** The code fix round stays complete, and CI is
