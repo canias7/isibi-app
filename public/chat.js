@@ -4452,11 +4452,122 @@ async function siteAttachOne(f) {
 // build and edit routes take (`MAX_ATTACHMENTS` in builder/site-context.mjs,
 // held equal by test/input-budget.test.mjs).
 const SITE_MAX_FILES = 3;
+// ── VIDEO AND AUDIO, SENT IN PARTS (2026-10-14) ─────────────────────────────
+// The calls `SiteMedia.upload` makes, against a site's library or the
+// account's drafts — each answered `{ status, body }`, never thrown on a
+// refusal, so the upload can tell a refusal from a dropped connection.
+function mediaApi(base) {
+  const ask = (path, init) => apiFetch(base + path, init).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  return {
+    start: (body) => ask('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    part: (sid, n, blob) => ask('/' + sid + '/' + n, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: blob }),
+    complete: (sid, parts) => ask('/' + sid + '/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parts }) }),
+    abort: (sid) => ask('/' + sid, { method: 'DELETE' }),
+    status: (sid) => ask('/' + sid, { method: 'GET' }),
+  };
+}
+// THE PAGE'S RECORD OF ITS UPLOADS (2026-10-15): which session each file went
+// up in, and what it made — never the bytes — so a lost answer, a reconnect
+// or a reload comes back to the same upload instead of sending the file twice.
+// The browser's own storage, read and written inside a catch: a private window
+// or blocked storage only means the record is not kept.
+const MEDIA_RECORDS_KEY = 'gf-media-uploads';
+function mediaStore() {
+  const read = () => { try { const v = JSON.parse(localStorage.getItem(MEDIA_RECORDS_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } };
+  const write = (all) => {
+    const now = Date.now();
+    for (const k of Object.keys(all)) if (!all[k] || !(all[k].at + SiteMedia.RECORD_MS > now)) delete all[k];
+    try { localStorage.setItem(MEDIA_RECORDS_KEY, JSON.stringify(all)); } catch (e) { /* not kept */ }
+  };
+  return {
+    get: (fp) => read()[fp] || null,
+    put: (fp, rec) => { const all = read(); all[fp] = rec; write(all); },
+    drop: (fp) => { const all = read(); delete all[fp]; write(all); },
+  };
+}
+const mediaBase = (slug) => (slug ? '/api/site/' + encodeURIComponent(slug) + '/media' : '/api/media/drafts');
+// A CHIP WHOSE UPLOAD COULD NOT BE CONFIRMED is asked about again — after a
+// pause, and whenever the connection comes back — and never shown as failed
+// until the server says it is gone.
+function mediaRecheck(chip, tries) {
+  if (!chip || chip.state !== 'unsure' || !chip.session) return;
+  SiteMedia.confirm(chip.session, { api: mediaApi(chip.base) }).then((c) => {
+    if (chip.state !== 'unsure') return;
+    if (c.ok) { chip.state = 'done'; chip.ref = c.file.name; chip.url = c.file.url || ''; }
+    else if (c.gone) { chip.state = 'failed'; chip.error = c.why === 'removed' ? 'That file was deleted from your library \u2014 attach it again.' : c.why === 'replaced' ? 'That file was replaced in your library \u2014 attach it again.' : 'That upload expired before it finished \u2014 attach the file again.'; }
+    else if ((tries || 0) < 6) setTimeout(() => mediaRecheck(chip, (tries || 0) + 1), 5000);
+    paintAttachStrip();
+  });
+}
+const mediaUnsure = [];
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', () => { mediaUnsure.splice(0).forEach((c) => mediaRecheck(c, 0)); });
+}
+// WHAT THE BROWSER CAN READ OF A FILE BEFORE IT IS SENT — its length and frame
+// size, from the browser's own player — kept with it, and said everywhere as
+// the browser's report. Nothing when the browser cannot read it, within 4 s.
+function mediaFileMeta(f) {
+  return new Promise((resolve) => {
+    let el = null;
+    let url = '';
+    const done = (m) => { try { if (url) URL.revokeObjectURL(url); } catch (e) { /* gone */ } resolve(m); };
+    try {
+      el = document.createElement(SiteMedia.kindOf(f) === 'video' ? 'video' : 'audio');
+      url = URL.createObjectURL(f);
+      el.preload = 'metadata';
+      const t = setTimeout(() => done(undefined), 4000);
+      el.onloadedmetadata = () => { clearTimeout(t); done({ duration: Number.isFinite(el.duration) ? el.duration : undefined, width: el.videoWidth || undefined, height: el.videoHeight || undefined }); };
+      el.onerror = () => { clearTimeout(t); done(undefined); };
+      el.src = url;
+    } catch (e) { done(undefined); }
+  });
+}
+// ONE FILE INTO THE COMPOSER'S STRIP, uploading as it shows: to this site's
+// library when the project has a site, otherwise kept for the account until
+// its first build moves it in. The chip says where it is: sending, ready, or
+// refused with the server's own sentence.
+function siteAttachMedia(owner, f) {
+  const draft = siteDraft(owner);
+  if (!draft.media) draft.media = [];
+  const s = siteById(owner);
+  const slug = s && s.slug && sitePages(s).length ? s.slug : '';
+  const base = mediaBase(slug);
+  const chip = { media: true, name: f.name || 'file', kind: SiteMedia.kindOf(f), state: 'up', pct: 0, draft: !slug, base };
+  draft.media.push(chip);
+  paintAttachStrip();
+  mediaFileMeta(f).then((meta) => SiteMedia.upload(f, {
+    api: mediaApi(base), base, store: mediaStore(),
+    meta,
+    cancelled: () => chip.state === 'cancelled',
+    progress: (sent, total) => { chip.pct = total ? Math.round((sent / total) * 100) : 100; paintAttachStrip(); },
+  })).then((r) => {
+    if (chip.state === 'cancelled') return;
+    if (r && r.ok) { chip.state = 'done'; chip.ref = r.file.name; chip.url = r.file.url || ''; }
+    // NOT CONFIRMED IS NOT FAILED: the chip says it is being checked, and is.
+    else if (r && r.uncertain) { chip.state = 'unsure'; chip.session = r.session; mediaUnsure.push(chip); setTimeout(() => mediaRecheck(chip, 0), 5000); }
+    else { chip.state = 'failed'; chip.error = (r && r.error) || 'Couldn\u2019t upload that file.'; if (typeof sbToast === 'function') sbToast(chip.name + ': ' + chip.error); }
+    paintAttachStrip();
+  });
+}
+// THE LINE A MESSAGE CARRIES FOR A FILE (2026-10-14): its kind, its name and —
+// on a site — its address, so every step that reads the message (the router,
+// an edit, an add-on, the conversation) knows which file is meant.
+function mediaRefLine(m) {
+  return '[Attached ' + (m.kind === 'video' ? 'video' : 'audio') + ' "' + String(m.name).replace(/"/g, "'") + '"' + (m.url ? ': ' + m.url : '') + ']';
+}
 function siteAttachFiles(fileList) {
   // INTO THE DRAFT OF THE COMPOSER THEY WERE CHOSEN IN, named now: a file is read
   // on a later turn, and by then another site may be on screen.
   const owner = siteAttachFor;
-  const picked = Array.from(fileList || []);
+  // A VIDEO OR A RECORDING IS HOSTED, NOT SHOWN TO A MODEL (2026-10-14): it is
+  // uploaded in parts to the site's library — or kept for the account when
+  // there is no site yet — and the message names it. It takes none of the
+  // three places a message has for pictures and documents.
+  const all = Array.from(fileList || []);
+  const hosted = typeof SiteMedia !== 'undefined' ? all.filter((f) => SiteMedia.isMedia(f)) : [];
+  hosted.forEach((f) => siteAttachMedia(owner, f));
+  const picked = all.filter((f) => !hosted.includes(f));
+  if (!picked.length) return;
   const room = Math.max(0, SITE_MAX_FILES - siteDraft(owner).imgs.length);
   const files = picked.slice(0, room);
   // THE ONES THAT DID NOT FIT ARE NAMED (2026-10-03): picking five took the
@@ -4490,8 +4601,17 @@ function paintAttachStrip() {
     // icon, which reads as "your file failed" for one that is about to be used.
     el.innerHTML = draft.imgs.map((a, i) => '<div class="st-att' + (a.data ? '' : ' st-att-doc') + '">' +
       (a.data ? '<img src="' + a.data + '" alt="">' : '<span class="st-att-name">' + esc(a.name || 'file') + '</span>') +
-      '<button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('');
+      '<button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('') +
+      // VIDEO AND AUDIO (2026-10-14): named, with where the upload is.
+      (draft.media || []).map((m, i) => '<div class="st-att st-att-doc st-att-media' + (m.state === 'failed' ? ' st-att-bad' : '') + '">' +
+        '<span class="st-att-name">' + esc(m.name) + '</span>' +
+        '<span class="st-att-state">' + esc(m.state === 'up' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 uploading ' + (m.pct || 0) + '%' : m.state === 'done' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 ready' : m.state === 'unsure' ? (m.kind === 'video' ? 'Video' : 'Audio') + ' \u00b7 checking it finished\u2026' : 'Not uploaded') + '</span>' +
+        '<button type="button" class="st-att-x" data-media="' + i + '" aria-label="Remove">×</button></div>').join('');
     el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { draft.imgs.splice(+b.dataset.att, 1); paintAttachStrip(); });
+    // A FILE TAKEN OUT WHILE IT IS STILL SENDING is cancelled, and what was
+    // sent of it is given up on the server; one already in the library stays
+    // there (the Files panel deletes it).
+    el.querySelectorAll('[data-media]').forEach((b) => b.onclick = () => { const m = draft.media[+b.dataset.media]; if (m && m.state === 'up') m.state = 'cancelled'; draft.media.splice(+b.dataset.media, 1); paintAttachStrip(); });
   });
 }
 // Runtime errors caught in the live preview, keyed `siteId|path`. Populated by
@@ -5715,7 +5835,8 @@ function renderSites() {
   const gen = document.getElementById('stGen');
   const ta = document.getElementById('stPrompt');
   if (gen && ta) {
-    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } siteCreate(t); };
+    // A VIDEO OR A RECORDING STILL SENDING holds the brief back (2026-10-14), said.
+    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } if ((siteNewDraft.media || []).some((m) => m.state === 'up' || m.state === 'unsure')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; } siteCreate(t); };
     gen.onclick = go;
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } };
   }
@@ -5946,6 +6067,10 @@ function siteCreate(prompt) {
   // start screen keeps nothing of them.
   siteDraft(id).imgs = siteNewDraft.imgs.slice(0, 3);
   siteNewDraft.imgs = [];
+  // AND ITS VIDEO AND AUDIO (2026-10-14), the very chips — one still sending
+  // keeps sending into the new project's strip.
+  siteDraft(id).media = (siteNewDraft.media || []).slice();
+  siteNewDraft.media = [];
   // THE ADDRESS EXISTS BEFORE THE SITE DOES, which is the case the id was
   // chosen over the slug for: this fires the moment a brief is typed, minutes
   // before there is a slug to name, and the customer can copy or reload that
@@ -8350,7 +8475,7 @@ function renderSiteWorkspace(view, site) {
       const pickOwn = e.target.closest('[data-pick-own]');
       if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(); return; }
       const pickGo = e.target.closest('[data-pick-go]');
-      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v); return; }
+      if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v, false, true); return; }
       const h = e.target.closest('[data-steptog]');
       if (h && thread.contains(h)) h.parentNode.classList.toggle('open');
     };
@@ -9651,7 +9776,10 @@ function siteTablesAfter(origin, e) {
 // when it is sent and kept with it if it comes back unsent, so the same message
 // sent again — a lost answer, another tab — is one request on the server,
 // routed and charged once (`siteMessageKey`).
-function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key) {
+// `picked` (2026-10-14): the answer was PRESSED from our own options, the only
+// reply that may never be read as conversation. A typed reply may be a side
+// question, and stays one.
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key, picked) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -9756,7 +9884,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // Pinned to the default, the router is that shape again with a different
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
-    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+      // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
+      // This project's own thread, never another's, without the message being
+      // sent; the server windows it and says what it left out. The files go by
+      // name and kind only, for a reply about them — never as if seen.
+      history: typeof ChatTalk !== 'undefined' ? ChatTalk.historyWire((siteById(origin) || site).msgs, t) : undefined,
+      files: typeof ChatTalk !== 'undefined' && ((imgs && imgs.length) || keptImgs.length) ? ChatTalk.fileWire(keptImgs.concat(Array.isArray(imgs) ? imgs : [])) : undefined,
       ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined,
       // ── WHAT THE SERVER KEEPS WHEN IT TAKES THE WORK ON (2026-10-03) ──────
       // A site's message the server accepts as a request is finished there,
@@ -9833,7 +9967,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // request that was waiting, word for word (`instruction`), instead of the
     // typed words, with what they told us BESIDE it (`context`), its question
     // count and what it put off earlier, to whichever step runs it; files go too.
-    if (!isBuild && d.ask) siteAskClear(origin);
+    // …UNLESS IT IS STILL WAITING (2026-10-14): a side question was answered as
+    // conversation, and the question stays on screen for its answer.
+    if (!isBuild && d.ask && d.ask.waiting !== true) siteAskClear(origin);
     let run = t;
     if (!isBuild && d.ask && d.ask.answered === true) {
       if (typeof d.instruction === 'string') { run = d.instruction; brief = run; }
@@ -9844,6 +9980,12 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       // (2026-10-03): `siteAskReply` held an answer that would take the two past
       // one request's files in the box before anything was sent.
       sendImgs = keptImgs.concat(sendImgs);
+    } else if (typeof d.resolved === 'string' && d.resolved.trim()) {
+      // "DO THAT", WRITTEN OUT (2026-10-14): the router wrote the work out in
+      // full from the conversation, and that is what runs — on the live site
+      // and on a first build alike — in place of the few words typed.
+      run = d.resolved;
+      if (!round) brief = run;
     }
     // ── THE SERVER TOOK IT ON (2026-10-03) ──────────────────────────────────
     // A request it finishes itself, every part, with no page needed: this page
@@ -9910,7 +10052,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // The answer alone. What it cost shows up in the ✦ pill, which `apiFetch`
     // already refreshes for this route — safe there, unlike the build, because
     // this is a plain JSON response whose charge is settled before it answers.
-    s.msgs.push({ r: 'a', t: String(d.answer) });
+    // A SIDE QUESTION TYPED UNDER A FIRST BUILD'S QUESTION (2026-10-14) was
+    // put in the round as its answer before it was sent; it was not one, so
+    // it comes out, and the question stays on screen for its answer.
+    if (isBuild && answering && !picked && s.clarify && Array.isArray(s.clarify.qa)) {
+      const last = s.clarify.qa[s.clarify.qa.length - 1];
+      if (last && last.a === t) s.clarify.qa.pop();
+    }
+    // `md`: the reply's few marks — headings, lists, bold, links — are drawn
+    // (`ChatTalk.markdownHTML`, escaped first).
+    s.msgs.push({ r: 'a', t: String(d.answer), md: true });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -13871,7 +14022,10 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // send being held open while the build runs (run 38646089624's send went
   // unanswered for 18 minutes after its build had finished).
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin, accept: 'early' }
+    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin, accept: 'early',
+      // THE VIDEO AND AUDIO KEPT FOR THIS PROJECT BEFORE IT HAD A SITE (2026-10-14):
+      // the build moves them into the new site's library once it holds the address.
+      media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }
     : {
       slug: site.slug, instruction: t, images: imgs, picker: buildPicker,
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
@@ -14323,7 +14477,7 @@ document.addEventListener('keydown', (e) => {
   // about which answer is which.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
   const fkey = sitePickKeyFirst(site);
-  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v); } return; }
+  if (e.key === 'Enter') { const v = sitePickTake(fkey); if (v) { e.preventDefault(); siteAnswer(v, false, true); } return; }
   const opts = (live && Array.isArray(live.opts)) ? live.opts.slice(0, 4) : [];
   const n = Number(e.key);
   if (!(n >= 1 && n <= opts.length)) return;
@@ -14331,7 +14485,10 @@ document.addEventListener('keydown', (e) => {
   sitePick(fkey, String(opts[n - 1]));
 });
 
-function siteAnswer(label, skip) {
+// `picked` (2026-10-14): the answer came from the card — an option pressed, or
+// their own answer written into it and sent with Continue — and not typed into
+// the composer, where it may be a side question.
+function siteAnswer(label, skip, picked) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy || !site.clarify) return;
   // WHOLE (2026-10-08): a typed answer was cut to 200 characters here. The
@@ -14399,7 +14556,7 @@ function siteAnswer(label, skip) {
   // 2026-08-09: three answers in, "Sleek and modern" came back as "I'm not sure
   // what you'd like me to build", nothing was built, and the round was left on
   // an already-answered question.
-  siteRoute(site, said, origin, true, imgs, finish, true);
+  siteRoute(site, said, origin, true, imgs, finish, true, undefined, undefined, picked === true);
 }
 
 // ── A QUESTION ON A SITE THAT EXISTS (2026-10-02) ──────────────────────────
@@ -14503,7 +14660,9 @@ function siteReplyMsg(reply) {
 // thread's own: escaped, with its links made live.
 function siteMsgText(m, linkify) {
   const h = EditPoll.heldOf(m);
-  if (!h) return linkify(m.t);
+  // A CONVERSATION'S REPLY (2026-10-14) keeps its few marks; every other
+  // message is drawn as it always was.
+  if (!h) return m.md === true && typeof ChatTalk !== 'undefined' ? ChatTalk.markdownHTML(m.t) : linkify(m.t);
   return '<div class="st-think"><i></i>' + esc(m.t) + '</div>' + (h.asked ? '<div>' + linkify(h.asked) + '</div>' : '');
 }
 // THE MESSAGE A QUESTION IS DRAWN UNDER: what was said before it, then the
@@ -14750,10 +14909,28 @@ function siteSend(text, leaveDraft) {
   // an answer to 200, and the thread then showed the cut copy as what they
   // had said. Past the policy, the words go back in the box and nothing is
   // sent (`siteTooLong`).
-  const t = String(text || '').trim();
+  let t = String(text || '').trim();
   const firstBuild = !site.slug || !!site.clarify;
   if (!t) return;
   if (siteTooLong(siteOpenId, t, leaveDraft, site.clarify || site.ask ? 'answer' : 'message')) return;
+  // ── THE VIDEO AND AUDIO IN THE STRIP GO WITH THE WORDS (2026-10-14) ──────
+  // Named in the message, so every step that reads it knows which file is
+  // meant; a file still sending holds the message back, said; a file kept
+  // before the site exists is also named to the first build, which moves it
+  // into the new site's library (`pendingMedia`).
+  if (!leaveDraft) {
+    const md = siteDraft(siteOpenId).media || [];
+    if (md.some((m) => m.state === 'up')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; }
+    if (md.some((m) => m.state === 'unsure')) { md.filter((m) => m.state === 'unsure').forEach((m) => mediaRecheck(m, 6)); if (typeof sbToast === 'function') sbToast('Still confirming your file finished uploading \u2014 send once it says ready.'); return; }
+    const ready = md.filter((m) => m.state === 'done' && m.ref);
+    if (ready.length) {
+      t = t + '\n\n' + ready.map(mediaRefLine).join('\n');
+      const drafts = ready.filter((m) => m.draft).map((m) => m.ref);
+      if (drafts.length) site.pendingMedia = [...new Set([...(Array.isArray(site.pendingMedia) ? site.pendingMedia : []), ...drafts])];
+      siteDraft(siteOpenId).media = [];
+      paintAttachStrip();
+    }
+  }
   // A QUESTION IS ON SCREEN, so this is the answer to it. Typing instead of
   // clicking is normal — the options cover the likely answers, not every answer
   // — and routing a typed reply down the ordinary path would start a fresh
@@ -15686,6 +15863,15 @@ async function siteFunctions(site) {
 
 // Files — the images/PDFs visitors uploaded to this site (R2). Owner can view +
 // delete. Owner-only (ownership proven server-side via the site's RLS row).
+// ONE VIDEO OR RECORDING INTO A SITE'S LIBRARY, or over one already there
+// (`replace`), with the browser's report of its length and size (2026-10-14).
+async function siteMediaSend(slug, f, replace, onPct) {
+  const meta = await mediaFileMeta(f);
+  return SiteMedia.upload(f, {
+    api: mediaApi(mediaBase(slug)), base: mediaBase(slug), store: mediaStore(), meta, replace: replace || undefined,
+    progress: (sent, total) => { if (typeof onPct === 'function') onPct(total ? Math.round((sent / total) * 100) : 100); },
+  });
+}
 async function siteFiles(site) {
   // Repointed 2026-08-07 from `/api/site/files?slug=` — deleted with the D1
   // runtime — to `/api/site/<slug>/uploads`, which has existed all along and is
@@ -15695,11 +15881,11 @@ async function siteFiles(site) {
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its files show up here.'); return; }
   const { bodyEl } = stCloudModal('siteFilesModal', 'Files');
   bodyEl.innerHTML =
-    '<p class="sp-intro">Pictures and documents on your site — the ones you added, and the ones visitors sent with a form. ' +
-    'Add a PDF here, then ask me to put a download link on a page. ' +
+    '<p class="sp-intro">Pictures, documents, video and audio on your site — the ones you added, and the ones visitors sent with a form. ' +
+    'Add a PDF or a video here, then ask me to put a download link or a player on a page. ' +
     'Pick a picture as your <b>link preview</b> — what WhatsApp, iMessage and Slack show when someone shares your site’s link.</p>' +
     '<div class="fl-add"><button type="button" class="st-btn" id="flAdd">Add a file</button>' +
-    '<span class="fl-hint">Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB</span></div>' +
+    '<span class="fl-hint" id="flHint">Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB</span></div>' +
     '<div id="flList">Loading…</div>';
   // NO `accept` FILTER, deliberately, and for the reason the composer's own
   // picker carries none: the dialog hiding a format answers the question before
@@ -15712,6 +15898,17 @@ async function siteFiles(site) {
     inp.onchange = async () => {
       const f = inp.files && inp.files[0]; if (!f) return;
       const was = addBtn.textContent; addBtn.textContent = 'Uploading…'; addBtn.disabled = true;
+      // A VIDEO OR A RECORDING GOES IN PARTS (2026-10-14), with its progress on
+      // the button and the server's own sentence when it is refused.
+      if (typeof SiteMedia !== 'undefined' && SiteMedia.isMedia(f)) {
+        try {
+          const r = await siteMediaSend(slug, f, null, (pct) => { addBtn.textContent = 'Uploading ' + pct + '%\u2026'; });
+          if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm that upload finished yet \u2014 it will show in this list once it has.'); list(); return; }
+          if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+          list();
+        } finally { addBtn.textContent = was; addBtn.disabled = false; }
+        return;
+      }
       try {
         // The name rides in the query string because the BODY is the bytes. It
         // decides nothing about what the file IS — the leading bytes do that,
@@ -15740,18 +15937,30 @@ async function siteFiles(site) {
       const shareChoice = (sd && typeof sd.share === 'string') ? sd.share : '';
       const files = Array.isArray(d.files) ? d.files : [];
       if (!files.length) { box.innerHTML = '<div class="st-sec-empty"><b>No files yet</b><span>Pictures and documents you add, or that visitors upload with a form, appear here.</span></div>'; return; }
-      const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+      // GB FROM A GIGABYTE UP (2026-10-14): the video and audio allowance is counted in them.
+      const mb = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+      // THE TWO ALLOWANCES, KEPT APART (2026-10-14): pictures and documents,
+      // and video and audio, each with its own limit — and the limits named.
+      const md = d.media && typeof d.media === 'object' ? d.media : null;
+      const hint = document.getElementById('flHint');
+      if (hint && md) hint.textContent = 'Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB \u00b7 Video up to ' + Math.floor(md.maxVideo / 1e6) + ' MB and audio up to ' + Math.floor(md.maxAudio / 1e6) + ' MB (' + md.formats + ')';
       box.innerHTML =
         '<div class="fl-bar"><b>' + files.length + ' file' + (files.length === 1 ? '' : 's') + '</b>' +
-        '<span>' + mb(d.used || 0) + ' of ' + mb(d.max || 0) + '</span></div>' +
+        '<span>' + mb(d.used || 0) + ' of ' + mb(d.max || 0) + (md ? ' \u00b7 video and audio ' + mb(md.used || 0) + ' of ' + mb(md.max || 0) : '') + '</span></div>' +
         '<div class="fl-grid">' + files.map((f) => {
           // A DOCUMENT GETS NO <img>. Pointing one at a PDF paints the browser's
           // broken-image icon on every card, which reads as "this panel is
           // broken" — the exact failure the onerror below was added for, except
           // it would fire on every document rather than on a missing file.
           const doc = f.kind === 'doc';
+          // A VIDEO OR A RECORDING (2026-10-14) is drawn as one: a video's first
+          // frame, a recording's format with a player — never an <img>.
+          const vid = f.kind === 'video';
+          const aud = f.kind === 'audio';
           const label = f.download || f.name;
-          const face = doc
+          const face = vid
+            ? '<video src="' + esc(f.url) + '#t=0.1" preload="metadata" muted playsinline></video>'
+            : (doc || aud)
             ? '<span class="fl-doc" aria-hidden="true">' + esc((f.name.split('.').pop() || '').toUpperCase()) + '</span>'
             // A thumbnail that 404s paints the browser's broken-image icon — a
             // torn page in a tall grey box, which reads as "this panel is broken"
@@ -15763,18 +15972,24 @@ async function siteFiles(site) {
           // A document renders nothing in a chat app's card and a visitor's
           // upload must not become the business's preview \u2014 the server refuses
           // both, and a button it would refuse teaches the owner a dead click.
-          const canShare = !doc && !f.visitor;
+          const canShare = !doc && !vid && !aud && !f.visitor;
           const isShare = canShare && shareChoice && f.name === shareChoice;
           const shareBtn = !canShare ? '' :
             '<button type="button" class="fl-share' + (isShare ? ' fl-share-on' : '') + '" data-share="' + esc(f.name) + '" data-on="' + (isShare ? '1' : '0') + '" ' +
             'title="' + (isShare ? 'Link previews use this picture. Click to let your site pick again.' : 'Show this picture when someone shares your site\u2019s link') + '">' +
             (isShare ? 'Link preview \u2713' : 'Use in link previews') + '</button>';
-          return '<figure class="fl-item' + (doc ? ' fl-isdoc' : '') + '">' +
+          const len = (vid || aud) && f.duration ? ' \u00b7 ' + Math.floor(f.duration / 60) + ':' + String(Math.round(f.duration % 60)).padStart(2, '0') : '';
+          const mediaBtns = (vid || aud) && !f.visitor
+            ? '<div class="fl-media"><button type="button" class="fl-use" data-use="' + esc(f.name) + '" data-url="' + esc(f.url) + '" data-kind="' + (vid ? 'video' : 'audio') + '" data-label="' + esc(label) + '">Use in chat</button>' +
+              '<button type="button" class="fl-rep" data-replace="' + esc(f.name) + '">Replace</button></div>'
+            : '';
+          return '<figure class="fl-item' + (doc || aud ? ' fl-isdoc' : '') + (vid || aud ? ' fl-ismedia' : '') + '">' +
             '<a href="' + esc(f.url) + '" target="_blank" rel="noreferrer">' + face + '</a>' +
+            (aud ? '<audio class="fl-player" controls preload="none" src="' + esc(f.url) + '"></audio>' : '') +
             '<figcaption><span class="fl-nm" title="' + esc(label) + '">' + esc(label) + '</span>' +
-            '<span class="fl-sz">' + mb(f.size) + '</span>' +
+            '<span class="fl-sz">' + mb(f.size) + len + '</span>' +
             '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption>' +
-            shareBtn + '</figure>';
+            shareBtn + mediaBtns + '</figure>';
         }).join('') +
         '</div>';
       // Setting or clearing the link preview. Clicking the current one clears
@@ -15804,11 +16019,49 @@ async function siteFiles(site) {
       // first — the preview toggle above is reversible in one click and does not.
       box.querySelectorAll('.fl-del').forEach((b) => b.onclick = async () => {
         const name = b.getAttribute('data-file');
-        if (!window.confirm('Delete ' + name + '? If a page uses it, that picture or download will stop working.')) return;
+        if (!window.confirm('Delete ' + name + '? If a page uses it, that picture, download or player will stop working.')) return;
         b.disabled = true;
-        const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name), { method: 'DELETE' });
+        let r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name), { method: 'DELETE' });
+        // A VIDEO OR A RECORDING A PAGE PLAYS (2026-10-14): the server names the
+        // pages and deletes nothing until the owner says so a second time.
+        if (r2.status === 409) {
+          const d2 = await r2.json().catch(() => ({}));
+          const where = Array.isArray(d2.pages) && d2.pages.length ? d2.pages.join(', ') : 'a page';
+          if (!window.confirm('This file plays on ' + where + '. Delete it anyway? The player there will stop working until you ask me to change the page.')) { b.disabled = false; return; }
+          r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name) + '?force=1', { method: 'DELETE' });
+        }
         if (!r2.ok) { b.disabled = false; if (typeof sbToast === 'function') sbToast('Could not delete that file.'); return; }
         list();
+      });
+      // REPLACE (2026-10-14): the same kind and format, at the same address —
+      // every page that plays it plays the new file, no change needed.
+      box.querySelectorAll('.fl-rep').forEach((b) => b.onclick = () => {
+        const name = b.getAttribute('data-replace');
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.onchange = async () => {
+          const f = inp.files && inp.files[0]; if (!f) return;
+          const was = b.textContent; b.disabled = true;
+          try {
+            const r = await siteMediaSend(slug, f, name, (pct) => { b.textContent = pct + '%'; });
+            if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm the replacement finished yet \u2014 check this list again in a moment.'); list(); return; }
+            if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+            if (typeof sbToast === 'function') sbToast('Replaced \u2014 pages that play it play the new file.');
+            list();
+          } finally { b.textContent = was; b.disabled = false; }
+        };
+        inp.click();
+      });
+      // USE IN CHAT (2026-10-14): the file goes into the composer's strip as a
+      // ready attachment, and the next message names it.
+      box.querySelectorAll('.fl-use').forEach((b) => b.onclick = () => {
+        const draft = siteDraft(site.id);
+        if (!draft.media) draft.media = [];
+        draft.media.push({ media: true, name: b.getAttribute('data-label'), kind: b.getAttribute('data-kind'), state: 'done', ref: b.getAttribute('data-use'), url: b.getAttribute('data-url'), draft: false });
+        const m = document.getElementById('siteFilesModal');
+        if (m) m.remove();
+        paintAttachStrip();
+        if (typeof sbToast === 'function') sbToast('Added to your next message.');
       });
     })
     .catch(() => { const box = document.getElementById('flList'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });

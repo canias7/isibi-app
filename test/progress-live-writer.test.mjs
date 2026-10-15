@@ -77,7 +77,10 @@ const OUTCOME = {
  * the job is delivered to the real consumer. Answers the platform (open), the
  * writer's requests grouped by hold, the job and the final request record.
  */
-async function heldRun(kind, { storeFails = false } = {}) {
+async function heldRun(kind, { storeFails = false, latePages = false } = {}) {
+  // THE PAGES MILESTONE'S WRITE, HELD UNTIL AFTER THE FIRST LINE (`latePages`, PLW 5).
+  const pagesGate = gate();
+  let pagesHeld = false;
   const g = { fal: gate(), pub: gate(), compile: gate() };
   const held = { fal: false, pub: false, compile: false };
   const texts = [];
@@ -100,6 +103,7 @@ async function heldRun(kind, { storeFails = false } = {}) {
   const put0 = P.bucket.put.bind(P.bucket);
   P.bucket.put = async (k, v, ...rest) => {
     if (!held.pub && /\.progress\.json$/.test(k) && marksIn(v).includes("publish")) { held.pub = true; await g.pub.p; }
+    if (latePages && !pagesHeld && /\.progress\.json$/.test(k) && marksIn(v).includes("pages")) { pagesHeld = true; await pagesGate.p; }
     return put0(k, v, ...rest);
   };
   if (storeFails) for (let i = 0; i < 3; i++) P.failPut((k) => k.startsWith("uploads/" + P.slug + "/"));
@@ -119,7 +123,17 @@ async function heldRun(kind, { storeFails = false } = {}) {
   };
   const lines = {};
   await until(() => held.fal && job(), "the photo service's call");
+  // THE PAGES MILESTONE HAS LANDED BEFORE THE FIRST LINE (2026-10-15). The job
+  // does not wait for its milestones (`mark` only queues the record's write),
+  // so the photo call can begin before the "pages" milestone is in the record.
+  // These cases read the line at the photo call as the one that tells the
+  // pages, so they wait for it, as they wait for the publish milestone below;
+  // before this, a full suite under load once delivered the first line early
+  // and the pages fact rode with the photograph's (seen 2026-10-15 on
+  // `bb1c1f31`, reproduced exactly by PLW 5, which holds that write on purpose).
+  if (!latePages) await until(() => (P.progressOf(job().id) || { marks: [] }).marks.some((m) => m.stage === "pages"), "the pages milestone landing");
   lines.atPhoto = await deliverWriter();
+  if (latePages) pagesGate.open();
   const live = () => { const j = P.jobs.get(job().id); return !["done", "failed", "cancelled"].includes(j.state) && !j.published_at; };
   const runningAtPhoto = live();
   g.fal.open();
@@ -225,6 +239,21 @@ test("PLW 4 — CONTROL, SUCCESSFUL PLACEMENT: the photographs line is handed it
     assert.match(P.page("bakers.tsx") || "", /src="\/u\/[^"]+\.jpg"/);
     assert.equal(reserves(P, job.id).filter((e) => e.ref.endsWith("#5")).length, 1, "not charged once");
     assert.equal(P.imageLog.length, 1);
+  } finally { await close(x); }
+});
+
+test("PLW 5 — THE PAGES MILESTONE LANDS AFTER THE PHOTO CALL (as under load): the next line carries the page and the photograph, each once and in its own state; nothing is said twice, nothing is said done that is not", async () => {
+  const x = await heldRun("made", { latePages: true });
+  try {
+    const { lines } = x;
+    const at1 = lines.atPhoto.flatMap(facts);
+    assert.ok(!at1.some((f) => /New page written/.test(f.text)), "the held pages milestone was told early — this case cannot see the late landing");
+    const f2 = facts(lines.atPhotos[0] || "");
+    assert.deepEqual(f2.map((f) => [f.state, /New page written, not published yet: \/bakers\./.test(f.text) || /was made and put on the page\. Not published yet\./.test(f.text)]), [["prepared", true], ["prepared", true]], JSON.stringify(f2));
+    const all = [...lines.atPhoto, ...lines.atPhotos, ...lines.atPublish].flatMap(facts);
+    assert.equal(all.filter((f) => /New page written/.test(f.text)).length, 1, "the page was told twice");
+    assert.ok(!all.some((f) => f.text.includes(BENCH) && f.state === "notdone"), "a made photograph was told as not made");
+    assert.equal(x.rec.parts[0].status, "done", JSON.stringify(x.rec.parts));
   } finally { await close(x); }
 });
 

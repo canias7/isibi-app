@@ -76,8 +76,12 @@ test("the upload list says WHO added each file, so the panel can withhold the bu
   assert.match(list, /o\.visitor \? \{ visitor: true \} : \{\}/,
     "the list no longer marks visitor files — the panel offers the preview button on a stranger's upload");
   // And the kind label derives through the SAME reading the picker gates on.
-  assert.match(list, /uploadIsImage\(name\)/,
-    "the panel's image/document split stopped sharing the picker's reading");
+  // (2026-10-14: through `uploadKind`, which `uploadIsImage` itself reads, so
+  // the panel and the picker still share one reading.)
+  assert.match(list, /uploadKind\(name\)/,
+    "the panel's kind split stopped sharing the picker's reading");
+  const src = fs.readFileSync(new URL("../site-uploads.mjs", import.meta.url), "utf8");
+  assert.match(src, /export const uploadIsImage = \(name\) => uploadKind\(name\) === "image";/, "the picker no longer reads the same kind as the panel");
 });
 
 /* ── the route ───────────────────────────────────────────────────────────── */
@@ -186,8 +190,9 @@ test("the panel fetches the choice, offers the button on eligible tiles only, an
     "the panel never learns which file is chosen");
   // Only a PICTURE the OWNER added gets the button: the server refuses both
   // other cases, and a button it would refuse teaches a dead click.
-  assert.match(files, /const canShare = !doc && !f\.visitor;/,
-    "the preview button is offered on documents or on a visitor's upload");
+  // (2026-10-14: nor on a video or a recording.)
+  assert.match(files, /const canShare = !doc && !vid && !aud && !f\.visitor;/,
+    "the preview button is offered on documents, media or a visitor's upload");
   // The click posts the toggle — the current choice clears, another sets — and
   // the toast reads the server's `live` flag rather than promising "now" about
   // a change that is waiting for the next publish.

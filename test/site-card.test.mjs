@@ -165,7 +165,8 @@ test("siteOgImage: the owner's CHOICE, then an owner upload, then the card — n
   // where the picker wrote it, and the picker writes R2; handing a conn here
   // would put a Neon read on every publish for a row that cannot exist.
   const cfgRead = body.indexOf("readSiteConfig(env, slug, null)");
-  const chosenFind = body.indexOf('objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen)');
+  // (2026-10-14: and a picture — never a video, a recording or a document.)
+  const chosenFind = body.indexOf('objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen && uploadIsImage(chosen))');
   assert.ok(cfgRead > 0, "the stored choice is never read — the picker stores a value nothing consumes");
   assert.ok(chosenFind > 0, "the stored choice is not re-validated against the live owner uploads");
   assert.match(body, /if \(hit\) return /, "the chosen file is returned without the validation deciding it");
@@ -173,7 +174,8 @@ test("siteOgImage: the owner's CHOICE, then an owner upload, then the card — n
   // after the chosen block, the card is returned only when no owner upload
   // exists, and the plain upload return follows it — a person first, at every
   // surface (the logo's rule).
-  const find = body.indexOf("objs.find((o) => o && !o.visitor)");
+  // (2026-10-14: the fallback is the first owner PICTURE.)
+  const find = body.indexOf('objs.find((o) => o && !o.visitor && uploadIsImage(o.key.split("/").pop()))');
   const cardReturn = body.indexOf("if (!first) return card;");
   const uploadReturn = body.lastIndexOf('"/u/" + slug');
   assert.ok(find > chosenFind && cardReturn > find && uploadReturn > cardReturn,

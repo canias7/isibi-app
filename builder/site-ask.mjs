@@ -2,7 +2,8 @@
 import { readTargets } from "./request-plan.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { isXaiModel } from "./model-xai.mjs";
-import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";// Telling a question from an instruction — and answering the question.
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";
+import { CAPABILITIES, historyBlock, routerHistory } from "./site-converse.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -65,6 +66,12 @@ export const ASK_MODEL = modelsFor().quick;
  * description shortens.
  */
 export const ASK_MAX_TOKENS = 700;
+
+/**
+ * What writing a request out from the conversation may add (`resolved`,
+ * 2026-10-14): a paragraph, on a call shown a conversation and on no other.
+ */
+export const RESOLVED_TOKENS = 400;
 
 /**
  * HOW MUCH OF A FIRST BUILD'S MESSAGE AND BRIEF THE ROUTER CONSIDERS — the
@@ -226,7 +233,10 @@ export const ASK_TOOL = {
         type: "string",
         enum: ["build", "ask", "clarify", "edit", "addon"],
         description:
-          "\"ask\" if the message is a question, a greeting, a thank-you, or anything else that does not describe a change. " +
+          "\"ask\" if the message is conversation rather than a request for work: a question, a greeting, a thank-you, an " +
+          "idea or plan they are thinking through, a request for suggestions or a comparison, talk about files they attached, " +
+          "or a side question while one of ours waits — anything that does not ask for a change to be made now. Talking " +
+          "about a change (\"what would a booking page need?\", \"should I add a gallery?\") is not asking for it. " +
           "When it is genuinely both — a question AND a change — answer with the work, because the reply says what was done " +
           "anyway and the customer would rather have the work than the explanation.\n" +
           "NEVER ANSWER \"ask\" TO CHECK THAT THEY MEANT IT. A request to take something away — a page, a section, a row, " +
@@ -759,14 +769,25 @@ export const ASK_TOOL = {
       answer: {
         type: "string",
         description:
-          "Only when intent is \"ask\". The reply to show them, one to three sentences, plain, no markdown. Write to them, not " +
-          "about them, and sound like a person rather than a help page.\n" +
-          "ANSWER WHAT THEY ACTUALLY SAID. A greeting gets a greeting back and an invitation to describe the site; a " +
-          "thank-you gets a short you're-welcome and nothing else; a question about what you can do gets that answered. These " +
-          "are three different replies and using one for another is worse than saying nothing — do not reach for a stock " +
-          "opening line. If it is a question about their own site, answer from the pages and tables described below. If you " +
-          "do not know, say so plainly and say what would tell them — never invent a fact about their site. No emoji and no checkmark " +
-          "or warning symbols, unless they asked for them.",
+          "Only when intent is \"ask\": the gist of your reply, in a sentence or two. The reply they read is written " +
+          "separately from this, with the whole conversation and their site in view and the room an explanation or a " +
+          "plan needs; this is its starting point, and what they are shown only if that reply cannot be written. " +
+          "ANSWER WHAT THEY ACTUALLY SAID — a greeting is not a thank-you, and neither is a question about what you can " +
+          "do — and never reach for a stock opening line. Never invent a fact about their site: if you do not know, say " +
+          "so. No emoji and no checkmark or warning symbols, unless they asked for them.",
+      },
+      resolved: {
+        type: "string",
+        description:
+          "Only for work (\"build\", \"edit\" or \"addon\"), and only when their message leans on the conversation " +
+          "shown above it — \"do that\", \"yes, the second one\", \"add what we talked about\", \"use the wording you " +
+          "suggested\" — so that it does not say on its own what to do. Write the request out in full, in their terms, " +
+          "so that someone who never saw the conversation would do exactly what they agreed to: name the page, the " +
+          "words, the feature. Take only what the conversation really says; never add anything they did not ask for. " +
+          "When you write this, any part you hold back (`alsoAsked`) is copied from this text. Leave it out whenever " +
+          "their message already says everything. NEVER write it from a part of the conversation marked as not " +
+          "shown: when what they agreed to is in such a part, or you cannot find it in what is shown, leave this out, " +
+          "answer \"ask\", and ask them to say again what they would like done.",
       },
       question: {
         type: "object",
@@ -998,9 +1019,10 @@ export const LIVE_ASK_TOOL = {
         type: "boolean",
         description:
           "Only when you are told below that their last request is waiting on an answer. true when their message " +
-          "answers the question they were asked; false when it asks for something else instead. Everything else you " +
-          "decide is for what you are answering: with true, their last request with the answer taken into account; " +
-          "with false, the new message alone.",
+          "answers the question they were asked; false when it asks for something else instead, or when it is a side " +
+          "question or a remark (\"wait, can you also do bookings?\") — then answer \"ask\", and the question stays " +
+          "waiting for their answer. Everything else you decide is for what you are answering: with true, their last " +
+          "request with the answer taken into account; with false, the new message alone.",
       },
     },
   },
@@ -1083,22 +1105,22 @@ const SYSTEM =
   "You are the assistant inside a website builder for small businesses. The person you are talking to owns the site. " +
   "Every message they send is either an instruction to build or change their site, or something else — a question, a " +
   "greeting, a thank-you. Your job is to say which, and to answer the ones that are not instructions.\n\n" +
-  "WHAT THE BUILDER CAN DO, so you answer questions about it accurately: it builds a complete React site from a " +
-  "description, with its own Postgres database, and publishes it; it revises that site when asked; it can read a link " +
-  "the customer pastes into their message and use the page behind it; it can search the web when a brief needs a " +
-  "current fact; it accepts attached images and PDFs as reference. It gives the site sign-in for the site's own " +
-  "members, file uploads, spam protection, custom domains, and payments through the owner's own Stripe key. " +
-  "It cannot do anything else, and if you are asked about something not on that list, say plainly that it is not " +
-  "something the builder does rather than guessing that it might be.\n\n" +
+  CAPABILITIES + "\n\n" +
   "Do not describe what you are about to do when the answer is \"build\" — the build reports itself. " +
   "Never claim the site has a page, a table, or a feature that is not named below.\n\n" +
-  "TALK LIKE A PERSON. This is a conversation, not a form. Short, warm, plain English; contractions are fine. No " +
-  "headings, no bullet points, no \"Certainly!\" or \"Great question!\". Say the thing.\n\n" +
+  "CONVERSATION IS NOT WORK. A question, a plan they are thinking through, a request for ideas or a comparison, a " +
+  "remark about files they attached, or a side question while one of ours waits is \"ask\" — even when it is about " +
+  "a change they might make later. Work is a request to make a change now. When the latest message asks for work " +
+  "and leans on the conversation shown to you (\"do that\", \"the second one\"), it is work, written out in full " +
+  "in `resolved` — unless what it leans on is in a part of the conversation marked as not shown, or cannot be found " +
+  "in what is shown: then it is \"ask\", asking them to say it again. Your \"ask\" answer is only the gist: the " +
+  "reply they read is written afterwards, with room.\n\n" +
   "DECIDE IN THIS ORDER, and stop at the first one that fits.\n" +
-  "1. Is the message a greeting, a thank-you, or a question about you — \"hi\", \"hey\", \"wassup\", \"yo\", \"thanks\", " +
-  "\"what can you do?\", \"can you read a link?\" — rather than a description of a site? Then \"ask\", and answer it. " +
+  "1. Is the message conversation — a greeting, a thank-you, a question about you or about their site, an idea or a " +
+  "plan they are thinking through — \"hi\", \"thanks\", \"what can you do?\", \"can you read a link?\", \"what " +
+  "should my home page say?\" — rather than a description of a site to build or a change to make? Then \"ask\". " +
   "NEVER open with a question of your own here: somebody who typed \"hey\" has not told you anything yet, so there is " +
-  "nothing to ask them ABOUT. Say hello back and invite them to tell you what they want, in one or two sentences.\n" +
+  "nothing to ask them ABOUT. Say hello back and invite them to tell you what they want.\n" +
   "2. Otherwise, if you are told below that this is a first build with questions remaining, and they HAVE described " +
   "something to build: \"clarify\" — BUT ONLY IF THE ANSWER WOULD CHANGE WHAT YOU BUILD. Two things do, and almost " +
   "nothing else does: what the business actually IS, and what visitors DO on the site (book a time, order something, " +
@@ -1155,7 +1177,8 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
       "\nThey were asked: " + q.text.trim() +
       (opts.length ? "\nThe answers they were offered: " + opts.join(" / ") : "") +
       (p.chosen === true ? "\nThey picked one of those answers: it is their message below." : "") +
-      "\nTheir message below answers that question, or asks for something else instead: say which in `answered`. " +
+      "\nTheir message below answers that question, or asks for something else instead, or is a side question or a " +
+      "remark that leaves the question waiting (\"ask\", with `answered` false): say which in `answered`. " +
       "With true, decide everything for their last request with the answer taken into account — when it does not " +
       "settle what you asked, ask them a more specific question that names exactly what it left open — and copy any " +
       "part you hold back from their last request. With false, decide everything for the new message alone."
@@ -1175,7 +1198,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, answering = false } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1210,6 +1233,15 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
         ? "WHAT YOU HAVE ALREADY ASKED — do not ask any of these again, or anything close to them:\n" +
           qaDone.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"
         : "") +
+      // A TYPED REPLY WHILE OUR QUESTION IS ON SCREEN (2026-10-14) may answer it
+      // or may be a side question; only the latter is "ask", and the question
+      // stays (the page keeps the round).
+      (answering === true
+        ? "THEIR MESSAGE IS A TYPED REPLY WHILE YOUR LAST QUESTION IS ON SCREEN (the last line above pairs that question " +
+          "with this message, which may not be an answer). If it answers the question, decide " +
+          "with that answer. If it is a side question or a remark instead (\"can you also take payments?\"), answer " +
+          "\"ask\": the question stays on screen for their answer.\n"
+        : "") +
       "THE BRIEF THEY STARTED WITH\n" + String(brief || "").trim().slice(0, MAX_MESSAGE)
     // NO WORK-INTENT ENUMERATION HERE, deliberately. This sentence read
     // `answer "build" or "ask" only` until 2026-08-14 — written when those were
@@ -1229,7 +1261,10 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // `alsoAsked` is the customer's own words, copied, from this message or the
     // request waiting on an answer, so the ceiling grows by what may be copied
     // (`echoTokens`). A ceiling, not a charge. A first build's is unchanged.
-    max_tokens: live ? ASK_MAX_TOKENS + echoTokens(text, pending && typeof pending.request === "string" ? pending.request : "") : ASK_MAX_TOKENS,
+    // AND ROOM TO WRITE A REQUEST OUT FROM THE CONVERSATION (`resolved`,
+    // 2026-10-14) — only when a conversation is shown, the only time one may be
+    // written. Every other routing call keeps exactly its ceiling.
+    max_tokens: (live ? ASK_MAX_TOKENS + echoTokens(text, pending && typeof pending.request === "string" ? pending.request : "") : ASK_MAX_TOKENS) + (historyBlock(history) ? RESOLVED_TOKENS : 0),
     // A SITE THAT EXISTS IS SENT ITS OWN TOOL (2026-10-02, `LIVE_ASK_TOOL`); a
     // first build, and anything else, the tool it was always sent.
     tools: [live ? LIVE_ASK_TOOL : ASK_TOOL],
@@ -1241,7 +1276,10 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // ONE PART OF A LONGER REQUEST (2026-10-03): the message it came from and
     // what the parts before it did, after its own words — a site's only, and
     // only when the route was handed one (`partBlock`).
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
+    // tell "do that" from a question and to write `resolved` — before their
+    // message. Absent when the page sent none.
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -1299,8 +1337,9 @@ export const ROUTE_REASONS = Object.freeze({
   "answered-ignored": Object.freeze({ kind: "changed", what: "an answer flag on a message with no question waiting, left out" }),
   "work-without-site": Object.freeze({ kind: "fallback", what: "an edit or an add-on, with no site to change" }),
   "ask-empty": Object.freeze({ kind: "fallback", what: "a reply with nothing to say" }),
-  "ask-while-answering": Object.freeze({ kind: "fallback", what: "a reply to a message that answers our own question" }),
-  "ask-with-attachment": Object.freeze({ kind: "fallback", what: "a reply to a message that came with a file" }),
+  // NARROWED 2026-10-14: an answer they picked from our options only. A typed
+  // reply and a file no longer close "ask" off (`readDecision`).
+  "ask-while-answering": Object.freeze({ kind: "fallback", what: "a reply to an answer they picked from our own question's options" }),
   "layer-missing": Object.freeze({ kind: "fallback", what: "an edit naming no step" }),
   "layer-unknown": Object.freeze({ kind: "fallback", what: "an edit naming a step that is not among the nine" }),
   "page-missing": Object.freeze({ kind: "fallback", what: "a page edit naming no readable page" }),
@@ -1349,6 +1388,13 @@ export const ROUTE_REASONS = Object.freeze({
   // A SITE READ TO HAVE NO TABLES (2026-10-05, the owner's review): told so in
   // words, never left to look like a site whose tables are unknown.
   "tables-none": Object.freeze({ kind: "context", what: "the route read the site's own tables and found none, and the router was told so" }),
+  // THE CONVERSATION (2026-10-14): shown in its small window, cut, and a
+  // request the model wrote out from it — or one it gave where none is read.
+  "history-shown": Object.freeze({ kind: "context", what: "the router was shown the conversation's most recent messages" }),
+  "history-cut": Object.freeze({ kind: "context", what: "the router was shown only part of the conversation the page sent" }),
+  "resolved": Object.freeze({ kind: "context", what: "the work was written out in full from the conversation, and runs in place of the message's own words" }),
+  "resolved-unread": Object.freeze({ kind: "changed", what: "a written-out request that was not text or was too long, left out: the message's own words run" }),
+  "resolved-ignored": Object.freeze({ kind: "changed", what: "a written-out request on an answer that is not work, or with no conversation shown, left out" }),
 });
 
 /** Where a routing answer came from; `routeDecision` derives it from the codes. */
@@ -1397,6 +1443,20 @@ function given(v) {
   return !(typeof v === "string" && !v.trim());
 }
 
+/**
+ * THE REQUEST WRITTEN OUT FROM THE CONVERSATION (2026-10-14): `{ resolved }`
+ * when the model gave one on a work answer, a conversation was shown, and it
+ * is text no longer than a message may be; otherwise nothing, each case
+ * named. Never coerced: a non-string is unread, not its spelling.
+ */
+function readResolved(input, history, mark) {
+  if (!given(input.resolved)) return {};
+  if (history !== true) { mark("resolved-ignored"); return {}; }
+  if (typeof input.resolved !== "string" || input.resolved.trim().length > MAX_INPUT_CHARS) { mark("resolved-unread"); return {}; }
+  mark("resolved");
+  return { resolved: input.resolved.trim() };
+}
+
 /** The edit's own fields, which an answer that is not an edit carries none of. */
 const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab"];
 
@@ -1408,6 +1468,7 @@ const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab"];
  */
 function markLeftOut(input, keeps, mark) {
   if (!keeps.includes("answer") && String(input.answer || "").trim()) mark("answer-ignored");
+  if (!keeps.includes("resolved") && given(input.resolved)) mark("resolved-ignored");
   if (!keeps.includes("question") && given(input.question)) mark("question-ignored");
   if (!keeps.includes("also") && given(input.alsoAsked)) mark("also-ignored");
   if (!keeps.includes("edit") && EDIT_FIELDS.some((k) => given(input[k]))) mark("edit-fields-ignored");
@@ -1502,7 +1563,7 @@ export function readRouting(reply, opts = {}) {
   return withAnswered(readDecision(reply, { ...o, canClarify: false }));
 }
 
-function readDecision(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [], pagesComplete = true, trace = null } = {}) {
+function readDecision(reply, { canClarify = false, picked = false, hasSite = false, pages = [], pagesComplete = true, trace = null, history = false } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
@@ -1562,9 +1623,13 @@ function readDecision(reply, { canClarify = false, answering = false, attached =
   // leftover to sit beside.
   // READ ON THE TWO WORK RUNGS ONLY, where it is kept: on any other answer a
   // held-back part is left out, and the report says so (`also-ignored`).
+  // WHAT A MESSAGE LEANING ON THE CONVERSATION ASKS FOR (2026-10-14,
+  // `resolved`): read on the three work answers only, where it is run in
+  // place of their words — and only when a conversation was shown.
+  const res = () => readResolved(input, history, mark);
   if (hasSite && input.intent === "addon") {
-    const out = { ...work("addon"), ...readAlso(input, trace) };
-    markLeftOut(input, ["also"], mark);
+    const out = { ...work("addon"), ...readAlso(input, trace), ...res() };
+    markLeftOut(input, ["also", "resolved"], mark);
     return out;
   }
   if (hasSite && input.intent === "edit") {
@@ -1581,20 +1646,20 @@ function readDecision(reply, { canClarify = false, answering = false, attached =
     if (converted) {
       const keeps = converted.reason === "page-unknown";
       if (!keeps && given(input.alsoAsked)) mark("also-dropped");
-      const out = { ...edit, ...(keeps ? readAlso(input, trace) : {}), handOver: { from: "route", ...converted } };
-      markLeftOut(input, ["also", "edit"], mark);
+      const out = { ...edit, ...(keeps ? readAlso(input, trace) : {}), handOver: { from: "route", ...converted }, ...res() };
+      markLeftOut(input, ["also", "edit", "resolved"], mark);
       return out;
     }
-    const out = { ...edit, ...readAlso(input, trace) };
-    markLeftOut(input, ["also", "edit"], mark);
+    const out = { ...edit, ...readAlso(input, trace), ...res() };
+    markLeftOut(input, ["also", "edit", "resolved"], mark);
     return out;
   }
   // "build" IS STILL HONOURED ON AN EXISTING SITE, deliberately and narrowly:
   // it is the only way to say "scrap this and make me a different site", which is
   // a thing people really do ask for. The tool description is what keeps it rare.
   if (input.intent === "build") {
-    markLeftOut(input, [], mark);
-    return work("build");
+    markLeftOut(input, ["resolved"], mark);
+    return { ...work("build"), ...res() };
   }
 
   const intent = input.intent === "ask" ? "ask" : fallback;
@@ -1613,38 +1678,25 @@ function readDecision(reply, { canClarify = false, answering = false, attached =
     mark("ask-empty");
     return work(fallback);
   }
-  // AN "ask" IN REPLY TO OUR OWN QUESTION IS A DEAD END, and it shipped as one.
+  // A PRESSED ANSWER IS NEVER A QUESTION (2026-08-09, and narrowed 2026-10-14).
   //
   // Measured live 2026-08-09: brief "Book classes", two questions answered, and
   // the third press of a button came back *"I'm not sure what you'd like me to
   // build. Tell me about your business."* — to somebody who had just told us,
-  // three times, using buttons we wrote. Nothing was built and nothing cleared
-  // the round, so the interface sat on an answered question.
+  // three times, using buttons we wrote. So an answer they PICKED from our own
+  // options (`picked`) is never "ask": the only honest outcomes are another
+  // question or the work.
   //
-  // `answering` means the message IS an answer: a clicked option, or a typed
-  // reply while a question is live. The only honest outcomes there are another
-  // question or the build. This is the same asymmetry the rest of this file is
-  // built on — a wrong "build" costs a build they can see and undo, a wrong
-  // "ask" is indistinguishable from the product being broken — applied to the
-  // one path that was missing it.
-  //
-  // The cost, stated: somebody who interrupts mid-round with a real question
-  // ("wait, can you read a URL?") gets a site instead of an answer. That is the
-  // cheaper mistake, and they still have the site.
-  //
-  // `attached` IS THE SECOND REASON, and it is a separate flag rather than a
-  // second meaning on `answering`. They are different facts about the message —
-  // one is "this answers our question", the other is "a file came with it" — and
-  // this file already records what happens when two meanings share one flag.
-  // What they have in common is all that matters here: the CALLER knows the
-  // message is an instruction, so "ask" is not an honest outcome for it.
-  //
-  // Both bound `ask` and NEITHER bounds `clarify`, which is the whole point of
-  // the change that added `attached`: an attachment used to skip this call
-  // entirely, so a first build with a logo attached was never asked anything.
-  if (intent === "ask" && (answering || attached)) {
-    if (answering) mark("ask-while-answering");
-    if (attached) mark("ask-with-attachment");
+  // A TYPED REPLY AND A FILE ARE NO LONGER GATES (the owner, 2026-10-14:
+  // *"Planning, attachment discussion and side questions during pending
+  // clarification must remain conversation; don't turn them into work merely
+  // because attached or answering is true."*). They were: "wait, can you take
+  // payments?" typed under a question built a site, and "what do you think of
+  // this logo?" with the logo attached ran an edit. Now the router decides,
+  // told that a typed reply may be a side question, and a side question
+  // leaves the question waiting.
+  if (intent === "ask" && picked) {
+    mark("ask-while-answering");
     return work(fallback);
   }
   if (intent === "ask") markLeftOut(input, ["answer"], mark);
@@ -2859,7 +2911,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2898,6 +2950,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // values the request does: a brief whose `toString` throws must still end as
   // `request-failed`, exactly as it did before these were named.
   const shown = [];
+  const shownHistory = routerHistory(history);
   // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
   // build. On an existing site an unreachable router used to mean the customer
   // paid ~25 credits and had every page rewritten because a Haiku call timed
@@ -2928,7 +2981,11 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // request already has beside its own words, as a waiting request is, and
     // the message it came from (`partBlock`).
     const partOf = live && !waiting ? readPartOf(part) : null;
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true });
+    // THE CONVERSATION'S SMALL WINDOW (2026-10-14), read by the one reader the
+    // reply's call uses, and said in the decision when shown or cut.
+    if (shownHistory.turns.length) shown.push("history-shown");
+    if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, answering: canClarify && answering === true && picked !== true });
   } catch (e) {
     return fail("request", e);
   }
@@ -2949,7 +3006,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // WHETHER THE PAGE LIST IS THE SITE'S WHOLE LIST (2026-10-03): a page missing
   // from a list that may be partial is never read as a page the site lacks.
   const readAs = (r, open, tr) => readRouting(r, {
-    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, pagesComplete: pagesComplete !== false, trace: tr,
+    canClarify, picked: picked === true, hasSite: !!hasSite, pages, pagesComplete: pagesComplete !== false, trace: tr, history: shownHistory.turns.length > 0,
     live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true),
   });
   let trace = { reasons: shown.slice(), input: undefined };
@@ -2992,7 +3049,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     } else if (hit.length) {
       let again;
       try {
-        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told }), hit);
+        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told, history: shownHistory.turns.length ? shownHistory : null }), hit);
       } catch (e) {
         return fail("request", e);
       }

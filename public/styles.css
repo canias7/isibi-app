@@ -5355,3 +5355,28 @@ body::after { display: none; }
 .mkt-crt .crt-chatbox-send { background: #0d0d0d; }
 .mkt-crt .crt-chatbox-send::before { display: none; }
 .mkt-crt .mkt-foot::before { height: 1px; background: rgba(0,0,0,.1); opacity: 1; }
+
+/* A CONVERSATION'S REPLY (2026-10-14): the few marks it may carry — paragraphs,
+   one small heading size, lists, inline code — in the thread's own type. */
+.st-msg .md p { margin: 0 0 .65em; }
+.st-msg .md p:last-child { margin-bottom: 0; }
+.st-msg .md .md-h { font-weight: 600; margin-top: .9em; }
+.st-msg .md .md-h:first-child { margin-top: 0; }
+.st-msg .md ul, .st-msg .md ol { margin: 0 0 .65em; padding-left: 1.3em; }
+.st-msg .md li { margin: .2em 0; }
+.st-msg .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--panel-2); padding: .05em .3em; border-radius: 4px; }
+
+/* VIDEO AND AUDIO IN THE FILES PANEL AND THE COMPOSER (2026-10-14): a video's
+   first frame where a picture would be, a recording's format with a small
+   player, and two quiet buttons in the link-preview row's own style. In the
+   composer a chip names the file and where its upload is. */
+.fl-item video{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--panel)}
+.fl-player{display:block;width:100%;height:28px;border-top:1px solid var(--line)}
+.fl-media{display:flex;border-top:1px solid var(--line)}
+.fl-media button{flex:1;border:0;background:none;color:var(--muted);font-size:.66rem;line-height:1;padding:.42rem .3rem;cursor:pointer}
+.fl-media button + button{border-left:1px solid var(--line)}
+.fl-media button:hover{color:var(--text);background:var(--panel)}
+.fl-media button:disabled{opacity:.4;cursor:default}
+.st-att-media { flex-direction: column; align-items: flex-start; justify-content: center; gap: .15rem; }
+.st-att-media .st-att-state { font-size: .66rem; opacity: .75; white-space: nowrap; }
+.st-att-bad { outline: 1px solid currentColor; }

@@ -13,6 +13,7 @@
 
 // Generated from the component files by builder/gen-component-api.mjs. Kept in
 // step by test/component-api.test.mjs, which regenerates and compares.
+import { mediaBlock } from "../site-media.mjs";
 import { COMPONENT_API, COMPONENT_TYPES, COMPONENT_TYPE_NAMES } from "./component-api.mjs";
 // The chart half, generated from src/components/charts/lib by
 // builder/gen-chart-api.mjs and kept in step by test/chart-api.test.mjs.
@@ -2174,7 +2175,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three, media } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2255,6 +2256,12 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadab
   const scene = sceneDirective(three);
   if (scene) out.push(scene);
   if (images != null) out.push(imageDirective(images));
+  // AND THE OWNER'S VIDEO AND AUDIO (2026-10-14): each file's address, kind,
+  // type, size and what the owner's browser reported — never what is in it —
+  // for every writer this composer serves: a build's pages, an edit's page and
+  // an add-on's. Absent when the site has none.
+  const played = mediaBlock(media);
+  if (played) out.push(played);
   return out.join("\n\n");
 }
 

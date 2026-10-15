@@ -2474,7 +2474,8 @@ test("a stranger's upload can never be the og image", () => {
   // forbidden spelling as history, and an absence asserted over prose matches
   // the explanation of the bug rather than the bug.
   const code = fn[0].replace(/\/\/[^\n]*/g, "");
-  assert.match(code, /objs\.find\(\(o\) => o && !o\.visitor\)/, "the owner-only preference is gone");
+  // (2026-10-14: and a picture — never a video, a recording or a document.)
+  assert.match(code, /objs\.find\(\(o\) => o && !o\.visitor && uploadIsImage\(o\.key\.split\("\/"\)\.pop\(\)\)\)/, "the owner-only, pictures-only preference is gone");
   assert.ok(!/\|\|\s*objs\[0\]/.test(code), "the visitor fallback is back — a stranger's picture can be the preview again");
 });
 

@@ -377,6 +377,7 @@ test("each probe is posted as the browser posts it, with the site's real page li
   assert.deepEqual(body, {
     message: "Add our Instagram to the footer.", site: { name: "Harbour Loaf", url: "https://fold-lane-bakery.gofarther.app", pages: ["/", "/visit"], tables: [] },
     firstBuild: false, brief: "Add our Instagram to the footer.", qa: [], answering: false, attached: false, slug: "fold-lane-bakery", hasSite: true,
+    picked: false, history: [],
   });
   assert.equal(probeBody({ site: "x", message: "m", attached: true }, ["/"]).attached, true);
   // THE BROWSER'S OWN FIELDS: what `siteRoute` posts, less the picked model (the route's default, as the canary has always routed).
@@ -397,7 +398,10 @@ test("each probe is posted as the browser posts it, with the site's real page li
   const REQUEST_FLOW = ["idem", "images", "tz", "recent"];
   for (const f of REQUEST_FLOW) assert.match(line, new RegExp("\\b" + f + ": !isBuild"), "the browser no longer sends `" + f + "` only for a site's message — the observer is stale");
   const code = line.replace(/\/\/[^\n]*/g, "");
-  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && !REQUEST_FLOW.includes(k));
+  // AND LESS THE FILES' NAMES (2026-10-14): sent only beside files the page
+  // holds, which a probe never has.
+  assert.match(line, /files: typeof ChatTalk !== 'undefined' && \(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/, "the browser sends file names with no file — the observer is stale");
+  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && !REQUEST_FLOW.includes(k));
   assert.deepEqual(Object.keys(body).sort(), [...new Set(fields)].sort(), "the probe does not post the fields the browser posts");
   for (const f of REQUEST_FLOW) assert.equal(Object.hasOwn(body, f), false, "a routing probe sends `" + f + "`, and would have the server run the work it only routes");
 });

@@ -73,8 +73,9 @@ const CASES = [
   ["clarify-unreadable", () => routed({ intent: "clarify", question: { text: "", options: [] } }, { firstBuild: true, hasSite: false, site: {} }), "fallback"],
   ["work-without-site", () => routed({ intent: "edit", layer: "look" }, { hasSite: false }), "fallback"],
   ["ask-empty", () => routed({ intent: "ask", answer: "  " }), "fallback"],
-  ["ask-while-answering", () => routed({ intent: "ask", answer: "Sure" }, { answering: true }), "fallback"],
-  ["ask-with-attachment", () => routed({ intent: "ask", answer: "Nice logo" }, { attached: true }), "fallback"],
+  // NARROWED 2026-10-14: only an answer PICKED from our options; a typed reply
+  // and a file stay conversation (test/site-ask.test.mjs).
+  ["ask-while-answering", () => routed({ intent: "ask", answer: "Sure" }, { answering: true, picked: true }), "fallback"],
   ["layer-missing", () => routed({ intent: "edit" }), "fallback"],
   ["layer-unknown", () => routed({ intent: "edit", layer: "menu" }), "fallback"],
   ["page-missing", () => routed({ intent: "edit", layer: "page" }), "fallback"],
@@ -134,6 +135,13 @@ const CASES = [
   ["tables-filled", () => routed({ intent: "edit", layer: "data" }, { tablesFilled: true }), "model"],
   // A SITE READ TO HAVE NO TABLES (2026-10-05): its own code, never the fill's.
   ["tables-none", () => routed({ intent: "edit", layer: "data" }, { tablesNone: true }), "model"],
+  // THE CONVERSATION (2026-10-14): its small window shown, cut, and a request
+  // written out from it — or one given where none is read.
+  ["history-shown", () => routed({ intent: "addon" }, { history: [{ role: "user", text: "a gallery?" }] }), "model"],
+  ["history-cut", () => routed({ intent: "addon" }, { history: Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i })) }), "model"],
+  ["resolved", () => routed({ intent: "addon", resolved: "Add a gallery page with the photos from the menu" }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
+  ["resolved-unread", () => routed({ intent: "addon", resolved: 42 }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
+  ["resolved-ignored", () => routed({ intent: "addon", resolved: "Add a gallery" }), "model"],
   // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
   // the waiting request already asked is sent its answer once — the router's
   // answer then is its own (`clarify-reused`, context) — and one still asked is
@@ -337,9 +345,10 @@ async function route({ input, balance = 50, body = {}, owner = CALLER, stored = 
   const real = globalThis.fetch;
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   let model = 0;
+  const asked = [];
   const quiet = console.error;
   console.error = () => {};
-  globalThis.fetch = async (req) => {
+  globalThis.fetch = async (req, init) => {
     const u = String((req && req.url) || req || "");
     if (u.includes("/auth/v1/user")) return json({ id: "33333333-3333-3333-3333-333333333333", email: "owner@example.com" });
     if (u.includes("/rpc/get_credits")) return json(balance);
@@ -348,6 +357,7 @@ async function route({ input, balance = 50, body = {}, owner = CALLER, stored = 
     if (u.includes("/rest/v1/")) return json([]);
     if (u.startsWith("https://api.anthropic.com/")) {
       model++;
+      asked.push(typeof (init && init.body) === "string" ? init.body : "");
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "route_message", input }], usage: { input_tokens: 10, output_tokens: 5 } });
     }
     return new Response("unavailable", { status: 503 });
@@ -361,7 +371,7 @@ async function route({ input, balance = 50, body = {}, owner = CALLER, stored = 
       ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc",
       SITES_BUCKET: { get: async (k) => (k === "source/x/pages.json" ? { text: async () => JSON.stringify(stored.map((path) => ({ path, source: "x" }))) } : null), put: async () => ({ etag: "e" }), head: async () => null, delete: async () => {} },
     }, makeCtx());
-    return { status: res.status, body: await res.json(), model };
+    return { status: res.status, body: await res.json(), model, asked };
   } finally {
     globalThis.fetch = real;
     console.error = quiet;
@@ -422,17 +432,39 @@ test("the route names the table names it filled in, through the decision", async
   assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen was reported");
 });
 
-test("BEHAVIOUR, NOT SPELLING (2026-10-15): `answering` and `attached` sent to the real route reach the router's reader — an ask answer is refused for a button press or an attachment, and kept for a plain question", async () => {
+test("BEHAVIOUR, NOT SPELLING (2026-10-15): `answering`, `picked` and `attached` sent to the real route reach the router — an ask answer is refused for a button press, and kept for a typed reply, an attachment and a plain question", async () => {
   // The source guards in site-ask.test.mjs read worker.js for `answering:
   // rb.answering === true`; this is the same contract through the real route,
-  // so a wrapper that drops either flag fails here whatever the text says.
+  // so a wrapper that drops a flag fails here whatever the text says.
+  //
+  // RESTATED FOR THE COMBINED CANDIDATE (2026-10-15, main 8e24ca5b + new
+  // 22779ea5). main wrote this case against the earlier rule — `answering` or
+  // `attached` alone refused an ask answer. new narrowed that rule on purpose
+  // (5f425ceb, "ask-while-answering", builder/site-ask.mjs): only an answer
+  // PICKED from our options is not conversation; a typed reply may be a side
+  // question and a file may be talked about, so both stay "ask". The case
+  // keeps its purpose — each flag proven to reach the router through the real
+  // route — under the rule the candidate carries.
   const ask = { intent: "ask", answer: "Sure, the footer can hold it." };
   const plain = await route({ input: ask, body: { slug: "ans-plain", answering: false, attached: false } });
   assert.equal(plain.body.intent, "ask", "a plain question's ask answer was not kept — the control is dead");
-  const answering = await route({ input: ask, body: { slug: "ans-yes", answering: true } });
-  assert.notEqual(answering.body.intent, "ask", "`answering` did not reach the router's reader");
-  assert.equal(answering.body.decision.source, "fallback");
+  // A BUTTON PRESS: `picked` reaches the decision reader, which refuses "ask".
+  const picked = await route({ input: ask, body: { slug: "ans-yes", answering: true, picked: true } });
+  assert.notEqual(picked.body.intent, "ask", "`picked` did not reach the router's reader");
+  assert.equal(picked.body.decision.source, "fallback");
+  // A TYPED REPLY on a site: its ask answer is kept.
+  const typed = await route({ input: ask, body: { slug: "ans-typed", answering: true } });
+  assert.equal(typed.body.intent, "ask", "a typed reply's ask answer was refused");
+  // …AND `answering` REACHES THE ROUTER where our questions are asked — a first
+  // build (`canClarify`): its own instruction for a typed reply is sent with it,
+  // and not without it.
+  const TYPED = /THEIR MESSAGE IS A TYPED REPLY WHILE YOUR LAST QUESTION IS ON SCREEN/;
+  const first = { slug: "", hasSite: false, firstBuild: true, site: {}, brief: "A bakery", qa: [{ q: "What do visitors do?", a: "" }] };
+  const typedFirst = await route({ input: { intent: "build" }, body: { ...first, answering: true } });
+  const plainFirst = await route({ input: { intent: "build" }, body: { ...first, answering: false } });
+  assert.ok(typedFirst.asked.length && TYPED.test(typedFirst.asked[0]), "`answering` did not reach the router's instructions");
+  assert.ok(plainFirst.asked.length && !TYPED.test(plainFirst.asked[0]), "the typed-reply instruction is sent when nobody is answering — the observer is dead");
+  // AN ATTACHMENT: talked about, not refused.
   const attached = await route({ input: ask, body: { slug: "ans-att", attached: true } });
-  assert.notEqual(attached.body.intent, "ask", "`attached` did not reach the router's reader");
-  assert.equal(attached.body.decision.source, "fallback");
+  assert.equal(attached.body.intent, "ask", "an ask answer about an attachment was refused");
 });

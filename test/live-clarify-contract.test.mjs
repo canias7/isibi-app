@@ -265,49 +265,62 @@ test("A QUESTION THE SCREEN CAN SHOW, WHOLE: its words and every answer offered 
 // RE-PINNED ON PURPOSE 2026-10-13 (the owner's no-emoji rule): the reply's
 // description now says no emoji unless asked, so every request half moved;
 // every reading half was measured unchanged.
+// RE-PINNED ON PURPOSE 2026-10-14 (the owner's conversation batch): the
+// router is told conversation is not work, given the capability guidance and
+// written only a reply's gist, so every request half moved. Exactly three
+// reading halves moved, all "ask": a TYPED reply under a first build's question
+// ("answering", twice) and a message with a file ("attached") are no longer
+// turned into a build — they stay conversation, as the owner asked. A PRESSED
+// answer still is (`picked`, test/site-ask.test.mjs). Every other reading half
+// was measured unchanged.
+// RE-PINNED ON PURPOSE 2026-10-15 (Codex's review of `7ca339d1`): the router
+// is told never to write `resolved` from a part of the conversation marked as
+// not shown, and to ask instead. Every request half moved; with those two
+// strings taken back out of each request, all 42 old request halves were
+// reproduced, and all 42 reading halves were measured unchanged.
 const FIRST_BUILD = {
-  "first build | build": "0a48065901e93636 875974b02cc063f2",
-  "first build | clarify": "0a48065901e93636 fa014374291facb7",
-  "first build | clarifyBad": "0a48065901e93636 7c9d619b5fd0f627",
-  "first build | ask": "0a48065901e93636 ec78522e2e36025a",
-  "first build | edit": "0a48065901e93636 0c80f6990c5f97f6",
-  "first build | addon": "0a48065901e93636 fdea739e65345892",
-  "first build | junk": "0a48065901e93636 4c7fd34810bd49f2",
-  "first build, answering | build": "e232069e4cb3ea06 875974b02cc063f2",
-  "first build, answering | clarify": "e232069e4cb3ea06 fa014374291facb7",
-  "first build, answering | clarifyBad": "e232069e4cb3ea06 7c9d619b5fd0f627",
-  "first build, answering | ask": "e232069e4cb3ea06 b7033089ed1c2c1d",
-  "first build, answering | edit": "e232069e4cb3ea06 0c80f6990c5f97f6",
-  "first build, answering | addon": "e232069e4cb3ea06 fdea739e65345892",
-  "first build, answering | junk": "e232069e4cb3ea06 4c7fd34810bd49f2",
-  "first build, attached | build": "8e6c5e5a8fffd976 875974b02cc063f2",
-  "first build, attached | clarify": "8e6c5e5a8fffd976 fa014374291facb7",
-  "first build, attached | clarifyBad": "8e6c5e5a8fffd976 7c9d619b5fd0f627",
-  "first build, attached | ask": "8e6c5e5a8fffd976 9833f6b5aaba66d5",
-  "first build, attached | edit": "8e6c5e5a8fffd976 0c80f6990c5f97f6",
-  "first build, attached | addon": "8e6c5e5a8fffd976 fdea739e65345892",
-  "first build, attached | junk": "8e6c5e5a8fffd976 4c7fd34810bd49f2",
-  "first build, budget spent | build": "f9a743da15d74aad 875974b02cc063f2",
-  "first build, budget spent | clarify": "f9a743da15d74aad f42a4d323c559e7e",
-  "first build, budget spent | clarifyBad": "f9a743da15d74aad f42a4d323c559e7e",
-  "first build, budget spent | ask": "f9a743da15d74aad b7033089ed1c2c1d",
-  "first build, budget spent | edit": "f9a743da15d74aad 0c80f6990c5f97f6",
-  "first build, budget spent | addon": "f9a743da15d74aad fdea739e65345892",
-  "first build, budget spent | junk": "f9a743da15d74aad 4c7fd34810bd49f2",
-  "no site, not first | build": "23f3e0ee44e0a74b 875974b02cc063f2",
-  "no site, not first | clarify": "23f3e0ee44e0a74b f42a4d323c559e7e",
-  "no site, not first | clarifyBad": "23f3e0ee44e0a74b f42a4d323c559e7e",
-  "no site, not first | ask": "23f3e0ee44e0a74b ec78522e2e36025a",
-  "no site, not first | edit": "23f3e0ee44e0a74b 0c80f6990c5f97f6",
-  "no site, not first | addon": "23f3e0ee44e0a74b fdea739e65345892",
-  "no site, not first | junk": "23f3e0ee44e0a74b 4c7fd34810bd49f2",
-  "first build with hasSite | build": "2c8881b1f9b5fc1a 875974b02cc063f2",
-  "first build with hasSite | clarify": "2c8881b1f9b5fc1a fa014374291facb7",
-  "first build with hasSite | clarifyBad": "2c8881b1f9b5fc1a 023fd0f1d16fa6a7",
-  "first build with hasSite | ask": "2c8881b1f9b5fc1a ec78522e2e36025a",
-  "first build with hasSite | edit": "2c8881b1f9b5fc1a e0554fbabf9529e2",
-  "first build with hasSite | addon": "2c8881b1f9b5fc1a 046b4d324d467648",
-  "first build with hasSite | junk": "2c8881b1f9b5fc1a 46a5bf52463d745e",
+  "first build | build": "c351a639837a80cb 875974b02cc063f2",
+  "first build | clarify": "c351a639837a80cb fa014374291facb7",
+  "first build | clarifyBad": "c351a639837a80cb 7c9d619b5fd0f627",
+  "first build | ask": "c351a639837a80cb ec78522e2e36025a",
+  "first build | edit": "c351a639837a80cb 0c80f6990c5f97f6",
+  "first build | addon": "c351a639837a80cb fdea739e65345892",
+  "first build | junk": "c351a639837a80cb 4c7fd34810bd49f2",
+  "first build, answering | build": "aeed7a3584d68cca 875974b02cc063f2",
+  "first build, answering | clarify": "aeed7a3584d68cca fa014374291facb7",
+  "first build, answering | clarifyBad": "aeed7a3584d68cca 7c9d619b5fd0f627",
+  "first build, answering | ask": "aeed7a3584d68cca ec78522e2e36025a",
+  "first build, answering | edit": "aeed7a3584d68cca 0c80f6990c5f97f6",
+  "first build, answering | addon": "aeed7a3584d68cca fdea739e65345892",
+  "first build, answering | junk": "aeed7a3584d68cca 4c7fd34810bd49f2",
+  "first build, attached | build": "7dd028dd0ac614ee 875974b02cc063f2",
+  "first build, attached | clarify": "7dd028dd0ac614ee fa014374291facb7",
+  "first build, attached | clarifyBad": "7dd028dd0ac614ee 7c9d619b5fd0f627",
+  "first build, attached | ask": "7dd028dd0ac614ee ec78522e2e36025a",
+  "first build, attached | edit": "7dd028dd0ac614ee 0c80f6990c5f97f6",
+  "first build, attached | addon": "7dd028dd0ac614ee fdea739e65345892",
+  "first build, attached | junk": "7dd028dd0ac614ee 4c7fd34810bd49f2",
+  "first build, budget spent | build": "54257c0a94ddaef2 875974b02cc063f2",
+  "first build, budget spent | clarify": "54257c0a94ddaef2 f42a4d323c559e7e",
+  "first build, budget spent | clarifyBad": "54257c0a94ddaef2 f42a4d323c559e7e",
+  "first build, budget spent | ask": "54257c0a94ddaef2 ec78522e2e36025a",
+  "first build, budget spent | edit": "54257c0a94ddaef2 0c80f6990c5f97f6",
+  "first build, budget spent | addon": "54257c0a94ddaef2 fdea739e65345892",
+  "first build, budget spent | junk": "54257c0a94ddaef2 4c7fd34810bd49f2",
+  "no site, not first | build": "ec475d4004d18a3d 875974b02cc063f2",
+  "no site, not first | clarify": "ec475d4004d18a3d f42a4d323c559e7e",
+  "no site, not first | clarifyBad": "ec475d4004d18a3d f42a4d323c559e7e",
+  "no site, not first | ask": "ec475d4004d18a3d ec78522e2e36025a",
+  "no site, not first | edit": "ec475d4004d18a3d 0c80f6990c5f97f6",
+  "no site, not first | addon": "ec475d4004d18a3d fdea739e65345892",
+  "no site, not first | junk": "ec475d4004d18a3d 4c7fd34810bd49f2",
+  "first build with hasSite | build": "9d5452f2084487ee 875974b02cc063f2",
+  "first build with hasSite | clarify": "9d5452f2084487ee fa014374291facb7",
+  "first build with hasSite | clarifyBad": "9d5452f2084487ee 023fd0f1d16fa6a7",
+  "first build with hasSite | ask": "9d5452f2084487ee ec78522e2e36025a",
+  "first build with hasSite | edit": "9d5452f2084487ee e0554fbabf9529e2",
+  "first build with hasSite | addon": "9d5452f2084487ee 046b4d324d467648",
+  "first build with hasSite | junk": "9d5452f2084487ee 46a5bf52463d745e",
 };
 const SITE0 = { name: "", url: "", pages: [], tables: [] };
 const FB_CASES = [

@@ -13,6 +13,7 @@
 // Injected like the rest, so every decision here runs without R2 or a Worker.
 
 import { isImageColumn, canWriteAccess, canMemberWrite } from "./site-access.mjs";
+import { MEDIA_FORMATS, MEDIA_EXTS, sniffMedia, readStoredMeta, MEDIA_FORMATS_SAID } from "./site-media.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 
@@ -124,8 +125,28 @@ export function sniffUpload(b, name) {
   return null;
 }
 
-/** Every extension either sniffer can mint, so one list decides what `/u/` may address. */
-export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS)];
+/**
+ * Every extension a sniffer can mint, so one list decides what `/u/` may
+ * address — the pictures, the documents, and (2026-10-14) the video and audio
+ * formats `site-media.mjs` reads from a file's contents.
+ */
+export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS), ...MEDIA_EXTS];
+
+/**
+ * WHAT A STORED UPLOAD IS, BY THE NAME OUR OWN SNIFFERS MINTED (2026-10-14):
+ * "image", "doc", "video", "audio", or null for a name none of them mints.
+ * One reading for every listing, panel, picker and model context — said
+ * outright, never inferred from "not a document", which read every video and
+ * every recording as a picture (`uploadIsImage("interview.mp3")` was true).
+ */
+export function uploadKind(name) {
+  const ext = String(name || "").toLowerCase().split(".").pop();
+  if (Object.hasOwn(MEDIA_FORMATS, ext)) return MEDIA_FORMATS[ext].kind;
+  if (ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext)) return "doc";
+  if (["png", "jpg", "webp", "gif"].includes(ext)) return "image";
+  return null;
+}
+const isMediaKind = (k) => k === "video" || k === "audio";
 
 /**
  * Is a stored upload an IMAGE, by the name our own sniffer minted?
@@ -137,10 +158,9 @@ export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(Z
  * why the picker refuses documents outright rather than letting the unfurler
  * discover it.
  */
-export const uploadIsImage = (name) => {
-  const ext = String(name || "").split(".").pop();
-  return !(ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext));
-};
+// 2026-10-14: a POSITIVE answer now, from `uploadKind` — a video, a recording
+// or a name nothing mints is not a picture.
+export const uploadIsImage = (name) => uploadKind(name) === "image";
 
 /**
  * THE EXTENSIONS THAT REALLY ARE PICTURES — derived, never typed (2026-09-19).
@@ -331,6 +351,9 @@ export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
   const kind = sniffUpload(bytes, filename);
   // Named types, so the answer is "we take these" rather than "not that".
   if (!kind) {
+    // A VIDEO OR A RECORDING IS TAKEN — in parts, by the media upload
+    // (`site-media.mjs`), never whole through this route (2026-10-14).
+    if (sniffMedia(bytes)) return json({ error: "video and audio are uploaded in parts — use the media upload (" + MEDIA_FORMATS_SAID + ")", code: "use_media_upload" }, 415);
     return json({ error: "that doesn't look like a picture (PNG, JPEG, WebP, GIF) or a document (PDF, ZIP, Word, Excel)", code: "bad_type" }, 415);
   }
 
@@ -348,7 +371,9 @@ export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
   if (!name) return json({ error: "couldn't store that just now" }, 500);
   const key = keyFor(slug, name);
 
-  const existing = await deps.list(slug);
+  // THE PICTURES' AND DOCUMENTS' OWN LIMITS (2026-10-14): video and audio are
+  // counted against theirs (`mediaLimits`), never against these.
+  const existing = (await deps.list(slug)).filter((o) => !(o && typeof o.key === "string" && isMediaKind(uploadKind(o.key.split("/").pop()))));
   // Re-uploading the same picture is the same object. It must not count against
   // the cap, and must not fail when the site is full — the bytes are already
   // there, so refusing would be refusing to do nothing.
@@ -387,19 +412,28 @@ export async function handleUploadList(deps, { slug, uid } = {}) {
       // Which of the two a file is, said out loud rather than left to the panel
       // to guess from an extension. The panel shows a thumbnail for one and a
       // filename for the other, and a wrong guess there is a broken image.
-      const kind = uploadIsImage(name) ? "image" : "doc";
+      // AND A VIDEO OR A RECORDING IS SAID AS ONE (2026-10-14, `uploadKind`),
+      // with its type and what the owner's browser reported about it.
+      const kind = uploadKind(name) || "doc";
       const download = readDownloadName(o.download);
+      const media = isMediaKind(kind) ? { mime: MEDIA_FORMATS[name.split(".").pop()].mime, ...readStoredMeta(o.meta) } : {};
       // `visitor` travels too (2026-08-28): the share picker must not offer a
       // stranger's file as the business's link preview, and a panel that shows
       // the button anyway teaches the owner a click the server then refuses.
-      return { name, url: urlFor(slug, name), size: Number(o.size) || 0, kind, ...(download ? { download } : {}), ...(o.visitor ? { visitor: true } : {}) };
+      return { name, url: urlFor(slug, name), size: Number(o.size) || 0, kind, ...media, ...(download ? { download } : {}), ...(o.visitor ? { visitor: true } : {}) };
     });
+  // TWO ALLOWANCES, KEPT APART (2026-10-14): the pictures' and documents' own,
+  // as it always was, and the video and audio's (`deps.mediaLimits`).
+  const still = files.filter((f) => !isMediaKind(f.kind));
+  const media = files.filter((f) => isMediaKind(f.kind));
+  const lim = deps.mediaLimits || null;
   return json({
     files,
-    used: files.reduce((n, f) => n + f.size, 0),
+    used: still.reduce((n, f) => n + f.size, 0),
     max: MAX_SITE_BYTES,
-    count: files.length,
+    count: still.length,
     maxCount: MAX_FILES_PER_SITE,
+    ...(lim ? { media: { used: media.reduce((n, f) => n + f.size, 0), max: lim.siteBytes, count: media.length, maxCount: lim.siteFiles, maxVideo: lim.videoBytes, maxAudio: lim.audioBytes, formats: MEDIA_FORMATS_SAID } } : {}),
   });
 }
 

@@ -144,7 +144,7 @@ const SEQUENCED = new Set(["route", T.pick, T.tweak, T.pages, T.adds]);
  */
 export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
   const real = globalThis.fetch;
-  const seen = { calls: [], routerAsked: [], picks: [], lanes: [], writers: [], texts: [], debits: [], rpc: [], designers: [], pageWriters: [], inputs: {} };
+  const seen = { calls: [], routerAsked: [], picks: [], lanes: [], writers: [], texts: [], debits: [], rpc: [], designers: [], pageWriters: [], inputs: {}, converse: [] };
   let reserved = 0;
   const counts = {};
   const next = (key) => { counts[key] = (counts[key] || 0) + 1; return counts[key] - 1; };
@@ -197,6 +197,16 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage });
       };
       const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
+      // THE CONVERSATION'S REPLY (2026-10-14): the one call with no tool. Its
+      // answer is text — a string, or `{ text, cut }` — or a function of the
+      // request; with no stub it fails, and the router's gist is shown.
+      if (!tool && !(args.tools && args.tools.length)) {
+        seen.converse.push(args);
+        if (!Object.hasOwn(answers, "converse")) return new Response("no stub for the conversation", { status: 503 });
+        const a = answerFor("converse", args);
+        const text = typeof a === "string" ? a : a && typeof a.text === "string" ? a.text : "";
+        return json({ stop_reason: a && a.cut ? "max_tokens" : "end_turn", content: [{ type: "text", text }], usage: { input_tokens: 2000, output_tokens: 600 } });
+      }
       if (tool === T.route) {
         seen.routerAsked.push(args);
         const a = answerFor("route", args);
@@ -241,12 +251,12 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
 
 export const envFor = (store) => ({ SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test", ...dispatchEnv() });
 
-export async function routeCall(worker, env, { slug, message, ask, firstBuild = false, hasSite = true, attached = false }) {
+export async function routeCall(worker, env, { slug, message, ask, firstBuild = false, hasSite = true, attached = false, extra = {} }) {
   const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
     method: "POST",
     headers: { "content-type": "application/json", Authorization: TOKEN },
     body: JSON.stringify({ message, site: { name: "Harbour Loaf", url: "https://" + slug + ".gofarther.app", pages: ROUTES, tables: ["loaves"] },
-      picker: "sonnet", firstBuild, brief: message, qa: [], answering: false, attached, slug, hasSite, ...(ask === undefined ? {} : { ask }) }),
+      picker: "sonnet", firstBuild, brief: message, qa: [], answering: false, attached, slug, hasSite, ...(ask === undefined ? {} : { ask }), ...extra }),
   }), env, makeCtx());
   return { status: res.status, body: await res.json().catch(() => null) };
 }

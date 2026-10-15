@@ -29,6 +29,7 @@ import {
 } from "../builder/build-models.mjs";
 import { LIST_ANSWER_MAX_TOKENS, MAX_INPUT_CHARS, echoTokens } from "../builder/input-budget.mjs";
 import { LANE_PICK_MAX_TOKENS } from "../builder/site-lanes.mjs";
+import { ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -285,13 +286,17 @@ test("a computed ceiling is named, so a new one cannot slip past the check unsee
   // still bounded by the longest message a route takes.
   const known = new Set([
     "laneMaxTokens(field)", "maxTokens", "r.max_tokens",
-    "live ? ASK_MAX_TOKENS + echoTokens(text",
+    // …AND THE CONVERSATION'S WRITTEN-OUT REQUEST (2026-10-14): `RESOLVED_TOKENS`
+    // more, only on a call shown a conversation, asserted below at the longest
+    // message to fit the floor.
+    "(live ? ASK_MAX_TOKENS + echoTokens(text",
     "LANE_PICK_MAX_TOKENS + 2 * echoTokens(String(message || \"\"))",
     "pictureMaxTokens(slots)", "dataMaxTokens(tables)", "rulesMaxTokens(tables)", "navMaxTokens(digest)",
   ]);
   const floor = Math.min(...[...modelsInUse()].map((id) => maxOutputTokens(id)));
   assert.ok(LIST_ANSWER_MAX_TOKENS <= floor, "a step's list ceiling (" + LIST_ANSWER_MAX_TOKENS + ") is above the smallest output limit (" + floor + ")");
   assert.ok(LANE_PICK_MAX_TOKENS + 2 * echoTokens("x".repeat(MAX_INPUT_CHARS)) <= floor, "the picker's ceiling at the longest message is above the floor");
+  assert.ok(ASK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS), "x".repeat(MAX_INPUT_CHARS)) + RESOLVED_TOKENS <= floor, "the router's ceiling with a conversation, at the longest message, is above the floor");
   for (const expr of dynamic) {
     assert.ok(
       known.has(expr),

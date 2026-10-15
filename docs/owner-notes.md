@@ -283,6 +283,804 @@ is pressed):
 
 ## Previous handoff (2026-10-14: the live verification batch on the combined candidate is done. `main` is `f1b81477` (deployed as `1336f052`, image `e1582f6f71a41dfb`). Press A (image-free Build) published but showed no progress lines; Press B (acc-mixed-talk) passed reconnect, talk, publish and money, but ran in sequence and ended partial. 47 credits spent, balance 726. Images stay off and PROGRESS_TALK stays on, on your word; the opt-ins are closed)
 
+## Branch `new` — the verification harness stops guessing at meaning, and Build waits for a steady ledger (2026-10-15, after Codex's review of `60c26eff`; harness commit `6661a3cf`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
+
+**What Codex found:**
+- **The judge failed valid natural language.**
+  - The stored text read "Car repairs performed by certified mechanics", and
+    the answer "Our skilled technicians fix vehicles" failed on keyword
+    overlap.
+  - C2 failed a hypothetical "For example, you could charge $20 per class".
+- **Build sent one paid request when its starting ledger read failed**
+  (`ledger.last` answering `{ ok: false }`).
+
+**What changed** (only `scripts/media-verify.mjs` and its tests; no product
+prompt or file touched):
+- **Only objective facts pass or fail:**
+  - answered as conversation, with nothing started;
+  - the reply written by its own call;
+  - an answer present;
+  - for C5: the route told the history was cut, nothing written out from it,
+    and the hidden headline itself not in the answer.
+- **Each case's purpose is now one unverified item, always.** It carries the
+  whole answer, the source evidence to read it against, and the old
+  heuristics as hints. The evidence is the home page's text, the hours check,
+  the hidden part, or the attachment line. The hints include an unmatched
+  number, a missing keyword, a word found only in the hidden part, and phrases
+  that read like claims.
+- **A converse press therefore ends "needs review" at best,** with exit 3, for
+  Codex or you to read. An irrelevant answer can no longer pass, and a
+  paraphrase or a hypothetical is never failed.
+- **Build needs a steady starting ledger before anything is made.** Both
+  ledger readers must be present, and the balance must read between two equal
+  last-row ids.
+  - **If not:** no draft is made, nothing is sent, and the run stops.
+  - **It is read again just before the send.** If that reading is unsteady,
+    the drafts are deleted and nothing is sent.
+- **Kept from the previous round:** the post-send reconciliation,
+  unknown-charge stopping, real playback and the missing-browser failure.
+
+**Offline verification.** Focused files only, not a full suite.
+- **`test/media-verify-judging.test.mjs`: 19 cases**, all passing on
+  `6661a3cf`.
+  - **6 new or changed, and all 6 fail on `60c26eff`'s script**, run in a
+    throwaway worktree. With `{ ok: false }` there, one paid react-build was
+    sent.
+  - **On the old judge directly,** the garage paraphrase failed on "shares 0
+    of the page's words". The "$20" failed on "price $20" and on the options
+    never being named. Both are unverified now, with the source kept.
+  - **The 13 kept from the last round** pass on both.
+- **Sweep: 9 of 9 killed, control survived.** A first-pass survivor, a ledger
+  with no window reader, was a real gap and got a case.
+- **The focused media, conversation, workflow and build-canary files:** 220 of
+  220.
+- **CI:** unit CI green on `6661a3cf` (run 38737633964; I did not read the per-test totals). No site build ran, because it watches no path this round touched.
+
+**What still needs live verification (all on your approval, after a merge):**
+- The free rehearsal, storage and browser presses on a demo site you name.
+- `IMAGE_PURCHASES` off on the live Worker, shown by a rehearsal.
+- The paid converse and build presses, each with a ceiling you set.
+- **Reading every conversational answer.** Each comes back unverified, with
+  its evidence, and that is the review the automation cannot do.
+- **Still not covered anywhere:** Safari (macOS and iOS), Android Chrome and
+  Edge, which no runner has; and R2's own abort and finish answers, for which
+  no probe is built.
+
+The proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
+## Branch `new` — the verification harness judges what each check is for (2026-10-15, after Codex's review of `1b52561f`; harness commit `6f84607a`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
+
+**What Codex reproduced, and what changed** (all in `scripts/media-verify.mjs`;
+the product fixes are untouched):
+- **The six conversation cases passed on one irrelevant answer:** "Your bakery
+  opens at 3:17am on Sundays. Does that help?" The checks read the reply's
+  metadata. Now each case is judged on its purpose against evidence read first
+  and free: the site's stored pages, through the same text reader the
+  conversation step uses.
+  - **Every answer:** no time, price, phone number or email that the pages and
+    the message lack.
+  - **C2** must address both the booking page and the enquiry form.
+  - **C3** must share the home page's own words.
+  - **C5** must not use any word of the hidden third version. Its headline is
+    now distinctive, so the check means something.
+  - **C8** must talk about the attached clip without describing it. It is sent
+    as the page's own attachment line.
+  - **No wording is required.** Whatever the automation cannot establish is
+    marked unverified, and the whole answer is kept for review
+    (`results.unverified`).
+- **The missing-information fixture is checked first.** C4 is not sent unless
+  the stored pages really lack Sunday hours: no Sunday, no times, no opening
+  hours. A site saying "Closed on Sundays" is refused. C3 and C4 are not sent
+  if the pages can't be read.
+- **Accounting.** In Codex's case, a 503 balance after a send counted as 0:
+  six sends, 22 spent, 10 recorded, against a ceiling of 16. Now, after every
+  paid send, the balance must read and its movement must equal the reply's
+  cost.
+  - **If it doesn't,** the spend is unknown (`null`, never 0) or unreconciled,
+    and no later paid send is made.
+  - **The ceiling** counts the ledger's own movement since the start.
+  - **A send that throws** records an unknown charge.
+  - **Every exception** keeps its results, and the results file is always
+    written.
+  - **P9's charge** is reconciled through the ledger window, the build
+    canary's own check. A poll that gives up leaves it unknown.
+  - **Estimates stay labelled estimates.** The ceiling is the harness's only
+    limit; the platform caps nothing.
+- **B1 is now real playback:**
+  - `play()` must start;
+  - the clock must advance;
+  - a seek must land;
+  - playback must continue, with no media error.
+- **A browser run missing any required browser now fails.** Those are
+  Chromium, Chrome, Firefox and WebKit, plus the composer check.
+- **New exit code: 3 means "needs review".** Everything the automation can
+  establish passed, and some answers wait for a person to read. The press
+  shows red, and its evidence is kept.
+
+**Offline verification.** Focused files only, not a full suite.
+- **`test/media-verify-judging.test.mjs`: 16 new cases.** Every one fails on
+  `1b52561f`'s script, measured in a throwaway worktree. There, Codex's answer
+  gives `ok: true`, a mismatched charge keeps sending (6 sends), an unfinished
+  Build records 25, and a run with no browsers passes. On `6f84607a` all 16
+  pass.
+- **`test/media-verify.test.mjs`: 11 of 11.** Every required format really
+  plays in Chromium.
+- **Mutation sweep: 14 of 15 killed.**
+  - One equivalent survivor: the outcome's "no unknown spend" guard. Every
+    path that leaves a spend unknown also stops the run, so the guard is
+    redundant today, and kept.
+  - The comment-only control survived.
+  - Two first-pass survivors were real gaps, not equivalents: a charge nothing
+    reported, and a "Closed on Sundays" page. Each got a case.
+- **The focused media, conversation, workflow and build-canary files:**
+  217 of 217.
+- **CI.** Unit CI on `6f84607a` (run 38733924840) was cancelled, not failed:
+  the records push `b3f81b44` superseded it, and the unit workflow cancels the
+  older run on a branch. Unit CI on `b3f81b44`, the same code plus documents,
+  is green (run 38734104229). I did not read the per-test totals. Neither
+  commit touches a site-build path, so no site build ran.
+
+**Still unverified, by design:**
+- **Meaning the automation cannot read:**
+  - whether C2's comparison is sound;
+  - C1's invitation;
+  - C4 saying it was not shown the hours, and how to add them;
+  - C5 asking again;
+  - C8 saying it was not shown the clip;
+  - whether P9's narration places the files rightly.
+
+  Each comes back unverified, with its answer, unless the answer shows a sign.
+- **Invented claims of other kinds** (a street, a product, a person). Only
+  times, prices, phone numbers and emails are checked automatically.
+- **The devices no runner has:** Safari on macOS and iOS, Android Chrome, and
+  Edge.
+- **R2's own abort and finish answers.** No probe is built.
+
+The proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
+## Branch `new` — the verification proposal revised, and its checks prepared as a script and a workflow (2026-10-15, after Codex's review of `9a2ea70b`; nothing run, merged, deployed or built; no storage written, no model called, nothing bought)
+
+**What Codex's review confirmed.** The code fix round stays complete, and CI is
+green:
+- `9a2ea70b`: unit green, run 38672810336.
+- The code head is still `cbd396d8`: unit `10892 / 10845 / 0 / 47` (run
+  38670111433), site build green (run 38670111439).
+
+This round changes no product file: nothing under `public/`, nor `worker.js`,
+`site-media.mjs` or the `Dockerfile`.
+
+**What was added:**
+- **`scripts/media-verify.mjs`.** One script with five modes, each with its own
+  gate:
+
+  | Mode | What it touches |
+  |---|---|
+  | `rehearsal` | read-only |
+  | `storage` | storage-mutating, free |
+  | `browser` | storage-mutating, free |
+  | `converse` | paid |
+  | `build` | paid |
+
+  - **It refuses before any write or send** (exit 2) when:
+    - the site is one of help-needed's (`fold-lane-bakery`, `fretwork-1`,
+      `lido-axes-b`, `copperleaf-tea-room`, `saltmarsh-cheese-counter`);
+    - a mutating mode lacks "yes" in the box that allows writing test files;
+    - a paid mode lacks "yes" in the box that allows spending, or lacks a
+      ceiling.
+  - **Photographs are checked off on the live Worker** (`imagePurchases ===
+    false`, from `/api/site/runtime`). A paid mode reads this at the start and
+    again immediately before every message and before the build. "No
+    photographs" in a prompt no longer counts, and the build's brief no longer
+    says it.
+  - **The balance is read** from the ledger immediately before and after every
+    send. The charge must equal the cost the reply reports. No recorded figure
+    is used: the 13-credit and top-up text is gone.
+  - **Estimates are labelled as estimates:** a message is 2–6 credits, the
+    build 13–47. The one enforced limit is the harness's own: the ceiling you
+    type per press. The platform caps nothing.
+  - **Clean-up.** Storage and browser delete everything they made, and the
+    library must end as found.
+- **`.github/workflows/media-verify.yml`.**
+  - Dispatch only, with the same secrets and sign-in as the canary.
+  - It installs Playwright's Chromium, Firefox and WebKit; Google Chrome is
+    the runner's own.
+  - It keeps `media-verify.json` as the run's evidence.
+  - It can be pressed only once it is on `main`.
+- **`scripts/owner-session.mjs`** also returns the session's refresh token and
+  expiry (additive). The browser mode uses them to sign the real app in, for
+  the app's origin only. They are never printed.
+
+**Every point of your review, and where it stands:**
+- **Automated, not devtools.**
+  - Every API check is in the storage mode: upload, list, GET/HEAD, ranges,
+    416 and 304 on both origins; the refusals; replace; three parts with a
+    lost part and a lost finish; abort, then finish; the races; delete.
+  - Play and seek run in each real browser engine.
+  - The composer and Files panel run on the real app: attach; reload and
+    reattach, reused; delete and reattach, sent again.
+  - The composer's page may write only this site's media. Every other write
+    is aborted and recorded, and no message is ever sent.
+- **Genuinely unavailable:** Safari on macOS, Safari on iOS, Chrome on Android
+  and Microsoft Edge. They are reported as unverified, never as passed.
+  - WebKit on Linux is recorded only.
+  - An engine the runner installs but that fails to launch is a failed check,
+    not a skip.
+- **F7 is corrected.** Delete against a replacement's close is judged on where
+  it ends, not on one pair of statuses.
+  - Close 200 then delete 200 is valid when the file ends deleted.
+  - So are "close 200, delete 409 replacing, delete again 200", "delete 200,
+    close 410", and a 503 `unconfirmed` delete followed by a successful one.
+  - Each must end with the address 404, both receipts agreeing, and no room
+    held.
+  - The generation is internal: it is judged offline, not live.
+- **The R2 abort/complete probe: not supported by the existing tooling, so not
+  built.**
+  - The tooling reaches R2 only through the Worker's binding, and no route asks
+    R2 to close or abort an upload whose session is gone.
+  - Two options are written up, both storage-mutating, each its own change for
+    your approval: a small owner-gated Worker probe route under `probe/` (needs
+    a deploy), or an S3-API client (needs R2 keys and a signer this repository
+    doesn't have).
+- **The cut-history case is deterministic.**
+  - The earlier reply is fixed, and the cut is made by the page's own
+    `historyWire`.
+  - It is proven cut before anything is sent: Version three is past the cut,
+    and `full` is longer than the text.
+  - So it costs one message and cannot come back "not exercised".
+- **Demo sites against a new Build.**
+  - Rehearsal, storage, browser and the six conversation cases reuse one
+    existing non-guarded demo site you name. Candidates from the live list
+    are `markbook-1`, `shoeroom-1`, `repairbench-1`, `ashgrove-1` and
+    `washhouse-1`; a free rehearsal confirms it first.
+  - Only P9 (drafts moved into a first build) needs a new Build, on a new slug
+    you type.
+- **Deployment.**
+  - Sharing a future deploy with help-needed is a possibility, not a schedule.
+    Its earlier batch is deployed, and its parallel-execution work is still
+    pending.
+  - `new` can merge alone or combined. Either way: predict the image, verify
+    the rollback, and have CI green first.
+  - Dispatching the deploy from `new` is never used.
+
+**Offline verification.** None of these were full suites.
+- **`test/media-verify.test.mjs`: 11 cases.**
+  - The judge, including close 200 then delete 200.
+  - The cut proof, and the three-part WAV.
+  - The labels, the gates, and rehearsal being read-only.
+  - The storage mode end to end against the real Worker and the R2 double.
+  - The converse ceiling, and the build mode's 202 poll.
+  - The browser mode in real Chromium, including B2 and B3 on the
+    repository's own app.
+  - The composer page's write rule.
+  - The workflow guard: dispatch only, the same modes, every variable passed.
+- **Mutants:**
+  - workflow: 3 of 3 killed (a push trigger, a dropped variable, a dropped
+    mode);
+  - harness: 2 of 2 killed (composer checks skipped, every page write
+    allowed).
+- **Focused files** (the media, conversation and workflow guards, and
+  `canary-build`): 191 / 191 pass.
+- **Every test file touching `owner-session`'s callers:** 348 / 348 pass.
+
+**The order, when you approve:**
+1. The merge (alone or combined), then the free runtime canary.
+2. `rehearsal`, then `storage` and `browser` with the box that allows writing
+   test files set to yes.
+3. You set `IMAGE_PURCHASES` off, and a rehearsal shows it.
+4. `converse`, then `build`, each with the box that allows spending set to yes
+   and a ceiling you choose.
+
+The full proposal is `docs/history/2026-10-15-verification-proposal.md`.
+
+## Branch `new` — one verification proposal for the assistant and media work (2026-10-15, after Codex's review of `bdebc5e3`; a proposal only: nothing run, merged, deployed, built or pressed, no paid call)
+
+Codex confirmed the failed-abort fix independently: a delete answers `unconfirmed` while the old upload can still land, keeps the claim and the session, and goes through safely once the upload has finished. Broad offline testing is now stopped.
+
+**Final state.**
+- **Code head:** `cbd396d8`.
+  - Unit CI green, `10892 / 10845 / 0 / 47` (run 38670111433).
+  - Site build green (run 38670111439).
+  - Local full suite `10892 / 10890 / 0 / 2`.
+- **Documentation head before this entry:** `bdebc5e3`.
+  - Unit CI green, `10892 / 10845 / 0 / 47` (run 38670979502).
+  - A documentation-only push starts no site build.
+- **This entry's commit:** documents only, on top of `bdebc5e3`.
+- **Image prediction for `cbd396d8` alone:** `484f4945d711b3c8`.
+
+**The full proposal** is `docs/history/2026-10-15-verification-proposal.md`. In short:
+
+1. **Sharing help-needed's deployment: yes, but only as one combined release candidate on `main`.**
+   - `main` has moved to `8e24ca5b`, help-needed's verification batch. It holds `new` up to `9ceca1d4` but none of `new`'s 15 later commits.
+   - A merge to `main` is the only safe deploy path. `deploy.yml` also accepts a manual run with no branch guard, which would put `new` into production in place of `main`, so it must not be used.
+   - There is no preview environment.
+   - A local trial merge into `origin/main`, discarded afterwards, found 3 conflicts. All are mechanical: the `Dockerfile` copy lists and one `public/chat.js` build-body line (keep both sides), plus owner-notes.
+   - Two interactions need a check on the combined candidate:
+     - `main`'s early-accepted build (`accept: 'early'`) with `new`'s draft move;
+     - the build's reply fields (`media`, `contextNote`) reaching the page through `main`'s follow.
+   - One deploy and one container build then serve both branches.
+   - The combined candidate stays paused until you say.
+2. **Free checks (no model call), F1–F7.** All run in your browser on a test site that is not one of help-needed's fixtures:
+   - **The fixtures:** the 9 small files in `test/fixtures/media/`, plus a 20 MB WAV made locally for the part-by-part checks.
+   - **The flows:**
+     - upload, list, play and seek, with `206`/`416`/`304` and the 5-minute cache, in Chrome, Safari, Firefox, iOS and Android;
+     - refusals;
+     - replace;
+     - delete, both ordinary and of a file a page plays;
+     - reconnecting and reloading mid-upload;
+     - drafts before a site exists.
+   - **Real-storage concurrency, from console snippets, each repeated 10 times:** admission under the draft limit, competing replacements, delete versus replacement, and repeated or lost answers.
+   - **Not shown live:** R2's `NoSuchUpload` error and its refusal to close an aborted upload. Recorded as offline-only unless you want a canary probe, which would be a separate code change.
+3. **Paid calls, each needing your approval.**
+   - **Cost per message:** a conversational message is routing plus the reply's own call under one charge, 2–4 credits each and 6 at most on grok, up to about 9 on sonnet.
+   - **P9, a first build with the two drafts and "no photographs":** checks the model-written media narration. 11–45 credits plus routing.
+   - **On its site, one message each:**
+     - P1, a greeting;
+     - P2, a detailed comparison;
+     - P3, a grounded question about the page and the video;
+     - P4, missing context (opening hours);
+     - P5, a long history, then "use the third version": expects it to ask, with no work started;
+     - P8, discussing an attachment.
+   - **Optional:** P7, discussion turning into an add-on (2–13 plus routing); P10, an edit with media (6–22 plus routing).
+   - **Totals (estimates, not caps):** minimal set about 26–75 credits; with P7 and P10 about 35–112.
+   - **The balance last recorded for the building account was 13**, so it must be read first, and a top-up is likely.
+4. **Implementation gaps, kept visible.** These are known and documented, not fixed:
+   - a crashed delete leaves its object served and listed until the delete is sent again;
+   - drafts sit outside the mutation record, and a draft deleted mid-move is not coordinated;
+   - a moved draft's receipt reads `removed`, so attaching it again uploads it again;
+   - expired drafts and finished-session records are not cleaned up on a schedule;
+   - the upload record lives in one browser;
+   - a storage outage holds deletes (`503 unconfirmed`);
+   - the 15-minute lease is a judgement call;
+   - one unresolved receipt case: finished at R2, never recorded, then deleted;
+   - the build-route test double's counter etags.
+5. **Awaiting live verification only.** These are built and tested offline:
+   - R2's conditional writes and etags;
+   - NoSuchUpload, and R2 refusing to close an aborted upload;
+   - multipart throughput;
+   - edge ranges and caching;
+   - MP4, MOV, M4A, AAC and the other browsers;
+   - real-model answers, clarification, `resolved` and media narration;
+   - the real cost per message.
+6. **A correction.** The `aef027fd` round's record called the mutant "recovery without its first abort" equivalent. That was wrong. Codex's later reproduction showed that a stop must be proven: a failed abort let the old close land after the delete. The mutant is killed by 3 tests on `cbd396d8`. The record has been corrected in `docs/history/2026-10-15-media-mutation.md` and in the entry below.
+
+**Still paused.** `new` stays unmerged and undeployed. No container build, no paid call, and no change to help-needed until you say.
+
+## Branch `new` — Codex's reviews of `aef027fd` and `69462730`: delete and replacement as one sequence per file; a stale claim settled only on proof; the progress-ordering failure explained (2026-10-15; unmerged, undeployed, no container build, no paid call, the help-needed branch untouched)
+
+The receipt, quota, history and narration fixes are unchanged, and their tests passed in every run below.
+
+**Commits, oldest first** (on top of `aef027fd`):
+1. `52ee03c1`: a delete and a replacement's close go through the file's own record.
+2. `344d1a10`: progress-live-writer waits for the milestone it reads; PLW 5 pins the late landing.
+3. `69462730`: the source guard on the media delete's page read, re-anchored.
+4. `cbd396d8`: a stale claim is settled only when the old upload is proven stopped. **This is the code head.**
+5. The commit on top of it: these records and `docs/history/2026-10-15-media-mutation.md` (documents only).
+
+**1. A delete and a replacement can no longer race (Codex's reproduction on `aef027fd`).**
+- **The record.** Each site file has its own record, `media-assets/<scope>/<name>.json`, changed only by R2 conditional writes. Each write carries a revision and a write id, and the record holds a generation and a state: live, committing (a replacement holds the claim), or deleted.
+- **A replacement claims the record before R2 closes its upload.** The claim is allowed only while the record is live at the generation the replacement started from. Afterwards the record moves to the next generation.
+  - Deleted meanwhile: 410 `removed`.
+  - Newer meanwhile: 409 `replaced`.
+
+  In both cases the upload is aborted and its room released.
+- **A delete marks the record deleted before removing the object.** While a fresh claim is held, the delete is refused with 409 `replacing` and can be sent again.
+- **An abandoned claim is recovered after 15 minutes.**
+- **Proof it closes the gap.** On `aef027fd`, under the same barriers, the delete in the gap answered 200 and the close then answered 200 with the file back. On the new code that delete is refused.
+
+**2. A stale claim is settled only on proof (Codex's reproduction on `69462730`).**
+- **The bug.** A failed abort was taken as "already gone". So with the old close paused and every abort failing, the delete answered 200, and the resumed close recreated the file.
+- **What happens now.** A claim is settled only when one of these is proven:
+  - the object carries the claim's upload id, so it landed;
+  - the abort succeeded, so it was stopped;
+  - R2 answered NoSuchUpload / 10024, so it was stopped.
+- **Otherwise the claim is kept** and the request answers 503 `unconfirmed` (retry). Nothing is released, deleted or given a new generation until storage answers.
+
+**3. The progress-ordering failure was a test-order assumption, not a product requirement.**
+- **Why.** `mark()` only queues a milestone's record write, and the job does not wait for it. So under load the pages milestone landed after the photo call.
+- **Reproduced byte for byte** by holding that write.
+- **The product behaviour was correct:** each fact was told once, in its own state, and the part ended done.
+- **The fix is in the test only.** The test now waits for that milestone, as it already did for publish. PLW 5 pins the late landing. No assertion was changed and no progress code touched.
+- **The earlier failure still stands in the record.** It happened in the full run on `bb1c1f31`, and green CI does not erase it.
+
+**Tests and readings.**
+- `test/media-mutation.test.mjs` has 13 cases on the production routes, with barriers before R2's close, before a delete, and before the record's conditional write:
+  - both orders;
+  - overlapping writes;
+  - retries and lost answers;
+  - an interruption before and after R2's close;
+  - abort failures with and without storage returning;
+  - controls: NoSuchUpload, a close that had landed, an ordinary replacement, an ordinary delete, and a file a page plays.
+
+  Each case checks that the object, the record's generation, both receipts, the reservation and the answers agree.
+- One newer-generation case in `test/media-files.test.mjs`.
+- **Red checks:**
+  - Codex's first sequence on `aef027fd`: delete 200, close 200, the file back.
+  - On `69462730`: exactly the two new abort-failure cases fail (the delete answered 200).
+- **Sweeps:**
+  - the record: 11 of 13 killed, with 2 survivors recorded as equivalent. **Corrected 2026-10-15:** "recovery without its first abort" was not equivalent. Codex's reproduction on `69462730` showed a failed abort lets the old close land, and the mutant is killed by 3 tests on `cbd396d8`. The other survivor, "the record without its revision and write id", stays equivalent;
+  - the abort fix: 6 of 6 killed.
+  - The comment-only control survived both.
+- **Affected tests (final):** 288 files, 7272 pass, 0 fail.
+- **Full offline suites, every run recorded:**
+  - `344d1a10`: `10888 / 10885 / 1 / 2`. The one failure was this change's own source guard; it was re-anchored in `69462730`.
+  - `69462730`: stopped partway, before Codex's review was folded in. No result is claimed.
+  - `cbd396d8`: `10892 / 10890 / 0 / 2`.
+- **CI:**
+  - unit tests on `344d1a10`: red (run 38668530734), the same source guard;
+  - unit tests on `69462730`: green (run 38669279438);
+  - unit tests on `cbd396d8`: green, `10892 / 10845 / 0 / 47` (run 38670111433);
+  - site build on `cbd396d8`: green (run 38670111439).
+- **Image prediction:** `cbd396d8` → `484f4945d711b3c8` (208 inputs); nothing built.
+
+**Remaining gaps (live only).**
+1. **Real R2.** Real R2 under real concurrency is not shown. Nor is real R2's NoSuchUpload error, or its refusal to close an aborted multipart upload; the test double follows R2's documented behaviour.
+2. **A storage outage blocks deletes.** While R2 can't confirm that an old upload stopped, a delete of that file keeps answering 503 until it can. That is safe, but the owner waits.
+3. **The 15-minute claim lease is a choice.**
+4. **A crashed delete can leave the object behind.** If the record says deleted but the object wasn't removed, it is still served and listed until the delete is sent again. Receipts and replacements already treat it as deleted.
+5. **Drafts are outside this mechanism.** Drafts can't be replaced; a draft deleted while a build is moving it is not covered.
+6. **Still open from earlier rounds:**
+   - proprietary codecs (MP4, MOV, M4A, AAC), Safari and Firefox;
+   - real models;
+   - edge caching;
+   - the upload record lives in one browser;
+   - finished session records are not cleaned up on a schedule;
+   - the build-route test double still gives counter etags (suggested as its own task).
+
+**Still paused (unchanged).** The combined release candidate waits for the main branch's route-selection and connection-loss fixes. Nothing is merged, deployed, built or pressed.
+
+## Branch `new` — Codex's review of `673e26cb`: receipts checked against the current file, and the ledger's repeated state (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
+
+Codex confirmed green CI on `673e26cb` and verified the previous round's recovery, history and narration fixes. It reproduced two remaining problems, and both are fixed. The conversation-history and model-written narration fixes are unchanged: their tests passed in the same run.
+
+**Commits:**
+1. `bb1c1f31`: the fix and its tests.
+2. The commit on top of it: these records and `docs/history/2026-10-15-receipts.md` (documents only).
+
+**1. A completion receipt is history, not proof the file is there.**
+- **The bug.** `status` and a repeated `complete` handed back a finished upload's saved file without looking at the object, so the page reused a file that had been deleted after it was uploaded.
+- **What the server does now.** It reads the object as it is now before answering:
+  - still this upload's (its `up` id): the file;
+  - deleted, or moved by a build: `removed` (410);
+  - the address now holds a replacement's bytes: `replaced` (409);
+  - storage can't be read: `unreadable` (503), never done and never removed.
+- **A repeated `complete` never writes.** It cannot bring a deleted file back or overwrite a newer replacement. A replacement whose file is deleted while it is being sent is given up, not closed.
+- **What the page does now.** A removed or replaced file is sent again as its own new file, so a deleted file is never reused and a replacement's bytes never stand in for the original.
+
+**2. The ledger can no longer return to an old etag.**
+- **The bug.** R2's etag is the MD5 of the bytes, so a ledger that returned to identical reservations kept its old etag. A start that had read usage before another upload took room, finished and gave it back could still write. In Codex's interleaving that let 60 more bytes in under a 100-byte, one-file limit.
+- **The fix.** Every ledger write carries a growing revision and its own id, so no two writes have the same bytes.
+- **The test double.** The R2 double now gives R2's real etags: a content MD5 plus a separate version, as Miniflare does. The counter it had added, wrongly described as R2's behaviour, is gone.
+
+**Tests and readings.**
+- **New tests:**
+  - `test/media-receipts.test.mjs` (7, production routes): deleted, replaced, a replacement whose file is deleted mid-upload, a build moving a draft (the real build route), unreadable storage, the double's etags, and Codex's exact start-versus-completion interleaving. Each has a control for valid recovery.
+  - A second real-Chromium case in `test/media-composer-browser.test.mjs`, which reattaches in the composer:
+    - unchanged: reused;
+    - after a delete: sent again as a new file;
+    - after a replacement: the original's own bytes at a new address, with the message naming that address.
+
+    It passed 3 runs in a row.
+- **Red checks** against `673e26cb`'s code: 6 of the 6 behavioural cases fail for the reproduced reasons, including the stale start admitted with `201`. The browser case fails with "a deleted file was reused instead of sent again".
+- **Mutation sweep:** 11 of 11 killed; the comment-only control survived.
+- **Affected tests run together** (21 files using the media or build doubles, the conversation files, the router pin, uploads and every media file): 436 pass, 0 fail.
+- **Full offline suite, one run on `bb1c1f31`:** 10877 / 10874 / 1 / 2.
+  - The one failure is `PLW 4` in `test/progress-live-writer.test.mjs`: two photo-progress lines arrived in the opposite order. That file is not touched by this change.
+  - Run alone it passed 5 of 5, three times, and it passed on CI.
+  - It is recorded as an intermittent failure under load, not hidden by a re-run.
+- **Unit CI on `bb1c1f31`:** green, 10877 / 10830 / 0 / 47 (run 38666512719). The browser cases are among CI's skips. Site build is green (run 38666512619).
+- **Image prediction:** `bb1c1f31` → `44d1b12ef0924715` (208 inputs); nothing built.
+
+**Gaps that only a live run can close.**
+1. **R2's real conditional write under real concurrency.** The repeated-state race is shown only against a double that follows R2's documented etags.
+2. **The window between a replacement's check and R2's close.** It is one R2 call wide; a delete landing inside it can still be overwritten.
+3. **A finished upload whose record was never written, then deleted.** It reads as open, so the page ends "not confirmed yet" until the session expires (24 h).
+4. **The build-route double (`buildBucket`) still uses counter etags.** It is kept separate and suggested as its own task.
+5. **Still open from before:** proprietary codecs (MP4, MOV, M4A, AAC) aren't played here; Safari and Firefox aren't run; no real model was called; edge caching and ranges are unchecked; the upload record is per browser; finished session records are not cleaned up on a schedule.
+
+**Still paused (unchanged).** The combined release candidate waits for the main branch's route-selection and connection-loss fixes. Nothing is merged, deployed, built or pressed.
+
+## Branch `new` — Codex's review of `7ca339d1`: four reproduced gaps fixed (2026-10-15; unmerged, undeployed, no container build, no paid call, no generated media, the help-needed branch untouched)
+
+Codex confirmed green unit CI on `7ca339d1` and reproduced four problems the
+tests did not reach. All four are fixed. Each reproduction is now a test, and
+each of those tests fails on the old code.
+
+**Commits, oldest first** (on top of `01483928`):
+
+1. `7d89ec11`: the conversation. What the page cut from the history is now said
+   end to end, and a reference into a cut part is asked about.
+2. `4315e31c`: video and audio. Completion is recorded and can be asked again
+   safely, room is taken atomically, and the build's media outcome is written
+   by the model.
+3. `4ce4fa68`: the first build's router pin, re-pinned on purpose.
+4. the commit on top of `4ce4fa68` carrying these records and `docs/history/2026-10-15-media-recovery.md` (documents only).
+
+**1. Finishing an upload is durable and can be asked again.**
+
+- **Server.**
+  - A finished upload's session is kept for 24 hours, together with the file it
+    made. A second `complete` returns the same file (it returned 404 before).
+    An abort that arrives after the finish keeps the file.
+  - The file carries its upload's id in its stored metadata. If R2's own reply
+    to "finish" is lost, a retry recognises the file as its own.
+  - Each part's etag is recorded as the part lands, so finishing does not
+    depend on the page's list.
+  - A new status call (`GET …/media/<session>`) answers done (with the file),
+    open (with the parts the server holds) or gone.
+  - Each session is bound to the account that started it.
+- **Page.**
+  - When the reply to "finish" is lost, the page no longer reports a failure or
+    aborts. It asks the server: done means done; open means it finishes,
+    sending only the missing parts; if it cannot find out, the result is "not
+    confirmed yet", never "failed".
+  - The page keeps a record of each upload in browser storage (the session id
+    and the result, never the bytes). If you attach the same file again after
+    a lost reply, a reconnect or a reload, a finished upload is reused and an
+    open one resumes. No second upload and no duplicate file.
+- **What you see.** The composer chip shows a new state, "Video · checking it
+  finished…". It is re-checked every 5 seconds and again whenever the browser
+  comes back online. Your message waits while a chip shows it. Screenshots are
+  in the chat.
+
+**2. Storage limits are checked atomically, including replacements.**
+
+- **The fix.** Every reservation goes into one record per site library or
+  account's drafts: an upload, a replacement, or a build moving files in. That
+  record changes only through R2's conditional write, the same mechanism
+  `worker.js` already uses for build claims. A request that loses the race
+  reads the record again and counts the winner; after 8 tries it answers
+  "busy, try again" (503).
+- **Two starts at once** under a one-file, 100-byte limit now admit one and
+  refuse the other. Before, both got 201 and 120 bytes were reserved.
+- **Five starts at once** under a three-file limit admit exactly three.
+- **Replacements.**
+  - Only one replacement of a given file can run at a time; a second gets 409
+    `replacing`.
+  - A replacement reserves its full size, because the old file stays stored
+    and served until it finishes. A replacement that promises to be smaller
+    frees nothing until it is done.
+
+**3. Cut conversation history is now said to the models.**
+
+- **What the page sends.** A turn it shortened carries its full length, and
+  when it drops earlier turns the list opens with `{ omitted: n }`.
+- **How the server reads it.** Only figures that add up are believed;
+  anything else claims nothing.
+- **What the router and the reply are told.** Each cut, with its real length,
+  for example "only the first 4000 of its 5714 characters are shown", and how
+  many messages are not shown. They are also told to ask, never guess, when the
+  message refers to something that may be in a part not shown.
+- **Requests written out from the conversation.** The router never writes one
+  (`resolved`) from a part not shown; it asks the owner to say it again.
+
+**4. The build's media narration comes from the model.**
+
+- The fixed sentence "Your video … is in your site's file library now" is
+  gone.
+- The page writer, whose `notes` is the build's reply, is told which files this
+  request moved in and which could not be added and why, and says it in its own
+  words.
+- The only fixed line left is the technical error: "Not added to your site's
+  file library: "x" (…)".
+
+**Tests and readings.**
+
+- **New tests:**
+  - `test/media-recovery.test.mjs` (10). Real Worker routes and the real
+    uploader, with lost replies and concurrent requests.
+  - `test/conversation-gaps.test.mjs` (4). The page's own `historyWire`, run
+    through the real route.
+  - `test/media-composer-browser.test.mjs` (1). Real Chromium on the repo's own
+    page, with every media request answered by the real Worker. It covers a
+    lost "finish" reply with status unreachable, recovery, the message carrying
+    the file's address, a reload that reuses the file, and the Files panel's
+    list, replace, add and delete.
+- **Red checks** (new tests against `01483928`'s code): media-recovery failed
+  10 of 10 and conversation-gaps 4 of 4, each for the reason Codex reproduced
+  ("both admitted", the 404, "reported as failed").
+- **Mutation sweep:** 26 of 27 killed; the comment-only control survived. The
+  survivor, "an abort after the finish aborts", is equivalent: the next branch
+  recognises the file by its upload id and returns the same answer.
+- **Browser test.** It passed 10 runs in a row with files picked from disk. The
+  first run, with in-memory files, failed once with two part requests in
+  step 1. That run still stored one file, which is the outcome that matters.
+  The failure did not happen again, and its cause is not established.
+- **First-build router pin.** Re-pinned on purpose: all 42 old request hashes
+  are reproduced once the two new strings are taken out, and all 42 readings
+  are unchanged.
+- **Full offline suite:** `10869 / 10867 / 0 / 2` on `4ce4fa68`. On `4315e31c` it was `10869 / 10866 / 1 / 2`; the one failure was the pin.
+- **Image predictions (nothing built):**
+  - `7d89ec11` → `a9366a97b2c932d9` (208 inputs);
+  - `4315e31c` → `011a9824fca9ce06` (208 inputs).
+- **CI:**
+  - unit tests green on `4ce4fa68` (run 38664068165, `10869 / 10823 / 0 / 46`); the browser cases are among CI's skips and are shown only locally;
+  - site build green on `4315e31c` (run 38663267953);
+  - unit tests red on `4315e31c` (run 38663267999, `10869 / 10822 / 1 / 46`): the pin, re-pinned in the next commit.
+
+**Remaining gaps.**
+
+1. **R2 under real concurrency is not shown.** Real conditional writes,
+   contention, and a real multipart "finish" that stores the object but loses
+   its reply were all shown only against the R2 stand-in. Eight retries suit
+   one owner, not a crowd; past that the answer is 503.
+2. **Housekeeping.** A finished session's small record stays in
+   `media-sessions/` after its 24 hours until something reads it. There is no
+   sweep and no R2 lifecycle rule.
+3. **The upload record lives in one browser.** Another device re-sends the
+   file.
+4. **Codecs and browsers.** MP4, MOV, M4A and AAC are still not played here
+   (this Chromium has no H.264/AAC decoder). Safari and Firefox were not run.
+5. **No real model was called.** So it is not shown what a real model writes
+   in `notes` about moved files, or whether a real router asks rather than
+   writing `resolved` when the reference is in a cut part.
+6. **The browser test's one unexplained early failure** (above).
+7. **Unchanged from the first round:** the edge's handling of ranges and the
+   5-minute cache, upload throughput, and a custom domain's `/u/`.
+
+**Still paused (unchanged).** The combined release candidate waits for the
+main branch's route-selection and connection-loss fixes. Nothing is merged,
+deployed, built or pressed.
+
+## Branch `new` — the conversation and video/audio batch (2026-10-14/15, after Codex's review of `9ceca1d4`; unmerged, undeployed, nothing pressed, no paid call, no generated media, no new service)
+
+**Commits, oldest first** (review together):
+1. `5f425ceb` — the assistant: conversation gets its own reply, history, site
+   context and honest capabilities. Record:
+   `docs/history/2026-10-14-conversation.md`.
+2. `3802f7e9` — video and audio, upload to playback. Record:
+   `docs/history/2026-10-14-media.md`.
+3. the commit on top of `3802f7e9` that carries these records (documents only).
+
+**The assistant, in short.** A message the router reads as conversation gets a
+reply written by its own call (`builder/site-converse.mjs`):
+- **The ceiling.** 2,400 tokens, about 1,500 words. The routing call keeps
+  its 700. It writes only a gist, and gets 400 more only when it is shown a
+  conversation, to write a request out ("ok, do that" → `resolved`, which runs
+  in place of the typed words).
+- **The rules.** The 1–3 sentence, no-Markdown and no-headings rules are
+  gone. The reply matches its length to the question and may use headings,
+  lists, bold, code and links; the page draws these, escaped first.
+- **What it knows.** The capabilities are what is known to work, what is not
+  offered today, and honest uncertainty for the rest. "It cannot do anything
+  else" is gone. The reply is told it has not opened the site, browsed, run
+  anything, or watched or listened to a file, and never to imply it.
+- **The context.**
+  - This project's thread, sent by the page and windowed: 30 turns, 4,000
+    characters each, 24,000 in all. The router sees 8 turns. Every cut is
+    said.
+  - The owner's site, read for the verified owner only, each read bounded to
+    3 s: the pages' own words, the tables' columns and access (never a row),
+    and the file library by name, kind and size (no visitor files).
+  - Attached files by name, said to be unseen.
+  - A waiting question, said to stay open.
+- **Conversation stays conversation.** Only an answer pressed from our
+  options is never read as talk. A typed side question keeps a first build's
+  round, and on a live site leaves the waiting question waiting. A file no
+  longer turns talk into work.
+- **Billing.** The reply's call is billed with the routing call, under one
+  charge. If the reply cannot be written, the router's gist is shown and only
+  the routing is charged.
+
+**Video and audio, in short** (`site-media.mjs`; the full design is in its
+header and the history file):
+- **Formats, read from the file's contents:**
+  - video: MP4 (incl. M4V), WebM, QuickTime MOV;
+  - audio: MP3, M4A, AAC (ADTS), WAV, Ogg (Vorbis/Opus), FLAC.
+
+  Stored with the type the bytes named. Anything else is refused, including a
+  renamed file.
+- **Limits, separate from pictures and documents** (theirs are unchanged).
+  Each can be set by an environment variable, and is clamped to a ceiling.
+  Nothing is unlimited.
+
+  | | default | ceiling | variable |
+  |---|---|---|---|
+  | a video file | 250 MB | 2 GB | `MEDIA_MAX_VIDEO_BYTES` |
+  | an audio file | 50 MB | 500 MB | `MEDIA_MAX_AUDIO_BYTES` |
+  | media per site | 2 GB | 20 GB | `MEDIA_MAX_SITE_BYTES` |
+  | files per site | 100 | 1,000 | `MEDIA_MAX_SITE_FILES` |
+  | files before a site exists | 6 | 20 | `MEDIA_MAX_DRAFT_FILES` |
+- **Upload, in parts, never whole through the Worker.** An 8 MiB part per
+  request goes to an R2 multipart upload. The first part is sniffed, and
+  every part's length is exact. The file appears only when the last part is
+  in. A part that fails is sent again alone. Sessions are stored records that
+  expire in 24 h, and in-flight uploads count against the limits. Routes:
+  - `POST /api/site/<slug>/media` — start;
+  - `PUT …/<session>/<n>` — one part;
+  - `POST …/<session>/complete` — finish;
+  - `DELETE …/<session>` — give up.
+- **Storage and addresses.**
+  - Stored at `uploads/<slug>/<32 hex>.<ext>`, outside what a publish
+    replaces, so it is kept through publishes, edits, retries and rebuilds.
+  - Served at `/u/<slug>/<name>`, on the app and at the site's own address.
+- **Serving.**
+  - `GET`/`HEAD`, `Accept-Ranges`, one range as `206`, `416` past the end,
+    `ETag` and `304`.
+  - Media is cached for 5 minutes and revalidated, because it can be
+    replaced. Pictures and documents keep the year-long immutable cache.
+- **Manage** (the Files panel).
+  - **List:** each file with its kind, plus both allowances.
+  - **Use in chat:** puts the file in the composer.
+  - **Replace:** same kind and format, same address, new ETag.
+  - **Delete:** a file a page plays is held, naming the pages, until
+    confirmed; the player there then stops working.
+- **Before a site exists.** Uploads go to `/api/media/drafts`, kept for the
+  account only, never served, for 7 days. The first build moves the ones its
+  message names into the new site's library once it holds the address. The
+  move streams the file, checks the site's limits, and says what could not be
+  moved. Another account's draft is never found.
+- **The models.**
+  - Every page writer (build, edit page step, add-on) gets each file's
+    address, format, kind, size and the browser-reported length and frame
+    size, with how to play it, and "Nobody has watched or listened to these
+    files".
+  - The build's designer is told the names and kinds of files moving in.
+  - The conversation lists them.
+  - A video is never offered as a photograph, a link preview, or in the
+    picture lane's library.
+- **The composer.** A video or recording attached is hosted at once, shown as
+  a chip (uploading n% / ready / not uploaded). It takes none of the three
+  picture places. The message waits while one is sending, then names each file
+  with its address.
+- **Unchanged.** Pictures and documents behave as before. Visitor uploads stay
+  pictures only.
+
+**Tests and readings.**
+- Full suite:
+  - before the assistant commit: `10822 / 10819 / 1 / 2`; the one failure is
+    the image-input check, which passes once committed;
+  - final, on the media commit: `10854 / 10851 / 1 / 2` (the one is the image-input check, run before the commit; on `3802f7e9` it passes, 17 of 17).
+- Mutation sweeps: assistant 23 of 23 killed; media 23 of 23 killed (21 of 23 on the first run; tests were added for the two survivors: parts missing from the list, and the pictures' allowance counting media); the
+  comment-only control survived both.
+- A real headless Chromium plays and seeks WebM video and WAV, MP3, Ogg and
+  FLAC audio from `/u/`, served by the real Worker handler, with range
+  requests answered 206.
+- The real routes for upload, list, play, replace, delete, drafts, build
+  adoption, the add-on writer and the edit page writer.
+- Screenshots sent: the formatted reply, the Files panel with video and
+  audio, and the composer chips.
+- Image predictions:
+  - `9ceca1d4` → `357c5a0ed583d713` (206 inputs);
+  - `5f425ceb` → `921a27192841e207` (207);
+  - `3802f7e9` → `a711b5b0cecacce7` (208).
+
+  The worker tree now carries `builder/site-converse.mjs` and
+  `site-media.mjs`.
+- CI on these commits: `5f425ceb` green (unit tests run 38655868176, site build run 38655868111); `3802f7e9` site build green (run 38658988769); its unit run (38658988774) was cancelled when the records commit was pushed on top, and the unit run on `7ca339d1` (the same code plus owner-notes) is green (run 38659217384).
+
+**What is not shown — the remaining live gaps.**
+1. What a real model writes in a conversational reply: length, tone, keeping
+   to the honesty rules, and whether a real router writes `resolved` well. No
+   paid call was made.
+2. A real R2 multipart upload. It is shown only against an R2 stand-in that
+   checks parts as R2 does, as are the streamed draft move
+   (`FixedLengthStream`) and R2's default abort of unfinished uploads.
+3. Real playback in a browser:
+   - MP4, MOV, M4A and AAC were not played: this Chromium has no
+     H.264/AAC decoder. They are served with their types and ranges.
+   - MOV with HEVC, and Firefox with MOV, may not play. The panel says what
+     each format is.
+4. On the live domain:
+   - the edge's handling of range responses and the 5-minute cache;
+   - upload throughput;
+   - a custom domain's `/u/` path, which is the same handler by
+     `servedAtRoot`.
+5. Housekeeping:
+   - Expired drafts are removed when the account's drafts are next listed or
+     used, not on a schedule. There is no R2 lifecycle rule.
+   - Deleting a played file leaves the page naming a dead address, as
+     designed; the delete is asked twice.
+6. The conversation is the browser's own copy, so another device sends the
+   thread it holds.
+7. Not done, by design: visitor video or audio, transcoding, posters,
+   captions, and any reading of a file's contents.
+8. The composer's media chips are covered by pure tests and source guards,
+   not by a real-browser drive.
+
+**Still paused (unchanged):** the combined release candidate and its
+verification wait for the main branch's route-selection and connection-loss
+fixes. Nothing is merged, deployed, rebuilt or pressed.
+
 ## Branch `new` — handoff for you and Codex (2026-10-14: correction round CLOSED at `3fbc8259`; paused while the main branch fixes route selection and connection-loss tracking; nothing merged, deployed, built, switched on, pressed or spent)
 
 **Where it stands (2026-10-14).**

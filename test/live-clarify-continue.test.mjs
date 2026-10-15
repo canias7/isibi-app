@@ -467,7 +467,12 @@ test("NO REQUEST IS TOO LONG TO BE ASKED ABOUT: the answers ride beside it, so a
 // 4. A REPLACEMENT THAT CANNOT CLOSE THE OLD QUESTION DOES NOT GO ON
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A NEW MESSAGE BESIDE A WAITING QUESTION: when closing it fails, or another writer wins, nothing is routed or charged — the store failure holds the message, the lost race says so", async () => {
+// RE-ANCHORED 2026-10-14 (the owner: *"Preserve pending work during side
+// questions"*): a message beside a waiting question is ROUTED before the
+// question is closed, so a side question can leave it waiting; the close
+// still comes before anything runs or is charged, and failing or losing it
+// still stops the message, at no cost.
+test("A NEW MESSAGE BESIDE A WAITING QUESTION: when closing it fails, or another writer wins, nothing runs or is charged — the store failure holds the message, the lost race says so", async () => {
   const worker = await loadWorker();
   {
     const slug = freshSlug("replace-fail");
@@ -478,7 +483,7 @@ test("A NEW MESSAGE BESIDE A WAITING QUESTION: when closing it fails, or another
       assert.equal(r.body.failed, true, "a replacement went on although the old question could not be closed: " + JSON.stringify(r.body));
       assert.equal(r.body.failure.kind, "store");
       assert.equal(r.body.cost, 0);
-      assert.deepEqual(seen.calls, [], "the router was asked although the waiting question could not be closed");
+      assert.deepEqual(seen.calls, ["route_message"], "anything but the router was asked although the waiting question could not be closed");
       assert.deepEqual(seen.debits, []);
       assert.equal(question(store, slug).status, "pending", "the waiting question changed");
       assert.equal(question(store, slug).id, q.id);
@@ -501,7 +506,7 @@ test("A NEW MESSAGE BESIDE A WAITING QUESTION: when closing it fails, or another
       assert.equal(r.status, 409, JSON.stringify(r.body));
       assert.equal(r.body.error, "question-busy");
       assert.equal(r.body.cost, 0);
-      assert.deepEqual(seen.calls, [], "a replacement that lost its race was routed");
+      assert.deepEqual(seen.calls, ["route_message"], "a replacement that lost its race went past routing");
       assert.deepEqual(seen.debits, []);
       assert.equal(store.raw(QUESTION_KEY(slug)), other, "the winner's write was overwritten");
     });
