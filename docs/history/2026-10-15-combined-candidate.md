@@ -165,6 +165,12 @@ console step is asked of the owner.
 |---|---|---|---|
 | V2.1 | `converse` (twelve fixed cases since 2026-10-15, on the demo site; three route only) | **about 21–72 credits** | the ceiling typed for the press; the platform caps nothing |
 | V2.2 | `build` (P9: one new Build with two drafts, on a new slug) | **about 13–47 credits** | the same |
+| V2.3, optional | E1: a follow-up carried out end to end, in the app's chat on the demo site | about 4–30 more | the balance |
+| V2.4, optional | E2: clarification, then a side question, then the answer, then the work resumed, in the app's chat | about 5–32 more | the balance |
+
+The core batch is about 34–119 credits, or about 43–181 with E1 and E2. **Demo
+sites need no restore**: an executed case may leave its change in place, and
+no restore step is planned.
 
 - **Photographs off is required.** `IMAGE_PURCHASES` must be off on the live
   Worker, and a rehearsal shows it. The script reads it again before every

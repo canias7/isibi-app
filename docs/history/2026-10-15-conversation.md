@@ -3,7 +3,9 @@
 On `candidate/new-on-main`, on top of the reviewed `047b51eb`. Commit
 `b66daa8c`, then `f7ac41b7` (the first build's router re-pinned on purpose,
 after CI on `b66daa8c` failed that one pin; each answer's whole evidence
-kept). Unit CI is green on `f7ac41b7` (run 38753086868). Unmerged and undeployed. No container build, no live storage
+kept). Unit CI is green on `f7ac41b7` (run 38753086868), and on the records
+head `67a3bc28` (run 38754343461: 11,064 passed, 0 failed, 48 skipped).
+Unmerged and undeployed. No container build, no live storage
 write, no paid call and no image purchase was made for this round.
 
 ## What was there, and what was built on it
@@ -147,8 +149,14 @@ with no generation.
   - for a go-ahead: the thread it leaned on, and what was written out;
   - for C12: whether the router named what was unclear;
   - for C9 and C10: whether the ideas are numbered.
-- **Covered offline only:** returning from a side question. A live press
-  cannot set up a waiting question without a real clarification round.
+- **Returning from a side question** cannot be set up by the press, which
+  sends routing only. It is offline (case 7) and, live, the optional E2 in the
+  same batch: clarification, then a side question, then the answer, then the
+  work resumed, run in the app's chat
+  (`docs/history/2026-10-15-verification-proposal.md`).
+- **A follow-up carried out end to end** is the optional E1 in the same batch.
+- **Demo sites need no restore:** an executed case may leave its change in
+  place.
 
 **Estimates, not limits:**
 
@@ -169,4 +177,6 @@ The ceiling typed per press is the only limit, and the platform caps nothing.
   is separate work.
 - **What is happening right now:** nothing new tells the assistant that a job
   is running. Job awareness is separate work.
-- **Returning from a side question live,** for the reason above.
+- **Returning from a side question, and a follow-up carried out,** live: not
+  run until the owner presses E2 and E1 (optional, in the same batch; about
+  5–32 and 4–30 more credits).

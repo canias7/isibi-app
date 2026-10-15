@@ -1,6 +1,41 @@
 # Owner Notes
 
 
+## The correction round closed; the combined verification plan ready (2026-10-15; `candidate/new-on-main` at `67a3bc28` plus this record; unmerged, undeployed; no container build, live mutation, paid test or image purchase)
+
+**This round is closed.** The code candidate is still `f7ac41b7`. This commit
+changes documents only.
+
+**The latest CI:** unit tests on `67a3bc28`, run 38754343461, green: **11,064
+passed, 0 failed, 48 skipped**. Earlier: unit green on `f7ac41b7` (run
+38753086868), and site build green on `b66daa8c` (run 38750563400).
+
+**The combined verification plan is kept ready for later**
+(`docs/history/2026-10-15-verification-proposal.md`), with three kinds of
+evidence kept apart:
+1. **Offline, with supplied model answers.** These prove what the route does
+   with an answer, never what a model decides.
+2. **Real-model conversation and routing.** This is the twelve-case `converse`
+   press, at about 21–72 credits. Go-aheads reach the router only.
+3. **Actual execution.** This is now optional and in the same batch, so the
+   whole behaviour is verified together:
+   - **E1**, a follow-up carried out end to end: about 4–30 more credits.
+   - **E2**, clarification, then a side question, then the answer, then the
+     work resumed: about 5–32 more credits.
+
+   Both are run in the app's chat on the demo site. I read their evidence
+   afterwards, free.
+
+**Totals:** about 34–119 credits for the core batch (with P9's Build), and
+about 43–181 with E1 and E2. These are estimates; the ceiling box and the
+balance are the only bounds.
+
+**Demo sites need no restore.** The requirement to put demo content back is
+removed: an executed case may leave its change in place.
+
+Ordinary replies stay model-written. Video and audio stay hosting of the
+owner's own uploads only. No feature was added, and no audit was restarted.
+
 ## The conversation round, finished on the candidate (2026-10-15; `candidate/new-on-main` at `f7ac41b7`; unmerged, undeployed; no container build, live mutation, paid test or image purchase)
 
 **The commits, on top of the reviewed `047b51eb`:**

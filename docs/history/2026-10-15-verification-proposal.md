@@ -516,11 +516,51 @@ the owner types.
      go-ahead routes to, so the site's pages and data are not changed.
    - This shows the real boundary: talk stays talk, and a go-ahead routes as
      work with the request written out. It does not show the work done.
-3. **Live execution.** Not in this batch.
-   - Running a written-out follow-up through the edit path would change the
-     demo site and cost an edit. That needs its own approval and its own
-     restore plan.
-   - P7 and P10 above are the existing optional examples.
+3. **Live execution.** Optional, in the same batch, on the owner's word
+   (E1 and E2 below; P7 and P10 stay the existing optional examples). This is
+   the only kind that shows the work done: a real router, the real step, the
+   real publish and the real charge.
+
+**Demo sites need no restore.** The chosen site is a demo, so an executed
+case may leave its change in place. Nothing in this batch puts demo content
+back, and no restore step or restore cost is planned. (The storage and browser
+modes still delete their own test files: that delete is the check being made,
+not a restore.)
+
+**Optional execution cases, in the same batch (2026-10-15 correction round):**
+
+They are run by the owner in the app's own chat on the demo site, as P7 and P10
+are, since the `converse` press sends routing only and cannot answer a live
+question. Afterwards I read, free, what each step did and kept:
+- the routing answers;
+- the stored question and its closing;
+- the edit jobs and their results;
+- the pages before and after;
+- the ledger rows.
+
+The whole chat thread is kept beside them for Codex.
+
+- **E1, an end-to-end follow-up.**
+  1. Ask for three headline ideas, without changing anything: a talk reply.
+  2. Say "use the second idea".
+  3. Pass: it routes as work with the second idea written out, no question
+     comes back, the headline the page shows is that idea, one publish, and
+     the charge is the rung's.
+- **E2, clarification, then a side question, then the answer, then the work
+  resumed.**
+  1. A request missing a detail, such as "change the opening hours on the
+     Visit page". Pass: a step asks for the detail, stores a live question,
+     writes nothing, and charges nothing for the edit.
+  2. A side question, such as "what does my home page say about delivery?".
+     Pass: it is answered as talk, and the question stays open.
+  3. The answer, such as "Mon–Fri 8–4, Sat 9–2". Pass: the question closes,
+     and the work resumes with the original request and the answer together.
+  4. Pass: the Visit page shows the new hours, one publish, and nothing is
+     done or charged twice.
+
+  Whether a step asks in step 1 is the model's decision. If the router asks
+  instead, or the step simply makes the change, that is recorded as what
+  happened and not counted as E2's pass.
 
 **For review:** every answer, or written-out request, is kept whole in
 `results.unverified` beside its evidence:
@@ -537,10 +577,15 @@ the owner types.
 |---|---|
 | The twelve conversation cases (9 talk at 2–6; 3 routing-only at 1–6) | **about 21–72** |
 | P9 | about 13–47 |
-| Both | about 34–119 |
+| **Both (the core batch)** | **about 34–119** |
+| E1, optional: the ideas reply (2–6), routing (1–2), the edit (`text` 1, up to the page rung's measured 22) | **about 4–30 more** |
+| E2, optional: routing (1–2), the asking step (0 for the edit), the side question (2–6), routing the answer (1–2), the edit (1–22) | **about 5–32 more** |
+| **The whole batch with E1 and E2** | **about 43–181** |
 
-The owner sets the ceiling box per press, and the balance read before each send
-decides whether the press can proceed at all.
+These are estimates. The owner sets the ceiling box per press, and E1 and E2,
+pressed in the app, are bounded only by the balance. The balance read before
+each send decides whether the press can proceed at all. No restore cost is
+included, because none is planned.
 
 ## Offline proof of the harness (`test/media-verify.test.mjs`, `test/media-verify-judging.test.mjs`)
 
@@ -687,7 +732,7 @@ file.
 5. Approved, paid: `converse` with `spend=yes` and a ceiling, then `build` on a
    new slug with `spend=yes` and a ceiling. The balance is read by the script
    before every send.
-6. P7 and P10 only on the owner's word.
+6. E1 and E2 (optional, in the same batch, in the app's chat), then P7 and P10, only on the owner's word. I read each one's evidence afterwards, free.
 
 ## Correction to an earlier record
 
