@@ -1,6 +1,126 @@
 # Owner Notes
 
 
+## The conversation round, finished on the candidate (2026-10-15; `candidate/new-on-main` at `f7ac41b7`; unmerged, undeployed; no container build, live mutation, paid test or image purchase)
+
+**The commits, on top of the reviewed `047b51eb`:**
+
+| Commit | What |
+|---|---|
+| `b66daa8c` | the assistant's conversation: natural replies, grounded site advice, and follow-ups that resolve or ask (`docs/history/2026-10-15-conversation.md`) |
+| `69fd4a5c` | current `main` (`c37cbc41`) brought in |
+| `f7ac41b7` | the first build's router re-pinned on purpose, and each answer's whole evidence kept; **the code candidate** |
+| the records commit on top | documents only |
+
+**What changed for the owner.** Every reply is still the model's own; no
+fixed greeting, advice, clarification or template was added.
+- **Reply length fits the need:** short for a greeting, full for an
+  explanation or a plan.
+- **Warm by being useful,** without stock enthusiasm.
+- **Facts, suggestions and unknowns are kept apart** when it talks about the
+  site.
+- **Improvements are prioritised,** each with why.
+- **Options are numbered.**
+- **Brainstorming and refining a plan stay conversation.** A plain go-ahead
+  ("use the second idea", "do that on every page", "keep that style") routes
+  as work with the request written out, and is not answered with a request to
+  confirm it.
+- **An ambiguous reference gets one focused question,** model-written, about
+  exactly what the router could not pin down (the new `unclear` field).
+- **The router now sees the latest reply up to 3,200 characters,** so "the
+  second idea" in a long list is visible to it.
+- **A waiting question still survives side talk.**
+- **Video and audio are untouched:** hosting of the owner's own uploads only,
+  with no generation.
+
+**`main` moved to `c37cbc41` during this round** (help-needed closed its two
+paid opt-ins). It is brought into the candidate unchanged: the five files are
+byte-identical to `main`'s, and both opt-ins stay empty.
+- **The stray symlink:** that commit also tracked a `node_modules` symlink by
+  accident, because the ignore rule `node_modules/` matches only a directory.
+- **The fix, in the candidate rather than another push to `main`:** the
+  candidate stops tracking the symlink, and the rule becomes `node_modules`,
+  which covers a link too.
+- **The diff against `main`:** it carries `new`'s assistant and media files,
+  this round's conversation files, `.gitignore`, and the symlink removed, and
+  nothing else.
+
+**What CI found, and the fix.**
+- **On `b66daa8c`:** the site build passed (run 38750563400), but the unit run
+  38750563109 failed **1 of 11,111**: the first build's router pin
+  (`test/live-clarify-contract.test.mjs`).
+  - The new router rules reach a project with no site too, on purpose:
+    planning happens before a first build as well.
+  - **Re-pinned with the pin's own proof:** with the three additions taken
+    back out, all 42 old request halves are reproduced, and all 42 reading
+    halves are unchanged.
+- **Local full suite on the merged tree:** 11,109 pass, 1 fail (that pin), 2
+  skipped, before the re-pin. The re-pinned file passes 31 of 31.
+- **CI on `f7ac41b7`:** unit green (run 38753086868). It started no site build: no site-build path changed after `b66daa8c`, whose site build is green (38750563400). I did not read the per-test totals.
+
+**Three kinds of evidence, kept apart:**
+1. **Offline, with supplied model answers:**
+   - `test/conversation-boundaries.test.mjs`, 8 cases: discussion and
+     refinement without execution; a clear follow-up written out with no
+     reply or question; "every page" from the page list; an ambiguous
+     reference asked about; cut history; returning from a side question.
+   - Red on `047b51eb`: 7 of 8. The side-question return is a pin of
+     behaviour that already worked.
+   - Sweep: 8 of 8 killed, control survived.
+   - These prove what the route does with an answer and what each model is
+     shown, **not what a real model decides.**
+2. **Live, routing only:** the `converse` press, now 12 fixed cases.
+   - **New this round:** advice; brainstorm; "use the second idea";
+     ambiguous "use the second one"; "do that on every page"; "keep that
+     style".
+   - A go-ahead goes to the routing route only. The work is never sent, so
+     the demo site's pages and data do not change. A question waiting on that
+     site may be closed, as any work message closes it.
+   - **Objective checks:** talk stays talk; a go-ahead routes as work with
+     the request written out and no question back; the ambiguous case writes
+     nothing out.
+   - **Meaning stays unverified,** for Codex, with the whole answer or
+     written-out request, the whole thread, the message, and for the advice
+     case every stored page's words.
+3. **Live execution:** not in this batch. Running a written-out follow-up
+   through the edit path changes the site and costs an edit; it needs its own
+   approval and restore plan.
+
+**Revised costs, estimates and not limits:**
+
+| Press | Estimate |
+|---|---|
+| The conversation press (9 talk cases at 2–6; 3 routing-only at 1–6) | **about 21–72 credits** |
+| The Build (P9) | about 13–47 credits |
+| Both | about 34–119 credits |
+
+- The ceiling you type is the only limit; the platform caps nothing.
+- `IMAGE_PURCHASES` must still be off before every paid send.
+- The routing call grows by up to about 600 input tokens, only when a long
+  reply is being followed up.
+
+**Before a merge:**
+- **The image:** `e420b3c2d3224dd3` (`main`) → **`712a579f8e81a3bb`**, 209
+  inputs.
+- **The merge would fast-forward:** `c37cbc41` is an ancestor of the
+  candidate.
+- **Rollback, verified in a throwaway worktree:** one commit restoring
+  `c37cbc41`'s tree (`git read-tree -u --reset c37cbc41`) gives back `main`'s
+  exact tree. The range now holds merge commits, so a plain range revert would
+  not.
+- **Re-read first:** `main`'s sha, Actions runs and open jobs.
+
+**Remaining gaps:**
+- What a real model writes, and how often it routes these boundaries rightly:
+  the live batch, read by a person.
+- Returning from a side question, live: a press cannot set up a waiting
+  question without a real clarification round.
+- Live execution of a follow-up.
+- Persistent memory across sessions, and awareness of running jobs:
+  separate future work.
+- Safari, Android Chrome and Edge, and R2's own abort and finish answers, as
+  before.
+
 ## The combined candidate: `new` into `main`, ready for review (2026-10-15; branch `candidate/new-on-main`, code candidate `4fac9f8d`; unmerged, undeployed; no container build, live storage write, paid call or image purchase)
 
 **The correction round on `new` is closed.** Codex confirmed `22779ea5`.

@@ -163,7 +163,7 @@ console step is asked of the owner.
 
 | Press | Mode | Estimate | What bounds it |
 |---|---|---|---|
-| V2.1 | `converse` (six fixed cases, on the demo site) | **about 12–36 credits** (2–6 a message) | the ceiling typed for the press; the platform caps nothing |
+| V2.1 | `converse` (twelve fixed cases since 2026-10-15, on the demo site; three route only) | **about 21–72 credits** | the ceiling typed for the press; the platform caps nothing |
 | V2.2 | `build` (P9: one new Build with two drafts, on a new slug) | **about 13–47 credits** | the same |
 
 - **Photographs off is required.** `IMAGE_PURCHASES` must be off on the live

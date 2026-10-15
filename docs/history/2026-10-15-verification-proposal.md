@@ -380,7 +380,9 @@ checks on the owner's own devices. The script cannot reach them.
 | The platform | **caps nothing**; the balance is the only bound it knows |
 
 **The conversation cases**, on the demo site, run in one `converse` press. All
-six are fixed messages.
+are fixed messages. The press first had six; six more were added on
+2026-10-15 for advice, plans and follow-ups, making twelve. See "The expanded
+conversation batch" below, and `docs/history/2026-10-15-conversation.md`.
 
 **Evidence first, free.** Before any send, the script reads the site's stored
 pages through `/api/site/source` and takes their words with `extractText`, the
@@ -490,13 +492,52 @@ the owner types.
 - P10, an edit adding the jingle as a player (routing plus the page step,
   measured 6–22).
 
+**The expanded conversation batch (2026-10-15, candidate `b66daa8c`):**
+
+| Case | Message | Thread | Expected route | What it costs |
+|---|---|---|---|---|
+| C9-advice | what to improve first, and why | none | talk | routing + reply |
+| C10-brainstorm | three headline ideas, "don't change anything yet" | none | talk | routing + reply |
+| C11-second-idea | "use the second idea" | three numbered headline ideas | work | routing only |
+| C12-ambiguous | "use the second one" | a headline list and a colour list | talk (asks which) | routing + reply |
+| C13-every-page | "do that on every page" | a footer line agreed for the home page | work | routing only |
+| C15-keep-style | "keep that style for the Visit page too" | a style named and applied | work | routing only |
+
+**Three kinds of evidence, kept apart:**
+1. **Offline, with supplied model answers.** These are
+   `test/conversation-boundaries.test.mjs` and the judge tests.
+   - The router's and the reply's answers are written into the test. The test
+     proves what the real route does with each answer, and what each model is
+     shown.
+   - They prove nothing about what a real model decides or writes.
+2. **Live, routing only.** This is the `converse` press.
+   - A real router, and for a talk answer a real reply call, on the demo site.
+   - The harness sends only `/api/site/route`. It never posts the work a
+     go-ahead routes to, so the site's pages and data are not changed.
+   - This shows the real boundary: talk stays talk, and a go-ahead routes as
+     work with the request written out. It does not show the work done.
+3. **Live execution.** Not in this batch.
+   - Running a written-out follow-up through the edit path would change the
+     demo site and cost an edit. That needs its own approval and its own
+     restore plan.
+   - P7 and P10 above are the existing optional examples.
+
+**For review:** every answer, or written-out request, is kept whole in
+`results.unverified` beside its evidence:
+- the whole thread it was sent;
+- the message;
+- for the advice case, every stored page's words;
+- for a go-ahead, the thread and what was written out;
+- for the ambiguous case, the thread, and whether the router named what was
+  unclear.
+
 **Totals, estimates only:**
 
 | Set | Credits |
 |---|---|
-| The six conversation cases | about 12–36 |
+| The twelve conversation cases (9 talk at 2–6; 3 routing-only at 1–6) | **about 21–72** |
 | P9 | about 13–47 |
-| Both | about 25–83 |
+| Both | about 34–119 |
 
 The owner sets the ceiling box per press, and the balance read before each send
 decides whether the press can proceed at all.
