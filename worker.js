@@ -12447,6 +12447,57 @@ async function newTablesOf(db, spec) {
  * written to the journal on the etag it was read at, so two runners never both
  * act: the one whose write is refused stops.
  */
+/**
+ * THE ACTIVATION'S EFFECTS, MADE SURE (2026-10-15, after Codex's third
+ * publication reproduction). A pointer on the approved version is NOT proof
+ * the activation finished: `activateBuild` writes the pointer first, then the
+ * sidecar, then the script, then (a first site) the live marker, and a runner
+ * that stops after the pointer leaves the old script serving under a pointer
+ * that names the new version. So wherever a publication finds the pointer on
+ * its version having replaced another, it makes each later effect true before
+ * it records `switched`:
+ *   - the sidecar the version names (the held address baked in), written
+ *     only while the pointer still names the version, and conditionally on
+ *     the sidecar it read — a newer activation's sidecar is never overwritten;
+ *   - the live script on the pointer's version, through help-needed's
+ *     `alignLiveScript`: it follows the POINTER (never this version blindly,
+ *     so newer work wins), uploads under its own recovery note, and settles
+ *     only when the live script is seen serving it;
+ *   - the live marker, created only if absent, after the script answered.
+ * `{ ok }`, or `{ ok: false, moved, why }`: `moved` when the pointer no longer
+ * names the version. Every step is safe to repeat.
+ */
+async function completeActivation(env, slug, version, { sidecar } = {}) {
+  const deps = buildDeps(env);
+  const pointerStill = async () => {
+    try { const t = await readPointerTag(deps, slug); return t.pointer && String(t.pointer.version || "") === version ? "yes" : "moved"; }
+    catch { return "unknown"; }
+  };
+  if (typeof sidecar === "string") {
+    let cur = null; let text = null;
+    try { cur = await deps.get(siteMetaKey(slug)); text = cur ? await cur.text() : null; }
+    catch { return { ok: false, why: "the sidecar could not be read" }; }
+    const held = !!cur && isHeldObject(cur, text);
+    if (held || text !== sidecar) {
+      const still = await pointerStill();
+      if (still !== "yes") return { ok: false, moved: still === "moved", why: "the pointer " + (still === "moved" ? "moved on" : "could not be read") };
+      let put = null;
+      try { put = await deps.put(siteMetaKey(slug), sidecar, "application/json", cur && !held && cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" }); }
+      catch { put = null; }
+      if (!put) return { ok: false, why: "the sidecar changed or could not be written" };
+    }
+  }
+  const al = await alignLiveScript(env, slug);
+  if (!al.aligned) return { ok: false, why: "the live script: " + (al.why || "not serving yet") };
+  if (al.version && al.version !== version) return { ok: false, moved: true, why: "the pointer moved on" };
+  try {
+    const liveKey = "sites/" + slug + "/" + SITE_LIVE_FILE;
+    const there = await deps.get(liveKey);
+    if (!there || isHeldObject(there, await there.text())) await deps.put(liveKey, "1", "text/plain", { etagDoesNotMatch: "*" });
+  } catch { return { ok: false, why: "the live marker could not be written" }; }
+  return { ok: true };
+}
+
 async function runPublication(env, slug, j, etag) {
   const deps = buildDeps(env);
   const save = async (patch) => {
@@ -12572,7 +12623,18 @@ async function runPublication(env, slug, j, etag) {
           liveV = at.pointer ? String(at.pointer.version || "") : "";
           if (liveV !== j.version) return before(act.error === "superseded" ? "the site changed while publishing" : "the new version didn't go live (" + String(act.error) + ")");
         }
-      } else if (rename && j.from === j.version) {
+      }
+      if (j.from !== j.version) {
+        // THE POINTER NAMES THE VERSION — by this activation, by one whose
+        // answer was lost, or by one that stopped part-way. Its other
+        // effects are made true before anything is recorded as switched.
+        const done = await completeActivation(env, slug, j.version, { sidecar });
+        if (!done.ok) {
+          // MOVED ON: newer work owns the live site; set aside next time the
+          // pointer is read. Otherwise the outcome is not known yet: kept.
+          return keep("switch", done.why, "unknown");
+        }
+      } else if (rename) {
         // A REVISION OF HELD CHANGES ONLY, on the version already live: its
         // address goes into the live sidecar (the same bytes if repeated).
         try {
